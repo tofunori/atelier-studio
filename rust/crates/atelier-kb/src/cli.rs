@@ -93,6 +93,17 @@ fn read_all_stdin() -> Result<String, String> {
 /// selon le kind, un lien ouvrable. Kind `zotero` (lien surligné) et
 /// `youtube` (timestamp) restent hors périmètre vague 1 (jamais produits par
 /// `store.add`).
+// Timestamp par défaut d'un segment youtube (miroir de `YT_BUCKET_SECONDS`,
+// sidecar/knowledge.mjs:201) — repris ici plutôt qu'importé de `store.rs`
+// (add --kind youtube reste hors périmètre du moteur Rust, B3 : seule la
+// décoration d'une source déjà épinglée par le moteur Node est requise).
+const YT_BUCKET_SECONDS: i64 = 60;
+
+/// Miroir de `decoratePassage` (`sidecar/kb_cli.mjs:41-85`) — B3
+/// (plans/065-revue-findings.md) : la décoration youtube (timestamp
+/// mm:ss, lien `&t=`) et zotero (`passage_link`, ancre + surlignage) avait
+/// été perdue dans le port, alors que ces sources peuvent déjà être
+/// épinglées (moteur Node) même quand le moteur actif est `rust`.
 fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Value {
     let id = source.get("id").and_then(Value::as_str).unwrap_or("");
     let kind = source.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -104,6 +115,28 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
         "score": passage.score,
     });
     let obj = out.as_object_mut().unwrap();
+    if kind == "youtube" {
+        let seconds = source
+            .get("meta")
+            .and_then(|m| m.get("segmentSeconds"))
+            .and_then(Value::as_i64)
+            .unwrap_or(YT_BUCKET_SECONDS);
+        let timestamp = (passage.page as i64 - 1) * seconds;
+        let mm = timestamp / 60;
+        let ss = timestamp % 60;
+        let location = format!("{mm}:{ss:02}");
+        obj.insert("timestamp".into(), json!(timestamp));
+        obj.insert("location".into(), json!(location));
+        obj.insert("cite".into(), json!(format!("[kb:{id} · {location}]")));
+        if let Some(origin) = origin {
+            let sep = if origin.contains('?') { "&" } else { "?" };
+            obj.insert(
+                "markdownLink".into(),
+                json!(format!("[Ouvrir à {location}]({origin}{sep}t={timestamp}s)")),
+            );
+        }
+        return out;
+    }
     if let Some(file) = file {
         obj.insert("file".into(), json!(file));
         obj.insert("location".into(), json!(file));
@@ -113,6 +146,19 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
     if kind == "pdf" || kind == "zotero" {
         obj.insert("location".into(), json!(format!("p.{}", passage.page)));
         obj.insert("cite".into(), json!(format!("[kb:{id} · p.{}]", passage.page)));
+        if kind == "zotero" {
+            let meta = source.get("meta").cloned().unwrap_or_else(|| json!({}));
+            let zotero_key = meta.get("zoteroKey").and_then(Value::as_str);
+            let pdf_key = meta.get("pdfKey").and_then(Value::as_str);
+            let pdf_file = meta.get("pdfFile").and_then(Value::as_str);
+            if let (Some(zk), Some(pk), Some(pf)) = (zotero_key, pdf_key, pdf_file) {
+                let link = crate::zotero::passage_link(zk, pk, pf, passage.page, &passage.quote);
+                obj.insert(
+                    "markdownLink".into(),
+                    json!(format!("[Ouvrir le passage — p. {}]({link})", passage.page)),
+                );
+            }
+        }
         return out;
     }
     if kind == "gbrain" {
@@ -285,15 +331,16 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             let write = opt_bool(&parsed.options, "write");
             crate::gbrain::promote_page(&entry, &full_text, slug, write)
         }
-        // --- article-* (plan 065, vague 2, groupe c) — MinerU réel hors
-        // périmètre, repli local (pdftotext) systématique.
+        // --- article-* (plan 065, vague 2 groupe c, puis vague 4 B4) — MinerU
+        // réel spawné quand resolve_mineru() le fournit, repli local
+        // (pdftotext) inchangé sinon ou en cas d'échec.
         "article-import" => {
             let path = opt_str(&parsed.options, "path").unwrap_or("").to_string();
             let progress = opt_bool(&parsed.options, "progress");
             let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
             if progress {
-                let mut cb = |stage: &str| {
-                    let line = json!({"progress": {"stage": stage}});
+                let mut cb = |stage: Value| {
+                    let line = json!({"progress": stage});
                     println!("{}", serde_json::to_string(&line).unwrap());
                 };
                 crate::article::import_article(&path, &store.dir, &pdf_cache_dir, Some(&mut cb))
@@ -335,5 +382,65 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             crate::article::write_article(&store.dir, draft, slug, &meta, origin, converter, ragdoc)
         }
         other => Err(format!("commande inconnue: {other}\n{}", usage())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn passage(page: u32, quote: &str) -> Passage {
+        Passage { page, quote: quote.to_string(), context: quote.to_string(), score: 1.0 }
+    }
+
+    // B3 (plans/065-revue-findings.md) : décoration youtube/zotero perdue
+    // dans le port — miroir de decoratePassage (sidecar/kb_cli.mjs:41-85).
+
+    #[test]
+    fn decorate_passage_youtube_calcule_mm_ss_et_le_lien_t() {
+        let source = json!({
+            "id": "abc123", "kind": "youtube", "origin": "https://youtu.be/xyz",
+            "meta": {"segmentSeconds": 60},
+        });
+        // page 3 -> bucket index 2 -> 120s = 2:00
+        let out = decorate_passage(&source, &passage(3, "extrait"), None);
+        assert_eq!(out["timestamp"], json!(120));
+        assert_eq!(out["location"], json!("2:00"));
+        assert_eq!(out["cite"], json!("[kb:abc123 · 2:00]"));
+        assert_eq!(out["markdownLink"], json!("[Ouvrir à 2:00](https://youtu.be/xyz?t=120s)"));
+    }
+
+    #[test]
+    fn decorate_passage_youtube_utilise_esperluette_si_origin_a_deja_une_query() {
+        let source = json!({
+            "id": "abc123", "kind": "youtube", "origin": "https://youtu.be/xyz?si=abc",
+            "meta": {"segmentSeconds": 60},
+        });
+        let out = decorate_passage(&source, &passage(1, "extrait"), None);
+        assert_eq!(out["location"], json!("0:00"));
+        assert_eq!(out["markdownLink"], json!("[Ouvrir à 0:00](https://youtu.be/xyz?si=abc&t=0s)"));
+    }
+
+    #[test]
+    fn decorate_passage_zotero_ajoute_le_passage_link_quand_les_cles_sont_presentes() {
+        let source = json!({
+            "id": "z1", "kind": "zotero", "origin": "/path/vers.pdf",
+            "meta": {"zoteroKey": "ITEM1", "pdfKey": "PDFKEY", "pdfFile": "vers.pdf"},
+        });
+        let out = decorate_passage(&source, &passage(4, "un extrait cité"), None);
+        assert_eq!(out["location"], json!("p.4"));
+        assert_eq!(out["cite"], json!("[kb:z1 · p.4]"));
+        let link = out["markdownLink"].as_str().unwrap();
+        assert!(link.starts_with("[Ouvrir le passage — p. 4](#atelier-zotero-passage?"));
+        assert!(link.contains("key=ITEM1"));
+        assert!(link.contains("pdfKey=PDFKEY"));
+    }
+
+    #[test]
+    fn decorate_passage_zotero_sans_cles_reste_sans_markdown_link() {
+        let source = json!({"id": "z2", "kind": "zotero", "origin": "/x.pdf", "meta": {}});
+        let out = decorate_passage(&source, &passage(1, "extrait"), None);
+        assert_eq!(out["location"], json!("p.1"));
+        assert!(out.get("markdownLink").is_none());
     }
 }

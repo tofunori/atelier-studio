@@ -3,21 +3,38 @@
 //! (déjà utilisé par `article_meta::crossref_meta`), aucun mock : fixture de
 //! parité groupe d (`gallery/server/tests/kb_parity/fixtures/d-network.json`),
 //! best-effort — sautée par le harnais si le réseau est indisponible.
+//!
+//! EXCEPTION documentée au principe de parité stricte (plan 065, B7/KBS-03 —
+//! plans/065-revue-findings.md) : `defaultFetchPage` (Node) ne plafonne NI le
+//! corps téléchargé (`res.text()` illimité) NI les redirections suivies
+//! (`redirect: "follow"`, aucune limite explicite) — un ancien disjoncteur
+//! processus (le sidecar Node pouvait être tué/relancé) masquait le risque.
+//! Le moteur Rust tourne IN-PROCESS dans le serveur applicatif : une page de
+//! plusieurs centaines de Mo ou une chaîne de redirections sans fin y
+//! épuiserait la mémoire/le thread du serveur entier, pas un sous-process
+//! jetable. `fetch_page` plafonne donc le corps à `FETCH_MAX_BYTES` et les
+//! redirections à `FETCH_MAX_REDIRECTS`, SANS équivalent côté Node.
 
 use once_cell::sync::Lazy;
 use regex::{Captures, Regex};
+use std::io::Read;
 use std::time::Duration;
 
 const FETCH_TIMEOUT_SECS: u64 = 20;
+const FETCH_MAX_BYTES: u64 = 8 * 1024 * 1024;
+const FETCH_MAX_REDIRECTS: usize = 5;
 const USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
 
-/// Télécharge une page http(s) — miroir de `defaultFetchPage`. Retourne
+/// Télécharge une page http(s) — miroir de `defaultFetchPage`, avec le
+/// plafond mémoire/redirections documenté en tête de module (seule
+/// exception au principe de parité de cette vague). Retourne
 /// `(body, contentType)`. Erreurs réseau formulées pour matcher
 /// `NETWORK_ERROR_PATTERN` du harnais de parité (mot « réseau »).
 pub fn fetch_page(url: &str) -> Result<(String, String), String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::limited(FETCH_MAX_REDIRECTS))
         .build()
         .map_err(|e| format!("Téléchargement réseau échoué : {url} ({e})"))?;
     let resp = client
@@ -48,7 +65,24 @@ pub fn fetch_page(url: &str) -> Result<(String, String), String> {
     if content_type.to_lowercase().contains("application/pdf") {
         return Err("URL de PDF : télécharger le fichier puis l'épingler avec --kind pdf".to_string());
     }
-    let body = resp.text().map_err(|e| format!("Téléchargement réseau échoué : {url} ({e})"))?;
+    if let Some(len) = resp.content_length() {
+        if len > FETCH_MAX_BYTES {
+            return Err(format!(
+                "Page trop volumineuse ({len} octets, plafond {FETCH_MAX_BYTES}) — hors périmètre pour une page web : {url}"
+            ));
+        }
+    }
+    // Content-Length absent/menteur (chunked, mauvaise foi serveur) : le
+    // plafond est aussi appliqué en lisant AU PLUS FETCH_MAX_BYTES+1 octets,
+    // jamais le flux en entier avant de vérifier.
+    let mut buf = Vec::new();
+    resp.take(FETCH_MAX_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Téléchargement réseau échoué : {url} ({e})"))?;
+    if buf.len() as u64 > FETCH_MAX_BYTES {
+        return Err(format!("Page trop volumineuse (plafond {FETCH_MAX_BYTES} octets dépassé) : {url}"));
+    }
+    let body = String::from_utf8_lossy(&buf).into_owned();
     Ok((body, content_type))
 }
 
@@ -195,5 +229,87 @@ mod tests {
         assert_eq!(decode_entities("&lt;div&gt;"), "<div>");
         assert_eq!(decode_entities("&#233;"), "\u{e9}");
         assert_eq!(decode_entities("&#x2014;"), "\u{2014}");
+    }
+
+    // --- B7 (plans/065-revue-findings.md, KBS-03) : plafond mémoire/
+    // redirections — seule exception documentée au principe de parité,
+    // sans équivalent côté Node (defaultFetchPage n'a ni l'un ni l'autre).
+    // Serveur HTTP local minimal (aucun réseau réel, déterministe). ---
+
+    #[test]
+    fn fetch_page_refuse_une_page_annoncee_trop_grosse_via_content_length() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                // Content-Length menteur : bien plus que le corps réellement
+                // envoyé — fetch_page doit refuser AVANT de lire quoi que ce
+                // soit, sur la seule foi de l'en-tête.
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                    50 * 1024 * 1024,
+                    "a".repeat(100)
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        let url = format!("http://{addr}/");
+        let err = fetch_page(&url).unwrap_err();
+        assert!(err.contains("trop volumineuse"), "err: {err}");
+    }
+
+    #[test]
+    fn fetch_page_plafonne_le_corps_meme_sans_content_length() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n");
+                // Pas de Content-Length (délimité par la fermeture de
+                // connexion, comme du chunked en pratique) : le plafond doit
+                // quand même s'appliquer en LISANT au plus FETCH_MAX_BYTES+1.
+                let chunk = vec![b'a'; 1024 * 1024];
+                for _ in 0..9 {
+                    if stream.write_all(&chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let url = format!("http://{addr}/");
+        let err = fetch_page(&url).unwrap_err();
+        assert!(err.contains("trop volumineuse"), "err: {err}");
+    }
+
+    #[test]
+    fn fetch_page_plafonne_les_redirections_et_ne_boucle_pas_indefiniment() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let location = format!("http://{addr}/");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let resp = format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n");
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+        // Le serveur redirige indéfiniment vers lui-même : sans plafond, ce
+        // test ne terminerait jamais. redirect::Policy::limited(5) doit
+        // couper court et faire remonter une erreur propre.
+        let url = format!("http://{addr}/");
+        let err = fetch_page(&url).unwrap_err();
+        assert!(!err.is_empty());
     }
 }

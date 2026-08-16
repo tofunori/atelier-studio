@@ -215,6 +215,11 @@ function setupGroup(workRoot, fixture) {
     const store = path.join(groupDir, "gbrain-store");
     env.ATELIER_TEST_GBRAIN = FAKE_GBRAIN;
     env.FAKE_GBRAIN_STORE = store;
+    // gbrainInvocation (knowledge.mjs) route par défaut vers `ssh nas` depuis
+    // fix(preuves) bb009b2b — ATELIER_GBRAIN_SSH_HOST="" force le binaire
+    // local (donc ATELIER_TEST_GBRAIN/fake-gbrain.mjs), comme documenté par
+    // ce commit ; sans ce flag les fixtures gbrain partaient en ssh réel.
+    env.ATELIER_GBRAIN_SSH_HOST = "";
   }
   if (fixture.env.mineruDisabled) {
     const bogus = path.join(workRoot, "no-such-mineru.py");

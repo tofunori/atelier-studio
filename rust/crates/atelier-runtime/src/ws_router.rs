@@ -628,15 +628,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 None => vec![err("dataURL d'image invalide")],
             }
         }
-        "kbAdd" => handle_kb_add(state, &msg),
-        "kbGbrainPage" => handle_kb_gbrain_page(state, &msg),
-        "kbSourceText" => handle_kb_source_text(state, &msg),
+        "kbAdd" => handle_kb_add(state, &msg).await,
+        "kbGbrainPage" => handle_kb_gbrain_page(state, &msg).await,
+        "kbSourceText" => handle_kb_source_text(state, &msg).await,
         "kbList" => handle_kb_list(state),
-        "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg),
+        "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg).await,
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
-        "gbrainSearch" => handle_gbrain_search(state, &msg),
-        "kbPromotePage" => handle_kb_promote_page(state, &msg),
+        "gbrainSearch" => handle_gbrain_search(state, &msg).await,
+        "kbPromotePage" => handle_kb_promote_page(state, &msg).await,
         "articleImport" => handle_article_import(state, &msg).await,
         "articleImportDoi" => handle_article_doi(state, &msg).await,
         "articleWrite" => handle_article_write(state, &msg).await,
@@ -1669,15 +1669,55 @@ fn kb_node_bin() -> Option<std::path::PathBuf> {
     None
 }
 
+/// `add --kind <kind>` : le kind ajouté, s'il s'agit bien d'une commande
+/// `add` (sinon `None`). Utilisé par `kb_cli_run` pour aiguiller
+/// youtube/zotero vers le moteur Node (B3) sans toucher `kb_cli_run_engine`,
+/// que les tests de parité invoquent directement pour forcer un moteur.
+fn kb_add_kind<'a>(args: &[&'a str]) -> Option<&'a str> {
+    if args.first().copied() != Some("add") {
+        return None;
+    }
+    args.iter().position(|a| *a == "--kind").and_then(|i| args.get(i + 1)).copied()
+}
+
 /// Exécute une commande du CLI kb — dispatch selon `ATELIER_KB_ENGINE`.
 /// `stdin_text` non vide correspond à un `--text -` ajouté par l'appelant.
+/// `add --kind youtube|zotero` reste hors périmètre du moteur Rust (pas de
+/// port yt-dlp ; la résolution zotero locale n'y est pas câblée non plus) —
+/// B3 (plans/065-revue-findings.md) : ces deux kinds étaient refusés à
+/// l'ajout quand `ATELIER_KB_ENGINE=rust` alors que le CLI Node les gère
+/// très bien ; on les route systématiquement vers lui, quel que soit le
+/// moteur actif (le registre/cache sur disque est partagé entre les deux).
 fn kb_cli_run(
     server_dir: &str,
     app_dir: &std::path::Path,
     args: &[&str],
     stdin_text: &str,
 ) -> Result<Value, String> {
-    kb_cli_run_engine(kb_engine(), server_dir, app_dir, args, stdin_text)
+    let engine = match kb_add_kind(args) {
+        Some("youtube") | Some("zotero") => KbEngine::Node,
+        _ => kb_engine(),
+    };
+    kb_cli_run_engine(engine, server_dir, app_dir, args, stdin_text)
+}
+
+/// Variante asynchrone de `kb_cli_run` — délègue au pool bloquant tokio.
+/// B5 (plans/065-revue-findings.md, KBS-02) : sans ça, un appel KB (fetch
+/// web ~20 s, scan de dossier, spawn `node`, extraction PDF) gèle le thread
+/// du routeur ws qui le traite — chat compris, tant que l'opération dure.
+/// Miroir du motif déjà en place pour `article_cli` (import/write).
+async fn kb_cli_run_async(
+    server_dir: String,
+    app_dir: std::path::PathBuf,
+    args: Vec<String>,
+    stdin_text: String,
+) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        kb_cli_run(&server_dir, &app_dir, &refs, &stdin_text)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("kb: tâche interrompue ({e})")))
 }
 
 fn kb_cli_run_engine(
@@ -1807,8 +1847,11 @@ fn kb_cli_stream_rust(app_dir: &std::path::Path, args: &[&str], mut on_progress:
     let dir = app_dir.join("knowledge");
     let store = atelier_kb::store::KnowledgeStore::open(dir);
     let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
-    let mut cb = |stage: &str| on_progress(json!({"stage": stage}));
-    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut cb))
+    // B4 (plans/065-revue-findings.md) : convert_pdf émet désormais les
+    // étapes MinerU (upload/converting/download/figures/ocr) en plus des
+    // étapes meta/duplicates d'import_article — même callback JSON riche
+    // qu'onProgress côté Node, plus besoin d'un wrapper stage: &str ici.
+    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut on_progress))
 }
 
 /// Variante bavarde de `kb_cli_run` : lit la sortie ligne à ligne et remonte
@@ -1980,7 +2023,7 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
 /// gbrain-search`. Échec (NAS coupé, binaire absent) = `gbrainResults` avec
 /// `error`, jamais un kbError générique : la section du panneau l'affiche en
 /// place sans polluer le flux d'épinglage.
-fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
     let query = msg
         .get("query")
         .and_then(|v| v.as_str())
@@ -1998,12 +2041,8 @@ fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
         .unwrap_or(12)
         .clamp(1, 25)
         .to_string();
-    match kb_cli_run(
-        state.server_dir(),
-        state.app_dir(),
-        &["gbrain-search", "--query", &query, "--limit", &limit],
-        "",
-    ) {
+    let args = vec!["gbrain-search".to_string(), "--query".to_string(), query.clone(), "--limit".to_string(), limit];
+    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
         Ok(v) => vec![json_msg(json!({
             "type": "gbrainResults",
             "query": v.get("query").cloned().unwrap_or_else(|| json!(query)),
@@ -2017,21 +2056,22 @@ fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
 
 /// Page directe gbrain (plan 050 P4) — relais du CLI `promote-page` :
 /// aperçu sans `--write`, écriture uniquement sur confirmation UI.
-fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
     let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return kb_error("kbPromotePage: id requis".into());
     }
     let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
     let write = msg.get("write").and_then(Value::as_bool).unwrap_or(false);
-    let mut args = vec!["promote-page", "--id", id];
+    let mut args = vec!["promote-page".to_string(), "--id".to_string(), id.to_string()];
     if !slug.is_empty() {
-        args.extend_from_slice(&["--slug", slug]);
+        args.push("--slug".to_string());
+        args.push(slug.to_string());
     }
     if write {
-        args.push("--write");
+        args.push("--write".to_string());
     }
-    match kb_cli_run(state.server_dir(), state.app_dir(), &args, "") {
+    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
         Ok(v) if v.get("written").and_then(Value::as_bool) == Some(true) => {
             vec![json_msg(json!({
                 "type": "kbPageWritten",
@@ -2057,14 +2097,7 @@ fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
 /// `article-write`. La conversion MinerU dure des minutes : elle part sur le
 /// pool bloquant, sinon tout le routeur ws (chat compris) reste figé.
 async fn article_cli(state: &AppState, args: Vec<String>) -> Result<Value, String> {
-    let server_dir = state.server_dir().to_string();
-    let app_dir = state.app_dir().to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        kb_cli_run(&server_dir, &app_dir, &refs, "")
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("article: tâche interrompue ({e})")))
+    kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
 }
 
 fn article_error(request_id: &Value, message: String) -> Vec<String> {
@@ -2271,14 +2304,15 @@ async fn handle_article_write(state: &AppState, msg: &Value) -> Vec<String> {
 
 /// Texte stocké d'une source de la base — ce que l'agent lit réellement.
 /// La réponse passe telle quelle : un dossier rend `files`, le reste `text`.
-fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
     let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return vec![json_msg(json!({
             "type": "sourceText", "id": "", "text": "", "error": "kbSourceText: id requis",
         }))];
     }
-    match kb_cli_run(state.server_dir(), state.app_dir(), &["kb-text", "--id", id], "") {
+    let args = vec!["kb-text".to_string(), "--id".to_string(), id.to_string()];
+    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
         Ok(mut v) => {
             if let Some(obj) = v.as_object_mut() {
                 obj.insert("type".into(), json!("sourceText"));
@@ -2293,7 +2327,7 @@ fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
 
 /// Lecture seule d'une page du dépôt gbrain. Rien n'entre dans la base au
 /// passage : épingler reste un geste distinct, côté interface.
-fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
     let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
     if slug.is_empty() {
         return vec![json_msg(json!({
@@ -2301,7 +2335,8 @@ fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
             "error": "kbGbrainPage: slug requis",
         }))];
     }
-    match kb_cli_run(state.server_dir(), state.app_dir(), &["gbrain-page", "--slug", slug], "") {
+    let args = vec!["gbrain-page".to_string(), "--slug".to_string(), slug.to_string()];
+    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
         Ok(v) => vec![json_msg(json!({
             "type": "gbrainPage",
             "slug": v.get("slug").cloned().unwrap_or(json!(slug)),
@@ -2454,23 +2489,26 @@ fn handle_unpin_passage(state: &AppState, msg: &Value) -> Vec<String> {
     }
 }
 
-fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
+async fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
     let get = |key: &str| msg.get(key).and_then(|v| v.as_str()).unwrap_or("");
     let (kind, origin, title, text) = (get("kind"), get("origin"), get("title"), get("text"));
     if kind.is_empty() {
         return kb_error("kbAdd: kind requis".into());
     }
-    let mut args = vec!["add", "--kind", kind];
+    let mut args = vec!["add".to_string(), "--kind".to_string(), kind.to_string()];
     if !origin.is_empty() {
-        args.extend_from_slice(&["--origin", origin]);
+        args.push("--origin".to_string());
+        args.push(origin.to_string());
     }
     if !title.is_empty() {
-        args.extend_from_slice(&["--title", title]);
+        args.push("--title".to_string());
+        args.push(title.to_string());
     }
     if !text.is_empty() {
-        args.extend_from_slice(&["--text", "-"]);
+        args.push("--text".to_string());
+        args.push("-".to_string());
     }
-    match kb_cli_run(state.server_dir(), state.app_dir(), &args, text) {
+    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, text.to_string()).await {
         Ok(v) => {
             let mut out = json!({
                 "type": "kbAdded",
@@ -2535,7 +2573,7 @@ fn ids_arg(msg: &Value) -> Option<String> {
     }
 }
 
-fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<String> {
+async fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<String> {
     let arg = |k: &str| {
         msg.get(k)
             .and_then(|v| v.as_str())
@@ -2600,8 +2638,9 @@ fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Vec<Stri
             }
         }
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    if let Err(message) = kb_cli_run(state.server_dir(), state.app_dir(), &refs, "") {
+    if let Err(message) =
+        kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
+    {
         return kb_error(message);
     }
     handle_kb_list(state)
@@ -2612,12 +2651,10 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
     if id.is_empty() {
         return kb_error("kbRemove: id requis".into());
     }
-    if let Err(message) = kb_cli_run(
-        state.server_dir(),
-        state.app_dir(),
-        &["remove", "--id", id],
-        "",
-    ) {
+    let args = vec!["remove".to_string(), "--id".to_string(), id.to_string()];
+    if let Err(message) =
+        kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
+    {
         return kb_error(message);
     }
     let mut out = handle_kb_list(state);
@@ -4131,6 +4168,20 @@ mod tests {
         let text_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["kb-text", "--id", &id], "").expect("kb-text (rust)");
         assert_eq!(text_node, text_rust, "kb-text: node != rust ({text_node} vs {text_rust})");
         assert_eq!(text_node["text"], "Contenu de test pour comparer les deux moteurs.");
+    }
+
+    /// B3 (plans/065-revue-findings.md) : `add --kind youtube|zotero` doit
+    /// être détecté quel que soit le reste des arguments, pour que
+    /// `kb_cli_run` puisse forcer le moteur Node dessus (pas de port
+    /// yt-dlp) — toute autre commande/kind ne doit PAS déclencher l'override.
+    #[test]
+    fn kb_add_kind_detecte_add_kind_uniquement() {
+        assert_eq!(kb_add_kind(&["add", "--kind", "youtube", "--origin", "https://x"]), Some("youtube"));
+        assert_eq!(kb_add_kind(&["add", "--kind", "zotero"]), Some("zotero"));
+        assert_eq!(kb_add_kind(&["add", "--kind", "file"]), Some("file"));
+        assert_eq!(kb_add_kind(&["add"]), None);
+        assert_eq!(kb_add_kind(&["list"]), None);
+        assert_eq!(kb_add_kind(&["gbrain-search", "--query", "add"]), None);
     }
 
     #[tokio::test]
