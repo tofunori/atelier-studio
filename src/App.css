@@ -607,19 +607,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .pm-row.pm-action:hover { color: var(--text-primary); }
 .topbar .flex { flex: 1; }
 .topbar-right .topbar-qa.on { color: var(--text-primary); background: var(--bg-ctl); }
-.topbar-cmd { display: inline-flex; align-items: center; gap: 7px; height: 22px;
-  width: clamp(280px, 32vw, 420px); padding: 0 10px; background: transparent;
-  border: 1px solid transparent; border-radius: var(--r-s); color: var(--text-muted);
-  font-size: var(--fs-m); cursor: pointer;
-  transition: border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-.topbar-cmd:hover { color: var(--text-secondary); border-color: var(--border); }
-.topbar-cmd:focus-visible { border-color: var(--focus-ring-color); outline: none; }
-.topbar-cmd .ui-btn-label { display: contents; }
-.topbar-cmd-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* keycap secondaire : fond inset léger, pas un badge bordé */
-.topbar-cmd-kbd { flex-shrink: 0; color: var(--text-muted); font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums; background: var(--bg-ctl);
-  border: none; border-radius: var(--r-s); padding: 1px 5px; line-height: 1.5; }
+/* La recherche était un champ de clamp(280px, 32vw, 420px) qui annonçait un
+   raccourci tapé de mémoire (lot 068) : elle est redevenue une icône du
+   groupe de droite, et ses 420 px sont passés aux onglets. */
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-right: 10px; }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
@@ -685,6 +675,44 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* Barre du haut : groupes séparés, surface active soulignée sur la bordure */
 .topbar-surfaces { display: inline-flex; align-items: center; gap: 4px; }
 .topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
+/* Onglets du pane dans la barre (lot 068) — la largeur que le rail n'avait
+   pas. Hauteur alignée sur le crumb (26 px), rayon de contrôle, nom tronqué
+   par ellipse et jamais par calcul.
+   L'onglet actif prend une PASTILLE PLEINE, pas le soulignement accent : ce
+   trait marque déjà la surface active à droite de la même barre, et deux
+   marques identiques pour deux notions différentes est exactement le défaut
+   qu'on vient de retirer du rail. */
+.topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
+  flex: 0 1 auto; padding-left: 4px; overflow: hidden; }
+.topbar-tab { position: relative; display: inline-flex; align-items: center;
+  flex: 0 1 168px; min-width: 72px; }
+.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 26px;
+  min-width: 0; max-width: 100%; padding: 0 22px 0 8px; border-radius: var(--r-s);
+  color: var(--text-muted); font-size: var(--fs-s);
+  transition: background-color var(--ease), color var(--ease); }
+.topbar-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-tab-kind { flex: none; display: inline-flex; color: var(--text-disabled); }
+.topbar-tab-kind svg { width: 13px; height: 13px; }
+.topbar-tab-main:hover { background: var(--bg-ctl); color: var(--text-secondary); }
+.topbar-tab.on .topbar-tab-main { background: var(--bg-ctl); color: var(--text-primary); }
+.topbar-tab.on .topbar-tab-kind { color: var(--text-muted); }
+/* croix : sa place est RÉSERVÉE en permanence (le padding-right ci-dessus),
+   sinon le nom se retronquerait au survol */
+.topbar-tab .topbar-tab-close { position: absolute; right: 3px; top: 50%;
+  transform: translateY(-50%); width: 17px; height: 17px; min-width: 17px;
+  border-radius: var(--r-s); color: var(--text-disabled); opacity: 0;
+  transition: opacity var(--ease), color var(--ease); }
+.topbar-tab:hover .topbar-tab-close, .topbar-tab.on .topbar-tab-close { opacity: 1; }
+.topbar-tab .topbar-tab-close:hover { color: var(--text-primary); background: var(--bg-ctl); }
+.topbar-tab .topbar-tab-close:focus-visible { opacity: 1; }
+.topbar-tab-more { flex: none; height: 26px; padding: 0 8px; border-radius: var(--r-s);
+  font-size: var(--fs-xs); color: var(--text-disabled); font-variant-numeric: tabular-nums;
+  transition: background-color var(--ease), color var(--ease); }
+.topbar-tab-more:hover { color: var(--text-secondary); background: var(--bg-ctl); }
+/* fenêtre étroite : les onglets se resserrent avant que les surfaces ne se
+   replient — replier, jamais comprimer, dans cet ordre */
+@media (max-width: 1400px) { .topbar-tab { flex-basis: 140px; } }
+@media (max-width: 1150px) { .topbar-tab { flex-basis: 116px; } }
 .topbar-surface { position: relative; }
 .topbar-surface.on::after { content: ""; position: absolute; left: 5px; right: 5px; bottom: -8px;
   height: 2px; border-radius: var(--r-pill); background: var(--accent); }

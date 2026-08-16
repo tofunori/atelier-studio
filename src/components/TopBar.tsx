@@ -168,7 +168,7 @@ export default function TopBar({
         <IconButton
           label={t("topbar.search")}
           title={`${t("topbar.search")} (⌘K)`}
-          className="ghost topbar-qa topbar-cmd"
+          className="ghost topbar-qa"
           onClick={onOpenPalette}
         >
           <SearchIcon size={14} />
