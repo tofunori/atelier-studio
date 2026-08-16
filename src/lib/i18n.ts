@@ -765,6 +765,7 @@ const fr = {
   "article.pick-hint": "Converti en markdown par MinerU, vérifié avant toute écriture.",
   "article.converting": "Conversion en cours — {s} s",
   // Étapes réelles annoncées par MinerU, plutôt qu'un compteur muet.
+  "article.waiting": "En attente de la conversion — {s} s",
   "article.stage-upload": "Envoi du PDF…",
   "article.stage-ocr": "Lecture de la couche texte…",
   "article.stage-converting": "Conversion chez MinerU — {s} s",
@@ -2181,6 +2182,7 @@ const en: Record<keyof typeof fr, string> = {
   "article.pick": "Choose a PDF…",
   "article.pick-hint": "Converted to markdown by MinerU, reviewed before anything is written.",
   "article.converting": "Converting — {s} s",
+  "article.waiting": "Waiting for conversion — {s} s",
   "article.stage-upload": "Uploading the PDF…",
   "article.stage-ocr": "Reading the text layer…",
   "article.stage-converting": "Converting at MinerU — {s} s",

@@ -133,7 +133,9 @@ export function stageLabel(job: ArticleJob, now = Date.now()) {
       // le temps passé chez MinerU, pas l'attente d'envoi
       return t("article.stage-converting", { s: job.stageSeconds ?? seconds });
     default:
-      return t("article.converting", { s: seconds });
+      // aucune étape reçue : le travail n'a pas encore commencé (file, spawn)
+      // — dire « conversion en cours » serait un mensonge (vécu 2026-08-16).
+      return t("article.waiting", { s: seconds });
   }
 }
 

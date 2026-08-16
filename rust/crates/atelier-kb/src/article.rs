@@ -275,7 +275,12 @@ pub(crate) fn convert_pdf_with(
     if let Some(script) = mineru.script.as_deref() {
         let name = output_name(path);
         let path_str = path.to_string_lossy().into_owned();
-        let run = run_streaming(python, &[script, &path_str, &name], Duration::from_millis(MINERU_TIMEOUT_MS), |line| {
+        // `-u` OBLIGATOIRE : sans lui, Python bufferise stdout sur un pipe
+        // (pas de TTY) et les 20 print() du script n'arrivent qu'à la fin —
+        // aucune étape en direct, l'UI reste sur le libellé générique
+        // pendant toute la conversion (vécu 2026-08-16, sonde WS : zéro
+        // articleProgress en 30 s avec 5 conversions vivantes).
+        let run = run_streaming(python, &["-u", script, &path_str, &name], Duration::from_millis(MINERU_TIMEOUT_MS), |line| {
             if let Some(stage) = mineru_stage(line) {
                 on_progress(stage);
             }
