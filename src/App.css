@@ -16,6 +16,9 @@
      fg/bg 11.97, muted/bg 5.42, accent/bg 5.78 (script de calibration) */
   --bg: #1e2124; --bg-side: #161a1e; --bg-pop: #24282d; --bg-card: #24282d;
   --bg-ctl: #2c2f34; --border: #2a2d31; --border2: #43474c;
+  /* ombre de défilement (option 4) : plus dense en sombre, où l'écart de
+     luminance est faible ; discrète en clair, où elle porte déjà */
+  --scroll-shade: rgba(0, 0, 0, .40);
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e;
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
@@ -32,6 +35,7 @@
   /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
+  --scroll-shade: rgba(20, 28, 38, .13);
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
   --accent: #cf630d;
   --info: #3f6fd1;
@@ -51,6 +55,39 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font-size: var(--fs-xl);
   background: var(--bg); color: var(--text-primary);
   -webkit-font-smoothing: antialiased; }
+/* Option 3 (2026-08-16) — les grands panneaux flottent sur un sol plus sombre :
+   la gouttière remplace le trait. Ne s'applique QU'aux divisions permanentes
+   (rail ↔ conversations ↔ atelier ↔ chat) ; les splits internes gardent leur
+   poignée fine, sinon on paierait 8 px à chaque division. */
+.app-row { background: var(--surface-canvas); padding: 8px; }
+.app { height: 100%; }
+
+/* Option 4 (2026-08-16) — le séparateur horizontal naît du DÉFILEMENT : au
+   repos aucune ligne sous les barres ; une ombre courte apparaît seulement
+   quand du contenu passe dessous. Sans JS : la couche « couvercle » défile
+   AVEC le contenu (attachment: local) et masque l'ombre tant qu'on est en
+   haut, l'ombre restant collée au bord (attachment: scroll). --shade-bg doit
+   valoir le fond RÉEL du conteneur, sinon le couvercle se voit. */
+.messages, .side-scroll, .exp-tree, .annots-list {
+  background-image:
+    linear-gradient(to bottom, var(--shade-bg, var(--bg)), transparent),
+    linear-gradient(to bottom, var(--scroll-shade), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 18px, 100% 7px;
+  background-attachment: local, scroll;
+}
+.side-scroll, .exp-tree, .annots-list { --shade-bg: var(--surface-panel); }
+.rail, .side-fixed, .main-card { border-radius: var(--r-m); }
+.rail { margin-right: 8px; }
+.app { background: var(--surface-canvas); }
+.app > [data-panel] { background: var(--bg); border-radius: var(--r-m); overflow: hidden; }
+.app > .handle, .side-handle { width: 8px; flex: 0 0 8px; }
+/* la ligne de poignée ne se montre qu'à la prise en main : au repos c'est la
+   gouttière qui divise ; au survol l'affordance de redimensionnement revient */
+.app > .handle::after, .side-handle::after { background: transparent; }
+.app > .handle:hover::after, .side-handle:hover::after,
+.app > .handle:focus-visible::after, .side-handle:focus-visible::after,
+.app > .handle[data-resize-handle-active]::after { background: var(--border-strong); }
 .handle {
   position: relative; width: var(--resize-handle-hit); flex: 0 0 var(--resize-handle-hit);
   background: transparent;
@@ -564,7 +601,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    surface, tout COLLÉ — séparateurs 1px, aucune carte flottante, aucune
    ombre, aucun rayon sur les zones du shell. ===== */
 .topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center;
-  background: var(--surface-header); border-bottom: 1px solid var(--border); gap: 8px; }
+  background: var(--surface-header); gap: 8px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
   padding-left: 92px; /* réserve les feux natifs (fin ≈ x66) + ~26 de respiration */ }
 /* crumb projet aminci (2026-07-16) : nom seul en texte discret + chevron au
@@ -1406,7 +1443,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .term-host .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--mark-neutral-strong); }
 /* barre d'outils de la surface (la bascule entre surfaces vit dans le rail) */
 .surface-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px;
-  background: var(--surface-header); border-bottom: 1px solid var(--border); }
+  background: var(--surface-header); }
 .surface-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .surface-body .atelier-body { position: relative; flex: 1; min-height: 0; }
 

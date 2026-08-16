@@ -16,6 +16,9 @@
    * (Remplace la direction « un seul canvas » du plan précédent.) */
   --surface-panel: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
   --surface-header: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
+  /* Sol sur lequel les grands panneaux flottent (option 3) : le plus sombre
+   * des trois niveaux, visible uniquement dans les gouttières. */
+  --surface-canvas: var(--bg-side);
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
