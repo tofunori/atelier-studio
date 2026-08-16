@@ -686,9 +686,19 @@ pub fn drop_draft(dir: &Path, id: &str) {
 // --- orchestration -------------------------------------------------------
 
 fn probe_exists(slug: &str) -> Result<bool, String> {
-    let probe = gbrain::run_gbrain(&["get", slug], None)?;
-    let probe = probe.trim();
-    Ok(!probe.is_empty() && !gbrain::gbrain_not_found(probe))
+    // `gbrain get` sort avec un code non nul ET `Error [page_not_found]`
+    // pour une page qui n'existe pas encore — c'est le cas ATTENDU de toute
+    // première écriture, pas une panne (vécu 2026-08-16 : chaque write
+    // d'article neuf échouait ici). Seules les autres erreurs (ssh coupé,
+    // délai, brain injoignable) doivent faire échouer l'écriture.
+    match gbrain::run_gbrain(&["get", slug], None) {
+        Ok(probe) => {
+            let probe = probe.trim();
+            Ok(!probe.is_empty() && !gbrain::gbrain_not_found(probe))
+        }
+        Err(message) if gbrain::gbrain_not_found(&message) => Ok(false),
+        Err(message) => Err(message),
+    }
 }
 
 pub struct ArticleListItem {

@@ -416,6 +416,13 @@ mod tests {
     fn gbrain_not_found_reconnait_le_motif() {
         assert!(gbrain_not_found("Error [page_not_found]: atelier/absent\n"));
         assert!(!gbrain_not_found("markdown normal"));
+        // le CLI NAS préfixe sa bannière de mise à jour ET sort en code non
+        // nul : le motif doit matcher au début de LIGNE, pas de chaîne
+        // (fix probe_exists 2026-08-16 — l'écriture d'un article NEUF
+        // recevait cette forme via le Err de run_gbrain)
+        assert!(gbrain_not_found(
+            "UPGRADE_AVAILABLE 0.42.40.0 0.46.2.0\ngbrain 0.42.40.0 -> 0.46.2.0 available. Run: gbrain self-upgrade\nError [page_not_found]: Page not found: zhao_2023",
+        ));
     }
 
     // Miroir de `describe("gbrainInvocation — aiguillage NAS (fix
