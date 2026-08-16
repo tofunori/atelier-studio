@@ -52,10 +52,13 @@ jobs:
       # vides suffisent au spike et ne touchent pas au chemin macOS.
       - name: placeholders des ressources macOS
         run: |
-          for d in node-runtime sidecar mobile appsnap; do
-            mkdir -p "src-tauri/$d-dist"
-            echo "Vide sur Linux — ressource macOS (spike)." > "src-tauri/$d-dist/README"
+          # Les CLÉS de `resources` sont les chemins SOURCE (`node-dist`), pas
+          # les destinations dans le bundle (`node-runtime`) — d'où les noms.
+          for d in node-dist sidecar-dist mobile-dist appsnap-dist; do
+            mkdir -p "src-tauri/$d"
+            echo "Vide sur Linux — ressource macOS (spike)." > "src-tauri/$d/README"
           done
+          ls -d src-tauri/*-dist
 
       # ---- Étape 1 : le backend compile-t-il pour Linux ? -------------------
       - name: cargo check — espace de travail rust/
