@@ -2400,6 +2400,25 @@ export default function App() {
         baseSha?: string | null;
       };
       const options = { diff: diff === true, baseSha: baseSha ?? null };
+      // Le clic suit le PROJET DU CHAT, pas celui du rail (vécu 2026-08-16 :
+      // pilule d'un fil Albedo résolue contre le serveur d'atelier-studio →
+      // findfile vide → chemin nu → « file not found »). Si le rail est
+      // ailleurs, on bascule et on rejoue l'ouverture UNE fois après le
+      // commit React — catalogue, atelierUrl et serveur suivent le projet.
+      const detailAll = (e as CustomEvent).detail as Record<string, unknown>;
+      const chatThread = allThreadsRef.current.find((t) => t.id === activeIdRef.current);
+      const chatRoot = chatThread?.projectRoot || null;
+      if (chatRoot && chatRoot !== activeProjectRef.current) {
+        setActiveProject(chatRoot);
+        if (!detailAll._projectRetry) {
+          window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("chat-open-file", {
+              detail: { ...detailAll, _projectRetry: true },
+            }));
+          }, 900);
+          return;
+        }
+      }
       // résoudre un nom nu ("main.tex") contre l'arborescence du projet
       let target = rel.replace(/^\.\//, "");
       const list = filesRef.current;
@@ -2426,9 +2445,15 @@ export default function App() {
                 const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
                 openResolvedRef(best ?? target, line, options);
               });
+          // deux retentatives (0,8 s puis 2,5 s) : un serveur qui boote à
+          // froid après bascule de projet prend quelques secondes
           findfile().catch(() => {
             window.setTimeout(() => {
-              findfile().catch(() => openResolvedRef(target, line, options));
+              findfile().catch(() => {
+                window.setTimeout(() => {
+                  findfile().catch(() => openResolvedRef(target, line, options));
+                }, 2500);
+              });
             }, 800);
           });
           return;
