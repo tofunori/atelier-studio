@@ -142,24 +142,54 @@ describe("TopBarTabs", () => {
     window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
   });
 
-  it("une surface glisse avec sa référence de surface", () => {
-    renderUi(<TopBarTabs {...props({
-      tabs: [{ id: "surface:narval", title: "Narval", kind: "surface" as const, surface: "narval" as const }],
-      activeTab: "surface:narval",
-    })} />);
-    const listener = vi.fn();
-    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
-    fireEvent.pointerDown(document.querySelector(".topbar-tab-main")!, {
-      button: 0, clientX: 240, clientY: 18, pointerId: 6,
-    });
-    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref)
-      .toEqual({ kind: "surface", surface: "narval" });
-    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+  it("donne le chemin complet en infobulle, sans promettre de raccourci", () => {
+    renderUi(<TopBarTabs {...props()} />);
+    expect(screen.getByTitle("methods_en.tex")).toBeTruthy();
+    expect(screen.getByTitle("albedo_trends.py")).toBeTruthy();
+    // « — ⌥1 » annonçait un raccourci qui n'a jamais eu de handler
+    expect(screen.queryByTitle(/⌥/)).toBeNull();
+  });
+});
+
+describe("ce que le ruban NE porte pas", () => {
+  const SURFACE = { id: "surface:narval", title: "Narval", kind: "surface" as const, surface: "narval" as const };
+  const IDE = { id: "ide", title: "IDE", kind: "ide" as const };
+  const AGENT = { id: "agent:th1", title: "Claude — albédo", kind: "agent" as const };
+
+  it("écarte les surfaces : elles ont leur icône à droite de la même barre", () => {
+    renderUi(<TopBarTabs {...props({ tabs: [...TABS, SURFACE], activeTab: "document:t1" })} />);
+    expect(screen.queryByText("Narval")).toBeNull();
+    expect(screen.getByText("methods_en.tex")).toBeTruthy();
   });
 
-  it("annonce le raccourci de position dans l'infobulle", () => {
-    renderUi(<TopBarTabs {...props()} />);
-    expect(screen.getByTitle("methods_en.tex — ⌥1")).toBeTruthy();
-    expect(screen.getByTitle("intro_en.tex — ⌥2")).toBeTruthy();
+  it("écarte l'IDE, destination lui aussi", () => {
+    renderUi(<TopBarTabs {...props({ tabs: [...TABS, IDE], activeTab: "document:t1" })} />);
+    expect(screen.queryByText("IDE")).toBeNull();
+  });
+
+  it("garde les fils d'agent, qui n'ont AUCUNE icône ailleurs", () => {
+    // les exclure les rendrait introuvables et infermables depuis la barre
+    renderUi(<TopBarTabs {...props({ tabs: [AGENT, ...TABS], activeTab: "agent:th1" })} />);
+    expect(screen.getByText("Claude — albédo")).toBeTruthy();
+  });
+
+  it("disparaît entièrement quand seules des destinations sont ouvertes", () => {
+    const { container } = renderUi(<TopBarTabs {...props({
+      tabs: [SURFACE, IDE], activeTab: "surface:narval",
+    })} />);
+    expect(container.querySelector(".topbar-tabs")).toBeNull();
+  });
+
+  it("ne compte pas les destinations dans le plafond de huit", () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      id: `document:t${i}`, title: `fichier_${i}.tex`,
+    }));
+    const { container } = renderUi(<TopBarTabs {...props({
+      tabs: [SURFACE, ...many, IDE], activeTab: "document:t0",
+    })} />);
+    // huit documents visibles, aucun menu de débordement : les deux
+    // destinations ne volent pas de place
+    expect(container.querySelectorAll(".topbar-tab").length).toBe(8);
+    expect(container.querySelector(".topbar-tab-more")).toBeNull();
   });
 });

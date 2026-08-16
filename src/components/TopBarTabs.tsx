@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { CloseIcon } from "./icons";
-import { SURFACES, type Surface } from "./surfaces";
+import { type Surface } from "./surfaces";
 import { parseWorkspaceTabId } from "../lib/workspaceLayout";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
@@ -67,12 +67,9 @@ function KindGlyph({ kind }: { kind: ReturnType<typeof kindOf> }) {
   return <svg {...common}><path d="M7 3h7l4 4v14H7z" /></svg>;
 }
 
-/** Icône de tête : une surface porte la sienne, un fichier son type. */
+/** Icône de tête : un fil d'agent porte sa bulle, un fichier son type. Les
+ *  surfaces et l'IDE n'arrivent jamais ici — voir `isDocumentTab`. */
 export function tabIcon(tab: PaneTab) {
-  if (tab.kind === "surface") {
-    const found = SURFACES.find((surface) => surface.id === tab.surface);
-    if (found) return <span className="topbar-tab-kind">{found.icon}</span>;
-  }
   if (tab.kind === "agent") {
     return (
       <svg className="topbar-tab-kind" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
@@ -81,15 +78,25 @@ export function tabIcon(tab: PaneTab) {
       </svg>
     );
   }
-  if (tab.kind === "ide") {
-    return (
-      <svg className="topbar-tab-kind" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M9 7 6 12l3 5M15 7l3 5-3 5" />
-      </svg>
-    );
-  }
   return <KindGlyph kind={kindOf(tab)} />;
+}
+
+/**
+ * Le ruban ne porte que ce qu'on a OUVERT, jamais où l'on travaille.
+ *
+ * Une surface (Galerie, Narval, Terminal, Git…) et l'IDE sont des
+ * destinations : elles ont chacune leur icône dans le groupe de droite de la
+ * même barre, avec le soulignement accent qui dit laquelle est active. Les
+ * laisser aussi dans le ruban les faisait apparaître DEUX FOIS à quarante
+ * pixels d'écart, et mettait sur une même ligne deux natures qui ne
+ * répondent pas à la même question.
+ *
+ * Un fil d'agent, lui, reste : ce n'est pas un fichier, mais il n'a AUCUNE
+ * icône à droite — l'exclure le rendrait introuvable et infermable depuis la
+ * barre, c'est-à-dire l'onglet fantôme qu'on vient justement de supprimer.
+ */
+export function isDocumentTab(tab: PaneTab): boolean {
+  return tab.kind !== "surface" && tab.kind !== "ide";
 }
 
 export default function TopBarTabs(p: {
@@ -99,14 +106,17 @@ export default function TopBarTabs(p: {
   onCloseTab: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  if (p.tabs.length === 0) return null;
+  const documents = p.tabs.filter(isDocumentTab);
+  // aucun document ouvert : le ruban DISPARAÎT au lieu d'afficher un vide —
+  // la barre retrouve exactement sa forme d'avant le lot 068
+  if (documents.length === 0) return null;
 
-  const visible = p.tabs.slice(0, MAX_TABS);
-  const overflow = p.tabs.slice(MAX_TABS);
+  const visible = documents.slice(0, MAX_TABS);
+  const overflow = documents.slice(MAX_TABS);
 
   return (
     <div className="topbar-tabs" aria-label={t("tabs.open-files")}>
-      {visible.map((tab, index) => {
+      {visible.map((tab) => {
         // Le glisser d'un onglet vers un autre pane suivait les tuiles du
         // rail depuis la disparition de la bande ; il suit les onglets ici,
         // même mécanisme et même cible.
@@ -117,7 +127,10 @@ export default function TopBarTabs(p: {
           <span key={tab.id} className={`topbar-tab ${on ? "on" : ""}`}>
             <RowButton
               className="topbar-tab-main"
-              title={`${tab.title} — ⌥${index + 1}`}
+              // le chemin complet, utile dès que l'ellipse mord. L'ancienne
+              // infobulle annonçait « — ⌥N » : ce raccourci n'a JAMAIS existé
+              // (aucun handler alt+chiffre dans l'app), il est parti avec.
+              title={tab.title}
               aria-current={on ? "page" : undefined}
               onClickCapture={(event: React.MouseEvent) => {
                 if (!ref || !shouldSuppressWorkspaceSourceClick(ref)) return;
