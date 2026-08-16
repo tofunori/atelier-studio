@@ -96,6 +96,34 @@ jobs:
           set -o pipefail
           npx tauri build --verbose 2>&1 | tee /tmp/build-app.log
 
+      # Un projet FICTIF, pré-ouvert par le disque. Sans lui le run 3 n'a
+      # montré que la coquille sur « No project open » : la galerie, l'éditeur
+      # LaTeX et le visualiseur PDF n'avaient rien à rendre — or ce sont eux
+      # qui font vraiment travailler WebKitGTK.
+      - name: projet fictif + état pré-ouvert
+        run: |
+          FIX="$HOME/projet-spike"
+          mkdir -p "$FIX/figures"
+          printf '%%%% figure de spike\n\\documentclass{article}\n\\begin{document}\nAlb\\''edo $\\alpha = 0.42$.\n\\end{document}\n' > "$FIX/memoire.tex"
+          # deux PNG réels pour que la galerie ait des vignettes à produire
+          convert -size 640x400 gradient:navy-white "$FIX/figures/fig1_albedo.png"
+          convert -size 800x600 plasma:fractal "$FIX/figures/fig2_hypso.png"
+          ls -la "$FIX" "$FIX/figures"
+
+          # `AppPaths::default_mac()` code ce chemin en dur : sur Linux il est
+          # créé tel quel dans le home. C'est un des points à corriger, mais
+          # ici ça nous sert.
+          APPDIR="$HOME/Library/Application Support/atelier-studio"
+          mkdir -p "$APPDIR"
+          python3 - "$FIX" "$APPDIR/settings.json" <<'PY'
+          import json, sys
+          fixture, out = sys.argv[1], sys.argv[2]
+          json.dump({"projects": [fixture], "activeView": "chats",
+                     "defaultPermissionMode": "acceptEdits"}, open(out, "w"), indent=2)
+          print("settings.json semé ->", out)
+          PY
+          cat "$APPDIR/settings.json"
+
       # ---- Étape 5 : LA question — WebKitGTK rend-il l'app ? ---------------
       - name: lancement headless + captures
         id: run_app
@@ -110,7 +138,7 @@ jobs:
           fi
           echo "binaire : $BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
-          Xvfb :99 -screen 0 1600x1000x24 &
+          Xvfb :99 -screen 0 1680x1050x24 &
           sleep 3
           export DISPLAY=:99
           # WebKitGTK écrit ses erreurs de rendu sur stderr : c'est LA source
@@ -119,8 +147,8 @@ jobs:
           APP_PID=$!
 
           mkdir -p /tmp/shots
-          for t in 5 15 30 45; do
-            sleep $((t == 5 ? 5 : 10))
+          for t in 20 40 60 80; do
+            sleep 20
             xwininfo -root -tree > "/tmp/shots/windows-$t.txt" 2>&1
             import -window root "/tmp/shots/ecran-$t.png" 2>/dev/null \
               && echo "capture à ${t}s : ok" || echo "capture à ${t}s : échec"
