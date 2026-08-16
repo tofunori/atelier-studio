@@ -13,6 +13,7 @@ import {
 } from "./lib/ws";
 import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
+import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -1425,6 +1426,17 @@ export default function App() {
         }
         if (Array.isArray(diskProjects)) {
           setProjects(diskProjects);
+          // `activeProject` s'est initialisé UNE fois depuis le localStorage
+          // (loadProjects()[0]) : sur une webview vierge il vaut null, et le
+          // miroir remplissait le rail sans jamais rien sélectionner — projets
+          // visibles à gauche, « aucun projet ouvert » au centre, pour
+          // toujours. Le plan 064 rend ce cas ordinaire : il renomme
+          // l'identifiant de bundle, qui indexe le localStorage WKWebView.
+          // Constaté pour de vrai sur Linux (run CI 31967329679).
+          setActiveProject((current) => {
+            const decision = pickActiveProjectFromDisk(current, diskProjects);
+            return decision.shouldAdopt ? decision.next : current;
+          });
         }
         if (Array.isArray(diskFavorites)) {
           setFavorites(diskFavorites);

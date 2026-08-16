@@ -158,3 +158,48 @@ describe("miroir disque des réglages — le disque fait foi, pas d'union résur
     ]);
   });
 });
+
+describe("webview vierge : le miroir disque doit aussi OUVRIR un projet", () => {
+  it("un localStorage vide plus un disque peuplé ne laissent pas l'app sur « aucun projet ouvert »", async () => {
+    // Constaté pour de vrai pendant le spike Linux (run CI 31967329679) : le
+    // rail affichait la pastille du projet, le centre affichait « aucun projet
+    // ouvert », et ça ne se débloquait jamais. `activeProject` s'initialise UNE
+    // fois depuis le localStorage ; sur une webview vierge il vaut null, et le
+    // miroir remplissait la liste sans jamais rien sélectionner.
+    //
+    // Le plan 064 rend ce cas ORDINAIRE plutôt qu'exotique : il renomme
+    // l'identifiant de bundle, et le localStorage de WKWebView est indexé
+    // dessus. Le premier lancement après le renommage tombe pile dedans.
+    localStorage.clear();
+
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "settingsFile",
+      settings: { projMeta: {}, projects: [PROJECT_ROOT, OTHER_PROJECT_ROOT] },
+    });
+
+    // L'invite « aucun projet ouvert » ne doit plus être là : le premier projet
+    // du disque a été adopté, comme le ferait l'initialiseur avec un
+    // localStorage sain.
+    expect(screen.queryByText(t("home.no-project-title"))).toBeNull();
+  });
+
+  it("n'arrache PAS un projet déjà ouvert quand le miroir arrive", async () => {
+    // Le miroir est asynchrone : il ne doit jamais déplacer la sélection sous
+    // les pieds de l'utilisateur. Ici le local est sain et pointe sur le
+    // SECOND projet ; le disque les liste dans l'autre ordre.
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify([OTHER_PROJECT_ROOT]));
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({}));
+
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "settingsFile",
+      settings: { projMeta: {}, projects: [PROJECT_ROOT, OTHER_PROJECT_ROOT] },
+    });
+
+    // le projet actif reste celui d'avant — pas PROJECT_ROOT, premier du disque
+    expect(screen.queryByText(t("home.no-project-title"))).toBeNull();
+    expect(JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]"))
+      .toEqual([PROJECT_ROOT, OTHER_PROJECT_ROOT]);
+  });
+});
