@@ -33,7 +33,7 @@ UI React) — c'est de l'interface, pas du runtime. En cas de doute : Rust.
 
 ## Contraintes techniques
 
-- **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`**, puis lancer `node gallery/server/tests/diff_suite.mjs` (78 tests, obligatoire dès que `gallery/` change).
+- **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`**, puis lancer `node gallery/server/tests/diff_suite.mjs` (183 tests au 2026-08-16 — la suite grossit, se fier au « ok », pas au compte ; obligatoire dès que `gallery/` change).
 
 - **Relance de l'app : suivre docs/PROTOCOLE_RELANCE.md À LA LETTRE** (kill exhaustif tauri-app + sidecar + serveurs galerie, build, vérif) — ne jamais improviser.
 

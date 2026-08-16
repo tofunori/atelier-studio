@@ -87,8 +87,7 @@ cargo build -p atelier-server --release --manifest-path rust/Cargo.toml
 # ou stage pour le bundle :
 bash scripts/stage-rust-server.sh
 
-# Galerie : toujours Node par défaut (opt-in Rust)
-export ATELIER_GALLERY_BACKEND=rust   # optionnel
+# Galerie : Rust est le SEUL backend (plan 065 phase B — ATELIER_GALLERY_BACKEND retiré)
 cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
 ```
 
@@ -96,7 +95,8 @@ cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
 voir `docs/soak/033-COMPLETE.md`. `scripts/stage-sidecar.sh` ne stage plus
 que la chaîne CLI base de connaissances (repli `ATELIER_KB_ENGINE=node`, soak
 séparé et actif — plan 065 phase C) et le wrapper agent `atelier-gallery-tool`.  
-Galerie Node par défaut (`ATELIER_GALLERY_BACKEND`).  
+Galerie : Rust seul, backends Node/Python retirés — voir
+`docs/soak/galerie-COMPLETE.md`.  
 Soak : `docs/SOAK_033_RUST_BACKEND.md` · `npm run soak:sidecar` · `npm run check:backend-policy`.
 
 ## Crates

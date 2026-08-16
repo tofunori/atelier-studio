@@ -27,6 +27,10 @@ async function openMenu() {
 
 beforeEach(() => {
   resetTestState();
+  // Les épingles vivent dans localStorage : sans ce nettoyage, un cas qui en
+  // ajoute une fixe le compte de tous les suivants (couplage à l'ordre des
+  // tests, révélé par la sélection courte du lot 068).
+  localStorage.clear();
   setLanguage("fr");
 });
 
@@ -62,9 +66,10 @@ describe("cibles", () => {
 describe("TopBarSurfaces", () => {
   it("n'affiche que les surfaces épinglées", () => {
     renderUi(<TopBarSurfaces {...props()} />);
-    expect(screen.getByRole("button", { name: t("atelier.git") })).toBeTruthy();
     expect(screen.getByRole("button", { name: t("atelier.connaissances") })).toBeTruthy();
-    // Narval n'est pas dans la sélection par défaut
+    // sélection par défaut COURTE depuis le lot 068 : la largeur de la barre
+    // appartient aux onglets du pane, les autres surfaces vivent au menu
+    expect(screen.queryByRole("button", { name: t("atelier.git") })).toBeNull();
     expect(screen.queryByRole("button", { name: t("atelier.narval") })).toBeNull();
   });
 
@@ -77,8 +82,8 @@ describe("TopBarSurfaces", () => {
   it("bascule de surface au clic", () => {
     const onSelectSurface = vi.fn();
     renderUi(<TopBarSurfaces {...props({ onSelectSurface })} />);
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.git") }));
-    expect(onSelectSurface).toHaveBeenCalledWith("git");
+    fireEvent.click(screen.getByRole("button", { name: t("atelier.connaissances") }));
+    expect(onSelectSurface).toHaveBeenCalledWith("connaissances");
   });
 
   it("le menu liste tout, avec les libellés", async () => {
@@ -123,7 +128,7 @@ describe("TopBarSurfaces", () => {
     expect(readPinned()).toEqual(DEFAULT_PINNED);
   });
 
-  it("accepte plus de six surfaces dans la barre", async () => {
+  it("accepte d'épingler au-delà de la sélection courte", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
     for (const label of [t("atelier.narval"), t("atelier.biblio"), t("atelier.browser")]) {
@@ -144,26 +149,74 @@ describe("TopBarSurfaces", () => {
   });
 });
 
+const TRIM_KEY = "atelier-studio.topbar-surfaces.trim-v1";
+
 describe("migration preuves-v1 (fix 2026-08-16)", () => {
+  // la coupe du lot 068 est neutralisée ici : ces cas testent l'insertion de
+  // Preuves, pas la longueur de la barre
+  const sansCoupe = () => { localStorage.clear(); localStorage.setItem(TRIM_KEY, "1"); };
+
   it("liste persistée d'avant la surface Preuves : insérée une fois après Connaissances", () => {
-    localStorage.clear();
+    sansCoupe();
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "connaissances", "git"]));
     expect(readPinned()).toEqual(["explorer", "connaissances", "preuves", "git"]);
     // idempotent : relire ne duplique pas
     expect(readPinned().filter((id) => id === "preuves")).toHaveLength(1);
   });
   it("l'utilisateur qui retire Preuves après migration est respecté", () => {
-    localStorage.clear();
+    sansCoupe();
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
     readPinned(); // migre + pose le flag
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
     expect(readPinned()).toEqual(["explorer", "git"]);
   });
   it("liste au plafond : pas d'insertion forcée, flag posé quand même", () => {
-    localStorage.clear();
+    sansCoupe();
     const full = Array.from({ length: MAX_PINNED }, (_, i) => (i === 0 ? "connaissances" : `s${i}`));
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(full));
     expect(readPinned()).toHaveLength(MAX_PINNED);
     expect(readPinned()).not.toContain("preuves");
+  });
+});
+
+describe("migration trim-v1 (lot 068)", () => {
+  it("coupe UNE fois la longue liste d'avant, en gardant l'ordre de l'utilisateur", () => {
+    localStorage.clear();
+    localStorage.setItem("atelier-studio.topbar-surfaces",
+      JSON.stringify(["terminal", "git", "atelier", "preuves", "connaissances", "ide", "explorer"]));
+    expect(readPinned()).toEqual(["terminal", "git", "atelier"]);
+    // la coupe est persistée, pas seulement affichée
+    expect(JSON.parse(localStorage.getItem("atelier-studio.topbar-surfaces")!))
+      .toEqual(["terminal", "git", "atelier"]);
+  });
+
+  it("ne recoupe jamais ce que l'utilisateur ré-épingle ensuite", () => {
+    localStorage.clear();
+    localStorage.setItem("atelier-studio.topbar-surfaces",
+      JSON.stringify(["explorer", "ide", "connaissances", "git", "terminal"]));
+    expect(readPinned()).toHaveLength(3);
+    // il en ré-épingle deux : elles survivent au remontage suivant
+    localStorage.setItem("atelier-studio.topbar-surfaces",
+      JSON.stringify(["explorer", "ide", "connaissances", "git", "terminal"]));
+    expect(readPinned()).toHaveLength(5);
+  });
+
+  it("une installation neuve naît courte et n'est jamais tronquée après coup", () => {
+    localStorage.clear();
+    expect(readPinned()).toEqual(DEFAULT_PINNED);
+    // l'utilisateur épingle une quatrième surface : elle DOIT survivre
+    localStorage.setItem("atelier-studio.topbar-surfaces",
+      JSON.stringify([...DEFAULT_PINNED, "narval"]));
+    expect(readPinned()).toEqual([...DEFAULT_PINNED, "narval"]);
+  });
+
+  it("une installation neuve ne se voit PAS greffer Preuves", () => {
+    // Régression du lot 068 : Preuves ayant quitté le défaut, sa migration
+    // (preuves-v1) retrouvait de quoi mordre et s'ajoutait toute seule à la
+    // première liste écrite par un utilisateur qui n'a rien demandé.
+    localStorage.clear();
+    readPinned();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "ide"]));
+    expect(readPinned()).toEqual(["explorer", "ide"]);
   });
 });

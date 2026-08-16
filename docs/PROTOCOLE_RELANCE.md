@@ -13,9 +13,9 @@ du vieux code et font croire que le fix « ne marche pas ».
 - 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (Rust seul
   depuis plan 065 phase A : `Resources/rust-server/atelier-studio-server` ; l'ancien
   repli `ATELIER_BACKEND=node` est retiré, voir `docs/soak/033-COMPLETE.md`),
-  les **serveurs galerie** (défaut 2026-07-16 : `atelier-gallery-server` Rust, un par
-  projet ; soak Node `node …/server/main.mjs` si `ATELIER_GALLERY_BACKEND=node` —
-  zombies si non tués, dans les DEUX variantes).
+  les **serveurs galerie** (`atelier-gallery-server` Rust seul depuis plan 065
+  phase B : un par projet, zombies si non tués ; les backends Node/Python et
+  `ATELIER_GALLERY_BACKEND` sont retirés, voir `docs/soak/galerie-COMPLETE.md`).
 - `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).
   Seul Thierry le lance depuis son terminal. Les agents utilisent le BUILD.
 - Vite dev sert `src/` en direct, mais l'app buildée fige tout au build :

@@ -7,7 +7,7 @@
  * script vérifie que ce fait reste vrai dans le code — indépendamment du
  * reste du bundle : le repli base de connaissances
  * (`ATELIER_KB_ENGINE=node`, plan 065 phase C, soak en cours) et le backend
- * galerie (`ATELIER_GALLERY_BACKEND=node`, plan 065 phase B, pas commencée)
+ * galerie (`ATELIER_GALLERY_BACKEND`, retiré par le plan 065 phase B)
  * sont des politiques SÉPARÉES avec leur propre calendrier de retrait.
  * `sidecar-dist` (chaîne KB + wrapper `atelier-gallery-tool`) et `node-dist`
  * (runtime Node embarqué, encore utilisé par la galerie Node et par

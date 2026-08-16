@@ -494,7 +494,9 @@ mod tests {
         ));
         assert!(out.contains("# notes/albedo.md"));
         assert!(out.contains("# biblio.md"));
-        assert!(out.contains("\"/srv/rust-server/atelier-kb\" search --id <id>"));
+        // binaire Rust depuis la bascule du soak KB (065 phase C, 2026-08-16) —
+        // cf. kb_block.rs:280 `.join("atelier-kb-rs")`
+        assert!(out.contains("\"/srv/rust-server/atelier-kb-rs\" search --id <id>"));
         assert!(out.contains("[kb:gbrain] Corpus thèse (gbrain) — outil NAS."));
         assert!(!out.contains("inconnu"));
         assert!(out.ends_with("</atelier-kb>"));

@@ -17,7 +17,17 @@ const PIN_KEY = "atelier-studio.topbar-surfaces";
 /** Plafond large : c'est la fenêtre qui décide vraiment (règle CSS de repli),
  *  pas un quota arbitraire. Dix laisse la place au crumb et aux contrôles. */
 export const MAX_PINNED = 10;
-export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances", "preuves", "atelier", "git", "terminal"];
+/** Trois épinglées par défaut (lot 068). La largeur de la barre appartient
+ *  désormais aux onglets du pane, et une surface OUVERTE apparaît déjà comme
+ *  onglet à quelques pixels de sa propre icône : les épingles ne sont qu'un
+ *  lanceur, pas un indicateur d'état. Le menu donne accès à toutes, et
+ *  ré-épingler reste un clic. */
+export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances"];
+/** Migration une-fois vers le lanceur court : les listes persistées d'avant le
+ *  lot 068 en comptent sept, qui reprendraient la largeur rendue aux onglets.
+ *  On garde les trois PREMIÈRES de SA liste — donc son ordre à lui — une seule
+ *  fois ; s'il en ré-épingle ensuite, on n'y touche plus jamais. */
+const TRIM_MIGRATION_KEY = "atelier-studio.topbar-surfaces.trim-v1";
 /** Migration une-fois : les listes épinglées persistées d'avant la surface
  * Preuves ne la contiennent pas — sans ça, les passages épinglés sont
  * introuvables (vécu : Thierry les cherchait dans Connaissances). On insère
@@ -27,7 +37,20 @@ const PREUVES_MIGRATION_KEY = "atelier-studio.topbar-surfaces.preuves-v1";
 export function readPinned(): TargetId[] {
   try {
     const raw = localStorage.getItem(PIN_KEY);
-    if (!raw) return DEFAULT_PINNED;
+    if (!raw) {
+      // Installation neuve : elle n'a AUCUN passé à migrer, donc les deux
+      // drapeaux se posent tout de suite. Sans ça, la première liste que
+      // l'utilisateur se construit (épingler une quatrième surface) serait
+      // tronquée au remontage suivant par trim-v1, et se verrait ajouter
+      // Preuves par preuves-v1 — deux surprises qu'il lirait comme des bugs.
+      // Ce second cas est apparu avec le lot 068 : Preuves ne fait plus partie
+      // du défaut, donc sa migration retrouvait de quoi mordre.
+      try {
+        localStorage.setItem(TRIM_MIGRATION_KEY, "1");
+        localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
+      } catch { /* stockage indisponible */ }
+      return DEFAULT_PINNED;
+    }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PINNED;
     const list = parsed.filter((id): id is TargetId => typeof id === "string").slice(0, MAX_PINNED);
@@ -37,6 +60,14 @@ export function readPinned(): TargetId[] {
         const at = list.indexOf("connaissances");
         list.splice(at >= 0 ? at + 1 : list.length, 0, "preuves");
         localStorage.setItem(PIN_KEY, JSON.stringify(list));
+      }
+    }
+    if (!localStorage.getItem(TRIM_MIGRATION_KEY)) {
+      localStorage.setItem(TRIM_MIGRATION_KEY, "1");
+      if (list.length > DEFAULT_PINNED.length) {
+        const trimmed = list.slice(0, DEFAULT_PINNED.length);
+        localStorage.setItem(PIN_KEY, JSON.stringify(trimmed));
+        return trimmed;
       }
     }
     return list;

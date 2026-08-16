@@ -1,0 +1,165 @@
+// Onglets de la barre du haut (lot 068) : noms complets, glyphes de type,
+// débordement, fermeture par la croix et au clic milieu, glisser vers un pane.
+// Reprend la couverture de RailFiles (les tuiles à deux lettres qu'ils
+// remplacent), moins le monogramme — c'est justement lui qu'on retire.
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, screen, cleanup, act } from "@testing-library/react";
+import TopBarTabs, { MAX_TABS, kindOf, tabLabel } from "./TopBarTabs";
+import { renderUi, resetTestState } from "../test/render";
+import { setLanguage, t } from "../lib/i18n";
+import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
+
+const TABS = [
+  { id: "document:t1", title: "methods_en.tex", url: "file:///p/manuscript_ch1/methods_en.tex" },
+  { id: "document:t2", title: "intro_en.tex", url: "file:///p/manuscript_ch1/intro_en.tex" },
+  { id: "document:t3", title: "albedo_trends.py", url: "file:///p/scripts/albedo_trends.py" },
+  { id: "document:t4", title: "notes-terrain.md", url: "file:///p/journal/notes-terrain.md" },
+];
+
+function props(over: Partial<React.ComponentProps<typeof TopBarTabs>> = {}) {
+  return {
+    tabs: TABS,
+    activeTab: "document:t1",
+    onSelectTab: vi.fn(),
+    onCloseTab: vi.fn(),
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  resetTestState();
+  setLanguage("fr");
+});
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe("libellé d'onglet", () => {
+  it("garde le nom entier, extension comprise", () => {
+    expect(tabLabel("methods_en.tex")).toBe("methods_en.tex");
+    expect(tabLabel("/p/scripts/albedo_trends.py")).toBe("albedo_trends.py");
+    expect(tabLabel("Methods_EN.tex")).toBe("Methods_EN.tex");
+  });
+
+  it("distingue ce que le monogramme confondait", () => {
+    // le rail rendait « me » pour les trois — c'est le défaut qu'on corrige
+    const noms = ["methods_en.tex", "memoire.tex", "meeting-2026-08.md"];
+    expect(new Set(noms.map(tabLabel)).size).toBe(3);
+  });
+
+  it("ne rend jamais une pastille vide", () => {
+    expect(tabLabel("")).toBe(t("tabs.untitled"));
+    expect(tabLabel("   ")).toBe(t("tabs.untitled"));
+  });
+});
+
+describe("type de fichier", () => {
+  it("range les extensions en quatre familles", () => {
+    expect(kindOf({ id: "a", title: "x.tex" })).toBe("tex");
+    expect(kindOf({ id: "a", title: "x.py" })).toBe("code");
+    expect(kindOf({ id: "a", title: "x.md" })).toBe("note");
+    expect(kindOf({ id: "a", title: "x.pdf" })).toBe("image");
+    expect(kindOf({ id: "a", title: "Makefile" })).toBe("doc");
+  });
+
+  it("lit l'extension de l'URL quand le titre n'en a pas", () => {
+    expect(kindOf({ id: "a", title: "Sans titre", url: "file:///p/a.py" })).toBe("code");
+    expect(kindOf({ id: "a", title: "figure", url: "http://x/f.png?v=2" })).toBe("image");
+  });
+});
+
+describe("TopBarTabs", () => {
+  it("reste absent quand rien n'est ouvert", () => {
+    const { container } = renderUi(<TopBarTabs {...props({ tabs: [] })} />);
+    expect(container.querySelector(".topbar-tabs")).toBeNull();
+  });
+
+  it("écrit le nom complet de chaque onglet et marque l'actif", () => {
+    const { container } = renderUi(<TopBarTabs {...props()} />);
+    expect(container.querySelectorAll(".topbar-tab").length).toBe(4);
+    expect(screen.getByText("methods_en.tex")).toBeTruthy();
+    expect(screen.getByText("albedo_trends.py")).toBeTruthy();
+    expect(container.querySelector(".topbar-tab.on")?.textContent).toContain("methods_en.tex");
+  });
+
+  it("porte le nom du fichier comme nom accessible, pas deux lettres", () => {
+    renderUi(<TopBarTabs {...props()} />);
+    const actif = screen.getByText("methods_en.tex").closest("button")!;
+    expect(actif.getAttribute("aria-current")).toBe("page");
+    expect(actif.textContent).toContain("methods_en.tex");
+  });
+
+  it("sélectionne au clic, ferme au clic milieu", () => {
+    const onSelectTab = vi.fn();
+    const onCloseTab = vi.fn();
+    renderUi(<TopBarTabs {...props({ onSelectTab, onCloseTab })} />);
+    fireEvent.click(screen.getByText("intro_en.tex"));
+    expect(onSelectTab).toHaveBeenCalledWith("document:t2");
+    // auxClick n'est pas exposé par fireEvent : on émet l'événement natif
+    fireEvent(screen.getByText("albedo_trends.py"), new MouseEvent("auxclick", { button: 1, bubbles: true }));
+    expect(onCloseTab).toHaveBeenCalledWith("document:t3");
+  });
+
+  it("ferme par la croix, qui nomme le fichier qu'elle ferme", () => {
+    const onCloseTab = vi.fn();
+    renderUi(<TopBarTabs {...props({ onCloseTab })} />);
+    const croix = screen.getByRole("button", { name: `${t("action.close-tab")} — intro_en.tex` });
+    fireEvent.click(croix);
+    expect(onCloseTab).toHaveBeenCalledWith("document:t2");
+  });
+
+  it("ignore le clic droit — il ne ferme rien", () => {
+    const onCloseTab = vi.fn();
+    renderUi(<TopBarTabs {...props({ onCloseTab })} />);
+    fireEvent(screen.getByText("albedo_trends.py"), new MouseEvent("auxclick", { button: 2, bubbles: true }));
+    expect(onCloseTab).not.toHaveBeenCalled();
+  });
+
+  it("plafonne à huit onglets et range le reste derrière un compteur", async () => {
+    const many = Array.from({ length: 11 }, (_, i) => ({
+      id: `document:t${i}`, title: `fichier_${i}.tex`,
+    }));
+    const onSelectTab = vi.fn();
+    const { container } = renderUi(<TopBarTabs {...props({ tabs: many, onSelectTab })} />);
+    expect(container.querySelectorAll(".topbar-tab").length).toBe(MAX_TABS);
+    fireEvent.click(screen.getByText("+3"));
+    await act(async () => { await vi.dynamicImportSettled(); });
+    fireEvent.click(screen.getByText("fichier_10.tex"));
+    expect(onSelectTab).toHaveBeenCalledWith("document:t10");
+  });
+
+  it("rend les onglets glissables vers un autre pane", () => {
+    renderUi(<TopBarTabs {...props()} />);
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+    fireEvent.pointerDown(screen.getByText("intro_en.tex").closest(".topbar-tab-main")!, {
+      button: 0, clientX: 240, clientY: 18, pointerId: 5,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref)
+      .toEqual({ kind: "document", tabId: "t2" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+  });
+
+  it("une surface glisse avec sa référence de surface", () => {
+    renderUi(<TopBarTabs {...props({
+      tabs: [{ id: "surface:narval", title: "Narval", kind: "surface" as const, surface: "narval" as const }],
+      activeTab: "surface:narval",
+    })} />);
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+    fireEvent.pointerDown(document.querySelector(".topbar-tab-main")!, {
+      button: 0, clientX: 240, clientY: 18, pointerId: 6,
+    });
+    expect((listener.mock.calls[0][0] as CustomEvent).detail.ref)
+      .toEqual({ kind: "surface", surface: "narval" });
+    window.removeEventListener(WORKSPACE_POINTER_DRAG_START, listener);
+  });
+
+  it("annonce le raccourci de position dans l'infobulle", () => {
+    renderUi(<TopBarTabs {...props()} />);
+    expect(screen.getByTitle("methods_en.tex — ⌥1")).toBeTruthy();
+    expect(screen.getByTitle("intro_en.tex — ⌥2")).toBeTruthy();
+  });
+});
