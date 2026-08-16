@@ -134,6 +134,12 @@ async function main(){
     return;
   }
   const wrap = document.getElementById("pages");
+  // État de rendu déclaré AVANT la boucle de suivi : sa première frame les
+  // lit, et un `let` plus bas la ferait mourir en zone morte temporelle
+  // (page blanche, régression vécue le 2026-08-16). Ne pas redescendre.
+  let RENDER_W = window.innerWidth;
+  let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
+  let RENDER_Z = 1;
   // resize du panneau, façon vraie app :
   // - PENDANT le drag : transform:scale() CSS sur la colonne (GPU — canvas, texte
   //   et annotations restent parfaitement alignés, zéro re-layout, 60 fps)
@@ -174,9 +180,6 @@ async function main(){
       }
     }, 150);
   })();
-  let RENDER_W = window.innerWidth;
-  let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
-  let RENDER_Z = 1;
   async function renderAll(){
     clearHl();
     selHide();
