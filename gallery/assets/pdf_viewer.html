@@ -52,6 +52,7 @@
     padding:4px 10px;cursor:pointer;font-size:12px}
   #annotPop .del{color:#ff8a8a;margin-left:auto}
   #annotPop .cpy.ok{color:#7ACB8A;border-color:#3f6b4a}
+  #annotPop .serr{margin-top:8px;color:#ff8a8a;font-size:11.5px;line-height:1.4}
   #annotPop .row button{display:inline-flex;align-items:center;justify-content:center;
     width:28px;height:26px;padding:0}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
@@ -989,6 +990,17 @@ function copyWithCitation(a){
   }
 }
 const annotPop = document.getElementById("annotPop");
+/** Un envoi au chat qui échoue ne doit JAMAIS être muet : la raison s'affiche
+ *  dans le menu (le .catch silencieux d'avant cachait « file not found »). */
+function sendFail(why){
+  let box = annotPop.querySelector(".serr");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "serr";
+    annotPop.appendChild(box);
+  }
+  box.textContent = "Envoi impossible : " + String(why || "").slice(0, 90);
+}
 function annotMenu(a, x, y){
   annotPop.innerHTML = '<input placeholder="Note… (Entrée)" value="' +
       String(a.note||"").replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '">' +
@@ -1010,23 +1022,40 @@ function annotMenu(a, x, y){
   annotPop.querySelector(".send2").onclick = () => {
     // Une ZONE n'a pas de texte : on redécoupe l'image du canvas de la page
     // au moment de l'envoi (rien de lourd n'est stocké dans le sidecar).
+    // L'app hôte n'attache une IMAGE que via /save (elle renvoie un message
+    // qui porte le fichier enregistré) — un dataURL passé en direct dans le
+    // postMessage était ignoré, l'envoi paraissait muet. Même mécanisme que
+    // l'ancien outil de dessin.
+    const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
     if (a.kind === "area") {
       const dataUrl = areaDataUrl(a);
-      annotPop.style.display = "none";
-      if (dataUrl && window.self !== window.top) {
-        __atelierPost({ type: "atelier-add-to-chat", text:
-          "Figure de « " + citeRef() + " » (p. " + a.page + ")" + (a.note ? " — " + a.note : ""),
-          imageDataUrl: dataUrl });
-      }
+      if (!dataUrl) { sendFail("capture impossible"); return; }
+      const stem = (rel ? rel.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
+      fetch("/save", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ name: stem + "-p" + a.page + "-zone", dataURL: dataUrl,
+          direct: true, embed: true, target: target,
+          notes: a.note ? [{n: 1, text: a.note}] : [] })})
+        .then(r=>r.json())
+        .then(j => {
+          if (j && j.message && window.self !== window.top) {
+            __atelierPost({type:"atelier-add-to-chat", text:j.message});
+            annotPop.style.display = "none";
+          } else sendFail((j && j.error) || "réponse vide");
+        })
+        .catch(e => sendFail(String(e && e.message || e)));
       return;
     }
-    const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "", direct: true, embed: true};
+    const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "",
+      direct: true, embed: true, target: target};
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
       .then(r=>r.json())
-      .then(j => { if(j && j.message && window.self !== window.top)
-        __atelierPost({type:"atelier-add-to-chat", text:j.message}); })
-      .catch(()=>{});
-    annotPop.style.display = "none";
+      .then(j => {
+        if(j && j.message && window.self !== window.top){
+          __atelierPost({type:"atelier-add-to-chat", text:j.message});
+          annotPop.style.display = "none";
+        } else sendFail((j && j.error) || "réponse vide");
+      })
+      .catch(e => sendFail(String(e && e.message || e)));
   };
   annotPop.querySelector(".del").onclick = () => {
     PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
