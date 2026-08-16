@@ -134,8 +134,13 @@ jobs:
           python3 - "$FIX" "$APPDIR/settings.json" <<'PY'
           import json, sys
           fixture, out = sys.argv[1], sys.argv[2]
+          # `galleryExtsByProject` : sans pdf, la galerie filtre le fichier et
+          # le visualiseur PDF reste intestable — le run 31970027074 a bien
+          # produit le PDF, mais il n'apparaissait pas dans la grille.
           json.dump({"projects": [fixture], "activeView": "chats",
-                     "defaultPermissionMode": "acceptEdits"}, open(out, "w"), indent=2)
+                     "defaultPermissionMode": "acceptEdits",
+                     "galleryExtsByProject": {fixture: "png,jpg,jpeg,svg,pdf"}},
+                    open(out, "w"), indent=2)
           print("settings.json semé ->", out)
           PY
           cat "$APPDIR/settings.json"
@@ -174,18 +179,25 @@ jobs:
           # coordonnées de l'écran et celles de l'app coïncident.
           sleep 45; shot 1-repos
 
-          # 1) le .tex depuis « Recently modified » du Research Home → éditeur
-          #    LaTeX (CodeMirror). Coordonnées relevées sur la capture du run 5.
+          # 1) le .tex depuis « Recently modified » → il s'ouvre en onglet et
+          #    active l'IDE (vérifié run 31970027074 : onglet « memoire.tex »
+          #    dans le ruban, icône </> allumée).
           xdotool mousemove 420 286 click 1
-          sleep 12; shot 2-apres-clic-tex
+          sleep 10; shot 2-apres-clic-tex
 
-          # 2) première vignette de la galerie, double-clic → visualiseur
-          xdotool mousemove 676 170 click --repeat 2 --delay 120 1
-          sleep 12; shot 3-apres-dblclic-vignette
+          # 2) MAIS à 800x600 en layout « split », le panneau atelier est trop
+          #    étroit et continuait d'afficher la galerie. On bascule en layout
+          #    « atelier » (3ᵉ bouton du segment, ⌘2) pour lui donner toute la
+          #    largeur — c'est LÀ que CodeMirror doit se montrer.
+          xdotool mousemove 722 18 click 1
+          sleep 12; shot 3-editeur-latex-pleine-largeur
 
-          # 3) seconde vignette (le PDF si l'ordre le place là) → visualiseur PDF
-          xdotool mousemove 676 390 click --repeat 2 --delay 120 1
-          sleep 12; shot 4-apres-dblclic-2
+          # 3) retour en split pour retrouver la grille, puis le PDF en
+          #    double-clic (3ᵉ vignette maintenant que l'extension est permise)
+          xdotool mousemove 694 18 click 1
+          sleep 8
+          xdotool mousemove 676 610 click --repeat 2 --delay 120 1
+          sleep 12; shot 4-apres-dblclic-pdf
 
           # 4) dernier état, après que tout se soit posé
           sleep 10; shot 5-final
