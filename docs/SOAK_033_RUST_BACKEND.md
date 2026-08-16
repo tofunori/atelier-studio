@@ -1,9 +1,16 @@
 # Soak plan 033 — backend Rust (Porte 11)
 
-> **Statut** : soak **ouvert** (R11 prep).  
-> Node reste embarqué et activable via `ATELIER_BACKEND=node` jusqu'à clôture.  
-> **Ne pas retirer** `sidecar/` ni le runtime Node du bundle tant que ce document
-> n'est pas signé « COMPLETE ».
+> **Statut** : soak **CLOS** — voir [`soak/033-COMPLETE.md`](soak/033-COMPLETE.md)
+> (2026-08-16). Le repli chat `ATELIER_BACKEND=node` a été retiré de
+> `src-tauri/src/sidecar.rs` (plan 065 phase A) ; il n'existe plus.
+> `sidecar/` reste dans le dépôt (harnais vitest de référence + repli
+> `ATELIER_KB_ENGINE=node`, soak séparé et **toujours ouvert**, plan 065
+> phase C — ne pas le retirer pour cette raison-là).
+>
+> Le reste de ce document est conservé tel quel comme **trace historique** du
+> soak (checklist, dates prévues) : les dates ci-dessous n'ont pas toutes été
+> recochées manuellement item par item, voir `soak/033-COMPLETE.md` pour ce
+> qui est vérifiable et ce qui ne l'est pas.
 
 ## Objectif
 
