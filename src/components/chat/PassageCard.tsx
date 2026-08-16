@@ -111,21 +111,29 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
     );
   }
 
+  // Variante A (artefact « Actions de la carte passage ») : les actions
+  // rejoignent la ligne de citation en icônes — une rangée de moins, même
+  // grammaire que l'état replié, la page vit déjà dans la citation.
   return (
     <div className="passage-card open">
       <p className="passage-card-quote-full">{refData.quote}</p>
-      <div className="passage-card-meta">{isGbrain ? label : `${label} · p. ${refData.page}`}</div>
-      <div className="passage-card-actions">
-        <Button variant="secondary" onClick={openPassage}>
-          {openLabel}
-        </Button>
-        <Button
-          variant="secondary"
-          className={pin ? "is-pinned" : undefined}
-          onClick={togglePin}
-        >
-          {pin ? t("passage.unpin") : t("passage.pin")}
-        </Button>
+      <div className="passage-card-meta">
+        <span className="passage-card-cite">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
+        <Tooltip label={openLabel}>
+          <IconButton label={openLabel} onClick={openPassage}>
+            <DocIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
+          <IconButton
+            className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
+            label={pin ? t("passage.unpin") : t("passage.pin")}
+            aria-pressed={Boolean(pin)}
+            onClick={togglePin}
+          >
+            <PinIcon size={15} />
+          </IconButton>
+        </Tooltip>
         <IconButton
           className="passage-card-collapse"
           label={t("passage.collapse")}

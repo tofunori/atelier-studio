@@ -3562,8 +3562,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .passage-card-quote-full { font-style: italic; font-size: var(--fs-l); line-height: 1.5;
   color: var(--text-primary); margin: 0; }
-.passage-card-actions { display: flex; align-items: center; gap: 8px; }
-.passage-card-actions .passage-card-collapse { margin-left: auto; }
+/* dépliée : la ligne de citation porte les actions en icônes (variante A) —
+   la citation prend la place, le repli reste en bout de ligne. */
+.passage-card.open .passage-card-meta { align-items: center; gap: 4px; }
+.passage-card.open .passage-card-cite { flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .passage-card .is-pinned { color: var(--accent); }
 
 /* Surface Preuves (plan Preuves, tâche 7) : panneau par projet des passages
