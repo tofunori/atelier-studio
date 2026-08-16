@@ -17,7 +17,12 @@ const PIN_KEY = "atelier-studio.topbar-surfaces";
 /** Plafond large : c'est la fenêtre qui décide vraiment (règle CSS de repli),
  *  pas un quota arbitraire. Dix laisse la place au crumb et aux contrôles. */
 export const MAX_PINNED = 10;
-export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances", "atelier", "git", "terminal"];
+export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances", "preuves", "atelier", "git", "terminal"];
+/** Migration une-fois : les listes épinglées persistées d'avant la surface
+ * Preuves ne la contiennent pas — sans ça, les passages épinglés sont
+ * introuvables (vécu : Thierry les cherchait dans Connaissances). On insère
+ * après Connaissances UNE seule fois ; s'il la retire ensuite, on respecte. */
+const PREUVES_MIGRATION_KEY = "atelier-studio.topbar-surfaces.preuves-v1";
 
 export function readPinned(): TargetId[] {
   try {
@@ -25,7 +30,16 @@ export function readPinned(): TargetId[] {
     if (!raw) return DEFAULT_PINNED;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PINNED;
-    return parsed.filter((id): id is TargetId => typeof id === "string").slice(0, MAX_PINNED);
+    const list = parsed.filter((id): id is TargetId => typeof id === "string").slice(0, MAX_PINNED);
+    if (!list.includes("preuves") && !localStorage.getItem(PREUVES_MIGRATION_KEY)) {
+      localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
+      if (list.length < MAX_PINNED) {
+        const at = list.indexOf("connaissances");
+        list.splice(at >= 0 ? at + 1 : list.length, 0, "preuves");
+        localStorage.setItem(PIN_KEY, JSON.stringify(list));
+      }
+    }
+    return list;
   } catch {
     return DEFAULT_PINNED;
   }

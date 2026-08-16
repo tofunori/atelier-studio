@@ -1762,6 +1762,12 @@ pub(crate) fn kb_node_bin_for_tests() -> Option<std::path::PathBuf> {
 }
 
 /// Résout le binaire gbrain (PATH Finder minimal → repl. usuels).
+/// Échappement shell en quotes simples pour la commande distante : ssh
+/// reconcatène ses arguments en une ligne de shell côté NAS.
+fn shell_squote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 fn gbrain_bin() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("ATELIER_TEST_GBRAIN") {
         let pb = std::path::PathBuf::from(p);
@@ -1802,9 +1808,6 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
     let Some((title, origin, kind)) = crate::kb_block::source_meta(&knowledge_dir, id) else {
         return kb_error(format!("Source inconnue: {id}"));
     };
-    let Some(gbrain) = gbrain_bin() else {
-        return kb_error("gbrain indisponible: introuvable sur le PATH".into());
-    };
     let mut text = format!("{title} — {}", origin.unwrap_or(kind));
     if let Some(excerpt) = crate::kb_block::cache_excerpt(&knowledge_dir, id, 700) {
         if !excerpt.is_empty() {
@@ -1812,12 +1815,34 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
             text.push_str(&excerpt);
         }
     }
-    let run = tokio::process::Command::new(gbrain)
-        .arg("capture")
-        .arg(&text)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output();
+    // Aiguillage NAS (miroir de gbrainInvocation, sidecar/knowledge.mjs) : le
+    // brain canonique vit sur le NAS ; le binaire local pointe sur un brain
+    // PGLite local quasi vide — capturer dedans perdrait la page (vécu
+    // 2026-08-16). ATELIER_TEST_GBRAIN (tests) garde le binaire local ;
+    // ATELIER_GBRAIN_SSH_HOST="" aussi ; défaut : ssh nas.
+    let ssh_host = if std::env::var("ATELIER_TEST_GBRAIN").is_ok() {
+        String::new()
+    } else {
+        std::env::var("ATELIER_GBRAIN_SSH_HOST").unwrap_or_else(|_| "nas".into())
+    };
+    let run = if ssh_host.is_empty() {
+        let Some(gbrain) = gbrain_bin() else {
+            return kb_error("gbrain indisponible: introuvable sur le PATH".into());
+        };
+        tokio::process::Command::new(gbrain)
+            .arg("capture")
+            .arg(&text)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+    } else {
+        tokio::process::Command::new("ssh")
+            .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", &ssh_host])
+            .arg(format!("gbrain capture {}", shell_squote(&text)))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+    };
     match tokio::time::timeout(std::time::Duration::from_secs(15), run).await {
         Err(_) => kb_error("gbrain: délai dépassé (NAS injoignable ?)".into()),
         Ok(Err(e)) => kb_error(format!("gbrain indisponible: {e}")),

@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KnowledgeStore, htmlToText, sourceId } from "./knowledge.mjs";
+import { KnowledgeStore, gbrainInvocation, htmlToText, sourceId } from "./knowledge.mjs";
 import { runKbCommand } from "./kb_cli.mjs";
 
 const tmp = (prefix = "atelier-kb-") => mkdtempSync(join(tmpdir(), prefix));
@@ -727,4 +727,23 @@ describe("tableaux CSV", () => {
     expect(texte).not.toContain("```csv");
   });
 
+});
+
+describe("gbrainInvocation — aiguillage NAS (fix 2026-08-16)", () => {
+  it("défaut : ssh vers le host avec arguments échappés en quotes simples", () => {
+    const { cmd, argv } = gbrainInvocation(["get", "papers/acp-19-1393-2019"], "nas");
+    expect(cmd).toBe("ssh");
+    expect(argv.slice(0, 4)).toEqual(["-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]);
+    expect(argv[4]).toBe("nas");
+    expect(argv[5]).toBe("gbrain 'get' 'papers/acp-19-1393-2019'");
+  });
+  it("une apostrophe dans la requête ne casse pas la ligne shell distante", () => {
+    const { argv } = gbrainInvocation(["search", "l'albédo des glaciers"], "nas");
+    expect(argv[5]).toBe("gbrain 'search' 'l'\\''albédo des glaciers'");
+  });
+  it("host vide : binaire local, arguments intacts", () => {
+    const { cmd, argv } = gbrainInvocation(["get", "slug"], "");
+    expect(cmd).not.toBe("ssh");
+    expect(argv).toEqual(["get", "slug"]);
+  });
 });

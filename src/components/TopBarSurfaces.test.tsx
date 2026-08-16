@@ -130,7 +130,7 @@ describe("TopBarSurfaces", () => {
       const row = screen.getByText(label).closest(".topbar-menu-row");
       fireEvent.click(row!.querySelector(".topbar-menu-pin")!);
     }
-    expect(readPinned().length).toBe(9);
+    expect(readPinned().length).toBe(DEFAULT_PINNED.length + 3);
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);
   });
 
@@ -141,5 +141,29 @@ describe("TopBarSurfaces", () => {
     expect(explorer.classList.contains("on")).toBe(true);
     fireEvent.click(explorer);
     expect(onToggleExplorer).toHaveBeenCalled();
+  });
+});
+
+describe("migration preuves-v1 (fix 2026-08-16)", () => {
+  it("liste persistée d'avant la surface Preuves : insérée une fois après Connaissances", () => {
+    localStorage.clear();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "connaissances", "git"]));
+    expect(readPinned()).toEqual(["explorer", "connaissances", "preuves", "git"]);
+    // idempotent : relire ne duplique pas
+    expect(readPinned().filter((id) => id === "preuves")).toHaveLength(1);
+  });
+  it("l'utilisateur qui retire Preuves après migration est respecté", () => {
+    localStorage.clear();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
+    readPinned(); // migre + pose le flag
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
+    expect(readPinned()).toEqual(["explorer", "git"]);
+  });
+  it("liste au plafond : pas d'insertion forcée, flag posé quand même", () => {
+    localStorage.clear();
+    const full = Array.from({ length: MAX_PINNED }, (_, i) => (i === 0 ? "connaissances" : `s${i}`));
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(full));
+    expect(readPinned()).toHaveLength(MAX_PINNED);
+    expect(readPinned()).not.toContain("preuves");
   });
 });
