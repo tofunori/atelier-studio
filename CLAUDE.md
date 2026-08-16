@@ -20,6 +20,17 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 - **Boutons** : jamais de `<button>` nu hors `src/components/ui/` et `src/components/shadcn/` — utiliser `Button` (action textuelle), `IconButton` (icône seule) ou `RowButton` (rangée/chip/cellule/swatch/trigger cloné ; transmet ref et tous attributs natifs). Verrouillé par `css-contract.test.ts`.
 - **Échelles Tailwind snappées** : dans `src/styles/shadcn.css`, `--radius-sm/md`→6px, `--radius-lg/xl`→10px, `--text-xs`→12px, `--text-sm`→13px — les classes nommées `rounded-*`/`text-xs/sm` restent donc dans le système, même dans du code généré par le CLI shadcn. Ombres d'overlay via `shadow-[var(--elevation-overlay)]`, voile de modale via `bg-[var(--scrim)]` (verrouillé aussi).
 
+## Règle Rust-first — CONTRAIGNANTE (décision 2026-08-16)
+
+**Toute nouvelle implémentation backend s'écrit en Rust, jamais en Node.**
+Le port KB (plan 065) est en voie d'achèvement ; les `.mjs` de `sidecar/`
+sont un existant EN EXTINCTION : on les corrige (parité, bugs) mais on n'y
+ajoute AUCUNE fonctionnalité nouvelle. Une feature qui semble « plus vite en
+JS » se fait quand même en Rust (`rust/crates/`), avec ses tests. Les outils
+externes (pdftotext, yt-dlp, ssh/gbrain, MinerU) se spawnent depuis Rust.
+Seule exception : le JavaScript NAVIGATEUR (éditeurs `gallery/src/studio`,
+UI React) — c'est de l'interface, pas du runtime. En cas de doute : Rust.
+
 ## Contraintes techniques
 
 - **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`**, puis lancer `node gallery/server/tests/diff_suite.mjs` (78 tests, obligatoire dès que `gallery/` change).
