@@ -59,7 +59,7 @@ async function toConverting() {
   renderUi(<ArticleDialog />);
   openArticleDialog();
   fireEvent.click(await screen.findByText("Choisir un PDF…"));
-  await screen.findByText(/Conversion en cours/);
+  await screen.findByText(/En attente de la conversion/);
 }
 
 async function toReview(over: Record<string, unknown> = {}) {
@@ -120,7 +120,7 @@ describe("ArticleDialog", () => {
   it("ignore une réponse qui n'est pas la sienne", async () => {
     await toConverting();
     emit("article-imported", { requestId: "autre-dialogue", meta: META, slug: "articles/x" });
-    expect(screen.getByText(/Conversion en cours/)).toBeTruthy();
+    expect(screen.getByText(/En attente de la conversion/)).toBeTruthy();
   });
 
   it("remplit la fiche depuis l'import et n'écrit qu'au clic", async () => {
@@ -145,7 +145,7 @@ describe("ArticleDialog", () => {
     await toConverting();
     const requestId = lastRequestId();
     fireEvent.click(screen.getByText("Continuer en arrière-plan"));
-    expect(screen.queryByText(/Conversion en cours/)).toBeNull();
+    expect(screen.queryByText(/En attente de la conversion/)).toBeNull();
 
     emit("article-imported", {
       requestId, draftId: "a8023bcc8c7f", path: "/tmp/aoki-2011.pdf", meta: META,
@@ -239,7 +239,7 @@ describe("ArticleDialog", () => {
     await toConverting();
     const stale = lastRequestId();
     fireEvent.click(screen.getByText("Abandonner"));
-    expect(screen.queryByText(/Conversion en cours/)).toBeNull();
+    expect(screen.queryByText(/En attente de la conversion/)).toBeNull();
     emit("article-imported", { requestId: stale, meta: META, slug: "articles/x", preview: PREVIEW });
     expect(screen.queryByText("Article converti")).toBeNull();
     expect(undo).not.toHaveBeenCalled();
@@ -353,7 +353,7 @@ describe("plusieurs imports à la fois", () => {
     expect(screen.getByText("Ajouter un autre PDF")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Réessayer"));
-    await screen.findByText(/Conversion en cours/);
+    await screen.findByText(/En attente de la conversion/);
     expect(lastSent().path).toBe("/tmp/aoki-2011.pdf");
     expect(lastRequestId()).not.toBe(requestId);
   });
@@ -362,7 +362,7 @@ describe("plusieurs imports à la fois", () => {
     await toReview();
     (openDialog as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce("/tmp/box-2001.pdf");
     fireEvent.click(screen.getByText("Ajouter un autre PDF"));
-    await screen.findByText(/Conversion en cours/);
+    await screen.findByText(/En attente de la conversion/);
     const second = lastRequestId();
     // on revient sur la première fiche, puis le second arrive
     fireEvent.click(screen.getByText("aoki-2011.pdf"));
