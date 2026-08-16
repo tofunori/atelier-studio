@@ -83,28 +83,6 @@ fn stop_stale_gallery(port: u16, health: Option<&ProcessHealth>) {
     }
 }
 
-/// Temporary selector (plan 033 Porte 2). Default = node. Remove after soak.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GalleryBackend {
-    Node,
-    Rust,
-    Python,
-}
-
-fn gallery_backend_kind() -> GalleryBackend {
-    // Défaut Rust (bascule 2026-07-16) — fallback soak : ATELIER_GALLERY_BACKEND=node
-    match std::env::var("ATELIER_GALLERY_BACKEND")
-        .or_else(|_| std::env::var("ATELIER_GALLERY_ENGINE"))
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "node" => GalleryBackend::Node,
-        "python" => GalleryBackend::Python,
-        _ => GalleryBackend::Rust,
-    }
-}
-
 fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(explicit) = std::env::var("ATELIER_GALLERY_SERVER") {
         let p = PathBuf::from(explicit);
@@ -231,31 +209,9 @@ pub fn start_atelier(
             }
         });
 
-    // Backend: Node (défaut) | Rust (plan 033 Porte 2) | Python (legacy).
-    // Sélecteurs: ATELIER_GALLERY_BACKEND=node|rust|python
-    //             ATELIER_GALLERY_ENGINE=python (alias historique)
-    let backend = gallery_backend_kind();
-    let node_server = dir.join("server/main.mjs");
-    let rust_bin = if backend == GalleryBackend::Rust {
-        Some(resolve_gallery_rust_bin(&app)?)
-    } else {
-        None
-    };
-
-    let bundle_hash: Option<String> = match backend {
-        GalleryBackend::Node if node_server.exists() => {
-            Some(identity::dir_fingerprint(&dir)?)
-        }
-        GalleryBackend::Rust => {
-            let bin = rust_bin.as_ref().ok_or("rust bin missing")?;
-            Some(file_fingerprint(bin)?)
-        }
-        GalleryBackend::Python => None,
-        GalleryBackend::Node => {
-            // pas de main.mjs → bascule python si présent
-            None
-        }
-    };
+    // Backend unique depuis le retrait des fallbacks Node/Python (plan 065 Phase B).
+    let rust_bin = resolve_gallery_rust_bin(&app)?;
+    let bundle_hash: Option<String> = Some(file_fingerprint(&rust_bin)?);
 
     if ping(port) {
         if let Some(expected_hash) = bundle_hash.as_deref() {
@@ -278,69 +234,27 @@ pub fn start_atelier(
         }
     }
 
-    match backend {
-        GalleryBackend::Rust => {
-            let bin = rust_bin.ok_or("atelier-gallery-server introuvable")?;
-            let assets = resolve_assets_dir(&dir);
-            Command::new(&bin)
-                .env("ATELIER_STUDIO", "1")
-                .env("GALLERY_ROOT", &root)
-                .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
-                .env("FIG_PORT", port.to_string())
-                .env("ATELIER_APP_VERSION", identity::APP_VERSION)
-                .env("ATELIER_BUNDLE_HASH", bundle_hash.as_deref().unwrap_or(""))
-                .env("ATELIER_ASSETS_DIR", &assets)
-                .arg("--root")
-                .arg(&root)
-                .arg("--port")
-                .arg(port.to_string())
-                .arg("--host")
-                .arg("127.0.0.1")
-                .spawn()
-                .map_err(|e| format!("spawn atelier-gallery-server: {e}"))?;
-        }
-        GalleryBackend::Node if node_server.exists() => {
-            let node = crate::bin_resolver::node_bin(&app)?;
-            Command::new(node)
-                .env("ATELIER_STUDIO", "1")
-                .env("GALLERY_ROOT", &root)
-                .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
-                .env("FIG_PORT", port.to_string())
-                .env("ATELIER_APP_VERSION", identity::APP_VERSION)
-                .env("ATELIER_BUNDLE_HASH", bundle_hash.as_deref().unwrap_or(""))
-                .arg(&node_server)
-                .spawn()
-                .map_err(|e| e.to_string())?;
-        }
-        GalleryBackend::Node | GalleryBackend::Python => {
-            let gallery = dir.join("cmux_gallery.py");
-            if !gallery.exists() {
-                return Err(format!(
-                    "ni server/main.mjs ni atelier-gallery-server ni cmux_gallery.py dans {}",
-                    dir.display()
-                ));
-            }
-            Command::new("python3")
-                .env("ATELIER_STUDIO", "1") // serveur en mode Studio : aucun push cmux/muxy/orca
-                .arg(gallery)
-                .arg("run")
-                .arg("--root")
-                .arg(&root)
-                .arg("--no-open")
-                .arg("--port")
-                .arg(port.to_string())
-                .spawn()
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    let assets = resolve_assets_dir(&dir);
+    Command::new(&rust_bin)
+        .env("ATELIER_STUDIO", "1")
+        .env("GALLERY_ROOT", &root)
+        .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
+        .env("FIG_PORT", port.to_string())
+        .env("ATELIER_APP_VERSION", identity::APP_VERSION)
+        .env("ATELIER_BUNDLE_HASH", bundle_hash.as_deref().unwrap_or(""))
+        .env("ATELIER_ASSETS_DIR", &assets)
+        .arg("--root")
+        .arg(&root)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--host")
+        .arg("127.0.0.1")
+        .spawn()
+        .map_err(|e| format!("spawn atelier-gallery-server: {e}"))?;
 
     // le serveur se détache ; attendre qu'il réponde (build de la galerie inclus)
-    // Rust initial build peut être long → budget un peu plus large.
-    let attempts = if backend == GalleryBackend::Rust {
-        120
-    } else {
-        60
-    };
+    // build initial peut être long → budget large.
+    let attempts = 120;
     let mut last_health = String::from("aucune réponse");
     for _ in 0..attempts {
         if let Some(expected_hash) = bundle_hash.as_deref() {
