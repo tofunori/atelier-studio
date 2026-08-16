@@ -57,6 +57,16 @@ pub fn default_source() -> String {
 /// (`articles/bair-e.-h.-stillinger`) — segments `[A-Za-z0-9._-]+` séparés
 /// par `/`, sans slash de tête ni de queue, aucun segment vide, aucun
 /// segment `.`/`..` (garde anti-traversée), longueur totale ≤ 200.
+///
+/// PAS le même validateur que `atelier_kb::gbrain::is_valid_gbrain_slug`
+/// (docs/CONTRATS_KB_RUST.md) : celui-ci garde la LECTURE d'un lien de
+/// passage déjà émis (`#atelier-gbrain-passage?slug=…`, traversée interdite)
+/// ; celui de `atelier-kb` valide le slug CIBLE d'une ÉCRITURE
+/// (`promote-page --slug`, `article-write --slug`), miroir exact de
+/// `GBRAIN_SLUG_RE` côté Node (`sidecar/knowledge.mjs`) qui, lui, n'exclut
+/// PAS `..`/segments vides — le fusionner romprait la parité Node de la KB.
+/// Voir `tests::deux_validateurs_de_slug_gbrain_sont_distincts_par_design`
+/// (ci-dessous) pour la frontière exacte entre les deux.
 pub fn is_valid_gbrain_slug(slug: &str) -> bool {
     if slug.is_empty() || slug.len() > 200 {
         return false;
@@ -298,6 +308,48 @@ mod tests {
         assert!(!is_valid_gbrain_slug("a//b"), "segment vide");
         assert!(!is_valid_gbrain_slug("a b"), "espace hors alphabet");
         assert!(!is_valid_gbrain_slug(&"a".repeat(201)), "> 200 caractères");
+    }
+
+    // Note de passation (2026-08-16, plan 065 vague 5) : « trois
+    // implémentations de validation de slug gbrain = interdit » — ce test
+    // vérifie qu'il n'y EN A PAS trois. `atelier_kb::gbrain::is_valid_gbrain_slug`
+    // (miroir de `GBRAIN_SLUG_RE`, sidecar/knowledge.mjs) et
+    // `evidence::is_valid_gbrain_slug` (miroir de `parseGbrainPassageRef`,
+    // src/components/chat/md.tsx) sont les deux SEULES implémentations Rust,
+    // une par concern (écriture d'un slug cible vs lecture d'un lien de
+    // passage déjà émis) — chacune avec son propre mirror source de vérité
+    // (Node pour la première, TS pour la seconde). Les fusionner *romprait*
+    // la parité Node de la KB : ce test fige la frontière (où elles
+    // divergent PAR CONCEPTION) pour qu'un futur refactor ne les confonde
+    // pas silencieusement.
+    #[test]
+    fn deux_validateurs_de_slug_gbrain_sont_distincts_par_design() {
+        use atelier_kb::gbrain::is_valid_gbrain_slug as kb_write_slug;
+        use is_valid_gbrain_slug as evidence_read_slug;
+
+        // Accord sur les cas réels usuels (les deux acceptent).
+        for slug in ["papers/acp-19-1393-2019", "articles/aoki-2022-melting-alpine-glaciers-under"] {
+            assert!(kb_write_slug(slug) && evidence_read_slug(slug), "cas réel accepté par les deux: {slug}");
+        }
+
+        // Divergence délibérée : `evidence` (lecture d'un lien déjà émis)
+        // garde contre la traversée et les segments vides — `atelier-kb`
+        // (validation d'un --slug d'écriture, miroir Node) ne le fait PAS,
+        // parce que Node ne le fait pas non plus (GBRAIN_SLUG_RE : premier
+        // caractère alnum exigé, mais rien n'interdit `..`, un segment vide
+        // ou un `/` de queue ensuite).
+        for slug in ["a/../b", "a/./b", "a//b", "fin/"] {
+            assert!(
+                kb_write_slug(slug) && !evidence_read_slug(slug),
+                "{slug}: attendu accepté en écriture (parité Node) mais rejeté en lecture (anti-traversée) — \
+                 si ce n'est plus vrai, un des deux validateurs a changé sans mise à jour de ce test"
+            );
+        }
+
+        // Accord (les deux rejettent) : un slash de tête casse même la
+        // contrainte "premier caractère alphanumérique" de GBRAIN_SLUG_RE —
+        // ce n'est PAS une divergence, juste une coïncidence de résultat.
+        assert!(!kb_write_slug("/tete") && !evidence_read_slug("/tete"));
     }
 
     #[test]
