@@ -1,3 +1,8 @@
+// AppSnap (capture de fenêtres) et le badge du Dock sont de l'Objective-C pur :
+// ils n'existent que sur Apple. Hors macOS, leurs commandes ne sont tout
+// simplement pas exposées — le frontend les appelle derrière une garde de
+// plateforme (spike Linux 2026-08-16).
+#[cfg(target_os = "macos")]
 mod appsnap;
 mod atelier;
 mod bin_resolver;
@@ -5,6 +10,7 @@ mod boot_metrics;
 mod browser;
 mod identity;
 mod local_image;
+#[cfg(target_os = "macos")]
 mod macos_badge_permission;
 mod remote_gateway;
 mod sidecar;
@@ -47,7 +53,7 @@ fn application_support_root() -> Option<PathBuf> {
 pub fn run() {
     let boot_clock = boot_metrics::BootClock::new();
     let _ = fix_path_env::fix();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(boot_clock)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -57,36 +63,66 @@ pub fn run() {
             if let Some(support_root) = application_support_root() {
                 migrate_app_data_dir(&support_root, OLD_BUNDLE_IDENTIFIER, &new_identifier);
             }
-            app.manage(appsnap::AppSnapManager::new(app.handle()));
-            macos_badge_permission::request_badge_authorization_native();
+            #[cfg(target_os = "macos")]
+            {
+                app.manage(appsnap::AppSnapManager::new(app.handle()));
+                macos_badge_permission::request_badge_authorization_native();
+            }
             Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            atelier::start_atelier,
-            atelier::gallery_token,
-            appsnap::appsnap_get_state,
-            appsnap::appsnap_read_capture,
-            appsnap::appsnap_request_permissions,
-            appsnap::appsnap_set_enabled,
-            local_image::local_image_read,
-            macos_badge_permission::request_badge_authorization,
-            macos_badge_permission::set_badge_count,
-            sidecar::sidecar_port,
-            browser::browser_show,
-            browser::browser_bounds,
-            browser::browser_hide,
-            browser::browser_show_again,
-            browser::browser_close,
-            browser::browser_eval,
-            browser::browser_capture_selection,
-            browser::browser_capture_page,
-            browser::browser_import_vivaldi,
-            browser::browser_url,
-            browser::browser_probe,
-            boot_metrics::boot_clock_elapsed_ms,
-            boot_metrics::record_boot_metrics,
-            ui_state::ui_state_snapshot
-        ])
+        });
+
+    // Deux listes plutôt qu'une : `generate_handler!` n'accepte pas d'attribut
+    // `#[cfg]` sur ses entrées. La liste macOS reste STRICTEMENT celle d'avant.
+    #[cfg(target_os = "macos")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        atelier::start_atelier,
+        atelier::gallery_token,
+        appsnap::appsnap_get_state,
+        appsnap::appsnap_read_capture,
+        appsnap::appsnap_request_permissions,
+        appsnap::appsnap_set_enabled,
+        local_image::local_image_read,
+        macos_badge_permission::request_badge_authorization,
+        macos_badge_permission::set_badge_count,
+        sidecar::sidecar_port,
+        browser::browser_show,
+        browser::browser_bounds,
+        browser::browser_hide,
+        browser::browser_show_again,
+        browser::browser_close,
+        browser::browser_eval,
+        browser::browser_capture_selection,
+        browser::browser_capture_page,
+        browser::browser_import_vivaldi,
+        browser::browser_url,
+        browser::browser_probe,
+        boot_metrics::boot_clock_elapsed_ms,
+        boot_metrics::record_boot_metrics,
+        ui_state::ui_state_snapshot
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        atelier::start_atelier,
+        atelier::gallery_token,
+        local_image::local_image_read,
+        sidecar::sidecar_port,
+        browser::browser_show,
+        browser::browser_bounds,
+        browser::browser_hide,
+        browser::browser_show_again,
+        browser::browser_close,
+        browser::browser_eval,
+        browser::browser_capture_selection,
+        browser::browser_capture_page,
+        browser::browser_import_vivaldi,
+        browser::browser_url,
+        browser::browser_probe,
+        boot_metrics::boot_clock_elapsed_ms,
+        boot_metrics::record_boot_metrics,
+        ui_state::ui_state_snapshot
+    ]);
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

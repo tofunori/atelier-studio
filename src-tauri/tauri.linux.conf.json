@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "npm run build && bash scripts/stage-gallery.sh && bash scripts/stage-rust-server.sh"
+  },
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "resources": {
+      "gallery-dist": "gallery",
+      "rust-server-dist": "rust-server"
+    }
+  }
+}

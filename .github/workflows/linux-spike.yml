@@ -1,0 +1,137 @@
+# Spike Linux (2026-08-16) — répond à UNE question : jusqu'où va Atelier sur
+# Linux, et surtout ce que WebKitGTK fait de la galerie et des éditeurs.
+#
+# Ce n'est PAS un workflow de release. Chaque étape est `continue-on-error` :
+# le but est qu'un seul run dresse la carte complète des points de rupture,
+# au lieu de s'arrêter au premier. Les journaux et captures partent en
+# artefacts, y compris quand tout casse.
+#
+# Ce qu'il ne peut pas prouver : les performances réelles (Xvfb fait du rendu
+# logiciel), Wayland, les dialogues natifs, le rendu des polices tel qu'un
+# humain le voit.
+name: spike linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["spike/linux-**"]
+
+jobs:
+  spike:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances système (WebKitGTK + Xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libxdo-dev libssl-dev build-essential curl wget file \
+            xvfb imagemagick x11-utils
+          echo "webkit2gtk: $(pkg-config --modversion webkit2gtk-4.1)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target\nsrc-tauri -> target"
+
+      - name: npm ci (racine + galerie)
+        run: |
+          npm ci
+          npm --prefix gallery ci
+
+      # ---- Étape 1 : le backend compile-t-il pour Linux ? -------------------
+      - name: cargo check — espace de travail rust/
+        id: check_rust
+        continue-on-error: true
+        run: |
+          cargo check --manifest-path rust/Cargo.toml --workspace --all-targets \
+            2>&1 | tee /tmp/check-rust.log
+
+      # ---- Étape 2 : la coquille Tauri compile-t-elle ? ---------------------
+      - name: cargo check — src-tauri
+        id: check_tauri
+        continue-on-error: true
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee /tmp/check-tauri.log
+
+      # ---- Étape 3 : le frontend ------------------------------------------
+      - name: build frontend
+        id: build_front
+        continue-on-error: true
+        run: npm run build 2>&1 | tee /tmp/build-front.log
+
+      # ---- Étape 4 : l'application complète --------------------------------
+      - name: tauri build
+        id: build_app
+        continue-on-error: true
+        run: |
+          npx tauri build --verbose 2>&1 | tee /tmp/build-app.log
+
+      # ---- Étape 5 : LA question — WebKitGTK rend-il l'app ? ---------------
+      - name: lancement headless + captures
+        id: run_app
+        continue-on-error: true
+        run: |
+          set +e
+          BIN="$(find src-tauri/target/release -maxdepth 1 -type f -perm -111 \
+                 \( -name 'atelier' -o -name 'tauri-app' \) | head -1)"
+          if [ -z "$BIN" ]; then
+            echo "AUCUN BINAIRE PRODUIT — l'étape 4 n'a pas abouti" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "binaire : $BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          Xvfb :99 -screen 0 1600x1000x24 &
+          sleep 3
+          export DISPLAY=:99
+          # WebKitGTK écrit ses erreurs de rendu sur stderr : c'est LA source
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          "$BIN" > /tmp/app-stdout.log 2> /tmp/app-stderr.log &
+          APP_PID=$!
+
+          mkdir -p /tmp/shots
+          for t in 5 15 30 45; do
+            sleep $((t == 5 ? 5 : 10))
+            xwininfo -root -tree > "/tmp/shots/windows-$t.txt" 2>&1
+            import -window root "/tmp/shots/ecran-$t.png" 2>/dev/null \
+              && echo "capture à ${t}s : ok" || echo "capture à ${t}s : échec"
+            kill -0 "$APP_PID" 2>/dev/null || { echo "PROCESSUS MORT avant ${t}s"; break; }
+          done
+
+          kill "$APP_PID" 2>/dev/null
+          {
+            echo "### Sortie standard (30 dernières lignes)"
+            echo '```'; tail -30 /tmp/app-stdout.log; echo '```'
+            echo "### Erreurs (60 dernières lignes)"
+            echo '```'; tail -60 /tmp/app-stderr.log; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: verdict
+        if: always()
+        run: |
+          {
+            echo "## Carte du spike Linux"
+            echo "| Étape | Résultat |"
+            echo "|---|---|"
+            echo "| backend rust/ compile | ${{ steps.check_rust.outcome }} |"
+            echo "| coquille src-tauri compile | ${{ steps.check_tauri.outcome }} |"
+            echo "| frontend | ${{ steps.build_front.outcome }} |"
+            echo "| application complète | ${{ steps.build_app.outcome }} |"
+            echo "| lancement sous WebKitGTK | ${{ steps.run_app.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-linux
+          if-no-files-found: warn
+          path: |
+            /tmp/*.log
+            /tmp/shots/

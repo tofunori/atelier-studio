@@ -27,6 +27,12 @@ md5 = "0.7"
 dirs = "5"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
 tauri-plugin-dialog = "2"
+
+# Ponts Objective-C : AppSnap (capture de fenêtres) et le badge du Dock. Ils
+# ne compilent QUE sur Apple — déclarés hors cible, ils cassaient toute
+# tentative de build Linux avant même d'arriver au webview (spike Linux
+# 2026-08-16). Les deux modules qui les consomment sont cfg-gardés dans lib.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.4"
 objc2-app-kit = "0.3.2"
