@@ -51,7 +51,14 @@ const KB_PARITY_BIN = process.env.KB_PARITY_BIN || "";
 // (C5) : groupe d — `add --kind web` (fetch réel) + `article-doi` (Crossref
 // réel), même tolérance skip-on-network-failure que le harnais Node (MinerU
 // réel reste hors périmètre, jamais invoqué par ces fixtures).
-const RUST_BIN_SUPPORTED_GROUPS = new Set(["a-local-store.json", "b-gbrain.json", "c-article-local.json", "d-network.json"]);
+const RUST_BIN_SUPPORTED_GROUPS = new Set([
+  "a-local-store.json", "b-gbrain.json", "c-article-local.json", "d-network.json",
+  // Vague 5 (065-revue-findings.md, KBG-*) : fixtures ajoutées pour épaissir
+  // le contrat — chaque nouveau groupe n'est ajouté ici qu'une fois vérifié
+  // vert contre le binaire Rust (voir rapport de vague 5).
+  "e-kinds-heritage.json", "f-search-passages.json", "g-ensure-fresh.json",
+  "h-mineru-fake.json", "i-gbrain-corpus.json", "j-misc.json", "k-corrupt-registry.json",
+]);
 
 const ISO_EXACT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ISO_GLOBAL = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g;
@@ -69,8 +76,13 @@ function freezeString(s, ctx) {
   if (ctx.appDir) out = out.split(ctx.appDir).join("<APPDIR>");
   if (ctx.inputsDir) out = out.split(ctx.inputsDir).join("<INPUTS>");
   if (ctx.mineruScript) out = out.split(ctx.mineruScript).join("<MINERU_SCRIPT>");
+  if (ctx.kbParityDir) out = out.split(ctx.kbParityDir).join("<KBPARITY>");
   out = out.replace(ISO_GLOBAL, "<ISO>");
   out = out.replace(/captured: \d{4}-\d{2}-\d{2}/g, "captured: <DATE>");
+  // Nom de sauvegarde d'un registre corrompu (reloadFromDisk/reload_from_disk)
+  // — le suffixe est Date.now()/SystemTime en millis, jamais reproductible
+  // d'un run/moteur à l'autre (KBG-08).
+  out = out.replace(/knowledge\.json\.corrupt-\d+/g, "knowledge.json.corrupt-<NUM>");
   return out;
 }
 
@@ -131,12 +143,37 @@ function loadFixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), "utf8"));
 }
 
+// --- opérations internes au harnais (pas un spawn CLI) ----------------------
+// Un step `op` mute l'environnement de fichiers ENTRE deux invocations réelles
+// du CLI (ex: réécrire une source mutable pour exercer ensureFresh, ou
+// supprimer un cache d'extraction pour vérifier la reconstruction/l'erreur).
+// Jamais de spawn ici — juste du fs Node, toujours sous workRoot/appDir.
+function runOpStep(step, ctx) {
+  if (step.op === "write-file") {
+    const target = resolvePlaceholders(step.path, ctx.vars);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, resolvePlaceholders(step.content, ctx.vars));
+    return;
+  }
+  if (step.op === "rm-path") {
+    const target = resolvePlaceholders(step.path, ctx.vars);
+    fs.rmSync(target, { force: true, recursive: true });
+    return;
+  }
+  throw new Error(`op de step inconnue: ${step.op}`);
+}
+
 // --- exécution d'un step ----------------------------------------------------
 
 async function runStep(t, step, ctx) {
+  if (step.op) {
+    runOpStep(step, ctx);
+    return;
+  }
   const args = resolvePlaceholders(step.args, ctx.vars).map(String);
   const stdin = step.stdin !== undefined ? resolvePlaceholders(step.stdin, ctx.vars) : undefined;
-  const res = runCli(args, { stdin, env: ctx.env });
+  const stepEnv = step.env ? resolvePlaceholders(step.env, ctx.vars) : {};
+  const res = runCli(args, { stdin, env: { ...ctx.env, ...stepEnv } });
   const expect = step.expect;
 
   if (step.network && res.status !== expect.exitCode && NETWORK_ERROR_PATTERN.test(res.stderr)) {
@@ -210,7 +247,7 @@ function setupGroup(workRoot, fixture) {
   const appDir = path.join(groupDir, "appdir");
   fs.mkdirSync(appDir, { recursive: true });
   const env = { ATELIER_APP_DIR: appDir };
-  const freeze = { appDir, inputsDir: INPUTS_DIR };
+  const freeze = { appDir, inputsDir: INPUTS_DIR, kbParityDir: KB_PARITY_DIR };
   if (fixture.env.gbrain) {
     const store = path.join(groupDir, "gbrain-store");
     env.ATELIER_TEST_GBRAIN = FAKE_GBRAIN;
@@ -220,12 +257,25 @@ function setupGroup(workRoot, fixture) {
     // local (donc ATELIER_TEST_GBRAIN/fake-gbrain.mjs), comme documenté par
     // ce commit ; sans ce flag les fixtures gbrain partaient en ssh réel.
     env.ATELIER_GBRAIN_SSH_HOST = "";
+    if (fixture.env.gbrainFail) env.FAKE_GBRAIN_FAIL = fixture.env.gbrainFail;
   }
   if (fixture.env.mineruDisabled) {
     const bogus = path.join(workRoot, "no-such-mineru.py");
     env.ATELIER_MINERU_SCRIPT = bogus;
     freeze.mineruScript = bogus;
   }
+  if (fixture.env.mineruFake) {
+    // resolveMineru()/resolve_mineru() cherchent `~/.mineru_token` via
+    // homedir()/$HOME — un HOME de scratch avec un jeton vide suffit à passer
+    // la garde sans toucher le HOME réel de l'opérateur (jamais le vrai
+    // script/jeton MinerU, jamais d'appel payant). ATELIER_MINERU_SCRIPT est
+    // fourni PAR STEP (script succès vs échec), pas ici.
+    const fakeHome = path.join(groupDir, "mineru-fake-home");
+    fs.mkdirSync(fakeHome, { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, ".mineru_token"), "fixture-token\n");
+    env.HOME = fakeHome;
+  }
+  const seededSources = [];
   for (const setupStep of fixture.setup ?? []) {
     if (setupStep.kind === "seed-gbrain") {
       const content = fs.readFileSync(path.join(INPUTS_DIR, setupStep.fromInput), "utf8");
@@ -235,14 +285,52 @@ function setupGroup(workRoot, fixture) {
         env: { ...process.env, FAKE_GBRAIN_STORE: env.FAKE_GBRAIN_STORE },
       });
       assert.equal(res.status, 0, `setup ${setupStep.id}: fake-gbrain put a échoué (${res.stderr})`);
+    } else if (setupStep.kind === "write-file") {
+      // Écrit un fichier arbitraire (chemin relatif à appDir) AVANT le
+      // premier appel CLI du groupe — seul moyen de fixer un registre
+      // corrompu dès la toute première invocation (KBG-08 : la deuxième
+      // invocation trouverait knowledge.json déjà renommé en .corrupt-*,
+      // donc "absent" plutôt que "corrompu" — pas le même chemin de code).
+      const target = path.join(appDir, setupStep.path);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, setupStep.content);
+    } else if (setupStep.kind === "copy-input") {
+      // Copie mutable d'un input fixe vers <appdir>/<to> : les fichiers sous
+      // inputs/ restent lecture seule (réutilisables d'un run à l'autre),
+      // cette copie sous appDir peut être réécrite par un step `op` suivant
+      // (ensureFresh — KBG-01).
+      const from = path.join(INPUTS_DIR, setupStep.fromInput);
+      const to = path.join(appDir, setupStep.to);
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
+    } else if (setupStep.kind === "seed-source") {
+      // Registre + cache PRÉFABRIQUÉS directement sur disque (pas de spawn
+      // CLI) — seul moyen de fixer une source youtube/zotero déjà épinglée
+      // sans dépendre de yt-dlp ni d'une bibliothèque Zotero réelle (KBG-04).
+      seededSources.push(setupStep.source);
+      const cacheDir = path.join(appDir, "knowledge", "cache");
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(cacheDir, `${setupStep.source.id}.json`),
+        JSON.stringify({ version: 1, ...setupStep.cache }),
+      );
     } else {
       throw new Error(`kind de setup inconnu: ${setupStep.kind}`);
     }
   }
+  if (seededSources.length) {
+    const knowledgeDir = path.join(appDir, "knowledge");
+    fs.mkdirSync(knowledgeDir, { recursive: true });
+    const registryPath = path.join(knowledgeDir, "knowledge.json");
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify({ version: 2, collections: [], sources: seededSources }, null, 2),
+    );
+  }
   return {
     env,
     freeze,
-    vars: { APPDIR: appDir, INPUTS: INPUTS_DIR },
+    vars: { APPDIR: appDir, INPUTS: INPUTS_DIR, KBPARITY: KB_PARITY_DIR },
   };
 }
 
@@ -279,4 +367,32 @@ test("kb parity: c-article-local", async (t) => {
 
 test("kb parity: d-network", async (t) => {
   await runGroup(t, "d-network.json");
+});
+
+test("kb parity: f-search-passages", async (t) => {
+  await runGroup(t, "f-search-passages.json");
+});
+
+test("kb parity: g-ensure-fresh", async (t) => {
+  await runGroup(t, "g-ensure-fresh.json");
+});
+
+test("kb parity: e-kinds-heritage", async (t) => {
+  await runGroup(t, "e-kinds-heritage.json");
+});
+
+test("kb parity: h-mineru-fake", async (t) => {
+  await runGroup(t, "h-mineru-fake.json");
+});
+
+test("kb parity: i-gbrain-corpus", async (t) => {
+  await runGroup(t, "i-gbrain-corpus.json");
+});
+
+test("kb parity: j-misc", async (t) => {
+  await runGroup(t, "j-misc.json");
+});
+
+test("kb parity: k-corrupt-registry", async (t) => {
+  await runGroup(t, "k-corrupt-registry.json");
 });

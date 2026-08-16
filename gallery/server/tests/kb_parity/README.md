@@ -36,6 +36,37 @@ Voir `plans/065-inventaire-kb.md` pour la cartographie complète des
 | `b-gbrain.json` | `add --kind gbrain`, `gbrain-search`, `gbrain-page`, `promote-page` (preview + write) | fake-gbrain | aucun |
 | `c-article-local.json` | `article-import` (+`--progress`), `article-draft`, `article-write`, `article-list` | fake-gbrain (vide, isolé) | Crossref en best-effort (voir plus bas), MinerU désactivé |
 | `d-network.json` | `add --kind web` (fetch réel), `article-doi` (Crossref réel) | fake-gbrain (vide) | **réel**, marqué `network: true` |
+| `e-kinds-heritage.json` | `list`/`kb-text`/`search` sur des sources `youtube`/`zotero` déjà épinglées (registre+cache préfabriqués, setup `seed-source` — jamais `add`, hors périmètre) | non touché | aucun |
+| `f-search-passages.json` | `search` avec de VRAIS passages (PDF, dossier, web, file) — voir `inputs/search-vault/` | non touché | aucun |
+| `g-ensure-fresh.json` | `ensureFresh` : fichier mutable réécrit (setup `copy-input` + step `op: write-file`), cache supprimé (step `op: rm-path`) | non touché | aucun |
+| `h-mineru-fake.json` | `article-import` avec MinerU réellement spawné (`fake-mineru-ok.py`/`fake-mineru-fail.py`, jamais l'API cloud) | fake-gbrain (vide) | best-effort (Crossref, comme groupe c) |
+| `i-gbrain-corpus.json` | Corpus gbrain semé (4 pages `articles/`, bannière), `findDuplicates`/`exists`, mode panne `FAKE_GBRAIN_FAIL=1\|TIMEOUT` (3 steps d'erreur, ~20s le step timeout) | fake-gbrain (semé) | aucun |
+| `j-misc.json` | `refreshed:true` (tags/archived conservés), `tag --off`, `--ids` (tag/archive), `--dir`, `search --limit 0` | non touché | aucun |
+| `k-corrupt-registry.json` | Registre `knowledge.json` illisible dès la 1ère invocation (setup `write-file`) — sauvegarde + `warning` | non touché | aucun |
+
+Groupes e→k : vague 5 (plan 065, `plans/065-revue-findings.md`, section
+MAJEURS KBG-*) — voir les commentaires `notes`/`description` de chaque
+fixture pour le détail des pièges gelés.
+
+## Extensions du harnais (vague 5)
+
+- **`step.op`** (`write-file` / `rm-path`) : mute le système de fichiers
+  ENTRE deux invocations CLI réelles, sans spawn — jamais d'`expect`.
+- **`step.env`** : override d'environnement PAR STEP, fusionné sur l'env du
+  groupe (ex. script MinerU différent selon succès/échec dans un même
+  groupe).
+- **setup `copy-input`** : copie mutable d'un `inputs/*` figé sous
+  `<appdir>/…` — `inputs/` lui-même n'est JAMAIS réécrit.
+- **setup `seed-source`** : registre + cache préfabriqués directement sur
+  disque (pas de spawn CLI) — seul moyen de fixer une source `youtube`/
+  `zotero` déjà épinglée sans dépendre de `yt-dlp`/Zotero réels.
+- **setup `write-file`** : fichier arbitraire écrit AVANT le premier appel
+  CLI du groupe (registre corrompu dès la première invocation).
+- **`fake-gbrain.mjs`** : `FAKE_GBRAIN_FAIL=1|TIMEOUT` (panne immédiate /
+  jamais de réponse), `FAKE_GBRAIN_BANNER=1` (ligne parasite dans `list`).
+- **`fake-mineru-ok.py`/`fake-mineru-fail.py`** : faux script MinerU,
+  invoqués via `ATELIER_MINERU_SCRIPT` + un `HOME` de scratch portant un
+  `.mineru_token` vide (fixture.env `mineruFake`) — jamais le vrai jeton.
 
 ## Choix délibérés (et pourquoi)
 

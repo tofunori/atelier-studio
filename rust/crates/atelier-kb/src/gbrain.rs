@@ -308,7 +308,14 @@ pub fn gbrain_title(markdown: &str, slug: &str) -> String {
     slug.to_string()
 }
 
-pub(crate) fn is_valid_gbrain_slug(target: &str) -> bool {
+/// Valide le slug CIBLE d'une écriture (`promote-page --slug`,
+/// `article-write --slug`) — miroir exact de `GBRAIN_SLUG_RE`
+/// (`sidecar/knowledge.mjs`/`article.mjs`). Public (plutôt que `pub(crate)`)
+/// pour permettre le test-frontière `atelier-runtime` qui le confronte à
+/// `evidence::is_valid_gbrain_slug` — voir la note à côté de ce dernier :
+/// CE N'EST PAS le même validateur (écriture vs lecture d'un lien de
+/// passage), ne jamais les fusionner sans re-vérifier la parité Node.
+pub fn is_valid_gbrain_slug(target: &str) -> bool {
     SLUG_RE.is_match(target) && !target.chars().any(char::is_whitespace)
 }
 

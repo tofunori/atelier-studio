@@ -1,0 +1,152 @@
+{
+  "description": "Divers bon marché (plans/065-revue-findings.md, vague 5) : KBG-07 (refreshed:true avec tags/archived conservés au ré-épinglage), KBG-09 (tag --off jamais testé jusqu'ici — seul archive --off l'était côté a-local-store.json ; --ids sur tag/archive ; search --limit 0), KBG-15 (--dir isole un registre entièrement différent du défaut ATELIER_APP_DIR).",
+  "env": { "appdir": "j-misc" },
+  "steps": [
+    {
+      "id": "add-note-v1",
+      "args": ["add", "--kind", "note", "--title", "Stable Title", "--text", "Version initiale du contenu."],
+      "capture": { "noteId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 28, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "collection-add",
+      "args": ["collection", "--add", "Projet Test"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "projet-test", "collections": [{ "slug": "projet-test", "title": "Projet Test" }] } }
+    },
+    {
+      "id": "tag-note",
+      "args": ["tag", "--id", "{{noteId}}", "--collection", "projet-test"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 28, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["projet-test"], "archived": false } } }
+    },
+    {
+      "id": "archive-note",
+      "args": ["archive", "--id", "{{noteId}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 28, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["projet-test"], "archived": true } } }
+    },
+    {
+      "id": "re-add-note-refreshed-preserves-tags-and-archived",
+      "notes": "KBG-07 : même titre (même id déterministe) mais texte plus long -> refreshed:true, chars mis à jour, MAIS collections=[\"projet-test\"] et archived=true conservés depuis avant (upsertRaw/upsert_raw reprennent prev.collections/prev.archived quelle que soit la nouvelle donnée) — ni un simple `add` ni un `tag`/`archive` séparé ne les auraient réinitialisés à vide/false.",
+      "args": ["add", "--kind", "note", "--title", "Stable Title", "--text", "Version mise a jour et sensiblement plus longue pour verifier refreshed."],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 72, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["projet-test"], "archived": true }, "refreshed": true }
+      }
+    },
+    {
+      "id": "add-second-note",
+      "args": ["add", "--kind", "note", "--title", "Autre note", "--text", "Contenu de la deuxieme note pour les options en lot."],
+      "capture": { "note2Id": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "d9064518", "kind": "note", "title": "Autre note", "origin": null, "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "tag-ids-multiple",
+      "notes": "KBG-09 : --ids a,b (tagMany/tag_many) jamais couvert jusqu'ici — seul --id (unitaire) l'était.",
+      "args": ["tag", "--ids", "{{noteId}},{{note2Id}}", "--collection", "projet-test"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "applied": 2 } }
+    },
+    {
+      "id": "tag-off-single",
+      "notes": "KBG-09 : tag --off jamais couvert jusqu'ici (seul archive --off l'était dans a-local-store.json). updatedAt inchangé (comme archive), seul collections change.",
+      "args": ["tag", "--id", "{{noteId}}", "--collection", "projet-test", "--off"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "source": { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 72, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": true } } }
+    },
+    {
+      "id": "archive-ids-multiple",
+      "args": ["archive", "--ids", "{{noteId}},{{note2Id}}"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "applied": 2 } }
+    },
+    {
+      "id": "archive-ids-multiple-off",
+      "args": ["archive", "--ids", "{{noteId}},{{note2Id}}", "--off"],
+      "expect": { "exitCode": 0, "stdout": { "ok": true, "applied": 2 } }
+    },
+    {
+      "id": "add-file-for-limit-test",
+      "args": ["add", "--kind", "file", "--origin", "{{INPUTS}}/large.csv"],
+      "capture": { "csvId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "search-limit-zero-falls-back-to-default",
+      "notes": "KBG-09 : --limit 0 — PIÈGE JS gelé ici : `Number(\"0\") || 5` vaut 5 (0 est FAUX en JavaScript), donc --limit 0 se comporte comme --limit absent (5), PAS comme une limite de zéro résultat. C'est un vrai bug corrigé côté Rust dans cette même vague (opt_limit, cli.rs) : `\"0\".parse().unwrap_or(5)` gardait 0 puis le clampait à 1 — divergence désormais fermée, jamais contournée côté fixture.",
+      "args": ["search", "--id", "{{csvId}}", "--query", "albedo", "--limit", "0"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "large.csv", "kind": "file", "origin": "<INPUTS>/large.csv", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true } },
+          "query": "albedo", "count": 2,
+          "passages": [
+            { "page": 1, "quote": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | si", "context": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | site-6 | 0.259 | TRUE | | 2014 | site-0 | 0.62 | TRUE |", "score": 8.85, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" },
+            { "page": 1, "quote": "2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy.", "context": "| colonne | type | remplissage | étendue / valeurs | | --- | --- | --- | --- | | year | nombre | complète | 2000 → 2024 (moy. 2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy. 0.5034) | | flag | booléen | complète | |", "score": 8.68, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "list-default-dir-unaffected-before-alt-dir-add",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 3,
+          "sources": [
+            { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false },
+            { "id": "d9064518", "kind": "note", "title": "Autre note", "origin": null, "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["projet-test"], "archived": false },
+            { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 72, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }
+          ],
+          "collections": [{ "slug": "projet-test", "title": "Projet Test" }],
+          "archivedCount": 0, "archivedSources": []
+        }
+      }
+    },
+    {
+      "id": "add-note-alt-dir",
+      "notes": "KBG-15 : --dir pointe vers un registre ENTIÈREMENT différent (jamais <APPDIR>/knowledge) — cette source n'existe QUE là.",
+      "args": ["add", "--kind", "note", "--title", "Note alternative", "--text", "Rangee dans un repertoire different via --dir.", "--dir", "{{APPDIR}}/alt-knowledge-dir"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "4965d7e6", "kind": "note", "title": "Note alternative", "origin": null, "chars": 46, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "list-default-dir-still-isolated",
+      "notes": "Le registre par défaut (<APPDIR>/knowledge) ne voit PAS la note ajoutée via --dir : même sortie EXACTE que list-default-dir-unaffected-before-alt-dir-add, count toujours 3.",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 3,
+          "sources": [
+            { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false },
+            { "id": "d9064518", "kind": "note", "title": "Autre note", "origin": null, "chars": 52, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": ["projet-test"], "archived": false },
+            { "id": "0f24a16e", "kind": "note", "title": "Stable Title", "origin": null, "chars": 72, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }
+          ],
+          "collections": [{ "slug": "projet-test", "title": "Projet Test" }],
+          "archivedCount": 0, "archivedSources": []
+        }
+      }
+    },
+    {
+      "id": "list-alt-dir-shows-only-its-own-source",
+      "args": ["list", "--dir", "{{APPDIR}}/alt-knowledge-dir"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 1,
+          "sources": [{ "id": "4965d7e6", "kind": "note", "title": "Note alternative", "origin": null, "chars": 46, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }],
+          "collections": [], "archivedCount": 0, "archivedSources": []
+        }
+      }
+    }
+  ]
+}

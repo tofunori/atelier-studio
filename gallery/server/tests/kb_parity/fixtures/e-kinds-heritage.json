@@ -1,0 +1,144 @@
+{
+  "description": "KBG-04 (plans/065-revue-findings.md, vague 5) : kinds `youtube`/`zotero` déjà épinglés par le moteur Node AVANT une bascule (add reste hors périmètre ici — yt-dlp/bibliothèque Zotero réelles, voir kb_parity/README.md) mais list/kb-text/search doivent les servir et les décorer À L'IDENTIQUE quel que soit le moteur actif. Registre + caches PRÉFABRIQUÉS directement sur disque (setup `seed-source`), jamais via `add`. Gèle aussi le garde-fou « jamais de lien sans méta » (note de passation 2026-08-16, docs/CONTRATS_KB_RUST.md) : searchCorpus/decoratePassage n'ajoutent markdownLink pour un zotero que si zoteroKey ET pdfKey ET pdfFile sont TOUS les trois présents — la deuxième source zotero ci-dessous n'a pas zoteroKey et sert de témoin négatif.",
+  "env": { "appdir": "e-kinds-heritage" },
+  "setup": [
+    {
+      "id": "seed-youtube",
+      "kind": "seed-source",
+      "source": {
+        "id": "160a857b",
+        "kind": "youtube",
+        "title": "Video fixture glacier",
+        "origin": "https://www.youtube.com/watch?v=fixtureVid1",
+        "chars": 231,
+        "addedAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "meta": { "segmentSeconds": 60, "segments": 2, "duration": 130, "channel": "Chaine Glaciologie" },
+        "collections": [],
+        "archived": false
+      },
+      "cache": {
+        "pages": [
+          { "page": 1, "text": "Bienvenue dans cette video sur les glaciers alpins et leur evolution recente face au changement climatique." },
+          { "page": 2, "text": "Les resultats montrent une acceleration nette de la fonte glaciaire et une baisse significative de albedo de surface en ete." }
+        ]
+      }
+    },
+    {
+      "id": "seed-zotero-with-full-meta",
+      "kind": "seed-source",
+      "source": {
+        "id": "9e2a1c30",
+        "kind": "zotero",
+        "title": "Williamson 2021 (fixture)",
+        "origin": "/nonexistent/zotero-fixture/ITEM123/Williamson 2021.pdf",
+        "chars": 103,
+        "addedAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "meta": { "pages": 1, "mtimeMs": 1700000000000, "size": 84213, "pdfKey": "PDFKEY1", "pdfFile": "Williamson 2021.pdf", "zoteroKey": "ITEM123" },
+        "collections": [],
+        "archived": false
+      },
+      "cache": { "pages": [{ "page": 1, "text": "Fire aerosol deposition reduced summer albedo across the studied basin according to field measurements." }] }
+    },
+    {
+      "id": "seed-zotero-without-zotero-key",
+      "kind": "seed-source",
+      "source": {
+        "id": "5b7f4491",
+        "kind": "zotero",
+        "title": "Sans cles zotero (fixture)",
+        "origin": "/nonexistent/zotero-fixture/ITEM999/Sans Cles.pdf",
+        "chars": 103,
+        "addedAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "meta": { "pages": 1, "mtimeMs": 1700000000000, "size": 51200, "pdfKey": "PDFKEY9", "pdfFile": "Sans Cles.pdf" },
+        "collections": [],
+        "archived": false
+      },
+      "cache": { "pages": [{ "page": 1, "text": "Winter snowfall totals were below normal and glacier mass balance remained slightly negative this year." }] }
+    }
+  ],
+  "steps": [
+    {
+      "id": "list-shows-both-heritage-kinds",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 3,
+          "sources": [
+            { "id": "160a857b", "kind": "youtube", "title": "Video fixture glacier", "origin": "https://www.youtube.com/watch?v=fixtureVid1", "chars": 231, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "segmentSeconds": 60, "segments": 2, "duration": 130, "channel": "Chaine Glaciologie" }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "zotero", "title": "Williamson 2021 (fixture)", "origin": "/nonexistent/zotero-fixture/ITEM123/Williamson 2021.pdf", "chars": 103, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 84213, "pdfKey": "PDFKEY1", "pdfFile": "Williamson 2021.pdf", "zoteroKey": "ITEM123" }, "collections": [], "archived": false },
+            { "id": "<ID>", "kind": "zotero", "title": "Sans cles zotero (fixture)", "origin": "/nonexistent/zotero-fixture/ITEM999/Sans Cles.pdf", "chars": 103, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 51200, "pdfKey": "PDFKEY9", "pdfFile": "Sans Cles.pdf" }, "collections": [], "archived": false }
+          ],
+          "collections": [], "archivedCount": 0, "archivedSources": []
+        }
+      }
+    },
+    {
+      "id": "kb-text-youtube-joins-segments",
+      "args": ["kb-text", "--id", "160a857b"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "id": "160a857b", "kind": "youtube", "title": "Video fixture glacier", "origin": "https://www.youtube.com/watch?v=fixtureVid1", "chars": 231, "text": "Bienvenue dans cette video sur les glaciers alpins et leur evolution recente face au changement climatique.\n\nLes resultats montrent une acceleration nette de la fonte glaciaire et une baisse significative de albedo de surface en ete." }
+      }
+    },
+    {
+      "id": "kb-text-zotero",
+      "args": ["kb-text", "--id", "9e2a1c30"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "id": "<ID>", "kind": "zotero", "title": "Williamson 2021 (fixture)", "origin": "/nonexistent/zotero-fixture/ITEM123/Williamson 2021.pdf", "chars": 103, "text": "Fire aerosol deposition reduced summer albedo across the studied basin according to field measurements." }
+      }
+    },
+    {
+      "id": "search-youtube-decorates-timestamp-mmss-and-t-link",
+      "notes": "page 2 -> bucket (page-1)*segmentSeconds=60s -> location \"1:00\", cite \"[kb:<id> · 1:00]\", markdownLink avec &t=60s (origin contient déjà \"?v=…\", donc séparateur & pas ?).",
+      "args": ["search", "--id", "160a857b", "--query", "resultats acceleration albedo"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "160a857b", "title": "Video fixture glacier", "kind": "youtube", "origin": "https://www.youtube.com/watch?v=fixtureVid1", "meta": { "segmentSeconds": 60, "segments": 2, "duration": 130, "channel": "Chaine Glaciologie" } },
+          "query": "resultats acceleration albedo", "count": 1,
+          "passages": [
+            { "page": 2, "quote": "Les resultats montrent une acceleration nette de la fonte glaciaire et une baisse significative de albedo de surface en ete.", "context": "Les resultats montrent une acceleration nette de la fonte glaciaire et une baisse significative de albedo de surface en ete.", "score": 21.08, "timestamp": 60, "location": "1:00", "cite": "[kb:160a857b · 1:00]", "markdownLink": "[Ouvrir à 1:00](https://www.youtube.com/watch?v=fixtureVid1&t=60s)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-zotero-with-full-meta-has-passage-link",
+      "notes": "Les trois clés (zoteroKey/pdfKey/pdfFile) sont présentes : markdownLink = passage_link (#atelier-zotero-passage?key=…&pdfKey=…&file=…&page=…&quote=…), même contrat que le PDF Zotero réel.",
+      "args": ["search", "--id", "9e2a1c30", "--query", "fire aerosol albedo"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "Williamson 2021 (fixture)", "kind": "zotero", "origin": "/nonexistent/zotero-fixture/ITEM123/Williamson 2021.pdf", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 84213, "pdfKey": "PDFKEY1", "pdfFile": "Williamson 2021.pdf", "zoteroKey": "ITEM123" } },
+          "query": "fire aerosol albedo", "count": 1,
+          "passages": [
+            { "page": 1, "quote": "Fire aerosol deposition reduced summer albedo across the studied basin according to field measurements.", "context": "Fire aerosol deposition reduced summer albedo across the studied basin according to field measurements.", "score": 33.56, "location": "p.1", "cite": "[kb:9e2a1c30 · p.1]", "markdownLink": "[Ouvrir le passage — p. 1](#atelier-zotero-passage?key=ITEM123&pdfKey=PDFKEY1&file=Williamson+2021.pdf&page=1&quote=Fire+aerosol+deposition+reduced+summer+albedo+across+the+studied+basin+according+to+field+measurements.)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-zotero-without-zotero-key-has-no-passage-link",
+      "notes": "Garde-fou « jamais de lien sans méta » (note de passation 2026-08-16) : zoteroKey absent (pdfKey/pdfFile présents) -> location/cite comme d'habitude, mais AUCUN markdownLink — jamais de lien approximatif/cassé.",
+      "args": ["search", "--id", "5b7f4491", "--query", "glacier mass balance"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "Sans cles zotero (fixture)", "kind": "zotero", "origin": "/nonexistent/zotero-fixture/ITEM999/Sans Cles.pdf", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 51200, "pdfKey": "PDFKEY9", "pdfFile": "Sans Cles.pdf" } },
+          "query": "glacier mass balance", "count": 1,
+          "passages": [
+            { "page": 1, "quote": "Winter snowfall totals were below normal and glacier mass balance remained slightly negative this year.", "context": "Winter snowfall totals were below normal and glacier mass balance remained slightly negative this year.", "score": 47.56, "location": "p.1", "cite": "[kb:5b7f4491 · p.1]" }
+          ]
+        }
+      }
+    }
+  ]
+}

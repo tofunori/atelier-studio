@@ -1,0 +1,69 @@
+{
+  "description": "KBG-10/11/13 (plans/065-revue-findings.md, vague 5) : corpus gbrain semé (4 pages articles) pour article-list (+ bannière d'auto-mise à jour du CLI réel, ignorée) et findDuplicates/exists (DOI partagé entre deux pages, slug exact pour la sonde d'existence) ; puis 3 steps d'erreur via le mode panne FAKE_GBRAIN_FAIL du faux binaire (échec immédiat ×2 commandes, timeout ×1 — même disjoncteur 20s que le NAS réel injoignable).",
+  "env": { "appdir": "i-gbrain-corpus", "gbrain": true, "mineruDisabled": true },
+  "setup": [
+    { "id": "seed-aoki-exact-slug", "kind": "seed-gbrain", "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "fromInput": "gbrain-corpus/aoki-2022-melting-alpine-glaciers-under.md" },
+    { "id": "seed-aoki-same-doi", "kind": "seed-gbrain", "slug": "articles/other-aoki-review", "fromInput": "gbrain-corpus/other-aoki-review.md" },
+    { "id": "seed-second-article", "kind": "seed-gbrain", "slug": "articles/second-article", "fromInput": "gbrain-corpus/second-article.md" },
+    { "id": "seed-third-article", "kind": "seed-gbrain", "slug": "articles/third-article", "fromInput": "gbrain-corpus/third-article.md" }
+  ],
+  "steps": [
+    {
+      "id": "article-import-exists-true-and-doi-duplicate",
+      "notes": "Le slug AUTO-COMPUTÉ pour sample.pdf (articles/aoki-2022-melting-alpine-glaciers-under, identique à c-article-local.json) existe déjà dans le corpus semé -> exists:true. articles/other-aoki-review partage le MÊME DOI (10.1234/fixture.2022.001) sous un slug DIFFÉRENT -> 1 doublon why:\"doi\" (le self-match sur le slug identique est exclu). Recherche par mots du titre : aucune, car la requête espace-séparée ne matche aucun slug/contenu semé (fake-gbrain fait un simple includes(), jamais un vrai matching par mots).",
+      "network": "best-effort (Crossref, dégrade proprement si hors-ligne — comme article-import-local)",
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "draftId": "f0a39a4d07f8", "path": "<INPUTS>/sample.pdf",
+          "meta": { "title": "Melting of Alpine Glaciers Under Recent Warming", "authors": "T. Aoki and K. Kuchiki", "journal": "", "doi": "10.1234/fixture.2022.001", "year": 2022 },
+          "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "exists": true, "converter": "local",
+          "duplicates": [{ "slug": "articles/other-aoki-review", "snippet": "Cet article de synthese cite le meme DOI que la fixture PDF locale (10.1234/fixt", "why": "doi" }],
+          "metaSource": "texte", "chars": 497,
+          "preview": "---\ntitle: \"Melting of Alpine Glaciers Under Recent Warming\"\nauthors: [\"T. Aoki and K. Kuchiki\"]\nyear: 2022\ndoi: \"10.1234/fixture.2022.001\"\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: local\ntype: article\n---\n\nMelting of Alpine Glaciers Under Recent Warming\nT. Aoki and K. Kuchiki\nPublished: 11 January 2022 DOI: 10.1234/fixture.2022.001\nAbstract\nWe present a fixture article used only to test the Atelier knowledge base CLI. It\nis not a real scientific publication.\nIntroduction\nAlbedo decline drives melt. Results show significant increase in melt rate during\nthe study period, with root-mean-square error below 5 percent.\nConclusion\nWe conclude that fixture PDFs are sufficient for CLI parity testing.\n\n1\n",
+          "warning": "script MinerU introuvable (<MINERU_SCRIPT>)"
+        }
+      }
+    },
+    {
+      "id": "article-list-ignores-banner-line",
+      "notes": "FAKE_GBRAIN_BANNER=1 (step-only) fait précéder la sortie `list` d'une ligne SANS 4 colonnes tab-séparées, comme le vrai CLI gbrain quand une mise à jour est disponible — parseArticleList/parse_article_list doivent l'ignorer silencieusement. count=4 (pas 5), ordre = ordre d'insertion (toutes les dates valent 2026-08-15 côté fake-gbrain, tri stable).",
+      "env": { "FAKE_GBRAIN_BANNER": "1" },
+      "args": ["article-list", "--limit", "10"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 4,
+          "articles": [
+            { "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "type": "article", "date": "<DATE>", "title": "Melting of Alpine Glaciers Under Recent Warming (NAS)" },
+            { "slug": "articles/other-aoki-review", "type": "article", "date": "<DATE>", "title": "A Review Citing Aoki 2022" },
+            { "slug": "articles/second-article", "type": "article", "date": "<DATE>", "title": "Second Fixture Article" },
+            { "slug": "articles/third-article", "type": "article", "date": "<DATE>", "title": "Third Fixture Article" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "error-gbrain-search-immediate-failure",
+      "notes": "FAKE_GBRAIN_FAIL=1 (step-only) : le faux binaire échoue immédiatement (exit 1) AVANT même de toucher le store — runGbrain/run_gbrain propagent le message stderr brut, borné/trimmé identiquement des deux côtés.",
+      "env": { "FAKE_GBRAIN_FAIL": "1" },
+      "args": ["gbrain-search", "--query", "x"],
+      "expect": { "exitCode": 1, "stderr": "fake-gbrain: panne simulee (fixture FAKE_GBRAIN_FAIL=1)" }
+    },
+    {
+      "id": "error-add-gbrain-immediate-failure",
+      "notes": "Même panne, commande différente (add --kind gbrain appelle runGbrain([\"get\",slug]) en interne) — vérifie que l'échec se propage identiquement par un chemin de code différent.",
+      "env": { "FAKE_GBRAIN_FAIL": "1" },
+      "args": ["add", "--kind", "gbrain", "--origin", "articles/second-article"],
+      "expect": { "exitCode": 1, "stderr": "fake-gbrain: panne simulee (fixture FAKE_GBRAIN_FAIL=1)" }
+    },
+    {
+      "id": "error-gbrain-search-timeout",
+      "notes": "FAKE_GBRAIN_FAIL=TIMEOUT : le faux binaire ne répond JAMAIS — le disjoncteur de l'appelant (GBRAIN_TIMEOUT_MS=20s, identique Node/Rust) doit tuer le process lui-même et rendre le même message. ~20s réels par moteur testé : coûteux mais explicitement demandé (KBG-13, chemin jamais fixturé avant).",
+      "env": { "FAKE_GBRAIN_FAIL": "TIMEOUT" },
+      "args": ["gbrain-search", "--query", "x"],
+      "expect": { "exitCode": 1, "stderr": "gbrain : délai dépassé (NAS injoignable ?)" }
+    }
+  ]
+}

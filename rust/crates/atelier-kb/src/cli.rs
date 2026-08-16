@@ -83,6 +83,21 @@ fn opt_bool(options: &Map<String, Value>, key: &str) -> bool {
     options.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// Miroir de `Number(options.limit) || default` (Node, `kb_cli.mjs`/
+/// `article.mjs`) — KBG-09 (plans/065-revue-findings.md, vague 5) : `0` est
+/// FAUX en JavaScript, donc `--limit 0` retombe sur `default` côté Node.
+/// `s.parse::<i64>().ok().unwrap_or(default)` ne retombe que sur échec de
+/// parsing, jamais sur un `0` parsé avec succès — sans ce filtre, `--limit 0`
+/// divergeait (ex. `search`: Node rend 5 passages, Rust n'en rendait qu'1
+/// après un `clamp(1, 10)` de `0`). Toute autre valeur (négative comprise)
+/// se comporte déjà à l'identique du côté Node (clampée ensuite).
+fn opt_limit(options: &Map<String, Value>, key: &str, default: i64) -> i64 {
+    opt_str(options, key)
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|&n| n != 0)
+        .unwrap_or(default)
+}
+
 fn read_all_stdin() -> Result<String, String> {
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf).map_err(|e| e.to_string())?;
@@ -279,7 +294,7 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
         "search" => {
             let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id".to_string())?;
             let query = opt_str(&parsed.options, "query").ok_or("Argument requis: --query".to_string())?;
-            let limit_raw = opt_str(&parsed.options, "limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(5);
+            let limit_raw = opt_limit(&parsed.options, "limit", 5);
             let limit = limit_raw.clamp(1, 10) as usize;
             let (source, passages) = store.search(id, query, limit)?;
             let decorated: Vec<Value> = passages.iter().map(|(p, file)| decorate_passage(&source, p, file.as_deref())).collect();
@@ -305,7 +320,7 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
         // plus pour ces commandes).
         "gbrain-search" => {
             let query = opt_str(&parsed.options, "query").ok_or("Argument requis: --query".to_string())?;
-            let limit_raw = opt_str(&parsed.options, "limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(12);
+            let limit_raw = opt_limit(&parsed.options, "limit", 12);
             let limit = limit_raw.clamp(1, 25) as usize;
             let raw = crate::gbrain::run_gbrain(&["search", query], None)?;
             let results: Vec<Value> = crate::gbrain::parse_gbrain_search(&raw)
@@ -353,7 +368,7 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             crate::article::import_doi(doi, &store.dir)
         }
         "article-list" => {
-            let limit = opt_str(&parsed.options, "limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(20);
+            let limit = opt_limit(&parsed.options, "limit", 20);
             let articles = crate::article::list_articles(limit)?;
             let arr: Vec<Value> = articles
                 .into_iter()
@@ -391,6 +406,30 @@ mod tests {
 
     fn passage(page: u32, quote: &str) -> Passage {
         Passage { page, quote: quote.to_string(), context: quote.to_string(), score: 1.0 }
+    }
+
+    // KBG-09 (plans/065-revue-findings.md, vague 5) : `--limit 0` divergeait
+    // de Node — `Number("0") || default` retombe sur `default` (0 est faux en
+    // JS), alors que `"0".parse::<i64>().ok().unwrap_or(default)` gardait 0
+    // (parsing réussi) avant d'être clampé à 1. Verrouille `opt_limit` contre
+    // une régression future.
+    #[test]
+    fn opt_limit_traite_zero_comme_number_x_ou_default_cote_js() {
+        let mut options = Map::new();
+        options.insert("limit".into(), json!("0"));
+        assert_eq!(opt_limit(&options, "limit", 5), 5, "0 est faux en JS -> retombe sur le défaut");
+
+        options.insert("limit".into(), json!("3"));
+        assert_eq!(opt_limit(&options, "limit", 5), 3, "une valeur non nulle est prise telle quelle");
+
+        options.insert("limit".into(), json!("bogus"));
+        assert_eq!(opt_limit(&options, "limit", 5), 5, "échec de parsing -> défaut, comme NaN || default");
+
+        let empty = Map::new();
+        assert_eq!(opt_limit(&empty, "limit", 5), 5, "option absente -> défaut");
+
+        options.insert("limit".into(), json!("-3"));
+        assert_eq!(opt_limit(&options, "limit", 5), -3, "négatif : gardé tel quel, clampé ensuite (comme Node)");
     }
 
     // B3 (plans/065-revue-findings.md) : décoration youtube/zotero perdue
