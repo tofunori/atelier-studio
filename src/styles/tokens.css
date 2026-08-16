@@ -9,11 +9,13 @@
 :root {
   /* -- surfaces ----------------------------------------------------------- */
   --surface-app: var(--bg);
-  /* Le chrome permanent (rail, panneaux, headers) forme un seul canvas.
-   * --bg-side reste disponible aux éditeurs/terminaux qui ont besoin d'un
-   * véritable fond inset, mais ne doit plus teinter la structure de l'app. */
-  --surface-panel: var(--surface-app);
-  --surface-header: var(--surface-app);
+  /* Décision 2026-08-16 (retour Thierry « trop carré ») : les zones se
+   * distinguent par une nuance de fond, pas par des traits. Panneaux et
+   * headers prennent un ton entre le canvas et --bg-side ; les grands
+   * séparateurs 1px deviennent redondants là où les fonds diffèrent.
+   * (Remplace la direction « un seul canvas » du plan précédent.) */
+  --surface-panel: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
+  --surface-header: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
@@ -84,7 +86,9 @@
   /* géométrie interactive commune : recherches, boutons et sélecteurs */
   --control-height: 30px;
   --control-height-compact: 26px;
-  --border-interactive: color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  /* Dérivé de --border-default (et non --border-subtle) depuis l'adoucissement
+   * des séparateurs : les contrôles interactifs gardent leur netteté d'avant. */
+  --border-interactive: color-mix(in srgb, var(--border-default) 72%, transparent);
 
   /* resize : cible confortable inchangée, trait visuel hairline */
   --resize-handle-hit: 4px;
