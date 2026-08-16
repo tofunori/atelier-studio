@@ -2262,7 +2262,18 @@ export default function App() {
   type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null };
 
   function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
-    if (!atelierUrl || !activeProject) return;
+    // JAMAIS de non-op muet : un clic sur une pilule fichier doit répondre
+    // quelque chose (vécu 2026-08-16 — serveur galerie pas encore démarré
+    // après relance, clics sans aucun effet ni message).
+    if (!activeProject) {
+      void showError(t("chat.open-file-no-project", { name: rel.split("/").pop() ?? rel }));
+      return;
+    }
+    if (!atelierUrl) {
+      hardReloadAtelier();
+      void showError(t("chat.open-file-server-starting", { name: rel.split("/").pop() ?? rel }));
+      return;
+    }
     // chemin absolu (ou ~/) venant du chat : sous le projet actif → relatif ;
     // sinon éditeur intégré via jeton (accès serveur borné à ~/Documents,
     // ~/Desktop — voir editorPath côté galerie)
@@ -2271,7 +2282,10 @@ export default function App() {
       const root = activeProject.endsWith("/") ? activeProject : activeProject + "/";
       if (rel.startsWith(root)) rel = rel.slice(root.length);
       else if (galleryTokenRef.current) outside = rel;
-      else return;
+      else {
+        void showError(t("chat.open-file-outside", { name: rel.split("/").pop() ?? rel }));
+        return;
+      }
     }
     if (!outside) rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
@@ -2289,7 +2303,10 @@ export default function App() {
       // seuls les fichiers texte s'ouvrent dans l'éditeur intégré. Jeton
       // transporté par le fragment (withAtelierToken ci-dessous), jamais en
       // query — la navigation initiale ne doit pas le porter.
-      if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return;
+      if (["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+        void showError(t("chat.open-file-binary-outside", { name }));
+        return;
+      }
       url = ext === "md" && !options.diff
         ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
         : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
