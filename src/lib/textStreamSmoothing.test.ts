@@ -12,34 +12,46 @@ import {
   WORD_BUFFER_BASE_CHARS,
 } from "./textStreamSmoothing";
 
-/** rAF manuel : chaque frame avance l'horloge simulée de `frameMs` avant
- * d'exécuter le callback — permet de mesurer une latence simulée sans timers
- * réels ni dépendre du support rAF des fake timers vitest. */
+/** rAF manuel : chaque appel à tick() avance l'horloge simulée de `frameMs`
+ * UNE SEULE FOIS puis exécute tout ce qui était en file à cet instant —
+ * permet de mesurer une latence simulée sans timers réels ni dépendre du
+ * support rAF des fake timers vitest. rAF et le setTimeout de secours
+ * (filet anti-blocage, round 1) partagent la MÊME file/horloge simulée ici :
+ * schedule() en pose toujours DEUX (rAF + filet) par appel, donc `now` ne
+ * doit PAS avancer par callback traité mais par tick() — sans quoi une paire
+ * rAF+filet ferait avancer l'horloge deux fois plus vite qu'une frame
+ * réelle. */
 function makeManualClock(frameMs = 16) {
   let now = 0;
   let queue: Array<{ handle: number; cb: (t: number) => void }> = [];
   let nextHandle = 1;
-  const raf = (cb: (t: number) => void) => {
+  const schedule = (cb: (t: number) => void) => {
     const handle = nextHandle++;
     queue.push({ handle, cb });
     return handle;
   };
-  const caf = (handle: number) => {
+  const cancel = (handle: number) => {
     queue = queue.filter((q) => q.handle !== handle);
   };
-  /** Exécute toutes les frames actuellement en file (une génération), en
-   * avançant l'horloge de `frameMs` avant chacune — répéter pour simuler
-   * plusieurs frames successives. Retourne le nombre de callbacks exécutés. */
+  /** Exécute tout ce qui est actuellement en file (une génération), après
+   * avoir avancé l'horloge de `frameMs` — répéter pour simuler plusieurs
+   * frames successives. Retourne le nombre de callbacks exécutés. */
   const tick = (): number => {
     const batch = queue;
     queue = [];
-    for (const { cb } of batch) {
-      now += frameMs;
-      cb(now);
-    }
+    now += frameMs;
+    for (const { cb } of batch) cb(now);
     return batch.length;
   };
-  return { raf, caf, tick, now: () => now, pending: () => queue.length };
+  return {
+    raf: schedule,
+    caf: cancel,
+    setTimeoutFn: (cb: () => void) => schedule(() => cb()),
+    clearTimeoutFn: cancel,
+    tick,
+    now: () => now,
+    pending: () => queue.length,
+  };
 }
 
 describe("frameCharBudget — cadence adaptative bornée", () => {
@@ -94,6 +106,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -127,6 +141,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -153,6 +169,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => timeline.push(`text:${text}`),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -175,6 +193,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => true,
     });
@@ -213,6 +233,56 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
     expect(applied.join("")).toBe(message);
   });
 
+  // Round 1 (revue) : un rAF programmé mais jamais invoqué (webview qui
+  // suspend le rendu sans le signaler via document.hidden — occultation,
+  // optimisation d'énergie de l'OS…) bloquait le texte INDÉFINIMENT avant ce
+  // filet. Reproduit isolément : raf() enregistre son callback sans jamais
+  // l'appeler → sans filet, `applied` reste vide pour toujours.
+  it("filet anti-blocage : si rAF ne tire jamais, un setTimeout de secours force le pas", () => {
+    const applied: string[] = [];
+    let rafCalls = 0;
+    const watchdogs: Array<() => void> = [];
+    const smoother = new TextStreamSmoother({
+      apply: (_tid, text) => applied.push(text),
+      raf: () => { rafCalls += 1; return rafCalls; }, // handle rendu, callback JAMAIS invoqué
+      caf: () => {},
+      setTimeoutFn: (cb) => { watchdogs.push(cb); return watchdogs.length; },
+      clearTimeoutFn: () => {},
+      isHidden: () => false,
+      prefersReducedMotion: () => false,
+    });
+    smoother.pushDelta("t1", "Bonjour, voici l'analyse. ");
+    expect(rafCalls).toBe(1);
+    expect(applied).toEqual([]); // rien avant que le filet (ou le rAF) ne tire
+
+    // le filet tire (rAF toujours silencieux) : le texte doit sortir quand
+    // même, sans attendre un rAF qui ne viendra jamais.
+    const fire = watchdogs.shift()!;
+    fire();
+    expect(applied.join("")).not.toBe("");
+    expect("Bonjour, voici l'analyse. ".startsWith(applied.join(""))).toBe(true);
+  });
+
+  it("filet anti-blocage : si rAF tire normalement, le filet est annulé (pas de double application)", () => {
+    const clock = makeManualClock();
+    const applied: string[] = [];
+    const clearedHandles: number[] = [];
+    const smoother = new TextStreamSmoother({
+      apply: (_tid, text) => applied.push(text),
+      raf: clock.raf,
+      caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: (h) => { clearedHandles.push(h); clock.clearTimeoutFn(h); },
+      isHidden: () => false,
+      prefersReducedMotion: () => false,
+    });
+    smoother.pushDelta("t1", "Bonjour, voici l'analyse. ");
+    expect(clock.pending()).toBe(2); // rAF + filet, tous deux en attente
+    clock.tick(); // le rAF (posé en premier) tire, PUIS le filet — settled= déjà true
+    expect(applied.length).toBe(1); // une seule application, pas deux
+    expect(clearedHandles.length).toBeGreaterThan(0); // le filet a bien été annulé
+  });
+
   it("backlog de 5000 caractères : rattrapage en moins de 500 ms simulées", () => {
     const clock = makeManualClock(16); // ~60 Hz
     const applied: string[] = [];
@@ -220,6 +290,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -246,6 +318,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -263,6 +337,8 @@ describe("TextStreamSmoother — cadence régulière par mots", () => {
       apply: (_tid, text) => applied.push(text),
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });
@@ -284,6 +360,8 @@ describe("TextStreamSmoother — pas de délai artificiel", () => {
       apply: () => {},
       raf: clock.raf,
       caf: clock.caf,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
       isHidden: () => false,
       prefersReducedMotion: () => false,
     });

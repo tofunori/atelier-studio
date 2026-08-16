@@ -522,10 +522,19 @@ export default function App() {
   // lib/textStreamSmoothing.ts). Tout événement non textuel force d'abord le
   // flush du buffer du fil — l'ordre d'arrivée reste la loi, ce lissage ne
   // fait que RETARDER l'affichage du texte déjà reçu, jamais le réordonner.
+  // round 1 (revue) : le smoother est construit UNE fois (ref-initializer),
+  // donc son `apply` ne doit JAMAIS capturer applyThreadEvent directement —
+  // même si applyThreadEvent ne dépend que du setter setEvents (stable
+  // d'un render à l'autre, donc une capture à la première invocation reste
+  // fonctionnellement correcte, vérifié par test), on passe par un ref
+  // rafraîchi à CHAQUE render pour éliminer toute ambiguïté sur ce point.
+  const applyThreadEventRef = useRef<(threadId: string, event: AgentEvent) => void>(() => {});
+  applyThreadEventRef.current = applyThreadEvent;
   const textStreamSmoother = useRef<TextStreamSmoother | null>(null);
   if (!textStreamSmoother.current) {
     textStreamSmoother.current = new TextStreamSmoother({
-      apply: (threadId, text) => applyThreadEvent(threadId, { kind: "delta", text } as AgentEvent),
+      apply: (threadId, text) =>
+        applyThreadEventRef.current(threadId, { kind: "delta", text } as AgentEvent),
     });
   }
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});

@@ -22,6 +22,14 @@ export const WORD_BUFFER_BACKLOG_THRESHOLD = 400;
 export const WORD_BUFFER_BACKLOG_DIVISOR = 20;
 /** Cadence de secours (ms) quand rAF est gelé (onglet masqué). */
 const HIDDEN_TAB_TICK_MS = 50;
+/** Filet de sécurité (ms) : si un rAF programmé n'a pas tiré passé ce délai,
+ * on force le pas via setTimeout. `document.hidden` ne couvre PAS tous les
+ * cas où un WebView natif peut suspendre requestAnimationFrame sans le
+ * signaler (fenêtre occultée, optimisation d'énergie de l'OS, webview
+ * embarquée…) — sans ce filet, un rAF qui ne tire jamais bloque le texte
+ * INDÉFINIMENT (round 1, lot 066-bis : reproduit par un test unitaire où
+ * raf() enregistre son callback sans jamais l'invoquer). */
+const RAF_WATCHDOG_MS = 120;
 /** Un "mot" sans espace au-delà de budget×FACTOR (URL, CJK…) se découpe
  * quand même, plutôt que de geler l'affichage indéfiniment. */
 const LONG_TOKEN_FACTOR = 4;
@@ -132,7 +140,9 @@ export class TextStreamSmoother {
    * puisque budget ∝ backlog). Remis à jour à chaque nouvelle arrivée de
    * texte (le backlog total peut avoir grossi ou rétréci entre-temps). */
   private frameBudgets = new Map<string, number>();
-  private scheduled = new Map<string, { kind: "raf" | "timer"; handle: number }>();
+  /** `watchdog` n'existe que pour une entrée "raf" — le setTimeout de secours
+   * annulé dès que le rAF tire normalement (voir RAF_WATCHDOG_MS). */
+  private scheduled = new Map<string, { kind: "raf" | "timer"; handle: number; watchdog?: number }>();
 
   constructor(opts: TextStreamSmootherOptions) {
     this.applyFn = opts.apply;
@@ -216,8 +226,12 @@ export class TextStreamSmoother {
     const s = this.scheduled.get(threadId);
     if (!s) return;
     this.scheduled.delete(threadId);
-    if (s.kind === "raf") this.caf(s.handle);
-    else this.clearTimeoutFn(s.handle);
+    if (s.kind === "raf") {
+      this.caf(s.handle);
+      if (s.watchdog != null) this.clearTimeoutFn(s.watchdog);
+    } else {
+      this.clearTimeoutFn(s.handle);
+    }
   }
 
   private schedule(threadId: string): void {
@@ -228,13 +242,28 @@ export class TextStreamSmoother {
         this.step(threadId);
       }, HIDDEN_TAB_TICK_MS);
       this.scheduled.set(threadId, { kind: "timer", handle });
-    } else {
-      const handle = this.raf(() => {
-        this.scheduled.delete(threadId);
-        this.step(threadId);
-      });
-      this.scheduled.set(threadId, { kind: "raf", handle });
+      return;
     }
+    // rAF normal, MAIS avec un filet setTimeout (RAF_WATCHDOG_MS) : le
+    // premier des deux à tirer gagne et annule l'autre — voir le
+    // commentaire de RAF_WATCHDOG_MS pour pourquoi document.hidden seul ne
+    // suffit pas à garantir la progression.
+    let settled = false;
+    const rafHandle = this.raf(() => {
+      if (settled) return;
+      settled = true;
+      this.clearTimeoutFn(watchdogHandle);
+      this.scheduled.delete(threadId);
+      this.step(threadId);
+    });
+    const watchdogHandle = this.setTimeoutFn(() => {
+      if (settled) return;
+      settled = true;
+      this.caf(rafHandle);
+      this.scheduled.delete(threadId);
+      this.step(threadId);
+    }, RAF_WATCHDOG_MS);
+    this.scheduled.set(threadId, { kind: "raf", handle: rafHandle, watchdog: watchdogHandle });
   }
 
   private step(threadId: string): void {
