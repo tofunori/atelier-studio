@@ -51,6 +51,9 @@
   #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:6px;color:#dbdfe5;
     padding:4px 10px;cursor:pointer;font-size:12px}
   #annotPop .del{color:#ff8a8a;margin-left:auto}
+  #annotPop .cpy.ok{color:#7ACB8A;border-color:#3f6b4a}
+  #annotPop .row button{display:inline-flex;align-items:center;justify-content:center;
+    width:28px;height:26px;padding:0}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
            border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
@@ -97,6 +100,44 @@
       color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
+  /* Recherche dans le document (Cmd+F) — Zotero 7 l'a, ce lecteur non. */
+  #findBar{position:fixed;top:56px;right:18px;z-index:320;display:none;align-items:center;gap:6px;
+    background:#1d2026;border:1px solid #343842;border-radius:999px;padding:6px 8px 6px 14px;
+    box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px}
+  #findBar input{background:transparent;border:none;outline:none;color:inherit;font-size:13px;
+    width:170px;font-family:inherit}
+  #findBar input::placeholder{color:#6d7480}
+  #findBar .cnt{color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+  #findBar button{background:none;border:none;color:#b9b6ae;cursor:pointer;width:24px;height:24px;
+    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #findBar button:hover{color:#dbdfe5;background:#2c313a}
+  .textLayer span.find-hit{background:rgba(120,170,255,.42);border-radius:2px}
+  .textLayer span.find-cur{background:rgba(255,170,60,.62);border-radius:2px}
+  /* Panneau des annotations (colonne de Zotero) : tout ce qu'on a marqué dans
+     l'article, en une liste cliquable — remplace les flèches à l'aveugle. */
+  #annPane{position:fixed;top:0;right:0;bottom:0;width:290px;z-index:280;display:none;
+    flex-direction:column;background:#1b1e24;border-left:1px solid #343842;
+    box-shadow:-8px 0 28px rgba(0,0,0,.35);font-size:13px}
+  body.pane-on #pages{padding-right:306px}
+  #annPane .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;
+    border-bottom:1px solid #2a2e36;color:var(--muted);font-size:12px}
+  #annPane .hd .ttl{flex:1;color:var(--txt)}
+  #annPane .hd button{background:none;border:none;color:#8b929e;cursor:pointer;width:24px;height:24px;
+    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #annPane .hd button:hover{color:#dbdfe5;background:#262a32}
+  #annPane .filters{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid #2a2e36}
+  #annPane .fdot{width:15px;height:15px;border-radius:999px;cursor:pointer;opacity:.42}
+  #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
+  #annPane .list{flex:1;overflow-y:auto;padding:6px}
+  #annPane .it{display:grid;grid-template-columns:4px 1fr;gap:9px;padding:9px 10px;border-radius:8px;
+    cursor:pointer;align-items:start}
+  #annPane .it:hover{background:#232730}
+  #annPane .it .bar{width:4px;border-radius:999px;align-self:stretch;min-height:26px}
+  #annPane .it .q{color:#cfd3da;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;
+    -webkit-box-orient:vertical;overflow:hidden}
+  #annPane .it .m{color:#7d838d;font-size:11.5px;margin-top:3px;font-variant-numeric:tabular-nums}
+  #annPane .it .n{color:#9aa2ad;font-size:12px;margin-top:3px;font-style:italic}
+  #annPane .empty{color:#6d7480;padding:22px 14px;text-align:center;line-height:1.5}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -116,6 +157,8 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="pages"></div>
 <button id="sendBtn">➜ Claude</button>
 <div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="annPane"><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="filters"></div><div class="list"></div></div>
+<div id="findBar"><input type="text" placeholder="Rechercher dans le document&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
 <script>
@@ -265,6 +308,9 @@ async function main(){
     for (const s of first) { await paint(s); if (gen !== _renderGen) return; }
     if (onVisibleReady) onVisibleReady();
     for (const s of slots) { await paint(s); if (gen !== _renderGen) return; }
+    // les couches texte sont reconstruites : la recherche ouverte doit
+    // reposer ses marques (elles vivaient sur les anciens spans)
+    try { window.dispatchEvent(new CustomEvent("pdf-rendered")); } catch(e){}
     revealLinkedPassage(!targetRevealed);
   }
   function setZoom(z){
@@ -622,6 +668,66 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") selCancel(); 
 //  et l'annotation de FIGURES garde son propre outil dans la galerie)
 
 
+// ---- recherche dans le document (Cmd+F) -----------------------------------
+// La couche texte de chaque page est déjà construite par renderAll : on scanne
+// ses spans plutôt que de redemander le contenu à pdf.js. Un span qui contient
+// le terme est marqué en entier (précision du mot, pas du caractère) — assez
+// pour retrouver un passage, et sans toucher au DOM du texte sélectionnable.
+(function(){
+  const bar = document.getElementById("findBar");
+  if (!bar) return;
+  const input = bar.querySelector("input"), cnt = bar.querySelector(".cnt");
+  let hits = [], cur = -1;
+  function clearFind(){
+    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur")
+      .forEach(s => s.classList.remove("find-hit", "find-cur"));
+    hits = []; cur = -1; cnt.textContent = "";
+  }
+  function run(q){
+    clearFind();
+    const needle = String(q || "").trim().toLowerCase();
+    if (needle.length < 2) return;
+    for (const span of document.querySelectorAll(".textLayer span")) {
+      if ((span.textContent || "").toLowerCase().includes(needle)) {
+        span.classList.add("find-hit");
+        hits.push(span);
+      }
+    }
+    cnt.textContent = hits.length ? "0/" + hits.length : "aucun";
+    if (hits.length) step(1);
+  }
+  function step(dir){
+    if (!hits.length) return;
+    if (cur >= 0 && hits[cur]) hits[cur].classList.remove("find-cur");
+    cur = (cur + dir + hits.length) % hits.length;
+    const el = hits[cur];
+    el.classList.add("find-cur");
+    cnt.textContent = (cur + 1) + "/" + hits.length;
+    const pg = el.closest(".pg");
+    const sc = document.scrollingElement || document.documentElement;
+    if (pg) sc.scrollTo({ top: pg.offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
+  }
+  function open(){
+    bar.style.display = "flex";
+    input.focus(); input.select();
+  }
+  function close(){ bar.style.display = "none"; clearFind(); }
+  input.oninput = () => run(input.value);
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+  };
+  bar.querySelector(".fnext").onclick = () => step(1);
+  bar.querySelector(".fprev").onclick = () => step(-1);
+  bar.querySelector(".fclose").onclick = close;
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); open(); }
+  });
+  // un re-rendu (zoom, redimensionnement) reconstruit les couches texte :
+  // les marques sont perdues, on les repose sur la recherche courante
+  window.addEventListener("pdf-rendered", () => { if (bar.style.display === "flex") run(input.value); });
+})();
+
 if(rel) main();
 
 // ---- surlignages persistants (sidecar JSON via /pdfannot) ----
@@ -728,13 +834,41 @@ let LAST_COLOR = HL_COLORS[0];
   const ul = bar.querySelector(".ulb");
   if (ul) ul.onclick = (e) => { e.stopPropagation(); addHighlightFromSel("ul", LAST_COLOR); };
 })();
+// Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
+// métadonnées Zotero (ni auteur ni année structurés). Même règle que les
+// cartes du chat : « Williamson et al. - 2025 - Titre.pdf » → « Williamson
+// et al. 2025 » ; sinon le nom nettoyé, tronqué.
+function citeRef(){
+  const base = (rel || "").split("/").pop().replace(/\.[a-z0-9]+$/i, "");
+  const m = /^(.{2,60}?)\s+-\s+(\d{4})\s+-\s+/.exec(base);
+  if (m) return m[1] + " " + m[2];
+  return base.length > 34 ? base.slice(0, 33) + "…" : base;
+}
+/** Presse-papier : la citation exacte suivie de sa référence, prête à coller
+ *  dans le manuscrit — l'équivalent du « copier avec citation » de Zotero. */
+function copyWithCitation(a){
+  const quote = String(a.text || "").replace(/\s+/g, " ").trim();
+  const ref = citeRef() + (a.page ? ", p. " + a.page : "");
+  const out = quote ? "« " + quote + " » (" + ref + ")" : "(" + ref + ")";
+  const done = () => { const el = annotPop.querySelector(".cpy"); if (el) el.classList.add("ok"); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(out).then(done).catch(()=>{});
+  } else {
+    const ta = document.createElement("textarea");
+    ta.value = out; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); } catch(e){}
+    ta.remove();
+  }
+}
 const annotPop = document.getElementById("annotPop");
 function annotMenu(a, x, y){
   annotPop.innerHTML = '<input placeholder="Note… (Entrée)" value="' +
       String(a.note||"").replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '">' +
     '<div class="row">' +
     HL_COLORS.map(c => '<span class="sw" style="background:'+c.replace(",.40",",.85")+'" data-c="'+c+'"></span>').join("") +
-    '<button class="send2">&rarr; chat</button><button class="del">Suppr</button></div>';
+    '<button class="cpy" title="Copier la citation et sa référence"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg></button>' +
+    '<button class="send2" title="Envoyer au chat"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></button>' +
+    '<button class="del" title="Supprimer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg></button></div>';
   annotPop.style.left = Math.min(x, window.innerWidth-250)+"px";
   annotPop.style.top = (y+10)+"px";
   annotPop.style.display = "block";
@@ -744,6 +878,7 @@ function annotMenu(a, x, y){
     a.color = sw.dataset.c; saveAnnots();
     document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   });
+  annotPop.querySelector(".cpy").onclick = () => copyWithCitation(a);
   annotPop.querySelector(".send2").onclick = () => {
     const payload = {rel, page: String(a.page), text: a.text, comment: a.note || "", direct: true, embed: true};
     fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})
