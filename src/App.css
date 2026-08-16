@@ -126,6 +126,21 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .messages [data-index]:has(+ [data-index] > .timeline-virtual-row .active-turn-tail) > .timeline-virtual-row {
   padding-bottom: 2px;
 }
+/* Géométrie verrouillée du fil (plan 066, L3). LegendList positionne déjà
+   chaque ligne en `position: absolute` avec `contain: paint layout style`
+   (@legendapp/list/react.js) et gère lui-même l'ancrage au bas
+   (maintainScrollAtEnd/maintainVisibleContentPosition) : content-visibility
+   n'est PAS ajouté ici — il masquerait à son propre ResizeObserver la
+   hauteur réelle d'une ligne hors-écran (positionnée en absolute, donc hors
+   flux) et pourrait corrompre son calcul de scroll ; ni ce harnais ni les
+   tests jsdom ne peuvent vérifier un scroll réel en toute sécurité (repli
+   documenté, cf. plan 066 note (3)). overflow-anchor reste un geste sûr et
+   bon marché : `auto` sur le scroller (comportement natif), `none`
+   uniquement sur la bulle en streaming (.is-live-stream, posée par
+   ChatTimeline — jamais un sélecteur de position type :last-child, cf.
+   commentaire ci-dessus). */
+.messages { overflow-anchor: auto; }
+.timeline-virtual-row.is-live-stream { overflow-anchor: none; }
 .agent-activity-group { display: flex; min-width: 0; align-items: center; flex-wrap: wrap;
   gap: 6px; color: var(--text-muted); font-size: var(--fs-l); line-height: 28px; }
 .agent-chip { display: inline-flex; height: 28px; max-width: 192px; min-width: 0;
@@ -182,7 +197,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   min-height: 30px; padding: 4px 8px 4px 10px; border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-card) 30%, var(--bg-side));
   border-radius: calc(var(--r-m) - 1px) calc(var(--r-m) - 1px) 0 0; }
-.codeblock-lang { font-size: var(--fs-s); color: var(--text-disabled); letter-spacing: 0.05em; }
+.codeblock-lang { font-size: var(--fs-s); font-family: var(--code-font); color: var(--text-muted); letter-spacing: 0.05em; }
 .codeblock-copy { background: transparent; border: none; color: var(--text-muted);
   font-size: var(--fs-s); cursor: pointer; width: 24px; height: 22px; padding: 0;
   border-radius: var(--r-s); display: inline-flex; align-items: center; justify-content: center; }
@@ -237,6 +252,39 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .msg .task-list-item input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
 .msg .task-list-item input[type="checkbox"]:checked::after { content: ""; position: absolute; left: 3.5px; top: 1px;
   width: 4px; height: 7px; border: solid var(--text-on-accent); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+/* Prose du chat — famille "chat-md" (plan 066, L2) : remplace le moteur
+   shadcn/typeset (styles/typeset.css, .typeset-chat) sur les DEUX seuls
+   points d'entrée du chat (StreamingText/AssistantText, turns.tsx) —
+   densité éditeur (corps 13px), hiérarchie de titres par la GRAISSE plutôt
+   que par une taille display. typeset.css reste inchangé et continue de
+   servir AgentActivity/SourceReader (hors scope de ce lot).
+   Discipline « stabilité streaming » (même esprit que typeset.contract.test) :
+   jamais de :last-child/:nth-last-child/:has()/:empty ni de margin-bottom —
+   un bloc ajouté en fin de flux ne doit jamais recalculer un frère déjà
+   peint ; seul :first-child est utilisé (ne dépend pas du DERNIER enfant). */
+.chat-md { font-size: var(--fs-l); line-height: 1.6; color: var(--text-primary); }
+.chat-md > * + * { margin-top: 8px; }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 {
+  font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--text-primary); }
+.chat-md h1:first-child, .chat-md h2:first-child, .chat-md h3:first-child,
+.chat-md h4:first-child, .chat-md h5:first-child, .chat-md h6:first-child { margin-top: 0; }
+.chat-md h1, .chat-md h2 { font-size: var(--fs-xl); }
+.chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 { font-size: var(--fs-l); }
+.chat-md ul, .chat-md ol { padding-left: 1.4em; }
+.chat-md li { margin-top: 4px; }
+.chat-md li > p { margin-top: 4px; }
+.chat-md li::marker { color: var(--text-disabled); }
+.chat-md strong { font-weight: 600; }
+.chat-md :not(pre) > code { background: var(--bg-ctl); border: 1px solid var(--border);
+  border-radius: var(--r-s); padding: 0.1em 0.35em; font-family: var(--code-font); font-size: 0.92em; }
+.chat-md blockquote { border-left: 2px solid var(--border); padding-left: 12px; color: var(--text-secondary); }
+.chat-md hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0 0; }
+.chat-md a { color: inherit; text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.chat-md a:hover { color: var(--accent); }
+.chat-md a:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: var(--r-s); }
+.chat-md table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.chat-md th { font-size: var(--fs-s); font-weight: 500; color: var(--text-muted); text-align: left; padding: 4px 8px; }
+.chat-md td { padding: 4px 8px; border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 .tool, .done { color: var(--text-muted); font-size: var(--fs-m); }
 .tool-output, .todos { color: var(--text-muted); font-size: var(--fs-m); }
 .tool-output-head { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;

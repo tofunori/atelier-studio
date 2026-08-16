@@ -507,6 +507,16 @@ export default function App() {
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const eventsRef = useRef<Record<string, AgentEvent[]>>({});
   eventsRef.current = events;
+  // Lissage réseau (plan 066, L1) : plusieurs deltas "streaming" du même fil
+  // arrivent souvent dans la même frame réseau — on ne garde que le DERNIER
+  // et on l'applique via un seul setState au prochain rAF, plutôt qu'un
+  // setState par delta (c'est ce ré-rendu répété qui faisait « respirer » le
+  // séparateur Working pendant le stream, cf. plan 066 §Why). Tout AUTRE
+  // type d'événement force d'abord le flush du delta en attente — l'ordre
+  // d'arrivée reste donc préservé — puis s'applique immédiatement, jamais
+  // retardé (§STOP : pas de réordonnancement thinking/texte).
+  const pendingStreamEvents = useRef<Map<string, AgentEvent>>(new Map());
+  const streamFrames = useRef<Map<string, number>>(new Map());
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
@@ -1327,6 +1337,31 @@ export default function App() {
     setLayout((l) => (l === "atelier" ? "split" : l));
   }
 
+  // applique un événement au fil IMMÉDIATEMENT (jamais retardé) — utilisé
+  // pour tout événement autre que "streaming", et pour flusher un delta
+  // "streaming" en attente avant d'appliquer l'un de ces autres événements.
+  function applyThreadEvent(threadId: string, event: AgentEvent) {
+    setEvents((prev) => {
+      const cur = prev[threadId] ?? [];
+      const next = reduceHarnessEvent(cur, event);
+      return next === cur ? prev : { ...prev, [threadId]: next };
+    });
+  }
+
+  // flush immédiat (synchrone) du dernier delta "streaming" en attente pour
+  // ce fil, s'il y en a un — annule le rAF programmé.
+  function flushStreamEvent(threadId: string) {
+    const frame = streamFrames.current.get(threadId);
+    if (frame != null) {
+      cancelAnimationFrame(frame);
+      streamFrames.current.delete(threadId);
+    }
+    const pending = pendingStreamEvents.current.get(threadId);
+    if (!pending) return;
+    pendingStreamEvents.current.delete(threadId);
+    applyThreadEvent(threadId, pending);
+  }
+
   // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
   // useSidecarConnection. Function hissée : le hook est appelé plus haut.
   function handleMessage(msg: any) {
@@ -1487,12 +1522,27 @@ export default function App() {
         // toute la logique de réduction (bulle streaming, dédup ack/reconnexion,
         // identités (turnId, itemId)…) vit dans lib/harnessEvents : le MÊME code
         // rejoue les historiques (plan 025, step 8) — seuls les side-effects
-        // (workingSince, usage, notifications…) restent ici
-        setEvents((prev) => {
-          const cur = prev[msg.threadId] ?? [];
-          const next = reduceHarnessEvent(cur, msg.event);
-          return next === cur ? prev : { ...prev, [msg.threadId]: next };
-        });
+        // (workingSince, usage, notifications…) restent ici.
+        // "streaming" (texte de la bulle en cours) est lissé au rAF (plan 066,
+        // L1, un seul setState par frame et par fil) ; tout le reste flush
+        // d'abord ce delta en attente puis s'applique tout de suite, sans
+        // jamais changer l'ordre d'arrivée.
+        if (msg.event.kind === "streaming") {
+          pendingStreamEvents.current.set(msg.threadId, msg.event);
+          if (!streamFrames.current.has(msg.threadId)) {
+            const frame = requestAnimationFrame(() => {
+              streamFrames.current.delete(msg.threadId);
+              const pending = pendingStreamEvents.current.get(msg.threadId);
+              if (!pending) return;
+              pendingStreamEvents.current.delete(msg.threadId);
+              applyThreadEvent(msg.threadId, pending);
+            });
+            streamFrames.current.set(msg.threadId, frame);
+          }
+        } else {
+          flushStreamEvent(msg.threadId);
+          applyThreadEvent(msg.threadId, msg.event);
+        }
         if (msg.event.kind === "done" && msg.event.usage) {
           setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
         }

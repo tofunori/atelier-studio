@@ -1,13 +1,16 @@
-// Pipeline markdown du chat (plan 015, slice 4) — déplacé verbatim depuis
-// Chat.tsx : liens fichier:ligne, coloration hljs, blocs code (streaming ou
-// non), Mermaid, KaTeX. Aucune logique modifiée.
-import { useEffect, useState } from "react";
+// Pipeline markdown du chat (plan 015, slice 4 ; plan 066, L1) : liens
+// fichier:ligne, coloration hljs, blocs code (streaming ou non), Mermaid,
+// KaTeX, découpage en blocs mémoïsés + réparation du bloc de queue pendant
+// le streaming (MdBody/MdBlock).
+import { memo, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import hljs from "highlight.js/lib/common";
 import julia from "highlight.js/lib/languages/julia";
 import latex from "highlight.js/lib/languages/latex";
 import remarkGfm from "remark-gfm";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
+import { hardenPartialMarkdown } from "../../lib/markdown";
 import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -194,6 +197,61 @@ export function escapeHtml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// puce ("- "/"* "/"+ ") ou item numéroté ("1. "/"1) ") en tête de ligne —
+// sert à repérer une liste "lâche" (items séparés par une ligne vide) pour
+// ne jamais la couper en deux <ul>/<ol> distincts (plan 066, L1).
+const LIST_MARKER_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
+
+/**
+ * Découpe un message markdown en blocs sur les frontières `\n\n+`, sans
+ * jamais couper à l'intérieur d'une fence ``` ouverte (le contenu — y
+ * compris ses propres lignes vides — reste dans le bloc courant tant que la
+ * fence n'est pas refermée ; si elle ne se referme jamais — streaming en
+ * cours —, tout le reste du texte reste dans le dernier bloc). Une liste
+ * lâche (items séparés par une ligne vide) n'est pas coupée non plus : la
+ * numérotation/le regroupement `<ul>`/`<ol>` doit rester continu.
+ *
+ * Sert de base au rendu par blocs mémoïsés (`MdBlock` ci-dessous) : seul le
+ * DERNIER bloc change de contenu pendant le streaming, les précédents
+ * gardent une identité de texte stable d'un chunk à l'autre.
+ */
+export function splitMarkdownBlocks(markdown: string): string[] {
+  if (!markdown) return [];
+  const blocks: string[] = [];
+  const n = markdown.length;
+  let blockStart = 0;
+  let fenceOpen = false;
+  let i = 0;
+  while (i < n) {
+    if (markdown.startsWith("```", i)) {
+      fenceOpen = !fenceOpen;
+      i += 3;
+      continue;
+    }
+    if (!fenceOpen && markdown[i] === "\n" && markdown[i + 1] === "\n") {
+      let j = i;
+      while (j < n && markdown[j] === "\n") j += 1;
+      const before = markdown.slice(blockStart, i);
+      const lastLineOfBefore = before.slice(before.lastIndexOf("\n") + 1);
+      const nextNewline = markdown.indexOf("\n", j);
+      const firstLineAfter = markdown.slice(j, nextNewline === -1 ? n : nextNewline);
+      if (LIST_MARKER_RE.test(lastLineOfBefore) && LIST_MARKER_RE.test(firstLineAfter)) {
+        // liste lâche : on continue d'accumuler dans le même bloc
+        i = j;
+        continue;
+      }
+      blocks.push(before);
+      blockStart = j;
+      i = j;
+      continue;
+    }
+    i += 1;
+  }
+  const last = markdown.slice(blockStart);
+  if (last.length > 0) blocks.push(last);
+  return blocks;
 }
 
 // cache module-level borné (~300 entrées, éviction LRU) : chaque event ajouté
@@ -389,6 +447,70 @@ export const MD_COMPONENTS = {
 // bulle en streaming : mêmes composants, sauf le code coloré (perf, cf.
 // MarkdownCodeBlockStreaming ci-dessus).
 export const MD_COMPONENTS_STREAMING = { ...MD_COMPONENTS, pre: MarkdownCodeBlockStreaming };
+
+// ---- rendu par blocs mémoïsés (plan 066, L1) -------------------------------
+// Un seul ReactMarkdown sur tout le message re-parse l'intégralité de l'arbre
+// à chaque chunk reçu : coûteux, et rien n'empêche un bloc déjà stable de se
+// re-mesurer/re-peindre en même temps que la queue en cours de frappe (le
+// « respire » du séparateur Working, plan 066 §Why). MdBlock isole chaque
+// bloc dans son propre appel ReactMarkdown et se mémoïse sur l'égalité du
+// texte du bloc : tant qu'un bloc antérieur ne change pas de contenu, son
+// sous-arbre React (et donc le DOM) reste rigoureusement identique.
+const MdBlock = memo(
+  function MdBlock({ text, components, remarkPlugins, rehypePlugins }: {
+    text: string;
+    components: any;
+    remarkPlugins: any[];
+    rehypePlugins: any[];
+  }) {
+    return (
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+        {text}
+      </ReactMarkdown>
+    );
+  },
+  (prev, next) => prev.text === next.text
+    && prev.components === next.components
+    && prev.remarkPlugins === next.remarkPlugins
+    && prev.rehypePlugins === next.rehypePlugins,
+);
+
+export type MdBodyProps = {
+  text: string;
+  /** true pendant le tour en cours : seul le DERNIER bloc est réparé
+   * (hardenPartialMarkdown) avant parsing — jamais le message final. */
+  streaming: boolean;
+  components: any;
+  remarkPlugins: any[];
+  rehypePlugins: any[];
+};
+
+/**
+ * Point d'entrée du rendu markdown du chat : découpe `text` en blocs stables
+ * (splitMarkdownBlocks) et ne réécrit que le dernier pendant le streaming.
+ * Les blocs précédents gardent la même référence de texte d'un chunk au
+ * suivant, donc MdBlock (React.memo) les saute — seule la queue re-parse.
+ */
+export function MdBody({ text, streaming, components, remarkPlugins, rehypePlugins }: MdBodyProps) {
+  const blocks = useMemo(() => splitMarkdownBlocks(text), [text]);
+  return (
+    <>
+      {blocks.map((block, index) => {
+        const isLast = index === blocks.length - 1;
+        const content = streaming && isLast ? hardenPartialMarkdown(block) : block;
+        return (
+          <MdBlock
+            key={index}
+            text={content}
+            components={components}
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
+          />
+        );
+      })}
+    </>
+  );
+}
 
 // ---- maths HORS du chemin critique (plan 022) -----------------------------
 // KaTeX + remark-math (273 KB min / 82 KB gzip) se chargent à l'IDLE du boot,

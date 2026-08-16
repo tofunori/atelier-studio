@@ -104,10 +104,26 @@ function stripFencedBlocks(text: string): string {
 // (lien en milieu de texte), qu'on laisse intact.
 const DANGLING_LINK_RE = /!?\[([^\]\n]*)\]\(([^)\s]*)$/;
 
+// Puce de liste "* item" en tête de ligne : jamais une emphase, on la retire
+// avant de compter les astérisques restants.
+const LIST_BULLET_STAR_RE = /^[ \t]*\*(?=[ \t]|$)/gm;
+// "2 * 3" / "2 ** 3" : astérisque(s) entouré(s) d'espaces des deux côtés —
+// jamais flanquant au sens CommonMark, donc jamais une emphase en cours.
+const NON_FLANKING_DOUBLE_STAR_RE = /(?<=\s)\*\*(?=\s)/g;
+const NON_FLANKING_STAR_RE = /(?<=\s)\*(?=\s)/g;
+
 /**
- * Durcit un markdown partiel (bulle en streaming) pour un rendu propre
- * pendant la frappe : fence/backtick non fermés + lien/image pendant en fin
- * de texte. Jamais appliqué au texte final (message complet).
+ * Durcit un markdown partiel (bulle en streaming, ou bloc de queue en
+ * streaming — plan 066 L1) pour un rendu propre pendant la frappe :
+ * fence/backtick non fermés, gras/italique non fermés, lien/image pendant en
+ * fin de texte. Jamais appliqué au texte final (message complet).
+ *
+ * Heuristique volontairement légère (inspiration Streamdown/remend, pas un
+ * moteur CommonMark complet) : elle ferme le dernier marqueur ouvert en fin
+ * de chaîne, sans reproduire les règles de délimiteurs flanquants — un `*`
+ * isolé au milieu d'une phrase déjà close pourrait donc, dans un cas
+ * pathologique, être mal compté ; les cas courants (multiplication espacée,
+ * puces de liste, fences, code inline) sont explicitement gardés.
  */
 export function hardenPartialMarkdown(text: string): string {
   if (!text) return text;
@@ -128,7 +144,22 @@ export function hardenPartialMarkdown(text: string): string {
 
   const outsideFences = stripFencedBlocks(result);
   const strayBackticks = (outsideFences.match(/`/g) || []).length;
-  if (strayBackticks % 2 === 1) result += "`";
+  const insideInlineCode = strayBackticks % 2 === 1;
+
+  // gras/italique : jamais retouchés à l'intérieur d'une fence (déjà exclue
+  // par stripFencedBlocks) ni d'un code inline en cours (caractères
+  // littéraux, pas de syntaxe) — seule la prose hors code compte.
+  if (!insideOpenFence && !insideInlineCode) {
+    let prose = outsideFences.replace(LIST_BULLET_STAR_RE, " ");
+    prose = prose.replace(NON_FLANKING_DOUBLE_STAR_RE, "  ");
+    const strongCount = (prose.match(/\*\*/g) || []).length;
+    if (strongCount % 2 === 1) result += "**";
+    prose = prose.replace(/\*\*/g, "").replace(NON_FLANKING_STAR_RE, " ");
+    const singleStarCount = (prose.match(/\*/g) || []).length;
+    if (singleStarCount % 2 === 1) result += "*";
+  }
+
+  if (insideInlineCode) result += "`";
 
   return result;
 }

@@ -3,17 +3,16 @@
 // (editing, plis, review) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import type { ChatTurnViewModel, ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
-import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
+import { normalizeMathDelimiters } from "../../lib/markdown";
 import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
-import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
+import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
@@ -337,14 +336,14 @@ export function StreamingText(p: { text: string; working: boolean }) {
       {/* is-streaming : fondu d'entrée des nouveaux blocs (chunk-in) ; le
           caret est re-monté à chaque lot (key) pour « respirer » au rythme
           du flux — one-shot par événement, pas de boucle (§9). */}
-      <BubbleContent className="msg typeset typeset-chat is-streaming tw:w-full">
-        <ReactMarkdown
+      <BubbleContent className="msg chat-md is-streaming tw:w-full">
+        <MdBody
+          text={decorateKbCites(normalizeMathDelimiters(text), kbCiteSources)}
+          streaming={p.working}
+          components={MD_COMPONENTS_STREAMING as any}
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
-          components={MD_COMPONENTS_STREAMING as any}
-        >
-          {decorateKbCites(normalizeMathDelimiters(hardenPartialMarkdown(text)), kbCiteSources)}
-        </ReactMarkdown>
+        />
         {/* keyé sur le texte CIBLE (pas révélé) : le caret « respire » à
             l'arrivée des données, pas à chaque tick du typewriter. */}
         {p.working && <span key={p.text.length} className="stream-caret" />}
@@ -371,14 +370,14 @@ export const AssistantText = memo(function AssistantText(p: {
     <Message id={`msg-${i}`} align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
       <Bubble variant="ghost" className="tw:w-full">
-      <BubbleContent className="msg typeset typeset-chat tw:w-full">
-        <ReactMarkdown
+      <BubbleContent className="msg chat-md tw:w-full">
+        <MdBody
+          text={decorateKbCites(normalizeMathDelimiters(e.text), kbCiteSources)}
+          streaming={false}
+          components={MD_COMPONENTS as any}
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
-          components={MD_COMPONENTS as any}
-        >
-          {decorateKbCites(normalizeMathDelimiters(e.text), kbCiteSources)}
-        </ReactMarkdown>
+        />
       </BubbleContent>
       </Bubble>
       <MessageFooter className="msg-actions is-persistent tw:px-0">
