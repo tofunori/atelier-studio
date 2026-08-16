@@ -1,0 +1,21 @@
+{
+  "description": "KBG-08 (plans/065-revue-findings.md, vague 5) : registre knowledge.json illisible (JSON invalide) — reloadFromDisk/reload_from_disk le SAUVEGARDENT (jamais écrasé en silence) et signalent `warning` dans chaque réponse touchée. Groupe DÉDIÉ, un seul step : la deuxième invocation trouverait knowledge.json déjà renommé en .corrupt-*, donc « absent » plutôt que « corrompu » — pas le même chemin de code (voir la note dans le harnais).",
+  "env": { "appdir": "k-corrupt-registry" },
+  "setup": [
+    { "id": "write-corrupt-registry", "kind": "write-file", "path": "knowledge/knowledge.json", "content": "{" }
+  ],
+  "steps": [
+    {
+      "id": "list-recovers-from-corrupt-registry",
+      "notes": "Base repartie à vide (sources=[], collections=[]) — PAS de champ null : les deux moteurs initialisent collections à [] avant même de tenter la lecture (voir store.rs::reload_from_disk et knowledge.mjs::reloadFromDisk). Le nom de sauvegarde (knowledge.json.corrupt-<millis>) n'est jamais reproductible d'un run à l'autre — gelé via le jeton <NUM> dédié du harnais (freezeString).",
+      "args": ["list"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "count": 0, "sources": [], "collections": [], "archivedCount": 0, "archivedSources": [],
+          "warning": "Registre illisible — sauvegardé dans knowledge.json.corrupt-<NUM>, base repartie à vide"
+        }
+      }
+    }
+  ]
+}

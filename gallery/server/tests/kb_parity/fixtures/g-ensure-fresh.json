@@ -1,0 +1,83 @@
+{
+  "description": "KBG-01 (plans/065-revue-findings.md, vague 5) : ensureFresh — B2 porté (fbf268e1..e09bf9c9) mais jamais exercé par une fixture de parité CLI. Deux scénarios : (1) fichier mutable réécrit ENTRE deux commandes — search/kb-text doivent voir le contenu à jour, jamais l'ancien depuis le cache figé ; (2) cache d'extraction supprimé du disque sans toucher l'origine — reconstruction silencieuse pour un `file` (l'origine existe encore), erreur explicite pour une `note` (pas d'origine à relire). Le fichier mutable vit sous APPDIR (copié depuis inputs/ au setup, JAMAIS inputs/ lui-même réécrit).",
+  "env": { "appdir": "g-ensure-fresh" },
+  "setup": [
+    { "id": "copy-mutable-file", "kind": "copy-input", "fromInput": "notes.md", "to": "mutable/ensure-fresh.md" }
+  ],
+  "steps": [
+    {
+      "id": "add-mutable-file",
+      "notes": "Contenu initial identique à inputs/notes.md (copie octet pour octet) : chars=47 comme add-file-md dans a-local-store.json.",
+      "args": ["add", "--kind", "file", "--origin", "{{APPDIR}}/mutable/ensure-fresh.md"],
+      "capture": { "freshId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "ensure-fresh.md", "origin": "<APPDIR>/mutable/ensure-fresh.md", "chars": 47, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 48 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "rewrite-mutable-file",
+      "op": "write-file",
+      "path": "{{APPDIR}}/mutable/ensure-fresh.md",
+      "content": "Rapport mis a jour pour verifier ensureFresh : ce texte remplace le contenu initial et contient le mot-cle unique motclefraicheur56 pour la recherche."
+    },
+    {
+      "id": "kb-text-sees-rewritten-content",
+      "notes": "PIÈGE réel gelé tel quel (pas un bug de fixture) : kb-text capture `entry.chars` (registre, 47) AVANT que fullText()/ensureFresh() ne rafraîchisse — le `text` rendu est bien le NOUVEAU contenu (ensureFresh a fonctionné), mais `chars` reste l'ancienne valeur PENDANT CETTE invocation précise (elle sera à jour dès la commande suivante, une fois le registre persisté — voir search-sees-rewritten-content juste après).",
+      "args": ["kb-text", "--id", "{{freshId}}"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "id": "<ID>", "kind": "file", "title": "ensure-fresh.md", "origin": "<APPDIR>/mutable/ensure-fresh.md", "chars": 47, "text": "Rapport mis a jour pour verifier ensureFresh : ce texte remplace le contenu initial et contient le mot-cle unique motclefraicheur56 pour la recherche." }
+      }
+    },
+    {
+      "id": "search-sees-rewritten-content",
+      "notes": "Process CLI séparé : le registre a déjà été persisté (à jour) par la commande précédente — meta.size=150 et le passage retrouvé viennent bien du texte réécrit, jamais de l'ancien (47 car., aucune occurrence de motclefraicheur56).",
+      "args": ["search", "--id", "{{freshId}}", "--query", "motclefraicheur56"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "ensure-fresh.md", "kind": "file", "origin": "<APPDIR>/mutable/ensure-fresh.md", "meta": { "mtimeMs": "<NUM>", "size": 150 } },
+          "query": "motclefraicheur56", "count": 1,
+          "passages": [
+            { "page": 1, "quote": "Rapport mis a jour pour verifier ensureFresh : ce texte remplace le contenu initial et contient le mot-cle unique motclefraicheur56 pour la recherche.", "context": "Rapport mis a jour pour verifier ensureFresh : ce texte remplace le contenu initial et contient le mot-cle unique motclefraicheur56 pour la recherche.", "score": 22.59, "location": null, "cite": "[kb:{{freshId}}]", "markdownLink": "[<APPDIR>/mutable/ensure-fresh.md](<APPDIR>/mutable/ensure-fresh.md)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "add-note-for-cache-test",
+      "args": ["add", "--kind", "note", "--title", "Note cache test", "--text", "Texte de la note pour tester la suppression du cache d'extraction."],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "0c7e8d34", "kind": "note", "title": "Note cache test", "origin": null, "chars": 66, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "remove-file-cache-on-disk",
+      "op": "rm-path",
+      "path": "{{APPDIR}}/knowledge/cache/{{freshId}}.json"
+    },
+    {
+      "id": "kb-text-file-reconstructs-cache-silently",
+      "notes": "Cache absent mais origine encore lisible sur disque : reconstruction transparente, AUCUNE erreur (B2 — Node/Rust se réparent seuls). chars=150 ici (pas 47) car le registre était déjà à jour depuis kb-text-sees-rewritten-content.",
+      "args": ["kb-text", "--id", "{{freshId}}"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "id": "<ID>", "kind": "file", "title": "ensure-fresh.md", "origin": "<APPDIR>/mutable/ensure-fresh.md", "chars": 150, "text": "Rapport mis a jour pour verifier ensureFresh : ce texte remplace le contenu initial et contient le mot-cle unique motclefraicheur56 pour la recherche." }
+      }
+    },
+    {
+      "id": "remove-note-cache-on-disk",
+      "op": "rm-path",
+      "path": "{{APPDIR}}/knowledge/cache/0c7e8d34.json"
+    },
+    {
+      "id": "kb-text-note-errors-without-origin-to-rebuild-from",
+      "notes": "Une note n'a pas d'origine sur disque à relire — cache absent = erreur dure explicite (\"ré-épingler la source\"), contrairement au cas file ci-dessus. C'est la moitié `erreur (note)` de KBG-01.",
+      "args": ["kb-text", "--id", "0c7e8d34"],
+      "expect": { "exitCode": 1, "stderr": "Cache absent pour 0c7e8d34 — ré-épingler la source" }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "description": "KBG-05 (plans/065-revue-findings.md, vague 5) : MinerU réellement SPAWNÉ (B4, jamais l'API cloud réelle) — script factice type fake-gbrain.mjs, `fake-mineru-ok.py`/`fake-mineru-fail.py` sous kb_parity/ (référencés via {{KBPARITY}}, jamais depuis le HOME réel de l'opérateur). `mineruFake` (env du groupe) fournit un HOME de scratch avec un `.mineru_token` vide — seule façon de passer la garde resolveMineru()/resolve_mineru() (~/.mineru_token) sans toucher le vrai jeton. Chaque step choisit son script via `env.ATELIER_MINERU_SCRIPT` (succès vs échec). gbrain isolé et vide (findDuplicates ne doit jamais toucher le NAS réel).",
+  "env": { "appdir": "h-mineru-fake", "gbrain": true, "mineruFake": true },
+  "steps": [
+    {
+      "id": "article-import-mineru-success",
+      "notes": "converter=\"mineru\" (jamais \"local\") : le script factice a bien été spawné, sa sortie /tmp/<name>.md lue et consommée. Titre volontairement <20 car. dans fake-mineru-ok.py pour rester SOUS le seuil TITLE_MATCH_MIN de crossrefByTitle (article_meta.mjs) — sinon un mot générique du texte peut faussement matcher une notice Crossref réelle sans rapport (vécu en capturant cette fixture) ; ici aucun réseau n'est jamais sollicité (ni DOI ni titre ne passent les gardes), donc pas de tolérance réseau nécessaire.",
+      "env": { "ATELIER_MINERU_SCRIPT": "{{KBPARITY}}/fake-mineru-ok.py" },
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf"],
+      "capture": { "mineruDraftId": "draftId" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "draftId": "9560b8e0e3fe", "path": "<INPUTS>/sample.pdf",
+          "meta": { "title": "MinerU Test", "authors": "A. Fixture and B. Faux", "journal": "", "doi": "", "year": null },
+          "slug": "articles/fixture-mineru-test", "exists": false, "converter": "mineru", "duplicates": [], "metaSource": "texte", "chars": 216,
+          "preview": "---\ntitle: \"MinerU Test\"\nauthors: [\"A. Fixture and B. Faux\"]\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: mineru\ntype: article\n---\n\n# MinerU Test\n\nA. Fixture and B. Faux\n\nCeci est un texte converti par le faux MinerU (fixture kb_parity, jamais l'API cloud reelle). Les resultats confirment une baisse significative de l'albedo de surface glaciaire.\n",
+          "warning": null
+        }
+      }
+    },
+    {
+      "id": "article-import-mineru-success-progress-stages",
+      "notes": "--progress : toutes les lignes MINERU_STAGES reconnues (mineruStage/mineru_stage) apparaissent, dans l'ordre où le script factice les imprime, AVANT meta/duplicates — c'est le coeur de KBG-05 (jamais exercé avant cette fixture : ni a-local-store ni c-article-local ne spawnent un MinerU réel).",
+      "env": { "ATELIER_MINERU_SCRIPT": "{{KBPARITY}}/fake-mineru-ok.py" },
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf", "--progress"],
+      "expect": {
+        "exitCode": 0,
+        "stdoutLines": [
+          { "progress": { "stage": "upload" } },
+          { "progress": { "stage": "converting" } },
+          { "progress": { "stage": "converting", "seconds": 1 } },
+          { "progress": { "stage": "download" } },
+          { "progress": { "stage": "download" } },
+          { "progress": { "stage": "figures", "count": 1 } },
+          { "progress": { "stage": "ocr", "ocr": false } },
+          { "progress": { "stage": "meta" } },
+          { "progress": { "stage": "duplicates" } },
+          {
+            "ok": true, "draftId": "9560b8e0e3fe", "path": "<INPUTS>/sample.pdf",
+            "meta": { "title": "MinerU Test", "authors": "A. Fixture and B. Faux", "journal": "", "doi": "", "year": null },
+            "slug": "articles/fixture-mineru-test", "exists": false, "converter": "mineru", "duplicates": [], "metaSource": "texte", "chars": 216,
+            "preview": "---\ntitle: \"MinerU Test\"\nauthors: [\"A. Fixture and B. Faux\"]\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: mineru\ntype: article\n---\n\n# MinerU Test\n\nA. Fixture and B. Faux\n\nCeci est un texte converti par le faux MinerU (fixture kb_parity, jamais l'API cloud reelle). Les resultats confirment une baisse significative de l'albedo de surface glaciaire.\n",
+            "warning": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "article-import-mineru-failure-falls-back-to-local",
+      "notes": "fake-mineru-fail.py imprime une étape puis échoue avec un motif \"quota\" (reconnu par mineruFailure/mineru_failure) SANS écrire de markdown produit : repli sur l'extraction locale du MÊME sample.pdf que c-article-local.json (converter=\"local\", draftId/meta/chars identiques à article-import-local là-bas) — seul le `warning` change, documentant la tentative MinerU ratée plutôt que \"script introuvable\". DOI réel présent dans le texte extrait -> crossrefMeta appelle VRAIMENT Crossref (best-effort, comme article-import-local).",
+      "network": "best-effort (Crossref, dégrade proprement si hors-ligne)",
+      "env": { "ATELIER_MINERU_SCRIPT": "{{KBPARITY}}/fake-mineru-fail.py" },
+      "args": ["article-import", "--path", "{{INPUTS}}/sample.pdf"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true, "draftId": "f0a39a4d07f8", "path": "<INPUTS>/sample.pdf",
+          "meta": { "title": "Melting of Alpine Glaciers Under Recent Warming", "authors": "T. Aoki and K. Kuchiki", "journal": "", "doi": "10.1234/fixture.2022.001", "year": 2022 },
+          "slug": "articles/aoki-2022-melting-alpine-glaciers-under", "exists": false, "converter": "local", "duplicates": [], "metaSource": "texte", "chars": 497,
+          "preview": "---\ntitle: \"Melting of Alpine Glaciers Under Recent Warming\"\nauthors: [\"T. Aoki and K. Kuchiki\"]\nyear: 2022\ndoi: \"10.1234/fixture.2022.001\"\norigin: \"<INPUTS>/sample.pdf\"\ncaptured: <DATE>\nfrom: atelier\nconverter: local\ntype: article\n---\n\nMelting of Alpine Glaciers Under Recent Warming\nT. Aoki and K. Kuchiki\nPublished: 11 January 2022 DOI: 10.1234/fixture.2022.001\nAbstract\nWe present a fixture article used only to test the Atelier knowledge base CLI. It\nis not a real scientific publication.\nIntroduction\nAlbedo decline drives melt. Results show significant increase in melt rate during\nthe study period, with root-mean-square error below 5 percent.\nConclusion\nWe conclude that fixture PDFs are sufficient for CLI parity testing.\n\n1\n",
+          "warning": "MinerU a échoué (Error: quota exceeded (fixture MinerU factice)) — texte extrait localement"
+        }
+      }
+    }
+  ]
+}

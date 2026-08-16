@@ -1,0 +1,127 @@
+{
+  "description": "KBG-03 (plans/065-revue-findings.md, vague 5) : `search` avec de VRAIS passages (pas juste 0-résultat comme search-note dans a-local-store.json) sur les 4 kinds pertinents. PDF et file (large.csv) réutilisent les mêmes fichiers d'entrée que le groupe a (mêmes ids déterministes). folder et web ont besoin d'un texte dédié : le vault de a-local-store.json (34/24 car. par fichier) et le texte web de a-local-store.json (52 car.) sont volontairement SOUS le seuil de chunking (70 car.) — déjà le comportement gelé par search-note/search-folder-implicite là-bas — donc réutiliser CES sources précises ici rendrait toute assertion de VRAI passage impossible. `inputs/search-vault/` (2 fichiers) est un corpus dédié, lecture seule comme le reste de inputs/.",
+  "env": { "appdir": "f-search-passages" },
+  "steps": [
+    {
+      "id": "add-pdf",
+      "args": ["add", "--kind", "pdf", "--origin", "{{INPUTS}}/sample.pdf", "--title", "PDF fixture recherche"],
+      "capture": { "pdfId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "pdf", "title": "PDF fixture recherche", "origin": "<INPUTS>/sample.pdf", "chars": 497, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 34407 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-folder",
+      "args": ["add", "--kind", "folder", "--origin", "{{INPUTS}}/search-vault"],
+      "capture": { "folderId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "folder", "title": "search-vault", "origin": "<INPUTS>/search-vault", "chars": 389, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "files": 2 }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-file-csv",
+      "notes": "Même fichier que csv-large dans a-local-store.json — id déterministe différent ici (appdir/registre isolés), même contenu profilé (chars=1299).",
+      "args": ["add", "--kind", "file", "--origin", "{{INPUTS}}/large.csv"],
+      "capture": { "csvId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "<ID>", "kind": "file", "title": "large.csv", "origin": "<INPUTS>/large.csv", "chars": 1299, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true }, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "add-web-stdin",
+      "args": ["add", "--kind", "web", "--origin", "https://example.org/search-fixture", "--title", "Page recherche", "--text", "-"],
+      "stdin": "Glacier retreat accelerates as summer albedo drops across the alpine region, results confirm a significant melt increase compared to the previous decade.",
+      "capture": { "webId": "source.id" },
+      "expect": {
+        "exitCode": 0,
+        "stdout": { "ok": true, "source": { "id": "616e89dd", "kind": "web", "title": "Page recherche", "origin": "https://example.org/search-fixture", "chars": 153, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": {}, "collections": [], "archived": false }, "refreshed": false }
+      }
+    },
+    {
+      "id": "search-pdf-location-page-and-cite",
+      "notes": "PDF : location = \"p.<page>\", cite = \"[kb:<id> · p.<page>]\", jamais de markdownLink (decoratePassage n'en donne pas pour pdf/zotero sans clés Zotero).",
+      "args": ["search", "--id", "{{pdfId}}", "--query", "albedo melt results"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "PDF fixture recherche", "kind": "pdf", "origin": "<INPUTS>/sample.pdf", "meta": { "pages": 1, "mtimeMs": "<NUM>", "size": 34407 } },
+          "query": "albedo melt results", "count": 1,
+          "passages": [
+            { "page": 1, "quote": "Results show significant increase in melt rate during the study period, with root-mean-square error below 5 percent.", "context": "Melting of Alpine Glaciers Under Recent Warming T. Aoki and K. Kuchiki Published: 11 January 2022 DOI: 10.1234/fixture.2022.001 Abstract We present a fixture article used only to test the Atelier knowledge base CLI. It is not a real scientific publication. Introduction Albedo decline drives melt. Results show significant increase in melt rate during the study period, with root-mean-square error below 5 percent. Conclusion We conclude that fixture PDFs are sufficient for CLI parity testing.", "score": 41.81, "location": "p.1", "cite": "[kb:{{pdfId}} · p.1]" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-folder-merges-and-sorts-across-files",
+      "notes": "Dossier : chaque passage porte `file` (chemin relatif) + `location`=file + `cite` avec le nom de fichier, jamais de markdownLink. Deux fichiers distincts scorent différemment (30.62 vs 9.62) — la fusion puis le tri par score décroissant à travers les fichiers est le comportement exercé ici (KBG-03), pas juste un seul fichier.",
+      "args": ["search", "--id", "{{folderId}}", "--query", "glacier results albedo"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "search-vault", "kind": "folder", "origin": "<INPUTS>/search-vault", "meta": { "files": 2 } },
+          "query": "glacier results albedo", "count": 2,
+          "passages": [
+            { "page": 1, "quote": "Results show that glacier surface albedo decreased significantly during the 2024 melt season, with an average decline of 8 percent compared to the ten year baseline for alpine glaciers.", "context": "Results show that glacier surface albedo decreased significantly during the 2024 melt season, with an average decline of 8 percent compared to the ten year baseline for alpine glaciers.", "score": 30.62, "file": "glaciers.md", "location": "glaciers.md", "cite": "[kb:{{folderId}} · glaciers.md]" },
+            { "page": 1, "quote": "Winter precipitation totals were below normal this year, which limits snow accumulation on the glacier surface nearby.", "context": "Winter precipitation totals were below normal this year, which limits snow accumulation on the glacier surface nearby. Average seasonal temperatures remained above the long term normal.", "score": 9.62, "file": "meteo.txt", "location": "meteo.txt", "cite": "[kb:{{folderId}} · meteo.txt]" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-web-has-markdown-link",
+      "notes": "Web : location=null, cite=\"[kb:<id>]\", markdownLink=\"[Ouvrir la page](<origin>)\" — seul kind (avec file) à porter ce lien générique.",
+      "args": ["search", "--id", "{{webId}}", "--query", "albedo results melt"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "616e89dd", "title": "Page recherche", "kind": "web", "origin": "https://example.org/search-fixture", "meta": {} },
+          "query": "albedo results melt", "count": 1,
+          "passages": [
+            { "page": 1, "quote": "Glacier retreat accelerates as summer albedo drops across the alpine region, results confirm a significant melt increase compared to the previous decade.", "context": "Glacier retreat accelerates as summer albedo drops across the alpine region, results confirm a significant melt increase compared to the previous decade.", "score": 30.6, "location": null, "cite": "[kb:616e89dd]", "markdownLink": "[Ouvrir la page](https://example.org/search-fixture)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-file-default-limit",
+      "notes": "file (CSV profilé) : markdownLink=\"[<origin>](<origin>)\" comme kb_cli.mjs::decoratePassage le prévoit pour ce kind. Les 3 tableaux du digest mentionnent tous \"albedo\" (en-tête répétée) mais tout est sur une seule page (page:1) — le dédoublonnage \"au plus 2 par page\" de searchPassages plafonne donc le compte à 2 ici, AVANT même d'atteindre --limit.",
+      "args": ["search", "--id", "{{csvId}}", "--query", "albedo"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "large.csv", "kind": "file", "origin": "<INPUTS>/large.csv", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true } },
+          "query": "albedo", "count": 2,
+          "passages": [
+            { "page": 1, "quote": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | si", "context": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | site-6 | 0.259 | TRUE | | 2014 | site-0 | 0.62 | TRUE |", "score": 8.85, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" },
+            { "page": 1, "quote": "2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy.", "context": "| colonne | type | remplissage | étendue / valeurs | | --- | --- | --- | --- | | year | nombre | complète | 2000 → 2024 (moy. 2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy. 0.5034) | | flag | booléen | complète | |", "score": 8.68, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-file-explicit-limit-2",
+      "notes": "--limit 2 exercé explicitement (KBG-03) : même sortie que la recherche par défaut ci-dessus puisque le plafond par page (2) est déjà la contrainte active — utile pour figer que --limit 2 n'échoue ni ne change le format, même quand il n'est pas la contrainte binding.",
+      "args": ["search", "--id", "{{csvId}}", "--query", "albedo", "--limit", "2"],
+      "expect": {
+        "exitCode": 0,
+        "stdout": {
+          "ok": true,
+          "source": { "id": "<ID>", "title": "large.csv", "kind": "file", "origin": "<INPUTS>/large.csv", "meta": { "mtimeMs": "<NUM>", "size": 69693, "table": true } },
+          "query": "albedo", "count": 2,
+          "passages": [
+            { "page": 1, "quote": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | si", "context": "| year | site | albedo | flag | | --- | --- | --- | --- | | 2000 | site-0 | 0.612 | FALSE | | 2001 | site-1 | 0.12 | TRUE | | 2002 | site-2 | 0.32 | TRUE | | 2003 | site-3 | 0.279 | FALSE | | 2004 | site-4 | 0.689 | TRUE | | 2005 | site-5 | 0.641 | TRUE | | 2006 | site-6 | 0.814 | FALSE | | 2007 | site-0 | 0.17 | TRUE | | 2008 | site-1 | 0.438 | TRUE | | 2009 | site-2 | 0.124 | FALSE | | 2010 | site-3 | 0.275 | TRUE | | 2011 | site-4 | 0.504 | TRUE | | 2012 | site-5 | 0.121 | FALSE | | 2013 | site-6 | 0.259 | TRUE | | 2014 | site-0 | 0.62 | TRUE |", "score": 8.85, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" },
+            { "page": 1, "quote": "2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy.", "context": "| colonne | type | remplissage | étendue / valeurs | | --- | --- | --- | --- | | year | nombre | complète | 2000 → 2024 (moy. 2012) | | site | texte | complète | 7 valeurs · site-0, site-1, site-2 | | albedo | nombre | complète | 0.1 → 0.9 (moy. 0.5034) | | flag | booléen | complète | |", "score": 8.68, "location": null, "cite": "[kb:{{csvId}}]", "markdownLink": "[<INPUTS>/large.csv](<INPUTS>/large.csv)" }
+          ]
+        }
+      }
+    }
+  ]
+}
