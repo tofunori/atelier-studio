@@ -145,7 +145,7 @@ export default function AtelierPane({
   onActiveSurfaceChange = NOOP_SURFACE_CHANGE,
   reloadKey,
   showExplorer,
-  showAnnots,
+  showAnnots = false,
   onOpenAnnot,
   onQuoteAnnot,
   layout,
@@ -170,9 +170,9 @@ export default function AtelierPane({
   onActiveSurfaceChange?: (surface: Surface) => void;
   reloadKey: number;
   showExplorer: boolean;
-  showAnnots: boolean;
-  onOpenAnnot: (rel: string, annotId: string) => void;
-  onQuoteAnnot: (text: string) => void;
+  showAnnots?: boolean;
+  onOpenAnnot?: (rel: string, annotId: string) => void;
+  onQuoteAnnot?: (text: string) => void;
   files: string[];
   recentFiles: string[];
   onOpenExplorer: () => void;
@@ -1028,8 +1028,8 @@ export default function AtelierPane({
         {showAnnots && (
           <AnnotationsPanel
             galleryOrigin={url ? new URL(url).origin : null}
-            onOpenAnnot={onOpenAnnot}
-            onQuote={onQuoteAnnot}
+            onOpenAnnot={onOpenAnnot ?? (() => {})}
+            onQuote={onQuoteAnnot ?? (() => {})}
           />
         )}
       </div>

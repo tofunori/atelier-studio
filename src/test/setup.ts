@@ -1,5 +1,28 @@
 import "@testing-library/jest-dom/vitest";
 
+// Node 26 (mise à niveau machine du 2026-08-17) expose un localStorage
+// EXPÉRIMENTAL qui, sans --localstorage-file, ombrage celui de jsdom en
+// valant undefined — TOUS les tests DOM qui y touchent tombaient (vécu :
+// 36/36 sur turnAnatomy, 19/19 sur TopBarSurfaces, sur du code inchangé).
+// Shim en mémoire, posé seulement si le vrai est absent/inutilisable.
+if (typeof globalThis.localStorage === "undefined"
+  || globalThis.localStorage == null
+  || typeof globalThis.localStorage.clear !== "function") {
+  const mem = new Map<string, string>();
+  const shim: Storage = {
+    get length() { return mem.size; },
+    clear: () => mem.clear(),
+    getItem: (k: string) => (mem.has(k) ? mem.get(k)! : null),
+    setItem: (k: string, v: string) => { mem.set(k, String(v)); },
+    removeItem: (k: string) => { mem.delete(k); },
+    key: (i: number) => [...mem.keys()][i] ?? null,
+  };
+  Object.defineProperty(globalThis, "localStorage", { value: shim, configurable: true });
+  if (typeof globalThis.window !== "undefined") {
+    Object.defineProperty(globalThis.window, "localStorage", { value: shim, configurable: true });
+  }
+}
+
 // jsdom n'implémente pas le défilement impératif. Les primitives de scroll
 // réelles (dont shadcn MessageScroller) passent par cette API; le polyfill
 // reproduit seulement son effet observable sur scrollTop.

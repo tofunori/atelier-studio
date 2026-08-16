@@ -156,19 +156,19 @@ export function buildTargets(p: {
       surface: null,
     },
     {
-      id: "annots",
-      label: t("atelier.annotations"),
-      icon: ANNOTS_ICON,
-      active: p.showAnnots,
-      onSelect: p.onToggleAnnots,
-      surface: null,
-    },
-    {
       id: "ide",
       label: t("atelier.ide"),
       icon: IDE_ICON,
       active: p.ideActive,
       onSelect: p.onSelectIde,
+      surface: null,
+    },
+    {
+      id: "annots",
+      label: t("atelier.annotations"),
+      icon: ANNOTS_ICON,
+      active: p.showAnnots,
+      onSelect: p.onToggleAnnots,
       surface: null,
     },
     ...SURFACES.map((s) => ({

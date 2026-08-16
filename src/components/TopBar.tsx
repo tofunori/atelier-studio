@@ -63,7 +63,9 @@ export default function TopBar({
   activeSurface,
   showAtelier,
   showExplorer,
+  showAnnots,
   onToggleExplorer,
+  onToggleAnnots,
   onSelectSurface,
   onSelectIde,
   ideActive,
@@ -84,7 +86,9 @@ export default function TopBar({
   activeSurface: Surface;
   showAtelier: boolean;
   showExplorer: boolean;
+  showAnnots: boolean;
   onToggleExplorer: () => void;
+  onToggleAnnots: () => void;
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   ideActive: boolean;
@@ -177,6 +181,8 @@ export default function TopBar({
         {/* Surfaces (plan 055) : toutes ici, épinglables. Le refresh galerie
             vit dans le GalleryHeader de la surface (plan 018). */}
         <TopBarSurfaces
+          showAnnots={showAnnots}
+          onToggleAnnots={onToggleAnnots}
           activeSurface={activeSurface}
           showAtelier={showAtelier}
           ideActive={ideActive}

@@ -15,6 +15,8 @@ function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) 
     onSelectSurface: vi.fn(),
     onSelectIde: vi.fn(),
     onToggleExplorer: vi.fn(),
+    showAnnots: false,
+    onToggleAnnots: vi.fn(),
     ...over,
   };
 }
@@ -150,11 +152,16 @@ describe("TopBarSurfaces", () => {
 });
 
 const TRIM_KEY = "atelier-studio.topbar-surfaces.trim-v1";
+const ANNOTS_KEY = "atelier-studio.topbar-surfaces.annots-v1";
 
 describe("migration preuves-v1 (fix 2026-08-16)", () => {
-  // la coupe du lot 068 est neutralisée ici : ces cas testent l'insertion de
-  // Preuves, pas la longueur de la barre
-  const sansCoupe = () => { localStorage.clear(); localStorage.setItem(TRIM_KEY, "1"); };
+  // la coupe du lot 068 et la migration annots-v1 sont neutralisées ici : ces
+  // cas testent l'insertion de Preuves, pas la longueur de la barre
+  const sansCoupe = () => {
+    localStorage.clear();
+    localStorage.setItem(TRIM_KEY, "1");
+    localStorage.setItem(ANNOTS_KEY, "1");
+  };
 
   it("liste persistée d'avant la surface Preuves : insérée une fois après Connaissances", () => {
     sansCoupe();
@@ -184,17 +191,19 @@ describe("migration trim-v1 (lot 068)", () => {
     localStorage.clear();
     localStorage.setItem("atelier-studio.topbar-surfaces",
       JSON.stringify(["terminal", "git", "atelier", "preuves", "connaissances", "ide", "explorer"]));
-    expect(readPinned()).toEqual(["terminal", "git", "atelier"]);
+    // la coupe garde les DEFAULT_PINNED.length premières (4 depuis le panneau
+    // Annotations) dans l'ordre de l'utilisateur
+    expect(readPinned()).toEqual(["terminal", "git", "atelier", "preuves"]);
     // la coupe est persistée, pas seulement affichée
     expect(JSON.parse(localStorage.getItem("atelier-studio.topbar-surfaces")!))
-      .toEqual(["terminal", "git", "atelier"]);
+      .toEqual(["terminal", "git", "atelier", "preuves"]);
   });
 
   it("ne recoupe jamais ce que l'utilisateur ré-épingle ensuite", () => {
     localStorage.clear();
     localStorage.setItem("atelier-studio.topbar-surfaces",
       JSON.stringify(["explorer", "ide", "connaissances", "git", "terminal"]));
-    expect(readPinned()).toHaveLength(3);
+    expect(readPinned()).toHaveLength(DEFAULT_PINNED.length);
     // il en ré-épingle deux : elles survivent au remontage suivant
     localStorage.setItem("atelier-studio.topbar-surfaces",
       JSON.stringify(["explorer", "ide", "connaissances", "git", "terminal"]));
@@ -218,5 +227,30 @@ describe("migration trim-v1 (lot 068)", () => {
     readPinned();
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "ide"]));
     expect(readPinned()).toEqual(["explorer", "ide"]);
+  });
+});
+
+describe("migration annots-v1 (panneau Annotations)", () => {
+  // même neutralisation que pour preuves-v1 : on teste l'insertion, pas la coupe
+  const sansCoupe = () => {
+    localStorage.clear();
+    localStorage.setItem(TRIM_KEY, "1");
+    localStorage.setItem("atelier-studio.topbar-surfaces.preuves-v1", "1");
+  };
+
+  it("liste persistée d'avant le panneau : Annotations insérée une fois après Connaissances", () => {
+    sansCoupe();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "connaissances", "git"]));
+    expect(readPinned()).toEqual(["explorer", "connaissances", "annots", "git"]);
+    // idempotent : relire ne duplique pas
+    expect(readPinned().filter((id) => id === "annots")).toHaveLength(1);
+  });
+
+  it("l'utilisateur qui retire Annotations après migration est respecté", () => {
+    sansCoupe();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
+    readPinned(); // migre + pose le flag
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
+    expect(readPinned()).toEqual(["explorer", "git"]);
   });
 });
