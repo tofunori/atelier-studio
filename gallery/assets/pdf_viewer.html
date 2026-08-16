@@ -814,7 +814,7 @@ document.addEventListener("click", (e) => {
 });
 
 // mode Studio : barre d'outils compacte et sobre + outils d'annotation
-let TOOL = null, TOOL_COLOR_IDX = 0;
+let TOOL = null;   // seul mode restant : "note" (pose d'une pastille au clic)
 if(window.self !== window.top){
   const hd = document.querySelector("header");
   const tools = document.createElement("span");
@@ -872,7 +872,7 @@ if(window.self !== window.top){
     const pr = pg.getBoundingClientRect();
     const a = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
       pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
-      kind: "note", color: HL_COLORS[TOOL_COLOR_IDX], text: "", note: ""};
+      kind: "note", color: LAST_COLOR, text: "", note: ""};
     PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
     annotMenu(a, e.clientX, e.clientY);
   });
