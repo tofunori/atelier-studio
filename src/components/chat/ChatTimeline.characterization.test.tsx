@@ -72,8 +72,10 @@ describe("timeline Chat — caractérisation avant extraction", () => {
       [...document.querySelectorAll(".msg-wrap .msg")].filter((el) =>
         el.textContent?.includes("Je regarde les"));
     expect(streamBlocks()).toHaveLength(1);
-    expect(streamBlocks()[0].classList.contains("typeset")).toBe(true);
-    expect(streamBlocks()[0].classList.contains("typeset-chat")).toBe(true);
+    // plan 066 L2 : le bubble content du chat rend désormais via la famille
+    // "chat-md" (App.css) plutôt que le moteur shadcn/typeset — inchangé
+    // ailleurs (AgentActivity, SourceReader).
+    expect(streamBlocks()[0].classList.contains("chat-md")).toBe(true);
     expect(document.querySelector(".stream-caret")).toBeTruthy();
 
     // le flux grandit : toujours UN SEUL bloc streaming
@@ -150,7 +152,8 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     const assistantMessage = document.querySelector('[data-slot="message"][data-align="start"]') as HTMLElement;
     const assistantBubble = assistantMessage.querySelector('[data-slot="bubble"][data-variant="ghost"]');
     expect(assistantMessage.querySelector('[data-slot="message-content"].msg-wrap')).toBeTruthy();
-    expect(assistantBubble?.querySelector('[data-slot="bubble-content"].typeset-chat')).toBeTruthy();
+    // plan 066 L2 : "chat-md" remplace "typeset-chat" pour ce bubble content.
+    expect(assistantBubble?.querySelector('[data-slot="bubble-content"].chat-md')).toBeTruthy();
     expect(assistantMessage.querySelector('[data-slot="message-footer"].msg-actions.is-persistent')).toBeTruthy();
   });
 
@@ -351,7 +354,8 @@ describe("timeline Chat — caractérisation avant extraction", () => {
       })} />,
     );
     expect(screen.getByText("gras").tagName).toBe("STRONG");
-    expect(document.querySelector(".msg.typeset.typeset-chat")).toBeTruthy();
+    // plan 066 L2 : "chat-md" remplace "typeset typeset-chat" sur le message.
+    expect(document.querySelector(".msg.chat-md")).toBeTruthy();
     expect(document.querySelector(".codeblock.not-typeset pre code")).toBeTruthy();
     expect(screen.getByText(/albedo_trends\.py/)).toBeTruthy();
   });

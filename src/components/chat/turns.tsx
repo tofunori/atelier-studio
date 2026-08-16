@@ -336,7 +336,7 @@ export function StreamingText(p: { text: string; working: boolean }) {
       {/* is-streaming : fondu d'entrée des nouveaux blocs (chunk-in) ; le
           caret est re-monté à chaque lot (key) pour « respirer » au rythme
           du flux — one-shot par événement, pas de boucle (§9). */}
-      <BubbleContent className="msg typeset typeset-chat is-streaming tw:w-full">
+      <BubbleContent className="msg chat-md is-streaming tw:w-full">
         <MdBody
           text={decorateKbCites(normalizeMathDelimiters(text), kbCiteSources)}
           streaming={p.working}
@@ -370,7 +370,7 @@ export const AssistantText = memo(function AssistantText(p: {
     <Message id={`msg-${i}`} align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
       <Bubble variant="ghost" className="tw:w-full">
-      <BubbleContent className="msg typeset typeset-chat tw:w-full">
+      <BubbleContent className="msg chat-md tw:w-full">
         <MdBody
           text={decorateKbCites(normalizeMathDelimiters(e.text), kbCiteSources)}
           streaming={false}
