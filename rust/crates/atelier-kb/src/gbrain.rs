@@ -132,13 +132,59 @@ pub(crate) fn spawn_with_timeout(bin: &str, args: &[&str], input: Option<&str>, 
     }
 }
 
+pub struct GbrainInvocation {
+    pub cmd: String,
+    pub argv: Vec<String>,
+}
+
+/// Hôte ssh par défaut de `gbrainInvocation` — miroir du paramètre par
+/// défaut `process.env.ATELIER_GBRAIN_SSH_HOST ?? "nas"` (knowledge.mjs:337).
+pub fn default_gbrain_ssh_host() -> String {
+    std::env::var("ATELIER_GBRAIN_SSH_HOST").unwrap_or_else(|_| "nas".to_string())
+}
+
+/// Miroir de `gbrainInvocation(args, host)` (`sidecar/knowledge.mjs:337-348`,
+/// fix(preuves) bb009b2b). Le brain CANONIQUE vit sur le NAS — le binaire
+/// gbrain local pointe (souvent) sur un brain PGLite quasi vide, toutes les
+/// lectures y échouent en `page_not_found`. Défaut : `ssh -o BatchMode=yes -o
+/// ConnectTimeout=8 <host> 'gbrain <args…>'`, arguments échappés en quotes
+/// simples (ssh reconcatène en une ligne de shell côté distant). `host` vide
+/// (`ATELIER_GBRAIN_SSH_HOST=""`) force le binaire local via
+/// `resolve_gbrain_bin` — c'est là, comme côté Node, que le hook de test
+/// `ATELIER_TEST_GBRAIN` reprend la main (fixtures kb_parity).
+pub fn gbrain_invocation(args: &[&str], host: &str) -> Result<GbrainInvocation, String> {
+    if host.is_empty() {
+        let bin = resolve_gbrain_bin()
+            .ok_or_else(|| "gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible".to_string())?;
+        return Ok(GbrainInvocation { cmd: bin, argv: args.iter().map(|s| s.to_string()).collect() });
+    }
+    let sq = |value: &str| format!("'{}'", value.replace('\'', r"'\''"));
+    let mut parts = vec!["gbrain".to_string()];
+    parts.extend(args.iter().map(|a| sq(a)));
+    Ok(GbrainInvocation {
+        cmd: "ssh".to_string(),
+        argv: vec![
+            "-o".to_string(),
+            "BatchMode=yes".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=8".to_string(),
+            host.to_string(),
+            parts.join(" "),
+        ],
+    })
+}
+
 /// Miroir de `runGbrain(args, {input})` — throw dur si le binaire est
 /// introuvable, timeout `GBRAIN_TIMEOUT_MS`, exit ≠ 0 → message borné à 300
-/// caractères (stderr, ou stdout à défaut).
+/// caractères (stderr, ou stdout à défaut). Aiguillage ssh/local via
+/// `gbrain_invocation` (voir sa doc) au lieu d'un spawn direct du binaire
+/// local — B1 (plans/065-revue-findings.md) : les écritures partaient dans
+/// le mauvais brain (local, quasi vide) faute de suivre `ssh nas` par défaut.
 pub fn run_gbrain(args: &[&str], input: Option<&str>) -> Result<String, String> {
-    let bin = resolve_gbrain_bin()
-        .ok_or_else(|| "gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible".to_string())?;
-    match spawn_with_timeout(&bin, args, input, Duration::from_millis(GBRAIN_TIMEOUT_MS)) {
+    let host = default_gbrain_ssh_host();
+    let invocation = gbrain_invocation(args, &host)?;
+    let argv_refs: Vec<&str> = invocation.argv.iter().map(String::as_str).collect();
+    match spawn_with_timeout(&invocation.cmd, &argv_refs, input, Duration::from_millis(GBRAIN_TIMEOUT_MS)) {
         SpawnOutcome::Finished { code, stdout, stderr } => {
             let stdout = String::from_utf8_lossy(&stdout).into_owned();
             if code != 0 {
@@ -363,5 +409,44 @@ mod tests {
     fn gbrain_not_found_reconnait_le_motif() {
         assert!(gbrain_not_found("Error [page_not_found]: atelier/absent\n"));
         assert!(!gbrain_not_found("markdown normal"));
+    }
+
+    // Miroir de `describe("gbrainInvocation — aiguillage NAS (fix
+    // 2026-08-16)")` (sidecar/knowledge.test.mjs:732-749) — B1
+    // (plans/065-revue-findings.md).
+    #[test]
+    fn gbrain_invocation_defaut_ssh_avec_arguments_echappes() {
+        let inv = gbrain_invocation(&["get", "papers/acp-19-1393-2019"], "nas").unwrap();
+        assert_eq!(inv.cmd, "ssh");
+        assert_eq!(&inv.argv[0..4], &["-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]);
+        assert_eq!(inv.argv[4], "nas");
+        assert_eq!(inv.argv[5], "gbrain 'get' 'papers/acp-19-1393-2019'");
+    }
+
+    #[test]
+    fn gbrain_invocation_apostrophe_ne_casse_pas_la_ligne_shell() {
+        let inv = gbrain_invocation(&["search", "l'albédo des glaciers"], "nas").unwrap();
+        assert_eq!(inv.argv[5], "gbrain 'search' 'l'\\''albédo des glaciers'");
+    }
+
+    #[test]
+    fn gbrain_invocation_host_vide_utilise_le_binaire_local() {
+        let tmp = std::env::temp_dir().join("atelier-kb-gbrain-invocation-test-fake-bin");
+        std::fs::write(&tmp, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::env::set_var("ATELIER_TEST_GBRAIN", &tmp);
+        let inv = gbrain_invocation(&["get", "slug"], "").unwrap();
+        std::env::remove_var("ATELIER_TEST_GBRAIN");
+        let _ = std::fs::remove_file(&tmp);
+        assert_ne!(inv.cmd, "ssh");
+        assert_eq!(inv.argv, vec!["get".to_string(), "slug".to_string()]);
+    }
+
+    #[test]
+    fn default_gbrain_ssh_host_utilise_nas_par_defaut() {
+        std::env::remove_var("ATELIER_GBRAIN_SSH_HOST");
+        assert_eq!(default_gbrain_ssh_host(), "nas");
+        std::env::set_var("ATELIER_GBRAIN_SSH_HOST", "");
+        assert_eq!(default_gbrain_ssh_host(), "");
+        std::env::remove_var("ATELIER_GBRAIN_SSH_HOST");
     }
 }
