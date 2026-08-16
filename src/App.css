@@ -397,7 +397,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .send:disabled { opacity: 0.4; cursor: default; }
 .working { width: 100%; color: var(--text-muted); font-size: var(--fs-l); padding: 4px 0; display: block; }
 .working-header { margin: 1px 0 4px; }
-.working-label { color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 10px; }
+.working-label { color: var(--text-muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 10px;
+  /* flex bloc + hauteur figée : en inline-flex, la ligne de base se recalculait
+     à chaque apparition/disparition des spans tokens/note pendant le stream,
+     et le séparateur en dessous « respirait » de 1-2 px. */
+  min-height: 20px; line-height: 20px; }
 .working-label::before { content: ""; width: 12px; height: 12px; flex: 0 0 12px; box-sizing: border-box;
   border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent);
   border-radius: var(--r-pill); animation: working-spin .8s linear infinite; }
