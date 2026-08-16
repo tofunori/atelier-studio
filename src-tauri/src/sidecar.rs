@@ -432,6 +432,9 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         .env("ATELIER_TOKEN", &token)
         .env("ATELIER_APP_VERSION", identity::APP_VERSION)
         .env("ATELIER_BUNDLE_HASH", &bundle_hash)
+        // Soak 065 : moteur KB rust par défaut ; rollback sans rebuild via
+        // ATELIER_KB_ENGINE=node dans l'environnement de lancement.
+        .env("ATELIER_KB_ENGINE", std::env::var("ATELIER_KB_ENGINE").unwrap_or_else(|_| "rust".into()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

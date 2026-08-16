@@ -277,7 +277,7 @@ pub fn with_kb_block_for_thread(
     let entries = kb_block_entries(&knowledge_dir, &ids, &full);
     with_kb_block(
         prompt,
-        &Path::new(server_dir).join("atelier-kb"),
+        &Path::new(server_dir).join("atelier-kb-rs"),  // bascule soak 065 (2026-08-16)
         &entries,
         gbrain,
     )
