@@ -75,11 +75,27 @@ harnais de test des ASSETS, pas du serveur ; vérifier leurs imports avant.
    déjà stagé dans rust-server-dist). Les chemins injectés dans les prompts
    (`kb_block.rs:280`, `send.rs:47-49`) ne changent pas de nom.
 5. **Soak KB** : N jours en `rust` par défaut avec repli `node` documenté,
-   puis suppression des .mjs et du flag.
+   puis suppression des .mjs et du flag. ATTENTION (constat vague 4,
+   KBG-02) : `ATELIER_KB_ENGINE=rust` ne bascule QUE les appels in-process
+   du serveur (`ws_router.rs` — kbAdd, kbSourceText, gbrainSearch, etc.).
+   Les wrappers agents `sidecar/atelier-kb`/`sidecar/atelier-zotero-passages`
+   restent des scripts shell qui `exec node kb_cli.mjs …`
+   INCONDITIONNELLEMENT, flag ou pas — et c'est PAR CE CHEMIN que les
+   agents lancent `search`/`kb-text`/`article-import` (prompt
+   `<atelier-kb>`, `kb_block.rs:280`). Tant que l'étape 4 (wrappers Rust)
+   n'est pas faite, un soak en `rust` n'exerce donc PAS `search` en usage
+   réel — seulement la surface UI. Ordonner l'étape 4 avant ou pendant le
+   soak, jamais après, sous peine de « soaker » une commande qui ne tourne
+   jamais réellement sur le moteur rust.
 
-**Done**: fixtures de parité 100 % vertes sur l'engine rust ; zéro `.mjs`
-invoqué depuis `rust/crates` (grep) ; import d'article + épinglage + passages
-Zotero vérifiés dans l'app.
+**Done**: fixtures de parité 100 % vertes sur l'engine rust (couvre le
+CONTRAT CLI, pas l'usage réel) ; zéro `.mjs` invoqué depuis `rust/crates`
+(grep) ; wrappers agents (`sidecar/atelier-kb`,
+`sidecar/atelier-zotero-passages`) basculés sur les binaires Rust AVANT que
+le soak ne soit déclaré concluant — sinon `search` (la commande la plus
+utilisée par les agents) n'a jamais tourné sur le moteur rust pendant le
+soak ; import d'article + épinglage + passages Zotero vérifiés dans l'app,
+PAR LES DEUX CHEMINS (UI et wrapper agent).
 
 ## Phase D — Retirer le runtime Node du bundle (S)
 
