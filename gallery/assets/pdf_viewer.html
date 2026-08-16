@@ -121,8 +121,11 @@
     flex-direction:column;background:#1b1e24;border-left:1px solid #343842;
     box-shadow:-8px 0 28px rgba(0,0,0,.35);font-size:13px}
   /* poignée de largeur : le lecteur se réajuste tout seul (availW) */
-  /* les pages se décalent du panneau (sinon elles restent centrées dessous) */
-  body.pane-on #pages{padding-right:306px}
+  /* Les pages se décalent du panneau (sinon elles restent centrées dessous).
+     La valeur SUIT la largeur réelle : figée, elle laissait une bande vide
+     quand on rétrécissait la colonne, et recouvrait les pages quand on
+     l'élargissait (vécu 2026-08-16). */
+  body.pane-on #pages{padding-right:var(--pane-pad,306px)}
   #annPane .grip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:1}
   #annPane .grip:hover{background:linear-gradient(90deg,transparent,rgba(91,157,255,.35))}
   body.pane-resizing{user-select:none;-webkit-user-select:none}
@@ -860,6 +863,7 @@ const annPane = (function(){
       const title = (fn && (fn.title || fn.textContent) || "").trim();
       doc.textContent = title && title !== "PDF" ? title : citeRef();
       doc.title = doc.textContent;
+      applyNarrow();   // pose --pane-pad dès l'ouverture, pas seulement au drag
       refresh();
     }
   }
@@ -869,6 +873,8 @@ const annPane = (function(){
   applyNarrow();
   function applyNarrow(){
     document.body.classList.toggle("pane-narrow", pane.offsetWidth < 240);
+    // le décalage des pages suit la largeur réelle de la colonne
+    document.documentElement.style.setProperty("--pane-pad", (pane.offsetWidth + 16) + "px");
   }
   const grip = pane.querySelector(".grip");
   if (grip) grip.addEventListener("mousedown", (e) => {
