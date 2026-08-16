@@ -199,4 +199,16 @@ describe("PassageCard", () => {
     // le pin zotero (PIN1) porte la même quote mais une autre source : pas épinglé
     expect(screen.getByRole("button", { name: /épingler|pin/i })).toBeTruthy();
   });
+
+  // ---- fiche deux lignes (plan 066) ---------------------------------------
+
+  it("citation vide ne casse pas la carte repliée", () => {
+    const emptyQuoteRef: ZoteroPassageRef = { ...REF, quote: "" };
+    const { container } = render(<PassageCard refData={emptyQuoteRef} />);
+    const quoteEl = container.querySelector(".passage-card-quote");
+    expect(quoteEl?.classList.contains("is-absent")).toBe(true);
+    expect(quoteEl?.textContent).toMatch(/Williamson et al\. 2021/);
+    expect(quoteEl?.textContent?.trim()).not.toBe("");
+    expect(document.querySelector(".passage-card.open")).toBeNull();
+  });
 });

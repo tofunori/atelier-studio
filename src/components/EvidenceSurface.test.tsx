@@ -183,4 +183,36 @@ describe("EvidenceSurface", () => {
     render(<EvidenceSurface projectRoot="/proj-b" />);
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "listPins" }));
   });
+
+  // ---- fiche deux lignes (plan 066) ---------------------------------------
+
+  it("citation vide : la rangée affiche le libellé de source (is-absent), jamais de texte vide", () => {
+    const pin = pinSansSupports({ quote: "", citeLabel: "Watson 2018 Something Long" });
+    seedEvidencePins([pin]);
+    const { container } = render(<EvidenceSurface projectRoot="/proj" />);
+    const quoteEl = container.querySelector(".evidence-row-quote");
+    expect(quoteEl?.classList.contains("is-absent")).toBe(true);
+    expect(quoteEl?.textContent).toMatch(/Watson 2018 Something Long/);
+    expect(quoteEl?.textContent?.trim()).not.toBe("");
+  });
+
+  it("libellé de source long : le méta porte la classe evidence-meta-src (garantit min-width:0 + ellipsis)", () => {
+    const longLabel = "Watson, Kaser, Bolibar, Rounce, Hock et al. 2018 — Global Glacier Mass Balance Reassessment";
+    const pin = pinSansSupports({ citeLabel: longLabel });
+    seedEvidencePins([pin]);
+    const { container } = render(<EvidenceSurface projectRoot="/proj" />);
+    const srcEl = container.querySelector(".evidence-meta-src");
+    expect(srcEl).toBeTruthy();
+    expect(srcEl?.textContent).toBe(longLabel);
+  });
+
+  it("actions : IconButton copier + désépingler avec leurs aria-label, clic copier → presse-papiers", () => {
+    const pin = pinWithSupports("Phrase A");
+    seedEvidencePins([pin]);
+    render(<EvidenceSurface projectRoot="/proj" />);
+    expect(screen.getByRole("button", { name: /autocite/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /retirer l'épingle|unpin/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /autocite/i }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`\\autocite{${pin.zoteroKey}}`);
+  });
 });
