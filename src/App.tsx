@@ -2342,7 +2342,7 @@ export default function App() {
     // setActiveTab HORS de l'updater : un setState niché dans un updater
     // peut être avalé selon le timing React — l'onglet se créait sans
     // devenir actif (vécu 2026-08-16).
-    let focusId = newId;
+    let focusId: string = newId;
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
