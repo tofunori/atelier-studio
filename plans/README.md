@@ -484,7 +484,8 @@ distribution, premier lancement, langue, échecs silencieux, sécurité.
 | 059 | Canal de diagnostic (SILENT-09) | P1 | M | — | TODO |
 | 042 | Keychain mobile (SEC-04) — plan existant, toujours TODO | P1 | M | — | TODO |
 | 067 | Fiche d'épingle unifiée (débordement Preuves + carte chat) | P1 | S-M | — | DONE (mergé, revue approuvée 2026-08-16 ; vérif visuelle app au prochain build) |
-| 065 | Retrait complet de Node — Rust seul (4 phases) | P2 | L | 047, soak galerie | TODO (après v1 signée) |
+| 065 | Retrait complet de Node — Rust seul (4 phases) | P2 | L | 047, soak galerie | **A DONE** (2026-08-16, sidecar chat retiré, staging 47 Mo→140 Ko) · **B DONE** (2026-08-16, backends galerie Node/Python retirés ; archivage des .mjs REPORTÉ, voir le plan) · C DONE (soak KB en cours) · D TODO |
+| 068 | Fade par mots du streaming chat (fluidité type Cursor/Claude) | P2 | S | 066 | DONE (commit `050fefc9`, validé par l'opérateur 2026-08-16 ; pas de fichier de plan — le commit fait foi, et il se cite « plan 067 » par erreur : c'est CE numéro 068) |
 
 Dépendances : 064 précède toute signature Developer ID (DIST-01/02, à
 planifier). Le futur lot « échecs muets » (SILENT-01…08/10) dépend de 059.
