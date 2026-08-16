@@ -185,22 +185,27 @@ jobs:
           xdotool mousemove 420 286 click 1
           sleep 10; shot 2-apres-clic-tex
 
-          # 2) MAIS à 800x600 en layout « split », le panneau atelier est trop
-          #    étroit et continuait d'afficher la galerie. On bascule en layout
-          #    « atelier » (3ᵉ bouton du segment, ⌘2) pour lui donner toute la
-          #    largeur — c'est LÀ que CodeMirror doit se montrer.
+          # 2) layout « atelier » (3ᵉ bouton, ⌘2) : à 800x600 en « split », le
+          #    panneau ne fait que ~250 px et gardait la galerie à l'écran.
           xdotool mousemove 722 18 click 1
-          sleep 12; shot 3-editeur-latex-pleine-largeur
+          sleep 10; shot 3-pleine-largeur
 
-          # 3) retour en split pour retrouver la grille, puis le PDF en
-          #    double-clic (3ᵉ vignette maintenant que l'extension est permise)
-          xdotool mousemove 694 18 click 1
+          # 3) LE clic qui manquait : l'onglet « memoire.tex » DANS LE RUBAN.
+          #    Ouvrir le fichier crée l'onglet mais ne bascule pas le panneau —
+          #    c'est l'onglet qui sélectionne (runs 7 et 8). C'est ici que
+          #    CodeMirror doit enfin apparaître.
+          xdotool mousemove 248 18 click 1
+          sleep 14; shot 4-editeur-latex
+
+          # 4) retour galerie puis Rescan, pour que le pdf nouvellement permis
+          #    entre dans la grille (le serveur a démarré avant le réglage)
+          xdotool mousemove 581 18 click 1
           sleep 8
-          xdotool mousemove 676 610 click --repeat 2 --delay 120 1
-          sleep 12; shot 4-apres-dblclic-pdf
+          xdotool mousemove 600 60 click 1
+          sleep 10; shot 5-galerie-rescan
 
           # 4) dernier état, après que tout se soit posé
-          sleep 10; shot 5-final
+          sleep 10; shot 6-final
 
           kill "$APP_PID" 2>/dev/null
           {
