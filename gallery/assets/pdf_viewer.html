@@ -116,10 +116,23 @@
   .textLayer span.find-cur{background:rgba(255,170,60,.62);border-radius:2px}
   /* Panneau des annotations (colonne de Zotero) : tout ce qu'on a marqué dans
      l'article, en une liste cliquable — remplace les flèches à l'aveugle. */
-  #annPane{position:fixed;top:0;right:0;bottom:0;width:290px;z-index:280;display:none;
+  #annPane{position:fixed;top:0;right:0;bottom:0;width:290px;min-width:190px;max-width:520px;
+    z-index:280;display:none;
     flex-direction:column;background:#1b1e24;border-left:1px solid #343842;
     box-shadow:-8px 0 28px rgba(0,0,0,.35);font-size:13px}
-  body.pane-on #pages{padding-right:306px}
+  /* poignée de largeur : le lecteur se réajuste tout seul (availW) */
+  #annPane .grip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:1}
+  #annPane .grip:hover{background:linear-gradient(90deg,transparent,rgba(91,157,255,.35))}
+  body.pane-resizing{user-select:none;-webkit-user-select:none}
+  /* sous-titre : de quel article on parle */
+  #annPane .doc{padding:0 12px 9px;color:#6d7480;font-size:11.5px;line-height:1.4;
+    border-bottom:1px solid #2a2e36;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* vignette d'une zone capturée — l'aperçu vaut mieux qu'un libellé */
+  #annPane .thumb{margin-top:6px;border:1px solid #343842;border-radius:6px;overflow:hidden;
+    background:#fff;max-height:104px;display:flex}
+  #annPane .thumb img{width:100%;height:auto;display:block;object-fit:cover}
+  body.pane-narrow #annPane .m{display:none}
+  body.pane-narrow #annPane .q{-webkit-line-clamp:2}
   #annPane .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;
     border-bottom:1px solid #2a2e36;color:var(--muted);font-size:12px}
   #annPane .hd .ttl{flex:1;color:var(--txt)}
@@ -176,7 +189,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="pages"></div>
 <button id="sendBtn">➜ Claude</button>
 <div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
-<div id="annPane"><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="filters"></div><div class="list"></div></div>
+<div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="filters"></div><div class="list"></div></div>
 <div id="findBar"><input type="text" placeholder="Rechercher dans le document&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
@@ -211,9 +224,18 @@ async function main(){
   // Largeur RÉELLEMENT disponible pour les pages : la colonne d'annotations
   // est en position fixe, elle ne réduit pas window.innerWidth — sans ça les
   // pages gardaient leur taille et passaient SOUS le panneau (vécu 2026-08-16).
-  const PANE_W = 296;
+  // Largeur du panneau : ajustable à la poignée, retenue d'une session à
+  // l'autre. availW() lit la valeur RÉELLE — le lecteur se réajuste donc
+  // pendant qu'on tire, par la même mécanique que le redimensionnement.
+  const PANE_KEY = "pdfv_pane_w";
+  function paneW(){
+    const el = document.getElementById("annPane");
+    const stored = parseInt(localStorage.getItem(PANE_KEY) || "", 10);
+    const w = (el && el.offsetWidth) || (stored > 0 ? stored : 290);
+    return Math.max(190, Math.min(520, w)) + 6;   // + marge de respiration
+  }
   function availW(){
-    return window.innerWidth - (document.body.classList.contains("pane-on") ? PANE_W : 0);
+    return window.innerWidth - (document.body.classList.contains("pane-on") ? paneW() : 0);
   }
   let RENDER_W = availW();
   let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
@@ -701,8 +723,9 @@ const annPane = (function(){
   const pane = document.getElementById("annPane");
   if (!pane) return { refresh(){}, toggle(){} };
   const list = pane.querySelector(".list"), filters = pane.querySelector(".filters"),
-        cn = pane.querySelector(".cn");
+        cn = pane.querySelector(".cn"), doc = pane.querySelector(".doc");
   let only = null;   // couleur filtrée, null = toutes
+  const thumbs = new Map();   // id d'annotation → dataURL de la vignette
   function sorted(){
     return [...PDF_ANNOTS].sort((a, b) =>
       (+a.page - +b.page) ||
@@ -758,6 +781,22 @@ const annPane = (function(){
         n.className = "n"; n.textContent = a.note;
         body.appendChild(n);
       }
+      // Une zone se reconnaît à son IMAGE, pas à son libellé : vignette
+      // découpée du canvas de la page (mise en cache — le découpage coûte,
+      // et la liste se redessine à chaque changement). Page pas encore
+      // rendue : pas de vignette, on réessaiera au prochain rafraîchissement.
+      if (a.kind === "area") {
+        let src = thumbs.get(a.id);
+        if (!src) { src = areaDataUrl(a); if (src) thumbs.set(a.id, src); }
+        if (src) {
+          const box = document.createElement("div");
+          box.className = "thumb";
+          const img = document.createElement("img");
+          img.src = src; img.alt = "";
+          box.appendChild(img);
+          body.appendChild(box);
+        }
+      }
       const acts = document.createElement("div");
       acts.className = "acts";
       const chat = document.createElement("button");
@@ -778,8 +817,40 @@ const annPane = (function(){
     const on = pane.style.display !== "flex";
     pane.style.display = on ? "flex" : "none";
     document.body.classList.toggle("pane-on", on);
-    if (on) refresh();
+    if (on) {
+      // de quel article parle-t-on : le titre porté par l'entête du lecteur
+      const fn = document.getElementById("fname");
+      const title = (fn && (fn.title || fn.textContent) || "").trim();
+      doc.textContent = title && title !== "PDF" ? title : citeRef();
+      doc.title = doc.textContent;
+      refresh();
+    }
   }
+  // largeur ajustable, retenue d'une session à l'autre
+  const stored = parseInt(localStorage.getItem(PANE_KEY) || "", 10);
+  if (stored > 0) pane.style.width = Math.max(190, Math.min(520, stored)) + "px";
+  applyNarrow();
+  function applyNarrow(){
+    document.body.classList.toggle("pane-narrow", pane.offsetWidth < 240);
+  }
+  const grip = pane.querySelector(".grip");
+  if (grip) grip.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    document.body.classList.add("pane-resizing");
+    const move = (ev) => {
+      const w = Math.max(190, Math.min(520, window.innerWidth - ev.clientX));
+      pane.style.width = w + "px";
+      applyNarrow();
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      document.body.classList.remove("pane-resizing");
+      try { localStorage.setItem(PANE_KEY, String(pane.offsetWidth)); } catch(e){}
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
   pane.querySelector(".pclose").onclick = toggle;
   return { refresh, toggle };
 })();
