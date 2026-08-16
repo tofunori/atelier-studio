@@ -47,10 +47,11 @@ const NODE = process.execPath;
 const KB_PARITY_BIN = process.env.KB_PARITY_BIN || "";
 
 // Groupes déjà couverts par le moteur Rust (mis à jour vague par vague — plan
-// 065). Vague 1 (C4) : store local. Vague 2 : gbrain + article-local (MinerU
-// réel et article-doi réseau restent hors périmètre — groupe d non porté,
-// toujours skippé contre ce binaire).
-const RUST_BIN_SUPPORTED_GROUPS = new Set(["a-local-store.json", "b-gbrain.json", "c-article-local.json"]);
+// 065). Vague 1 (C4) : store local. Vague 2 : gbrain + article-local. Vague 3
+// (C5) : groupe d — `add --kind web` (fetch réel) + `article-doi` (Crossref
+// réel), même tolérance skip-on-network-failure que le harnais Node (MinerU
+// réel reste hors périmètre, jamais invoqué par ces fixtures).
+const RUST_BIN_SUPPORTED_GROUPS = new Set(["a-local-store.json", "b-gbrain.json", "c-article-local.json", "d-network.json"]);
 
 const ISO_EXACT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ISO_GLOBAL = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g;

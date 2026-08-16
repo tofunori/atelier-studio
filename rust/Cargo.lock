@@ -202,6 +202,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "unicode-normalization",
+ "url",
 ]
 
 [[package]]
@@ -265,6 +266,7 @@ name = "atelier-runtime"
 version = "0.1.0"
 dependencies = [
  "atelier-harness",
+ "atelier-kb",
  "atelier-protocol",
  "atelier-providers",
  "atelier-store",

@@ -1,8 +1,8 @@
 //! Port de `KnowledgeStore` (`sidecar/knowledge.mjs`) — registre
 //! `knowledge.json` (v2) + cache d'extraction en pages + verrou
-//! inter-processus. Store local uniquement (plan 065, vague 1) : les kinds
-//! `youtube`/`gbrain`/`zotero`/`web` (fetch réseau) restent hors périmètre
-//! (groupes b/c/d de la parité) et lèvent une erreur explicite si invoqués.
+//! inter-processus. Store local (vague 1) + gbrain/article-local (vague 2) +
+//! `web` en fetch réel (vague 3, groupe d) : seuls `youtube`/`zotero`
+//! restent hors périmètre et lèvent une erreur explicite si invoqués.
 
 use crate::csv_digest::{csv_digest, js_len, CSV_FULL_MAX};
 use crate::folder::{scan_folder, FolderFile};
@@ -561,10 +561,10 @@ impl KnowledgeStore {
         })
     }
 
-    /// `add` — kinds locaux + gbrain (vague 2). `youtube`/`zotero`/`web`
-    /// (fetch réseau) restent hors périmètre : validés par `KB_KINDS` (même
-    /// message d'erreur que Node) mais non implémentés — erreur explicite si
-    /// vraiment invoqués.
+    /// `add` — kinds locaux + gbrain (vague 2) + web fetch réel (vague 3).
+    /// `youtube`/`zotero` restent hors périmètre : validés par `KB_KINDS`
+    /// (même message d'erreur que Node) mais non implémentés — erreur
+    /// explicite si vraiment invoqués.
     pub fn add(
         &mut self,
         kind: &str,
@@ -592,10 +592,10 @@ impl KnowledgeStore {
             "file" => self.add_file(origin, title),
             "folder" => self.add_folder(origin, title),
             "pdf" => self.add_pdf(origin, title),
-            "web" => self.add_web_stdin(origin, title, text),
+            "web" => self.add_web(origin, title, text),
             "gbrain" => self.add_gbrain(origin, title),
             other => Err(format!(
-                "kind '{other}' non pris en charge par ce moteur (vague 2 : store local + gbrain — note/file/folder/pdf/web avec texte fourni/gbrain ; youtube/zotero hors périmètre)"
+                "kind '{other}' non pris en charge par ce moteur (vague 3 : store local + gbrain + web (texte fourni ou fetch réel) ; youtube/zotero hors périmètre)"
             )),
         }
     }
@@ -722,7 +722,11 @@ impl KnowledgeStore {
         self.upsert_entry(&id, "pdf", Some(&pdf_title), Some(&path.to_string_lossy()), extracted.pages, meta)
     }
 
-    fn add_web_stdin(
+    /// `add --kind web` — miroir de la branche `web` de `KnowledgeStore.add`
+    /// (`knowledge.mjs`) : texte fourni (capture browser, page derrière
+    /// login) sinon fetch réseau réel (`web::fetch_page` + `html_to_text`,
+    /// vague 3, groupe d de la parité).
+    fn add_web(
         &mut self,
         origin: Option<&str>,
         title: Option<&str>,
@@ -731,20 +735,27 @@ impl KnowledgeStore {
         let origin = origin.unwrap_or("");
         let url = parse_http_url(origin)?;
         let provided = text.unwrap_or("").trim().to_string();
-        if provided.is_empty() {
-            return Err(
-                "add --kind web sans --text : fetch réseau hors périmètre du moteur rust (vague 1) — fournir --text -".to_string(),
-            );
-        }
-        let mut body = provided;
         const WEB_TEXT_MAX: usize = 300_000;
+        let (mut page_title, mut body, mut content_type) = (title.filter(|t| !t.is_empty()).map(|s| s.to_string()).unwrap_or_default(), provided, String::new());
+        if body.is_empty() {
+            let (html, fetched_content_type) = crate::web::fetch_page(&url)?;
+            let (parsed_title, parsed_text) = crate::web::html_to_text(&html);
+            if page_title.is_empty() {
+                page_title = parsed_title;
+            }
+            body = parsed_text;
+            content_type = fetched_content_type;
+        }
         body = body.chars().take(WEB_TEXT_MAX).collect();
         if body.is_empty() {
             return Err(format!("Aucun texte extractible sur {url}"));
         }
-        let page_title = title.filter(|t| !t.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| url.clone());
+        if page_title.is_empty() {
+            page_title = url.clone();
+        }
         let id = source_id("web", &url);
-        self.upsert_entry(&id, "web", Some(&page_title), Some(&url), pages_from_text(&body), json!({}))
+        let meta = if content_type.is_empty() { json!({}) } else { json!({ "contentType": content_type }) };
+        self.upsert_entry(&id, "web", Some(&page_title), Some(&url), pages_from_text(&body), meta)
     }
 
     /// Texte stocké tel quel (registre + cache, pas le fichier disque).
