@@ -1,4 +1,4 @@
-# Plan 066: Une seule fiche d'épingle — fin du débordement dans Preuves et le chat
+# Plan 067: Une seule fiche d'épingle — fin du débordement dans Preuves et le chat
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. On a
@@ -134,7 +134,7 @@ return (
 
 ## Git workflow
 
-- Branch: `advisor/066-fiche-epingle`
+- Branch: `advisor/066-fiche-epingle` (nom conservé : la branche existait avant le renumérotage 066→067)
 - Commits par étape ; style repo : `fix(preuves): …`, `fix(chat): …`
   (voir `git log --oneline -10`). Ne pas pusher.
 
