@@ -52,3 +52,18 @@ deux correctifs frais et trois contrats dont dépendent les Preuves.
 - `cargo test -p atelier-runtime` (89+) — evidence, ws contrat, /ref, slugs.
 - Sondes vivantes (pattern session 2026-08-15/16) : WS `kbGbrainPage` sur
   `aubrywake_2022_fire_and_ice_wildfire_albedo` doit rendre ~66 000 caractères.
+
+## Défauts d'import restants (diagnostiqués 2026-08-16, sondes à l'appui)
+
+- **Conversions MinerU parallèles = perte totale** : 5 imports simultanés → zéro
+  brouillon (limite de concurrence cloud probable), alors qu'un import seul
+  réussit (640 s, brouillon complet). À faire : sémaphore (1-2 conversions max)
+  dans le chemin d'import, et le REPLI « extraction locale » doit produire un
+  brouillon en cas d'échec MinerU — aujourd'hui il perd tout en silence.
+- **`article-list` ne liste pas un brouillon présent sur disque**
+  (knowledge/article-drafts/*.md) — sémantique à clarifier ou bug.
+- Corrigés (ne pas régresser) : `python -u` sur le spawn MinerU (étapes en
+  direct, ec33e60f) ; `probe_exists` tolère page_not_found (première écriture
+  d'un article neuf, b8c06ecd) ; libellé « En attente » avant la première étape.
+- Maintenance infra (hors app) : les CLI gbrain Mac ET NAS sont en retard
+  (0.42.x → 0.46.2 dispo) — mise à niveau à faire par Thierry le moment venu.
