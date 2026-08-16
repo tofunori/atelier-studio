@@ -610,6 +610,43 @@ pub(crate) fn turn_fast_mode(msg: &Value, last_turn: &Value, same_provider: bool
         .unwrap_or(false)
 }
 
+/// `/ref [affirmation]` — gâchette déterministe de la recherche de référence.
+/// Expansion CÔTÉ APP, avant tout provider : le geste est identique dans les
+/// chats Claude, Grok, Codex ou Kimi (un skill Claude Code ne vivrait que
+/// chez Claude, et resterait une suggestion — ici c'est une gâchette).
+/// Sans texte après /ref, l'affirmation vient de la sélection en direct
+/// (< 15 min) ; sans ni l'un ni l'autre → erreur immédiate, aucun tour parti.
+pub fn expand_ref_command(
+    prompt: &str,
+    selection: Option<crate::evidence::EvidenceSupports>,
+) -> Result<Option<String>, String> {
+    let trimmed = prompt.trim_start();
+    let rest = if trimmed == "/ref" {
+        ""
+    } else if let Some(rest) = trimmed.strip_prefix("/ref ") {
+        rest
+    } else {
+        return Ok(None);
+    };
+    let (claim, origin) = if !rest.trim().is_empty() {
+        (rest.trim().to_string(), String::new())
+    } else if let Some(sel) = selection.filter(|s| !s.text.trim().is_empty()) {
+        let origin = match (sel.file.as_deref(), sel.lines.as_deref()) {
+            (Some(file), Some(lines)) => format!(" (sélectionnée dans {file}, {lines})"),
+            (Some(file), None) => format!(" (sélectionnée dans {file})"),
+            _ => String::new(),
+        };
+        (sel.text.trim().to_string(), origin)
+    } else {
+        return Err(
+            "/ref : aucune sélection récente — sélectionne une phrase dans l'éditeur ou tape /ref <affirmation>".into(),
+        );
+    };
+    Ok(Some(format!(
+        "Trouve dans la littérature un passage EXACT qui appuie cette affirmation{origin} :\n\n« {claim} »\n\nMéthode : cherche d'abord avec l'outil terminal atelier-zotero-passages (`search --corpus --query <l'affirmation> --limit 5`). Si le MCP gbrain est disponible, cherche aussi via `query` puis récupère le texte littéral avec `get_page`/`get_chunks` pour tout passage retenu. Réponds avec au plus 3 passages, le meilleur d'abord : pour chacun, son markdownLink SEUL dans son propre paragraphe (ligne vide avant et après), suivi d'un paragraphe d'une seule ligne expliquant pourquoi il appuie l'affirmation. Cite uniquement des passages réellement retournés par les outils — jamais de citation inventée. Si rien de probant n'existe, dis-le clairement."
+    )))
+}
+
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg
         .get("threadId")
@@ -641,6 +678,14 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     if thread_id.is_empty() {
         return vec![err_json("threadId requis")];
     }
+
+    // /ref : expansion après le titre (le fil garde « /ref … » comme titre,
+    // pas le prompt structuré) et avant toute instruction ambiante.
+    let prompt = match expand_ref_command(&prompt, crate::evidence::fig_selection_supports(900)) {
+        Ok(Some(expanded)) => expanded,
+        Ok(None) => prompt,
+        Err(message) => return vec![err_json(message)],
+    };
 
     let Some(provider_impl) = state.provider(&provider) else {
         return vec![err_json(format!(
@@ -1826,6 +1871,43 @@ mod tests {
         assert!(enriched.starts_with("montre les passages importants"));
         assert!(enriched.contains("/app/Resources/rust-server/atelier-zotero-passages"));
         assert!(enriched.contains("reproduce its markdownLink exactly"));
+    }
+
+    #[test]
+    fn ref_command_sans_selection_ni_texte_erreur_immediate() {
+        let out = expand_ref_command("/ref", None);
+        assert!(out.is_err());
+        assert!(out.unwrap_err().contains("aucune sélection récente"));
+    }
+
+    #[test]
+    fn ref_command_avec_texte_construit_le_prompt_structure() {
+        let out = expand_ref_command("/ref les aérosols abaissent l'albédo", None)
+            .unwrap()
+            .expect("expansion attendue");
+        assert!(out.contains("« les aérosols abaissent l'albédo »"));
+        assert!(out.contains("--corpus"));
+        assert!(out.contains("get_page"));
+        assert!(out.contains("jamais de citation inventée"));
+    }
+
+    #[test]
+    fn ref_command_sans_texte_prend_la_selection_avec_origine() {
+        let sel = crate::evidence::EvidenceSupports {
+            text: "La fonte estivale s'accélère.".into(),
+            file: Some("intro.tex".into()),
+            lines: Some("L42".into()),
+        };
+        let out = expand_ref_command("/ref", Some(sel)).unwrap().expect("expansion");
+        assert!(out.contains("« La fonte estivale s'accélère. »"));
+        assert!(out.contains("(sélectionnée dans intro.tex, L42)"));
+    }
+
+    #[test]
+    fn ref_command_ignore_les_prompts_ordinaires_et_les_prefixes_voisins() {
+        assert!(expand_ref_command("bonjour", None).unwrap().is_none());
+        assert!(expand_ref_command("/refactor ce module", None).unwrap().is_none());
+        assert!(expand_ref_command("parle-moi de /ref", None).unwrap().is_none());
     }
 
     #[test]

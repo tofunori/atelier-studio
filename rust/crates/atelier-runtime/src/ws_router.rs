@@ -554,6 +554,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .ok()
                 .and_then(|value| value.as_array().cloned())
                 .unwrap_or_default();
+            // Commande native de l'APP (pas d'un provider) : /ref — gâchette
+            // de la recherche de référence (expansion dans send.rs), donc
+            // proposée dans tous les chats quel que soit le provider.
+            commands.insert(0, json!({"name": "ref", "source": "atelier"}));
             // Commandes internes du CLI actif (Grok : compact, context,
             // hooks-list…). Elles ne vivent sur aucun disque, et restent
             // portées par le provider du fil courant — jamais mélangées à
@@ -3758,6 +3762,16 @@ mod tests {
             "h".into(),
             server_dir,
         )
+    }
+
+    #[tokio::test]
+    async fn list_commands_propose_la_gachette_ref_native() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"listCommands"}"#).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        let commands = response["commands"].as_array().expect("liste de commandes");
+        assert!(commands.iter().any(|c| c["name"] == "ref" && c["source"] == "atelier"));
     }
 
     #[tokio::test]
