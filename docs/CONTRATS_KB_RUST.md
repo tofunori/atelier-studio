@@ -67,3 +67,12 @@ deux correctifs frais et trois contrats dont dépendent les Preuves.
   d'un article neuf, b8c06ecd) ; libellé « En attente » avant la première étape.
 - Maintenance infra (hors app) : les CLI gbrain Mac ET NAS sont en retard
   (0.42.x → 0.46.2 dispo) — mise à niveau à faire par Thierry le moment venu.
+
+## Note connexe (résolution des pilules fichier, 2026-08-16)
+
+`listFiles` plafonne le catalogue à 5000 entrées — le projet Albedo en déborde
+et les fichiers hors plafond deviennent invisibles pour la résolution rapide
+des pilules `fichier:ligne` du chat (repli /findfile, désormais avec une
+retentative). Pistes côté Rust : plafond plus haut, ou tri qui privilégie les
+fichiers de code (.py/.tex/.r/.jl) sur les données pour rester sous le plafond
+utile.

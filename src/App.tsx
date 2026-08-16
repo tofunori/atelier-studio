@@ -2339,16 +2339,20 @@ export default function App() {
     // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
     // commit React — deux clics rapprochés créaient deux onglets identiques
     const newId = crypto.randomUUID();
+    // setActiveTab HORS de l'updater : un setState niché dans un updater
+    // peut être avalé selon le timing React — l'onglet se créait sans
+    // devenir actif (vécu 2026-08-16).
+    let focusId = newId;
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
         // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
-        setActiveTab(existing.id);
+        focusId = existing.id;
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
-      setActiveTab(newId);
       return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
     });
+    setActiveTab(focusId);
     // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
     switchToSurface("atelier");
   }
@@ -2404,20 +2408,29 @@ export default function App() {
         if (hit) {
           target = hit;
         } else if (atelierUrlRef.current) {
-          // absent de l'index git (fichier gitignoré : données, figures…) —
-          // demander au serveur galerie de le retrouver sur disque avant
-          // d'abandonner sur un chemin deviné
+          // absent de l'index (catalogue PLAFONNÉ à 5000 fichiers — un gros
+          // projet en déborde, vécu 2026-08-16 avec toposcale.py) ou fichier
+          // gitignoré — demander au serveur galerie de le retrouver sur
+          // disque avant d'abandonner sur un chemin deviné. Le serveur peut
+          // être en train de démarrer (relance) : UNE retentative à +800 ms
+          // avant le repli, sinon l'échec réseau retombait en silence sur le
+          // chemin nu et l'éditeur affichait « file not found ».
           const name = target.split("/").pop() ?? target;
-          fetch(`${new URL(atelierUrlRef.current).origin}/findfile?name=${encodeURIComponent(name)}`)
-            .then((r) => r.json())
-            .then((j) => {
-              // préférer le hit qui porte aussi les répertoires de la réf
-              // ("data/x/plot.csv") à un simple homonyme ailleurs
-              const hits: string[] = Array.isArray(j?.hits) ? j.hits : [];
-              const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
-              openResolvedRef(best ?? target, line, options);
-            })
-            .catch(() => openResolvedRef(target, line, options));
+          const findfile = () =>
+            fetch(`${new URL(atelierUrlRef.current!).origin}/findfile?name=${encodeURIComponent(name)}`)
+              .then((r) => r.json())
+              .then((j) => {
+                // préférer le hit qui porte aussi les répertoires de la réf
+                // ("data/x/plot.csv") à un simple homonyme ailleurs
+                const hits: string[] = Array.isArray(j?.hits) ? j.hits : [];
+                const best = hits.find((h) => h === target || h.endsWith("/" + target)) ?? hits[0];
+                openResolvedRef(best ?? target, line, options);
+              });
+          findfile().catch(() => {
+            window.setTimeout(() => {
+              findfile().catch(() => openResolvedRef(target, line, options));
+            }, 800);
+          });
           return;
         }
       }
