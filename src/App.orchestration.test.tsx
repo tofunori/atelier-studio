@@ -573,6 +573,13 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     await push(sock, {
       type: "files",
+      // `projectRoot` est OBLIGATOIRE depuis que le catalogue est scopé au
+      // projet actif (App.tsx:1907) : sans lui le message est ignoré, la
+      // liste reste vide, et le clic part en resolution findfile différée —
+      // ce test tombait alors à zéro postMessage. Le garde est le correctif
+      // d'un vrai bug : une pilule résolue contre le catalogue d'un AUTRE
+      // projet ouvrait « file not found ».
+      projectRoot: PROJECT_ROOT,
       files: [
         "outputs/figures/albedo_annuel.png",
         "outputs/figures/albedo_annuel.pdf",
