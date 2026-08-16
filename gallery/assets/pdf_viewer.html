@@ -130,7 +130,7 @@
   #annPane .grip:hover{background:linear-gradient(90deg,transparent,rgba(91,157,255,.35))}
   body.pane-resizing{user-select:none;-webkit-user-select:none}
   /* sous-titre : de quel article on parle */
-  #annPane .doc{padding:0 12px 9px;color:#6d7480;font-size:11.5px;line-height:1.4;
+  #annPane .doc{padding:8px 16px;color:#6d7480;font-size:11px;line-height:1.4;
     border-bottom:1px solid #2a2e36;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* vignette d'une zone capturée — l'aperçu vaut mieux qu'un libellé */
   #annPane .thumb{margin-top:6px;border:1px solid #343842;border-radius:6px;overflow:hidden;
@@ -138,17 +138,22 @@
   #annPane .thumb img{width:100%;height:auto;display:block;object-fit:cover}
   body.pane-narrow #annPane .m{display:none}
   body.pane-narrow #annPane .q{-webkit-line-clamp:2}
-  #annPane .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;
-    border-bottom:1px solid #2a2e36;color:var(--muted);font-size:12px}
-  #annPane .hd .ttl{flex:1;color:var(--txt)}
+  /* GRILLE : gouttière de 16 px partout, comme l'entête du lecteur
+     (padding:10px 16px, 13px) — les barres et le contenu s'alignent. */
+  #annPane .hd{display:flex;align-items:center;gap:8px;padding:10px 16px;
+    border-bottom:1px solid #2a2e36;color:var(--muted);font-size:13px}
+  #annPane .hd .ttl{flex:1;color:var(--txt);font-weight:600;letter-spacing:-0.01em}
+  #annPane .hd .cn{font-variant-numeric:tabular-nums}
   #annPane .hd button{background:none;border:none;color:#8b929e;cursor:pointer;width:24px;height:24px;
-    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;
+    margin-right:-6px}  /* la croix s'aligne optiquement sur la gouttière */
   #annPane .hd button:hover{color:#dbdfe5;background:#262a32}
-  #annPane .filters{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid #2a2e36}
-  #annPane .fdot{width:15px;height:15px;border-radius:999px;cursor:pointer;opacity:.42}
+  #annPane .filters{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid #2a2e36}
+  #annPane .fdot{width:14px;height:14px;border-radius:999px;cursor:pointer;opacity:.42}
   #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
-  #annPane .list{flex:1;overflow-y:auto;padding:6px}
-  #annPane .it{display:grid;grid-template-columns:4px 1fr auto;gap:9px;padding:9px 10px;border-radius:8px;
+  #annPane .list{flex:1;overflow-y:auto;padding:8px}
+  /* rangée : barre 3px + gap 8px + padding 8px → le texte tombe pile à 16px */
+  #annPane .it{display:grid;grid-template-columns:3px 1fr auto;gap:8px;padding:8px;border-radius:8px;
     cursor:pointer;align-items:start}
   #annPane .acts{display:flex;flex-direction:column;gap:2px;opacity:0;transition:opacity 130ms ease-out}
   #annPane .it:hover .acts,#annPane .it:focus-within .acts{opacity:1}
