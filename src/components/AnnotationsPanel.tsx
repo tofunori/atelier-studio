@@ -65,6 +65,7 @@ export default function AnnotationsPanel(p: {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const origin = p.galleryOrigin;
   const seq = useRef(0);
+  const lastJson = useRef("");
 
   function load() {
     if (!origin) return;
@@ -74,8 +75,12 @@ export default function AnnotationsPanel(p: {
       .then((j) => {
         if (mySeq !== seq.current) return;
         const annots = j?.annots && typeof j.annots === "object" ? j.annots : {};
-        setLib(annots);
         setError(null);
+        // ne re-rendre que si le contenu a changé (le polling relit souvent)
+        const ser = JSON.stringify(annots);
+        if (ser === lastJson.current) return;
+        lastJson.current = ser;
+        setLib(annots);
         // premier chargement : déplier l'article le plus récemment annoté
         setExpanded((prev) => {
           if (prev.size) return prev;
@@ -87,11 +92,20 @@ export default function AnnotationsPanel(p: {
       })
       .catch(() => {
         if (mySeq !== seq.current) return;
-        setError(t("annots.load-error"));
+        // un raté n'efface jamais des données déjà affichées
+        if (lastJson.current === "") setError(t("annots.load-error"));
       });
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [origin]);
+  useEffect(() => {
+    lastJson.current = "";
+    load();
+    // le serveur galerie peut encore démarrer quand le panneau s'ouvre, et les
+    // annotations naissent dans le viewer PDF : relire tant que le panneau est
+    // ouvert (GET léger ; l'état ne bouge que si le JSON diffère).
+    const timer = setInterval(load, 2500);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin]);
 
   function maxTs(list: PdfAnnot[]): number {
     let best = 0;
