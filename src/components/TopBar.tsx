@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
-import { Button, IconButton, RowButton, SegmentedControl } from "./ui";
+import { IconButton, RowButton, SegmentedControl } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import TopBarSurfaces from "./TopBarSurfaces";
+import TopBarTabs, { type PaneTab } from "./TopBarTabs";
 import type { Surface } from "./surfaces";
 import { type ProjMeta } from "./Rail";
 
@@ -66,6 +67,10 @@ export default function TopBar({
   onSelectSurface,
   onSelectIde,
   ideActive,
+  tabs,
+  activeTab,
+  onSelectTab,
+  onCloseTab,
 }: {
   projects: string[];
   projMeta: Record<string, ProjMeta>;
@@ -83,6 +88,12 @@ export default function TopBar({
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   ideActive: boolean;
+  /** Onglets du pane focalisé (lot 068) — ils vivaient dans le rail, où
+   *  48 px les réduisaient à deux lettres. Vide = section absente. */
+  tabs: PaneTab[];
+  activeTab: string | null;
+  onSelectTab: (id: string) => void;
+  onCloseTab: (id: string) => void;
 }) {
   const [projMenu, setProjMenu] = useState(false);
   const meta = activeProject ? projMeta[activeProject] : undefined;
@@ -145,21 +156,24 @@ export default function TopBar({
           />
         )}
       </div>
-      <span className="flex" />
-      <Button
-        type="button"
-        variant="ghost"
-        className="topbar-cmd"
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onOpenPalette}
-        title={t("topbar.search")}
-      >
-        <SearchIcon size={12} />
-        <span className="topbar-cmd-label">{t("topbar.search")}</span>
-        <span className="topbar-cmd-kbd">⌘K</span>
-      </Button>
+      {/* Onglets du pane, juste après le nom du projet : on lit « projet,
+          puis fichiers » dans l'ordre où on les pense (lot 068). */}
+      <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
       <span className="flex" />
       <div className="topbar-right">
+        {/* Recherche réduite à son icône (lot 068) : le champ occupait
+            clamp(280px, 32vw, 420px) pour annoncer un raccourci que tout
+            utilisateur régulier tape sans regarder — cette largeur va aux
+            onglets. Le ⌘K et la palette ne changent pas. */}
+        <IconButton
+          label={t("topbar.search")}
+          title={`${t("topbar.search")} (⌘K)`}
+          className="ghost topbar-qa topbar-cmd"
+          onClick={onOpenPalette}
+        >
+          <SearchIcon size={14} />
+        </IconButton>
+        <span className="topbar-div" />
         {/* Surfaces (plan 055) : toutes ici, épinglables. Le refresh galerie
             vit dans le GalleryHeader de la surface (plan 018). */}
         <TopBarSurfaces

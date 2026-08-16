@@ -3507,6 +3507,17 @@ export default function App() {
       onSelectSurface={switchToSurface}
       onSelectIde={goToIde}
       ideActive={ideActive}
+      tabs={paneTabs}
+      activeTab={paneActiveTab}
+      onSelectTab={(id) => {
+        // la barre ne fait que demander ; le workspace choisit lui-même —
+        // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
+        window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
+        setLayout((l) => (l === "chat" ? "split" : l));
+      }}
+      onCloseTab={(id) => {
+        window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
+      }}
     />
   );
   const railNode = (
@@ -3515,29 +3526,8 @@ export default function App() {
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
-          files={paneTabs}
-          activeFile={paneActiveTab}
-          onSelectFile={(id) => {
-            // le workspace choisit lui-même ; le rail ne fait que demander —
-            // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
-            window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
-            setLayout((l) => (l === "chat" ? "split" : l));
-          }}
-          onCloseFile={(id) => {
-            window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
-          }}
           activeView={activeView}
-          layout={layout}
-          activeSurface={activeSurface}
-          onSelectSurface={switchToSurface}
-          onSelectGallery={() => { switchToSurface("atelier"); setActiveTab("gallery"); }}
-          onSelectIde={goToIde}
-          ideActive={ideActive}
-          moreOpen={settings.railMoreOpen}
-          onToggleMore={() => setSettings((s) => ({ ...s, railMoreOpen: !s.railMoreOpen }))}
           onNewChat={newChat}
-          showExplorer={showExplorer}
-          onToggleExplorer={() => { setShowExplorer((v) => !v); switchToSurface("atelier"); }}
           onSelectView={(view) => {
             setActiveView(view);
             setCompact(false);

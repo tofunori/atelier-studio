@@ -46,11 +46,29 @@ Motif PORTA-14 : reproduire le contrat de soak du chat pour la galerie
 Puis : supprimer `GalleryBackend::{Node,Python}` de `src-tauri/src/atelier.rs`
 (:94-105, :320-333), restreindre `scripts/stage-gallery.sh` à `assets/` + UI
 construite (exclure `gallery/server/`), archiver `gallery/server/routes/*.mjs`.
-ATTENTION : `gallery/server/tests/*` (diff_suite, parity) restent — ce sont des
-harnais de test des ASSETS, pas du serveur ; vérifier leurs imports avant.
 
-**Done**: bundle sans `gallery/server` ; `diff_suite` et e2e verts ;
-`ATELIER_GALLERY_BACKEND` retiré.
+**CORRECTION 2026-08-16 (constat d'exécution, preuve vérifiée par le pilote)** :
+la phrase « `gallery/server/tests/*` … ce sont des harnais de test des ASSETS,
+pas du serveur » était FAUSSE. `gallery/server/tests/parity.mjs` spawne
+RÉELLEMENT `gallery/server/main.mjs` (Node, :297) et
+`gallery/fig_annotate_server.py` (Python, :284) et compare leurs réponses HTTP
+à celles du serveur Rust, route par route ; il tourne dans `npm run verify`
+(→ `test:gallery` → `test:gallery:parity`). Archiver un seul fichier de
+`routes/` casse donc `main.mjs`, donc `parity.mjs`, donc `verify`.
+
+Conséquence : **l'archivage des `.mjs` est REPORTÉ**, exactement selon la STOP
+condition du plan 047 §3.3 (« couvre un comportement absent de
+`http_smoke.rs` → porter le test AVANT de retirer »). Écart mesuré :
+`http_smoke.rs` couvre 13 routes sur 9 tests, le serveur Rust en sert 40+ ;
+manquent notamment `/selinfo` (bridge de sélection PDF/code), `/quote`,
+`/clear-quote`, `/pdfannot`, `/statfile`, `/snippet`, `/texroot`,
+`/findscript`, `/lint`, `/thumb`, plus le carry-over des champs absents de
+POST `/state`. Ce portage est un chantier séparé ; il est le DERNIER verrou
+avant la suppression définitive de `gallery/server/`.
+
+**Done (révisé)** : bundle sans `gallery/server` ; `diff_suite` et e2e verts ;
+`ATELIER_GALLERY_BACKEND` retiré. Les `.mjs` restent dans le REPO comme
+harnais de parité — coût bundle nul, Node ne tourne plus en production.
 
 ## Phase C — Porter la chaîne KB en Rust (L, le cœur)
 

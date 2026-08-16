@@ -3,10 +3,8 @@ import { Clock3Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
 import RailActivity from "./RailActivity";
-import RailFiles, { type RailFile } from "./RailFiles";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
-import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
@@ -41,24 +39,9 @@ export default function Rail(p: {
   running: Set<string>;
   activeView: ViewId;
   compact: boolean;
-  layout: "split" | "chat" | "atelier";
-  activeSurface: Surface;
-  onSelectSurface: (surface: Surface) => void;
-  onSelectGallery: () => void;
-  onSelectIde: () => void;
-  ideActive: boolean;
-  moreOpen: boolean;
-  onToggleMore: () => void;
   onNewChat: () => void;
-  showExplorer: boolean;
-  onToggleExplorer: () => void;
   onSelectView: (view: ViewId) => void;
   onSelectProject: (root: string) => void;
-  /** Fichiers ouverts du pane (plan 056) — vide = section absente. */
-  files?: RailFile[];
-  activeFile?: string | null;
-  onSelectFile?: (id: string) => void;
-  onCloseFile?: (id: string) => void;
   onAddProject: () => void;
   onExpand: () => void;
   onSettings: () => void;
@@ -167,15 +150,6 @@ export default function Rail(p: {
         <PlusIcon size={19} />
       </IconButton>
       </div>{/* fin rail-projects */}
-      {/* ce que j'ai en main : les fichiers ouverts (plan 056) */}
-      {p.onSelectFile && (p.files?.length ?? 0) > 0 && (
-        <RailFiles
-          files={p.files ?? []}
-          activeFile={p.activeFile ?? null}
-          onSelectFile={p.onSelectFile}
-          onCloseFile={p.onCloseFile ?? (() => {})}
-        />
-      )}
       {/* ce qui tourne sans toi : agents, conversions (plan 055) */}
       <RailActivity running={p.running} meta={p.meta} onSelectProject={p.onSelectProject} />
       </div>{/* fin rail-scroll */}
