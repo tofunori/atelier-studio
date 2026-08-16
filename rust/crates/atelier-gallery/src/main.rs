@@ -692,12 +692,51 @@ fn is_video_path(path: &std::path::Path) -> bool {
         .is_some_and(|e| VIDEO_EXTS.iter().any(|v| v.eq_ignore_ascii_case(e)))
 }
 
-/// Préflight CORS global (parité Python `do_OPTIONS` → 200 `{}`).
-async fn options_middleware(req: Request, next: Next) -> axum::response::Response {
-    if req.method() == Method::OPTIONS {
-        return (StatusCode::OK, Json(json!({}))).into_response();
+/// Origine à échoyer dans `Access-Control-Allow-Origin` : seulement celles que
+/// la frontière d'origine accepte déjà. Nécessaire car la webview de l'app
+/// (`tauri://localhost`) applique CORS sur ses fetch vers 127.0.0.1 — sans cet
+/// écho, WKWebView bloque des réponses que le serveur a pourtant servies.
+fn cors_allowed_origin(headers: &HeaderMap, own_port: u16, agent_token: &str) -> Option<HeaderValue> {
+    let origin = headers.get("origin")?.to_str().ok()?;
+    if !(loopback_origin(headers, own_port) || authorized(headers, agent_token)) {
+        return None;
     }
-    next.run(req).await
+    HeaderValue::from_str(origin).ok()
+}
+
+/// Préflight CORS global (parité Python `do_OPTIONS` → 200 `{}`) + écho ACAO
+/// sur toutes les réponses aux origines de confiance.
+async fn cors_middleware(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> axum::response::Response {
+    let allow = cors_allowed_origin(req.headers(), state.port, &state.agent_token);
+    if req.method() == Method::OPTIONS {
+        let mut resp = (StatusCode::OK, Json(json!({}))).into_response();
+        if let Some(origin) = allow {
+            let h = resp.headers_mut();
+            h.insert("access-control-allow-origin", origin);
+            h.insert(
+                "access-control-allow-methods",
+                HeaderValue::from_static("GET, POST, OPTIONS"),
+            );
+            h.insert(
+                "access-control-allow-headers",
+                HeaderValue::from_static("content-type, authorization"),
+            );
+            h.insert("access-control-max-age", HeaderValue::from_static("600"));
+            h.insert(header::VARY, HeaderValue::from_static("origin"));
+        }
+        return resp;
+    }
+    let mut resp = next.run(req).await;
+    if let Some(origin) = allow {
+        let h = resp.headers_mut();
+        h.insert("access-control-allow-origin", origin);
+        h.insert(header::VARY, HeaderValue::from_static("origin"));
+    }
+    resp
 }
 
 /// Frontière d'origine (plan 005) appliquée AVANT tout routage — parité avec
@@ -1912,6 +1951,40 @@ mod gallery_token_tests {
     }
 }
 
+#[cfg(test)]
+mod cors_tests {
+    use super::cors_allowed_origin;
+    use axum::http::HeaderMap;
+
+    fn headers(origin: Option<&str>, bearer: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(o) = origin {
+            h.insert("origin", o.parse().unwrap());
+        }
+        if let Some(t) = bearer {
+            h.insert("authorization", format!("Bearer {t}").parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn echoes_only_trusted_origins() {
+        // webview de l'app : la raison d'être de l'écho (WKWebView applique CORS)
+        let v = cors_allowed_origin(&headers(Some("tauri://localhost"), None), 19175, "tok");
+        assert_eq!(v.unwrap().to_str().unwrap(), "tauri://localhost");
+        // même port loopback (pages servies par la galerie elle-même)
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:19175"), None), 19175, "tok").is_some());
+        // autre port loopback : refusé sans Bearer, accepté avec le bon Bearer
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:9999"), None), 19175, "tok").is_none());
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:9999"), Some("tok")), 19175, "tok").is_some());
+        // origine externe ou « null » : jamais d'écho
+        assert!(cors_allowed_origin(&headers(Some("https://evil.example"), None), 19175, "tok").is_none());
+        assert!(cors_allowed_origin(&headers(Some("null"), None), 19175, "tok").is_none());
+        // pas d'Origin (curl, navigation) : rien à échoyer, rien à faire
+        assert!(cors_allowed_origin(&headers(None, None), 19175, "tok").is_none());
+    }
+}
+
 fn expand_home(path: &str) -> PathBuf {
     if path == "~" {
         return std::env::var_os("HOME")
@@ -2166,7 +2239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.clone(),
             origin_guard_middleware,
         ))
-        .layer(middleware::from_fn(options_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), cors_middleware))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             remote_auth_middleware,
