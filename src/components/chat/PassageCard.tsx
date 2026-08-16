@@ -10,8 +10,18 @@ import { wsSend } from "../../lib/wsBus";
 import { evidencePinsSnapshot, isPinned, subscribeEvidencePins } from "../../lib/evidencePins";
 import { citeLabel } from "./turnParts";
 import { Tick } from "./toolPresentation";
-import { Button, IconButton, RowButton } from "../ui";
+import { IconButton, RowButton, Tooltip } from "../ui";
 import { humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, type PassageRef } from "./md";
+
+function DocIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 1.8h7l3 3v9.4H3z" />
+      <path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
+    </svg>
+  );
+}
 
 function PinIcon({ size = 12 }: { size?: number }) {
   return (
