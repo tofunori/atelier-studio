@@ -68,6 +68,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const openLabel = isGbrain ? t("passage.open-gbrain") : t("passage.open-pdf", { page: refData.page });
 
   if (!open) {
+    const hasQuote = Boolean(refData.quote.trim());
     return (
       <div className="passage-card">
         <RowButton
@@ -75,10 +76,19 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
           aria-label={t("passage.expand")}
           onClick={() => setOpen(true)}
         >
-          <span className="passage-card-quote">{refData.quote}</span>
-          <span className="passage-card-meta">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
-          <Tick open={false} />
+          <span className={hasQuote ? "passage-card-quote" : "passage-card-quote is-absent"}>
+            {hasQuote ? refData.quote : t("preuves.open-source", { source: label })}
+          </span>
+          <span className="passage-card-meta">
+            <span
+              className={isGbrain ? "evidence-meta-kind is-gbrain" : "evidence-meta-kind"}
+              aria-hidden="true"
+            />
+            <span className="evidence-meta-src">{label}</span>
+            {!isGbrain && <span className="evidence-meta-page">p. {refData.page}</span>}
+          </span>
         </RowButton>
+        <Tick open={false} />
         <IconButton
           className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
           label={pin ? t("passage.unpin") : t("passage.pin")}

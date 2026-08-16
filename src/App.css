@@ -3495,15 +3495,23 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    #atelier-zotero-passage SEUL dans son paragraphe (cf. lonePassageRef,
    md.tsx) se rend ici — repliée : une ligne (RowButton pleine largeur) +
    épingle en sibling ; dépliée : citation complète + actions */
-.passage-card { display: flex; align-items: center; gap: 8px; max-width: 540px;
+.passage-card { display: flex; align-items: flex-start; gap: 8px; max-width: 540px;
   background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-m);
   padding: 8px 12px; }
 .passage-card.open { flex-direction: column; align-items: stretch; gap: 8px; }
-.passage-card-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.passage-card-quote { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-style: italic; font-size: var(--fs-l); color: var(--text-primary); }
-.passage-card-meta { flex: none; font-size: var(--fs-s); color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
+/* combinateur direct : ne touche pas le Tick niché dans .passage-card-collapse
+   (état déplié, hors scope) */
+.passage-card > .tool-tick { flex: none; }
+.passage-card-row { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.passage-card-quote { font-style: italic; font-size: var(--fs-l); color: var(--text-primary);
+  line-height: 1.45; white-space: normal; display: -webkit-box; -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical; overflow: hidden; }
+.passage-card-quote.is-absent { font-style: normal; color: var(--text-secondary); }
+/* .passage-card-meta est PARTAGÉ avec l'état déplié (ligne texte simple,
+   plan 066 hors scope) : display:flex sur un nœud texte unique reste un
+   rendu identique — un seul enfant anonyme, rien à aligner. */
+.passage-card-meta { display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .passage-card-quote-full { font-style: italic; font-size: var(--fs-l); line-height: 1.5;
   color: var(--text-primary); margin: 0; }
 .passage-card-actions { display: flex; align-items: center; gap: 8px; }
@@ -3526,14 +3534,25 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   min-width: 0; }
 .evidence-group-loc { flex: none; font-size: var(--fs-xs); color: var(--text-disabled);
   font-variant-numeric: tabular-nums; }
-.evidence-row { display: flex; align-items: center; gap: 8px; }
-.evidence-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border-radius: var(--r-s); }
-.evidence-row-main:hover { background: var(--bg-ctl); }
-.evidence-row-quote { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-style: italic; font-size: var(--fs-l); color: var(--text-primary); }
-.evidence-row-meta { flex: none; font-size: var(--fs-s); color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
+.evidence-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px;
+  border-radius: var(--r-s); }
+.evidence-row:hover { background: var(--bg-ctl); }
+.evidence-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.evidence-row-quote { font-style: italic; font-size: var(--fs-l); color: var(--text-primary);
+  line-height: 1.45; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden; }
+.evidence-row-quote.is-absent { font-style: normal; color: var(--text-secondary); }
+.evidence-row-meta { display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* vocabulaire commun aux deux surfaces (Preuves + carte du chat) — plan 066 */
+.evidence-meta-src { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-meta-page { flex: none; font-variant-numeric: tabular-nums; color: var(--text-disabled); }
+.evidence-meta-kind { flex: none; width: 5px; height: 5px; border-radius: var(--r-pill);
+  background: var(--text-disabled); }
+.evidence-meta-kind.is-gbrain { background: var(--accent); }
+.evidence-actions { flex: none; display: flex; gap: 2px; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.evidence-row:hover .evidence-actions, .evidence-row:focus-within .evidence-actions { opacity: 1; }
 .evidence-copy { flex: none; color: var(--text-muted); }
 .evidence-unpin { flex: none; color: var(--accent); }
 
