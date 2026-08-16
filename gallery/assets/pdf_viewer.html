@@ -140,16 +140,28 @@ async function main(){
   // - une fois la largeur STABLE : re-rendu net EN PLACE (pas de location.reload)
   (function(){
     let lastW = window.innerWidth, stableTicks = 0, rendering = false;
+    // SUIVI À LA FRAME (fix 2026-08-16) : le scale CSS suivait le drag via le
+    // poll de 150 ms → ~6 mises à jour/s, saccade visible. La boucle rAF suit
+    // à 60 fps ; l'interval ne garde que la détection de stabilité.
+    (function follow(){
+      if (!rendering) {
+        const w = window.innerWidth;
+        const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
+        if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) {
+          wrap.style.transform = "";
+        } else {
+          wrap.style.transformOrigin = "top center";
+          wrap.style.transform = "scale(" + k + ")";
+        }
+      }
+      requestAnimationFrame(follow);
+    })();
     setInterval(async function(){
       const w = window.innerWidth;
       if (w !== lastW) { lastW = w; stableTicks = 0; }
       else stableTicks++;
       if (rendering) return;
-      const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
-      if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) { wrap.style.transform = ""; return; }
-      // suivi fluide pendant le drag
-      wrap.style.transformOrigin = "top center";
-      wrap.style.transform = "scale(" + k + ")";
+      if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) return;
       // stabilisé (≈450 ms sans changement) → re-rendu net
       if (stableTicks >= 3 || (Math.abs(ZOOM - RENDER_Z) >= 0.01 && stableTicks >= 2)) {
         rendering = true;
