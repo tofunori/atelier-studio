@@ -45,11 +45,24 @@ jobs:
           npm ci
           npm --prefix gallery ci
 
+      # `bundle.resources` de tauri.conf.json est FUSIONNÉ avec celui de
+      # tauri.linux.conf.json, pas remplacé (constat du run 31965982985) : les
+      # quatre ressources macOS survivent à l'override et Tauri refuse de
+      # bundler parce que leurs dossiers n'existent pas ici. Des placeholders
+      # vides suffisent au spike et ne touchent pas au chemin macOS.
+      - name: placeholders des ressources macOS
+        run: |
+          for d in node-runtime sidecar mobile appsnap; do
+            mkdir -p "src-tauri/$d-dist"
+            echo "Vide sur Linux — ressource macOS (spike)." > "src-tauri/$d-dist/README"
+          done
+
       # ---- Étape 1 : le backend compile-t-il pour Linux ? -------------------
       - name: cargo check — espace de travail rust/
         id: check_rust
         continue-on-error: true
         run: |
+          set -o pipefail
           cargo check --manifest-path rust/Cargo.toml --workspace --all-targets \
             2>&1 | tee /tmp/check-rust.log
 
@@ -58,19 +71,26 @@ jobs:
         id: check_tauri
         continue-on-error: true
         run: |
+          set -o pipefail
+          # NOTE : cargo check nu ne fusionne PAS tauri.linux.conf.json (c'est
+          # la CLI qui le fait), il voit donc les ressources macOS. L'étape
+          # « tauri build » est la seule qui juge vraiment.
           cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee /tmp/check-tauri.log
 
       # ---- Étape 3 : le frontend ------------------------------------------
       - name: build frontend
         id: build_front
         continue-on-error: true
-        run: npm run build 2>&1 | tee /tmp/build-front.log
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee /tmp/build-front.log
 
       # ---- Étape 4 : l'application complète --------------------------------
       - name: tauri build
         id: build_app
         continue-on-error: true
         run: |
+          set -o pipefail
           npx tauri build --verbose 2>&1 | tee /tmp/build-app.log
 
       # ---- Étape 5 : LA question — WebKitGTK rend-il l'app ? ---------------
