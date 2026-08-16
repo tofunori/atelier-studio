@@ -227,7 +227,6 @@ async function main(){
   // Largeur du panneau : ajustable à la poignée, retenue d'une session à
   // l'autre. availW() lit la valeur RÉELLE — le lecteur se réajuste donc
   // pendant qu'on tire, par la même mécanique que le redimensionnement.
-  const PANE_KEY = "pdfv_pane_w";
   function paneW(){
     const el = document.getElementById("annPane");
     const stored = parseInt(localStorage.getItem(PANE_KEY) || "", 10);
@@ -715,6 +714,11 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") selCancel(); 
 //  demande de Thierry ; le surlignage de texte part de la sélection,
 //  et l'annotation de FIGURES garde son propre outil dans la galerie)
 
+
+// Largeur du panneau : clé de stockage AU NIVEAU SUPÉRIEUR. Déclarée dans
+// main(), elle était invisible du panneau (portée, pas position) — le
+// ReferenceError tuait tout le script et AUCUN PDF ne s'affichait (2026-08-16).
+const PANE_KEY = "pdfv_pane_w";
 
 // ---- panneau des annotations (colonne façon Zotero) -----------------------
 // Lit PDF_ANNOTS (déjà chargé/persisté) : aucune source de vérité nouvelle.
