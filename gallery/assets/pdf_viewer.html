@@ -136,7 +136,7 @@
   #annPane .thumb{margin-top:6px;border:1px solid #343842;border-radius:6px;overflow:hidden;
     background:#fff;max-height:104px;display:flex}
   #annPane .thumb img{width:100%;height:auto;display:block;object-fit:cover}
-  body.pane-narrow #annPane .m{display:none}
+  body.pane-narrow #annPane .note{display:none}
   body.pane-narrow #annPane .q{-webkit-line-clamp:2}
   /* GRILLE : gouttière de 16 px partout, comme l'entête du lecteur
      (padding:10px 16px, 13px) — les barres et le contenu s'alignent. */
@@ -153,22 +153,29 @@
   #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
   #annPane .list{flex:1;overflow-y:auto;padding:8px}
   /* rangée : barre 3px + gap 8px + padding 8px → le texte tombe pile à 16px */
-  #annPane .it{display:grid;grid-template-columns:3px 1fr auto;gap:8px;padding:8px;border-radius:8px;
+  #annPane .it{display:grid;grid-template-columns:3px 1fr;gap:8px;padding:8px;border-radius:8px;
     cursor:pointer;align-items:start}
-  #annPane .acts{display:flex;flex-direction:column;gap:2px;opacity:0;transition:opacity 130ms ease-out}
-  #annPane .it:hover .acts,#annPane .it:focus-within .acts{opacity:1}
-  #annPane .act{background:none;border:none;color:#8b929e;cursor:pointer;width:24px;height:24px;
-    border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
-  #annPane .act:hover{color:#dbdfe5;background:#2c313a}
-  #annPane .act.danger:hover{color:#ff8a8a}
-  @media (prefers-reduced-motion: reduce){ #annPane .acts{transition:none} }
   #annPane .it:hover{background:#232730}
-  #annPane .it .bar{width:4px;border-radius:999px;align-self:stretch;min-height:26px}
-  #annPane .it .q{color:#cfd3da;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;
-    -webkit-box-orient:vertical;overflow:hidden}
-  #annPane .it .m{color:#7d838d;font-size:11.5px;margin-top:3px;font-variant-numeric:tabular-nums}
-  #annPane .it .n{color:#9aa2ad;font-size:12px;margin-top:3px;font-style:italic}
-  #annPane .empty{color:#6d7480;padding:22px 14px;text-align:center;line-height:1.5}
+  /* REFONTE 2026-08-16 : le contenu est l'étiquette. Un seul niveau de gras
+     (l'en-tête) ; contenu 13, métadonnées 11 tabulaires, note 12 italique.
+     Un pied unique porte la page et les actions (révélées au survol). */
+  #annPane .it .bar{width:3px;border-radius:999px;align-self:stretch;min-height:24px}
+  #annPane .it .q{color:#cfd3da;font-size:13px;line-height:1.5;display:-webkit-box;
+    -webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  #annPane .it .q .oq{color:#7d838d}
+  #annPane .it .q.is-note{color:#9aa2ad;font-style:italic}
+  #annPane .it .note{color:#9aa2ad;font-size:12px;margin-top:4px;font-style:italic}
+  #annPane .foot{display:flex;align-items:center;gap:8px;margin-top:6px;min-height:22px}
+  #annPane .foot .pg{color:#7d838d;font-size:11px;font-variant-numeric:tabular-nums}
+  #annPane .foot .sp{flex:1}
+  #annPane .foot .act{background:none;border:none;cursor:pointer;width:22px;height:22px;
+    border-radius:6px;color:#8b929e;display:inline-flex;align-items:center;justify-content:center;
+    padding:0;opacity:0;transition:opacity 130ms ease-out}
+  #annPane .it:hover .foot .act,#annPane .it:focus-within .foot .act{opacity:1}
+  #annPane .foot .act:hover{color:#dbdfe5;background:#2c313a}
+  #annPane .foot .act.danger:hover{color:#ff8a8a}
+  @media (prefers-reduced-motion: reduce){ #annPane .foot .act{transition:none} }
+  #annPane .empty{color:#6d7480;padding:22px 16px;text-align:center;line-height:1.5}
   /* Capture de zone (« select area » de Zotero) : un rectangle sur une figure
      ou un tableau. L'annotation ne stocke QUE le rectangle — l'image est
      redécoupée du canvas à la demande, donc le sidecar JSON reste léger. */
@@ -813,23 +820,10 @@ const annPane = (function(){
       bar.className = "bar";
       bar.style.background = (a.color || HL_COLORS[0]).replace(",.40", ",.9");
       const body = document.createElement("div");
-      const q = document.createElement("div");
-      q.className = "q";
-      q.textContent = (a.text || "").replace(/\s+/g, " ").trim()
-        || (a.kind === "area" ? "Zone capturée" : a.kind === "note" ? "Note" : "Surlignage");
-      const m = document.createElement("div");
-      m.className = "m";
-      m.textContent = "p. " + a.page;
-      body.appendChild(q); body.appendChild(m);
-      if (a.note) {
-        const n = document.createElement("div");
-        n.className = "n"; n.textContent = a.note;
-        body.appendChild(n);
-      }
-      // Une zone se reconnaît à son IMAGE, pas à son libellé : vignette
-      // découpée du canvas de la page (mise en cache — le découpage coûte,
-      // et la liste se redessine à chaque changement). Page pas encore
-      // rendue : pas de vignette, on réessaiera au prochain rafraîchissement.
+      // LE CONTENU EST L'ÉTIQUETTE (refonte 2026-08-16) : une capture montre
+      // son image, une citation ses guillemets, une note son italique —
+      // aucun libellé de type (« Zone capturée » a vécu).
+      const text = (a.text || "").replace(/\s+/g, " ").trim();
       if (a.kind === "area") {
         let src = thumbs.get(a.id);
         if (!src) { src = areaDataUrl(a); if (src) thumbs.set(a.id, src); }
@@ -841,19 +835,55 @@ const annPane = (function(){
           box.appendChild(img);
           body.appendChild(box);
         }
+        if (a.note) {
+          const n = document.createElement("div");
+          n.className = "note"; n.textContent = a.note;
+          body.appendChild(n);
+        }
+      } else if (a.kind === "note") {
+        const q = document.createElement("div");
+        q.className = "q is-note";
+        q.textContent = a.note || text || "…";
+        body.appendChild(q);
+      } else {
+        const q = document.createElement("div");
+        q.className = "q";
+        const o1 = document.createElement("span"); o1.className = "oq"; o1.textContent = "\u00ab\u2009";
+        const o2 = document.createElement("span"); o2.className = "oq"; o2.textContent = "\u2009\u00bb";
+        q.appendChild(o1); q.appendChild(document.createTextNode(text)); q.appendChild(o2);
+        body.appendChild(q);
+        if (a.note) {
+          const n = document.createElement("div");
+          n.className = "note"; n.textContent = a.note;
+          body.appendChild(n);
+        }
       }
-      const acts = document.createElement("div");
-      acts.className = "acts";
-      const chat = document.createElement("button");
-      chat.className = "act"; chat.title = "Envoyer au chat";
-      chat.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>';
-      chat.onclick = (e) => { e.stopPropagation(); sendAnnot(a); };
-      const del = document.createElement("button");
-      del.className = "act danger"; del.title = "Supprimer";
-      del.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>';
-      del.onclick = (e) => { e.stopPropagation(); removeAnnot(a); };
-      acts.appendChild(chat); acts.appendChild(del);
-      it.appendChild(bar); it.appendChild(body); it.appendChild(acts);
+      // pied unique : page (+ mention note), puis les actions au survol
+      const foot = document.createElement("div");
+      foot.className = "foot";
+      const pg = document.createElement("span");
+      pg.className = "pg";
+      pg.textContent = "p. " + a.page + (a.kind === "note" ? " \u00b7 note" : "");
+      const sp = document.createElement("span");
+      sp.className = "sp";
+      foot.appendChild(pg); foot.appendChild(sp);
+      const mkAct = (cls, title, svg, fn) => {
+        const b = document.createElement("button");
+        b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
+        b.onclick = (e) => { e.stopPropagation(); fn(); };
+        foot.appendChild(b);
+      };
+      mkAct("", "Envoyer au chat",
+        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>',
+        () => sendAnnot(a));
+      if (a.kind !== "area") mkAct("", "Copier la citation et sa r\u00e9f\u00e9rence",
+        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg>',
+        () => copyWithCitation(a));
+      mkAct("danger", "Supprimer",
+        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>',
+        () => removeAnnot(a));
+      body.appendChild(foot);
+      it.appendChild(bar); it.appendChild(body);
       it.onclick = () => jump(a);
       list.appendChild(it);
     }
@@ -864,10 +894,16 @@ const annPane = (function(){
     document.body.classList.toggle("pane-on", on);
     if (on) {
       // de quel article parle-t-on : le titre porté par l'entête du lecteur
-      const fn = document.getElementById("fname");
-      const title = (fn && (fn.title || fn.textContent) || "").trim();
-      doc.textContent = title && title !== "PDF" ? title : citeRef();
-      doc.title = doc.textContent;
+      // Dans l'app, l'en-tête d'onglet affiche déjà auteur · année : le
+      // sous-titre ne sert qu'en fenêtre autonome (pas de redondance).
+      if (window.self !== window.top) {
+        doc.style.display = "none";
+      } else {
+        const fn = document.getElementById("fname");
+        const title = (fn && (fn.title || fn.textContent) || "").trim();
+        doc.textContent = title && title !== "PDF" ? title : citeRef();
+        doc.title = doc.textContent;
+      }
       applyNarrow();   // pose --pane-pad dès l'ouverture, pas seulement au drag
       refresh();
     }
