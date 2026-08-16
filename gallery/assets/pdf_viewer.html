@@ -121,6 +121,8 @@
     flex-direction:column;background:#1b1e24;border-left:1px solid #343842;
     box-shadow:-8px 0 28px rgba(0,0,0,.35);font-size:13px}
   /* poignée de largeur : le lecteur se réajuste tout seul (availW) */
+  /* les pages se décalent du panneau (sinon elles restent centrées dessous) */
+  body.pane-on #pages{padding-right:306px}
   #annPane .grip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:1}
   #annPane .grip:hover{background:linear-gradient(90deg,transparent,rgba(91,157,255,.35))}
   body.pane-resizing{user-select:none;-webkit-user-select:none}
@@ -309,22 +311,40 @@ async function main(){
     // 1) squelette : chaque page à sa taille finale, sans canvas. La hauteur
     //    totale est juste immédiatement (le scroll ne saute pas) et le rendu
     //    peut commencer par ce qui est SOUS LES YEUX.
+    // UNE seule page demandée à pdf.js pour le gabarit : redemander les 42
+    // pages avant de peindre coûtait plusieurs secondes à chaque
+    // redimensionnement (vécu 2026-08-16 — « le PDF ne s'ajuste pas »). Les
+    // pages d'un article ont la même taille ; celles qui diffèrent sont
+    // corrigées à la peinture, quand leur vraie page est chargée.
+    const page1 = await pdf.getPage(1);
+    if (gen !== _renderGen) return;
+    const vp1 = page1.getViewport({scale});
     const slots = [];
     for(let n = 1; n <= pdf.numPages; n++){
-      const page = await pdf.getPage(n);
-      if (gen !== _renderGen) return;   // un geste plus récent a repris la main
-      const vp = page.getViewport({scale});
       const div = document.createElement("div");
       div.className = "pg"; div.dataset.page = n;
-      div.dataset.vscale = vp.scale;  // px CSS par unité PDF — requis par le synctex
-      div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
+      div.dataset.vscale = vp1.scale;  // px CSS par unité PDF — requis par le synctex
+      div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
       wrap.appendChild(div);
-      slots.push({ n: n, page: page, vp: vp, div: div, painted: false });
+      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false });
     }
     // 2) peinture d'une page : canvas + couche texte + annotations
     const paint = async function(slot){
       if (slot.painted || gen !== _renderGen) return;
       slot.painted = true;
+      // page chargée seulement maintenant (le gabarit n'en connaissait qu'une)
+      if (!slot.page) {
+        slot.page = await pdf.getPage(slot.n);
+        if (gen !== _renderGen) return;
+        const real = slot.page.getViewport({scale});
+        // page au format différent (paysage, planche) : on rectifie le gabarit
+        if (Math.abs(real.width - slot.vp.width) > 1 || Math.abs(real.height - slot.vp.height) > 1) {
+          slot.div.style.width = real.width + "px";
+          slot.div.style.height = real.height + "px";
+          slot.div.dataset.vscale = real.scale;
+        }
+        slot.vp = real;
+      }
       const vp = slot.vp;
       const cv = document.createElement("canvas");
       cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
