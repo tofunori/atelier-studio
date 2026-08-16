@@ -308,7 +308,17 @@ export function useSmoothedStream(text: string, working: boolean): string {
       if (revealed.current < total && time - lastTick.current >= 33) {
         lastTick.current = time;
         const backlog = total - revealed.current;
-        revealed.current += Math.min(backlog, Math.max(2, Math.round(backlog * 0.12)));
+        let next = revealed.current + Math.min(backlog, Math.max(2, Math.round(backlog * 0.12)));
+        // Snap à la fin du mot en cours (plan 067) : un mot apparaît entier,
+        // son fade (rehypeWordFade) joue une fois — jamais sur un mot tronqué
+        // qui grandirait sans animation. Cap +24 pour les runs sans blanc
+        // (URLs, code) : la progression reste garantie.
+        const full = target.current;
+        if (next < total && !/\s/.test(full[next - 1] ?? " ") && !/\s/.test(full[next] ?? " ")) {
+          const cap = Math.min(total, next + 24);
+          while (next < cap && !/\s/.test(full[next])) next += 1;
+        }
+        revealed.current = next;
         force((n) => n + 1);
       }
       if (revealed.current < target.current.length) {

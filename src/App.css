@@ -2214,7 +2214,8 @@ body.dragging iframe { pointer-events: none; }
   .active-activity-transition,
   .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
   .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open,
-  .msg.is-streaming > *, .msg.is-streaming > .stream-caret { animation: none; }
+  .msg.is-streaming > *, .msg.is-streaming > .stream-caret,
+  .msg.is-streaming .sw { animation: none; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -2688,6 +2689,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* fade par mots (plan 067) : chaque mot du bloc de queue (span .sw posé par
+   rehypeWordFade) entre en fondu une seule fois à son montage — opacity
+   seule, `both` fige l'état final. One-shot par mot, pas de boucle (§9). */
+.msg.is-streaming .sw { animation: word-in 220ms ease-out both; }
+@keyframes word-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.no-stream-fade .msg.is-streaming .sw { animation: none; }
 /* caret : remonté à chaque lot de texte reçu (key côté React) — il « respire »
    au rythme du flux puis se pose quand le flux s'arrête. Piloté par les
    événements, jamais par une horloge : ce n'est pas une boucle (§9). */

@@ -26,6 +26,27 @@ describe("useSmoothedStream — typewriter du flux", () => {
     await waitFor(() => expect(result.current).toBe(grown), { timeout: 3000 });
   });
 
+  it("la révélation tombe sur une frontière de mot (plan 067) — jamais un mot tronqué", async () => {
+    const initial = "Départ.";
+    const grown = "Départ. Ensuite plusieurs mots supplémentaires arrivent pour vérifier que chaque étape intermédiaire se termine à la fin d'un mot entier.";
+    const { result, rerender } = renderHook(
+      ({ text, working }: { text: string; working: boolean }) => useSmoothedStream(text, working),
+      { initialProps: { text: initial, working: true } },
+    );
+    rerender({ text: grown, working: true });
+    await waitFor(() => {
+      const cur = result.current;
+      if (cur !== grown) {
+        // état intermédiaire observé : le caractère suivant est un blanc
+        // (le mot courant est entier) — le cap +24 ne joue pas ici, le
+        // texte n'a aucun run sans espace de cette longueur.
+        expect(/\s/.test(grown[cur.length])).toBe(true);
+        throw new Error("révélation en cours");
+      }
+      expect(cur).toBe(grown);
+    }, { timeout: 3000 });
+  });
+
   it("fin de tour : flush immédiat du texte complet", () => {
     const grown = "Un long texte encore en cours de révélation au moment du done.";
     const { result, rerender } = renderHook(

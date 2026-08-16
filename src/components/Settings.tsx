@@ -727,6 +727,9 @@ export default function SettingsPage(p: {
               <Row title={t("settings.smoothing")} desc={t("settings.smoothing-desc")}>
                 <Toggle label={t("settings.smoothing")} checked={s.fontSmoothing} onChange={(v) => set({ fontSmoothing: v })} />
               </Row>
+              <Row title={t("settings.stream-fade")} desc={t("settings.stream-fade-desc")}>
+                <Toggle label={t("settings.stream-fade")} checked={s.streamFade} onChange={(v) => set({ streamFade: v })} />
+              </Row>
             </Group>
             <Group label={t("settings.group.layout")}>
               <Row title={t("settings.density")} desc={t("settings.density-desc")}>

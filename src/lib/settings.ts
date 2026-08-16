@@ -38,6 +38,7 @@ export type Settings = {
   density: "compact" | "comfortable" | "spacious";
   baseFontSize: number;
   fontSmoothing: boolean;
+  streamFade: boolean;
   timeFormat: "system" | "24h" | "12h";
   customModels: { provider: ProviderId; id: string }[];
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
@@ -77,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   density: "comfortable",
   baseFontSize: 15,
   fontSmoothing: true,
+  streamFade: true,
   timeFormat: "system",
   customModels: [],
   modelEfforts: {},

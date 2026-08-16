@@ -655,6 +655,7 @@ export default function App() {
     root.setAttribute("data-density", settings.density);
     root.style.fontSize = `${settings.baseFontSize}px`;
     root.classList.toggle("no-smoothing", !settings.fontSmoothing);
+    root.classList.toggle("no-stream-fade", !settings.streamFade);
     const setOrClear = (name: string, val: string) =>
       val ? r.setProperty(name, val) : r.removeProperty(name);
     setOrClear("--accent", settings.accentColor);

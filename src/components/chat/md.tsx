@@ -11,6 +11,7 @@ import remarkGfm from "remark-gfm";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
 import { hardenPartialMarkdown } from "../../lib/markdown";
+import rehypeWordFade from "../../lib/rehypeWordFade";
 import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -493,6 +494,13 @@ export type MdBodyProps = {
  */
 export function MdBody({ text, streaming, components, remarkPlugins, rehypePlugins }: MdBodyProps) {
   const blocks = useMemo(() => splitMarkdownBlocks(text), [text]);
+  // Fade par mots (plan 067) : le bloc de queue — le seul dont le texte change
+  // pendant le streaming — reçoit rehypeWordFade en plus des plugins courants.
+  // Mémoïsé pour garder une identité stable (MdBlock compare par référence).
+  const tailRehypePlugins = useMemo(
+    () => [...rehypePlugins, rehypeWordFade],
+    [rehypePlugins],
+  );
   return (
     <>
       {blocks.map((block, index) => {
@@ -504,7 +512,7 @@ export function MdBody({ text, streaming, components, remarkPlugins, rehypePlugi
             text={content}
             components={components}
             remarkPlugins={remarkPlugins}
-            rehypePlugins={rehypePlugins}
+            rehypePlugins={streaming && isLast ? tailRehypePlugins : rehypePlugins}
           />
         );
       })}
