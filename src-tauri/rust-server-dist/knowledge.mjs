@@ -328,10 +328,28 @@ export function resolveGbrainBin() {
 // avec exit 0 (sonde 2026-07-17) — la détection d'existence passe par là.
 export const GBRAIN_NOT_FOUND = /^Error \[page_not_found\]/m;
 
+/** Aiguillage du CLI gbrain. Le brain CANONIQUE vit sur le NAS ; le binaire
+ * local pointe (souvent) sur un brain PGLite local quasi vide — l'interroger
+ * fait échouer toutes les lectures en `page_not_found` (vécu 2026-08-16).
+ * Défaut : `ssh nas gbrain …`, le chemin déjà éprouvé du poste de Thierry.
+ * ATELIER_GBRAIN_SSH_HOST="" force le binaire local (tests, autres machines).
+ * Les arguments sont échappés en quotes simples : ssh reconcatène en shell. */
+export function gbrainInvocation(args, host = process.env.ATELIER_GBRAIN_SSH_HOST ?? "nas") {
+  if (!host) {
+    const bin = resolveGbrainBin();
+    if (!bin) throw new Error("gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible");
+    return { cmd: bin, argv: args };
+  }
+  const sq = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+  return {
+    cmd: "ssh",
+    argv: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, ["gbrain", ...args.map(sq)].join(" ")],
+  };
+}
+
 export function runGbrain(args, { timeout = GBRAIN_TIMEOUT_MS, input } = {}) {
-  const bin = resolveGbrainBin();
-  if (!bin) throw new Error("gbrain introuvable (PATH, ~/.bun/bin) — corpus NAS indisponible");
-  const run = spawnSync(bin, args, {
+  const { cmd, argv } = gbrainInvocation(args);
+  const run = spawnSync(cmd, argv, {
     encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024,
     ...(input !== undefined ? { input } : {}),
   });
