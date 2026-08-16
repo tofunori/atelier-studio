@@ -1,15 +1,30 @@
 #!/usr/bin/env node
 /**
- * Porte 11 — garde-fous politique backend chat.
+ * Porte 11 — garde-fous politique backend CHAT (plan 033/047).
+ *
+ * Depuis le plan 065 phase A (retrait du sidecar chat Node), il n'y a plus
+ * qu'un backend chat : Rust (`atelier-studio-server`), sans sélecteur. Ce
+ * script vérifie que ce fait reste vrai dans le code — indépendamment du
+ * reste du bundle : le repli base de connaissances
+ * (`ATELIER_KB_ENGINE=node`, plan 065 phase C, soak en cours) et le backend
+ * galerie (`ATELIER_GALLERY_BACKEND=node`, plan 065 phase B, pas commencée)
+ * sont des politiques SÉPARÉES avec leur propre calendrier de retrait.
+ * `sidecar-dist` (chaîne KB + wrapper `atelier-gallery-tool`) et `node-dist`
+ * (runtime Node embarqué, encore utilisé par la galerie Node et par
+ * `atelier-gallery-tool`) restent donc légitimement dans tauri.conf.json
+ * après la clôture de CE soak — ce script ne les vérifie plus.
  *
  * Toujours :
- *  - défaut Tauri = Rust (parse_backend_kind empty → Rust)
- *  - stage-rust-server dans beforeBuildCommand
- *  - resource rust-server-dist présente dans tauri.conf
+ *  - src-tauri/src/sidecar.rs ne contient plus BackendKind::Node ni de
+ *    lecture de ATELIER_BACKEND, ni de résolution de sidecar/index.mjs
+ *    (branche chat Node totalement retirée) ;
+ *  - sidecar.rs résout toujours atelier-studio-server (le seul backend) ;
+ *  - stage-rust-server dans beforeBuildCommand ;
+ *  - resource rust-server-dist présente dans tauri.conf.json.
  *
- * --strict-no-node (après soak COMPLETE uniquement) :
- *  - refuse resources sidecar/node-runtime pour le chat
- *  - refuse ATELIER_BACKEND=node dans sidecar.rs
+ * --strict-no-node :
+ *  - exige le marqueur signé docs/soak/033-COMPLETE.md (aucun contournement
+ *    par variable d'env — ATELIER_SOAK_COMPLETE=1 est ignoré).
  *
  * Exit 0 = ok ; 1 = violation.
  */
@@ -26,31 +41,30 @@ function read(rel) {
   return readFileSync(resolve(root, rel), "utf8");
 }
 
-// 1) Default backend rust
+// 1) Backend chat = Rust seul, branche Node totalement retirée de sidecar.rs
 const sidecarRs = read("src-tauri/src/sidecar.rs");
-if (!/Default \*\*Rust\*\*|default.*Rust|BackendKind::Rust/.test(sidecarRs)) {
-  errors.push("sidecar.rs ne documente/implémente plus le défaut Rust");
+if (/BackendKind::Node/.test(sidecarRs)) {
+  errors.push(
+    "sidecar.rs: BackendKind::Node encore présent (plan 065 phase A: le backend chat Node doit être retiré)",
+  );
 }
-// parse_backend_kind: only "node" → Node, else Rust
-if (!/_ => BackendKind::Rust/.test(sidecarRs) && !/BackendKind::Rust,\s*$/m.test(sidecarRs)) {
-  // softer: require match arm for node and default rust
-  if (!/\"node\" => BackendKind::Node/.test(sidecarRs)) {
-    errors.push("sidecar.rs: branche ATELIER_BACKEND=node absente");
-  }
+if (/var\(\s*"ATELIER_BACKEND"\s*\)/.test(sidecarRs)) {
+  errors.push(
+    "sidecar.rs: lecture de la variable ATELIER_BACKEND encore présente (plan 065 phase A: à retirer)",
+  );
 }
-if (!/\"node\" => BackendKind::Node/.test(sidecarRs)) {
-  errors.push("sidecar.rs: parse_backend_kind doit mapper \"node\" → Node");
+if (/sidecar\/index\.mjs|resolve_script\s*\(/.test(sidecarRs)) {
+  errors.push(
+    "sidecar.rs: résolution de sidecar/index.mjs (chat Node) encore présente",
+  );
 }
-// Ensure empty default is not Node
-if (/unwrap_or\(BackendKind::Node\)|unwrap_or_default\(\).*Node/.test(sidecarRs)) {
-  errors.push("sidecar.rs: défaut ne doit pas être Node");
-}
-// Unit test presence
-if (!/default_backend_is_rust/.test(sidecarRs)) {
-  warnings.push("test default_backend_is_rust manquant dans sidecar.rs");
+if (!/atelier-studio-server/.test(sidecarRs) || !/resolve_rust_server/.test(sidecarRs)) {
+  errors.push(
+    "sidecar.rs: résolution atelier-studio-server absente — le backend chat Rust doit rester câblé",
+  );
 }
 
-// 2) tauri.conf stage + resources
+// 2) tauri.conf stage + resources (backend chat Rust)
 const conf = read("src-tauri/tauri.conf.json");
 const confJson = JSON.parse(conf);
 const before = confJson?.build?.beforeBuildCommand ?? "";
@@ -67,7 +81,8 @@ if (!existsSync(resolve(root, "scripts/stage-rust-server.sh"))) {
   errors.push("scripts/stage-rust-server.sh manquant");
 }
 
-// 4) Soak complete = fichier signé uniquement (pas de bypass env production).
+// 4) Marqueur de soak chat (plan 033/047) — seul contrat accepté par
+//    --strict-no-node (pas de bypass env production).
 //    Contrat : docs/soak/033-COMPLETE.md — voir docs/SOAK_033_RUST_BACKEND.md
 const soakCompletePath = resolve(root, "docs/soak/033-COMPLETE.md");
 const soakComplete = existsSync(soakCompletePath);
@@ -76,36 +91,14 @@ if (process.env.ATELIER_SOAK_COMPLETE === "1") {
     "ATELIER_SOAK_COMPLETE=1 est ignoré (seul docs/soak/033-COMPLETE.md compte)",
   );
 }
-
 if (!soakComplete) {
-  if (!before.includes("stage-sidecar.sh")) {
-    warnings.push(
-      "soak non COMPLETE: stage-sidecar.sh absent du build (fallback Node cassé ?)",
-    );
-  }
-  if (!resources["sidecar-dist"]) {
-    warnings.push("soak non COMPLETE: resource sidecar-dist absente");
-  }
+  warnings.push(
+    "soak chat non marqué COMPLETE (docs/soak/033-COMPLETE.md absent)",
+  );
   if (strict) {
     errors.push(
       "--strict-no-node refusé tant que docs/soak/033-COMPLETE.md n'existe pas",
     );
-  }
-} else if (strict) {
-  // After soak: Node chat must not be production-default nor required.
-  if (/\"node\" => BackendKind::Node/.test(sidecarRs) && /ATELIER_BACKEND/.test(sidecarRs)) {
-    // still allow code path for emergency? Plan says remove ATELIER_BACKEND=node
-    errors.push(
-      "strict: retirer le fallback ATELIER_BACKEND=node de sidecar.rs après soak",
-    );
-  }
-  if (resources["sidecar-dist"] || resources["node-dist"]) {
-    errors.push(
-      "strict: resources sidecar/node-runtime encore dans tauri.conf (chat Node embarqué)",
-    );
-  }
-  if (before.includes("stage-sidecar.sh") || before.includes("stage-node-runtime.sh")) {
-    errors.push("strict: beforeBuildCommand stage encore le chat Node");
   }
 }
 

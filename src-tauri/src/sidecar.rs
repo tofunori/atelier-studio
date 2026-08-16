@@ -1,7 +1,12 @@
-//! Chat backend spawn (plan 033 Porte 10).
+//! Chat backend spawn (plan 033 Porte 10; Node fallback retired — plan 065 phase A).
 //!
-//! **Default backend = Rust** (`atelier-studio-server`).  
-//! Explicit soak fallback: `ATELIER_BACKEND=node` (Node sidecar remains staged).
+//! Rust only (`atelier-studio-server`) — the historical `ATELIER_BACKEND=node`
+//! chat fallback (Node sidecar `index.mjs`) has been removed after soak; see
+//! `docs/soak/033-COMPLETE.md`. Node is still spawned elsewhere for two
+//! UNRELATED reasons that do not go through this module: the
+//! `ATELIER_KB_ENGINE=node` knowledge-base fallback
+//! (`rust/crates/atelier-runtime/src/ws_router.rs`, soaking — plan 065 phase C)
+//! and the gallery Node backend (`src-tauri/src/atelier.rs`, plan 065 phase B).
 //!
 //! Lifecycle: reuse in-process handle → reuse lockfile when health+identity match
 //! → spawn new → kill child on failed health (no orphan loops).
@@ -22,7 +27,9 @@ pub struct SidecarInfo {
     pub(crate) port: u16,
     pub(crate) token: String,
     identity: Option<ProcessHealth>,
-    /// Diagnostic only — "rust" | "node" (optional for old lock files).
+    /// Diagnostic only — always "rust" now (plan 065 phase A). Kept
+    /// optional/nullable so lockfiles from older builds ("node") still
+    /// deserialize.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<String>,
     /// Diagnostic P0 plan 053 — chemin ayant fourni cette réponse.
@@ -45,58 +52,6 @@ fn session_token() -> Result<String, String> {
 
 fn lockfile_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join("Library/Application Support/atelier-studio/sidecar.lock"))
-}
-
-fn resolve_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dev_script = std::env::current_dir()
-        .map_err(|e| e.to_string())?
-        .join("../sidecar/index.mjs");
-    if dev_script.exists() {
-        Ok(dev_script)
-    } else {
-        Ok(app
-            .path()
-            .resource_dir()
-            .map_err(|e| e.to_string())?
-            .join("sidecar/index.mjs"))
-    }
-}
-
-/// Backend selector (plan 033). Default **Rust** since Porte 10.
-/// Soak: set `ATELIER_BACKEND=node` to force the historical Node sidecar.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BackendKind {
-    Node,
-    Rust,
-}
-
-impl BackendKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Node => "node",
-            Self::Rust => "rust",
-        }
-    }
-}
-
-fn parse_backend_kind(raw: &str) -> BackendKind {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "node" => BackendKind::Node,
-        // empty / "rust" / unknown → Rust (default). Unknown values do not
-        // silently re-enable Node; use explicit "node" for the soak fallback.
-        _ => BackendKind::Rust,
-    }
-}
-
-fn backend_kind() -> BackendKind {
-    let kind = parse_backend_kind(&std::env::var("ATELIER_BACKEND").unwrap_or_default());
-    if kind == BackendKind::Node {
-        eprintln!(
-            "[atelier] ATELIER_BACKEND=node — fallback soak (plan 033). \
-             Défaut production = Rust. Voir docs/SOAK_033_RUST_BACKEND.md"
-        );
-    }
-    kind
 }
 
 /// Candidate paths for `atelier-studio-server` (dev tree + staged resource).
@@ -142,8 +97,7 @@ fn resolve_rust_server(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     Err(
         "atelier-studio-server introuvable. Build: cargo build -p atelier-server --release \
-         --manifest-path rust/Cargo.toml  (ou scripts/stage-rust-server.sh). \
-         Fallback soak: ATELIER_BACKEND=node"
+         --manifest-path rust/Cargo.toml  (ou scripts/stage-rust-server.sh)."
             .into(),
     )
 }
@@ -380,27 +334,11 @@ fn parse_startup(line: &str) -> Result<ProcessHealth, String> {
 
 #[tauri::command]
 pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
-    let backend = backend_kind();
-    let (bundle_hash, mut spawn_cmd, startup_timeout): (String, Command, Duration) = match backend {
-        BackendKind::Node => {
-            let script = resolve_script(&app)?;
-            let sidecar_dir = script
-                .parent()
-                .ok_or_else(|| format!("chemin sidecar invalide: {}", script.display()))?;
-            let bundle_hash = identity::dir_fingerprint(sidecar_dir)?;
-            let node = crate::bin_resolver::node_bin(&app)?;
-            let mut cmd = Command::new(node);
-            cmd.arg(&script);
-            (bundle_hash, cmd, Duration::from_secs(4))
-        }
-        BackendKind::Rust => {
-            let bin = resolve_rust_server(&app)?;
-            let bundle_hash = file_fingerprint(&bin)?;
-            let cmd = Command::new(&bin);
-            // First post-build boot can be slow (TCC / cold caches).
-            (bundle_hash, cmd, Duration::from_secs(10))
-        }
-    };
+    let bin = resolve_rust_server(&app)?;
+    let bundle_hash = file_fingerprint(&bin)?;
+    let mut spawn_cmd = Command::new(&bin);
+    // First post-build boot can be slow (TCC / cold caches).
+    let startup_timeout = Duration::from_secs(10);
 
     let mut guard = SIDECAR.lock().unwrap();
     if let Some(info) = guard.clone() {
@@ -438,7 +376,7 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn sidecar ({}): {e}", backend.as_str()))?;
+        .map_err(|e| format!("spawn sidecar (rust): {e}"))?;
     let Some(stdout) = child.stdout.take() else {
         kill_child(&mut child);
         return Err("pas de stdout".into());
@@ -460,7 +398,7 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
             port,
             token,
             identity: Some(startup),
-            backend: Some(backend.as_str().into()),
+            backend: Some("rust".into()),
             lifecycle: Some("spawn".into()),
             gateway_deferred: false,
         };
@@ -491,26 +429,13 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn default_backend_is_rust() {
-        assert_eq!(parse_backend_kind(""), BackendKind::Rust);
-        assert_eq!(parse_backend_kind("  "), BackendKind::Rust);
-        assert_eq!(parse_backend_kind("rust"), BackendKind::Rust);
-        assert_eq!(parse_backend_kind("RUST"), BackendKind::Rust);
-    }
-
-    #[test]
-    fn explicit_node_fallback() {
-        assert_eq!(parse_backend_kind("node"), BackendKind::Node);
-        assert_eq!(parse_backend_kind("Node"), BackendKind::Node);
-    }
-
-    #[test]
-    fn unknown_is_not_node() {
-        // Avoid accidental Node re-enable via typos.
-        assert_eq!(parse_backend_kind("nodejs"), BackendKind::Rust);
-        assert_eq!(parse_backend_kind("default"), BackendKind::Rust);
-    }
+    // Le sélecteur de backend (BackendKind / parse_backend_kind /
+    // ATELIER_BACKEND) a été retiré en plan 065 phase A : il n'y a plus
+    // qu'un backend chat (Rust), donc plus rien à tester ici — les anciens
+    // tests default_backend_is_rust / explicit_node_fallback /
+    // unknown_is_not_node testaient une fonction qui n'existe plus. La seule
+    // résolution restante (`resolve_rust_server` / `rust_server_candidates`)
+    // reste couverte ci-dessous.
 
     #[test]
     fn rust_candidates_include_staged_and_resource() {
