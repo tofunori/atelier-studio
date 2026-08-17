@@ -412,6 +412,76 @@ window.DiffVersions = function(opts){
     if(els.prev) els.prev.disabled = true;
     if(els.next) els.next.disabled = true;
   }
+  // Marques en termes de SOURCE pour les vues sans éditeur (vue Lecture).
+  // Reprend la sémantique de la boucle d'applyRender (fusion sémantique,
+  // appariement du bruit de rewrap) SANS CodeMirror : le chemin cm6 rend le
+  // diff nativement (showMergeDiff) et ne passe jamais par applyRender — la
+  // publication doit donc être calculable seule (vécu 2026-08-17).
+  function computeSrcMarks(inputParts, after){
+    const wsn = s2 => s2.replace(/\s+/g, " ").trim();
+    let parts = inputParts;
+    if(parts.length){
+      const merged = [];
+      let i2 = 0;
+      while(i2 < parts.length){
+        const pt = parts[i2];
+        if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
+        let R = "", A = "", j2 = i2;
+        while(j2 < parts.length){
+          const q = parts[j2];
+          if(q.removed){ R += q.value; j2++; continue; }
+          if(q.added){ A += q.value; j2++; continue; }
+          const nx = parts[j2 + 1];
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){ R += q.value; A += q.value; j2++; continue; }
+          break;
+        }
+        if(R) merged.push({removed: true, value: R});
+        if(A) merged.push({added: true, value: A});
+        i2 = j2;
+      }
+      parts = merged;
+    }
+    const noisePair = (i) => {
+      const pt = parts[i];
+      for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
+        const cand = parts[j];
+        if(j === i + 1 && !cand.removed && !cand.added){
+          if(wsn(cand.value) !== "") return -1;
+          continue;
+        }
+        if(!!cand.removed === !pt.removed && !!cand.added === !pt.added
+           && wsn(cand.value) === wsn(pt.value)) return j;
+        return -1;
+      }
+      return -1;
+    };
+    const countNl = (v) => { let n = 0, k = -1; while((k = v.indexOf("\n", k + 1)) >= 0) n++; return n; };
+    const skip = new Set();
+    const out = [];
+    let line = 0;
+    for(let i = 0; i < parts.length; i++){
+      const pt = parts[i];
+      if(skip.has(i)){ if(!pt.removed) line += countNl(pt.value); continue; }
+      if(pt.removed){
+        if(wsn(pt.value)){
+          const j = noisePair(i);
+          if(j >= 0){ skip.add(j); continue; }
+        }
+        if(!wsn(pt.value)) continue;
+        const disp = pt.value.replace(/\s+/g, " ").trim();
+        out.push({kind: "del", line, text: disp.length > 160 ? disp.slice(0, 157) + "\u22ef" : disp});
+        continue;
+      }
+      if(pt.added && wsn(pt.value)){
+        const j = noisePair(i);
+        if(j >= 0){ skip.add(j); line += countNl(pt.value); continue; }
+        out.push({kind: "add", line, text: pt.value});
+      }
+      if(!pt.removed) line += countNl(pt.value);
+    }
+    return out;
+  }
+
   function clearMarks(){
     marks.forEach(m => { try{ m.clear(); }catch(e){} });
     marks = [];
@@ -513,6 +583,12 @@ window.DiffVersions = function(opts){
     if(!v || !cm) return;
     clearMarks(); changePts = [];
     const after = cm.getValue();
+    // cm6 : le diff se rend NATIVEMENT (showMergeDiff) et applyRender ne
+    // tourne jamais — mais la vue Lecture a quand même besoin des marques en
+    // termes de source. On laisse donc la distribution async se dérouler,
+    // en mode « publication seule » (vécu 2026-08-17 : aucune marque en
+    // Lecture parce que ce chemin retournait avant de publier).
+    let nativeShown = false;
     if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
       cancelRender();
       changePts = cm.showMergeDiff(v.before) || [];
@@ -531,7 +607,7 @@ window.DiffVersions = function(opts){
       notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
       updateNav();
       if(changePts.length) gotoChange(changeAt, true);
-      return;
+      nativeShown = true;
     }
     const wsn = s => s.replace(/\s+/g, " ").trim();
     const key = hashText(v.before) + ":" + hashText(after);
@@ -540,6 +616,7 @@ window.DiffVersions = function(opts){
     const apply = (parts, coarse = false, warning = "") => {
       if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
       cacheParts(key, {parts, coarse});
+      if(nativeShown){ publishMarks(computeSrcMarks(parts, after)); return; }
       applyRender(v, cm, after, parts, coarse, warning);
     };
     const cached = renderCache.get(key);
