@@ -4,7 +4,7 @@
 // remplacent), moins le monogramme — c'est justement lui qu'on retire.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, screen, cleanup, act } from "@testing-library/react";
-import TopBarTabs, { MAX_TABS, kindOf, tabLabel } from "./TopBarTabs";
+import TopBarTabs, { MAX_TABS, kindOf, tabLabel, splitLabel, parentFolder, folderPrefixes } from "./TopBarTabs";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
@@ -34,6 +34,16 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+
+/** Le nom d'un onglet est rendu en DEUX boîtes (tronc + extension) pour que
+ *  l'ellipse morde le tronc et laisse l'extension lisible : `getByText` ne
+ *  traverse pas les éléments, on vise donc l'onglet par son texte complet. */
+function tab(name: string): HTMLElement {
+  const found = [...document.querySelectorAll(".topbar-tab")]
+    .find((node) => (node.textContent ?? "").trim() === name);
+  if (!found) throw new Error(`onglet introuvable : ${name}`);
+  return found as HTMLElement;
+}
 
 describe("libellé d'onglet", () => {
   it("garde le nom entier, extension comprise", () => {
@@ -78,14 +88,14 @@ describe("TopBarTabs", () => {
   it("écrit le nom complet de chaque onglet et marque l'actif", () => {
     const { container } = renderUi(<TopBarTabs {...props()} />);
     expect(container.querySelectorAll(".topbar-tab").length).toBe(4);
-    expect(screen.getByText("methods_en.tex")).toBeTruthy();
-    expect(screen.getByText("albedo_trends.py")).toBeTruthy();
+    expect(tab("methods_en.tex")).toBeTruthy();
+    expect(tab("albedo_trends.py")).toBeTruthy();
     expect(container.querySelector(".topbar-tab.on")?.textContent).toContain("methods_en.tex");
   });
 
   it("porte le nom du fichier comme nom accessible, pas deux lettres", () => {
     renderUi(<TopBarTabs {...props()} />);
-    const actif = screen.getByText("methods_en.tex").closest("button")!;
+    const actif = tab("methods_en.tex").querySelector("button")!;
     expect(actif.getAttribute("aria-current")).toBe("page");
     expect(actif.textContent).toContain("methods_en.tex");
   });
@@ -94,10 +104,10 @@ describe("TopBarTabs", () => {
     const onSelectTab = vi.fn();
     const onCloseTab = vi.fn();
     renderUi(<TopBarTabs {...props({ onSelectTab, onCloseTab })} />);
-    fireEvent.click(screen.getByText("intro_en.tex"));
+    fireEvent.click(tab("intro_en.tex").querySelector(".topbar-tab-main")!);
     expect(onSelectTab).toHaveBeenCalledWith("document:t2");
     // auxClick n'est pas exposé par fireEvent : on émet l'événement natif
-    fireEvent(screen.getByText("albedo_trends.py"), new MouseEvent("auxclick", { button: 1, bubbles: true }));
+    fireEvent(tab("albedo_trends.py").querySelector(".topbar-tab-main")!, new MouseEvent("auxclick", { button: 1, bubbles: true }));
     expect(onCloseTab).toHaveBeenCalledWith("document:t3");
   });
 
@@ -112,7 +122,7 @@ describe("TopBarTabs", () => {
   it("ignore le clic droit — il ne ferme rien", () => {
     const onCloseTab = vi.fn();
     renderUi(<TopBarTabs {...props({ onCloseTab })} />);
-    fireEvent(screen.getByText("albedo_trends.py"), new MouseEvent("auxclick", { button: 2, bubbles: true }));
+    fireEvent(tab("albedo_trends.py").querySelector(".topbar-tab-main")!, new MouseEvent("auxclick", { button: 2, bubbles: true }));
     expect(onCloseTab).not.toHaveBeenCalled();
   });
 
@@ -133,7 +143,7 @@ describe("TopBarTabs", () => {
     renderUi(<TopBarTabs {...props()} />);
     const listener = vi.fn();
     window.addEventListener(WORKSPACE_POINTER_DRAG_START, listener);
-    fireEvent.pointerDown(screen.getByText("intro_en.tex").closest(".topbar-tab-main")!, {
+    fireEvent.pointerDown(tab("intro_en.tex").querySelector(".topbar-tab-main")!, {
       button: 0, clientX: 240, clientY: 18, pointerId: 5,
     });
     expect(listener).toHaveBeenCalledTimes(1);
@@ -159,7 +169,7 @@ describe("ce que le ruban NE porte pas", () => {
   it("écarte les surfaces : elles ont leur icône à droite de la même barre", () => {
     renderUi(<TopBarTabs {...props({ tabs: [...TABS, SURFACE], activeTab: "document:t1" })} />);
     expect(screen.queryByText("Narval")).toBeNull();
-    expect(screen.getByText("methods_en.tex")).toBeTruthy();
+    expect(tab("methods_en.tex")).toBeTruthy();
   });
 
   it("écarte l'IDE, destination lui aussi", () => {
@@ -191,5 +201,41 @@ describe("ce que le ruban NE porte pas", () => {
     // destinations ne volent pas de place
     expect(container.querySelectorAll(".topbar-tab").length).toBe(8);
     expect(container.querySelector(".topbar-tab-more")).toBeNull();
+  });
+});
+
+describe("lisibilité du nom (redesign liseré, 2026-08-16)", () => {
+  it("l'extension sort du tronc, pour survivre à l'ellipse", () => {
+    expect(splitLabel("methods_en.tex")).toEqual({stem: "methods_en", ext: ".tex"});
+    // pas d'extension, ou point en tête/en fin : rien à détacher
+    expect(splitLabel("Makefile")).toEqual({stem: "Makefile", ext: ""});
+    expect(splitLabel(".gitignore")).toEqual({stem: ".gitignore", ext: ""});
+    expect(splitLabel("brouillon.")).toEqual({stem: "brouillon.", ext: ""});
+  });
+
+  it("le dossier parent n'apparaît QUE sur les homonymes", () => {
+    const tabs = [
+      {id: "a", title: "drafts/methods_en.tex"},
+      {id: "b", title: "sections/methods_en.tex"},
+      {id: "c", title: "src/partition.py"},
+    ];
+    const prefixes = folderPrefixes(tabs);
+    expect(prefixes.get("a")).toBe("drafts");
+    expect(prefixes.get("b")).toBe("sections");
+    // nom unique : aucun préfixe, la barre ne se charge pas pour rien
+    expect(prefixes.has("c")).toBe(false);
+    expect(parentFolder("methods_en.tex")).toBe("");
+  });
+
+  it("deux homonymes deviennent distinguables à l'écran", () => {
+    renderUi(<TopBarTabs {...props({
+      tabs: [
+        {id: "document:a", title: "drafts/methods_en.tex"},
+        {id: "document:b", title: "sections/methods_en.tex"},
+      ],
+      activeTab: "document:a",
+    })} />);
+    expect(tab("drafts/methods_en.tex")).toBeTruthy();
+    expect(tab("sections/methods_en.tex")).toBeTruthy();
   });
 });

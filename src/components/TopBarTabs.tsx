@@ -39,6 +39,39 @@ export function tabLabel(title: string): string {
   return base.trim() || t("tabs.untitled");
 }
 
+/** Coupe le nom en tronc + extension : l'ellipse mord le TRONC, l'extension
+ *  reste toujours lisible (`methods_e….tex`). Couper la fin, comme le faisait
+ *  un simple `text-overflow`, effaçait justement ce qui sépare `memoire.tex`
+ *  de `memoire.pdf`. */
+export function splitLabel(label: string): { stem: string; ext: string } {
+  const dot = label.lastIndexOf(".");
+  if (dot <= 0 || dot === label.length - 1) return { stem: label, ext: "" };
+  return { stem: label.slice(0, dot), ext: label.slice(dot) };
+}
+
+/** Dossier parent, pour distinguer deux fichiers homonymes ouverts ensemble. */
+export function parentFolder(title: string): string {
+  const parts = String(title ?? "").split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : "";
+}
+
+/** id d'onglet → préfixe de dossier à afficher, vide quand le nom suffit.
+ *  N'ajoute JAMAIS de préfixe à un nom unique : la barre resterait bruyante
+ *  pour régler un problème qui ne se pose pas. */
+export function folderPrefixes(tabs: PaneTab[]): Map<string, string> {
+  const seen = new Map<string, number>();
+  for (const tab of tabs) {
+    const label = tabLabel(tab.title);
+    seen.set(label, (seen.get(label) ?? 0) + 1);
+  }
+  const out = new Map<string, string>();
+  for (const tab of tabs) {
+    const folder = (seen.get(tabLabel(tab.title)) ?? 0) > 1 ? parentFolder(tab.title) : "";
+    if (folder) out.set(tab.id, folder);
+  }
+  return out;
+}
+
 export function extensionOf(tab: PaneTab): string {
   const source = tab.url && tab.url.includes(".") ? tab.url : tab.title;
   return (/\.([a-z0-9]+)(?:[?#].*)?$/i.exec(String(source ?? ""))?.[1] ?? "").toLowerCase();
@@ -113,6 +146,7 @@ export default function TopBarTabs(p: {
 
   const visible = documents.slice(0, MAX_TABS);
   const overflow = documents.slice(MAX_TABS);
+  const prefixes = folderPrefixes(visible);
 
   return (
     <div className="topbar-tabs" aria-label={t("tabs.open-files")}>
@@ -150,7 +184,15 @@ export default function TopBarTabs(p: {
               }}
             >
               {tabIcon(tab)}
-              <span className="topbar-tab-name">{label}</span>
+              <span className="topbar-tab-name">
+                {prefixes.get(tab.id) && (
+                  <span className="topbar-tab-folder">{prefixes.get(tab.id)}/</span>
+                )}
+                <span className="topbar-tab-stem">{splitLabel(label).stem}</span>
+              </span>
+              {splitLabel(label).ext && (
+                <span className="topbar-tab-ext">{splitLabel(label).ext}</span>
+              )}
             </RowButton>
             <IconButton
               className="topbar-tab-close"

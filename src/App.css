@@ -773,17 +773,38 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    qu'on vient de retirer du rail. */
 .topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
   flex: 0 1 auto; padding-left: 4px; overflow: hidden; }
+/* Onglets « liseré » (choix Thierry 2026-08-16, option 2) : aucune boîte, un
+   trait d'accent de 2 px sous le courant. Dans une barre qui porte déjà les
+   surfaces, la recherche et le sélecteur de disposition, une pilule pleine
+   par fichier ajoutait un rectangle de trop — et mangeait le nom. */
+.topbar-tabs { align-self: stretch; height: 100%; }
 .topbar-tab { position: relative; display: inline-flex; align-items: center;
-  flex: 0 1 168px; min-width: 72px; }
-.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 26px;
-  min-width: 0; max-width: 100%; padding: 0 22px 0 8px; border-radius: var(--r-s);
-  color: var(--text-muted); font-size: var(--fs-s);
-  transition: background-color var(--ease), color var(--ease); }
-.topbar-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  height: 100%; flex: 0 1 150px; min-width: 76px; }
+/* l'onglet courant a droit à plus de largeur : c'est son nom qu'on lit */
+.topbar-tab.on { flex: 0 1 210px; }
+.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 100%;
+  min-width: 0; max-width: 100%; padding: 0 20px 0 8px; border-radius: 0;
+  background: transparent; color: var(--text-muted); font-size: var(--fs-s);
+  transition: color var(--ease); }
+.topbar-tab-main::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0;
+  height: 2px; border-radius: var(--r-s) var(--r-s) 0 0; background: var(--accent); opacity: 0;
+  transition: opacity var(--motion-fast, 130ms) var(--ease-out, ease-out); }
+.topbar-tab.on .topbar-tab-main::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .topbar-tab-main::after { transition: none; } }
+/* le tronc s'abrège, l'extension NON : elle sépare memoire.tex de memoire.pdf */
+.topbar-tab-name { display: inline-flex; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.topbar-tab-stem { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-tab-ext { flex: none; white-space: nowrap; }
+/* dossier parent, montré seulement quand deux fichiers portent le même nom */
+.topbar-tab-folder { flex: none; color: var(--text-disabled); }
 .topbar-tab-kind { flex: none; display: inline-flex; color: var(--text-disabled); }
 .topbar-tab-kind svg { width: 13px; height: 13px; }
-.topbar-tab-main:hover { background: var(--bg-ctl); color: var(--text-secondary); }
-.topbar-tab.on .topbar-tab-main { background: var(--bg-ctl); color: var(--text-primary); }
+/* survol : un voile à peine posé, jamais la pilule pleine du courant */
+.topbar-tab-main:hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent);
+  color: var(--text-secondary); }
+.topbar-tab.on .topbar-tab-main { background: transparent; color: var(--text-primary);
+  font-weight: 500; }
 .topbar-tab.on .topbar-tab-kind { color: var(--text-muted); }
 /* croix : sa place est RÉSERVÉE en permanence (le padding-right ci-dessus),
    sinon le nom se retronquerait au survol */
