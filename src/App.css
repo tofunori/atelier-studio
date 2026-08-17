@@ -689,8 +689,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* La recherche était un champ de clamp(280px, 32vw, 420px) qui annonçait un
    raccourci tapé de mémoire (lot 068) : elle est redevenue une icône du
    groupe de droite, et ses 420 px sont passés aux onglets. */
-.topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  flex-shrink: 0; padding-right: 10px; }
+/* zone de droite : les onglets d'abord (collés au centre), puis un ressort,
+   puis les contrôles au bord. min-width 0 pour que les onglets tronquent
+   au lieu de décentrer les surfaces. */
+.topbar-right { display: flex; align-items: center; gap: 8px;
+  min-width: 0; padding-right: 10px; }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 22px; background: transparent; border: none; color: var(--text-muted);

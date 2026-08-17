@@ -161,9 +161,6 @@ export default function TopBar({
           />
         )}
       </div>
-      {/* Onglets du pane, juste après le nom du projet : on lit « projet,
-          puis fichiers » dans l'ordre où on les pense (lot 068). */}
-      <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
       </div>
       {/* Zone CENTRE (demande Thierry 2026-08-16) : les surfaces quittent le
           groupe de droite pour être centrées dans la fenêtre. La grille à
@@ -183,6 +180,11 @@ export default function TopBar({
         />
       </div>
       <div className="topbar-right">
+        {/* Onglets du pane, juste à DROITE des surfaces (demande Thierry
+            2026-08-16) : ils partent du centre et grandissent vers la droite,
+            tandis que les contrôles de disposition restent au bord. */}
+        <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
+        <span className="flex" />
         {/* Recherche réduite à son icône (lot 068) : le champ occupait
             clamp(280px, 32vw, 420px) pour annoncer un raccourci que tout
             utilisateur régulier tape sans regarder — cette largeur va aux
