@@ -504,11 +504,13 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).not.toMatch(/\.atelier\s*\{[^}]*background:\s*#fff/);
   });
 
-  it("le chrome permanent se distingue par une nuance dérivée, jamais en dur", () => {
+  it("toutes les cartes partagent un seul fond, la gouttière seule divise", () => {
     // Décision 2026-08-16 (retour Thierry « trop carré ») : panneaux et headers
     // prennent un ton entre le canvas et --bg-side pour que les zones existent
     // sans traits. La nuance DOIT rester dérivée des deux fonds du thème.
-    expect(tokens).toContain("--surface-panel: color-mix(in srgb, var(--bg) 72%, var(--bg-card))");
+    // Une SEULE couleur de carte : le chrome ne se teinte pas à part, sinon
+    // les bandes qui en résultent se relisent comme les traits qu'on enlève.
+    expect(tokens).toContain("--surface-panel: var(--surface-app)");
     expect(tokens).toContain("--surface-header: var(--surface-panel)");
     // le sol des gouttières doit rester un ton propre, jamais --bg réutilisé :
     // sans écart de luminance, les cartes ne décollent plus (option 3)

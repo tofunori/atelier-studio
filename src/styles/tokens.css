@@ -14,12 +14,13 @@
    * headers prennent un ton entre le canvas et --bg-side ; les grands
    * séparateurs 1px deviennent redondants là où les fonds diffèrent.
    * (Remplace la direction « un seul canvas » du plan précédent.) */
-  /* Élévation à trois marches, du sol vers le haut :
-   *   --surface-canvas  (gouttières)  <  --bg (contenu)  <  --surface-panel
-   * Le chrome est donc plus CLAIR que le contenu, comme les menus qui le
-   * surmontent — l'inverse (chrome plus sombre) écrasait le panneau gauche
-   * et le chat au même ton (retour Thierry 2026-08-16). */
-  --surface-panel: color-mix(in srgb, var(--bg) 72%, var(--bg-card));
+  /* DEUX niveaux, pas trois (arbitrage Thierry 2026-08-16, « le chat et le UI
+   * pas pareil que le panneau de gauche ») : toutes les cartes — rail,
+   * conversations, chat, atelier, panneaux — partagent EXACTEMENT le fond du
+   * contenu. Ce qui divise, c'est la gouttière et elle seule ; un écart de
+   * ton entre panneaux réintroduisait des bandes que l'œil relit comme des
+   * traits. Ne pas redonner au chrome sa propre teinte. */
+  --surface-panel: var(--surface-app);
   --surface-header: var(--surface-panel);
   --surface-canvas: var(--canvas);
   --surface-raised: var(--bg-card);
