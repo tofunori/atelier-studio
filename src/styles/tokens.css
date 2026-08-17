@@ -14,11 +14,14 @@
    * headers prennent un ton entre le canvas et --bg-side ; les grands
    * séparateurs 1px deviennent redondants là où les fonds diffèrent.
    * (Remplace la direction « un seul canvas » du plan précédent.) */
-  --surface-panel: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
-  --surface-header: color-mix(in srgb, var(--bg) 70%, var(--bg-side));
-  /* Sol sur lequel les grands panneaux flottent (option 3) : le plus sombre
-   * des trois niveaux, visible uniquement dans les gouttières. */
-  --surface-canvas: var(--bg-side);
+  /* Élévation à trois marches, du sol vers le haut :
+   *   --surface-canvas  (gouttières)  <  --bg (contenu)  <  --surface-panel
+   * Le chrome est donc plus CLAIR que le contenu, comme les menus qui le
+   * surmontent — l'inverse (chrome plus sombre) écrasait le panneau gauche
+   * et le chat au même ton (retour Thierry 2026-08-16). */
+  --surface-panel: color-mix(in srgb, var(--bg) 72%, var(--bg-card));
+  --surface-header: var(--surface-panel);
+  --surface-canvas: var(--canvas);
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
@@ -95,7 +98,10 @@
 
   /* resize : cible confortable inchangée, trait visuel hairline */
   --resize-handle-hit: 4px;
-  --resize-handle-line: 1px;
+  /* Le séparateur n'est plus un trait mais une pastille qui n'apparaît qu'à
+   * la prise en main (option 3, 2026-08-16) : largeur du repère, pas d'un
+   * filet. La cible de pointage reste --resize-handle-hit. */
+  --resize-handle-grip: 3px;
 
   /* -- espacement (grille 4) ------------------------------------------------ */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;

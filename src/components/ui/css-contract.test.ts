@@ -508,8 +508,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // Décision 2026-08-16 (retour Thierry « trop carré ») : panneaux et headers
     // prennent un ton entre le canvas et --bg-side pour que les zones existent
     // sans traits. La nuance DOIT rester dérivée des deux fonds du thème.
-    expect(tokens).toContain("--surface-panel: color-mix(in srgb, var(--bg) 70%, var(--bg-side))");
-    expect(tokens).toContain("--surface-header: color-mix(in srgb, var(--bg) 70%, var(--bg-side))");
+    expect(tokens).toContain("--surface-panel: color-mix(in srgb, var(--bg) 72%, var(--bg-card))");
+    expect(tokens).toContain("--surface-header: var(--surface-panel)");
+    // le sol des gouttières doit rester un ton propre, jamais --bg réutilisé :
+    // sans écart de luminance, les cartes ne décollent plus (option 3)
+    expect(tokens).toContain("--surface-canvas: var(--canvas)");
     expect(appCss).toMatch(/\.sidebar\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
     expect(appCss).toMatch(/\.rail\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
     expect(appCss).toMatch(/\.topbar\s*\{[\s\S]*?background:\s*var\(--surface-header\)/);
@@ -525,11 +528,18 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
-  it("les séparateurs gardent une cible 4 px avec un trait visuel 1 px", () => {
+  it("les séparateurs gardent leur cible de pointage et ne montrent qu'une pastille", () => {
+    // Décision 2026-08-16 : plus AUCUN filet bord à bord — au repos c'est la
+    // gouttière (le sol) qui divise, et le repère de saisie n'apparaît qu'au
+    // survol, arrondi et en retrait. Le trait 1px permanent était exactement
+    // le « trop carré » signalé par Thierry.
     expect(tokens).toContain("--resize-handle-hit: 4px");
-    expect(tokens).toContain("--resize-handle-line: 1px");
+    expect(tokens).not.toContain("--resize-handle-line");
     expect(appCss).toMatch(/\.handle\s*\{[\s\S]*?width:\s*var\(--resize-handle-hit\)/);
-    expect(appCss).toMatch(/\.handle::after\s*\{[\s\S]*?width:\s*var\(--resize-handle-line\)/);
-    expect(appCss).toMatch(/\.pane-divider::after\s*\{[\s\S]*?width:\s*var\(--resize-handle-line\)/);
+    for (const selector of ["\\.handle", "\\.pane-divider", "\\.workspace-divider"]) {
+      expect(appCss, `${selector}::after doit être une pastille invisible au repos`).toMatch(
+        new RegExp(`${selector}::after\\s*\\{[\\s\\S]*?border-radius:\\s*var\\(--r-pill\\)[\\s\\S]*?opacity:\\s*0`),
+      );
+    }
   });
 });

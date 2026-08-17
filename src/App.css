@@ -16,9 +16,17 @@
      fg/bg 11.97, muted/bg 5.42, accent/bg 5.78 (script de calibration) */
   --bg: #1e2124; --bg-side: #161a1e; --bg-pop: #24282d; --bg-card: #24282d;
   --bg-ctl: #2c2f34; --border: #2a2d31; --border2: #43474c;
+  /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
+     cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
+     porte toute la division, il n'y a plus de trait pour compenser. */
+  --canvas: #101215;
+  /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
+     gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
+  --grip: #4a4f56;
   /* ombre de défilement (option 4) : plus dense en sombre, où l'écart de
      luminance est faible ; discrète en clair, où elle porte déjà */
   --scroll-shade: rgba(0, 0, 0, .40);
+  --card-lift: 0 1px 2px rgba(0,0,0,.28);
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e;
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
@@ -35,7 +43,10 @@
   /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
+  --canvas: #d9dee5;
+  --grip: #a9aeb5;
   --scroll-shade: rgba(20, 28, 38, .13);
+  --card-lift: 0 1px 2px rgba(20,28,38,.10);
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
   --accent: #cf630d;
   --info: #3f6fd1;
@@ -77,29 +88,40 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background-attachment: local, scroll;
 }
 .side-scroll, .exp-tree, .annots-list { --shade-bg: var(--surface-panel); }
-.rail, .side-fixed, .main-card { border-radius: var(--r-m); }
+.rail, .side-fixed { border-radius: var(--r-m); box-shadow: var(--card-lift); }
 .rail { margin-right: 8px; }
-.app { background: var(--surface-canvas); }
-.app > [data-panel] { background: var(--bg); border-radius: var(--r-m); overflow: hidden; }
+/* .main-card et .app ne sont QUE des conteneurs : s'ils peignaient un fond,
+   les coins arrondis des cartes qu'ils contiennent se découperaient dessus
+   au lieu de laisser voir le sol. */
+.main-card { background: transparent; }
+.app { background: transparent; }
+.app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
+  overflow: hidden; box-shadow: var(--card-lift); }
 .app > .handle, .side-handle { width: 8px; flex: 0 0 8px; }
-/* la ligne de poignée ne se montre qu'à la prise en main : au repos c'est la
-   gouttière qui divise ; au survol l'affordance de redimensionnement revient */
-.app > .handle::after, .side-handle::after { background: transparent; }
-.app > .handle:hover::after, .side-handle:hover::after,
-.app > .handle:focus-visible::after, .side-handle:focus-visible::after,
-.app > .handle[data-resize-handle-active]::after { background: var(--border-strong); }
+/* Gouttières internes de l'atelier : le MÊME sol que les grandes divisions,
+   sinon chaque niveau invente sa propre couleur de séparation. */
+.pane-row { background: var(--surface-canvas); }
+.pane-row > .workspace-root { background: var(--bg); border-radius: var(--r-m); }
+.explorer, .annots-panel { margin-left: 8px; border-radius: var(--r-m); }
 .handle {
   position: relative; width: var(--resize-handle-hit); flex: 0 0 var(--resize-handle-hit);
   background: transparent;
 }
+/* UN SEUL langage de division dans toute l'app : au repos, rien — c'est la
+   gouttière (le sol) qui divise ; à la prise en main, une pastille arrondie
+   en retrait. Jamais un filet bord à bord : il rend exactement le trait qu'on
+   vient d'enlever, et --border-strong (un gris de TEXTE) le peignait presque
+   blanc au survol (vécu 2026-08-16). */
 .handle::after {
-  content: ""; position: absolute; inset-block: 0; left: 50%;
-  width: var(--resize-handle-line); transform: translateX(-50%);
-  background: var(--border-subtle); pointer-events: none;
+  content: ""; position: absolute; inset-block: 12px; left: 50%;
+  width: var(--resize-handle-grip); border-radius: var(--r-pill); transform: translateX(-50%);
+  background: var(--grip); opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast, 130ms) var(--ease-out, ease-out);
 }
 .handle:hover::after,
 .handle:focus-visible::after,
-.handle[data-resize-handle-active]::after { background: var(--border-strong); }
+.handle[data-resize-handle-active]::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .handle::after { transition: none; } }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
   height: 100%; background: var(--surface-panel); font-size: var(--fs-l); color: var(--text-secondary);
   min-height: 0; overflow: hidden; }
@@ -1960,13 +1982,15 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
   position: relative; width: var(--resize-handle-hit); cursor: col-resize;
   flex: 0 0 var(--resize-handle-hit); background: transparent;
 }
+/* même langage que .handle : pastille à la prise en main, rien au repos */
 .pane-divider::after {
-  content: ""; position: absolute; inset-block: 0; left: 50%;
-  width: var(--resize-handle-line); transform: translateX(-50%);
-  background: var(--border-subtle); pointer-events: none;
+  content: ""; position: absolute; inset-block: 12px; left: 50%;
+  width: var(--resize-handle-grip); border-radius: var(--r-pill); transform: translateX(-50%);
+  background: var(--grip); opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast, 130ms) var(--ease-out, ease-out);
 }
 .pane-divider:hover::after,
-body.dragging .pane-divider::after { background: var(--border-strong); }
+body.dragging .pane-divider::after { opacity: 1; }
 .pane-close { position: absolute; top: 6px; right: 6px; z-index: 55;
   width: 22px; height: 22px; border-radius: var(--r-s); border: 1px solid var(--border);
   background: var(--bg-card); color: var(--text-muted); display: flex; align-items: center;
@@ -1993,10 +2017,15 @@ body.dragging iframe { pointer-events: none; }
 .workspace-divider { position: relative; flex: 0 0 var(--resize-handle-hit); background: transparent; z-index: var(--z-sticky); }
 .workspace-divider.is-horizontal { width: var(--resize-handle-hit); cursor: col-resize; }
 .workspace-divider.is-vertical { height: var(--resize-handle-hit); cursor: row-resize; }
-.workspace-divider::after { content: ""; position: absolute; background: var(--border-subtle); pointer-events: none; }
-.workspace-divider.is-horizontal::after { inset-block: 0; left: 50%; width: var(--resize-handle-line); transform: translateX(-50%); }
-.workspace-divider.is-vertical::after { inset-inline: 0; top: 50%; height: var(--resize-handle-line); transform: translateY(-50%); }
-.workspace-divider:hover::after, body.dragging .workspace-divider::after { background: var(--border-strong); }
+.workspace-divider::after { content: ""; position: absolute; background: var(--grip);
+  border-radius: var(--r-pill); opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast, 130ms) var(--ease-out, ease-out); }
+.workspace-divider.is-horizontal::after { inset-block: 12px; left: 50%; width: var(--resize-handle-grip); transform: translateX(-50%); }
+.workspace-divider.is-vertical::after { inset-inline: 12px; top: 50%; height: var(--resize-handle-grip); transform: translateY(-50%); }
+.workspace-divider:hover::after, body.dragging .workspace-divider::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .pane-divider::after, .workspace-divider::after { transition: none; }
+}
 .workspace-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; background: transparent; }
 .workspace-pane.is-focused > .workspace-pane-tabs { box-shadow: inset 0 -1px var(--border-strong); }
 .workspace-pane-tabs { min-width: 0; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; position: relative; z-index: var(--z-sticky); background: var(--bg); }
