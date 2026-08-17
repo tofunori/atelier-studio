@@ -78,8 +78,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    quand du contenu passe dessous. Sans JS : la couche « couvercle » défile
    AVEC le contenu (attachment: local) et masque l'ombre tant qu'on est en
    haut, l'ombre restant collée au bord (attachment: scroll). --shade-bg doit
-   valoir le fond RÉEL du conteneur, sinon le couvercle se voit. */
-.messages, .side-scroll, .exp-tree, .annots-list {
+   valoir le fond RÉEL du conteneur, sinon le couvercle se voit.
+   EXCLU : le fil du chat (.messages). Thierry ne veut AUCUNE séparation entre
+   le titre de la conversation et le texte, même quand ça défile dessous —
+   l'en-tête est opaque, le texte disparaît proprement dessous. */
+.side-scroll, .exp-tree, .annots-list {
   background-image:
     linear-gradient(to bottom, var(--shade-bg, var(--bg)), transparent),
     linear-gradient(to bottom, var(--scroll-shade), transparent);
