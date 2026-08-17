@@ -184,15 +184,18 @@ export default function TopBarTabs(p: {
               }}
             >
               {tabIcon(tab)}
+              {/* tronc, extension et dossier vivent dans UNE seule boîte :
+                  RowButton pose une gouttière entre chacun de ses enfants
+                  directs, qui disloquait le nom en « methods_en .tex ». */}
               <span className="topbar-tab-name">
                 {prefixes.get(tab.id) && (
                   <span className="topbar-tab-folder">{prefixes.get(tab.id)}/</span>
                 )}
                 <span className="topbar-tab-stem">{splitLabel(label).stem}</span>
+                {splitLabel(label).ext && (
+                  <span className="topbar-tab-ext">{splitLabel(label).ext}</span>
+                )}
               </span>
-              {splitLabel(label).ext && (
-                <span className="topbar-tab-ext">{splitLabel(label).ext}</span>
-              )}
             </RowButton>
             <IconButton
               className="topbar-tab-close"

@@ -773,39 +773,37 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    qu'on vient de retirer du rail. */
 .topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
   flex: 0 1 auto; padding-left: 4px; overflow: hidden; }
-/* Onglets « liseré » (choix Thierry 2026-08-16, option 2) : aucune boîte, un
-   trait d'accent de 2 px sous le courant. Dans une barre qui porte déjà les
-   surfaces, la recherche et le sélecteur de disposition, une pilule pleine
-   par fichier ajoutait un rectangle de trop — et mangeait le nom. */
-.topbar-tabs { align-self: stretch; height: 100%; }
+/* Onglets « pilule active » (redesign 2026-08-16). Le liseré a été essayé et
+   abandonné : accroché au bouton, il ne pouvait pas s'aligner sur l'onglet, et
+   RowButton disloquait le nom. Ici, un seul onglet porte du chrome — celui
+   qu'on regarde ; les autres reculent au rang de texte. La barre reste calme
+   à huit fichiers et le repère est sans ambiguïté.
+   RÈGLE : le nom entier vit dans .topbar-tab-name — la gouttière de
+   .ui-btn-label ne doit JAMAIS passer entre le tronc et l'extension. */
 .topbar-tab { position: relative; display: inline-flex; align-items: center;
-  height: 100%; flex: 0 1 150px; min-width: 76px; }
+  flex: 0 1 auto; max-width: 180px; min-width: 0; }
 /* l'onglet courant a droit à plus de largeur : c'est son nom qu'on lit */
-.topbar-tab.on { flex: 0 1 210px; }
-.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 100%;
-  min-width: 0; max-width: 100%; padding: 0 20px 0 8px; border-radius: 0;
+.topbar-tab.on { max-width: 250px; }
+.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 26px;
+  width: 100%; min-width: 0; padding: 0 22px 0 8px; border-radius: var(--r-s);
   background: transparent; color: var(--text-muted); font-size: var(--fs-s);
-  transition: color var(--ease); }
-.topbar-tab-main::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0;
-  height: 2px; border-radius: var(--r-s) var(--r-s) 0 0; background: var(--accent); opacity: 0;
-  transition: opacity var(--motion-fast, 130ms) var(--ease-out, ease-out); }
-.topbar-tab.on .topbar-tab-main::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .topbar-tab-main::after { transition: none; } }
+  transition: background-color var(--ease), color var(--ease); }
 /* le tronc s'abrège, l'extension NON : elle sépare memoire.tex de memoire.pdf */
-.topbar-tab-name { display: inline-flex; min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
+.topbar-tab-name { display: inline-flex; align-items: center; min-width: 0; }
 .topbar-tab-stem { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-tab-ext { flex: none; white-space: nowrap; }
 /* dossier parent, montré seulement quand deux fichiers portent le même nom */
 .topbar-tab-folder { flex: none; color: var(--text-disabled); }
 .topbar-tab-kind { flex: none; display: inline-flex; color: var(--text-disabled); }
 .topbar-tab-kind svg { width: 13px; height: 13px; }
-/* survol : un voile à peine posé, jamais la pilule pleine du courant */
-.topbar-tab-main:hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent);
+/* survol d'un onglet au repos : un voile, pas la pilule pleine du courant */
+.topbar-tab-main:hover { background: color-mix(in srgb, var(--bg-ctl) 50%, transparent);
   color: var(--text-secondary); }
-.topbar-tab.on .topbar-tab-main { background: transparent; color: var(--text-primary);
+.topbar-tab.on .topbar-tab-main { background: var(--bg-ctl); color: var(--text-primary);
   font-weight: 500; }
-.topbar-tab.on .topbar-tab-kind { color: var(--text-muted); }
+/* le glyphe de type prend l'accent sur l'onglet courant : on retrouve le
+   fichier ouvert d'un coup d'œil, sans lire */
+.topbar-tab.on .topbar-tab-kind { color: var(--accent); }
 /* croix : sa place est RÉSERVÉE en permanence (le padding-right ci-dessus),
    sinon le nom se retronquerait au survol */
 .topbar-tab .topbar-tab-close { position: absolute; right: 3px; top: 50%;

@@ -239,3 +239,20 @@ describe("lisibilité du nom (redesign liseré, 2026-08-16)", () => {
     expect(tab("sections/methods_en.tex")).toBeTruthy();
   });
 });
+
+describe("structure du nom (régression « methods_en .tex », 2026-08-16)", () => {
+  it("tronc et extension vivent dans la MÊME boîte", () => {
+    // RowButton pose une gouttière entre ses enfants directs : une extension
+    // sortie de .topbar-tab-name s'affichait détachée du tronc.
+    const { container } = renderUi(<TopBarTabs {...props({
+      tabs: [{id: "document:a", title: "sections/methods_en.tex"}],
+      activeTab: "document:a",
+    })} />);
+    const name = container.querySelector(".topbar-tab-name")!;
+    expect(name.querySelector(".topbar-tab-stem")?.textContent).toBe("methods_en");
+    expect(name.querySelector(".topbar-tab-ext")?.textContent).toBe(".tex");
+    // aucun morceau du nom ne doit être un frère du glyphe
+    expect(container.querySelector(".ui-btn-label > .topbar-tab-ext")).toBeNull();
+    expect(container.querySelector(".ui-btn-label > .topbar-tab-stem")).toBeNull();
+  });
+});
