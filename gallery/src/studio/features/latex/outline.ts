@@ -23,11 +23,17 @@ export function createLatexOutlineController(options: LatexOutlineOptions): Late
     const editor = options.getEditor();
     if (!editor) return;
     const items: Array<{level: number; title: string; line: number}> = [];
-    const pattern = /^\s*\\(section|subsection|subsubsection)\*?\{([^{}]*)\}/;
+    // Tous les niveaux de sectionnement de LaTeX, pas seulement les trois du
+    // milieu : un mémoire à \chapter ou une annexe à \paragraph avaient un
+    // plan vide alors que le document en est plein.
+    const pattern = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^{}]*)\}/;
     editor.getValue().split("\n").forEach((line, index) => {
       const match = pattern.exec(line);
       if (!match) return;
-      const levels: Record<string, number> = {section: 1, subsection: 2, subsubsection: 3};
+      const levels: Record<string, number> = {
+        part: 1, chapter: 1, section: 1, subsection: 2, subsubsection: 3,
+        paragraph: 3, subparagraph: 3,
+      };
       items.push({level: levels[match[1] || ""] || 1, title: match[2] || "", line: index});
     });
     const cursorLine = editor.getCursor().line;
