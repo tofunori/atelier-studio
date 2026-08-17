@@ -183,6 +183,7 @@ export default function TopBar({
         {/* Onglets du pane, juste à DROITE des surfaces (demande Thierry
             2026-08-16) : ils partent du centre et grandissent vers la droite,
             tandis que les contrôles de disposition restent au bord. */}
+        <span className="topbar-div" />
         <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
         <span className="flex" />
         {/* Recherche réduite à son icône (lot 068) : le champ occupait

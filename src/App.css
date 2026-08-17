@@ -639,8 +639,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    Côtés en minmax(0,1fr) → le groupe du milieu est centré sur la fenêtre et
    ne se déplace pas quand un onglet s'ouvre ; min-width 0 laisse les onglets
    tronquer au lieu de pousser le centre. */
+/* Colonne de gauche plus étroite que celle de droite : les surfaces se
+   décalent vers la gauche et la largeur gagnée va aux onglets (demande
+   Thierry 2026-08-16). Les surfaces restent à une position FIXE — c'est le
+   ratio des colonnes qui la fixe, pas le contenu. */
 .topbar { height: 38px; flex-shrink: 0; display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
+  grid-template-columns: minmax(0, 4fr) auto minmax(0, 9fr); align-items: center;
   background: var(--surface-header); gap: 8px; }
 .topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 8px; }
 .topbar-center { display: flex; align-items: center; justify-content: center; }
