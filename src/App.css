@@ -70,7 +70,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    la gouttière remplace le trait. Ne s'applique QU'aux divisions permanentes
    (rail ↔ conversations ↔ atelier ↔ chat) ; les splits internes gardent leur
    poignée fine, sinon on paierait 8 px à chaque division. */
-.app-row { background: var(--surface-canvas); padding: 8px; }
+.app-row { background: var(--surface-canvas); padding: var(--gutter); }
 .app { height: 100%; }
 
 /* Option 4 (2026-08-16) — le séparateur horizontal naît du DÉFILEMENT : au
@@ -89,7 +89,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .side-scroll, .exp-tree, .annots-list { --shade-bg: var(--surface-panel); }
 .rail, .side-fixed { border-radius: var(--r-m); box-shadow: var(--card-lift); }
-.rail { margin-right: 8px; }
+.rail { margin-right: var(--gutter); }
 /* .main-card et .app ne sont QUE des conteneurs : s'ils peignaient un fond,
    les coins arrondis des cartes qu'ils contiennent se découperaient dessus
    au lieu de laisser voir le sol. */
@@ -97,12 +97,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .app { background: transparent; }
 .app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
   overflow: hidden; box-shadow: var(--card-lift); }
-.app > .handle, .app-row > .side-handle { width: 8px; flex: 0 0 8px; }
+.app > .handle, .app-row > .side-handle { width: var(--gutter); flex: 0 0 var(--gutter); }
+/* La gouttière est trop fine pour être visée au pixel : la cible de pointage
+   déborde de 3 px de chaque côté SANS déplacer les cartes (le ::after, lui,
+   reste centré dans la gouttière). */
+.app > .handle::before, .app-row > .side-handle::before {
+  content: ""; position: absolute; inset-block: 0; left: -3px; right: -3px;
+}
 /* Gouttières internes de l'atelier : le MÊME sol que les grandes divisions,
    sinon chaque niveau invente sa propre couleur de séparation. */
 .pane-row { background: var(--surface-canvas); }
 .pane-row > .workspace-root { background: var(--bg); border-radius: var(--r-m); }
-.explorer, .annots-panel { margin-left: 8px; border-radius: var(--r-m); overflow: hidden; }
+.explorer, .annots-panel { margin-left: var(--gutter); border-radius: var(--r-m); overflow: hidden; }
 .handle {
   position: relative; width: var(--resize-handle-hit); flex: 0 0 var(--resize-handle-hit);
   background: transparent;
@@ -217,7 +223,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-glyph { flex: 0 0 auto; overflow: visible; }
 .agent-group-status { color: var(--text-muted); white-space: nowrap; }
 .agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
-  display: flex; flex-direction: column; border-left: 8px solid var(--surface-canvas);
+  display: flex; flex-direction: column; border-left: var(--gutter) solid var(--surface-canvas);
   background: var(--bg); color: var(--text-secondary); }
 .agent-detail-panel.agent-detail-embedded { flex: 1 1 auto; width: 100%; border-left: 0; }
 .agent-detail-header { height: 58px; flex: 0 0 58px; display: flex; align-items: center;
@@ -1138,7 +1144,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* page Réglages */
 .settings-page { display: flex; height: 100vh; background: var(--bg); }
 .set-nav { width: 220px; background: var(--surface-panel); padding: 40px 10px 16px; display: flex;
-  flex-direction: column; gap: 4px; border-right: 8px solid var(--surface-canvas);
+  flex-direction: column; gap: 4px; border-right: var(--gutter) solid var(--surface-canvas);
   -webkit-app-region: drag; }
 .set-nav button { -webkit-app-region: no-drag; }
 .set-back { text-align: left; background: transparent; border: none; color: var(--text-muted);
@@ -1875,7 +1881,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
   color: var(--text-muted); font-size: var(--fs-l); padding: 24px; text-align: center; background: var(--bg); }
 
 .generateur-surface { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
-.generateur-form { min-width: 0; background: var(--surface-panel); border-right: 8px solid var(--surface-canvas);
+.generateur-form { min-width: 0; background: var(--surface-panel); border-right: var(--gutter) solid var(--surface-canvas);
   padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 .generateur-label { font-size: var(--fs-s); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
   margin-top: 8px; }
@@ -2884,7 +2890,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "files diff" "commit diff"; }
 .git-workspace > .git-files { grid-area: files; padding: 6px 8px 12px;
-  border-right: 8px solid var(--surface-canvas); }
+  border-right: var(--gutter) solid var(--surface-canvas); }
 .git-group-head { display: flex; align-items: center; gap: 4px; }
 .git-group-h { flex: 1; min-width: 0; }
 .git-group-h:disabled { cursor: default; opacity: .55; }
@@ -3120,7 +3126,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   display: inline-flex; align-items: center; gap: 6px; }
 .git-commits-fetch svg, .git-history-action svg { width: 14px; height: 14px; }
 .git-commits-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); }
-.git-commit-list { min-height: 0; border-right: 8px solid var(--surface-canvas); }
+.git-commit-list { min-height: 0; border-right: var(--gutter) solid var(--surface-canvas); }
 .git-commit-row { width: 100%; height: 52px; min-height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); text-align: left; }
 .git-commit-row:hover, .git-commit-row.is-active { background: var(--surface-hover); }
 .git-commit-graph { flex: none; align-self: center; overflow: visible; }
@@ -3369,7 +3375,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-surface[data-files-open="false"] { grid-template-columns: minmax(460px, 1fr) minmax(300px, 34%); }
 .narval-surface[data-files-open="false"] .narval-files { display: none; }
 .narval-files, .narval-main, .narval-inspector { min-width: 0; min-height: 0; overflow: hidden; }
-.narval-files { display: flex; flex-direction: column; border-right: 8px solid var(--surface-canvas);
+.narval-files { display: flex; flex-direction: column; border-right: var(--gutter) solid var(--surface-canvas);
   background: var(--surface-panel); }
 .narval-files-head { height: var(--narval-header-height); box-sizing: border-box; display: flex; flex-direction: column;
   justify-content: center; gap: 10px; padding: 12px;
@@ -3476,7 +3482,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-runs-more { margin-top: 10px; }
 .narval-muted { margin: 16px 0; color: var(--text-muted); font-size: var(--fs-body-s); }
 
-.narval-inspector { display: flex; flex-direction: column; border-left: 8px solid var(--surface-canvas);
+.narval-inspector { display: flex; flex-direction: column; border-left: var(--gutter) solid var(--surface-canvas);
   background: var(--surface-panel); }
 .narval-inspector-empty { height: 100%; }
 .narval-inspector-head { min-height: 94px; display: flex; align-content: flex-start; align-items: center; flex-wrap: wrap;

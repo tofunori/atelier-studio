@@ -23,6 +23,10 @@
   --surface-panel: var(--surface-app);
   --surface-header: var(--surface-panel);
   --surface-canvas: var(--canvas);
+  /* Largeur UNIQUE de toutes les gouttières (option 3). Un seul point de
+   * réglage : cadre extérieur, poignées, bandes entre panneaux secondaires.
+   * 8 px mangeaient trop d'écran une fois cumulés sur cinq divisions. */
+  --gutter: 4px;
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);

@@ -157,7 +157,7 @@
 
 /* ---- InspectorPanel ----------------------------------------------------------------------- */
 .ui-inspector { display: flex; flex-direction: column; min-height: 0; height: 100%;
-  background: var(--surface-panel); border-left: 8px solid var(--surface-canvas); }
+  background: var(--surface-panel); border-left: var(--gutter) solid var(--surface-canvas); }
 .ui-inspector > .ui-surface-header { position: sticky; top: 0; background: inherit; }
 .ui-inspector-body { flex: 1; overflow-y: auto; padding: var(--sp-4); }
 .ui-inspector-footer { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border-subtle);
