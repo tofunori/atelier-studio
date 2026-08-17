@@ -323,8 +323,12 @@ function themeVars(settings: Settings): Record<string, string> {
   return {
     ...base,
     "--surface-app": base["--bg"],
-    "--surface-panel": base["--bg-side"],
-    "--surface-header": base["--bg-side"],
+    // Les webviews (éditeurs LaTeX/code, galerie) mappent --surface-panel et
+    // --surface-header sur leurs --card/--bar. Les envoyer en --bg-side y
+    // peignait une barre d'outils nettement plus sombre que l'app : les
+    // iframes suivent la même décision « une seule couleur de carte ».
+    "--surface-panel": base["--bg"],
+    "--surface-header": base["--bg"],
     "--surface-raised": base["--bg-card"],
     "--surface-inset": base["--bg-ctl"],
     "--text-primary": base["--fg"],

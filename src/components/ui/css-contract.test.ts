@@ -536,12 +536,41 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // survol, arrondi et en retrait. Le trait 1px permanent était exactement
     // le « trop carré » signalé par Thierry.
     expect(tokens).toContain("--resize-handle-hit: 4px");
-    expect(tokens).not.toContain("--resize-handle-line");
     expect(appCss).toMatch(/\.handle\s*\{[\s\S]*?width:\s*var\(--resize-handle-hit\)/);
     for (const selector of ["\\.handle", "\\.pane-divider", "\\.workspace-divider"]) {
-      expect(appCss, `${selector}::after doit être une pastille invisible au repos`).toMatch(
-        new RegExp(`${selector}::after\\s*\\{[\\s\\S]*?border-radius:\\s*var\\(--r-pill\\)[\\s\\S]*?opacity:\\s*0`),
-      );
+      // bloc borné à `}` : sans borne, la regex traversait la règle suivante
+      // et pouvait se satisfaire d'une déclaration qui ne lui appartient pas
+      const block = new RegExp(`${selector}::after\\s*\\{([^}]*)\\}`);
+      const found = appCss.match(block);
+      expect(found, `${selector}::after doit exister`).toBeTruthy();
+      expect(found![1], `${selector}::after : pastille arrondie`).toMatch(/border-radius:\s*var\(--r-pill\)/);
+      expect(found![1], `${selector}::after : invisible au repos`).toMatch(/opacity:\s*0\s*;/);
+    }
+    // …et redevenir visible à la prise en main, sinon la poignée est morte
+    expect(appCss).toMatch(/\.handle:hover::after[\s\S]{0,200}opacity:\s*1/);
+    expect(appCss).toMatch(/\.app-row\.dragging \.side-handle::after\s*\{\s*opacity:\s*1/);
+  });
+
+  it("le sol des gouttières est réellement peint, et dérivé du thème actif", () => {
+    // Régression vécue le 2026-08-16 : une règle .app-row/.main-card PLUS BAS
+    // dans le fichier repeignait var(--bg) à spécificité égale — le sol de
+    // l'option 3 n'existait tout simplement pas au niveau du shell.
+    const appRow = [...appCss.matchAll(/\.app-row\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(appRow.length, ".app-row doit exister").toBeGreaterThan(0);
+    for (const block of appRow) {
+      expect(block, ".app-row ne doit jamais repeindre le fond des cartes").not.toMatch(/background:\s*var\(--bg\)/);
+    }
+    const mainCard = [...appCss.matchAll(/\.main-card\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    for (const block of mainCard) {
+      expect(block, ".main-card est un conteneur pur").not.toMatch(/background:\s*var\(--bg\)/);
+    }
+    // --canvas et --grip se DÉRIVENT de --bg/--fg : les presets de thème ne
+    // posent que la palette de base en style inline, une valeur en dur y
+    // laissait un sol d'une autre famille (sol bleuté sous Gruvbox) ou plus
+    // clair que le contenu sous les presets clairs.
+    for (const decl of [/--canvas:\s*color-mix\(in srgb, var\(--bg\)/, /--grip:\s*color-mix\(in srgb, var\(--fg\)/]) {
+      expect(appCss.match(new RegExp(decl.source, "g"))?.length,
+        `${decl} doit être dérivé dans les DEUX thèmes`).toBe(2);
     }
   });
 });

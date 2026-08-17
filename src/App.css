@@ -19,10 +19,10 @@
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  --canvas: #101215;
+  --canvas: color-mix(in srgb, var(--bg) 72%, #000);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
-  --grip: #4a4f56;
+  --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
   /* ombre de défilement (option 4) : plus dense en sombre, où l'écart de
      luminance est faible ; discrète en clair, où elle porte déjà */
   --scroll-shade: rgba(0, 0, 0, .40);
@@ -43,8 +43,8 @@
   /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
-  --canvas: #d9dee5;
-  --grip: #a9aeb5;
+  --canvas: color-mix(in srgb, var(--bg) 91%, #000);
+  --grip: color-mix(in srgb, var(--fg) 26%, var(--bg));
   --scroll-shade: rgba(20, 28, 38, .13);
   --card-lift: 0 1px 2px rgba(20,28,38,.10);
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
@@ -97,12 +97,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .app { background: transparent; }
 .app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
   overflow: hidden; box-shadow: var(--card-lift); }
-.app > .handle, .side-handle { width: 8px; flex: 0 0 8px; }
+.app > .handle, .app-row > .side-handle { width: 8px; flex: 0 0 8px; }
 /* Gouttières internes de l'atelier : le MÊME sol que les grandes divisions,
    sinon chaque niveau invente sa propre couleur de séparation. */
 .pane-row { background: var(--surface-canvas); }
 .pane-row > .workspace-root { background: var(--bg); border-radius: var(--r-m); }
-.explorer, .annots-panel { margin-left: 8px; border-radius: var(--r-m); }
+.explorer, .annots-panel { margin-left: 8px; border-radius: var(--r-m); overflow: hidden; }
 .handle {
   position: relative; width: var(--resize-handle-hit); flex: 0 0 var(--resize-handle-hit);
   background: transparent;
@@ -121,6 +121,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .handle:hover::after,
 .handle:focus-visible::after,
 .handle[data-resize-handle-active]::after { opacity: 1; }
+/* .side-handle est une poignée maison (WorkspaceShell), pas react-resizable-
+   panels : ni data-resize-handle-active, ni focus. Sans ce repli, la pastille
+   disparaît dès que le curseur quitte la gouttière EN PLEIN redimensionnement. */
+.app-row.dragging .side-handle::after { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .handle::after { transition: none; } }
 .sidebar { padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
   height: 100%; background: var(--surface-panel); font-size: var(--fs-l); color: var(--text-secondary);
@@ -213,7 +217,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-glyph { flex: 0 0 auto; overflow: visible; }
 .agent-group-status { color: var(--text-muted); white-space: nowrap; }
 .agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
-  display: flex; flex-direction: column; border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; border-left: 8px solid var(--surface-canvas);
   background: var(--bg); color: var(--text-secondary); }
 .agent-detail-panel.agent-detail-embedded { flex: 1 1 auto; width: 100%; border-left: 0; }
 .agent-detail-header { height: 58px; flex: 0 0 58px; display: flex; align-items: center;
@@ -676,13 +680,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--r-s); cursor: pointer; transition: background-color var(--ease), color var(--ease); }
 .tb-seg button:hover:not(.on) { color: var(--text-secondary); }
 .tb-seg button.on { background: var(--bg); color: var(--text-primary); }
-.app-row { display: flex; height: calc(100vh - 38px); background: var(--bg); }
+.app-row { display: flex; height: calc(100vh - 38px); background: var(--surface-canvas); }
+/* conteneur pur : un fond ici découperait les coins arrondis des cartes
+   au lieu de laisser voir le sol (option 3) */
 .main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
-  background: var(--bg); position: relative; }
-/* rail = activity bar, 48px, collé (séparateur 1px à droite, pas de carte) */
+  background: transparent; position: relative; }
+/* rail = activity bar, 48px — carte flottante depuis 2026-08-16 : sa gouttière
+   le sépare, un filet suivrait le rayon du coin en arc de 1px */
 .rail { width: 48px; flex-shrink: 0; background: var(--surface-panel); display: flex;
-  flex-direction: column; align-items: center;
-  border-right: 1px solid var(--border); position: relative; }
+  flex-direction: column; align-items: center; position: relative; }
 /* zone scrollable : vues + surfaces + projets. DEUX zones indépendantes —
    ouvrir le tiroir des surfaces ne doit pas déplacer ni comprimer les projets.
    PIÈGE : dans une colonne flex, `height: 38px` n'est qu'une base — sans
@@ -1132,7 +1138,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* page Réglages */
 .settings-page { display: flex; height: 100vh; background: var(--bg); }
 .set-nav { width: 220px; background: var(--surface-panel); padding: 40px 10px 16px; display: flex;
-  flex-direction: column; gap: 4px; border-right: 1px solid var(--bg-ctl);
+  flex-direction: column; gap: 4px; border-right: 8px solid var(--surface-canvas);
   -webkit-app-region: drag; }
 .set-nav button { -webkit-app-region: no-drag; }
 .set-back { text-align: left; background: transparent; border: none; color: var(--text-muted);
@@ -1869,7 +1875,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
   color: var(--text-muted); font-size: var(--fs-l); padding: 24px; text-align: center; background: var(--bg); }
 
 .generateur-surface { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
-.generateur-form { min-width: 0; background: var(--surface-panel); border-right: 1px solid var(--border);
+.generateur-form { min-width: 0; background: var(--surface-panel); border-right: 8px solid var(--surface-canvas);
   padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 .generateur-label { font-size: var(--fs-s); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
   margin-top: 8px; }
@@ -2027,7 +2033,7 @@ body.dragging iframe { pointer-events: none; }
   .pane-divider::after, .workspace-divider::after { transition: none; }
 }
 .workspace-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; background: transparent; }
-.workspace-pane.is-focused > .workspace-pane-tabs { box-shadow: inset 0 -1px var(--border-strong); }
+.workspace-pane.is-focused > .workspace-pane-tabs { box-shadow: inset 0 -1px var(--border2); }
 .workspace-pane-tabs { min-width: 0; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; position: relative; z-index: var(--z-sticky); background: var(--bg); }
 .workspace-pane-tabs::-webkit-scrollbar { display: none; }
 .workspace-pane-body { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -2593,7 +2599,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* au-dessus des marques de chapitre (z-index 40) : le menu déroulant doit les couvrir */
 .reviewer-wrap { position: relative; flex-shrink: 0; z-index: 50; }
 .reviewer-bar.clickable { cursor: pointer; }
-.reviewer-bar.clickable:hover { background: color-mix(in srgb, var(--bg-ctl) 35%, var(--bg-side)); }
+.reviewer-bar.clickable:hover { background: color-mix(in srgb, var(--bg-ctl) 62%, var(--surface-header)); }
 .rb-chevron { color: var(--text-disabled); font-size: var(--fs-xs); margin-left: auto; transition: color .12s; }
 .reviewer-bar.clickable:hover .rb-chevron { color: var(--text-muted); }
 .rb-close { flex: none; color: var(--text-disabled); font-size: var(--fs-m); line-height: 1; padding: 3px 4px;
@@ -2878,7 +2884,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "files diff" "commit diff"; }
 .git-workspace > .git-files { grid-area: files; padding: 6px 8px 12px;
-  border-right: 1px solid var(--border); }
+  border-right: 8px solid var(--surface-canvas); }
 .git-group-head { display: flex; align-items: center; gap: 4px; }
 .git-group-h { flex: 1; min-width: 0; }
 .git-group-h:disabled { cursor: default; opacity: .55; }
@@ -3114,7 +3120,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   display: inline-flex; align-items: center; gap: 6px; }
 .git-commits-fetch svg, .git-history-action svg { width: 14px; height: 14px; }
 .git-commits-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); }
-.git-commit-list { min-height: 0; border-right: 1px solid var(--border); }
+.git-commit-list { min-height: 0; border-right: 8px solid var(--surface-canvas); }
 .git-commit-row { width: 100%; height: 52px; min-height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); text-align: left; }
 .git-commit-row:hover, .git-commit-row.is-active { background: var(--surface-hover); }
 .git-commit-graph { flex: none; align-self: center; overflow: visible; }
@@ -3363,7 +3369,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-surface[data-files-open="false"] { grid-template-columns: minmax(460px, 1fr) minmax(300px, 34%); }
 .narval-surface[data-files-open="false"] .narval-files { display: none; }
 .narval-files, .narval-main, .narval-inspector { min-width: 0; min-height: 0; overflow: hidden; }
-.narval-files { display: flex; flex-direction: column; border-right: 1px solid var(--border-subtle);
+.narval-files { display: flex; flex-direction: column; border-right: 8px solid var(--surface-canvas);
   background: var(--surface-panel); }
 .narval-files-head { height: var(--narval-header-height); box-sizing: border-box; display: flex; flex-direction: column;
   justify-content: center; gap: 10px; padding: 12px;
@@ -3470,7 +3476,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-runs-more { margin-top: 10px; }
 .narval-muted { margin: 16px 0; color: var(--text-muted); font-size: var(--fs-body-s); }
 
-.narval-inspector { display: flex; flex-direction: column; border-left: 1px solid var(--border-subtle);
+.narval-inspector { display: flex; flex-direction: column; border-left: 8px solid var(--surface-canvas);
   background: var(--surface-panel); }
 .narval-inspector-empty { height: 100%; }
 .narval-inspector-head { min-height: 94px; display: flex; align-content: flex-start; align-items: center; flex-wrap: wrap;
