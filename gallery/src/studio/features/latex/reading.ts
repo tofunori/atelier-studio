@@ -348,7 +348,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // Le cache local donne la valeur au premier rendu ; la vérité vient de
   // `/state` (piège n°1 : le localStorage du WebView ne survit pas au
   // redémarrage de l'app), comme texAutoRewrap.
-  const FS_MIN = 13, FS_MAX = 24, FS_DEFAULT = 17;
+  const FS_MIN = 13, FS_MAX = 24, FS_DEFAULT = 15;
   const FS_KEY = "texReadFontSize";
   const clampFs = (value: unknown): number => {
     const numeric = Number(value);
@@ -400,15 +400,15 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   fsPlus.onclick = () => setFontSize(fontSize + 1);
   applyFontSize();
 
-  // ---- fond de lecture : sombre (défaut), noir du chat, sépia --------------
+  // ---- fond de lecture : noir du chat (défaut), sombre, sépia -------------
   const THEME_KEY = "texReadTheme";
   const THEMES: ReadonlyArray<{name: string; swatch: string; label: string}> = [
-    {name: "dark", swatch: "#1a1d22", label: "Fond sombre (défaut)"},
-    {name: "chat", swatch: "#1e2124", label: "Fond noir du chat"},
+    {name: "chat", swatch: "#1e2124", label: "Fond noir du chat (défaut)"},
+    {name: "dark", swatch: "#1a1d22", label: "Fond sombre"},
     {name: "sepia", swatch: "#efe7d4", label: "Fond sépia"},
   ];
   const themeNames = new Set(THEMES.map((theme) => theme.name));
-  let readTheme = themeNames.has(storage.getItem(THEME_KEY) || "") ? storage.getItem(THEME_KEY) as string : "dark";
+  let readTheme = themeNames.has(storage.getItem(THEME_KEY) || "") ? storage.getItem(THEME_KEY) as string : "chat";
   const themeButtons: HTMLButtonElement[] = [];
   const applyTheme = (): void => {
     if (readTheme === "dark") delete options.right.dataset.trTheme;
@@ -416,7 +416,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     themeButtons.forEach((button) => button.classList.toggle("on", button.dataset.theme === readTheme));
   };
   const setTheme = (name: string): void => {
-    readTheme = themeNames.has(name) ? name : "dark";
+    readTheme = themeNames.has(name) ? name : "chat";
     applyTheme();
     storage.setItem(THEME_KEY, readTheme);
     persistState(THEME_KEY, readTheme);
