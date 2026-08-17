@@ -218,3 +218,29 @@ relancé = démotion silencieuse).
 - diagnostic rapide : `grep __permission-fallback` dans le ledger du projet
   (`~/Library/Application Support/atelier-studio/ledger/`), et
   `turn_context.sandbox_policy` dans le rollout `~/.codex/sessions/…`.
+
+## 12. cm6 rend le diff NATIVEMENT — la boucle de marques d'applyRender est du code mort sous cm6
+
+Symptôme (2026-08-17) : fonctionnalité branchée sur les marques du diff
+(publication vers la vue Lecture) parfaitement câblée, testée par lecture de
+code, bundles vérifiés à l'octet — et rien à l'écran, alors que l'éditeur
+affiche de belles marques.
+
+Cause : sous le moteur cm6, `render()` fait `cm.showMergeDiff(...)` puis
+`return` AVANT la boucle dAddM/dDelW. Tout ce qui est accroché à cette boucle
+(publication `onMarks`, widgets, compteurs) ne tourne que sous l'ancien moteur.
+Les marques visibles viennent de l'extension merge native, pas de la boucle.
+
+**Règles** :
+- Toute consommation des changements du diff passe par `computeSrcMarks()`
+  (sémantique de la boucle sans CodeMirror) + `publishMarks()`, alimentés par
+  la distribution async qui tourne DANS LES DEUX chemins (flag `nativeShown`).
+- Avant d'accrocher quoi que ce soit à applyRender, vérifier quel moteur
+  exécute quoi : `grep hasNativeMergeDiff`.
+- Vérifier une feature d'éditeur = la DÉROULER dans le navigateur (serveur
+  galerie jetable sur un dépôt git de scratch + `__dv.push` pour fabriquer une
+  intervention), pas seulement relire le code : ici trois « fix » plausibles
+  ont été livrés avant que l'instrumentation ne montre le vrai chemin.
+- Le serveur galerie sert `.fig_thumbs` depuis un cache provisionné AU BOOT et
+  le navigateur cache par origine : instrumenter = redémarrer le serveur ET
+  changer de port.
