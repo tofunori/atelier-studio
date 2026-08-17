@@ -155,6 +155,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let annotations: LatexAnnotationsController | null = null;
   let outline: LatexOutlineController | null = null;
   let reader: LatexReadingController | null = null;
+  let pendingDiffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
   let selectionPill: LatexSelectionPillController | null = null;
   let statusBar: StudioStatusBarController | null = null;
   let lastCompile: {log: string; ok: boolean} | null = null;
@@ -284,6 +285,8 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       window: win,
       storage: win.localStorage,
     });
+    // une comparaison déjà ouverte livre ses marques au lecteur qui naît
+    reader.setDiffMarks(pendingDiffMarks);
     return reader;
   };
   const ensureSelectionPill = (): LatexSelectionPillController => {
@@ -596,8 +599,10 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     path,
     notify: (message) => setState("ok", message),
     // La vue Lecture masque l'éditeur : sans ce relais, une comparaison
-    // ouverte depuis la Lecture ne montrait rien du tout.
-    onMarks: (marks) => reader?.setDiffMarks(marks),
+    // ouverte depuis la Lecture ne montrait rien du tout. Et sans le TAMPON,
+    // une comparaison ouverte AVANT le premier passage en Lecture publiait
+    // vers un lecteur inexistant — puis plus jamais (vécu 2026-08-16).
+    onMarks: (marks) => { pendingDiffMarks = marks; reader?.setDiffMarks(marks); },
     restoreText: async (text) => {
       if (!path) return false;
       const currentSession = ensureSession();
