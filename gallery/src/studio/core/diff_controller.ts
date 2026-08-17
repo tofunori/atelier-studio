@@ -18,6 +18,8 @@ export interface StudioDiffFactoryOptions {
     restore: HTMLElement | null;
   };
   restoreText(text: string): Promise<boolean>;
+  /** Marques du diff en termes de source, pour les vues sans éditeur. */
+  onMarks?(marks: ReadonlyArray<{kind: string; line: number; text: string}>): void;
 }
 
 export interface StudioDiffControllerOptions {
@@ -26,6 +28,7 @@ export interface StudioDiffControllerOptions {
   path: string | null;
   notify(message: string): void;
   restoreText(text: string): Promise<boolean>;
+  onMarks?(marks: ReadonlyArray<{kind: string; line: number; text: string}>): void;
   enableSelectionQuote?: boolean;
   hideEmbeddedIdentity?: boolean;
   postToHost?(message: unknown): void;
@@ -53,6 +56,7 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
       restore: doc.getElementById("diffRestore"),
     },
     restoreText: options.restoreText,
+    onMarks: options.onMarks,
   });
   let quotePill: HTMLButtonElement | null = null;
   let selectedText = "";

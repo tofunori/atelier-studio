@@ -595,6 +595,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     getEditor: () => editor,
     path,
     notify: (message) => setState("ok", message),
+    // La vue Lecture masque l'éditeur : sans ce relais, une comparaison
+    // ouverte depuis la Lecture ne montrait rien du tout.
+    onMarks: (marks) => reader?.setDiffMarks(marks),
     restoreText: async (text) => {
       if (!path) return false;
       const currentSession = ensureSession();

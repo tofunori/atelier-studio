@@ -409,6 +409,14 @@
   #texread [data-line]:hover{background:none}
   /* Annotations dans la prose rendue (API CSS Custom Highlight) : mêmes
      familles que les marques de l'éditeur, alpha adouci pour la lecture. */
+  /* --- marques du diff en vue Lecture (liées au bouton comparaison) ---
+     Vert d'addition distinct des teintes d'annotation : « ça a changé » ne
+     doit pas se confondre avec « j'ai commenté ça ». */
+  ::highlight(texc-read-diff){background:rgba(62,160,107,.26)}
+  #texread [data-line]{position:relative}
+  .tr-cut{position:absolute;left:-14px;top:.28em;width:3px;height:1.15em;border-radius:2px;
+    background:var(--dv-del,#e06c75);opacity:.85;cursor:help}
+  .tr-cut:hover{opacity:1}
   ::highlight(texc-read-amber){background:rgba(224,183,74,.26)}
   ::highlight(texc-read-red){background:rgba(240,125,115,.26)}
   ::highlight(texc-read-blue){background:rgba(91,157,255,.24)}

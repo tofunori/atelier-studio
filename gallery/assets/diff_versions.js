@@ -24,8 +24,13 @@
 //   dv.push(before, after, meta) après chaque sauvegarde / rechargement externe
 //   dv.isEquivalent(a, b)     équivalence whitespace adaptée au type de fichier
 //   dv.isShown()            le mode comparaison est-il actif ?
+//     onMarks: (list) => ...,          // OPTIONNEL — publie les marques en
+//       termes de SOURCE : [{kind:'add'|'del', line, text}]. Appelé à chaque
+//       (re)calcul et avec [] à la fermeture. Sert aux vues qui n'affichent
+//       pas l'éditeur (vue Lecture) : elles ne peuvent pas lire les marques
+//       CodeMirror, mais savent retrouver un texte source dans leur rendu.
 window.DiffVersions = function(opts){
-  const { getCm, path, notify, els, restoreText } = opts;
+  const { getCm, path, notify, els, restoreText, onMarks } = opts;
   const launchParams = (() => {
     try{ return new URLSearchParams(location.search); }
     catch(e){ return {get: () => null}; }
@@ -410,6 +415,18 @@ window.DiffVersions = function(opts){
   function clearMarks(){
     marks.forEach(m => { try{ m.clear(); }catch(e){} });
     marks = [];
+    publishMarks([]);
+  }
+  // Les marques CodeMirror ne valent que pour l'éditeur ; la vue Lecture a
+  // besoin des mêmes changements en termes de source pour les retrouver dans
+  // son rendu. Une seule source de vérité : la boucle qui pose les marques.
+  let lastPublished = "";
+  function publishMarks(list){
+    if(typeof onMarks !== "function") return;
+    const signature = JSON.stringify(list);
+    if(signature === lastPublished) return;   // rendu identique : ne pas repeindre
+    lastPublished = signature;
+    try{ onMarks(list); }catch(e){}
   }
   let diffWorker = null, workerFailed = false, renderRequestId = 0, renderTimer = null;
   const LOCAL_WORD_LIMIT = 12000;
@@ -602,6 +619,7 @@ window.DiffVersions = function(opts){
       return -1;
     };
     const skip = new Set();
+    const srcMarks = []; // mêmes changements, en termes de SOURCE (vue Lecture)
     const pts = []; // {pos, ch} de chaque changement, dans l'ordre du document
     let at = 0;
     for(let i = 0; i < parts.length; i++){
@@ -621,6 +639,7 @@ window.DiffVersions = function(opts){
         if(disp.length > 160) w.title = disp;
         const pos = cm.posFromIndex(at);
         marks.push(cm.setBookmark(pos, {widget: w}));
+        srcMarks.push({kind: "del", line: pos.line, text: disp});
         // un mot remplacé = suppression + ajout à la MÊME position : un seul stop
         if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos, ch: at});
         continue;
@@ -631,11 +650,13 @@ window.DiffVersions = function(opts){
         if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
         const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
         marks.push(cm.markText(from, to, {className: "dAddM"}));
+        srcMarks.push({kind: "add", line: from.line, text: pt.value});
         if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos: from, ch: at});
       }
       at += pt.value.length;
     }
     changePts = pts;
+    publishMarks(srcMarks);
     // initialiser sur le changement le plus proche du curseur (on ouvre souvent
     // la comparaison en plein milieu du document — naviguer à partir d'où on est)
     changeAt = 0;

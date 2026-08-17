@@ -57,6 +57,9 @@ export interface LatexReadingController {
   /** Amène la vue Lecture sur la ligne SOURCE demandée (plan du document).
    *  Rend false hors vue Lecture : l'appelant retombe alors sur l'éditeur. */
   revealSourceLine(line: number): boolean;
+  /** Marques du diff en termes de SOURCE, publiées par le moteur de
+   *  comparaison. Liste vide = comparaison fermée, la prose redevient calme. */
+  setDiffMarks(marks: ReadonlyArray<{kind: string; line: number; text: string}>): void;
   /** Redessine les surlignages d'annotations (appelé quand le jeu change). */
   refreshAnnotations(): void;
 }
@@ -496,6 +499,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     try { reading.innerHTML = renderLatexReadingHtml(options.getEditor()?.getValue() || "", options.katex); }
     catch (error) { reading.innerHTML = `<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`; }
     applyAnnotationHighlights();
+    applyDiffMarks();   // le rendu est reconstruit à chaque frappe : repeindre
   };
   const syncMode = (): void => {
     editButton.classList.toggle("on", options.right.style.display === "none" && !enabled);
@@ -644,10 +648,11 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     }
     return null;
   };
-  const locateAnnotation = (annotation: {text: string; from: StudioPosition}): Range | null => {
-    const block = blockForLine(annotation.from.line + 1);
-    if (!block) return null;
-    const runs = proseRuns(annotation.text);
+  /** Retrouve un texte SOURCE dans un bloc rendu. Le rendu est irréversible
+   *  mot à mot (citations, math, commandes) : on cherche donc les suites de
+   *  mots de prose, pas la chaîne brute. Sert aux annotations ET au diff. */
+  const locateText = (block: HTMLElement, text: string): Range | null => {
+    const runs = proseRuns(text);
     if (!runs.length) return null;
     const blockText = block.textContent || "";
     let start = -1;
@@ -662,6 +667,10 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       if (at >= 0) { end = at + (runs[index] || "").length; break; }
     }
     return end > start ? rangeFromOffsets(block, start, end) : null;
+  };
+  const locateAnnotation = (annotation: {text: string; from: StudioPosition}): Range | null => {
+    const block = blockForLine(annotation.from.line + 1);
+    return block ? locateText(block, annotation.text) : null;
   };
   const applyAnnotationHighlights = (): void => {
     const registry = (win as unknown as {CSS?: {highlights?: Map<string, unknown>}}).CSS?.highlights;
@@ -751,20 +760,50 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (storage.getItem("texReadMode") === "1") setRead(true);
   };
   syncMode();
+  // ---- marques du diff dans la prose (liées au bouton comparaison) --------
+  // Elles n'apparaissent QUE pendant une comparaison : la Lecture sert aussi à
+  // relire au propre, une prose constamment barbouillée ne s'y prête pas.
+  let diffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
+  const applyDiffMarks = (): void => {
+    for (const old of reading.querySelectorAll(".tr-cut")) old.remove();
+    const registry = (win as unknown as {CSS?: {highlights?: Map<string, unknown>}}).CSS?.highlights;
+    const HighlightCtor = (win as unknown as {Highlight?: new (...ranges: Range[]) => unknown}).Highlight;
+    registry?.delete("texc-read-diff");
+    if (!enabled || !diffMarks.length) return;
+    const added: Range[] = [];
+    for (const mark of diffMarks) {
+      // `line` vient de CodeMirror (0-based), les ancres du rendu sont 1-based
+      const block = blockForLine(mark.line + 1);
+      if (!block) continue;
+      if (mark.kind === "del") {
+        // Une suppression n'existe PLUS dans le texte rendu : impossible de la
+        // surligner. On pose un repère dans la marge, qui porte le texte retiré.
+        const cut = doc.createElement("span");
+        cut.className = "tr-cut";
+        cut.title = mark.text;
+        cut.setAttribute("aria-label", `Texte supprimé : ${mark.text}`);
+        block.insertBefore(cut, block.firstChild);
+        continue;
+      }
+      const range = locateText(block, mark.text);
+      if (range) added.push(range);
+    }
+    if (added.length && registry && HighlightCtor) {
+      registry.set("texc-read-diff", new HighlightCtor(...added));
+    }
+  };
+  const setDiffMarks = (marks: ReadonlyArray<{kind: string; line: number; text: string}>): void => {
+    diffMarks = marks;
+    applyDiffMarks();
+  };
+
   // En vue Lecture l'éditeur est masqué (`tex-read-only`) : y déplacer le
   // curseur ne montre RIEN. On vise donc l'ancre `data-line` la plus proche
   // avant la ligne demandée — le rendu n'a pas d'ancre pour chaque ligne
   // source, la plus proche en amont est le bon voisinage.
   const revealSourceLine = (line: number): boolean => {
     if (!enabled) return false;
-    let target: HTMLElement | null = null;
-    for (const element of reading.querySelectorAll<HTMLElement>("[data-line]")) {
-      const value = Number.parseInt(element.dataset.line || "", 10);
-      if (!Number.isFinite(value)) continue;
-      if (value <= line) target = element;
-      else break;
-    }
-    target = target || reading.querySelector<HTMLElement>("[data-line]");
+    const target = blockForLine(line + 1) || reading.querySelector<HTMLElement>("[data-line]");
     if (!target) return false;
     target.scrollIntoView({block: "start", behavior: "smooth"});
     target.classList.add("tr-jump");
@@ -773,5 +812,5 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   };
 
   return {bind, render, setRead, syncMode, isReading: () => enabled,
-    revealSourceLine, refreshAnnotations: applyAnnotationHighlights};
+    revealSourceLine, setDiffMarks, refreshAnnotations: applyAnnotationHighlights};
 }
