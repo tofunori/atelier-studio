@@ -352,6 +352,11 @@
   /* Taille de police de la Lecture : pilule discrète, visible en mode lecture
      seulement. La valeur vit dans --texread-fs, persistée côté serveur
      (piège n°1 : le localStorage du WebView ne survit pas au redémarrage). */
+  /* repère bref après un saut depuis le plan : sans lui, la vue défile mais
+     rien ne dit OÙ on a atterri */
+  .tr-jump{animation:tr-jump 900ms ease-out}
+  @keyframes tr-jump{from{background:color-mix(in srgb,var(--accent) 22%,transparent)}to{background:transparent}}
+  @media (prefers-reduced-motion:reduce){.tr-jump{animation:none}}
   #texreadFs{display:none;position:absolute;top:10px;right:14px;z-index:5;
     align-items:center;gap:2px;padding:2px;border-radius:999px;
     background:color-mix(in srgb,var(--card) 88%,transparent);border:1px solid var(--border);

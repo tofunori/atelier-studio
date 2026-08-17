@@ -54,6 +54,9 @@ export interface LatexReadingController {
   setRead(enabled: boolean): void;
   syncMode(): void;
   isReading(): boolean;
+  /** Amène la vue Lecture sur la ligne SOURCE demandée (plan du document).
+   *  Rend false hors vue Lecture : l'appelant retombe alors sur l'éditeur. */
+  revealSourceLine(line: number): boolean;
   /** Redessine les surlignages d'annotations (appelé quand le jeu change). */
   refreshAnnotations(): void;
 }
@@ -748,6 +751,27 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (storage.getItem("texReadMode") === "1") setRead(true);
   };
   syncMode();
+  // En vue Lecture l'éditeur est masqué (`tex-read-only`) : y déplacer le
+  // curseur ne montre RIEN. On vise donc l'ancre `data-line` la plus proche
+  // avant la ligne demandée — le rendu n'a pas d'ancre pour chaque ligne
+  // source, la plus proche en amont est le bon voisinage.
+  const revealSourceLine = (line: number): boolean => {
+    if (!enabled) return false;
+    let target: HTMLElement | null = null;
+    for (const element of reading.querySelectorAll<HTMLElement>("[data-line]")) {
+      const value = Number.parseInt(element.dataset.line || "", 10);
+      if (!Number.isFinite(value)) continue;
+      if (value <= line) target = element;
+      else break;
+    }
+    target = target || reading.querySelector<HTMLElement>("[data-line]");
+    if (!target) return false;
+    target.scrollIntoView({block: "start", behavior: "smooth"});
+    target.classList.add("tr-jump");
+    win.setTimeout(() => target?.classList.remove("tr-jump"), 900);
+    return true;
+  };
+
   return {bind, render, setRead, syncMode, isReading: () => enabled,
-    refreshAnnotations: applyAnnotationHighlights};
+    revealSourceLine, refreshAnnotations: applyAnnotationHighlights};
 }

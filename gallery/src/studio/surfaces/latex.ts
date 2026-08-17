@@ -212,7 +212,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       element: doc.getElementById("outline") as HTMLElement,
       button: doc.getElementById("outlineBtn") as HTMLElement,
       document: doc,
-      revealLine: (target, line) => revealLineRange(target, {fromLine: line, margin: 80, focus: true}),
+      // Le plan doit naviguer dans la vue VISIBLE : en Lecture, l'éditeur est
+      // masqué et y bouger le curseur ne montrait rien (vécu 2026-08-16).
+      revealLine: (target, line) => {
+        if (reader?.revealSourceLine(line)) return;
+        revealLineRange(target, {fromLine: line, margin: 80, focus: true});
+      },
     });
     return outline;
   };
