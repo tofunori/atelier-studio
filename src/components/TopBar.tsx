@@ -104,6 +104,7 @@ export default function TopBar({
   const color = meta?.color || "var(--accent)";
   return (
     <div className="topbar" data-tauri-drag-region>
+      <div className="topbar-start" data-tauri-drag-region>
       <div className="topbar-left" data-tauri-drag-region>
         {activeProject && (
           <LazyDropdownMenu
@@ -163,7 +164,24 @@ export default function TopBar({
       {/* Onglets du pane, juste après le nom du projet : on lit « projet,
           puis fichiers » dans l'ordre où on les pense (lot 068). */}
       <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
-      <span className="flex" />
+      </div>
+      {/* Zone CENTRE (demande Thierry 2026-08-16) : les surfaces quittent le
+          groupe de droite pour être centrées dans la fenêtre. La grille à
+          côtés 1fr les centre sur la fenêtre, pas sur ce qui reste de place —
+          leur position ne bouge donc pas quand on ouvre un onglet. */}
+      <div className="topbar-center" data-tauri-drag-region>
+        <TopBarSurfaces
+          showAnnots={showAnnots}
+          onToggleAnnots={onToggleAnnots}
+          activeSurface={activeSurface}
+          showAtelier={showAtelier}
+          ideActive={ideActive}
+          showExplorer={showExplorer}
+          onSelectSurface={onSelectSurface}
+          onSelectIde={onSelectIde}
+          onToggleExplorer={onToggleExplorer}
+        />
+      </div>
       <div className="topbar-right">
         {/* Recherche réduite à son icône (lot 068) : le champ occupait
             clamp(280px, 32vw, 420px) pour annoncer un raccourci que tout
@@ -177,20 +195,6 @@ export default function TopBar({
         >
           <SearchIcon size={14} />
         </IconButton>
-        <span className="topbar-div" />
-        {/* Surfaces (plan 055) : toutes ici, épinglables. Le refresh galerie
-            vit dans le GalleryHeader de la surface (plan 018). */}
-        <TopBarSurfaces
-          showAnnots={showAnnots}
-          onToggleAnnots={onToggleAnnots}
-          activeSurface={activeSurface}
-          showAtelier={showAtelier}
-          ideActive={ideActive}
-          showExplorer={showExplorer}
-          onSelectSurface={onSelectSurface}
-          onSelectIde={onSelectIde}
-          onToggleExplorer={onToggleExplorer}
-        />
         <span className="topbar-div" />
         {/* pilote plan 016 : ex-.tb-seg (role=group) → SegmentedControl
             (radiogroup, flèches, roving tabindex) ; mêmes icônes, mêmes

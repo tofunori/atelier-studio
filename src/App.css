@@ -635,8 +635,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* ===== shell façon VS Code : barre 32px (feux natifs) + rail + panneau +
    surface, tout COLLÉ — séparateurs 1px, aucune carte flottante, aucune
    ombre, aucun rayon sur les zones du shell. ===== */
-.topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center;
+/* Trois zones : onglets à gauche, surfaces au CENTRE, contrôles à droite.
+   Côtés en minmax(0,1fr) → le groupe du milieu est centré sur la fenêtre et
+   ne se déplace pas quand un onglet s'ouvre ; min-width 0 laisse les onglets
+   tronquer au lieu de pousser le centre. */
+.topbar { height: 38px; flex-shrink: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
   background: var(--surface-header); gap: 8px; }
+.topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 8px; }
+.topbar-center { display: flex; align-items: center; justify-content: center; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
   padding-left: 92px; /* réserve les feux natifs (fin ≈ x66) + ~26 de respiration */ }
 /* crumb projet aminci (2026-07-16) : nom seul en texte discret + chevron au
@@ -682,7 +689,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* La recherche était un champ de clamp(280px, 32vw, 420px) qui annonçait un
    raccourci tapé de mémoire (lot 068) : elle est redevenue une icône du
    groupe de droite, et ses 420 px sont passés aux onglets. */
-.topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-right: 10px; }
+.topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-shrink: 0; padding-right: 10px; }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 3px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 22px; background: transparent; border: none; color: var(--text-muted);
