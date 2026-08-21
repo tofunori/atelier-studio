@@ -365,17 +365,16 @@ export function buildChatTurnViewModels(
         ))
       : [];
     const activeGroupIndexes = new Set(activeActionGroups.flatMap((group) => group.indexes));
-    const openSegmentGroupIndexes = new Set(groups.flatMap((group) => (
-      group.index > activeBoundary && !isStandaloneToolGroup(group) ? group.indexes : []
-    )));
     const activeWorkIndexes = new Set(indexes.filter((index) => {
       const event = events[index];
       // Le reasoning reste une donnée de statut, pas une ligne de transcript.
-      // Toutes les actions de la tranche encore ouverte partagent le même slot
-      // vivant : Read → Thinking → Search. Elles ne deviennent une ligne
-      // durable du transcript qu'une fois fermées par une narration assistant.
       if (!isActive) return isReasoning(event) || isToolAction(event) || event.kind === "activity";
-      return isReasoning(event) || openSegmentGroupIndexes.has(index) || activeGroupIndexes.has(index) ||
+      // Progression visible pendant le tour (parti pris Hermes) : un groupe
+      // RÉGLÉ se dépose immédiatement comme ligne durable du transcript, sans
+      // attendre qu'une narration assistant ferme la tranche. Seuls le
+      // raisonnement (statut) et le groupe encore EN COURS (slot vivant du
+      // tail) restent hors transcript.
+      return isReasoning(event) || activeGroupIndexes.has(index) ||
         (event.kind === "activity" && index > activeBoundary && isRunningActivity(event));
     }));
     const firstTs = (userIndex == null ? null : timestampOf(events[userIndex])) ??

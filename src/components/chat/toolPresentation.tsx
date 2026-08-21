@@ -510,7 +510,6 @@ const TARGET_CLAUSE_KEY: Partial<Record<SummaryPartKind, Parameters<typeof t>[0]
   "file-changes": "tools.summary.file-changes-target",
   exploration: "tools.summary.exploration-target",
   visualization: "tools.summary.visualization-target",
-  "web-search": "tools.summary.web-search-target",
   images: "tools.summary.images-target",
   agents: "tools.summary.agents-target",
 };
@@ -522,9 +521,10 @@ function clauseTarget(kind: SummaryPartKind, target: string): string {
   return segments[segments.length - 1] || target;
 }
 
-/** Le nommage exige une cible nominale : une recherche (`rg -n …`) ou un
- * listage portent une requête, pas un nom — ils restent comptés. */
-const NAMEABLE_ITEM_KINDS = new Set<ToolCat>(["read", "edit", "image", "visualization", "web", "agent"]);
+/** Le nommage exige une cible nominale : une recherche (`rg -n …`, web) ou un
+ * listage portent une requête — parfois du bruit interne du provider (« other »
+ * vu sur opencode) — pas un nom ; ils restent comptés. */
+const NAMEABLE_ITEM_KINDS = new Set<ToolCat>(["read", "edit", "image", "visualization", "agent"]);
 
 function summaryClause(kind: SummaryPartKind, items: SemanticToolActivity[]): string {
   if (items.length === 1) {

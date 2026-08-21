@@ -16,7 +16,7 @@ import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase, activitySegments,
-  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature,
+  distinctToolActions, summarizeActivity, Tick, tickerRows, turnProgressSignature,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
@@ -577,23 +577,37 @@ export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
   since: number;
   tokens?: number | null;
+  open?: boolean;
+  onToggle?: () => void;
+  renderToolLine?: (action: ToolAction, key: React.Key) => ReactNode;
 }) {
   // Bilan cumulatif du tour ENTIER (toutes tranches, pas seulement l'active) :
   // il vit sous le chrono pendant toute la durée du tour, pensée comprise —
   // le travail déjà fait ne disparaît jamais de l'écran (parti pris Hermes).
-  const segments = activitySegments(p.turn.actionGroups.flatMap((group) => group.actions));
+  // La ligne est un disclosure : clic → la liste des appels du tour.
+  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
+  const segments = activitySegments(actions);
+  const open = p.open ?? false;
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
       {segments.length > 0 && (
-        <div className="turn-cumulative">
-          {segments.map((segment, i) => (
-            <span key={i} className={segment.live ? "turn-cumulative-live" : undefined}>
-              {i > 0 && <span className="turn-cumulative-sep" aria-hidden> · </span>}
-              {segment.text}
-            </span>
-          ))}
-        </div>
+        <>
+          <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
+            {segments.map((segment, i) => (
+              <span key={i} className={segment.live ? "turn-cumulative-live" : undefined}>
+                {i > 0 && <span className="turn-cumulative-sep" aria-hidden> · </span>}
+                {segment.text}
+              </span>
+            ))}
+            <Tick open={open} />
+          </RowButton>
+          {open && p.renderToolLine && (
+            <div className="tool-group-list turn-cumulative-detail">
+              {distinctToolActions(actions).map((action, offset) => p.renderToolLine!(action, offset))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

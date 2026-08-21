@@ -535,7 +535,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    (anneau 12px + gap 10px). */
 .turn-cumulative { color: var(--text-disabled); font-size: var(--fs-m);
   margin: 2px 0 0 22px; font-variant-numeric: tabular-nums;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+  overflow: hidden; white-space: nowrap; cursor: pointer; text-align: left;
+  align-self: flex-start; max-width: 100%; }
+.turn-cumulative:hover { color: var(--text-muted); }
+.turn-cumulative .tool-tick { flex: none; margin-left: 4px; }
+.turn-cumulative-detail { margin: 2px 0 4px 22px; }
 .turn-cumulative-live { color: var(--text-muted); }
 .turn-cumulative-sep { color: var(--text-disabled); }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
@@ -2771,6 +2776,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .thinking-live-stream { flex: 1; min-width: 0; max-height: 6em; overflow-y: auto;
   color: var(--text-disabled); font-style: italic; line-height: 1.5;
   white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }
+/* Variante repliable (façon Hermes « Thought › ») : en-tête cliquable au-dessus
+   du flux ; replié = une ligne d'aperçu éteinte. */
+.thinking-live-indicator.has-text { flex-direction: column; align-items: stretch; gap: 2px; }
+.thinking-live-head { appearance: none; background: transparent; border: none; padding: 0;
+  display: flex; align-items: center; gap: 7px; color: var(--text-muted);
+  font: inherit; cursor: pointer; text-align: left; min-width: 0; width: 100%; }
+.thinking-live-head .thinking-preview { flex: 1; }
+.thinking-live-head .tool-tick { flex: none; }
+.thinking-live-indicator.has-text .thinking-live-stream { margin-left: 22px; }
+.thinking-live-indicator.has-text .thinking-icon { margin-top: 0; }
 .thinking-live-stream::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* fin de la pensée en cours : une ligne, éteinte, jamais concurrente du
    contenu — même discrétion que l'aperçu du bloc replié */

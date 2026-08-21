@@ -485,12 +485,21 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-header") {
+            const cumulativeKey = `cumulative:${item.turn.key}`;
             return (
               <ActiveTurnHeader
                 key={item.key}
                 turn={item.turn}
                 since={workingSince ?? Date.now()}
                 tokens={liveTokens}
+                open={openToolGroups.has(cumulativeKey)}
+                onToggle={() => setOpenToolGroups((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(cumulativeKey)) next.delete(cumulativeKey);
+                  else next.add(cumulativeKey);
+                  return next;
+                })}
+                renderToolLine={renderToolLine}
               />
             );
           }

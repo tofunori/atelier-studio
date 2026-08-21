@@ -456,23 +456,43 @@ export function LiveThinking({ thought }: { thought?: string | null } = {}) {
   // calée sur la fin, plutôt que les 120 derniers caractères sur une ligne.
   // Bornée en hauteur — Grok émet des centaines de morceaux et le fil ne doit
   // pas se faire pousser hors de l'écran par du raisonnement.
+  // Repliable (façon Hermes « Thought › ») : ouverte par défaut — la pensée
+  // vivante est la narration du moment — mais Thierry peut la replier en une
+  // ligne d'aperçu pour suivre le tour sans le monologue.
   const texte = (thought ?? "").trim();
+  const [replie, setReplie] = useState(false);
   const flux = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = flux.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [texte]);
+  }, [texte, replie]);
   // Pas de compteur de « segments » ici (demande Thierry 2026-08-15) : le CLI
   // caviarde le texte du raisonnement en headless (≥2.1.8, issue #20127) et un
   // compte qui monte n'est pas un substitut acceptable. Le libellé reste sobre ;
   // le tooltip explique pourquoi le contenu n'apparaît pas.
+  if (!texte) {
+    return (
+      <div className="thinking-live-indicator" role="status" aria-live="polite"
+        title={t("chat.thinking-progress-hint")}>
+        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
+        <ThinkingShimmer />
+      </div>
+    );
+  }
+  const apercu = texte.replace(/\s+/g, " ").slice(-120);
   return (
-    <div className="thinking-live-indicator" role="status" aria-live="polite"
-      title={!texte ? t("chat.thinking-progress-hint") : undefined}>
-      <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-      {texte
-        ? <div ref={flux} className="thinking-live-stream">{texte}</div>
-        : <ThinkingShimmer />}
+    <div className="thinking-live-indicator has-text" role="status" aria-live="polite">
+      <RowButton
+        className="thinking-live-head"
+        aria-expanded={!replie}
+        onClick={() => setReplie((v) => !v)}
+      >
+        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
+        <span className="thinking-label">{t("chat.thinking-live")}</span>
+        {replie && <span className="thinking-preview">{apercu}</span>}
+        <Tick open={!replie} />
+      </RowButton>
+      {!replie && <div ref={flux} className="thinking-live-stream">{texte}</div>}
     </div>
   );
 }

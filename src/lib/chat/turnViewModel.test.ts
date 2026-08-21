@@ -64,8 +64,10 @@ describe("chat turn view model", () => {
     };
     const afterFastTool = buildChatTurnViewModels([user, completed], T0)[0];
     expect(afterFastTool.activeState).toEqual({ kind: "thinking" });
+    // Progression (parti pris Hermes) : l'action RÉGLÉE devient tout de suite
+    // une ligne durable du transcript, en plus du slot vivant.
     expect(projectChatTimeline([user, completed], [afterFastTool], new Set()).map((row) => row.type)).toEqual([
-      "event", "active-turn-header", "active-turn-tail",
+      "event", "active-turn-header", "event", "active-turn-tail",
     ]);
 
     const backToThinking = buildChatTurnViewModels([
@@ -169,9 +171,11 @@ describe("chat turn view model", () => {
     ];
     const betweenActions = buildChatTurnViewModels(base, T0)[0];
     expect(betweenActions.activeState).toEqual({ kind: "thinking" });
+    // Progression (parti pris Hermes) : l'action réglée est déjà une ligne du
+    // transcript, sans attendre la narration suivante.
     expect(projectChatTimeline(base, [betweenActions], new Set()).some((row) => (
       row.type === "event" && row.event.kind === "tool_update" && row.event.id === "read-1"
-    ))).toBe(false);
+    ))).toBe(true);
 
     const narrated: AgentEvent[] = [
       ...base,
@@ -205,9 +209,11 @@ describe("chat turn view model", () => {
     ];
     const afterGeneration = buildChatTurnViewModels(completedGeneration, T0)[0];
     expect(afterGeneration.activeState).toEqual({ kind: "thinking" });
+    // Progression : la génération terminée se dépose immédiatement (l'image
+    // est visible sans attendre la narration suivante).
     expect(projectChatTimeline(completedGeneration, [afterGeneration], new Set()).some((row) => (
       row.type === "event" && row.event.kind === "tool_update" && row.event.id === "image-1"
-    ))).toBe(false);
+    ))).toBe(true);
   });
 
   it("ancre les updates d'un outil avant la narration qui ferme son segment", () => {

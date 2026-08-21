@@ -86,7 +86,10 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
     const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
-    expect(indicator.textContent).toBe("Je relis la section méthodes pour voir ce qui manque.");
+    // L'indicateur porte désormais un en-tête repliable (façon Hermes) : le
+    // texte de la pensée doit s'y trouver, le shimmer non.
+    expect(indicator.textContent).toContain("Je relis la section méthodes pour voir ce qui manque.");
+    expect(indicator.querySelector(".thinking-live-stream")?.textContent).toBe("Je relis la section méthodes pour voir ce qui manque.");
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
   });
 
@@ -189,7 +192,10 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
     expect(document.querySelector(".thinking")).toBeNull();
-    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
+    // Progression (parti pris Hermes) : la recherche RÉGLÉE se dépose comme
+    // ligne durable du transcript ; le slot vivant ne garde que la lecture.
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
+    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(1);
     const activity = document.querySelector(".active-turn-tail .ui-activity-trigger") as HTMLButtonElement;
     expect(activity.textContent).toContain("Lit albedo.ts");
     expect(activity.querySelector("[data-activity-icon='read']")).toBeTruthy();
@@ -312,7 +318,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".active-turn-tail")).toHaveLength(1);
     expect(updatedTail.querySelector(".ui-activity")).toBeNull();
     expect(updatedTail.querySelector(".thinking-shimmer")).toBeTruthy();
-    expect(document.querySelectorAll(".timeline-virtual-row .ui-activity:not(.is-summary)")).toHaveLength(0);
+    // La lecture terminée reste une ligne durable du transcript (progression).
+    expect(document.querySelectorAll(".timeline-virtual-row .ui-activity:not(.is-summary)")).toHaveLength(1);
   });
 
   it("tour actif : l'icône suit l'appel réellement en cours, pas les actions précédentes", () => {
