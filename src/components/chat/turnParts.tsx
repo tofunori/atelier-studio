@@ -460,8 +460,10 @@ export function Working(
   const duration = workDuration(Date.now() - since);
   return (
     <div className="working working-header">
-      <span className="working-label">
-        {t("chat.working-elapsed", { duration })}
+      {/* Façon Hermes : le pulse + le temps suffisent — « Travaille depuis »
+          ne disait rien que le pulse ne dise déjà (demande Thierry 2026-08-21). */}
+      <span className="working-label" aria-label={t("chat.working")}>
+        {duration}
         {tokens != null && tokens > 0 ? (
           <span className="working-tokens">{t("chat.working-tokens", { n: fmtTokenCount(tokens) })}</span>
         ) : null}
@@ -481,31 +483,33 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
 }
 
 export function LiveThinking(
-  { thought, collapsedByDefault = false }:
-    { thought?: string | null; collapsedByDefault?: boolean } = {},
+  { thought, collapsedByDefault = false, quietSeconds = null }:
+    { thought?: string | null; collapsedByDefault?: boolean;
+      /** silence depuis le dernier progrès — ≥ 2 s remplace le shimmer muet
+       * par « en attente · Ns » (une ligne, jamais de narration en double) */
+      quietSeconds?: number | null } = {},
 ) {
-  // La pensée se DÉROULE pendant le travail : une fenêtre de quelques lignes
-  // calée sur la fin, plutôt que les 120 derniers caractères sur une ligne.
-  // Bornée en hauteur — Grok émet des centaines de morceaux et le fil ne doit
-  // pas se faire pousser hors de l'écran par du raisonnement.
-  // Repliable (façon Hermes « Thought › ») : ouverte par défaut — la pensée
-  // vivante est la narration du moment — mais Thierry peut la replier en une
-  // ligne d'aperçu pour suivre le tour sans le monologue.
+  // La pensée dépliée COULE en flux complet (façon Hermes « Thinking ⌄ 25s »,
+  // demande Thierry 2026-08-21) : plus de fenêtre bornée ni de « tout
+  // afficher » — le suivi du bas est assuré par la timeline (ancrage LegendList)
+  // et le repli en une ligne d'aperçu reste à un clic (préférence
+  // thinkingCollapsed pour ceux qui veulent le calme par défaut).
   const texte = (thought ?? "").trim();
   const [replie, setReplie] = useState(collapsedByDefault);
-  // « plein » : Thierry a demandé toute la pensée — la fenêtre de 4 lignes ne
-  // borne plus. Le choix est le sien (bouton « tout afficher »), la borne
-  // reste le défaut : Grok émet des centaines de morceaux et le fil ne doit
-  // pas se faire pousser hors de l'écran sans consentement.
-  const [plein, setPlein] = useState(false);
-  const [deborde, setDeborde] = useState(false);
-  const flux = useRef<HTMLDivElement>(null);
+  // Chrono du bloc de pensée : depuis la première pensée non vide de ce
+  // montage (un passage par les outils démonte/remonte l'indicateur, ce qui
+  // borne naturellement le compteur au bloc courant).
+  const penseeDepuisRef = useRef<number | null>(null);
+  if (texte && penseeDepuisRef.current == null) penseeDepuisRef.current = Date.now();
+  const [, tick] = useState(0);
   useEffect(() => {
-    const el = flux.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    setDeborde(el.scrollHeight > el.clientHeight + 1);
-  }, [texte, replie, plein]);
+    if (!texte) return;
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [texte !== ""]);
+  const penseeSecs = penseeDepuisRef.current != null
+    ? Math.max(0, Math.floor((Date.now() - penseeDepuisRef.current) / 1000))
+    : 0;
   // Pas de compteur de « segments » ici (demande Thierry 2026-08-15) : le CLI
   // caviarde le texte du raisonnement en headless (≥2.1.8, issue #20127) et un
   // compte qui monte n'est pas un substitut acceptable. Le libellé reste sobre ;
@@ -515,7 +519,9 @@ export function LiveThinking(
       <div className="thinking-live-indicator" role="status" aria-live="polite"
         title={t("chat.thinking-progress-hint")}>
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-        <ThinkingShimmer />
+        {quietSeconds != null && quietSeconds >= 2
+          ? <span className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</span>
+          : <ThinkingShimmer />}
       </div>
     );
   }
@@ -529,16 +535,12 @@ export function LiveThinking(
       >
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
         <span className="thinking-label">{t("chat.thinking-live")}</span>
-        {replie && <span className="thinking-preview">{apercu}</span>}
         <Tick open={!replie} />
+        {penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
+        {replie && <span className="thinking-preview">{apercu}</span>}
       </RowButton>
       {!replie && (
-        <div ref={flux} className={`thinking-live-stream${plein ? " plein" : ""}`}>{texte}</div>
-      )}
-      {!replie && (plein || deborde) && (
-        <RowButton className="thinking-more" onClick={() => setPlein((v) => !v)}>
-          {t(plein ? "chat.thinking-show-window" : "chat.thinking-show-all")}
-        </RowButton>
+        <div className="thinking-live-stream plein">{texte}</div>
       )}
     </div>
   );

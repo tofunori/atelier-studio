@@ -245,7 +245,9 @@ describe("anatomie du tour — header d'activité", () => {
     const working = document.querySelector(".working-header") as HTMLElement;
     expect(working).toBeTruthy();
     expect(document.querySelectorAll(".working-header")).toHaveLength(1);
-    expect(working.textContent).toContain("Travaille depuis");
+    // Façon Hermes : pulse + temps seul, sans « Travaille depuis ».
+    expect(working.textContent).not.toContain("Travaille depuis");
+    expect(working.textContent).toMatch(/\d/);
     expect(working.querySelector(".working-spin")).toBeNull();
     expect(working.querySelector(".working-divider")).toBeTruthy();
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);

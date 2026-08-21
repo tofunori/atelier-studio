@@ -595,7 +595,10 @@ export function ActiveTurnHeader(p: {
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      {segments.length > 0 && (
+      {/* Une seule catégorie = la ligne déposée dans le fil dit déjà la même
+          chose mot pour mot ; le cumul n'apporte de l'info qu'en agrégeant
+          PLUSIEURS catégories (redondance vécue 2026-08-21). */}
+      {segments.length >= 2 && (
         <>
           <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
             {segments.map((segment, i) => (
@@ -692,7 +695,13 @@ export function ActiveTurnTail(p: {
         // Grok, qui clôt chaque bloc — dans le dernier `thinking` durable :
         // le live y est remplacé par le final, et l'état retombe sur
         // `thinking`, muet.
-        <LiveThinking thought={currentThought(p.turn, p.events)} collapsedByDefault={p.thinkingCollapsed ?? false} />
+        <LiveThinking
+          thought={currentThought(p.turn, p.events)}
+          collapsedByDefault={p.thinkingCollapsed ?? false}
+          // Pas de double narration : quand la pensée est MUETTE, le minuteur
+          // d'attente remplace le shimmer DANS la même ligne, jamais dessous.
+          quietSeconds={!running ? quietSeconds : null}
+        />
       ) : (
         <ActivityDisclosure
           open={p.open}
@@ -722,9 +731,6 @@ export function ActiveTurnTail(p: {
             ))}
           </div> : null}
         </ActivityDisclosure>
-      )}
-      {quietSeconds >= 2 && !running && state?.kind !== "waiting" && state?.kind !== "activity" && state?.kind !== "answering" && (
-        <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>
       )}
       <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
         <kbd>esc</kbd> {t("action.interrupt")}

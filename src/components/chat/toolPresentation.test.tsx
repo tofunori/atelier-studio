@@ -168,6 +168,11 @@ describe("Codex-style activity presentation", () => {
       "/tmp/b.jpg",
       "/tmp/legacy.png",
     ]);
+    // Une LECTURE porte aussi un input.path — ce n'est pas une image à
+    // prévisualiser (régression vécue : Read methods_en.tex → vignette cassée).
+    expect(imagePathsForActions([
+      tool("read", "read", "", { input: { path: "/repo/manuscrit/methods_en.tex", limit: 30 } }),
+    ])).toEqual([]);
   });
 
   it("présente les wrappers shell et les actions rapides comme Codex", () => {

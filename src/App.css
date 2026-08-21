@@ -528,9 +528,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
      à chaque apparition/disparition des spans tokens/note pendant le stream,
      et le séparateur en dessous « respirait » de 1-2 px. */
   min-height: 20px; line-height: 20px; }
-.working-label::before { content: ""; width: 12px; height: 12px; flex: 0 0 12px; box-sizing: border-box;
-  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent);
-  border-radius: var(--r-pill); animation: working-spin .8s linear infinite; }
+/* Pulse carré façon Hermes (StatusPulse) : une seule boucle par surface,
+   remplace l'anneau. Reduced-motion : opacité fixe. */
+.working-label::before { content: ""; width: 9px; height: 9px; flex: 0 0 9px;
+  background: var(--accent); animation: working-pulse 1.2s ease-in-out infinite; }
+@keyframes working-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .working-label::before { animation: none; opacity: .6; } }
 .working-tokens { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
 /* Bilan cumulatif du tour actif : périphérie (gris éteint), la catégorie qui
    vient de bouger un cran plus claire. Indenté sous le libellé du chrono
@@ -548,7 +551,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* attente universelle chronométrée : mêmes seuil/discrétion que le tick du
    ticker, mais hors du branch `activity` — pensée muette, permission, etc. */
 .turn-quiet { color: var(--text-disabled); font-size: var(--fs-s);
-  margin-left: 22px; font-variant-numeric: tabular-nums; }
+  font-variant-numeric: tabular-nums; }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
 .working-note { color: var(--text-disabled); font-variant-numeric: tabular-nums; margin-left: 8px; }
@@ -2806,6 +2809,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font: inherit; cursor: pointer; text-align: left; min-width: 0; width: 100%; }
 .thinking-live-head .thinking-preview { flex: 1; }
 .thinking-live-head .tool-tick { flex: none; }
+.thinking-elapsed { color: var(--text-disabled); font-size: var(--fs-s);
+  font-variant-numeric: tabular-nums; font-style: normal; }
 .thinking-live-indicator.has-text .thinking-live-stream { margin-left: 22px; }
 .thinking-live-indicator.has-text .thinking-icon { margin-top: 0; }
 /* « tout afficher » : la borne de 4 lignes saute sur demande explicite. */

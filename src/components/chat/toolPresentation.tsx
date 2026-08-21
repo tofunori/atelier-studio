@@ -280,7 +280,11 @@ export function toolCategory(name: string, detail?: string): ToolCat {
  * conversations déjà enregistrées gagnent aussi leur miniature. */
 export function imagePathsForActions(actions: ToolAction[]): string[] {
   const paths = actions.flatMap((action) => {
-    if (action.kind === "tool_update" && action.input && typeof action.input === "object") {
+    // Seuls les outils d'IMAGE fournissent des chemins à prévisualiser : un
+    // `input.path` est porté par n'importe quelle lecture (Read methods_en.tex
+    // → vignette cassée, vécu 2026-08-21). Le nom de l'outil fait foi.
+    if (action.kind === "tool_update" && toolCategory(action.name, action.detail) === "image"
+      && action.input && typeof action.input === "object") {
       const input = action.input as Record<string, unknown>;
       const listed = Array.isArray(input.paths)
         ? input.paths.filter((value): value is string => typeof value === "string")
