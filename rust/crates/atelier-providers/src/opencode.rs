@@ -326,16 +326,8 @@ impl OpenCodeProvider {
         if known.as_deref() == Some(model) {
             return;
         }
-        match self
-            .acp
-            .request(
-                "session/set_model",
-                json!({"sessionId": sid, "modelId": model}),
-                Some(10_000),
-            )
-            .await
-        {
-            Ok(_) => {
+        match request_model_alignment(&self.acp, sid, model).await {
+            Ok(()) => {
                 self.acp_state
                     .lock()
                     .await
@@ -343,12 +335,39 @@ impl OpenCodeProvider {
                     .insert(sid.to_string(), model.to_string());
             }
             Err(e) => {
-                eprintln!(
-                    "[opencode] session/set_model({model}) refusé, ignoré (best-effort): {e}"
-                );
+                eprintln!("[opencode] alignement modèle ({model}) refusé, ignoré (best-effort): {e}");
             }
         }
     }
+}
+
+/// Pose le modèle d'une session ACP. OpenCode 1.x expose `session/set_model` ;
+/// OpenCode 2 (sonde beta-17793, 2026-08-21) l'a retiré au profit de
+/// `session/set_config_option {configId:"model", value}` — le repli ne se
+/// déclenche QUE sur -32601 (méthode inconnue), jamais sur un refus applicatif.
+async fn request_model_alignment(acp: &AcpServer, sid: &str, model: &str) -> Result<(), String> {
+    let err = match acp
+        .request(
+            "session/set_model",
+            json!({"sessionId": sid, "modelId": model}),
+            Some(10_000),
+        )
+        .await
+    {
+        Ok(_) => return Ok(()),
+        Err(e) => e,
+    };
+    if err.code != Some(-32601) {
+        return Err(format!("session/set_model: {}", String::from(err)));
+    }
+    acp.request(
+        "session/set_config_option",
+        json!({"sessionId": sid, "configId": "model", "value": model}),
+        Some(10_000),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| format!("session/set_config_option: {}", String::from(e)))
 }
 
 fn resolve_bin() -> Option<PathBuf> {
@@ -776,5 +795,113 @@ mod tests {
             done["usage"]["window"].as_u64().unwrap_or(0) > 0,
             "usage.window absent (usage_update non absorbé ?)"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Alignement modèle contre le fixture ACP partagé (fake_kimi_acp.mjs).
+    // Mode nominal = contrat OpenCode 2 : session/set_model → -32601,
+    // sélection via session/set_config_option {configId:"model", value}.
+    // Mode grok = contrat v1 : session/set_model accepté.
+
+    fn node_bin() -> Option<PathBuf> {
+        let out = std::process::Command::new("which")
+            .arg("node")
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if p.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(p))
+        }
+    }
+
+    /// Spawn le fixture ; None (skip bruyant) si node est introuvable.
+    /// Le mode passe en argv — jamais par env (tests parallèles).
+    async fn fixture_server(mode: &str) -> Option<AcpServer> {
+        let node = node_bin().or_else(|| {
+            eprintln!("SKIP: node introuvable pour le fixture ACP");
+            None
+        })?;
+        let fixture = format!(
+            "{}/tests/fixtures/fake_kimi_acp.mjs",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let server = AcpServer::new("fake-opencode");
+        server
+            .ensure(
+                &node,
+                &[fixture, mode.to_string()],
+                json!({
+                    "protocolVersion": 1,
+                    "clientCapabilities": {
+                        "fs": {"readTextFile": false, "writeTextFile": false},
+                        "terminal": false
+                    }
+                }),
+            )
+            .await
+            .expect("handshake fixture");
+        Some(server)
+    }
+
+    async fn fixture_session(server: &AcpServer) -> String {
+        let r = server
+            .request(
+                "session/new",
+                json!({"cwd": "/tmp/fake", "mcpServers": []}),
+                Some(5_000),
+            )
+            .await
+            .expect("session/new");
+        r["sessionId"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn alignement_v2_replie_sur_set_config_option() {
+        let Some(server) = fixture_server("nominal").await else {
+            return;
+        };
+        let sid = fixture_session(&server).await;
+        request_model_alignment(&server, &sid, "fake-k3")
+            .await
+            .expect("repli set_config_option (contrat OpenCode 2)");
+        // La session doit refléter le modèle posé (currentValue).
+        let r = server
+            .request("session/load", json!({"sessionId": sid}), Some(5_000))
+            .await
+            .expect("session/load");
+        assert_eq!(current_model_of(&r).as_deref(), Some("fake-k3"));
+    }
+
+    #[tokio::test]
+    async fn alignement_v2_modele_inconnu_refuse_sans_paniquer() {
+        let Some(server) = fixture_server("nominal").await else {
+            return;
+        };
+        let sid = fixture_session(&server).await;
+        let err = request_model_alignment(&server, &sid, "modele-inexistant")
+            .await
+            .expect_err("un modèle hors catalogue doit être refusé");
+        assert!(
+            err.contains("session/set_config_option"),
+            "l'erreur doit venir du repli v2, reçu: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn alignement_v1_set_model_reste_le_chemin_prioritaire() {
+        let Some(server) = fixture_server("grok").await else {
+            return;
+        };
+        let sid = fixture_session(&server).await;
+        // En mode grok le fixture accepte session/set_model("grok-test") :
+        // le chemin v1 doit suffire, sans repli.
+        request_model_alignment(&server, &sid, "grok-test")
+            .await
+            .expect("session/set_model v1 accepté");
     }
 }
