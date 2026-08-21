@@ -9,6 +9,8 @@ import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, Button, IconButton, RowButton, Tooltip } from "../ui";
+import { ChangedFilesCard } from "./ChangedFilesCard";
+import type { ChangedFile } from "./changedFiles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,9 +25,13 @@ import {
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
 
-export function DoneDiffToggle({ event, threadId }: {
+export function DoneDiffToggle({ event, threadId, changedFiles }: {
   event: Extract<AgentEvent, { kind: "done" }>;
   threadId: string | null;
+  /** carte enrichie « N fichiers modifiés » (icône + nom + +/−), rendue
+   * au-dessus du repli — partage le même mécanisme d'ouverture/fetch, aucune
+   * requête gitDiff dupliquée (plan hermes-work-display, tâche 5). */
+  changedFiles?: ChangedFile[];
 }) {
   const files = event.filesChanged ?? [];
   const [open, setOpen] = useState(false);
@@ -55,35 +61,42 @@ export function DoneDiffToggle({ event, threadId }: {
   }, [event.projectRoot]);
 
   if (!files.length) return null;
+  // fetch des diffs manquants + ouverture — partagé entre le repli et la
+  // carte « fichiers modifiés » (une seule demande gitDiff par fichier).
+  const openDiffs = () => {
+    setOpen(true);
+    const missing = files.filter((path) => !diffs[path] && !loading.has(path));
+    if (!missing.length) return;
+    setLoading((current) => new Set([...current, ...missing]));
+    for (const path of missing) {
+      const sent = wsSend({
+        type: "gitDiff",
+        requestId: crypto.randomUUID(),
+        threadId,
+        projectRoot: event.projectRoot,
+        path,
+        baseSha: event.checkpoint?.snapshotSha,
+        scope: "changes",
+      });
+      if (!sent) setLoading((current) => {
+        const following = new Set(current);
+        following.delete(path);
+        return following;
+      });
+    }
+  };
   return (
     <>
+    {changedFiles && changedFiles.length > 0 && (
+      <ChangedFilesCard files={changedFiles} onOpenDiff={openDiffs} />
+    )}
     <div className="turn-diff">
       <RowButton
         className="turn-diff-toggle"
         aria-expanded={open}
         onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (!next) return;
-          const missing = files.filter((path) => !diffs[path] && !loading.has(path));
-          if (!missing.length) return;
-          setLoading((current) => new Set([...current, ...missing]));
-          for (const path of missing) {
-            const sent = wsSend({
-              type: "gitDiff",
-              requestId: crypto.randomUUID(),
-              threadId,
-              projectRoot: event.projectRoot,
-              path,
-              baseSha: event.checkpoint?.snapshotSha,
-              scope: "changes",
-            });
-            if (!sent) setLoading((current) => {
-              const following = new Set(current);
-              following.delete(path);
-              return following;
-            });
-          }
+          if (open) { setOpen(false); return; }
+          openDiffs();
         }}
       >
         <span>{t("chat.files-modified", { count: files.length })}</span>

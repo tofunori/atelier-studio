@@ -20,6 +20,7 @@ import {
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
+import { deriveChangedFiles } from "./changedFiles";
 import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -716,6 +717,7 @@ export function ChatTimeline(p: {
                   window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: threadId } }));
                 }}
                 onToggleReviewOpen={() => setReviewOpen((v) => !v)}
+                changedFiles={deriveChangedFiles(events.slice(userIdx + 1, i), e)}
               />
             );
           }

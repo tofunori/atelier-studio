@@ -14,6 +14,7 @@ import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../l
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
+import type { ChangedFile } from "./changedFiles";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase, activitySegments,
   distinctToolActions, summarizeActivity, Tick, tickerRows, turnProgressSignature,
@@ -421,6 +422,9 @@ export function ResultCapsule(p: {
   onToggleReviewOpen: () => void;
   /** annule le tour (revert au message user) — null si non attribuable */
   onRevertTurn: (() => void) | null;
+  /** carte enrichie « N fichiers modifiés » — dérivée par l'appelant depuis
+   * les events `edit` du tour, rendue seulement pour le dernier tour terminé. */
+  changedFiles?: ChangedFile[];
 }) {
   const e = p.event;
   const review = p.review;
@@ -488,7 +492,7 @@ export function ResultCapsule(p: {
           ))}
         </div>
       ) : null}
-      <DoneDiffToggle event={e} threadId={p.threadId} />
+      <DoneDiffToggle event={e} threadId={p.threadId} changedFiles={p.isLastDone ? p.changedFiles : undefined} />
     </div>
   );
 }

@@ -1108,6 +1108,22 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); border-radius: var(--r-s); }
 
+.changed-files-card { border-radius: var(--r-m); background: var(--bg-card); padding: 8px 12px; margin: 6px 0; }
+.changed-files-head { display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--fs-m); color: var(--text-secondary); }
+.changed-files-review { border: none; background: transparent; color: var(--text-muted);
+  font-size: var(--fs-s); cursor: pointer; padding: 0; font: inherit; }
+.changed-files-review:hover { color: var(--text-secondary); }
+.changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
+.changed-files-row { display: flex; align-items: center; gap: 8px; width: 100%;
+  border: none; background: transparent; padding: 2px 4px; border-radius: var(--r-s);
+  font-size: var(--fs-m); color: var(--text-muted); cursor: pointer; text-align: left; }
+.changed-files-row:hover { background: var(--bg-pop); }
+.changed-files-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-add, .diff-del { font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.diff-add { color: var(--status-success); }
+.diff-del { color: var(--status-error); }
+
 .turn-diff { margin-top: 6px; }
 .proposed-plan { position: relative; overflow: hidden; border: 1px solid var(--line);
   border-radius: var(--radius-lg); background: color-mix(in srgb, var(--bg2) 88%, transparent); }

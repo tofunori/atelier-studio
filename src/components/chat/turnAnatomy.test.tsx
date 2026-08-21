@@ -637,6 +637,35 @@ describe("capsule résultat — honnêteté et actions", () => {
     expect(document.querySelector(".turn-diff-body")).toBeNull(); // à la demande
   });
 
+  it("carte « fichiers modifiés » : liste triée par volume, le clic ouvre le même diff que le repli", () => {
+    const evs: AgentEvent[] = [
+      events.user("Corrige.", FIXED_TS),
+      { kind: "edit", files: [{ path: "src/a.ts", add: 1, del: 0 }], ts: FIXED_TS + 50 } as AgentEvent,
+      { kind: "edit", files: [{ path: "src/b.ts", add: 5, del: 5 }], ts: FIXED_TS + 60 } as AgentEvent,
+      events.done({ filesChanged: ["src/a.ts", "src/b.ts"], ts: FIXED_TS + 100 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+
+    const card = document.querySelector(".changed-files-card") as HTMLElement;
+    expect(card).toBeTruthy();
+    const rows = [...card.querySelectorAll(".changed-files-row")];
+    expect(rows).toHaveLength(2);
+    // triée : b.ts (+5/−5) avant a.ts (+1/−0)
+    expect(rows[0].textContent).toContain("b.ts");
+    expect(rows[0].querySelector(".diff-add")?.textContent).toBe("+5");
+    expect(rows[0].querySelector(".diff-del")?.textContent).toBe("−5");
+    expect(rows[1].textContent).toContain("a.ts");
+
+    // pas de diff ouvert avant le clic
+    expect(document.querySelector(".turn-diff-files")).toBeNull();
+    expect(document.querySelector(".turn-diff-toggle")?.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(card.querySelector(".changed-files-review") as HTMLButtonElement);
+    // le même repli que DoneDiffToggle s'ouvre — aucune requête dupliquée
+    expect(document.querySelector(".turn-diff-toggle")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".turn-diff-files")).toBeTruthy();
+  });
+
   it("aucune section « tests » n'existe sans événement qui la porte", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const capsule = document.querySelector(".result-capsule") as HTMLElement;
