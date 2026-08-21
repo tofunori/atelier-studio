@@ -778,8 +778,13 @@ describe("capsule résultat — honnêteté et actions", () => {
     fireEvent.click(rows[0] as HTMLElement);
     expect(document.querySelector(".changed-files-diff")).toBeNull();
 
-    // « Voir le diff » les ouvre tous, sans dupliquer la requête gitDiff.
-    fireEvent.click(card.querySelector(".changed-files-review") as HTMLButtonElement);
+    // Plus d'action d'en-tête (« Voir le diff » / « Annuler les fichiers »
+    // retirés) : le clic par fichier est le seul point d'entrée, et deux
+    // fichiers peuvent être ouverts en même temps.
+    expect(card.querySelector(".changed-files-review")).toBeNull();
+    expect(card.querySelector(".turn-diff-undo")).toBeNull();
+    fireEvent.click(rows[0] as HTMLElement);
+    fireEvent.click(rows[1] as HTMLElement);
     expect(card.querySelectorAll(".changed-files-diff")).toHaveLength(2);
   });
 
