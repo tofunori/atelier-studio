@@ -9,9 +9,12 @@ import type { AgentEvent } from "../../lib/ws";
 
 export type ChangedFile = { path: string; name: string; add: number | null; del: number | null };
 
-function cumulate(cur: number | null, v: number | null | undefined): number | null {
-  if (v == null) return cur;
-  return (cur ?? 0) + v;
+/** Les +/− d'un événement `edit` sont un numstat CONTRE HEAD, donc déjà le
+ * total du fichier pour ce tour — pas le delta de cette édition. Additionner
+ * trois éditions successives du même fichier triplerait le compte ; on garde
+ * donc la dernière valeur connue (audit 2026-08-21). */
+function latest(cur: number | null, v: number | null | undefined): number | null {
+  return v == null ? cur : v;
 }
 
 export function deriveChangedFiles(
@@ -23,7 +26,7 @@ export function deriveChangedFiles(
     if (e.kind !== "edit") continue;
     for (const f of e.files) {
       const cur = byPath.get(f.path) ?? { add: null, del: null };
-      byPath.set(f.path, { add: cumulate(cur.add, f.add), del: cumulate(cur.del, f.del) });
+      byPath.set(f.path, { add: latest(cur.add, f.add), del: latest(cur.del, f.del) });
     }
   }
   for (const path of done?.filesChanged ?? []) {

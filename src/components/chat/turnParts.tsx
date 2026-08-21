@@ -1,7 +1,7 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
@@ -150,6 +150,10 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
       <ChangedFilesCard
         files={changedFiles!}
         onOpenDiff={hasGitFiles ? openDiffs : null}
+        // Un chemin absent de `filesChanged` (gitignoré, hors projectRoot,
+        // réécrit à l'identique) ne recevra JAMAIS de réponse gitDiff : le
+        // rendre cliquable le figeait sur « Chargement… » pour de bon.
+        canDiff={(path) => files.includes(path)}
         onToggleFile={hasGitFiles ? toggleFileDiff : null}
         openPaths={openPaths}
         renderFileDiff={fileDiffBody}
@@ -411,23 +415,31 @@ function thinkingInline(text: string): ReactNode {
  * liste passe en colonne avec retrait pendu (les lignes qui reviennent à la
  * ligne s'alignent sous le texte, pas sous le numéro). Romain, jamais
  * italique : c'est de la prose à lire, pas une citation. */
+/** Une ligne, mémoïsée : le raisonnement streame par centaines de morceaux et
+ * seule la DERNIÈRE ligne change — sans ce memo, chaque chunk relançait les
+ * regex et le diff React sur les N lignes déjà figées (audit 2026-08-21). */
+const ThinkingLine = memo(function ThinkingLine({ line }: { line: string }) {
+  if (!line.trim()) return <div className="thinking-gap" />;
+  const marker = THINKING_MARKER.exec(line);
+  if (marker) {
+    // Niveau d'imbrication : l'indentation d'origine porte la hiérarchie du
+    // raisonnement, la perdre aplatissait sous-points et points principaux.
+    const depth = Math.min(3, Math.floor(marker[1].length / 2));
+    return (
+      <p className="thinking-item" style={depth ? { marginLeft: `${depth * 14}px` } : undefined}>
+        <span className="thinking-marker">{marker[2]}</span>
+        <span className="thinking-item-body">{thinkingInline(line.slice(marker[0].length))}</span>
+      </p>
+    );
+  }
+  return <p className="thinking-para">{thinkingInline(line)}</p>;
+});
+
 export function ThinkingProse({ text, className }: { text: string; className?: string }) {
-  const lines = useMemo(() => text.split("\n"), [text]);
+  const lines = text.split("\n");
   return (
     <div className={className ? `thinking-prose ${className}` : "thinking-prose"}>
-      {lines.map((line, index) => {
-        if (!line.trim()) return <div key={index} className="thinking-gap" />;
-        const marker = THINKING_MARKER.exec(line);
-        if (marker) {
-          return (
-            <p key={index} className="thinking-item">
-              <span className="thinking-marker">{marker[2]}</span>
-              <span className="thinking-item-body">{thinkingInline(line.slice(marker[0].length))}</span>
-            </p>
-          );
-        }
-        return <p key={index} className="thinking-para">{thinkingInline(line)}</p>;
-      })}
+      {lines.map((line, index) => <ThinkingLine key={index} line={line} />)}
     </div>
   );
 }
@@ -571,11 +583,18 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
 }
 
 export function LiveThinking(
-  { thought, collapsedByDefault = false, quietSeconds = null }:
+  { thought, collapsedByDefault = false, quietSeconds = null, showElapsed = true,
+    collapsed = null, onToggleCollapsed }:
     { thought?: string | null; collapsedByDefault?: boolean;
       /** silence depuis le dernier progrès — ≥ 2 s remplace le shimmer muet
        * par « en attente · Ns » (une ligne, jamais de narration en double) */
-      quietSeconds?: number | null } = {},
+      quietSeconds?: number | null;
+      /** false tant que rien ne s'est passé avant cette pensée : le chrono du
+       * tour, juste au-dessus, compte alors exactement la même chose */
+      showElapsed?: boolean;
+      /** repli contrôlé par l'appelant (survit aux démontages entre outils) */
+      collapsed?: boolean | null;
+      onToggleCollapsed?: (next: boolean) => void } = {},
 ) {
   // La pensée dépliée COULE en flux complet (façon Hermes « Thinking ⌄ 25s »,
   // demande Thierry 2026-08-21) : plus de fenêtre bornée ni de « tout
@@ -583,7 +602,15 @@ export function LiveThinking(
   // et le repli en une ligne d'aperçu reste à un clic (préférence
   // thinkingCollapsed pour ceux qui veulent le calme par défaut).
   const texte = (thought ?? "").trim();
-  const [replie, setReplie] = useState(collapsedByDefault);
+  // Repli contrôlé quand l'appelant le porte (ActiveTurnTail) : sinon l'état
+  // mourait à chaque appel d'outil, qui démonte l'indicateur — Thierry
+  // dépliait la pensée et elle se refermait toute seule (audit 2026-08-21).
+  const [replieLocal, setReplieLocal] = useState(collapsedByDefault);
+  const replie = collapsed ?? replieLocal;
+  const setReplie = (next: boolean) => {
+    if (onToggleCollapsed) onToggleCollapsed(next);
+    else setReplieLocal(next);
+  };
   // Chrono du bloc de pensée : depuis la première pensée non vide de ce
   // montage (un passage par les outils démonte/remonte l'indicateur, ce qui
   // borne naturellement le compteur au bloc courant).
@@ -618,12 +645,12 @@ export function LiveThinking(
       <RowButton
         className="thinking-live-head"
         aria-expanded={!replie}
-        onClick={() => setReplie((v) => !v)}
+        onClick={() => setReplie(!replie)}
       >
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
         <span className="thinking-label">{t("chat.thinking-live")}</span>
         <Tick open={!replie} />
-        {penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
+        {showElapsed && penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
       </RowButton>
       {/* Réduit = petite fenêtre de quelques lignes calée sur la fin (demande
           Thierry 2026-08-21) ; déplié = flux complet façon Hermes. */}

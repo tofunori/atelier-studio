@@ -417,14 +417,11 @@ export function ResultCapsule(p: {
   isLastDone: boolean;
   threadId: string | null;
   review: ReviewState;
-  reviewOpen: boolean;
-  onToggleReviewOpen: () => void;
   /** carte enrichie « N fichiers modifiés » — dérivée par l'appelant depuis
    * les events `edit` du tour, rendue seulement pour le dernier tour terminé. */
   changedFiles?: ChangedFile[];
 }) {
   const e = p.event;
-  const review = p.review;
   const minimalSuccess = e.ok;
   return (
     <div id={p.isLastDone ? "last-done" : undefined}
@@ -449,29 +446,11 @@ export function ResultCapsule(p: {
             bulle du message user, qui flottait en absolu par-dessus la carte
             des fichiers. L'annulation FICHIERS vit dans cette carte. */}
       </div>
-      {p.isLastDone && review && (
-        <RowButton
-          className={`review-badge v-${review.status === "running" ? "running" : review.verdict}`}
-          disabled={!review.issues?.length}
-          aria-expanded={p.reviewOpen}
-          onClick={() => review.issues?.length && p.onToggleReviewOpen()}
-        >
-          {review.status === "running" ? t("review.running")
-            : review.verdict === "ok" ? t("review.ok")
-            : review.verdict === "issues" ? t("review.issues", { n: review.issues?.length ?? 0 })
-            : t("review.inconclusive")}
-        </RowButton>
-      )}
-      {p.isLastDone && p.reviewOpen && review?.issues?.length ? (
-        <div className="review-detail">
-          {review.issues.map((iss, k) => (
-            <div key={k} className={`review-issue s-${iss.severity}`}>
-              <div className="ri-claim">« {iss.claim} »</div>
-              <div className="ri-problem">{iss.problem}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {/* Badge et détail de revue retirés (2026-08-21) : la barre Reviewer en
+          haut de la timeline porte déjà le MÊME verdict (mêmes clés i18n), le
+          compte d'issues, le nombre de vérifications et le bouton Corriger.
+          Deux widgets branchés sur le même objet `review`, visibles ensemble
+          sans le moindre clic. */}
       <DoneDiffToggle event={e} threadId={p.threadId} changedFiles={p.isLastDone ? p.changedFiles : undefined} />
     </div>
   );
@@ -538,32 +517,52 @@ export function currentThought(turn: ChatTurnViewModel | null, events: AgentEven
   // 2026-08-21). À l'intérieur d'une tranche, recollage SANS séparateur (Grok
   // coupe en plein mot) ; entre tranches séparées par des outils, un
   // paragraphe.
+  // Instant RÉEL d'un événement : le réducteur recolle les morceaux de pensée
+  // dans le bloc existant sans toucher à son `ts` d'origine, mais il remplace
+  // son `meta` par celui du dernier morceau — c'est là que vit l'heure vraie.
+  const timeOf = (event: AgentEvent): number => {
+    const meta = (event as { meta?: { ts?: number } }).meta;
+    return meta?.ts ?? (event as { ts?: number }).ts ?? 0;
+  };
+  // Bornes du tour + dernière narration assistant.
+  let start = 0;
+  let answerIdx = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event.kind === "user" || event.kind === "done" || event.kind === "error") { start = i + 1; break; }
+    if (answerIdx < 0 && (event.kind === "text" || event.kind === "streaming")) answerIdx = i;
+  }
+  const answerTs = answerIdx >= 0 ? timeOf(events[answerIdx]) : 0;
   const stretches: string[][] = [];
   let current: string[] | null = null;
-  for (let i = events.length - 1; i >= 0; i--) {
+  for (let i = start; i < events.length; i += 1) {
     const event = events[i];
     if (event.kind === "thinking_live" || event.kind === "thinking") {
-      if (event.text) {
-        if (!current) {
-          current = [];
-          stretches.unshift(current);
-        }
-        current.unshift(event.text);
-      }
+      if (!event.text) continue;
+      // Une pensée située AVANT la réponse n'appartient au fil vivant que si
+      // elle a continué de grossir APRÈS : Grok pense encore une fois la
+      // réponse écrite, et le réducteur range ces morceaux dans le bloc
+      // d'avant le texte sans le déplacer. Sinon c'est du raisonnement clos,
+      // qui vit dans son bloc durable.
+      if (answerIdx >= 0 && i < answerIdx && timeOf(event) <= answerTs) { current = null; continue; }
+      if (!current) { current = []; stretches.push(current); }
+      current.push(event.text);
       continue;
     }
-    // Frontière : le tour (user/done/error) ou une narration assistant — le
-    // raisonnement d'AVANT une réponse appartient au bloc durable, pas au
-    // fil vivant. (Grok répond, part en outils, puis repense : la pensée
-    // d'APRÈS le texte est collectée avant d'atteindre cette frontière.)
-    if (event.kind === "user" || event.kind === "done" || event.kind === "error"
-      || event.kind === "text" || event.kind === "streaming") break;
     // Outil ou autre : clôt la tranche courante, la collecte continue.
     current = null;
   }
   const joined = stretches.map((blocks) => blocks.join("")).join("\n\n");
   if (joined.trim()) return joined;
   return state?.kind === "reasoning" ? state.texts.join("") : "";
+}
+
+/** Dernier élément satisfaisant un prédicat, sans copier le tableau. */
+function findLast<T, U extends T>(items: T[], is: (item: T) => item is U): U | undefined {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (is(items[i])) return items[i] as U;
+  }
+  return undefined;
 }
 
 /** Une seule ligne d'activité courante, comme Codex. Les segments terminés
@@ -587,10 +586,12 @@ export function ActiveTurnHeader(p: {
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      {/* Le cumul n'a de sens qu'au-dessus de PLUSIEURS dépôts : avec un seul
-          groupe, la ligne déposée juste en dessous dit déjà exactement la même
-          chose — doublon vécu deux fois (2026-08-21). */}
-      {groups.length >= 2 && segments.length > 0 && (
+      {/* Le cumul ne vaut qu'au-dessus de plus de dépôts que l'écran n'en
+          montre d'un coup : à un seul groupe il répète la ligne juste en
+          dessous, à deux il concatène cette ligne et le ticker du bas. Il
+          n'apporte une vue d'ensemble qu'à partir du troisième (doublon signalé
+          deux fois par Thierry, 2026-08-21). */}
+      {groups.length >= 3 && segments.length > 0 && (
         <>
           <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
             {segments.map((segment, i) => (
@@ -650,7 +651,9 @@ export function ActiveTurnTail(p: {
   // gagne une ligne « en attente · Ns ». Le seuil évite le stroboscope entre
   // deux appels rapprochés ; la signature date le silence depuis le VRAI
   // dernier progrès (un résultat mute l'appel affiché sans rien ajouter).
-  const lastStreamingEvent = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
+  // Balayage arrière sans copier le fil entier (p.events = TOUT le thread) :
+  // ce chemin est parcouru à chaque chunk et à chaque tick de seconde.
+  const lastStreamingEvent = findLast(p.events,(e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
   const answerLength = lastStreamingEvent?.text.length ?? 0;
   // Signature sur TOUT le tour, pas la seule tranche active : depuis la
   // progression (dépôt des groupes réglés), un outil qui se termine sort des
@@ -689,7 +692,14 @@ export function ActiveTurnTail(p: {
   const labelKey = state?.kind === "activity"
     ? `activity:${state.eventIndex}:${activeEvent?.kind === "tool_update" ? activeEvent.status ?? "" : "started"}`
     : state?.kind ?? "thinking";
-  const showsActivity = state?.kind === "activity" || state?.kind === "waiting";
+  // Une permission en attente porte déjà sa carte (nom de l'outil, commande,
+  // boutons) juste au-dessus : le libellé « en attente d'autorisation » du
+  // slot vivant n'ajoutait qu'un doublon.
+  const showsActivity = state?.kind === "activity";
+  const hasPriorWork = p.turn.actionGroups.some((group) => group.actions.length > 0);
+  // Repli de la pensée porté par le TAIL (stable pour tout le tour) et non par
+  // LiveThinking, que chaque appel d'outil démonte.
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(p.thinkingCollapsed ?? false);
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
@@ -705,6 +715,14 @@ export function ActiveTurnTail(p: {
           // Pas de double narration : quand la pensée est MUETTE, le minuteur
           // d'attente remplace le shimmer DANS la même ligne, jamais dessous.
           quietSeconds={!running && hadProgressRef.current ? quietSeconds : null}
+          // Le chrono du bloc de pensée ne s'affiche qu'une fois un premier
+          // travail derrière lui : avant, il compte la même chose que le chrono
+          // du tour, deux lignes plus haut.
+          showElapsed={hasPriorWork}
+          // Le repli vit dans le tail, qui survit aux appels d'outil : sinon
+          // la pensée dépliée se refermait à chaque outil.
+          collapsed={thinkingCollapsed}
+          onToggleCollapsed={setThinkingCollapsed}
         />
       ) : (
         <ActivityDisclosure

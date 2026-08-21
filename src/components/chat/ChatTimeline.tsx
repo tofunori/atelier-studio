@@ -124,6 +124,31 @@ export function ChatTimeline(p: {
 }) {
   const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
   // dernier bloc de pensée du fil : le seul qui puisse être « en cours »
+  // Bornes du DERNIER tour terminé : c'est le seul qui porte une carte
+  // « fichiers modifiés », donc le seul dont les lignes `edit` inline
+  // feraient doublon avec elle.
+  const { lastDoneIndex, lastDoneUserIndex } = useMemo(() => {
+    let done = -1;
+    for (let idx = events.length - 1; idx >= 0; idx -= 1) {
+      if (events[idx].kind === "done") { done = idx; break; }
+    }
+    let user = -1;
+    for (let idx = done - 1; idx >= 0; idx -= 1) {
+      if (events[idx].kind === "user") { user = idx; break; }
+    }
+    return { lastDoneIndex: done, lastDoneUserIndex: user };
+  }, [events]);
+  // Dérivé UNE fois par changement d'events, pas à chaque rendu de la ligne :
+  // la capsule du dernier tour vit dans les lignes toujours rendues (bas de
+  // liste), donc ce calcul retombait sur chaque chunk du tour suivant.
+  const lastDoneChangedFiles = useMemo(() => (
+    lastDoneIndex < 0
+      ? undefined
+      : deriveChangedFiles(
+          events.slice(lastDoneUserIndex + 1, lastDoneIndex),
+          events[lastDoneIndex] as Extract<AgentEvent, { kind: "done" }>,
+        )
+  ), [events, lastDoneIndex, lastDoneUserIndex]);
   const lastThinkingIndex = (() => {
     for (let idx = events.length - 1; idx >= 0; idx -= 1) {
       const kind = events[idx]?.kind;
@@ -149,7 +174,7 @@ export function ChatTimeline(p: {
     return aSauter;
   }, [events]);
 
-  const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen } = p.rev;
+  const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
     renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent,
@@ -663,7 +688,14 @@ export function ChatTimeline(p: {
           if (e.kind === "proposed_plan")
             return <ProposedPlanCard key={e.planId} event={e} threadId={threadId} />;
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
-          if (e.kind === "edit") return <EditLine key={i} event={e} threadId={threadId} />;
+          if (e.kind === "edit") {
+            // La carte « fichiers modifiés » du dernier tour terminé liste
+            // déjà ces fichiers avec leurs +/− et leur diff par fichier : la
+            // ligne inline ferait doublon (2026-08-21).
+            const coveredByCard = lastDoneIndex >= 0 && i < lastDoneIndex && i > lastDoneUserIndex;
+            if (coveredByCard) return null;
+            return <EditLine key={i} event={e} threadId={threadId} />;
+          }
           if (e.kind === "todos")
             return (
               <div key={i} className="todos">
@@ -696,10 +728,6 @@ export function ChatTimeline(p: {
             const isLastDone = !events.slice(i + 1).some((x) => x.kind === "done");
             // « Annuler le tour » = revert au message user du tour (capacité
             // existante onRevert, nouvelle destination — plan 020, étape 5)
-            let userIdx = -1;
-            for (let k = i - 1; k >= 0; k--) {
-              if (events[k].kind === "user") { userIdx = k; break; }
-            }
             return (
               <ResultCapsule
                 key={i}
@@ -707,9 +735,7 @@ export function ChatTimeline(p: {
                 isLastDone={isLastDone}
                 threadId={threadId}
                 review={review}
-                reviewOpen={reviewOpen}
-                onToggleReviewOpen={() => setReviewOpen((v) => !v)}
-                changedFiles={isLastDone ? deriveChangedFiles(events.slice(userIdx + 1, i), e) : undefined}
+                changedFiles={isLastDone ? lastDoneChangedFiles : undefined}
               />
             );
           }

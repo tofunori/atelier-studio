@@ -162,6 +162,26 @@ describe("anatomie du tour — header d'activité", () => {
     expect(indicator.textContent).not.toContain("asking about the style");
   });
 
+  // Forme RÉELLE produite par le réducteur pour Grok (harnessEvents.ts) : les
+  // morceaux pensés APRÈS la réponse sont recollés dans le bloc qui PRÉCÈDE le
+  // texte, sans le déplacer — seul son `meta.ts` avance. Couper bêtement sur le
+  // texte rendait la ligne muette pour tout le reste du tour.
+  it("garde la pensée recollée après la réponse, même placée avant le texte", () => {
+    const live: AgentEvent[] = [
+      events.user("Que penses-tu du style ?", FIXED_TS),
+      {
+        kind: "thinking",
+        text: "Je pèse le pour et le contre après avoir répondu.",
+        ts: FIXED_TS + 10,
+        meta: { ts: FIXED_TS + 900 },
+      } as AgentEvent,
+      { kind: "text", text: "Je relis le paragraphe.", ts: FIXED_TS + 20, meta: { ts: FIXED_TS + 20 } } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
+    const indicator = document.querySelector(".thinking-live-indicator") as HTMLElement;
+    expect(indicator?.textContent).toContain("Je pèse le pour et le contre");
+  });
+
   // Contrat §9 (« une seule boucle par surface ») : le reflet Thinking battait
   // toutes les 4 s SOUS l'anneau de Working, qui tourne à 0,8 s. Le libellé est
   // désormais statique — aucune classe de balayage, aucun minuteur.
@@ -344,21 +364,39 @@ describe("anatomie du tour — header d'activité", () => {
   });
 
   it("tour actif : le header cumule le travail de tout le tour, tranches fermées comprises", () => {
+    // Trois dépôts : en dessous de ce seuil, le cumul répéterait simplement la
+    // ligne déposée juste dessous (et le ticker du bas) — cf. doublons signalés.
     const evs: AgentEvent[] = [
       events.user("Inspecte.", FIXED_TS),
       events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
-      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
       events.text("Je poursuis l'analyse.", FIXED_TS + 100),
+      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
+      events.text("Les tests passent.", FIXED_TS + 150),
+      events.tool({ id: "grep", name: "Bash", detail: "rg -n RGI src", status: "completed" }),
       { kind: "thinking_live", text: "Je vérifie les régions RGI…", ts: FIXED_TS + 200 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
     const cumulative = document.querySelector(".active-turn-header .turn-cumulative") as HTMLElement;
     expect(cumulative).toBeTruthy();
-    expect(cumulative.textContent).toContain("App.tsx consulté");
+    // Le cumul agrège les trois dépôts : la lecture et la recherche comptent
+    // ensemble comme exploration, la commande garde sa clause.
+    expect(cumulative.textContent).toContain("2 fichiers consultés");
     expect(cumulative.textContent).toContain("commande exécutée");
-    // La catégorie la plus récente est éclairée.
-    expect(cumulative.querySelector(".turn-cumulative-live")?.textContent).toContain("commande");
+    // La catégorie de l'action la plus récente (la recherche) est éclairée.
+    expect(cumulative.querySelector(".turn-cumulative-live")?.textContent).toContain("fichiers");
+  });
+
+  it("tour actif : pas de cumul tant que le travail tient en un ou deux dépôts", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
+      events.text("Je poursuis l'analyse.", FIXED_TS + 100),
+      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
+      { kind: "thinking_live", text: "Je vérifie…", ts: FIXED_TS + 200 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    expect(document.querySelector(".turn-cumulative")).toBeNull();
   });
 
   it("tour actif sans outil : pas de ligne cumulative", () => {

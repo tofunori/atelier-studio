@@ -10,8 +10,11 @@ import { FileTypeIcon, Tick } from "./toolPresentation";
 import { t } from "../../lib/i18n";
 import type { ChangedFile } from "./changedFiles";
 
-export function ChangedFilesCard({ files, onOpenDiff, onToggleFile, openPaths, renderFileDiff, actions }: {
+export function ChangedFilesCard({ files, onOpenDiff, onToggleFile, canDiff, openPaths, renderFileDiff, actions }: {
   files: ChangedFile[];
+  /** un chemin sans diff possible reste une ligne inerte plutôt qu'un clic
+   * qui resterait bloqué sur « Chargement… » */
+  canDiff?: (path: string) => boolean;
   /** null quand aucun chemin git n'est disponible pour ce tour (edits seuls,
    * sans done.filesChanged) — le diff a besoin de chemins git, donc ni le
    * lien « Voir le diff » ni les lignes ne sont cliquables dans ce cas. */
@@ -44,19 +47,37 @@ export function ChangedFilesCard({ files, onOpenDiff, onToggleFile, openPaths, r
           // différents restent distinguables, et c'est le nom qu'on lit.
           const dir = f.path.length > f.name.length ? f.path.slice(0, f.path.length - f.name.length) : "";
           const isOpen = opened.has(f.path);
+          const diffable = !!onToggleFile && (canDiff?.(f.path) ?? true);
+          const ext = f.name.includes(".") ? (f.name.split(".").pop() ?? "").toLowerCase() : "";
+          if (!diffable) {
+            // Ligne inerte : ni bouton désactivé (hors parcours clavier, titre
+            // inaccessible) ni clic sans réponse — juste l'information.
+            return (
+              <div className="changed-files-item" key={f.path}>
+                <div className="changed-files-row is-static" title={f.path}>
+                  <FileTypeIcon ext={ext} />
+                  <span className="changed-files-path">
+                    {dir && <span className="changed-files-dir">{dir}</span>}
+                    <span className="changed-files-name">{f.name}</span>
+                  </span>
+                  {f.add != null && <span className="diff-add">+{f.add}</span>}
+                  {f.del != null && <span className="diff-del">−{f.del}</span>}
+                </div>
+              </div>
+            );
+          }
           return (
             <div className="changed-files-item" key={f.path}>
               <RowButton className="changed-files-row" title={f.path} aria-expanded={isOpen}
-                onClick={onToggleFile ? () => onToggleFile(f.path) : undefined}
-                disabled={!onToggleFile}>
-                <FileTypeIcon ext={f.name.split(".").pop() ?? ""} />
+                onClick={() => onToggleFile!(f.path)}>
+                <FileTypeIcon ext={ext} />
                 <span className="changed-files-path">
                   {dir && <span className="changed-files-dir">{dir}</span>}
                   <span className="changed-files-name">{f.name}</span>
                 </span>
                 {f.add != null && <span className="diff-add">+{f.add}</span>}
                 {f.del != null && <span className="diff-del">−{f.del}</span>}
-                {onToggleFile && <Tick open={isOpen} />}
+                <Tick open={isOpen} />
               </RowButton>
               {isOpen && renderFileDiff && (
                 <div className="changed-files-diff">{renderFileDiff(f.path)}</div>
