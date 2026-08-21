@@ -2830,6 +2830,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    elle retrouve sa hauteur libre. */
 .thinking.live.open .thinking-body { max-height: 190px; overflow-y: auto;
   scrollbar-width: thin; overscroll-behavior: contain; }
+/* Replié : même fenêtre de 6 lignes calée sur la fin que la pensée vivante. */
+.thinking-body.windowed { max-height: 9.3em; max-height: 6lh;
+  overflow-y: auto; scrollbar-width: none; }
+.thinking-body.windowed::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .reasoning-trace { margin: 1px 0; min-width: 0; }
 .reasoning-trace-head { width: 100%; min-width: 0; display: flex; align-items: center; gap: 7px;
   padding: 2px 0; border: 0; background: transparent; color: var(--text-muted); font: inherit;

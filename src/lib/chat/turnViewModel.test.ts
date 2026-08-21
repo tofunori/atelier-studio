@@ -133,6 +133,8 @@ describe("chat turn view model", () => {
     const turn = buildChatTurnViewModels(events, T0)[0];
     expect(turn.phase).toBe("prework");
     expect(turn.activeState).toEqual({ kind: "thinking" });
+    // La sentinelle `__thinking` (outil sans contenu) reste masquée : elle se
+    // lisait « réflexion… » alors que rien n'était dit.
     expect(projectChatTimeline(events, [turn], new Set()).map((row) => row.type)).toEqual([
       "event",
       "active-turn-header",
@@ -153,8 +155,12 @@ describe("chat turn view model", () => {
     const rows = projectChatTimeline(events, [turn], new Set());
     expect(rows.filter((row) => row.type === "active-turn-header")).toHaveLength(1);
     expect(rows.filter((row) => row.type === "active-turn-tail")).toHaveLength(1);
+    // Le raisonnement reste à sa place chronologique dans le fil (il précède
+    // la réponse et se lit au-dessus d'elle) ; seule l'action EN COURS est
+    // hissée dans la queue du tour.
     const visibleWork = rows.filter((row) => row.type === "event" && ["thinking", "thinking_live", "tool"].includes(row.event.kind));
-    expect(visibleWork).toHaveLength(0);
+    expect(visibleWork.map((row) => (row as { event: { kind: string } }).event.kind))
+      .toEqual(["thinking", "thinking_live"]);
     expect(turn.activeActionGroups).toHaveLength(1);
     expect(turn.activeState).toMatchObject({ kind: "activity", eventIndex: 2, live: true });
   });

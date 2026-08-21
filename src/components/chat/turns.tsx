@@ -13,7 +13,7 @@ import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
+import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import type { ChangedFile } from "./changedFiles";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase, activitySegments,
@@ -696,34 +696,17 @@ export function ActiveTurnTail(p: {
   // boutons) juste au-dessus : le libellé « en attente d'autorisation » du
   // slot vivant n'ajoutait qu'un doublon.
   const showsActivity = state?.kind === "activity";
-  const hasPriorWork = p.turn.actionGroups.some((group) => group.actions.length > 0);
-  // Repli de la pensée porté par le TAIL (stable pour tout le tour) et non par
-  // LiveThinking, que chaque appel d'outil démonte.
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(p.thinkingCollapsed ?? false);
+  // Le raisonnement ne vit PLUS ici : il est rendu à sa place dans le fil, au-
+  // dessus de la réponse (ChatTimeline). La queue ne porte que ce qui est
+  // vraiment « en cours » : l'activité outils, et le silence quand il dure.
+  const quietLine = !running && hadProgressRef.current && quietSeconds >= 2
+    ? <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>
+    : null;
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
       {state?.kind === "answering" ? null : !showsActivity ? (
-        // Sans ça, le mot « Réflexion » reste seul pendant toute l'attente.
-        // La pensée est soit dans l'état actif (`reasoning`), soit — cas de
-        // Grok, qui clôt chaque bloc — dans le dernier `thinking` durable :
-        // le live y est remplacé par le final, et l'état retombe sur
-        // `thinking`, muet.
-        <LiveThinking
-          thought={currentThought(p.turn, p.events)}
-          collapsedByDefault={p.thinkingCollapsed ?? false}
-          // Pas de double narration : quand la pensée est MUETTE, le minuteur
-          // d'attente remplace le shimmer DANS la même ligne, jamais dessous.
-          quietSeconds={!running && hadProgressRef.current ? quietSeconds : null}
-          // Le chrono du bloc de pensée ne s'affiche qu'une fois un premier
-          // travail derrière lui : avant, il compte la même chose que le chrono
-          // du tour, deux lignes plus haut.
-          showElapsed={hasPriorWork}
-          // Le repli vit dans le tail, qui survit aux appels d'outil : sinon
-          // la pensée dépliée se refermait à chaque outil.
-          collapsed={thinkingCollapsed}
-          onToggleCollapsed={setThinkingCollapsed}
-        />
+        quietLine
       ) : (
         <ActivityDisclosure
           open={p.open}

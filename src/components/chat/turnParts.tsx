@@ -457,7 +457,6 @@ export function ThinkingBlock(
   const liveRef = useRef(live);
   const open = manuel ?? (live && !collapsedByDefault);
   const normalized = text.trim();
-  const preview = normalized.replace(/\s+/g, " ").slice(-140);
 
   useEffect(() => {
     // nouveau tour : on redonne la main à l'automatique
@@ -466,10 +465,12 @@ export function ThinkingBlock(
   }, [live]);
 
   useEffect(() => {
-    // en direct, on suit le fil : la dernière ligne reste sous les yeux
-    if (!open || !live) return;
+    // La dernière ligne reste sous les yeux : en direct dans le corps déplié,
+    // et TOUJOURS dans la fenêtre repliée (elle ne montre que la fin).
     const node = bodyRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    if (!node) return;
+    if (open && !live) return;
+    node.scrollTop = node.scrollHeight;
   }, [open, live, normalized]);
 
   if (!normalized) return null;
@@ -482,10 +483,14 @@ export function ThinkingBlock(
       >
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
-        {!open && <span className="thinking-preview">{preview}</span>}
         <Tick open={open} />
       </RowButton>
-      {open && <div className="thinking-body" ref={bodyRef}><ThinkingProse text={normalized} /></div>}
+      {/* Replié = la MÊME fenêtre de 6 lignes calée sur la fin que la pensée
+          vivante : un aperçu d'une ligne ne laissait pas suivre le
+          raisonnement (Thierry 2026-08-21). Déplié = le flux entier. */}
+      <div className={`thinking-body${open ? "" : " windowed"}`} ref={bodyRef}>
+        <ThinkingProse text={normalized} />
+      </div>
     </div>
   );
 }

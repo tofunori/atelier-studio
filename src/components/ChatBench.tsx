@@ -115,6 +115,26 @@ const HERMES_REPLY: AgentEvent[] = [
   } as AgentEvent,
 ];
 
+// Ordre du tour : la pensée PRÉCÈDE la réponse qu'elle a servi à écrire —
+// elle se lit donc au-dessus (Thierry 2026-08-21, comparaison Hermes).
+const THINKING_ORDER: AgentEvent[] = [
+  { kind: "user", text: "quest ce que tu penses tu reste?", ts: ts(30) } as AgentEvent,
+  {
+    kind: "thinking_live",
+    ts: ts(26),
+    text: [
+      "The user asks \"quest ce que tu penses tu reste?\" — a bit ambiguous.",
+      "I think they're asking what I think remains (from the corrections list).",
+      "Let me give a concise prioritized view of what's left and my recommendation.",
+    ].join("\n"),
+  } as AgentEvent,
+  {
+    kind: "streaming",
+    ts: ts(4),
+    text: "Mon avis sur ce qui reste, par ordre de ce qui compte vraiment :\n\n**À faire avant toute autre chose — A1, le bug `\\cite`.** C'est le seul défaut qui peut casser la compilation.\n\n**Ensuite, C3 et C5 — les deux « gratuits ».**",
+  } as AgentEvent,
+];
+
 const STREAM: AgentEvent[] = [
   { kind: "user", text: "Inspecte puis corrige le composer.", ts: ts(30) } as AgentEvent,
   { kind: "text", text: "Je commence par lire les composants concernés.", ts: ts(28) } as AgentEvent,
@@ -284,6 +304,7 @@ const STATES: Record<string, BenchState> = {
   activityparity: { events: ACTIVITY_PARITY, workingSince: ts(36), attachments: [], usage: { context: 16200, output: 280, cost: null, turns: 1 } },
   slottransition: { events: SLOT_TRANSITION, workingSince: ts(24), attachments: [], usage: { context: 15100, output: 210, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  ordrepensee: { events: THINKING_ORDER, workingSince: ts(30), attachments: [], usage: null },
   hermesreply: { events: HERMES_REPLY, workingSince: null, attachments: [], usage: { context: 96000, output: 4200, cost: 0.31, turns: 1 } },
   longthinking: { events: LONG_THINKING, workingSince: ts(60), attachments: [], usage: { context: 15000, output: 0, cost: null, turns: 1 } },
   image: { events: IMAGE_VIEW, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },

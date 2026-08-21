@@ -108,7 +108,7 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "thinking_live", text: "Je relis la section méthodes pour voir ce qui manque.", ts: FIXED_TS + 100 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
-    const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
+    const indicator = document.querySelector(".thinking-live-indicator") as HTMLElement;
     // L'indicateur porte désormais un en-tête repliable (façon Hermes) : le
     // texte de la pensée doit s'y trouver, le shimmer non.
     expect(indicator.textContent).toContain("Je relis la section méthodes pour voir ce qui manque.");
@@ -142,7 +142,7 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "thinking", text: " fro...", ts: FIXED_TS + 30 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: live, workingSince: FIXED_TS })} />);
-    const indicator = document.querySelector(".active-turn-tail .thinking-live-indicator") as HTMLElement;
+    const indicator = document.querySelector(".thinking-live-indicator") as HTMLElement;
     expect(indicator.textContent).toContain("CLAUDE.md content");
     expect(indicator.textContent!.endsWith("fro...")).toBe(true);
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
@@ -309,9 +309,11 @@ describe("anatomie du tour — header d'activité", () => {
     expect(working.textContent).toMatch(/\d/);
     expect(working.querySelector(".working-spin")).toBeNull();
     expect(working.querySelector(".working-divider")).toBeTruthy();
-    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);
+    // Le raisonnement vit à SA place dans le fil (au-dessus de l'activité en
+    // cours), plus dans la queue du tour : une ligne, jamais deux.
+    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail .thinking-live-indicator")).toHaveLength(0);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
-    expect(document.querySelector(".thinking")).toBeNull();
     // Progression (parti pris Hermes) : la recherche RÉGLÉE se dépose comme
     // ligne durable du transcript ; le slot vivant ne garde que la lecture.
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);

@@ -371,10 +371,17 @@ export function buildChatTurnViewModels(
       if (!isActive) return isReasoning(event) || isToolAction(event) || event.kind === "activity";
       // Progression visible pendant le tour (parti pris Hermes) : un groupe
       // RÉGLÉ se dépose immédiatement comme ligne durable du transcript, sans
-      // attendre qu'une narration assistant ferme la tranche. Seuls le
-      // raisonnement (statut) et le groupe encore EN COURS (slot vivant du
-      // tail) restent hors transcript.
-      return isReasoning(event) || activeGroupIndexes.has(index) ||
+      // attendre qu'une narration assistant ferme la tranche.
+      //
+      // Le RAISONNEMENT, lui, reste à sa place chronologique — il a précédé la
+      // réponse, il se lit au-dessus d'elle. Le hisser dans la queue du tour
+      // l'affichait SOUS le texte qu'il avait servi à écrire, l'exact inverse
+      // de Hermes (Thierry, 2026-08-21). Seul le groupe encore EN COURS garde
+      // le slot vivant du tail.
+      // La SENTINELLE `__thinking` (outil sans contenu) reste masquée : elle
+      // n'apprend rien et se lisait « réflexion… » alors que rien n'était dit.
+      const isReasoningSentinel = event.kind === "tool" && event.name === REASONING_TOOL;
+      return isReasoningSentinel || activeGroupIndexes.has(index) ||
         (event.kind === "activity" && index > activeBoundary && isRunningActivity(event));
     }));
     const firstTs = (userIndex == null ? null : timestampOf(events[userIndex])) ??

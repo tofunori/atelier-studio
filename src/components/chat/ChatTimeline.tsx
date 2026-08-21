@@ -150,11 +150,26 @@ export function ChatTimeline(p: {
         )
   ), [events, lastDoneIndex, lastDoneUserIndex]);
   const lastThinkingIndex = (() => {
+    // Instant réel : le réducteur recolle les morceaux dans le bloc existant
+    // sans bouger son `ts`, mais remplace son `meta` — un bloc placé AVANT la
+    // réponse peut donc être le plus récent (Grok pense encore après avoir
+    // répondu). Même règle que `currentThought`, sinon les deux divergent.
+    const timeOf = (event: AgentEvent): number => {
+      const meta = (event as { meta?: { ts?: number } }).meta;
+      return meta?.ts ?? (event as { ts?: number }).ts ?? 0;
+    };
+    let answerTs: number | null = null;
     for (let idx = events.length - 1; idx >= 0; idx -= 1) {
-      const kind = events[idx]?.kind;
-      if (kind === "thinking" || kind === "thinking_live") return idx;
-      // un texte d'assistant après la pensée signe la fin du raisonnement
-      if (kind === "text" || kind === "streaming") return -1;
+      const event = events[idx];
+      if (!event) continue;
+      if (event.kind === "thinking" || event.kind === "thinking_live") {
+        if (answerTs != null && timeOf(event) <= answerTs) return -1;
+        return idx;
+      }
+      if (event.kind === "user" || event.kind === "done" || event.kind === "error") return -1;
+      if (answerTs == null && (event.kind === "text" || event.kind === "streaming")) {
+        answerTs = timeOf(event);
+      }
     }
     return -1;
   })();
@@ -643,19 +658,33 @@ export function ChatTimeline(p: {
             );
           if ((e.kind === "thinking_live" || e.kind === "thinking") && doublonsPensee.has(i))
             return null;
-          if (e.kind === "thinking_live" || e.kind === "thinking")
+          if (e.kind === "thinking_live" || e.kind === "thinking") {
             // « en direct » ne peut pas se déduire du KIND : Grok n'envoie
             // jamais de thinking_delta, seulement des thinking complets tous
             // les ~100 caractères. C'est le tour qui tourne encore, et le fait
             // d'être le dernier bloc de pensée, qui font le direct.
+            const live = workingSince != null && i === lastThinkingIndex;
+            if (live) {
+              // À SA PLACE dans le fil, donc au-dessus de la réponse qu'il a
+              // servi à écrire — et monté une fois pour tout le tour, ce qui
+              // fait survivre le dépliage aux appels d'outil.
+              return (
+                <LiveThinking
+                  key={`live-thinking:${i}`}
+                  thought={liveThought}
+                  collapsedByDefault={defaults.thinkingCollapsed ?? false}
+                />
+              );
+            }
             return (
               <ThinkingBlock
                 key={i}
                 text={e.text}
-                live={workingSince != null && i === lastThinkingIndex}
+                live={false}
                 collapsedByDefault={defaults.thinkingCollapsed ?? false}
               />
             );
+          }
           if (e.kind === "activity")
             return <ActivityCard key={e.id} event={e} live={workingSince != null && e.status === "running"} />;
           if (e.kind === "permission")
