@@ -369,6 +369,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-status { color: var(--text-disabled); white-space: nowrap; }
 .tool-duration { color: var(--text-disabled); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.timeline-stamp { color: var(--text-disabled); font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tool-exit { color: var(--u-hot, #e06c75); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
 .tool-source { margin-left: 6px; color: var(--text-disabled); font: var(--fs-xs)/1 var(--code-font);

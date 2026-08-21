@@ -32,6 +32,7 @@ import {
   type AgentToolAction,
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { TimelineStamp } from "./TimelineStamp";
 
 type RenderedItem =
   | ProjectedTimelineItem
@@ -526,6 +527,10 @@ export function ChatTimeline(p: {
           }
           if (item.type === "actions") {
             const open = openToolGroups.has(item.key);
+            const tss = item.actions.map((a) => ("ts" in a ? a.ts : undefined)).filter((v): v is number => v != null);
+            const stamp = defaults.displayTimestamps && tss.length
+              ? <TimelineStamp startMs={Math.min(...tss)} endMs={tss.length > 1 ? Math.max(...tss) : null} fmt={defaults.timeFormat} />
+              : undefined;
             return (
               <ActivityGroup
                 key={item.key}
@@ -541,6 +546,7 @@ export function ChatTimeline(p: {
                   })
                 }
                 renderToolLine={renderToolLine}
+                stamp={stamp}
               />
             );
           }

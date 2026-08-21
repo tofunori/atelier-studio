@@ -191,6 +191,19 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
   });
 
+  it("horodatage début → fin gaté par displayTimestamps", () => {
+    renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
+    let fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
+    fireEvent.click(fold);
+    expect(document.querySelector(".timeline-stamp")).toBeNull();
+    cleanup();
+
+    renderUi(<Chat {...chatProps({ events: finishedTurn(), defaults: { displayTimestamps: true } })} />);
+    fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
+    fireEvent.click(fold);
+    expect(document.querySelector(".timeline-stamp")).toBeTruthy();
+  });
+
   it("clic déplie le détail des outils ; aria-expanded suit", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;

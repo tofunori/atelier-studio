@@ -733,6 +733,7 @@ export function ActivityGroup(p: {
   open: boolean;
   onToggle: () => void;
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
+  stamp?: ReactNode;
 }) {
   const distinctActions = distinctToolActions(p.actions);
   const summary = summarizeActivity(distinctActions, p.plugins);
@@ -747,7 +748,7 @@ export function ActivityGroup(p: {
   return (
     <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={false}
       icon={summary.icon} label={summary.label}
-      meta={undefined}>
+      meta={p.stamp}>
         <div className="tool-group-list">
           {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}
         </div>
