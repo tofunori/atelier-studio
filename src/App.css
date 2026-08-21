@@ -543,6 +543,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .turn-cumulative-detail { margin: 2px 0 4px 22px; }
 .turn-cumulative-live { color: var(--text-muted); }
 .turn-cumulative-sep { color: var(--text-disabled); }
+/* attente universelle chronométrée : mêmes seuil/discrétion que le tick du
+   ticker, mais hors du branch `activity` — pensée muette, permission, etc. */
+.turn-quiet { color: var(--text-disabled); font-size: var(--fs-s);
+  margin-left: 22px; font-variant-numeric: tabular-nums; }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
 .working-note { color: var(--text-disabled); font-variant-numeric: tabular-nums; margin-left: 8px; }

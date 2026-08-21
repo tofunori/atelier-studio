@@ -166,6 +166,19 @@ describe("anatomie du tour — header d'activité", () => {
     }
   });
 
+  it("chronomètre le silence même pendant une pensée muette", () => {
+    vi.useFakeTimers();
+    const evs: AgentEvent[] = [
+      events.user("Réfléchis.", FIXED_TS),
+      { kind: "tool", name: "__thinking" } as AgentEvent, // pensée SANS texte (headless caviardé)
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    expect(document.querySelector(".turn-quiet")).toBeNull();
+    act(() => { vi.advanceTimersByTime(3100); });
+    expect(document.querySelector(".turn-quiet")?.textContent).toMatch(/en attente · \d+ s/);
+    vi.useRealTimers();
+  });
+
   it("tour terminé : header « A travaillé pendant… », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;

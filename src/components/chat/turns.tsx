@@ -717,6 +717,9 @@ export function ActiveTurnTail(p: {
           </div> : null}
         </ActivityDisclosure>
       )}
+      {quietSeconds >= 2 && !running && state?.kind !== "waiting" && state?.kind !== "activity" && (
+        <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>
+      )}
       <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
         <kbd>esc</kbd> {t("action.interrupt")}
       </RowButton>
