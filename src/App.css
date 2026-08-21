@@ -1112,6 +1112,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .changed-files-review:hover { color: var(--text-secondary); }
 .changed-files-head .turn-diff-undo { margin: 0; }
 .changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
+/* Un diff ouvert ne se laisse pas écraser par le plafond de la liste. */
+.changed-files-list.is-expanded { max-height: none; overflow-y: visible; }
+.changed-files-item { min-width: 0; }
+.changed-files-diff { margin: 2px 0 6px; border: 1px solid var(--border);
+  border-radius: var(--r-s); overflow: hidden; }
+.changed-files-diff .turn-diff-body { margin: 0; border: 0; border-radius: 0; max-height: 260px; }
+.changed-files-row .tool-tick { flex: none; opacity: .6; }
 .changed-files-row { display: flex; align-items: center; gap: 7px; width: 100%;
   border: none; background: transparent; padding: 1px 4px; border-radius: var(--r-s);
   font-size: var(--fs-m); line-height: 1.7; color: var(--text-muted); cursor: pointer;

@@ -34,7 +34,10 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
   changedFiles?: ChangedFile[];
 }) {
   const files = event.filesChanged ?? [];
-  const [open, setOpen] = useState(false);
+  // Ouverture PAR FICHIER (demande Thierry 2026-08-21) : chaque ligne de la
+  // carte ouvre son propre diff sous elle ; « Voir le diff » les ouvre tous.
+  const [openPaths, setOpenPaths] = useState<Set<string>>(new Set());
+  const open = openPaths.size > 0;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
@@ -67,11 +70,10 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
   // chemin git n'est disponible pour ouvrir un diff (plan hermes-work-display
   // phase 2, F4/F3).
   if (!hasGitFiles && !showCard) return null;
-  // fetch des diffs manquants + ouverture — partagé entre le repli et la
-  // carte « fichiers modifiés » (une seule demande gitDiff par fichier).
-  const openDiffs = () => {
-    setOpen(true);
-    const missing = files.filter((path) => !diffs[path] && !loading.has(path));
+  // fetch des diffs manquants — une seule demande gitDiff par fichier, quel
+  // que soit le point d'entrée (ligne de la carte, « Voir le diff », repli).
+  const requestDiffs = (paths: string[]) => {
+    const missing = paths.filter((path) => !diffs[path] && !loading.has(path));
     if (!missing.length) return;
     setLoading((current) => new Set([...current, ...missing]));
     for (const path of missing) {
@@ -91,6 +93,45 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
       });
     }
   };
+  const openDiffs = () => {
+    setOpenPaths(new Set(files));
+    requestDiffs(files);
+  };
+  const toggleFileDiff = (path: string) => {
+    setOpenPaths((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    if (!openPaths.has(path)) requestDiffs([path]);
+  };
+  /** Corps du diff d'un fichier — même rendu où qu'il soit inséré (sous sa
+   * ligne dans la carte, ou dans la liste du repli historique). */
+  const fileDiffBody = (path: string) => {
+    const payload = diffs[path];
+    if (loading.has(path) && !payload) {
+      return <div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>;
+    }
+    if (payload?.binary) {
+      return <div className="turn-diff-body"><span className="muted">{t("git.binary-changed")}</span></div>;
+    }
+    if (payload && payload.before !== undefined && payload.after !== undefined) {
+      return (
+        <Suspense fallback={<div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>}>
+          <AtelierDiffView before={payload.before} after={payload.after} path={path} compact />
+        </Suspense>
+      );
+    }
+    if (payload?.diff.trim()) {
+      return (
+        <pre className="turn-diff-body turn-diff-raw">{payload.diff.split("\n").map((line, idx) => (
+          <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+        ))}</pre>
+      );
+    }
+    return <div className="turn-diff-body"><span className="muted">{t("git.diff-empty")}</span></div>;
+  };
   // L'annulation appartient au bloc « fichiers modifiés » : rendue dans
   // l'en-tête de la carte quand elle existe, sinon à sa place historique.
   const undoButton = event.checkpoint ? (
@@ -109,6 +150,9 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
       <ChangedFilesCard
         files={changedFiles!}
         onOpenDiff={hasGitFiles ? openDiffs : null}
+        onToggleFile={hasGitFiles ? toggleFileDiff : null}
+        openPaths={openPaths}
+        renderFileDiff={fileDiffBody}
         actions={undoButton}
       />
     )}
@@ -122,7 +166,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
           className="turn-diff-toggle"
           aria-expanded={open}
           onClick={() => {
-            if (open) { setOpen(false); return; }
+            if (open) { setOpenPaths(new Set()); return; }
             openDiffs();
           }}
         >
@@ -131,26 +175,13 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
         </RowButton>
       )}
       {!showCard && undoButton}
-      {open && <div className="turn-diff-files">
-        {files.map((path) => {
-          const payload = diffs[path];
+      {/* Repli historique (sans carte) : la liste complète des diffs ouverts.
+          Avec la carte, chaque diff vit sous SA ligne. */}
+      {!showCard && open && <div className="turn-diff-files">
+        {files.filter((path) => openPaths.has(path)).map((path) => {
           return <section key={path} className="turn-diff-file">
             <div className="turn-diff-file-head">{path}</div>
-            {loading.has(path) && !payload ? (
-              <div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>
-            ) : payload?.binary ? (
-              <div className="turn-diff-body"><span className="muted">{t("git.binary-changed")}</span></div>
-            ) : payload && payload.before !== undefined && payload.after !== undefined ? (
-              <Suspense fallback={<div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>}>
-                <AtelierDiffView before={payload.before} after={payload.after} path={path} compact />
-              </Suspense>
-            ) : payload?.diff.trim() ? (
-              <pre className="turn-diff-body turn-diff-raw">{payload.diff.split("\n").map((line, idx) => (
-                <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-              ))}</pre>
-            ) : (
-              <div className="turn-diff-body"><span className="muted">{t("git.diff-empty")}</span></div>
-            )}
+            {fileDiffBody(path)}
           </section>;
         })}
       </div>}

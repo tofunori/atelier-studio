@@ -707,12 +707,22 @@ describe("capsule résultat — honnêteté et actions", () => {
     expect(rows[1].textContent).toContain("a.ts");
 
     // pas de diff ouvert avant le clic ; le repli est masqué (carte présente, F3)
-    expect(document.querySelector(".turn-diff-files")).toBeNull();
+    expect(document.querySelector(".changed-files-diff")).toBeNull();
     expect(document.querySelector(".turn-diff-toggle")).toBeNull();
 
+    // Clic sur UNE ligne : seul CE fichier ouvre son diff, sous sa ligne.
+    fireEvent.click(rows[0] as HTMLElement);
+    const items = [...card.querySelectorAll(".changed-files-item")];
+    expect(items[0].querySelector(".changed-files-diff")).toBeTruthy();
+    expect(items[1].querySelector(".changed-files-diff")).toBeNull();
+    expect(rows[0].getAttribute("aria-expanded")).toBe("true");
+    // Re-clic : il se referme.
+    fireEvent.click(rows[0] as HTMLElement);
+    expect(document.querySelector(".changed-files-diff")).toBeNull();
+
+    // « Voir le diff » les ouvre tous, sans dupliquer la requête gitDiff.
     fireEvent.click(card.querySelector(".changed-files-review") as HTMLButtonElement);
-    // le même repli que DoneDiffToggle s'ouvre — aucune requête dupliquée
-    expect(document.querySelector(".turn-diff-files")).toBeTruthy();
+    expect(card.querySelectorAll(".changed-files-diff")).toHaveLength(2);
   });
 
   it("aucune section « tests » n'existe sans événement qui la porte", () => {
