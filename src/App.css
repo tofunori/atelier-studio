@@ -2813,12 +2813,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-variant-numeric: tabular-nums; font-style: normal; }
 .thinking-live-indicator.has-text .thinking-live-stream { margin-left: 22px; }
 .thinking-live-indicator.has-text .thinking-icon { margin-top: 0; }
-/* « tout afficher » : la borne de 4 lignes saute sur demande explicite. */
+/* Déplié = flux complet façon Hermes ; réduit = fenêtre de ~3 lignes calée
+   sur la fin (le défilement suit le texte, pas de scrollbar visible). */
 .thinking-live-stream.plein { max-height: none; overflow-y: visible; }
-.thinking-more { appearance: none; background: transparent; border: none; padding: 0;
-  margin-left: 22px; align-self: flex-start; cursor: pointer;
-  color: var(--text-disabled); font-size: var(--fs-s); font-style: normal; }
-.thinking-more:hover { color: var(--text-muted); }
+.thinking-live-stream.windowed { max-height: 4.5em; }
 .thinking-live-stream::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* fin de la pensée en cours : une ligne, éteinte, jamais concurrente du
    contenu — même discrétion que l'aperçu du bloc replié */

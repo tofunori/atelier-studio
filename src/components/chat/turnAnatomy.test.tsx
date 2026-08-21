@@ -105,10 +105,12 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "thinking_live", text: "Une longue pensée déjà en cours.", ts: FIXED_TS + 50 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS, defaults: { thinkingCollapsed: true } })} />);
-    expect(document.querySelector(".thinking-live-stream")).toBeNull();
-    expect(document.querySelector(".thinking-preview")?.textContent).toContain("longue pensée");
+    // Réduit = fenêtre courte (quelques lignes, calée sur la fin), pas le flux.
+    const fenetre = document.querySelector(".thinking-live-stream.windowed");
+    expect(fenetre?.textContent).toContain("longue pensée");
+    expect(document.querySelector(".thinking-live-stream.plein")).toBeNull();
     fireEvent.click(document.querySelector(".thinking-live-head") as HTMLButtonElement);
-    expect(document.querySelector(".thinking-live-stream")).toBeTruthy();
+    expect(document.querySelector(".thinking-live-stream.plein")).toBeTruthy();
   });
 
   // Flux Grok réel (capturé sur grok 1.0.3) : les blocs `thinking` durables

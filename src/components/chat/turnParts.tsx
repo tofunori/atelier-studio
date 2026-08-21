@@ -525,7 +525,6 @@ export function LiveThinking(
       </div>
     );
   }
-  const apercu = texte.replace(/\s+/g, " ").slice(-120);
   return (
     <div className="thinking-live-indicator has-text" role="status" aria-live="polite">
       <RowButton
@@ -537,11 +536,23 @@ export function LiveThinking(
         <span className="thinking-label">{t("chat.thinking-live")}</span>
         <Tick open={!replie} />
         {penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
-        {replie && <span className="thinking-preview">{apercu}</span>}
       </RowButton>
-      {!replie && (
-        <div className="thinking-live-stream plein">{texte}</div>
-      )}
+      {/* Réduit = petite fenêtre de quelques lignes calée sur la fin (demande
+          Thierry 2026-08-21) ; déplié = flux complet façon Hermes. */}
+      <ThinkingTail texte={texte} windowed={replie} />
+    </div>
+  );
+}
+
+function ThinkingTail({ texte, windowed }: { texte: string; windowed: boolean }) {
+  const flux = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = flux.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [texte, windowed]);
+  return (
+    <div ref={flux} className={`thinking-live-stream${windowed ? " windowed" : " plein"}`}>
+      {texte}
     </div>
   );
 }

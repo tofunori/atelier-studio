@@ -552,25 +552,36 @@ function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactN
  * s'arrête au premier signe qu'un tour précédent est terminé. */
 export function currentThought(turn: ChatTurnViewModel | null, events: AgentEvent[]): string {
   const state = turn?.activeState;
-  const blocks: string[] = [];
+  // TOUTES les tranches de pensée depuis la dernière narration (pas seulement
+  // la dernière contiguë) : Ox Alpha alterne pensée/outils en petits blocs —
+  // ne garder que le dernier bloc laissait un fragment (« W. », vécu
+  // 2026-08-21). À l'intérieur d'une tranche, recollage SANS séparateur (Grok
+  // coupe en plein mot) ; entre tranches séparées par des outils, un
+  // paragraphe.
+  const stretches: string[][] = [];
+  let current: string[] | null = null;
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
     if (event.kind === "thinking_live" || event.kind === "thinking") {
-      if (event.text) blocks.unshift(event.text);
+      if (event.text) {
+        if (!current) {
+          current = [];
+          stretches.unshift(current);
+        }
+        current.unshift(event.text);
+      }
       continue;
     }
-    // Groupe contigu le plus récent : une fois qu'on en tient un, tout ce qui
-    // précède appartient à une réflexion antérieure.
-    if (blocks.length) break;
-    // Frontière du TOUR — et pas le premier `text` venu : Grok répond, part
-    // en outils, puis repense. S'arrêter au texte rendait la ligne muette
-    // pendant tout le reste du tour.
-    if (event.kind === "user" || event.kind === "done" || event.kind === "error") break;
+    // Frontière : le tour (user/done/error) ou une narration assistant — le
+    // raisonnement d'AVANT une réponse appartient au bloc durable, pas au
+    // fil vivant. (Grok répond, part en outils, puis repense : la pensée
+    // d'APRÈS le texte est collectée avant d'atteindre cette frontière.)
+    if (event.kind === "user" || event.kind === "done" || event.kind === "error"
+      || event.kind === "text" || event.kind === "streaming") break;
+    // Outil ou autre : clôt la tranche courante, la collecte continue.
+    current = null;
   }
-  // Recollage SANS séparateur : ces blocs ne sont pas des pensées distinctes
-  // mais un flux continu découpé (Grok coupe en plein mot — « …I already
-  // have CLA » + « UDE.md content… »). Un espace casserait le mot.
-  const joined = blocks.join("");
+  const joined = stretches.map((blocks) => blocks.join("")).join("\n\n");
   if (joined.trim()) return joined;
   return state?.kind === "reasoning" ? state.texts.join("") : "";
 }
