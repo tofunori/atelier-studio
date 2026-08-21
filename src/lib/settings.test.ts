@@ -132,3 +132,19 @@ describe("settings defaults", () => {
     expect(again.displayTimestamps).toBe(true);
   });
 });
+
+describe("promotion de défaut : la valeur doit SURVIVRE au redémarrage", () => {
+  it("promeut thinkingCollapsed puis le conserve au chargement suivant", () => {
+    localStorage.clear();
+    // Profil de Thierry : le réglage est né avec `false` et a été persisté
+    // (changer de modèle réécrit tout l'objet).
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ thinkingCollapsed: false }));
+
+    // 1er démarrage après la mise à jour : la promotion s'applique.
+    expect(loadSettings().thinkingCollapsed).toBe(true);
+
+    // 2e démarrage, SANS enregistrement entre les deux (l'app peut redémarrer
+    // sans qu'aucun réglage n'ait été touché) : la valeur doit tenir.
+    expect(loadSettings().thinkingCollapsed).toBe(true);
+  });
+});

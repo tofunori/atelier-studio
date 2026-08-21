@@ -156,7 +156,10 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     // suffit — l'objet entier est réécrit) garde `false` pour toujours sans
     // cette promotion. Un profil qui a explicitement décoché la case APRÈS
     // cette promotion la conserve : elle ne tourne qu'une fois.
-    id: "2026-08-21.thinking-collapsed-by-default",
+    // `-v2` : la première version de cette promotion s'est marquée appliquée
+    // sans que sa valeur soit écrite (bug du mécanisme, corrigé plus bas). Les
+    // profils qui l'ont subie ne la rejoueraient jamais — d'où un nouvel id.
+    id: "2026-08-21.thinking-collapsed-by-default-v2",
     promote: (stored) => (stored.thinkingCollapsed === false ? { thinkingCollapsed: true } : {}),
   },
 ];
@@ -217,12 +220,18 @@ export function loadSettings(): Settings {
         }
       }
     } catch {}
-    return {
+    // Une promotion se marque « appliquée » dès le premier chargement : si sa
+    // VALEUR n'est pas réécrite dans le stockage, elle est perdue au
+    // redémarrage suivant (le stocké, resté à l'ancien défaut, regagne) et la
+    // migration ne se rejoue jamais. Vécu le 2026-08-21 sur
+    // `thinkingCollapsed`, qui redevenait `false` à chaque relance.
+    const promoted = promoteDefaults(stored);
+    const settings = {
       ...DEFAULT_SETTINGS,
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
       ...stored,
       // après `stored` : une promotion ne vaut que face à un ancien défaut hérité
-      ...promoteDefaults(stored),
+      ...promoted,
       defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...storedDefaultModel },
       autoReview: { ...DEFAULT_SETTINGS.autoReview, ...(stored as any).autoReview },
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
@@ -235,6 +244,16 @@ export function loadSettings(): Settings {
       // toujours aux conversations, même si l'app a été quittée sur Highlights.
       activeView: "chats",
     };
+    // La promotion n'a lieu qu'une fois : sa valeur doit donc être ÉCRITE tout
+    // de suite, sinon le prochain démarrage relit l'ancien défaut sans que la
+    // migration puisse se rejouer. Un échec d'écriture ne fait pas échouer le
+    // chargement — au pire la valeur restera à promouvoir.
+    if (Object.keys(promoted).length > 0) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(settings));
+      } catch {}
+    }
+    return settings;
   } catch {
     return DEFAULT_SETTINGS;
   }
