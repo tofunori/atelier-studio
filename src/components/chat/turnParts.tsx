@@ -8,19 +8,9 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
-import { ActivityDisclosure, Button, IconButton, RowButton, Tooltip } from "../ui";
+import { ActivityDisclosure, IconButton, RowButton, Tooltip } from "../ui";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import type { ChangedFile } from "./changedFiles";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../shadcn/alert-dialog";
 
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
@@ -35,10 +25,9 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
 }) {
   const files = event.filesChanged ?? [];
   // Ouverture PAR FICHIER (demande Thierry 2026-08-21) : chaque ligne de la
-  // carte ouvre son propre diff sous elle ; « Voir le diff » les ouvre tous.
+  // carte ouvre son propre diff sous elle — c'est le SEUL point d'entrée.
   const [openPaths, setOpenPaths] = useState<Set<string>>(new Set());
   const open = openPaths.size > 0;
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
 
@@ -132,24 +121,14 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
     }
     return <div className="turn-diff-body"><span className="muted">{t("git.diff-empty")}</span></div>;
   };
-  // L'annulation appartient au bloc « fichiers modifiés » : rendue dans
-  // l'en-tête de la carte quand elle existe, sinon à sa place historique.
-  const undoButton = event.checkpoint ? (
-    <Button
-      variant="danger"
-      className="turn-diff-undo"
-      title={t("checkpoint.files-title")}
-      onClick={() => setConfirmOpen(true)}
-    >
-      {t("checkpoint.undo-files")}
-    </Button>
-  ) : null;
+  // « Annuler les fichiers » retiré (Thierry 2026-08-21) : l'annulation du
+  // TOUR, portée par la bulle du message user, restaure déjà les fichiers
+  // (elle envoie le checkpoint) — c'en était un sous-ensemble.
   return (
     <>
     {showCard && (
       <ChangedFilesCard
         files={changedFiles!}
-        onOpenDiff={hasGitFiles ? openDiffs : null}
         // Un chemin absent de `filesChanged` (gitignoré, hors projectRoot,
         // réécrit à l'identique) ne recevra JAMAIS de réponse gitDiff : le
         // rendre cliquable le figeait sur « Chargement… » pour de bon.
@@ -157,14 +136,12 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
         onToggleFile={hasGitFiles ? toggleFileDiff : null}
         openPaths={openPaths}
         renderFileDiff={fileDiffBody}
-        actions={undoButton}
       />
     )}
     {hasGitFiles && (
     <div className="turn-diff">
-      {/* La carte porte déjà le compte « N fichiers modifiés » et son propre
-          « Voir le diff » sert d'expander : ce repli ne duplique le compte
-          que quand la carte est absente. */}
+      {/* Repli historique : il ne sert que si la carte est absente (aucun
+          fichier dérivé) — sinon le compte serait dit deux fois. */}
       {!showCard && (
         <RowButton
           className="turn-diff-toggle"
@@ -178,7 +155,6 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
           <Tick open={open} />
         </RowButton>
       )}
-      {!showCard && undoButton}
       {/* Repli historique (sans carte) : la liste complète des diffs ouverts.
           Avec la carte, chaque diff vit sous SA ligne. */}
       {!showCard && open && <div className="turn-diff-files">
@@ -191,32 +167,6 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
       </div>}
     </div>
     )}
-    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t("checkpoint.files-title")}</AlertDialogTitle>
-          <AlertDialogDescription>{t("checkpoint.files-confirm")}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => {
-              wsSend({
-                type: "revert",
-                scope: "files",
-                threadId,
-                turnId: "meta" in event && event.meta && "turnId" in event.meta ? event.meta.turnId : undefined,
-                snapshotSha: event.checkpoint?.snapshotSha,
-              });
-              setConfirmOpen(false);
-            }}
-          >
-            {t("checkpoint.undo-files")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 }

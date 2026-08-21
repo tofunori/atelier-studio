@@ -1128,10 +1128,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
 .changed-files-count { flex: 1; min-width: 0; }
-.changed-files-review { border: none; background: transparent; color: var(--text-muted);
-  font-size: var(--fs-s); cursor: pointer; padding: 0; font: inherit; transition: color var(--ease); }
-.changed-files-review:hover { color: var(--text-secondary); }
-.changed-files-head .turn-diff-undo { margin: 0; }
 .changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
 /* Un diff ouvert ne se laisse pas écraser par le plafond de la liste. */
 .changed-files-list.is-expanded { max-height: none; overflow-y: visible; }
@@ -1186,9 +1182,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: none; color: var(--text-muted); padding: 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); }
 .turn-diff-toggle:hover { color: var(--text-secondary); }
-.turn-diff-undo { margin-left: 8px; border: 0; border-radius: var(--r-s); padding: 4px 7px;
-  color: var(--text-muted); background: transparent; font-size: 10px; }
-.turn-diff-undo:hover { color: var(--text-primary); background: var(--hover); }
 .turn-diff-body { margin-top: 6px; max-height: 320px; overflow: auto;
   background: var(--bg-side); border: 1px solid var(--border); border-radius: var(--r-m);
   padding: 8px 0; color: var(--text-muted); font: var(--fs-m)/1.45 var(--code-font);
