@@ -580,16 +580,17 @@ export function ActiveTurnHeader(p: {
   // il vit sous le chrono pendant toute la durée du tour, pensée comprise —
   // le travail déjà fait ne disparaît jamais de l'écran (parti pris Hermes).
   // La ligne est un disclosure : clic → la liste des appels du tour.
-  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
+  const groups = p.turn.actionGroups.filter((group) => group.actions.length > 0);
+  const actions = groups.flatMap((group) => group.actions);
   const segments = activitySegments(actions);
   const open = p.open ?? false;
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      {/* Une seule catégorie = la ligne déposée dans le fil dit déjà la même
-          chose mot pour mot ; le cumul n'apporte de l'info qu'en agrégeant
-          PLUSIEURS catégories (redondance vécue 2026-08-21). */}
-      {segments.length >= 2 && (
+      {/* Le cumul n'a de sens qu'au-dessus de PLUSIEURS dépôts : avec un seul
+          groupe, la ligne déposée juste en dessous dit déjà exactement la même
+          chose — doublon vécu deux fois (2026-08-21). */}
+      {groups.length >= 2 && segments.length > 0 && (
         <>
           <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
             {segments.map((segment, i) => (

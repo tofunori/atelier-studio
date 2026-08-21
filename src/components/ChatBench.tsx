@@ -99,6 +99,22 @@ const LONG_THINKING: AgentEvent[] = [
   } as AgentEvent,
 ];
 
+// Réponse « façon Hermes » (fournie par Thierry 2026-08-21) : pensée longue
+// structurée puis réponse à titres + tableau + listes + code inline.
+const HERMES_REPLY: AgentEvent[] = [
+  { kind: "user", text: "ouin et sinon le reste est bon?", ts: ts(220), label: "methods_en.tex" } as AgentEvent,
+  { kind: "thinking", text: "The user asks: « ouin et sinon le reste est bon? » — apart from what I found (Downscaled meteorological variables, the model equation, 02_05), is the REST of the methods section good?\n\nSo they want an assessment of the remaining parts of the Methods section I haven't covered in detail:\n\n- Study area and glacier surface (S2 dynamic mask)\n- MODIS albedo retrieval (Ren et al. 2021, screening, BRDF, N2B conversion)\n- Priors (checked — matches script)\n- Model checking (checked — 71.3 p_loo, 3 obs k>0.7, psense 0.058 vs 0.053 flagged)\n\nWhat can I verify quickly to say « the rest is good » responsibly?\n\n11. Residual scales 0.033/0.027/0.021 disjoint — the script comments say 0.0321/0.0271/0.0216 ✓ consistent (rounded).\n12. **\"gains 18.8 elpd\"** — flagged already (19.9 in gaussian era comments; need Student-era number).\n13. Divergences 2,190 centered vs 0 non-centered — plausible from prior_tau experiments; can't verify quickly unless a file exists.\n14. ESS numbers 1362/2227, BFMI 0.736–0.788 — from the fit; the idata nc exists (`bayes_REGION_c_idata.nc`) — could load and verify with `az.summary`.\n\nLet me run batch 1 now.", ts: ts(215) } as AgentEvent,
+  tool("hr-1", "Read", "gee_pipeline/config.py", "RATIO_THRESHOLD…", 480, 200),
+  tool("hr-2", "Bash", "rg -n \'NDSI|Liang|Stroeve\' gee_pipeline", "7 correspondances", 1200, 190),
+  { kind: "text", text: "Bonne question — je vérifie le reste avec la même rigueur, par lots : les paramètres du masque S2 et de l\'albédo MODIS contre le code GEE, et les chiffres statistiques restants contre tes sorties.", ts: ts(180) } as AgentEvent,
+  tool("hr-3", "Bash", "python -c \'import arviz\'", "ESS bulk min 1362", 9400, 120),
+  { kind: "text", text: "## Vérifié exact, chiffre par chiffre ✓\n\n| énoncé | vérification |\n|---|---|\n| ratio B4/B11 > 2.0 (Bolch), NDWI ≥ 0.45 | `gee_pipeline/config.py` : `RATIO_THRESHOLD: 2.0`, `NDWI_THRESHOLD: 0.45` — exact |\n| NDSI > 0.4 neige/glace | `DEFAULT_REN_NDSI_THRESHOLD = 0.4` — exact |\n| albédo moyen 0,478, étendue 0,292–0,631 | recalculé sur le panel : identique aux décimales |\n| « 6 of 30 cells return a positive fire slope » | recompté sur les OLS par cellule : exactement 6/30 |\n\n## Drapeaux restants\n\n1. **EC+POM vs EC+POM+SOM** — la section dit « EC+POM+SOM, dry only » ; `fire_deposition_timing.py` définit le composite comme EC+POM. C'est la définition du traitement.\n2. **Poids médian de rétrécissement 0,13** — introuvable ; la colonne de `pentes_regionales_retrecissement.csv` contient des valeurs impossibles sous *w = τ²/(τ²+SE²)*.\n3. **« 450 elpd » / « 43 elpd »** — dans aucun CSV ouvert du carnet.\n\n## Recommandation finale\n\nConformément à tes invariants (#2 et #4) : avant soumission, une passe de **Source Map** sur la Methods — chaque nombre → fichier artefact + SHA. Ce que j'ai pu tracer est juste, donc la section est écrite sur des données réelles, pas décorée.", ts: ts(60) } as AgentEvent,
+  {
+    kind: "done", ok: true, result: "Vérification terminée.", projectRoot: "/tmp/bench",
+    filesChanged: [], usage: { context: 96000, output: 4200, cost: 0.31, turns: 1 }, ts: ts(55),
+  } as AgentEvent,
+];
+
 const STREAM: AgentEvent[] = [
   { kind: "user", text: "Inspecte puis corrige le composer.", ts: ts(30) } as AgentEvent,
   { kind: "text", text: "Je commence par lire les composants concernés.", ts: ts(28) } as AgentEvent,
@@ -268,6 +284,7 @@ const STATES: Record<string, BenchState> = {
   activityparity: { events: ACTIVITY_PARITY, workingSince: ts(36), attachments: [], usage: { context: 16200, output: 280, cost: null, turns: 1 } },
   slottransition: { events: SLOT_TRANSITION, workingSince: ts(24), attachments: [], usage: { context: 15100, output: 210, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  hermesreply: { events: HERMES_REPLY, workingSince: null, attachments: [], usage: { context: 96000, output: 4200, cost: 0.31, turns: 1 } },
   longthinking: { events: LONG_THINKING, workingSince: ts(60), attachments: [], usage: { context: 15000, output: 0, cost: null, turns: 1 } },
   image: { events: IMAGE_VIEW, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
