@@ -1537,6 +1537,16 @@ export default function App() {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
           return;
         }
+        if (msg.event.kind === "drafting") {
+          // Verbe de rédaction (Claude content_block_start, spike 2026-08-21) :
+          // « Édite… » pendant le stream des arguments. Passe par le canal
+          // liveNotes (note d'avancement du tour actif) : révélé après 200 ms
+          // côté UI, remplacé par le tool_update running, effacé au terminal.
+          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          const note = t("chat.activity-drafting", { tool: msg.event.tool });
+          setLiveNotes((p) => (p[msg.threadId] === note ? p : { ...p, [msg.threadId]: note }));
+          return;
+        }
         if (msg.event.kind === "usage") {
           if (msg.event.usage) setUsageByThread((p) => ({ ...p, [msg.threadId]: msg.event.usage }));
           return;

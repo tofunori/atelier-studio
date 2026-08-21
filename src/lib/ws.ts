@@ -73,6 +73,13 @@ type AgentEventBody =
   | { kind: "started"; ts?: number }
   /** tokens : sortie cumulée du tour (ticker « Ns · Nk tokens ») — éphémère, jamais journalisé */
   | { kind: "heartbeat"; elapsedMs?: number; tokens?: number; ts?: number }
+  /**
+   * Verbe de rédaction (Claude content_block_start tool_use, input vide) :
+   * « Édite… / Exécute… » pendant que le modèle streame les arguments, AVANT
+   * le tool_update running (~780 ms mesurés). Éphémère — remplacé par le vrai
+   * outil, jamais journalisé ni rendu comme ligne du fil.
+   */
+  | { kind: "drafting"; tool: string; ts?: number }
   | {
       kind: "activity";
       id: string;

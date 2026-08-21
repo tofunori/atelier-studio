@@ -27,6 +27,10 @@ const EPHEMERAL: &[&str] = &[
     "streaming",
     "started",
     "heartbeat",
+    // Verbe de rédaction (Claude content_block_start tool_use, input vide) :
+    // signal d'attente nommé, remplacé par le vrai tool_update — jamais de
+    // ligne durable, jamais journalisé (même chemin que delta).
+    "drafting",
 ];
 
 pub fn is_durable(kind: &str) -> bool {

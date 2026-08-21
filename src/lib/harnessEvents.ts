@@ -113,6 +113,9 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   // éphémères jamais matérialisés dans le fil (les side-effects — workingSince,
   // usage ring — restent dans App) : no-op strict
   if (ev.kind === "started" || ev.kind === "heartbeat" || ev.kind === "usage") return list;
+  // Verbe de rédaction : signal d'attente pur — l'affichage passe par le
+  // statut du tour actif, jamais par une entrée de la liste (éphémère).
+  if (ev.kind === "drafting") return list;
   // dédup reconnexion WS : un eventId déjà présent dans la liste (y compris
   // adopté par une bulle streaming/thinking_live au fil des deltas) est ignoré
   const meta = harnessMeta(ev);

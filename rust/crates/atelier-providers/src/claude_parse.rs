@@ -397,6 +397,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         started_at_ms: now_ms(),
                     };
                     state.pending_tools.insert(id.clone(), pt.clone());
+                    // Le bloc complet (input intégral) remplace le verbe de
+                    // rédaction : l'état d'affichage drafting est consommé.
+                    state.drafting_tool = None;
                     out.push(json!({
                         "kind": "tool_update",
                         "id": id,
@@ -744,6 +747,59 @@ mod tests {
             &json!({"type":"system","subtype":"post_turn_summary","status_category":"completed"}),
         );
         assert!(normal.is_empty());
+    }
+
+    /// Verbe de rédaction (spike 2026-08-21, GO Claude) : `content_block_start`
+    /// tool_use avec input VIDE émet un event éphémère `drafting` portant le
+    /// nom de l'outil, BIEN AVANT le bloc `assistant` complet (~780 ms). Le
+    /// vrai `tool_update` running suit et remplace l'affichage.
+    #[test]
+    fn content_block_start_tool_use_emet_le_verbe_de_redaction() {
+        let mut state = ClaudeStreamState::default();
+        // 1. Le signal amont : nom connu, input vide.
+        let start = parse_message(
+            &mut state,
+            &json!({"type":"stream_event","event":{
+                "type":"content_block_start",
+                "content_block":{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}}}),
+        );
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0]["kind"], "drafting");
+        assert_eq!(start[0]["tool"], "Bash");
+        assert_eq!(state.drafting_tool.as_deref(), Some("Bash"));
+
+        // 2. Un content_block_start NON-tool (texte) n'émet rien.
+        let text_start = parse_message(
+            &mut state,
+            &json!({"type":"stream_event","event":{
+                "type":"content_block_start",
+                "content_block":{"type":"text","text":""}}}),
+        );
+        assert!(text_start.iter().all(|e| e["kind"] != "drafting"));
+
+        // 3. Les deltas d'arguments ne re-émettent PAS le drafting.
+        let delta = parse_message(
+            &mut state,
+            &json!({"type":"stream_event","event":{
+                "type":"content_block_delta",
+                "delta":{"type":"input_json_delta","partial_json":"{\"command\""}}}),
+        );
+        assert!(delta.iter().all(|e| e["kind"] != "drafting"));
+
+        // 4. Le bloc assistant COMPLET arrive : le tool_update running est
+        // émis, le drafting ne survit pas comme état d'affichage.
+        let full = parse_message(
+            &mut state,
+            &json!({"type":"assistant","message":{
+                "content":[{"type":"tool_use","id":"toolu_01","name":"Bash",
+                    "input":{"command":"echo bonjour > hello.txt"}}]}}),
+        );
+        assert!(
+            full.iter().any(|e| e["kind"] == "tool_update" && e["status"] == "running"),
+            "le bloc complet doit émettre le tool_update running: {full:?}"
+        );
+        assert!(full.iter().all(|e| e["kind"] != "drafting"));
+        assert_eq!(state.drafting_tool, None);
     }
 
     /// Les hooks tournent invisiblement (69 chez Thierry) : ils occupent
