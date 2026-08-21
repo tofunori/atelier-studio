@@ -10,36 +10,28 @@ import { FileTypeIcon, Tick } from "./toolPresentation";
 import { t } from "../../lib/i18n";
 import type { ChangedFile } from "./changedFiles";
 
-export function ChangedFilesCard({ files, onOpenDiff, onToggleFile, canDiff, openPaths, renderFileDiff, actions }: {
+export function ChangedFilesCard({ files, onToggleFile, canDiff, openPaths, renderFileDiff }: {
   files: ChangedFile[];
   /** un chemin sans diff possible reste une ligne inerte plutôt qu'un clic
    * qui resterait bloqué sur « Chargement… » */
   canDiff?: (path: string) => boolean;
-  /** null quand aucun chemin git n'est disponible pour ce tour (edits seuls,
-   * sans done.filesChanged) — le diff a besoin de chemins git, donc ni le
-   * lien « Voir le diff » ni les lignes ne sont cliquables dans ce cas. */
-  onOpenDiff: (() => void) | null;
   /** ouvre/ferme le diff d'UN fichier ; null quand aucun diff n'est possible */
   onToggleFile?: ((path: string) => void) | null;
   /** chemins dont le diff est déplié */
   openPaths?: ReadonlySet<string>;
   /** corps du diff d'un fichier, fourni par le propriétaire de l'état */
   renderFileDiff?: (path: string) => ReactNode;
-  /** actions du tour rendues DANS l'en-tête (annulation des fichiers) : hors
-   * de la carte, elles flottaient sous un bloc auquel elles appartiennent. */
-  actions?: ReactNode;
 }) {
   if (!files.length) return null;
   const opened = openPaths ?? new Set<string>();
   const anyOpen = files.some((f) => opened.has(f.path));
   return (
     <div className="changed-files-card">
+      {/* En-tête : le compte, rien d'autre (Thierry 2026-08-21). « Voir le
+          diff » faisait doublon avec le clic par fichier ; « Annuler les
+          fichiers » avec l'annulation du tour, portée par la bulle user. */}
       <div className="changed-files-head">
         <span className="changed-files-count">{t("chat.files-modified", { count: files.length })}</span>
-        {onOpenDiff && (
-          <RowButton className="changed-files-review" onClick={onOpenDiff}>{t("chat.see-diff")}</RowButton>
-        )}
-        {actions}
       </div>
       <div className={`changed-files-list${anyOpen ? " is-expanded" : ""}`}>
         {files.map((f) => {
