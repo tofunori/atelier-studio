@@ -32,6 +32,21 @@ const MAX_LIVE_RUNTIMES: usize = 8;
 const IDLE_TTL_MS: u64 = 60 * 60 * 1_000;
 const LATE_EVENT_QUIET_MS: u64 = 150;
 const LATE_EVENT_MAX_MS: u64 = 1_000;
+/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex. Un
+/// CLI figé (vivant, muet) ne doit jamais laisser un tour sans terminal.
+/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex/Grok. Un
+/// CLI figé (vivant, muet) ne doit jamais laisser un tour sans terminal.
+/// Surchargable pour les tests (`ATELIER_TURN_TIMEOUT_SECS`), jamais en prod
+/// (config.yaml ne le propose pas : un tour long reste légitime, seul le CLI
+/// FIGÉ est visé).
+const TURN_TIMEOUT_SECS_DEFAULT: u64 = 600;
+
+fn turn_timeout_secs() -> u64 {
+    std::env::var("ATELIER_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(TURN_TIMEOUT_SECS_DEFAULT)
+}
 
 #[derive(Clone, Default)]
 struct GrokSelection {
@@ -580,14 +595,23 @@ impl GrokProvider {
             }
         });
 
-        let prompt_result = runtime
-            .acp
-            .request(
+        let prompt_result = tokio::time::timeout(
+            // Réplique le filet Codex : `session/prompt` est en attente
+            // illimitée (acp_rpc), donc un CLI vivant mais FIGÉ (ni réponse ni
+            // mort) laissait le tour « en cours » pour toujours, sans terminal
+            // — l'interrupt ne peut rien contre un agent qui n'écoute plus.
+            Duration::from_secs(turn_timeout_secs()),
+            runtime.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": [{"type":"text", "text": prompt}]}),
                 None,
-            )
-            .await;
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
+            "timeout Grok ({}s) — CLI figé sans répondre",
+            turn_timeout_secs()
+        ))));
         watcher.abort();
         last_update.store(now_ms(), Ordering::Relaxed);
         wait_for_quiet(&last_update).await;

@@ -901,7 +901,12 @@ export default function Chat(p: {
     return rows;
   }, [editTurns, mergedEdits, projectedTimeline]);
 
-  const latestGoal = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "goal" }> => e.kind === "goal");
+  // Copie + reverse O(n) du fil : mémoïsé, sinon chaque delta du stream
+  // re-parcourt tout l'historique pour retrouver le dernier goal.
+  const latestGoal = React.useMemo(
+    () => [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "goal" }> => e.kind === "goal"),
+    [p.events],
+  );
   const goalKey = latestGoal ? `${latestGoal.goal?.objective ?? ""}|${latestGoal.ts ?? ""}` : null;
   const activeGoal = latestGoal && !latestGoal.cleared && goalKey !== goalDismissed
     ? latestGoal.goal : null;

@@ -603,14 +603,18 @@ export function ActiveTurnHeader(p: {
  * un tour qui touche trente fichiers tique sur place au lieu de défiler.
  * Adapté de Hermes Desktop (ToolRunTicker, nousresearch/hermes-agent, MIT). */
 export function ToolRunTicker({ rows }: { rows: { key: string; label: string }[] }) {
+  const label = rows[rows.length - 1]?.label ?? "";
   return (
-    <span className="tool-ticker">
+    // role="status" + aria-live="polite" : la ligne qui tique est du même
+    // échafaudage que « en attente · Ns » — annoncée aux lecteurs d'écran
+    // (façon Hermes StatusRow), sans crier sur le reste du fil.
+    <span className="tool-ticker" role="status" aria-live="polite">
       <span
         className="tool-ticker-reel"
         style={{ "--tick-i": rows.length - 1 } as React.CSSProperties}
       >
         {rows.map((row) => (
-          <span key={row.key} className="tool-ticker-row">{row.label}</span>
+          <span key={row.key} className="tool-ticker-row" aria-hidden={row.label !== label}>{row.label}</span>
         ))}
       </span>
     </span>
@@ -659,7 +663,11 @@ export function ActiveTurnTail(p: {
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      {silencieux && <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>}
+      {silencieux && (
+        <div className="turn-quiet" role="status" aria-live="polite">
+          {t("chat.quiet-wait", { s: quietSeconds })}
+        </div>
+      )}
       <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
         <kbd>esc</kbd> {t("action.interrupt")}
       </RowButton>

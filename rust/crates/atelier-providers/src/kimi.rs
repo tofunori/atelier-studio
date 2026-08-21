@@ -29,6 +29,11 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
+/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex/Grok.
+/// Un CLI kimi-code figé (vivant, muet) ne doit jamais laisser un tour sans
+/// terminal : au timeout, `prompt_res` devient une Err → chemin error normal.
+const TURN_TIMEOUT_SECS: u64 = 600;
+
 /// État lié à la génération du process ACP courant — invalidé au respawn.
 #[derive(Default)]
 struct KimiState {
@@ -992,14 +997,20 @@ impl KimiProvider {
             }
         });
 
-        let prompt_res = self
-            .acp
-            .request(
+        let prompt_res = tokio::time::timeout(
+            // Même filet que Grok/Codex : sans plafond, un CLI kimi-code figé
+            // (vivant, muet) laissait le tour « en cours » sans terminal.
+            Duration::from_secs(TURN_TIMEOUT_SECS),
+            self.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": prompt_blocks}),
                 None,
-            )
-            .await;
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
+            "timeout Kimi ({TURN_TIMEOUT_SECS}s) — CLI figé sans répondre"
+        ))));
 
         // Finalisation systématique : sonde, handlers, tour actif.
         watcher.abort();

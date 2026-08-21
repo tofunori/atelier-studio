@@ -149,7 +149,10 @@ export function ChatTimeline(p: {
           events[lastDoneIndex] as Extract<AgentEvent, { kind: "done" }>,
         )
   ), [events, lastDoneIndex, lastDoneUserIndex]);
-  const lastThinkingIndex = (() => {
+  // Identité référentielle : ce scan ne dépend que de `events` — le mémoïser
+  // évite un parcours O(n) du fil À CHAQUE rendu (chaque delta du stream fait
+  // re-rendre ce composant ; même discipline que les dérivés ci-dessus).
+  const lastThinkingIndex = React.useMemo(() => {
     // Instant réel : le réducteur recolle les morceaux dans le bloc existant
     // sans bouger son `ts`, mais remplace son `meta` — un bloc placé AVANT la
     // réponse peut donc être le plus récent (Grok pense encore après avoir
@@ -172,7 +175,7 @@ export function ChatTimeline(p: {
       }
     }
     return -1;
-  })();
+  }, [events]);
   // Une même pensée peut atterrir deux fois dans le fil (bloc du tour + bloc
   // recollé après la réponse) : elles portent alors un texte identique. On ne
   // garde que la PREMIÈRE — celle qui précède la réponse, à sa place logique.
@@ -235,6 +238,12 @@ export function ChatTimeline(p: {
     }
     return -1;
   }, [renderedEvents]);
+  // Identité référentielle : LegendList re-rend TOUTES les lignes visibles
+  // dès que l'IDENTITÉ de extraData change (Object.is). On ne reconstruit donc
+  // l'objet que si une de ses valeurs a réellement bougé — les deltas du
+  // stream, qui ne touchent ni editing ni pins ni openToolGroups, ne coûtent
+  // alors plus un re-render complet de la liste. `derniereLigneTravail` est
+  // inclus volontairement : c'est lui qui fait tiquer la ligne du run en cours.
   const listExtraData = React.useMemo(() => ({
     editing,
     openToolGroups,
