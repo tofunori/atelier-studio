@@ -413,7 +413,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(dones[1].id).toBe("last-done");
     expect(dones[0].id).toBe("");
     expect(document.querySelectorAll("#last-done")).toHaveLength(1);
-    expect(document.querySelector(".done-verify")).toBeTruthy();
+    // « Vérifier ce tour » retiré (demande Thierry 2026-08-21) : plus de
+    // bouton manuel — le badge review reste piloté par les déclencheurs auto.
+    expect(document.querySelector(".done-verify")).toBeNull();
   });
 });
 

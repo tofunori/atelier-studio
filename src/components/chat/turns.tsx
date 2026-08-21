@@ -453,20 +453,10 @@ export function ResultCapsule(p: {
               {t("chat.revert-turn")}
             </Button>
           )}
-          {p.isLastDone && !review && (
-            <Button
-              variant="ghost"
-              className="done-verify"
-              title={t("review.verify")}
-              onClick={p.onStartReview}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-                <path d="M5.8 8l1.6 1.6L10.5 6.3" />
-              </svg>
-              {t("review.verify-now")}
-            </Button>
-          )}
+          {/* « Vérifier ce tour » retiré à la demande de Thierry (2026-08-21) :
+              le déclenchement manuel de l'auto-review n'a plus de bouton ; les
+              déclencheurs automatiques (réglages autoReview) restent servis
+              par le même flux, et le badge/le panneau d'issues demeurent. */}
         </span>
       </div>
       {p.isLastDone && review && (
