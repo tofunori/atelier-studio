@@ -44,6 +44,10 @@ pub struct ClaudeStreamState {
     /// a disparu, mais ce compteur donne quand même un signal de progression
     /// à l'UI. Remis à zéro partout où current_msg_* se réinitialise.
     pub thinking_chunks: u64,
+    /// Nom de l'outil EN RÉDACTION (content_block_start tool_use, input vide) :
+    /// le vrai `tool_update` running le remplace ; sert au test pour vérifier
+    /// que le drafting ne survit pas à l'arrivée du bloc complet.
+    pub drafting_tool: Option<String>,
     pub pending_tools: std::collections::HashMap<String, PendingTool>,
     pub saw_terminal: bool,
 }
@@ -197,6 +201,23 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 if ticker >= state.last_beat_tokens + 24 {
                     state.last_beat_tokens = ticker;
                     out.push(json!({"kind":"heartbeat","tokens": ticker}));
+                }
+            }
+            if et == "content_block_start" {
+                // Verbe de rédaction (façon Hermes tool.generating) : le CLI
+                // annonce le NOM de l'outil avec input VIDE bien avant le bloc
+                // `assistant` complet (~780 ms mesurés, spike 2026-08-21).
+                // Event ÉPHÉMÈRE dédié — jamais journalisé ni rendu comme une
+                // ligne du fil ; l'UI l'affiche comme verbe d'attente nommé et
+                // le vrai `tool_update` running le remplace à l'arrivée.
+                if let Some(cb) = ev.get("content_block") {
+                    let cbt = cb.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    if cbt == "tool_use" {
+                        if let Some(name) = cb.get("name").and_then(|v| v.as_str()) {
+                            state.drafting_tool = Some(name.to_string());
+                            out.push(json!({"kind":"drafting","tool": name}));
+                        }
+                    }
                 }
             }
             if et == "message_delta" {

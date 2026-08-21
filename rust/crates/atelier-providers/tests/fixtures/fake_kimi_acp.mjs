@@ -168,7 +168,7 @@ function configOptions(st) {
 }
 
 function newSessionState() {
-  return { model: "fake-k3", thinking: "on", mode: "default", turn: 0, cancel: null };
+  return { model: "fake-k3", thinking: "on", mode: "default", turn: 0, cancel: null, hang: false };
 }
 
 function grokSessionResult(sessionId, st) {
@@ -219,6 +219,13 @@ async function handlePrompt(id, params) {
   if (text.includes("[eof]")) {
     // EOF brutal : plusieurs requêtes peuvent être pending côté client.
     process.exit(0);
+  }
+  if (text.includes("[hang]")) {
+    // CLI figé : ne répond JAMAIS au session/prompt (ni erreur ni exit) —
+    // le client doit sortir par son propre timeout de tour (filet Codex/
+    // Grok/Kimi). Répond à session/cancel pour permettre un nettoyage.
+    st.hang = true;
+    return undefined;
   }
   if (text.includes("[late]")) {
     await new Promise((r) => setTimeout(r, LATE_MS));

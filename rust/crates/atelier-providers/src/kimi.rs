@@ -32,7 +32,15 @@ use std::time::Duration;
 /// Plafond d'un tour `session/prompt` — même valeur que le filet Codex/Grok.
 /// Un CLI kimi-code figé (vivant, muet) ne doit jamais laisser un tour sans
 /// terminal : au timeout, `prompt_res` devient une Err → chemin error normal.
-const TURN_TIMEOUT_SECS: u64 = 600;
+/// Surchargable pour les tests (`ATELIER_TURN_TIMEOUT_SECS`).
+const TURN_TIMEOUT_SECS_DEFAULT: u64 = 600;
+
+fn turn_timeout_secs() -> u64 {
+    std::env::var("ATELIER_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(TURN_TIMEOUT_SECS_DEFAULT)
+}
 
 /// État lié à la génération du process ACP courant — invalidé au respawn.
 #[derive(Default)]
@@ -1000,7 +1008,7 @@ impl KimiProvider {
         let prompt_res = tokio::time::timeout(
             // Même filet que Grok/Codex : sans plafond, un CLI kimi-code figé
             // (vivant, muet) laissait le tour « en cours » sans terminal.
-            Duration::from_secs(TURN_TIMEOUT_SECS),
+            Duration::from_secs(turn_timeout_secs()),
             self.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": prompt_blocks}),
@@ -1009,7 +1017,8 @@ impl KimiProvider {
         )
         .await
         .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
-            "timeout Kimi ({TURN_TIMEOUT_SECS}s) — CLI figé sans répondre"
+            "timeout Kimi ({}s) — CLI figé sans répondre",
+            turn_timeout_secs()
         ))));
 
         // Finalisation systématique : sonde, handlers, tour actif.
@@ -1510,6 +1519,33 @@ mod tests {
         );
         let done = out.done().expect("done");
         assert_eq!(done["ok"], false);
+    }
+
+    /// Régression (filet Codex répliqué) : un CLI kimi-code FIGÉ — vivant,
+    /// muet, qui ne répond ni erreur ni exit — laissait le tour « en cours »
+    /// sans terminal pour toujours. Au plafond du tour, le send doit rendre
+    /// `ok:false` et le journal doit porter l'erreur de timeout.
+    #[tokio::test]
+    async fn cli_fige_le_timeout_termine_le_tour_avec_erreur() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        // Plafond de test : 1 s (le vrai plafond reste 600 s en prod).
+        std::env::set_var("ATELIER_TURN_TIMEOUT_SECS", "1");
+        let out = run_turn(&p, "[hang] question", None, None, None, None, None).await;
+        std::env::remove_var("ATELIER_TURN_TIMEOUT_SECS");
+        assert!(!out.result.ok, "le tour figé doit échouer: {:?}", out.result);
+        assert!(
+            out.errors().iter().any(|m| m.contains("timeout Kimi")),
+            "erreur de timeout attendue, reçu: {:?}",
+            out.errors()
+        );
+        // Pas de done ok : le terminal est l'erreur, pas une fin réussie.
+        assert!(
+            out.done().map(|d| d["ok"] != true).unwrap_or(true),
+            "un done ok=true ne doit pas suivre un timeout: {:?}",
+            out.done()
+        );
     }
 
     #[tokio::test]
