@@ -210,9 +210,17 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
   );
 }
 
-const FICONS = import.meta.glob("../../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+// Indexé par NOM DE BASE : les clés d'import.meta.glob reprennent le motif tel
+// qu'écrit (« ../../assets/… »), et la lecture cherchait « ../assets/… » — un
+// cran de trop, donc AUCUNE icône de fichier ne s'affichait (vécu 2026-08-21 :
+// carte « fichiers modifiés » avec une indentation vide à la place des icônes).
+const FICONS: Record<string, string> = Object.fromEntries(
+  Object.entries(
+    import.meta.glob("../../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>,
+  ).map(([path, url]) => [path.split("/").pop()?.replace(/\.svg$/, "") ?? path, url]),
+);
 export function ficon(name: string): string | null {
-  return FICONS[`../assets/ficons/${name}.svg`] ?? null;
+  return FICONS[name] ?? null;
 }
 export const EXT_ICON: Record<string, string> = {
   py: "python", md: "markdown", markdown: "markdown", json: "json",

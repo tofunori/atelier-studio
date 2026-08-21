@@ -1111,18 +1111,29 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); border-radius: var(--r-s); }
 
-.changed-files-card { border-radius: var(--r-m); background: var(--bg-card); padding: 8px 12px; margin: 6px 0; }
-.changed-files-head { display: flex; align-items: center; justify-content: space-between;
+/* Carte « fichiers modifiés » : un bloc compact, actions dans l'en-tête, une
+   ligne par fichier (icône + dossier atténué + nom vif + ±). */
+.changed-files-card { border-radius: var(--r-m); background: var(--bg-card);
+  padding: 8px 10px 6px; margin: 6px 0; }
+.changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
+.changed-files-count { flex: 1; min-width: 0; }
 .changed-files-review { border: none; background: transparent; color: var(--text-muted);
   font-size: var(--fs-s); cursor: pointer; padding: 0; font: inherit; transition: color var(--ease); }
 .changed-files-review:hover { color: var(--text-secondary); }
+.changed-files-head .turn-diff-undo { margin: 0; }
 .changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
-.changed-files-row { display: flex; align-items: center; gap: 8px; width: 100%;
-  border: none; background: transparent; padding: 2px 4px; border-radius: var(--r-s);
-  font-size: var(--fs-m); color: var(--text-muted); cursor: pointer; text-align: left; transition: background var(--ease); }
+.changed-files-row { display: flex; align-items: center; gap: 7px; width: 100%;
+  border: none; background: transparent; padding: 1px 4px; border-radius: var(--r-s);
+  font-size: var(--fs-m); line-height: 1.7; color: var(--text-muted); cursor: pointer;
+  text-align: left; transition: background var(--ease); }
 .changed-files-row:hover { background: var(--bg-pop); }
-.changed-files-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changed-files-row .fglyph { flex: 0 0 14px; width: 14px; height: 14px; opacity: .8; }
+.changed-files-path { flex: 1; min-width: 0; display: flex; align-items: baseline;
+  overflow: hidden; white-space: nowrap; }
+.changed-files-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-disabled); }
+.changed-files-name { flex: 0 0 auto; color: var(--text-secondary); }
 .diff-add, .diff-del { font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
 .diff-add { color: var(--status-success); }
 .diff-del { color: var(--status-error); }

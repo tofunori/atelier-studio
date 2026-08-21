@@ -7,6 +7,7 @@ import {
   activitySegments,
   activityIconForAction,
   distinctToolActions,
+  ficon,
   fmtToolDur,
   imagePathsForActions,
   isSummarizableTool,
@@ -112,6 +113,16 @@ describe("Codex-style activity presentation", () => {
     ]);
     expect(counted.label).toBe("2 fichiers consultés");
     setLanguage("en");
+  });
+
+  // Régression 2026-08-21 : les clés d'import.meta.glob reprennent le motif
+  // (« ../../assets/… ») et la lecture cherchait « ../assets/… » — aucune
+  // icône de fichier ne se résolvait, la carte affichait un vide indenté.
+  it("résout les icônes de type de fichier", () => {
+    expect(ficon("tex")).toBeTruthy();
+    expect(ficon("json")).toBeTruthy();
+    expect(ficon("pdf")).toBeTruthy();
+    expect(ficon("inconnu-xyz")).toBeNull();
   });
 
   it("formate les durées d'outil du ms à la minute", () => {

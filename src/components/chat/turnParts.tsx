@@ -91,10 +91,26 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
       });
     }
   };
+  // L'annulation appartient au bloc « fichiers modifiés » : rendue dans
+  // l'en-tête de la carte quand elle existe, sinon à sa place historique.
+  const undoButton = event.checkpoint ? (
+    <Button
+      variant="danger"
+      className="turn-diff-undo"
+      title={t("checkpoint.files-title")}
+      onClick={() => setConfirmOpen(true)}
+    >
+      {t("checkpoint.undo-files")}
+    </Button>
+  ) : null;
   return (
     <>
     {showCard && (
-      <ChangedFilesCard files={changedFiles!} onOpenDiff={hasGitFiles ? openDiffs : null} />
+      <ChangedFilesCard
+        files={changedFiles!}
+        onOpenDiff={hasGitFiles ? openDiffs : null}
+        actions={undoButton}
+      />
     )}
     {hasGitFiles && (
     <div className="turn-diff">
@@ -114,16 +130,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
           <Tick open={open} />
         </RowButton>
       )}
-      {event.checkpoint ? (
-        <Button
-          variant="danger"
-          className="turn-diff-undo"
-          title={t("checkpoint.files-title")}
-          onClick={() => setConfirmOpen(true)}
-        >
-          {t("checkpoint.undo-files")}
-        </Button>
-      ) : null}
+      {!showCard && undoButton}
       {open && <div className="turn-diff-files">
         {files.map((path) => {
           const payload = diffs[path];
