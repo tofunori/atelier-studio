@@ -12,8 +12,10 @@ import { events, FIXED_TS } from "../../test/fixtures";
 import { setLanguage, t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
 
-function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<typeof Chat>[0] {
-  return {
+function chatProps(
+  over: Partial<Omit<Parameters<typeof Chat>[0], "defaults">> & { defaults?: Partial<Parameters<typeof Chat>[0]["defaults"]> } = {},
+): Parameters<typeof Chat>[0] {
+  const base = {
     events: [], workingSince: null, commands: [], files: [], recentFiles: [],
     zoteroItems: [], injectText: null, onInjected: vi.fn(), attachments: [],
     onRemoveAttachment: vi.fn(), onQuote: vi.fn(), threadId: "thread-A",
@@ -23,8 +25,12 @@ function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<t
     highlights: [],
     defaults: { defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "bypassPermissions" },
     pins: [], onStylePin: vi.fn(), onTogglePin: vi.fn(), disabled: false, onSubmit: vi.fn(),
-    ...over,
   };
+  return {
+    ...base,
+    ...over,
+    defaults: { ...base.defaults, ...over.defaults },
+  } as Parameters<typeof Chat>[0];
 }
 
 // tour terminé avec 2 outils : produit un pli d'activité
@@ -91,6 +97,18 @@ describe("anatomie du tour — header d'activité", () => {
     expect(indicator.textContent).toContain("Je relis la section méthodes pour voir ce qui manque.");
     expect(indicator.querySelector(".thinking-live-stream")?.textContent).toBe("Je relis la section méthodes pour voir ce qui manque.");
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
+  });
+
+  it("la préférence replie la pensée vivante par défaut, le clic la déplie", () => {
+    const evs: AgentEvent[] = [
+      events.user("Réfléchis.", FIXED_TS),
+      { kind: "thinking_live", text: "Une longue pensée déjà en cours.", ts: FIXED_TS + 50 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS, defaults: { thinkingCollapsed: true } })} />);
+    expect(document.querySelector(".thinking-live-stream")).toBeNull();
+    expect(document.querySelector(".thinking-preview")?.textContent).toContain("longue pensée");
+    fireEvent.click(document.querySelector(".thinking-live-head") as HTMLButtonElement);
+    expect(document.querySelector(".thinking-live-stream")).toBeTruthy();
   });
 
   // Flux Grok réel (capturé sur grok 1.0.3) : les blocs `thinking` durables

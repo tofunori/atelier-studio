@@ -439,7 +439,7 @@ export function ChatTimeline(p: {
                   <div className="working-row">
                     <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
                   </div>
-                  <LiveThinking thought={liveThought} />
+                  <LiveThinking thought={liveThought} collapsedByDefault={defaults.thinkingCollapsed ?? false} />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
                     <kbd>esc</kbd> {t("action.interrupt")}
                   </RowButton>
@@ -520,6 +520,7 @@ export function ChatTimeline(p: {
                 onStop={onStop}
                 plugins={plugins}
                 renderToolLine={renderToolLine}
+                thinkingCollapsed={defaults.thinkingCollapsed ?? false}
               />
             );
           }
@@ -615,7 +616,14 @@ export function ChatTimeline(p: {
             // jamais de thinking_delta, seulement des thinking complets tous
             // les ~100 caractères. C'est le tour qui tourne encore, et le fait
             // d'être le dernier bloc de pensée, qui font le direct.
-            return <ThinkingBlock key={i} text={e.text} live={workingSince != null && i === lastThinkingIndex} />;
+            return (
+              <ThinkingBlock
+                key={i}
+                text={e.text}
+                live={workingSince != null && i === lastThinkingIndex}
+                collapsedByDefault={defaults.thinkingCollapsed ?? false}
+              />
+            );
           if (e.kind === "activity")
             return <ActivityCard key={e.id} event={e} live={workingSince != null && e.status === "running"} />;
           if (e.kind === "permission")

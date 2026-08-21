@@ -640,6 +640,7 @@ export function ActiveTurnTail(p: {
   onStop: () => void;
   plugins?: PluginCatalogEntry[];
   renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
+  thinkingCollapsed?: boolean;
 }) {
   const state = p.turn.activeState;
   const activeGroups = p.turn.activeActionGroups;
@@ -685,7 +686,7 @@ export function ActiveTurnTail(p: {
         // Grok, qui clôt chaque bloc — dans le dernier `thinking` durable :
         // le live y est remplacé par le final, et l'état retombe sur
         // `thinking`, muet.
-        <LiveThinking thought={currentThought(p.turn, p.events)} />
+        <LiveThinking thought={currentThought(p.turn, p.events)} collapsedByDefault={p.thinkingCollapsed ?? false} />
       ) : (
         <ActivityDisclosure
           open={p.open}

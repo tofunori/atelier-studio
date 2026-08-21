@@ -318,7 +318,10 @@ export function formatPermInput(tool: string, input: Record<string, unknown>): {
   return { lang: "json", text: s.length > 400 ? s.slice(0, 400) + "…" : s };
 }
 
-export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
+export function ThinkingBlock(
+  { text, live, collapsedByDefault = false }:
+    { text: string; live: boolean; collapsedByDefault?: boolean },
+) {
   // La pensée se déroule PENDANT le tour, puis se replie quand la réponse
   // arrive : on ne voyait que 140 caractères d'un texte qui en fait des
   // dizaines de milliers. `manuel` garde la main dès que Thierry clique —
@@ -326,7 +329,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const [manuel, setManuel] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const liveRef = useRef(live);
-  const open = manuel ?? live;
+  const open = manuel ?? (live && !collapsedByDefault);
   const normalized = text.trim();
   const preview = normalized.replace(/\s+/g, " ").slice(-140);
 
@@ -451,7 +454,10 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
   return <span className="thinking-shimmer">{text}</span>;
 }
 
-export function LiveThinking({ thought }: { thought?: string | null } = {}) {
+export function LiveThinking(
+  { thought, collapsedByDefault = false }:
+    { thought?: string | null; collapsedByDefault?: boolean } = {},
+) {
   // La pensée se DÉROULE pendant le travail : une fenêtre de quelques lignes
   // calée sur la fin, plutôt que les 120 derniers caractères sur une ligne.
   // Bornée en hauteur — Grok émet des centaines de morceaux et le fil ne doit
@@ -460,7 +466,7 @@ export function LiveThinking({ thought }: { thought?: string | null } = {}) {
   // vivante est la narration du moment — mais Thierry peut la replier en une
   // ligne d'aperçu pour suivre le tour sans le monologue.
   const texte = (thought ?? "").trim();
-  const [replie, setReplie] = useState(false);
+  const [replie, setReplie] = useState(collapsedByDefault);
   // « plein » : Thierry a demandé toute la pensée — la fenêtre de 4 lignes ne
   // borne plus. Le choix est le sien (bouton « tout afficher »), la borne
   // reste le défaut : Grok émet des centaines de morceaux et le fil ne doit
