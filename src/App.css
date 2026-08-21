@@ -1092,22 +1092,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   max-width: min(var(--chat-col, 760px), 100%); }
 .capsule-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .capsule-head.is-success-minimal { height: 0; min-height: 0; }
-.capsule-head.is-success-minimal .capsule-actions {
-  position: absolute; z-index: 1; top: 0; right: 0; }
 .capsule-status { color: var(--text-muted); white-space: nowrap; }
 .capsule-status.warn { color: var(--u-warn); }
-.result-capsule .capsule-actions { opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out); }
-.result-capsule:hover .capsule-actions, .result-capsule:focus-within .capsule-actions { opacity: 1; }
-.result-capsule.warn .capsule-actions { opacity: 1; }
 .capsule-meta { color: var(--text-disabled); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.capsule-actions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
-.capsule-act { background: transparent; border: none; color: var(--text-disabled); cursor: pointer;
-  font: inherit; font-size: var(--fs-m); padding: 2px 6px; border-radius: var(--r-s);
-  transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
-.capsule-act:hover { color: var(--text-primary); background: var(--bg-ctl); }
-.capsule-act:focus-visible, .done-verify:focus-visible, .turn-diff-toggle:focus-visible {
+.turn-diff-toggle:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); border-radius: var(--r-s); }
 
@@ -2718,10 +2707,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .rm-correct:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border2); }
 .rm-correct:disabled { opacity: 0.5; cursor: default; }
 /* bouton "Vérifier ce tour" (manuel, auto-review off) */
-.done-verify { margin-left: 12px; display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; border: 1px solid var(--border); color: var(--text-muted);
-  border-radius: var(--r-pill); padding: 2px 11px; font-size: var(--fs-s); cursor: pointer; }
-.done-verify:hover { color: var(--text-secondary); border-color: var(--border2); }
 /* menu reviewer : détail "vérifié contre" + verdict ok */
 .rm-ok { color: var(--status-success); font-size: var(--fs-m); }
 .rm-checked { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px;

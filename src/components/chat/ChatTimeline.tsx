@@ -700,22 +700,14 @@ export function ChatTimeline(p: {
             for (let k = i - 1; k >= 0; k--) {
               if (events[k].kind === "user") { userIdx = k; break; }
             }
-            const turnUser = userIdx >= 0
-              ? (events[userIdx] as Extract<AgentEvent, { kind: "user" }>)
-              : null;
             return (
               <ResultCapsule
                 key={i}
                 event={e}
                 isLastDone={isLastDone}
-                onRevertTurn={turnUser ? () => onRevert(userIdx, turnUser.text, false) : null}
                 threadId={threadId}
                 review={review}
                 reviewOpen={reviewOpen}
-                onStartReview={() => {
-                  setReview({ status: "running" });
-                  window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: threadId } }));
-                }}
                 onToggleReviewOpen={() => setReviewOpen((v) => !v)}
                 changedFiles={isLastDone ? deriveChangedFiles(events.slice(userIdx + 1, i), e) : undefined}
               />

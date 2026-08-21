@@ -658,10 +658,18 @@ describe("capsule résultat — honnêteté et actions", () => {
     expect(capsule.querySelector(".capsule-status.warn svg")).toBeTruthy();
   });
 
-  it("« Annuler le tour » appelle onRevert avec le message user du tour", () => {
+  // « Annuler le tour » retiré de la capsule (Thierry, 2026-08-21) : doublon
+  // strict de l'action portée par la bulle user, et il flottait en absolu
+  // par-dessus la carte des fichiers. L'annulation reste accessible là.
+  it("l'annulation du tour vit sur la bulle user, pas dans la capsule", () => {
     const onRevert = vi.fn();
     renderUi(<Chat {...chatProps({ events: finishedTurn(), onRevert })} />);
-    fireEvent.click(screen.getByText(t("chat.revert-turn")));
+    expect(screen.queryByText(t("chat.revert-turn"))).toBeNull();
+    const action = document.querySelector(
+      `.user-message [aria-label="${t("chat.revert-title")}"], .user-message [title="${t("chat.revert-title")}"]`,
+    ) as HTMLElement;
+    expect(action).toBeTruthy();
+    fireEvent.click(action);
     expect(onRevert).toHaveBeenCalledWith(0, "Analyse l'albédo.", false);
   });
 

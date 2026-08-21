@@ -418,10 +418,7 @@ export function ResultCapsule(p: {
   threadId: string | null;
   review: ReviewState;
   reviewOpen: boolean;
-  onStartReview: () => void;
   onToggleReviewOpen: () => void;
-  /** annule le tour (revert au message user) — null si non attribuable */
-  onRevertTurn: (() => void) | null;
   /** carte enrichie « N fichiers modifiés » — dérivée par l'appelant depuis
    * les events `edit` du tour, rendue seulement pour le dernier tour terminé. */
   changedFiles?: ChangedFile[];
@@ -446,18 +443,11 @@ export function ResultCapsule(p: {
             <span className="sr-only">{t("chat.turn-interrupted")}</span>
           </span>
         )}
-        <span className="capsule-actions">
-          {p.isLastDone && p.onRevertTurn && (
-            <Button variant="ghost" className="capsule-act" title={t("chat.revert-title")}
-              onClick={p.onRevertTurn}>
-              {t("chat.revert-turn")}
-            </Button>
-          )}
-          {/* « Vérifier ce tour » retiré à la demande de Thierry (2026-08-21) :
-              le déclenchement manuel de l'auto-review n'a plus de bouton ; les
-              déclencheurs automatiques (réglages autoReview) restent servis
-              par le même flux, et le badge/le panneau d'issues demeurent. */}
-        </span>
+        {/* Actions retirées (Thierry, 2026-08-21) : « Vérifier ce tour » (plus
+            de déclenchement manuel — les réglages autoReview restent) et
+            « Annuler le tour », doublon strict de l'action déjà portée par la
+            bulle du message user, qui flottait en absolu par-dessus la carte
+            des fichiers. L'annulation FICHIERS vit dans cette carte. */}
       </div>
       {p.isLastDone && review && (
         <RowButton
