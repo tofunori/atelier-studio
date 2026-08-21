@@ -16,7 +16,7 @@ import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
   activeToolLabel, activityIconForAction, activityIconForPhase,
-  distinctToolActions, summarizeActivity,
+  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
@@ -585,6 +585,25 @@ export function ActiveTurnHeader(p: {
   );
 }
 
+/** Fenêtre d'une ligne sur la liste croissante des actions du tour : chaque
+ * nouvelle action fait glisser la précédente vers le haut, hors du cadre —
+ * un tour qui touche trente fichiers tique sur place au lieu de défiler.
+ * Adapté de Hermes Desktop (ToolRunTicker, nousresearch/hermes-agent, MIT). */
+export function ToolRunTicker({ rows }: { rows: { key: string; label: string }[] }) {
+  return (
+    <span className="tool-ticker">
+      <span
+        className="tool-ticker-reel"
+        style={{ "--tick-i": rows.length - 1 } as React.CSSProperties}
+      >
+        {rows.map((row) => (
+          <span key={row.key} className="tool-ticker-row">{row.label}</span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
@@ -598,6 +617,24 @@ export function ActiveTurnTail(p: {
   const activeGroups = p.turn.activeActionGroups;
   const actions = activeGroups.flatMap((group) => group.actions);
   const distinctActions = distinctToolActions(actions);
+  // Attente chronométrée (façon Hermes turn-activity.ts, MIT) : après 2 s sans
+  // progrès visible et sans outil en vol pour porter l'attente, le ticker
+  // gagne une ligne « en attente · Ns ». Le seuil évite le stroboscope entre
+  // deux appels rapprochés ; la signature date le silence depuis le VRAI
+  // dernier progrès (un résultat mute l'appel affiché sans rien ajouter).
+  const signature = turnProgressSignature(actions, currentThought(p.turn, p.events).length);
+  const quietSinceRef = useRef(Date.now());
+  const prevSignatureRef = useRef(signature);
+  if (prevSignatureRef.current !== signature) {
+    prevSignatureRef.current = signature;
+    quietSinceRef.current = Date.now();
+  }
+  const [, forceQuietTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceQuietTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const quietSeconds = Math.floor((Date.now() - quietSinceRef.current) / 1000);
   const updates = distinctActions.filter((action): action is Extract<AgentEvent, { kind: "tool_update" }> => action.kind === "tool_update");
   const failed = updates.some((action) => action.status === "failed" || (action.exitCode != null && action.exitCode !== 0));
   const running = updates.some((action) => /^(running|pending|in[-_]?progress)$/i.test(action.status ?? ""));
@@ -628,7 +665,18 @@ export function ActiveTurnTail(p: {
           status={status}
           shimmer={state?.kind === "activity" && state.live && status === "running"}
           icon={icon}
-          label={<span key={labelKey} className="active-activity-transition">{activeEventLabel(p.turn, p.events)}</span>}
+          label={
+            // Ticker une-ligne dès que le tour a des actions outil ; les états
+            // sans action (permission en attente, activité native) gardent le
+            // libellé simple à transition.
+            state?.kind === "activity" && (activeEvent?.kind === "tool" || activeEvent?.kind === "tool_update") && distinctActions.length > 0
+              ? <ToolRunTicker rows={
+                  !running && quietSeconds >= 2
+                    ? [...tickerRows(actions), { key: "tick:quiet", label: t("chat.quiet-wait", { s: quietSeconds }) }]
+                    : tickerRows(actions)
+                } />
+              : <span key={labelKey} className="active-activity-transition">{activeEventLabel(p.turn, p.events)}</span>
+          }
           meta={actionCount > 1 ? t("chat.active-action-n", { n: actionCount }) : undefined}
         >
           {activeGroups.length > 0 ? <div className="active-work-detail">

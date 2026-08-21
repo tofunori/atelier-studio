@@ -6,11 +6,14 @@ import {
   activeToolLabel,
   activityIconForAction,
   distinctToolActions,
+  fmtToolDur,
   imagePathsForActions,
   isSummarizableTool,
   stripAnsi,
   summarizeActivity,
+  tickerRows,
   toolCategory,
+  turnProgressSignature,
   truncateToolOutput,
 } from "./toolPresentation";
 
@@ -38,7 +41,7 @@ describe("Codex-style activity presentation", () => {
       tool("cmd", "Bash", "npm test"),
       tool("read", "Bash", "cat src/App.tsx"),
     ]);
-    expect(readFirst.label).toBe("Read files, ran a command");
+    expect(readFirst.label).toBe("Read App.tsx, ran a command");
     expect(readFirst.icon?.cat).toBe("read");
 
     const searchFirst = summarizeActivity([
@@ -46,7 +49,7 @@ describe("Codex-style activity presentation", () => {
       tool("read", "Bash", "cat src/App.tsx"),
       tool("cmd", "Bash", "npm test"),
     ]);
-    expect(searchFirst.label).toBe("Read files, ran a command");
+    expect(searchFirst.label).toBe("Read 2 files, ran a command");
     expect(searchFirst.icon?.cat).toBe("search");
   });
 
@@ -72,6 +75,72 @@ describe("Codex-style activity presentation", () => {
     expect(toolCategory("image /tmp/legacy.png")).toBe("image");
     expect(toolCategory("agent:spawn", "reviewer")).toBe("agent");
     expect(isSummarizableTool({ kind: "tool", name: "__compacted" })).toBe(true);
+  });
+
+  // Nommage de cible façon Hermes (run-summary.ts, MIT) : une catégorie qui ne
+  // tient qu'un seul élément nomme sa cible ; plusieurs = un compte ; une
+  // commande seule reste comptée (elle n'a d'intérêt nominatif qu'en direct).
+  it("nomme la cible d'un singleton, compte les groupes, sauf les commandes", () => {
+    const single = summarizeActivity([
+      tool("edit", "apply_patch", "src/config.rs", { input: { path: "src/config.rs" } }),
+    ]);
+    expect(single.label).toBe("Edited config.rs");
+
+    const counted = summarizeActivity([
+      tool("r1", "Read", "src/a.ts", { input: { path: "src/a.ts" } }),
+      tool("r2", "Read", "src/b.ts", { input: { path: "src/b.ts" } }),
+      tool("c1", "Bash", "npm test"),
+      tool("c2", "Bash", "npm run build"),
+      tool("c3", "Bash", "git status"),
+    ]);
+    expect(counted.label).toBe("Read 2 files, ran 3 commands");
+
+    const lonelyCommand = summarizeActivity([tool("cmd", "Bash", "npm test")]);
+    expect(lonelyCommand.label).toBe("Ran a command");
+  });
+
+  it("nomme la cible en français aussi", () => {
+    setLanguage("fr");
+    const single = summarizeActivity([
+      tool("edit", "apply_patch", "src/config.rs", { input: { path: "src/config.rs" } }),
+    ]);
+    expect(single.label).toBe("Config.rs modifié");
+    const counted = summarizeActivity([
+      tool("r1", "Read", "src/a.ts", { input: { path: "src/a.ts" } }),
+      tool("r2", "Read", "src/b.ts", { input: { path: "src/b.ts" } }),
+    ]);
+    expect(counted.label).toBe("2 fichiers consultés");
+    setLanguage("en");
+  });
+
+  it("formate les durées d'outil du ms à la minute", () => {
+    expect(fmtToolDur(320)).toBe("320 ms");
+    expect(fmtToolDur(1400)).toBe("1,4 s");
+    expect(fmtToolDur(12_000)).toBe("12 s");
+    expect(fmtToolDur(125_000)).toBe("2 min 5 s");
+    expect(fmtToolDur(120_000)).toBe("2 min");
+  });
+
+  it("le ticker garde une clé stable par appel, sans fenêtre glissante", () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      tool(`cmd-${i}`, "Bash", `echo ${i}`, { status: i === 19 ? "inProgress" : "completed" }));
+    const rows = tickerRows(many);
+    expect(rows).toHaveLength(20);
+    expect(rows[rows.length - 1].key).toBe("tick:cmd-19");
+    // La même action re-signalée (update de statut) garde sa ligne.
+    const updated = tickerRows([...many, tool("cmd-19", "Bash", "echo 19", { status: "completed" })]);
+    expect(updated[updated.length - 1].key).toBe("tick:cmd-19");
+    expect(updated).toHaveLength(20);
+  });
+
+  it("la signature de progrès bouge quand un outil se termine, pas au re-render", () => {
+    const running = [tool("cmd", "Bash", "npm test", { status: "inProgress" })];
+    const settled = [tool("cmd", "Bash", "npm test", { status: "completed" })];
+    expect(turnProgressSignature(running, 0)).toBe(turnProgressSignature([...running], 0));
+    expect(turnProgressSignature(running, 0)).not.toBe(turnProgressSignature(settled, 0));
+    expect(turnProgressSignature(settled, 0)).not.toBe(turnProgressSignature(settled, 42));
+    expect(turnProgressSignature(settled, 0)).not.toBe(
+      turnProgressSignature([...settled, tool("next", "Read", "src/a.ts")], 0));
   });
 
   it("extracts image paths from the structured and legacy Codex formats", () => {
@@ -116,7 +185,7 @@ describe("Codex-style activity presentation", () => {
       status: "completed",
       input: reading.kind === "tool_update" ? reading.input : undefined,
     });
-    expect(summarizeActivity([completedReading]).label).toBe("Read files");
+    expect(summarizeActivity([completedReading]).label).toBe("Read App.tsx");
   });
 
   it("présente imageGeneration comme une génération, pas comme un outil générique", () => {
@@ -130,7 +199,7 @@ describe("Codex-style activity presentation", () => {
     const completedGeneration = tool("image-1", "image_generation", "Scientific map", {
       status: "completed", source: "codex", input: { revisedPrompt: "Scientific map" },
     });
-    expect(summarizeActivity([completedGeneration]).label).toBe("Created a visualization");
+    expect(summarizeActivity([completedGeneration]).label).toBe("Created Scientific map");
   });
 
   it("uses the real catalog image for a matching MCP/plugin source", () => {

@@ -133,6 +133,21 @@ function isJsonText(text: string): boolean {
   }
 }
 
+/** Durée d'un appel d'outil : lisible du ms à la minute, virgule française
+ * sous 10 s (le seul régime où la décimale change la lecture). */
+export function fmtToolDur(ms: number): string {
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
+  const s = ms / 1000;
+  if (s < 10) {
+    const short = s.toFixed(1);
+    return short.endsWith(".0") ? `${Math.round(s)} s` : `${short.replace(".", ",")} s`;
+  }
+  if (s < 60) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  const rs = Math.round(s % 60);
+  return rs ? `${m} min ${rs} s` : `${m} min`;
+}
+
 export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
   const cleanOutput = stripAnsi(event.output);
   const output = truncateToolOutput(cleanOutput);
@@ -153,6 +168,12 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
           {event.source ? <span className="tool-source">{event.source}</span> : null}
         </span>
         {summary && <span className="tool-output-summary">{summary}</span>}
+        {event.exitCode != null && event.exitCode !== 0 && (
+          <span className="tool-exit">exit {event.exitCode}</span>
+        )}
+        {event.durationMs != null && event.durationMs > 0 && (
+          <span className="tool-duration">{fmtToolDur(event.durationMs)}</span>
+        )}
         {event.status && <span className="tool-status">{event.status}</span>}
       </RowButton>
       {open && (inputView || output.trim()) && (
@@ -482,9 +503,37 @@ export function toolClause(cat: ToolCat, n: number): string {
   }
 }
 
-function summaryClause(kind: SummaryPartKind, count: number): string {
-  const suffix = count === 1 ? "1" : "n";
-  return t(`tools.summary.${kind}-${suffix}`, { n: count });
+/** Catégories dont un singleton nomme sa cible (façon Hermes run-summary.ts,
+ * MIT) — les commandes restent comptées : une commande finie n'a d'intérêt
+ * nominatif qu'en direct, où activeToolLabel la porte déjà. */
+const TARGET_CLAUSE_KEY: Partial<Record<SummaryPartKind, Parameters<typeof t>[0]>> = {
+  "file-changes": "tools.summary.file-changes-target",
+  exploration: "tools.summary.exploration-target",
+  visualization: "tools.summary.visualization-target",
+  "web-search": "tools.summary.web-search-target",
+  images: "tools.summary.images-target",
+  agents: "tools.summary.agents-target",
+};
+
+/** Une clause de bilan nomme un fichier par son nom, jamais par son chemin. */
+function clauseTarget(kind: SummaryPartKind, target: string): string {
+  if (kind !== "file-changes" && kind !== "exploration" && kind !== "images") return target;
+  const segments = target.split(/[/\\]/u);
+  return segments[segments.length - 1] || target;
+}
+
+/** Le nommage exige une cible nominale : une recherche (`rg -n …`) ou un
+ * listage portent une requête, pas un nom — ils restent comptés. */
+const NAMEABLE_ITEM_KINDS = new Set<ToolCat>(["read", "edit", "image", "visualization", "web", "agent"]);
+
+function summaryClause(kind: SummaryPartKind, items: SemanticToolActivity[]): string {
+  if (items.length === 1) {
+    const target = clauseTarget(kind, items[0].target);
+    const targetKey = TARGET_CLAUSE_KEY[kind];
+    if (target && targetKey && NAMEABLE_ITEM_KINDS.has(items[0].kind)) return t(targetKey, { target });
+    return t(`tools.summary.${kind}-1`, { n: 1 });
+  }
+  return t(`tools.summary.${kind}-n`, { n: items.length });
 }
 
 /** Même contrat que Codex : parties dans un ordre sémantique fixe et icône de
@@ -502,7 +551,7 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
     const partItems = byPart.get(kind);
     return partItems?.length ? [{ kind, items: partItems }] : [];
   });
-  const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems.length));
+  const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems));
   const phrase = clauses.join(", ");
   const firstItem = ordered[0]?.items[0];
   return {
@@ -515,6 +564,30 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
 
 export function summarizeTools(actions: ToolAction[]): string {
   return summarizeActivity(actions).label;
+}
+
+/** Signature de progrès du tour (façon Hermes turn-activity.ts, MIT) : change
+ * exactement quand le tour avance visiblement. Le statut fait partie de la
+ * clé — un résultat qui arrive MUTE l'appel déjà affiché : sans lui, un outil
+ * qui se termine se lirait comme du silence et daterait mal l'attente. */
+export function turnProgressSignature(actions: ToolAction[], thoughtLength: number): string {
+  const calls = distinctToolActions(actions)
+    .map((a) => (a.kind === "tool_update" ? `${a.id}:${a.status ?? ""}` : a.name))
+    .join("|");
+  return `${calls}#${thoughtLength}`;
+}
+
+/** Lignes du ticker une-ligne (façon Hermes ToolRunTicker, MIT) : une par
+ * action distincte, clé stable par identité d'appel pour que React fasse
+ * glisser le bandeau au lieu de le reconstruire — pas de fenêtre glissante,
+ * qui ferait sauter le bandeau d'un cran à chaque éviction ; le nombre
+ * d'actions d'un tour borne naturellement le reel. La dernière ligne est
+ * l'action courante ; les précédentes gardent leur libellé au passé. */
+export function tickerRows(actions: ToolAction[]): { key: string; label: string }[] {
+  return distinctToolActions(actions).map((action, offset) => ({
+    key: action.kind === "tool_update" ? `tick:${action.id}` : `tick:${offset}:${action.name}`,
+    label: activeToolLabel(action),
+  }));
 }
 
 export function ToolGlyph({ icon }: { icon: ActivityIcon }) {

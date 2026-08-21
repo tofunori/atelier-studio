@@ -189,18 +189,20 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(row1.getAttribute("data-slot")).toBe("collapsible-trigger");
     expect(row1.closest('[data-slot="collapsible"]')).toBeTruthy();
     expect(row1.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText(/avant\.csv/)).toBeNull(); // replié par défaut
+    // Replié par défaut : le corps du disclosure est démonté (le libellé, lui,
+    // peut nommer le fichier — nommage Hermes des singletons).
+    expect(document.querySelector('[data-slot="collapsible-content"].ui-activity-detail')).toBeNull();
     act(() => { row1.click(); });
     expect(document.querySelector(".ui-activity-trigger")?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector('[data-slot="collapsible-content"].ui-activity-detail')).toBeTruthy();
-    expect(screen.getByText(/avant\.csv/)).toBeTruthy();
+    expect(screen.getAllByText(/avant\.csv/).length).toBeGreaterThan(0);
     first.unmount();
 
     renderUi(<Chat {...chatProps({ events: after })} />);
     expect(screen.getByText("Réponse.")).toBeTruthy();
     const row2 = document.querySelector(".ui-activity-trigger") as HTMLElement;
     act(() => { row2.click(); });
-    expect(screen.getByText(/apres\.csv/)).toBeTruthy();
+    expect(screen.getAllByText(/apres\.csv/).length).toBeGreaterThan(0);
   });
 
   it("un groupe running devient done : la capsule remplace l'attente", () => {

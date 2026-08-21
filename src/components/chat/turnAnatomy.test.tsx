@@ -165,7 +165,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
     expect(document.querySelectorAll(".ui-activity.is-completed:not(.is-summary)")).toHaveLength(1);
     expect(document.querySelectorAll(".ui-activity-label")[1]?.textContent?.toLowerCase())
-      .toContain(t("tools.summary.exploration-n").toLowerCase());
+      .toContain(t("tools.summary.exploration-n", { n: 2 }).toLowerCase());
   });
 
   it("tour actif : remplace la recherche précédente par la lecture courante", () => {
@@ -235,7 +235,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(firstText.compareDocumentPosition(inlineActivity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inlineActivity.compareDocumentPosition(secondText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(secondText.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(inlineActivity.textContent).toContain("Fichiers consultés, commande exécutée");
+    // Nommage Hermes : la lecture unique est nommée par son fichier.
+    expect(inlineActivity.textContent).toContain("App.tsx consulté, commande exécutée");
     expect(tail.textContent).toContain("Recherche");
     expect(tail.textContent).not.toContain("3 actions");
   });
@@ -334,7 +335,8 @@ describe("anatomie du tour — header d'activité", () => {
     fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
 
     const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
-    expect(activity.textContent).toContain("Fichiers consultés, commande exécutée");
+    // Une recherche seule porte une requête, pas un nom : elle reste comptée.
+    expect(activity.textContent).toContain("Fichier consulté, commande exécutée");
     expect(activity.querySelector("[data-activity-icon='search']")).toBeTruthy();
     expect(activity.querySelector("[data-activity-icon='command']")).toBeNull();
     expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
