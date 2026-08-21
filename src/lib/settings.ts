@@ -40,6 +40,10 @@ export type Settings = {
   fontSmoothing: boolean;
   streamFade: boolean;
   timeFormat: "system" | "24h" | "12h";
+  /** Pensée (vivante et durable) repliée par défaut — préférence d'affichage locale. */
+  thinkingCollapsed: boolean;
+  /** Horodatage début → fin sur les lignes durables du transcript (défaut off). */
+  displayTimestamps: boolean;
   customModels: { provider: ProviderId; id: string }[];
   modelEfforts: Record<string, string>; // "provider:modelId" -> effort
   favoriteModels: Record<string, string[]>; // provider -> ids visibles dans le picker compact
@@ -80,6 +84,8 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSmoothing: true,
   streamFade: true,
   timeFormat: "system",
+  thinkingCollapsed: false,
+  displayTimestamps: false,
   customModels: [],
   modelEfforts: {},
   favoriteModels: {},

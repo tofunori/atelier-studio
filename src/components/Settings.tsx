@@ -768,6 +768,12 @@ export default function SettingsPage(p: {
                   ]}
                 />
               </Row>
+              <Row title={t("settings.thinking-collapsed")} desc={t("settings.thinking-collapsed-desc")}>
+                <Toggle label="" checked={s.thinkingCollapsed} onChange={(v) => set({ thinkingCollapsed: v })} />
+              </Row>
+              <Row title={t("settings.display-timestamps")} desc={t("settings.display-timestamps-desc")}>
+                <Toggle label="" checked={s.displayTimestamps} onChange={(v) => set({ displayTimestamps: v })} />
+              </Row>
             </Group>
           </>
         )}

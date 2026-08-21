@@ -80,7 +80,7 @@ export type TimelineMsg = {
   onFork: (index: number) => void;
   setPasteView: (v: { name: string; text: string } | null) => void;
   commands: { name: string; source: string }[];
-  defaults: { timeFormat?: "system" | "24h" | "12h" };
+  defaults: { timeFormat?: "system" | "24h" | "12h"; thinkingCollapsed?: boolean; displayTimestamps?: boolean };
   onQuote: (text: string) => void;
 };
 export type TimelineScroll = {

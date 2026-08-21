@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, loadSettings } from "./settings";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -119,5 +119,16 @@ describe("settings defaults", () => {
       opencode: ["opencode/glm-5.2", "openrouter/north-mini-code:free"],
       codex: ["gpt-5.6-sol"],
     });
+  });
+
+  it("expose les préférences d'affichage du travail avec leurs défauts", () => {
+    localStorage.clear();
+    const s = loadSettings();
+    expect(s.thinkingCollapsed).toBe(false);
+    expect(s.displayTimestamps).toBe(false);
+    saveSettings({ ...s, thinkingCollapsed: true, displayTimestamps: true });
+    const again = loadSettings();
+    expect(again.thinkingCollapsed).toBe(true);
+    expect(again.displayTimestamps).toBe(true);
   });
 });

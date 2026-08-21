@@ -138,6 +138,8 @@ export default function Chat(p: {
     defaultEffort: Record<string, string>;
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
+    thinkingCollapsed?: boolean;
+    displayTimestamps?: boolean;
     customModels?: { provider: string; id: string }[];
     modelEfforts?: Record<string, string>;
     autoReview?: { enabled: boolean };
