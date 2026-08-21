@@ -156,10 +156,12 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     // suffit — l'objet entier est réécrit) garde `false` pour toujours sans
     // cette promotion. Un profil qui a explicitement décoché la case APRÈS
     // cette promotion la conserve : elle ne tourne qu'une fois.
-    // `-v2` : la première version de cette promotion s'est marquée appliquée
-    // sans que sa valeur soit écrite (bug du mécanisme, corrigé plus bas). Les
-    // profils qui l'ont subie ne la rejoueraient jamais — d'où un nouvel id.
-    id: "2026-08-21.thinking-collapsed-by-default-v2",
+    // `-v3` : v1 s'est marquée appliquée sans écrire sa valeur (bug du
+    // mécanisme) ; v2 a été consommée pendant un boot où le miroir disque
+    // settings.json écrasait encore les promotions (corrigé par
+    // bootPromotions). Chaque id grillé par une fenêtre de bug exige le
+    // suivant, sinon les profils touchés gardent l'ancien défaut à vie.
+    id: "2026-08-21.thinking-collapsed-by-default-v3",
     promote: (stored) => (stored.thinkingCollapsed === false ? { thinkingCollapsed: true } : {}),
   },
 ];
