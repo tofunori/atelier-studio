@@ -74,3 +74,39 @@ Effort estimé : petit (une branche de parsing + mapping de verbes + un composan
 
 - **Claude : GO.** Signal réel et mesuré (~780 ms d'écart sur cet essai) entre le nom d'outil connu et l'input complet ; flag déjà actif ; coût d'implémentation faible (parsing + mapping de verbe + reveal 200 ms).
 - **Codex : NO-GO** pour l'instant — le protocole ACP actuel ne fournit pas de sous-événement « nom d'outil connu avant arguments » ; `item/started` livre déjà l'item complet. Revisiter seulement si Codex introduit un événement de rédaction incrémentale ; en attendant, une mesure live du délai raisonnement→`item/started` resterait informative pour le debug de latence perçue mais ne débloquerait pas ce signal spécifique.
+
+## Implémentation (2026-08-22, Claude livré — autres providers : renoncement documenté)
+
+**Livré (Claude seul)** :
+- `claude_parse.rs` : branche `content_block_start` type `tool_use` → event
+  éphémère `{kind:"drafting", tool}` ; l'état `drafting_tool` est consommé au
+  bloc `assistant` complet (le `tool_update` running le remplace). Test :
+  `content_block_start_tool_use_emet_le_verbe_de_redaction`.
+- `atelier-harness/kinds.rs` : `drafting` ajouté aux ÉPHÉMÈRES (jamais
+  journalisé, même chemin que `delta`).
+- Front : `ws.ts` (type), `harnessEvents.ts` (no-op strict dans le fil),
+  `App.tsx` (route vers le canal `liveNotes` du tour actif), `turnParts.tsx`
+  (révélation `NOTE_REVEAL_MS = 200` dans `Working`), i18n fr/en
+  `chat.activity-drafting` (« prépare l'appel {tool}… » / « drafting {tool}
+  call… »).
+
+**Renoncement documenté — vérifié par lecture des parseurs le 2026-08-22** :
+
+| Provider | Preuve (ligne) | Constat |
+|---|---|---|
+| Codex | `codex_parse.rs` (`map_turn_notification`) | `item/started` porte l'item déjà formé (`item.command` présent) — pas de paire (start vide → deltas → complet) |
+| Grok | `grok_parse.rs:80-104` | `tool_call` ACP arrive avec `title` + `rawInput` déjà remplis ; émet directement `tool_update` running |
+| Kimi | `kimi_map.rs:68` (`acp_map::tool_call_event`) | même chemin ACP partagé que Grok — item complet à l'arrivée |
+| OpenCode | `opencode_parse.rs:32-64` | le part `tool` arrive avec son `state` formé (`title`, `input`) |
+
+Ce n'est pas un manque côté Atelier mais une différence d'architecture : le
+core Hermes parle directement aux API providers et voit le stream brut des
+arguments ; Atelier orchestre des CLIs qui n'exposent ce flux que pour
+Claude (`--include-partial-messages`, déjà actif). L'UI étant générique
+(event neutre + canal `liveNotes`), le jour où un CLI/protocole expose un
+signal amont, une branche de parsing suffit — zéro changement front.
+
+**Cas limite connu, non traité volontairement** : l'état `pending` d'OpenCode
+(appel enregistré, exécution non commencée) est transmis comme `running`.
+Sémantiquement différent du drafting (l'agent a fini de générer) — à
+revisiter seulement si l'usage réel montre l'état traîner à l'écran.

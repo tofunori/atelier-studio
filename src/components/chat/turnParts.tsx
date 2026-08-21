@@ -504,6 +504,12 @@ function fmtTokenCount(n: number): string {
   return `${k >= 100 ? String(Math.round(k)) : k.toFixed(1).replace(/\.0$/, "")}k`;
 }
 
+/** Révélation différée d'une note d'attente (façon Hermes DRAFTING_REVEAL_MS) :
+ *  assez longue pour qu'un appel dont les arguments arrivent en quelques frames
+ *  ne strobose jamais une ligne, assez courte pour qu'une vraie attente soit
+ *  nommée presque immédiatement. */
+const NOTE_REVEAL_MS = 200;
+
 export function Working(
   { since, tokens, note }: { since: number; tokens?: number | null; note?: string | null },
 ) {
@@ -512,6 +518,17 @@ export function Working(
     const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
+  // La note n'apparaît qu'après NOTE_REVEAL_MS de STABILITÉ : changer de note
+  // repart à zéro (attente continue, pas un reset à chaque événement).
+  const [noteShown, setNoteShown] = useState<string | null>(null);
+  useEffect(() => {
+    if (!note) {
+      setNoteShown(null);
+      return;
+    }
+    const id = setTimeout(() => setNoteShown(note), NOTE_REVEAL_MS);
+    return () => clearTimeout(id);
+  }, [note]);
   const duration = workDuration(Date.now() - since);
   return (
     <div className="working working-header">
@@ -522,7 +539,7 @@ export function Working(
         {tokens != null && tokens > 0 ? (
           <span className="working-tokens">{t("chat.working-tokens", { n: fmtTokenCount(tokens) })}</span>
         ) : null}
-        {note ? <span className="working-note">{note}</span> : null}
+        {noteShown ? <span className="working-note">{noteShown}</span> : null}
       </span>
       <div className="working-divider" aria-hidden="true" />
     </div>
