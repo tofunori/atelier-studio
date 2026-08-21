@@ -1,7 +1,7 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
@@ -382,6 +382,56 @@ export function formatPermInput(tool: string, input: Record<string, unknown>): {
   return { lang: "json", text: s.length > 400 ? s.slice(0, 400) + "…" : s };
 }
 
+/** Puce ou numéro en tête de ligne — le raisonnement des modèles est écrit en
+ * listes, et les rendre en bloc brut laissait les marqueurs traîner dans le
+ * texte au lieu de structurer la lecture (comparaison Hermes 2026-08-21). */
+const THINKING_MARKER = /^(\s*)([-*•]|\d{1,3}[.)])\s+/;
+
+/** Gras et code inline SANS parseur markdown : le raisonnement streame par
+ * centaines de morceaux, on ne repasse pas un arbre markdown à chaque chunk.
+ * Les `**` littéraux traînaient à l'écran, c'est ce que ça règle. */
+function thinkingInline(text: string): ReactNode {
+  const parts: ReactNode[] = [];
+  const pattern = /\*\*([^*\n]+)\*\*|`([^`\n]+)`/g;
+  let last = 0;
+  let key = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) != null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    if (match[1] != null) parts.push(<strong key={key++}>{match[1]}</strong>);
+    else parts.push(<code key={key++}>{match[2]}</code>);
+    last = match.index + match[0].length;
+  }
+  if (!parts.length) return text;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+/** Le raisonnement, mis en forme : une ligne = un paragraphe, un marqueur de
+ * liste passe en colonne avec retrait pendu (les lignes qui reviennent à la
+ * ligne s'alignent sous le texte, pas sous le numéro). Romain, jamais
+ * italique : c'est de la prose à lire, pas une citation. */
+export function ThinkingProse({ text, className }: { text: string; className?: string }) {
+  const lines = useMemo(() => text.split("\n"), [text]);
+  return (
+    <div className={className ? `thinking-prose ${className}` : "thinking-prose"}>
+      {lines.map((line, index) => {
+        if (!line.trim()) return <div key={index} className="thinking-gap" />;
+        const marker = THINKING_MARKER.exec(line);
+        if (marker) {
+          return (
+            <p key={index} className="thinking-item">
+              <span className="thinking-marker">{marker[2]}</span>
+              <span className="thinking-item-body">{thinkingInline(line.slice(marker[0].length))}</span>
+            </p>
+          );
+        }
+        return <p key={index} className="thinking-para">{thinkingInline(line)}</p>;
+      })}
+    </div>
+  );
+}
+
 export function ThinkingBlock(
   { text, live, collapsedByDefault = false }:
     { text: string; live: boolean; collapsedByDefault?: boolean },
@@ -423,7 +473,7 @@ export function ThinkingBlock(
         {!open && <span className="thinking-preview">{preview}</span>}
         <Tick open={open} />
       </RowButton>
-      {open && <div className="thinking-body" ref={bodyRef}>{normalized}</div>}
+      {open && <div className="thinking-body" ref={bodyRef}><ThinkingProse text={normalized} /></div>}
     </div>
   );
 }
@@ -590,7 +640,7 @@ function ThinkingTail({ texte, windowed }: { texte: string; windowed: boolean })
   }, [texte, windowed]);
   return (
     <div ref={flux} className={`thinking-live-stream${windowed ? " windowed" : " plein"}`}>
-      {texte}
+      <ThinkingProse text={texte} />
     </div>
   );
 }

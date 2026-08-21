@@ -65,13 +65,26 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".thinking-live-stream")).toBeNull();
     expect(document.querySelector(".thinking-shimmer")).toBeTruthy();
 
-    // Dès qu'une pensée arrive, c'est ELLE qu'on lit — en entier, mise en
-    // forme conservée (pre-wrap), et non plus rabotée à une ligne.
+    // Dès qu'une pensée arrive, c'est ELLE qu'on lit — en entier, chaque ligne
+    // devenant un paragraphe (mise en forme structurée, plus de bloc brut).
     const pensee = "J'ouvre methods_en.tex\n\n  puis je compare les deux sections";
     rerender(<LiveThinking thought={pensee} />);
     const flux = document.querySelector(".thinking-live-stream") as HTMLElement;
-    expect(flux.textContent).toBe(pensee);
+    const paras = [...flux.querySelectorAll(".thinking-para")].map((p) => p.textContent?.trim());
+    expect(paras).toEqual(["J'ouvre methods_en.tex", "puis je compare les deux sections"]);
+    expect(flux.querySelectorAll(".thinking-gap")).toHaveLength(1);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
+
+    // Listes : marqueur en colonne, corps à part (retrait pendu façon Hermes).
+    rerender(<LiveThinking thought={"11. Residual scales 0.033\n- Magnus formula"} />);
+    const items = [...document.querySelectorAll(".thinking-item")];
+    expect(items.map((i) => i.querySelector(".thinking-marker")?.textContent)).toEqual(["11.", "-"]);
+    expect(items[0].querySelector(".thinking-item-body")?.textContent).toBe("Residual scales 0.033");
+
+    // Le gras markdown est rendu, pas affiché en astérisques littéraux.
+    rerender(<LiveThinking thought={'12. **"regions 01 and 02"** : à vérifier'} />);
+    expect(document.querySelector(".thinking-item strong")?.textContent).toBe('"regions 01 and 02"');
+    expect(document.querySelector(".thinking-live-stream")?.textContent).not.toContain("**");
 
     // Une pensée longue n'est PAS tronquée : la hauteur est bornée par le CSS,
     // le contenu reste entier et défile jusqu'à sa fin.

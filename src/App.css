@@ -2774,13 +2774,30 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    le mouvement (§9 — la seule boucle du chat est l'anneau de .working-label) */
 .thinking.live .thinking-icon, .thinking-live-indicator .thinking-icon {
   color: var(--status-running); }
-.thinking-label { font-style: italic; flex: none; }
-.thinking-preview { color: var(--text-disabled); font-style: italic; overflow: hidden;
+/* Le raisonnement se lit en ROMAIN (comparaison Hermes 2026-08-21) : l'italique
+   sur des dizaines de lignes fatigue et le fait passer pour une citation. */
+.thinking-label { flex: none; }
+.thinking-preview { color: var(--text-disabled); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .thinking-head .tool-tick { flex: none; margin-left: 1px; }
 .thinking-body { margin: 4px 0 6px 18px; padding: 8px 12px; border-left: 2px solid var(--border2);
-  color: var(--text-muted); font-size: var(--fs-l); font-style: italic; white-space: pre-wrap;
-  line-height: 1.55; }
+  color: var(--text-muted); font-size: var(--fs-l); line-height: 1.55; }
+/* Mise en forme du raisonnement : marqueur en colonne, retrait pendu, une
+   respiration à chaque ligne vide. */
+.thinking-prose { display: flex; flex-direction: column; min-width: 0; }
+.thinking-para, .thinking-item { margin: 0; overflow-wrap: anywhere; }
+.thinking-item { display: flex; gap: 8px; }
+.thinking-marker { flex: 0 0 auto; min-width: 1.5em; color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; }
+.thinking-item-body { min-width: 0; }
+/* Un item de liste respire : sans ça, quatre points numérotés forment un pavé
+   qu'on ne scanne plus. */
+.thinking-item + .thinking-item,
+.thinking-para + .thinking-item,
+.thinking-item + .thinking-para { margin-top: 0.35em; }
+.thinking-gap { height: 0.5em; }
+.thinking-prose code { font-family: var(--code-font); font-size: 0.92em; }
+.thinking-prose strong { font-weight: 500; color: var(--text-secondary); }
 /* En direct, la pensée est déroulée : elle doit défiler chez elle plutôt que
    pousser la réponse et le composer hors de l'écran. Repliée en fin de tour,
    elle retrouve sa hauteur libre. */
@@ -2802,8 +2819,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* déroulé en cours : quatre lignes au plus, collées à la fin. La hauteur est
    bornée pour que le raisonnement ne pousse jamais la réponse hors de l'écran. */
 .thinking-live-stream { flex: 1; min-width: 0; max-height: 6em; overflow-y: auto;
-  color: var(--text-disabled); font-style: italic; line-height: 1.5;
-  white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }
+  color: var(--text-disabled); line-height: 1.55;
+  overflow-wrap: anywhere; scrollbar-width: none; }
 /* Variante repliable (façon Hermes « Thought › ») : en-tête cliquable au-dessus
    du flux ; replié = une ligne d'aperçu éteinte. */
 .thinking-live-indicator.has-text { flex-direction: column; align-items: stretch; gap: 2px; }

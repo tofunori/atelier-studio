@@ -85,9 +85,17 @@ const LONG_THINKING: AgentEvent[] = [
   {
     kind: "thinking_live",
     ts: ts(5),
-    text: Array.from({ length: 14 }, (_, i) =>
-      `${i + 1}. La surface effective diverge de l'inventaire parce que le masque gf_act >= 0.5 ne retient qu'une partie des polygones, et la définition d'aire effective ajoute un second écart qu'il faut vérifier contre RGI_REGIONS.`,
-    ).join("\n"),
+    text: [
+      "Points à vérifier avant de répondre :",
+      "",
+      "11. Residual scales 0.033/0.027/0.021 disjoint — les commentaires du script disent 0.0321/0.0271/0.0216 ✓ cohérent (arrondi).",
+      "12. **\"regions 01 and 02 ... and their 11 subregions\"** : affirme que RGI v7 définit exactement 11 sous-régions — à confirmer contre `RGI_REGIONS`.",
+      "13. Divergences 2 190 centré contre 0 non-centré — plausible d'après les essais prior_tau ; invérifiable rapidement sans le fichier.",
+      "14. ESS 1362/2227, BFMI 0.736–0.788 — viennent du fit ; l'idata nc existe (`bayes_REGION_c_idata.nc`), on pourrait charger et vérifier.",
+      "",
+      "- Magnus formula",
+      "- ERA5-Land 0.1° nearest cell",
+    ].join("\n"),
   } as AgentEvent,
 ];
 
