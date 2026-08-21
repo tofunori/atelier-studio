@@ -461,11 +461,19 @@ export function LiveThinking({ thought }: { thought?: string | null } = {}) {
   // ligne d'aperçu pour suivre le tour sans le monologue.
   const texte = (thought ?? "").trim();
   const [replie, setReplie] = useState(false);
+  // « plein » : Thierry a demandé toute la pensée — la fenêtre de 4 lignes ne
+  // borne plus. Le choix est le sien (bouton « tout afficher »), la borne
+  // reste le défaut : Grok émet des centaines de morceaux et le fil ne doit
+  // pas se faire pousser hors de l'écran sans consentement.
+  const [plein, setPlein] = useState(false);
+  const [deborde, setDeborde] = useState(false);
   const flux = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = flux.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [texte, replie]);
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setDeborde(el.scrollHeight > el.clientHeight + 1);
+  }, [texte, replie, plein]);
   // Pas de compteur de « segments » ici (demande Thierry 2026-08-15) : le CLI
   // caviarde le texte du raisonnement en headless (≥2.1.8, issue #20127) et un
   // compte qui monte n'est pas un substitut acceptable. Le libellé reste sobre ;
@@ -492,7 +500,14 @@ export function LiveThinking({ thought }: { thought?: string | null } = {}) {
         {replie && <span className="thinking-preview">{apercu}</span>}
         <Tick open={!replie} />
       </RowButton>
-      {!replie && <div ref={flux} className="thinking-live-stream">{texte}</div>}
+      {!replie && (
+        <div ref={flux} className={`thinking-live-stream${plein ? " plein" : ""}`}>{texte}</div>
+      )}
+      {!replie && (plein || deborde) && (
+        <RowButton className="thinking-more" onClick={() => setPlein((v) => !v)}>
+          {t(plein ? "chat.thinking-show-window" : "chat.thinking-show-all")}
+        </RowButton>
+      )}
     </div>
   );
 }

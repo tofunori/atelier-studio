@@ -77,6 +77,20 @@ const THINKING: AgentEvent[] = [
   { kind: "tool", name: "__thinking" } as AgentEvent,
 ];
 
+// Pensée vivante LONGUE : fenêtre 4 lignes + « tout afficher » + repli.
+const LONG_THINKING: AgentEvent[] = [
+  { kind: "user", text: "Vérifie la cohérence des surfaces RGI.", ts: ts(60) } as AgentEvent,
+  { kind: "started", ts: ts(59) } as AgentEvent,
+  tool("lt-read", "Read", "gee_pipeline/config.py", "RGI_REGIONS…", 640, 55),
+  {
+    kind: "thinking_live",
+    ts: ts(5),
+    text: Array.from({ length: 14 }, (_, i) =>
+      `${i + 1}. La surface effective diverge de l'inventaire parce que le masque gf_act >= 0.5 ne retient qu'une partie des polygones, et la définition d'aire effective ajoute un second écart qu'il faut vérifier contre RGI_REGIONS.`,
+    ).join("\n"),
+  } as AgentEvent,
+];
+
 const STREAM: AgentEvent[] = [
   { kind: "user", text: "Inspecte puis corrige le composer.", ts: ts(30) } as AgentEvent,
   { kind: "text", text: "Je commence par lire les composants concernés.", ts: ts(28) } as AgentEvent,
@@ -246,6 +260,7 @@ const STATES: Record<string, BenchState> = {
   activityparity: { events: ACTIVITY_PARITY, workingSince: ts(36), attachments: [], usage: { context: 16200, output: 280, cost: null, turns: 1 } },
   slottransition: { events: SLOT_TRANSITION, workingSince: ts(24), attachments: [], usage: { context: 15100, output: 210, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  longthinking: { events: LONG_THINKING, workingSince: ts(60), attachments: [], usage: { context: 15000, output: 0, cost: null, turns: 1 } },
   image: { events: IMAGE_VIEW, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
