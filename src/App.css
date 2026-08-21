@@ -1112,12 +1112,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .changed-files-head { display: flex; align-items: center; justify-content: space-between;
   font-size: var(--fs-m); color: var(--text-secondary); }
 .changed-files-review { border: none; background: transparent; color: var(--text-muted);
-  font-size: var(--fs-s); cursor: pointer; padding: 0; font: inherit; }
+  font-size: var(--fs-s); cursor: pointer; padding: 0; font: inherit; transition: color var(--ease); }
 .changed-files-review:hover { color: var(--text-secondary); }
 .changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
 .changed-files-row { display: flex; align-items: center; gap: 8px; width: 100%;
   border: none; background: transparent; padding: 2px 4px; border-radius: var(--r-s);
-  font-size: var(--fs-m); color: var(--text-muted); cursor: pointer; text-align: left; }
+  font-size: var(--fs-m); color: var(--text-muted); cursor: pointer; text-align: left; transition: background var(--ease); }
 .changed-files-row:hover { background: var(--bg-pop); }
 .changed-files-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-add, .diff-del { font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }

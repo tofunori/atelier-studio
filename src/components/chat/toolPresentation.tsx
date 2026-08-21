@@ -591,11 +591,11 @@ export function activitySegments(actions: ToolAction[]): { text: string; live: b
  * exactement quand le tour avance visiblement. Le statut fait partie de la
  * clé — un résultat qui arrive MUTE l'appel déjà affiché : sans lui, un outil
  * qui se termine se lirait comme du silence et daterait mal l'attente. */
-export function turnProgressSignature(actions: ToolAction[], thoughtLength: number): string {
+export function turnProgressSignature(actions: ToolAction[], thoughtLength: number, answerLength = 0): string {
   const calls = distinctToolActions(actions)
     .map((a) => (a.kind === "tool_update" ? `${a.id}:${a.status ?? ""}` : a.name))
     .join("|");
-  return `${calls}#${thoughtLength}`;
+  return `${calls}#${thoughtLength}#${answerLength}`;
 }
 
 /** Lignes du ticker une-ligne (façon Hermes ToolRunTicker, MIT) : une par

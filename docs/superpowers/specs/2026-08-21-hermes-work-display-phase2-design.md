@@ -62,7 +62,10 @@ ligne par fichier modifié avec `+N/−M`, clic ligne → diff du fichier, actio
 **Côté Atelier** : `done.filesChanged: string[]` (chemins seuls) +
 `checkpoint.snapshotSha` ; les events `edit` portent `files[{path, add, del}]`.
 `DoneDiffToggle` ouvre déjà le diff global (AtelierDiffView) — il manque le
-détail par fichier et le clic ciblé.
+détail par fichier et le clic ciblé. En production `add`/`del` sont souvent
+`null` (les providers envoient des chemins nus) : les compteurs `+N/−M` ne
+s'affichent que quand le provider les fournit réellement ; un numstat côté
+backend est un suivi recommandé pour les rendre systématiques.
 
 ### 2.5 Préférence « pensée repliée par défaut » (`store/reasoning-disclosure.ts`)
 Booléen localStorage (`hermes.desktop.reasoning.collapsedByDefault`), réglage
@@ -81,7 +84,7 @@ sont déjà affichées).
 |---|----------|----------|
 | A | Préférence pensée repliée | Réglage `Settings.thinkingCollapsed` (localStorage via `loadSettings`), toggle dans Réglages → Chat. `LiveThinking` et `ThinkingBlock` l'utilisent comme état initial ; le clic manuel garde la main (comportement actuel). |
 | B | Attente universelle | Déplacer la logique quiet du ticker vers le TAIL entier : un composant `QuietWait` monté dans `ActiveTurnTail`, visible quand `workingSince` actif, pas d'outil running, pas de permission en attente, et signature stable ≥ 2 s. Libellé existant `chat.quiet-wait`. Le ticker garde sa ligne quand l'état est `activity` (pas de double narration : `QuietWait` s'efface alors). |
-| C | Horodatage | Réglage `Settings.displayTimestamps` (défaut **false**). Quand actif : `HH:MM → HH:MM` (tabular-nums, `--fs-xs`, `--muted2`) à droite des lignes durables de groupes (`ActivityGroup`) et du fold ; tooltip précis à la seconde. Jamais sur le ticker (vivant). |
+| C | Horodatage | Réglage `Settings.displayTimestamps` (défaut **false**). Quand actif : `HH:MM → HH:MM` (tabular-nums, `--fs-xs`, `--muted2`) à droite des lignes durables de groupes (`ActivityGroup`) ; tooltip précis à la seconde. Jamais sur le ticker (vivant). Le fold (« A travaillé pendant… ») ne reçoit PAS d'horodatage — il porte déjà la durée ; les stamps ne vont qu'aux groupes. |
 | D | Carte fichiers modifiés | `ChangedFilesCard` rendue par la ligne `done` du DERNIER tour : agrège les `edit.files` du tour (cumul add/del par path, `done.filesChanged` en secours pour les chemins sans event edit). Ligne = icône type + nom + `+N −M` ; clic → `DoneDiffToggle`-équivalent ciblé (ouvre le diff global existant — le diff par fichier viendra si le besoin se confirme). Max ~5 lignes, scroll interne. |
 | E | Drafting | SPIKE d'abord (probe `--include-partial-messages` sur claude CLI + mesure du trou réel item/started sur Codex). Implémentation seulement si le probe montre un signal exploitable ; sinon on documente le renoncement. |
 

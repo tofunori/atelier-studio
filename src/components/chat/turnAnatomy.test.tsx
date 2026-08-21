@@ -179,6 +179,21 @@ describe("anatomie du tour — header d'activité", () => {
     vi.useRealTimers();
   });
 
+  // F1 (revue finale phase 2) : « en attente » ne doit jamais s'afficher
+  // pendant que la réponse est en train de streamer — le texte qui grossit
+  // EST le progrès visible, même sans nouvel outil ni nouvelle pensée.
+  it("ne montre jamais « en attente » pendant le streaming de la réponse, même après 3 s", () => {
+    vi.useFakeTimers();
+    const evs: AgentEvent[] = [
+      events.user("Réponds.", FIXED_TS),
+      { kind: "streaming", text: "Voici le début de la réponse", ts: FIXED_TS + 100 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    act(() => { vi.advanceTimersByTime(3100); });
+    expect(document.querySelector(".turn-quiet")).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("tour terminé : header « A travaillé pendant… », replié par défaut", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
@@ -632,8 +647,11 @@ describe("capsule résultat — honnêteté et actions", () => {
       events.done({ filesChanged: ["a.py", "b.py"], ts: FIXED_TS + 100 }),
     ];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    const toggle = document.querySelector(".turn-diff-toggle") as HTMLButtonElement;
-    expect(toggle.textContent).toContain(t("chat.files-modified", { count: 2 }));
+    // La carte « fichiers modifiés » porte le compte ; le repli DoneDiffToggle
+    // ne duplique plus ce libellé quand la carte est rendue (F3).
+    const card = document.querySelector(".changed-files-card") as HTMLElement;
+    expect(card.querySelector(".changed-files-head")?.textContent).toContain(t("chat.files-modified", { count: 2 }));
+    expect(document.querySelector(".turn-diff-toggle")).toBeNull();
     expect(document.querySelector(".turn-diff-body")).toBeNull(); // à la demande
   });
 
@@ -656,13 +674,12 @@ describe("capsule résultat — honnêteté et actions", () => {
     expect(rows[0].querySelector(".diff-del")?.textContent).toBe("−5");
     expect(rows[1].textContent).toContain("a.ts");
 
-    // pas de diff ouvert avant le clic
+    // pas de diff ouvert avant le clic ; le repli est masqué (carte présente, F3)
     expect(document.querySelector(".turn-diff-files")).toBeNull();
-    expect(document.querySelector(".turn-diff-toggle")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".turn-diff-toggle")).toBeNull();
 
     fireEvent.click(card.querySelector(".changed-files-review") as HTMLButtonElement);
     // le même repli que DoneDiffToggle s'ouvre — aucune requête dupliquée
-    expect(document.querySelector(".turn-diff-toggle")?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector(".turn-diff-files")).toBeTruthy();
   });
 

@@ -60,7 +60,13 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
     return () => window.removeEventListener("git-diff", onDiff);
   }, [event.projectRoot]);
 
-  if (!files.length) return null;
+  const hasGitFiles = files.length > 0;
+  const showCard = !!changedFiles && changedFiles.length > 0;
+  // La carte reçoit sa dérivation dès qu'elle est non vide (edits seuls
+  // suffisent) — le repli/toggle historique ne rend rien tant qu'aucun
+  // chemin git n'est disponible pour ouvrir un diff (plan hermes-work-display
+  // phase 2, F4/F3).
+  if (!hasGitFiles && !showCard) return null;
   // fetch des diffs manquants + ouverture — partagé entre le repli et la
   // carte « fichiers modifiés » (une seule demande gitDiff par fichier).
   const openDiffs = () => {
@@ -87,21 +93,27 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
   };
   return (
     <>
-    {changedFiles && changedFiles.length > 0 && (
-      <ChangedFilesCard files={changedFiles} onOpenDiff={openDiffs} />
+    {showCard && (
+      <ChangedFilesCard files={changedFiles!} onOpenDiff={hasGitFiles ? openDiffs : null} />
     )}
+    {hasGitFiles && (
     <div className="turn-diff">
-      <RowButton
-        className="turn-diff-toggle"
-        aria-expanded={open}
-        onClick={() => {
-          if (open) { setOpen(false); return; }
-          openDiffs();
-        }}
-      >
-        <span>{t("chat.files-modified", { count: files.length })}</span>
-        <Tick open={open} />
-      </RowButton>
+      {/* La carte porte déjà le compte « N fichiers modifiés » et son propre
+          « Voir le diff » sert d'expander : ce repli ne duplique le compte
+          que quand la carte est absente. */}
+      {!showCard && (
+        <RowButton
+          className="turn-diff-toggle"
+          aria-expanded={open}
+          onClick={() => {
+            if (open) { setOpen(false); return; }
+            openDiffs();
+          }}
+        >
+          <span>{t("chat.files-modified", { count: files.length })}</span>
+          <Tick open={open} />
+        </RowButton>
+      )}
       {event.checkpoint ? (
         <Button
           variant="danger"
@@ -136,6 +148,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
         })}
       </div>}
     </div>
+    )}
     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>

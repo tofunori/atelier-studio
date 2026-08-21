@@ -717,7 +717,7 @@ export function ChatTimeline(p: {
                   window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: threadId } }));
                 }}
                 onToggleReviewOpen={() => setReviewOpen((v) => !v)}
-                changedFiles={deriveChangedFiles(events.slice(userIdx + 1, i), e)}
+                changedFiles={isLastDone ? deriveChangedFiles(events.slice(userIdx + 1, i), e) : undefined}
               />
             );
           }

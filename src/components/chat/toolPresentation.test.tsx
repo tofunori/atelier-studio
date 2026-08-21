@@ -142,6 +142,10 @@ describe("Codex-style activity presentation", () => {
     expect(turnProgressSignature(settled, 0)).not.toBe(turnProgressSignature(settled, 42));
     expect(turnProgressSignature(settled, 0)).not.toBe(
       turnProgressSignature([...settled, tool("next", "Read", "src/a.ts")], 0));
+    // F1 : la longueur de la réponse en streaming fait aussi partie de la
+    // signature — sinon le minuteur d'attente ignore un texte qui grossit.
+    expect(turnProgressSignature(settled, 0, 0)).toBe(turnProgressSignature(settled, 0));
+    expect(turnProgressSignature(settled, 0, 0)).not.toBe(turnProgressSignature(settled, 0, 12));
   });
 
   it("segmente le bilan cumulatif et éclaire la catégorie la plus récente", () => {

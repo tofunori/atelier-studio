@@ -11,22 +11,27 @@ import type { ChangedFile } from "./changedFiles";
 
 export function ChangedFilesCard({ files, onOpenDiff }: {
   files: ChangedFile[];
-  onOpenDiff: () => void;
+  /** null quand aucun chemin git n'est disponible pour ce tour (edits seuls,
+   * sans done.filesChanged) — le diff a besoin de chemins git, donc ni le
+   * lien « Voir le diff » ni les lignes ne sont cliquables dans ce cas. */
+  onOpenDiff: (() => void) | null;
 }) {
   if (!files.length) return null;
   return (
     <div className="changed-files-card">
       <div className="changed-files-head">
         <span>{t("chat.files-modified", { count: files.length })}</span>
-        <RowButton className="changed-files-review" onClick={onOpenDiff}>{t("chat.see-diff")}</RowButton>
+        {onOpenDiff && (
+          <RowButton className="changed-files-review" onClick={onOpenDiff}>{t("chat.see-diff")}</RowButton>
+        )}
       </div>
       <div className="changed-files-list">
         {files.map((f) => (
-          <RowButton key={f.path} className="changed-files-row" title={f.path} onClick={onOpenDiff}>
+          <RowButton key={f.path} className="changed-files-row" title={f.path} onClick={onOpenDiff ?? undefined} disabled={!onOpenDiff}>
             <FileTypeIcon ext={f.name.split(".").pop() ?? ""} />
             <span className="changed-files-name">{f.name}</span>
-            <span className="diff-add">+{f.add}</span>
-            <span className="diff-del">−{f.del}</span>
+            {f.add != null && <span className="diff-add">+{f.add}</span>}
+            {f.del != null && <span className="diff-del">−{f.del}</span>}
           </RowButton>
         ))}
       </div>

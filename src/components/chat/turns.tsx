@@ -655,7 +655,9 @@ export function ActiveTurnTail(p: {
   // gagne une ligne « en attente · Ns ». Le seuil évite le stroboscope entre
   // deux appels rapprochés ; la signature date le silence depuis le VRAI
   // dernier progrès (un résultat mute l'appel affiché sans rien ajouter).
-  const signature = turnProgressSignature(actions, currentThought(p.turn, p.events).length);
+  const lastStreamingEvent = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
+  const answerLength = lastStreamingEvent?.text.length ?? 0;
+  const signature = turnProgressSignature(actions, currentThought(p.turn, p.events).length, answerLength);
   const quietSinceRef = useRef(Date.now());
   const prevSignatureRef = useRef(signature);
   if (prevSignatureRef.current !== signature) {
@@ -721,7 +723,7 @@ export function ActiveTurnTail(p: {
           </div> : null}
         </ActivityDisclosure>
       )}
-      {quietSeconds >= 2 && !running && state?.kind !== "waiting" && state?.kind !== "activity" && (
+      {quietSeconds >= 2 && !running && state?.kind !== "waiting" && state?.kind !== "activity" && state?.kind !== "answering" && (
         <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>
       )}
       <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
