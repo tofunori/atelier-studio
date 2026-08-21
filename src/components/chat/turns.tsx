@@ -13,10 +13,10 @@ import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
-import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
+import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnParts";
 import type { ChangedFile } from "./changedFiles";
 import {
-  activeToolLabel, activityIconForAction, activityIconForPhase, activitySegments,
+  activityIconForAction, activitySegments,
   distinctToolActions, summarizeActivity, Tick, tickerRows, turnProgressSignature,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
@@ -488,23 +488,6 @@ export function ActivityFold(p: {
   );
 }
 
-function activeEventLabel(turn: ChatTurnViewModel, events: AgentEvent[]): ReactNode {
-  const state = turn.activeState;
-  if (!state) return t("chat.thinking");
-  if (state.kind === "waiting") return t("chat.activity-awaiting");
-  if (state.kind === "reasoning") {
-    const summary = reasoningSummary(state.texts[state.texts.length - 1] ?? "");
-    return summary || t("chat.thinking");
-  }
-  if (state.kind === "thinking") return <ThinkingShimmer />;
-  if (state.kind === "activity") {
-    const event = events[state.eventIndex];
-    if (event?.kind === "activity") return [event.title, event.detail].filter(Boolean).join(" · ");
-    if (event?.kind === "tool" || event?.kind === "tool_update") return activeToolLabel(event);
-  }
-  return t("chat.thinking");
-}
-
 /** Dernière pensée du tour EN COURS. Deux sources selon le provider : l'état
  * actif quand le raisonnement est encore vivant, sinon le dernier bloc
  * `thinking` durable — Grok clôt chaque bloc, ce qui efface le live. On
@@ -637,39 +620,25 @@ export function ToolRunTicker({ rows }: { rows: { key: string; label: string }[]
 export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
-  open: boolean;
-  onToggle: () => void;
   onStop: () => void;
-  plugins?: PluginCatalogEntry[];
-  renderToolLine: (action: ToolAction, key: React.Key) => ReactNode;
-  thinkingCollapsed?: boolean;
 }) {
   const state = p.turn.activeState;
-  const activeGroups = p.turn.activeActionGroups;
-  const actions = activeGroups.flatMap((group) => group.actions);
-  const distinctActions = distinctToolActions(actions);
-  // Attente chronométrée (façon Hermes turn-activity.ts, MIT) : après 2 s sans
-  // progrès visible et sans outil en vol pour porter l'attente, le ticker
-  // gagne une ligne « en attente · Ns ». Le seuil évite le stroboscope entre
-  // deux appels rapprochés ; la signature date le silence depuis le VRAI
-  // dernier progrès (un résultat mute l'appel affiché sans rien ajouter).
-  // Balayage arrière sans copier le fil entier (p.events = TOUT le thread) :
-  // ce chemin est parcouru à chaque chunk et à chaque tick de seconde.
-  const lastStreamingEvent = findLast(p.events,(e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
+  // La queue ne narre plus RIEN du travail : chaque run vit à sa place dans le
+  // fil et c'est SA ligne qui tique (parti pris Hermes, 2026-08-21). Il ne
+  // reste ici que le silence chronométré — quand ni outil, ni pensée, ni
+  // réponse ne parle — et le rappel d'interruption.
+  const lastStreamingEvent = findLast(p.events, (e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
   const answerLength = lastStreamingEvent?.text.length ?? 0;
-  // Signature sur TOUT le tour, pas la seule tranche active : depuis la
-  // progression (dépôt des groupes réglés), un outil qui se termine sort des
-  // groupes actifs — sans ça, sa fin ne compterait plus comme un progrès.
+  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
   const signature = turnProgressSignature(
-    p.turn.actionGroups.flatMap((group) => group.actions),
+    actions,
     currentThought(p.turn, p.events).length,
     answerLength,
   );
   const quietSinceRef = useRef(Date.now());
   const prevSignatureRef = useRef(signature);
   // « en attente » n'a de sens qu'après un PREMIER progrès : avant, son compte
-  // est identique au chrono du tour juste au-dessus — horodateur en double
-  // (vécu 2026-08-21). Le pulse + temps porte seul l'attente initiale.
+  // est identique au chrono du tour juste au-dessus — horodateur en double.
   const hadProgressRef = useRef(false);
   if (prevSignatureRef.current !== signature) {
     prevSignatureRef.current = signature;
@@ -682,63 +651,15 @@ export function ActiveTurnTail(p: {
     return () => clearInterval(id);
   }, []);
   const quietSeconds = Math.floor((Date.now() - quietSinceRef.current) / 1000);
-  const updates = distinctActions.filter((action): action is Extract<AgentEvent, { kind: "tool_update" }> => action.kind === "tool_update");
-  const failed = updates.some((action) => action.status === "failed" || (action.exitCode != null && action.exitCode !== 0));
-  const running = updates.some((action) => /^(running|pending|in[-_]?progress)$/i.test(action.status ?? ""));
-  const status = failed ? "failed" : running || (state?.kind === "activity" && state.live) ? "running" : "completed";
-  const actionCount = activeGroups.length;
-  const activeEvent = state?.kind === "activity" ? p.events[state.eventIndex] : null;
-  const icon = activeEvent?.kind === "tool" || activeEvent?.kind === "tool_update"
-    ? activityIconForAction(activeEvent, p.plugins)
-    : activeEvent?.kind === "activity" ? activityIconForPhase(activeEvent.phase) : undefined;
-  const labelKey = state?.kind === "activity"
-    ? `activity:${state.eventIndex}:${activeEvent?.kind === "tool_update" ? activeEvent.status ?? "" : "started"}`
-    : state?.kind ?? "thinking";
-  // Une permission en attente porte déjà sa carte (nom de l'outil, commande,
-  // boutons) juste au-dessus : le libellé « en attente d'autorisation » du
-  // slot vivant n'ajoutait qu'un doublon.
-  const showsActivity = state?.kind === "activity";
-  // Le raisonnement ne vit PLUS ici : il est rendu à sa place dans le fil, au-
-  // dessus de la réponse (ChatTimeline). La queue ne porte que ce qui est
-  // vraiment « en cours » : l'activité outils, et le silence quand il dure.
-  const quietLine = !running && hadProgressRef.current && quietSeconds >= 2
-    ? <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>
-    : null;
+  const running = distinctToolActions(actions).some((action) => (
+    action.kind === "tool_update" && /^(running|pending|in[-_]?progress)$/i.test(action.status ?? "")
+  ));
+  const silencieux = state?.kind !== "answering" && state?.kind !== "waiting"
+    && !running && hadProgressRef.current && quietSeconds >= 2;
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      {state?.kind === "answering" ? null : !showsActivity ? (
-        quietLine
-      ) : (
-        <ActivityDisclosure
-          open={p.open}
-          onToggle={p.onToggle}
-          status={status}
-          shimmer={state?.kind === "activity" && state.live && status === "running"}
-          icon={icon}
-          label={
-            // Ticker une-ligne dès que le tour a des actions outil ; les états
-            // sans action (permission en attente, activité native) gardent le
-            // libellé simple à transition.
-            state?.kind === "activity" && (activeEvent?.kind === "tool" || activeEvent?.kind === "tool_update") && distinctActions.length > 0
-              ? <ToolRunTicker rows={
-                  !running && quietSeconds >= 2
-                    ? [...tickerRows(actions), { key: "tick:quiet", label: t("chat.quiet-wait", { s: quietSeconds }) }]
-                    : tickerRows(actions)
-                } />
-              : <span key={labelKey} className="active-activity-transition">{activeEventLabel(p.turn, p.events)}</span>
-          }
-          meta={actionCount > 1 ? t("chat.active-action-n", { n: actionCount }) : undefined}
-        >
-          {activeGroups.length > 0 ? <div className="active-work-detail">
-            {activeGroups.map((group) => (
-              <div className="tool-group-list" key={group.key}>
-                {distinctToolActions(group.actions).map((action, offset) => p.renderToolLine(action, `${group.key}:${offset}`))}
-              </div>
-            ))}
-          </div> : null}
-        </ActivityDisclosure>
-      )}
+      {silencieux && <div className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</div>}
       <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
         <kbd>esc</kbd> {t("action.interrupt")}
       </RowButton>
@@ -753,20 +674,25 @@ export function ActivityGroup(p: {
   onToggle: () => void;
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
   stamp?: ReactNode;
+  /** run EN COURS du tour actif : la ligne tique au lieu d'afficher un résumé
+   * figé. C'est la ligne du run qui vit (parti pris Hermes) — il n'existe pas
+   * d'autre endroit où l'action courante s'affiche, donc jamais de doublon. */
+  live?: boolean;
+  /** dernière action REÇUE, même terminée : entre deux outils rapides, plus
+   * rien n'est « en cours » et le fil paraissait mort (Thierry 2026-08-21). */
 }) {
   const distinctActions = distinctToolActions(p.actions);
   const summary = summarizeActivity(distinctActions, p.plugins);
   const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
   const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
-  // Toute ActivityGroup rendue dans la timeline est une tranche déjà fermée:
-  // l'unité courante est exclusivement ActiveTurnTail. Codex la rend donc
-  // statique même si le provider n'a pas encore terminalisé son tool_update.
-  const status = failed ? "failed" : "completed";
+  const running = updates.some((a) => /^(running|pending|in[-_]?progress)$/i.test(a.status ?? ""));
+  const status = failed ? "failed" : p.live ? "running" : "completed";
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
   return (
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={false}
-      icon={summary.icon} label={summary.label}
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={p.live && running}
+      icon={p.live ? activityIconForAction(distinctActions[distinctActions.length - 1], p.plugins) : summary.icon}
+      label={p.live ? <ToolRunTicker rows={tickerRows(distinctActions)} /> : summary.label}
       meta={p.stamp}>
         <div className="tool-group-list">
           {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}

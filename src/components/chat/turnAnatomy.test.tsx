@@ -314,11 +314,14 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
     expect(document.querySelectorAll(".active-turn-tail .thinking-live-indicator")).toHaveLength(0);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
-    // Progression (parti pris Hermes) : la recherche RÉGLÉE se dépose comme
-    // ligne durable du transcript ; le slot vivant ne garde que la lecture.
-    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(2);
-    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(1);
-    const activity = document.querySelector(".active-turn-tail .ui-activity-trigger") as HTMLButtonElement;
+    // Deux outils consécutifs forment UN run : une seule ligne, qui tique sur
+    // l'action courante au lieu d'être hissée dans une queue.
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
+    // La ligne vivante est la DERNIÈRE du fil (elle porte le ticker) — la
+    // queue ne narre plus le travail.
+    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(0);
+    const vivantes = [...document.querySelectorAll(".ui-activity:not(.is-summary)")];
+    const activity = vivantes[vivantes.length - 1].querySelector(".ui-activity-trigger") as HTMLButtonElement;
     expect(activity.textContent).toContain("Lit albedo.ts");
     expect(activity.querySelector("[data-activity-icon='read']")).toBeTruthy();
     expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
@@ -326,7 +329,9 @@ describe("anatomie du tour — header d'activité", () => {
     fireEvent.click(activity);
     expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(0);
     expect(screen.queryByText("Je confirme le chemin utile.")).toBeNull();
-    expect(screen.getAllByText("Bash")).toHaveLength(1);
+    // Le run contient les DEUX appels (recherche réglée + lecture en cours) :
+    // les déplier montre les deux lignes d'outil.
+    expect(screen.getAllByText("Bash")).toHaveLength(2);
   });
 
   it("rend statique une commande running fermée par une narration plus récente", () => {
@@ -365,7 +370,10 @@ describe("anatomie du tour — header d'activité", () => {
     expect(secondText.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Nommage Hermes : la lecture unique est nommée par son fichier.
     expect(inlineActivity.textContent).toContain("App.tsx consulté, commande exécutée");
-    expect(tail.textContent).toContain("Recherche");
+    // La recherche en cours tique sur SA ligne, dans le fil.
+    const derniere = [...document.querySelectorAll(".ui-activity:not(.is-summary)")].pop() as HTMLElement;
+    expect(derniere.querySelector(".tool-ticker")).toBeTruthy();
+    expect(derniere.textContent).toContain("Recherche");
     expect(tail.textContent).not.toContain("3 actions");
   });
 
@@ -430,13 +438,13 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const activity = document.querySelector(".active-turn-tail .ui-activity") as HTMLElement;
+    const activity = [...document.querySelectorAll(".ui-activity:not(.is-summary)")].pop() as HTMLElement;
     expect(activity).toBeTruthy();
-    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(0);
     expect(activity.textContent).toContain("file-7.ts");
     expect(activity.textContent).not.toContain(t("chat.active-action-n", { n: 8 }));
     fireEvent.click(activity.querySelector(".ui-activity-trigger") as HTMLButtonElement);
-    expect(document.querySelectorAll(".active-work-detail .tool-output")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-activity-detail .tool-output").length).toBeGreaterThan(0);
   });
 
   it("remplace Read par Thinking dans exactement le même slot sans ligne dupliquée", () => {
@@ -446,8 +454,9 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     const view = renderUi(<Chat {...chatProps({ events: read, workingSince: FIXED_TS })} />);
     const initialTail = document.querySelector(".active-turn-tail") as HTMLElement;
-    expect(initialTail.querySelector("[data-activity-icon='read']")).toBeTruthy();
-    expect(initialTail.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    const ligneVivante = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
+    expect(ligneVivante.querySelector("[data-activity-icon='read']")).toBeTruthy();
+    expect(ligneVivante.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
     expect(initialTail.querySelector(".thinking-shimmer")).toBeNull();
 
     const thinking: AgentEvent[] = [
@@ -475,7 +484,7 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const activity = document.querySelector(".active-turn-tail .ui-activity") as HTMLElement;
+    const activity = [...document.querySelectorAll(".ui-activity:not(.is-summary)")].pop() as HTMLElement;
     expect(activity.querySelector("[data-activity-icon='command']")).toBeTruthy();
     expect(activity.textContent).toContain(t("chat.activity-running-tests"));
     expect(activity.querySelector("[data-activity-icon='read']")).toBeNull();
@@ -571,8 +580,11 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activities[0].querySelector("[data-activity-icon='command']")).toBeTruthy();
     expect(activities[1].querySelector("[data-activity-icon='image']")).toBeTruthy();
     expect(activities[1].textContent).toContain("Image consultée");
-    expect(activities[2].closest(".active-turn-tail")).toBeTruthy();
+    // La commande EN COURS se dépose à sa place et c'est SA ligne qui tique —
+    // elle n'est plus hissée dans la queue du tour.
+    expect(activities[2].closest(".active-turn-tail")).toBeNull();
     expect(activities[2].querySelector("[data-activity-icon='command']")).toBeTruthy();
+    expect(activities[2].querySelector(".tool-ticker")).toBeTruthy();
   });
 
   it("rattache les narrations intermédiaires au pli du message final", () => {
@@ -626,11 +638,9 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelector(".edit-line")?.textContent).toContain("plot.py");
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
     expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
-    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(1);
-    const activity = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
-    expect(activity.textContent).toContain(t("chat.activity-editing"));
-    expect(activity.querySelector("[data-activity-icon='edit']")).toBeTruthy();
-    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    // La ligne « fichier édité » porte déjà le travail (nom + ±) : aucune
+    // ligne d'outil ne la double.
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(0);
   });
 
   it("ouvre un fichier édité dans l'IDE avec le diff exact du tour", () => {

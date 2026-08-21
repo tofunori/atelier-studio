@@ -223,13 +223,25 @@ export function ChatTimeline(p: {
     }
     return rows;
   }, [events.length, renderedEvents, threadId, workingSince]);
+  // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
+  // que le tour n'est pas fini.
+  const derniereLigneTravail = React.useMemo(() => {
+    // ... et seulement si RIEN ne l'a close depuis : une narration assistant
+    // qui suit fige la ligne, comme n'importe quelle tranche terminée.
+    for (let i = renderedEvents.length - 1; i >= 0; i -= 1) {
+      const row = renderedEvents[i];
+      if (row.type === "actions") return row.index;
+      if (row.type === "event" && (row.event.kind === "text" || row.event.kind === "streaming")) return -1;
+    }
+    return -1;
+  }, [renderedEvents]);
   const listExtraData = React.useMemo(() => ({
     editing,
     openToolGroups,
     pins,
     reviewOpen,
     workingSince,
-  }), [editing, openToolGroups, pins, reviewOpen, workingSince]);
+  }), [editing, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
@@ -555,28 +567,22 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-tail") {
-            const open = openToolGroups.has(item.key);
             return (
               <ActiveTurnTail
                 key={item.key}
                 turn={item.turn}
                 events={events}
-                open={open}
-                onToggle={() => setOpenToolGroups((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(item.key)) next.delete(item.key);
-                  else next.add(item.key);
-                  return next;
-                })}
                 onStop={onStop}
-                plugins={plugins}
-                renderToolLine={renderToolLine}
-                thinkingCollapsed={defaults.thinkingCollapsed ?? false}
               />
             );
           }
           if (item.type === "actions") {
             const open = openToolGroups.has(item.key);
+            // La DERNIÈRE ligne de travail d'un tour en cours est la ligne
+            // vivante : elle tique à chaque nouvelle action au lieu d'afficher
+            // un résumé figé. C'est le seul endroit où l'action courante
+            // s'affiche — donc jamais de doublon avec une queue.
+            const live = workingSince != null && item.index === derniereLigneTravail;
             const tss = item.actions.map((a) => ("ts" in a ? a.ts : undefined)).filter((v): v is number => v != null);
             const stamp = defaults.displayTimestamps && tss.length
               ? <TimelineStamp startMs={Math.min(...tss)} endMs={tss.length > 1 ? Math.max(...tss) : null} fmt={defaults.timeFormat} />
@@ -587,6 +593,7 @@ export function ChatTimeline(p: {
                 actions={item.actions}
                 plugins={plugins}
                 open={open}
+                live={live}
                 onToggle={() =>
                   setOpenToolGroups((prev) => {
                     const next = new Set(prev);

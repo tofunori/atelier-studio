@@ -158,9 +158,11 @@ describe("chat turn view model", () => {
     // Le raisonnement reste à sa place chronologique dans le fil (il précède
     // la réponse et se lit au-dessus d'elle) ; seule l'action EN COURS est
     // hissée dans la queue du tour.
+    // Tout se dépose à sa place chronologique — y compris l'action en cours,
+    // dont la LIGNE tique (elle n'est plus hissée dans une queue).
     const visibleWork = rows.filter((row) => row.type === "event" && ["thinking", "thinking_live", "tool"].includes(row.event.kind));
     expect(visibleWork.map((row) => (row as { event: { kind: string } }).event.kind))
-      .toEqual(["thinking", "thinking_live"]);
+      .toEqual(["thinking", "tool", "thinking_live"]);
     expect(turn.activeActionGroups).toHaveLength(1);
     expect(turn.activeState).toMatchObject({ kind: "activity", eventIndex: 2, live: true });
   });
@@ -262,7 +264,9 @@ describe("chat turn view model", () => {
         if (row.type !== "event") return [];
         return row.event.kind === "tool" || row.event.kind === "tool_update" ? [row.event.name] : [];
       });
-      expect(visibleToolNames).toEqual(["Bash", imageName]);
+      // L'unité image reste autonome ; l'outil en cours se dépose lui aussi
+      // dans le fil (sa ligne tique) au lieu d'être hissé dans une queue.
+      expect(visibleToolNames).toEqual(["Bash", imageName, "Bash"]);
     },
   );
 

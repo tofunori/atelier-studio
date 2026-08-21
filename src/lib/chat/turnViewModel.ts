@@ -364,25 +364,20 @@ export function buildChatTurnViewModels(
           group.index > activeBoundary && !isStandaloneToolGroup(group) && isRunningToolGroup(group)
         ))
       : [];
-    const activeGroupIndexes = new Set(activeActionGroups.flatMap((group) => group.indexes));
     const activeWorkIndexes = new Set(indexes.filter((index) => {
       const event = events[index];
       // Le reasoning reste une donnée de statut, pas une ligne de transcript.
       if (!isActive) return isReasoning(event) || isToolAction(event) || event.kind === "activity";
-      // Progression visible pendant le tour (parti pris Hermes) : un groupe
-      // RÉGLÉ se dépose immédiatement comme ligne durable du transcript, sans
-      // attendre qu'une narration assistant ferme la tranche.
+      // Pendant le tour, TOUT se dépose à sa place chronologique : le
+      // raisonnement au-dessus de la réponse qu'il a servi à écrire, et le
+      // travail à mesure qu'il arrive. La ligne du run EN COURS n'est pas
+      // hissée ailleurs : c'est elle qui tique sur place (parti pris Hermes,
+      // Thierry 2026-08-21) — sans quoi, avec des outils qui se terminent
+      // instantanément, plus rien ne bougeait à l'écran.
       //
-      // Le RAISONNEMENT, lui, reste à sa place chronologique — il a précédé la
-      // réponse, il se lit au-dessus d'elle. Le hisser dans la queue du tour
-      // l'affichait SOUS le texte qu'il avait servi à écrire, l'exact inverse
-      // de Hermes (Thierry, 2026-08-21). Seul le groupe encore EN COURS garde
-      // le slot vivant du tail.
-      // La SENTINELLE `__thinking` (outil sans contenu) reste masquée : elle
+      // Seule exception : la SENTINELLE `__thinking` (outil sans contenu), qui
       // n'apprend rien et se lisait « réflexion… » alors que rien n'était dit.
-      const isReasoningSentinel = event.kind === "tool" && event.name === REASONING_TOOL;
-      return isReasoningSentinel || activeGroupIndexes.has(index) ||
-        (event.kind === "activity" && index > activeBoundary && isRunningActivity(event));
+      return event.kind === "tool" && event.name === REASONING_TOOL;
     }));
     const firstTs = (userIndex == null ? null : timestampOf(events[userIndex])) ??
       indexes.map((index) => timestampOf(events[index])).find((value) => value != null) ??
