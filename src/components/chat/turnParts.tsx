@@ -630,15 +630,20 @@ export function LiveThinking(
   // compte qui monte n'est pas un substitut acceptable. Le libellé reste sobre ;
   // le tooltip explique pourquoi le contenu n'apparaît pas.
   if (!texte) {
-    return (
-      <div className="thinking-live-indicator" role="status" aria-live="polite"
-        title={t("chat.thinking-progress-hint")}>
-        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-        {quietSeconds != null && quietSeconds >= 2
-          ? <span className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</span>
-          : <ThinkingShimmer />}
-      </div>
-    );
+    // Sans texte, on ne SAIT pas que le modèle réfléchit : afficher
+    // « Réflexion » était une affirmation gratuite (« ya réflexion mais ya
+    // aucune réflexion là », Thierry 2026-08-21). Le pulse et le chrono du
+    // tour, juste au-dessus, disent déjà qu'on travaille ; seule une attente
+    // qui dure gagne une ligne, et elle dit ce qu'elle mesure.
+    if (quietSeconds != null && quietSeconds >= 2) {
+      return (
+        <div className="thinking-live-indicator" role="status" aria-live="polite"
+          title={t("chat.thinking-progress-hint")}>
+          <span className="turn-quiet">{t("chat.quiet-wait", { s: quietSeconds })}</span>
+        </div>
+      );
+    }
+    return null;
   }
   return (
     <div className="thinking-live-indicator has-text" role="status" aria-live="polite">

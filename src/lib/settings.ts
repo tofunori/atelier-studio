@@ -149,6 +149,16 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     id: "2026-08-15.default-permission-mode-accept-edits",
     promote: (stored) => (stored.defaultPermissionMode === "bypassPermissions" ? { defaultPermissionMode: "acceptEdits" } : {}),
   },
+  {
+    // 2026-08-21 : le raisonnement s'affiche replié par défaut (fenêtre de 6
+    // lignes). Le réglage est né quelques heures plus tôt avec `false` : tout
+    // profil ayant enregistré ses réglages entre les deux (changer de modèle
+    // suffit — l'objet entier est réécrit) garde `false` pour toujours sans
+    // cette promotion. Un profil qui a explicitement décoché la case APRÈS
+    // cette promotion la conserve : elle ne tourne qu'une fois.
+    id: "2026-08-21.thinking-collapsed-by-default",
+    promote: (stored) => (stored.thinkingCollapsed === false ? { thinkingCollapsed: true } : {}),
+  },
 ];
 
 function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {

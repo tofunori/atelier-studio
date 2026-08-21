@@ -2863,7 +2863,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Déplié = flux complet façon Hermes ; réduit = fenêtre de ~3 lignes calée
    sur la fin (le défilement suit le texte, pas de scrollbar visible). */
 .thinking-live-stream.plein { max-height: none; overflow-y: visible; }
-.thinking-live-stream.windowed { max-height: 4.5em; }
+/* Réduit = 6 lignes (demande Thierry 2026-08-21) : une seule ligne ne donnait
+   pas de quoi suivre le raisonnement. `em` en repli pour les moteurs sans `lh`. */
+.thinking-live-stream.windowed { max-height: 9.3em; max-height: 6lh; }
 .thinking-live-stream::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* fin de la pensée en cours : une ligne, éteinte, jamais concurrente du
    contenu — même discrétion que l'aperçu du bloc replié */

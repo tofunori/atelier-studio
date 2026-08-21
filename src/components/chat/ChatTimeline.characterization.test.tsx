@@ -212,7 +212,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(document.querySelector(".working")).toBeTruthy();
     expect(document.querySelector(".working-header .working-divider")).toBeTruthy();
     expect(document.querySelector(".working-spin")).toBeNull();
-    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
+    // Début de tour, rien reçu : aucune ligne de pensée inventée — le pulse et
+    // le chrono suffisent (« ya réflexion mais ya aucune réflexion là »).
+    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);
 
     rerender(<Chat {...chatProps({ workingSince: null, events: makeTurnEvents() })} />);
     expect(document.querySelector(".working")).toBeNull();

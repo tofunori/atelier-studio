@@ -49,8 +49,10 @@ afterEach(cleanup);
 
 describe("anatomie du tour — header d'activité", () => {
   it("affiche la même icône de réflexion dans l'état actif et le bloc repliable", () => {
-    const { rerender } = renderUi(<LiveThinking />);
-    expect(document.querySelector(".thinking-live-indicator > .thinking-icon[aria-hidden='true']")).toBeTruthy();
+    // Avec du texte : l'indicateur porte l'icône dans son en-tête ; sans
+    // texte il ne rend RIEN (aucune « Réflexion » affirmée sans preuve).
+    const { rerender } = renderUi(<LiveThinking thought="Je pèse les options." />);
+    expect(document.querySelector(".thinking-live-head > .thinking-icon[aria-hidden='true']")).toBeTruthy();
 
     rerender(<ThinkingBlock text="Je vérifie les éléments utiles." live={false} />);
     const head = document.querySelector(".thinking-head") as HTMLButtonElement;
@@ -60,10 +62,12 @@ describe("anatomie du tour — header d'activité", () => {
   });
 
   it("déroule la pensée en cours dans une fenêtre bornée, calée sur la fin", () => {
-    // Sans pensée encore reçue : le reflet occupe la place, pas de bloc vide.
+    // Sans pensée reçue, on n'affirme RIEN : pas de « Réflexion » gratuite
+    // (le pulse et le chrono du tour racontent déjà l'attente).
     const { rerender } = renderUi(<LiveThinking />);
     expect(document.querySelector(".thinking-live-stream")).toBeNull();
-    expect(document.querySelector(".thinking-shimmer")).toBeTruthy();
+    expect(document.querySelector(".thinking-shimmer")).toBeNull();
+    expect(document.querySelector(".thinking-live-indicator")).toBeNull();
 
     // Dès qu'une pensée arrive, c'est ELLE qu'on lit — en entier, chaque ligne
     // devenant un paragraphe (mise en forme structurée, plus de bloc brut).
@@ -451,7 +455,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(updatedTail).toBe(initialTail);
     expect(document.querySelectorAll(".active-turn-tail")).toHaveLength(1);
     expect(updatedTail.querySelector(".ui-activity")).toBeNull();
-    expect(updatedTail.querySelector(".thinking-shimmer")).toBeTruthy();
+    // Pensée sans texte : aucune ligne « Réflexion » inventée.
+    expect(updatedTail.querySelector(".thinking-shimmer")).toBeNull();
     // La lecture terminée reste une ligne durable du transcript (progression).
     expect(document.querySelectorAll(".timeline-virtual-row .ui-activity:not(.is-summary)")).toHaveLength(1);
   });
@@ -486,7 +491,7 @@ describe("anatomie du tour — header d'activité", () => {
     const tail = document.querySelector(".active-turn-tail") as HTMLElement;
     expect(header).toBeTruthy();
     expect(tail).toBeTruthy();
-    expect(tail.querySelector(".thinking-shimmer")?.textContent).toBe(t("chat.thinking"));
+    expect(tail.querySelector(".thinking-shimmer")).toBeNull();
     expect(header.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
