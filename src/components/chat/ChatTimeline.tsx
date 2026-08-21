@@ -528,8 +528,17 @@ export function ChatTimeline(p: {
           }
           if (item.type === "active-turn-header") {
             const cumulativeKey = `cumulative:${item.turn.key}`;
+            // Nombre de lignes de travail RÉELLEMENT déposées pour ce tour :
+            // c'est ce que l'œil voit, alors que `turn.actionGroups` compte les
+            // appels d'outil (cinq lectures d'affilée = une seule ligne). Le
+            // cumul ne s'affiche qu'au-dessus de PLUSIEURS lignes, sinon il
+            // répète mot pour mot celle qui suit (doublon signalé trois fois).
+            const lignesDeposees = renderedEvents.filter((row) => (
+              row.type === "actions" && row.index >= item.turn.startIndex
+            )).length;
             return (
               <ActiveTurnHeader
+                visibleRuns={lignesDeposees}
                 key={item.key}
                 turn={item.turn}
                 since={workingSince ?? Date.now()}

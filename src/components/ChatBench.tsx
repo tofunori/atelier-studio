@@ -135,6 +135,18 @@ const THINKING_ORDER: AgentEvent[] = [
   } as AgentEvent,
 ];
 
+// Cas signalé par Thierry (2026-08-21) : cinq lectures d'affilée = UNE ligne
+// déposée. Aucun cumul ne doit s'afficher au-dessus, il la répéterait.
+const CINQ_LECTURES: AgentEvent[] = [
+  { kind: "user", text: "Relis la section méthode.", ts: ts(110) } as AgentEvent,
+  tool("cl-1", "Read", "manuscrit/methods_en.tex", "420 lignes", 380, 100),
+  tool("cl-2", "Read", "gee_pipeline/config.py", "RGI_REGIONS", 240, 95),
+  tool("cl-3", "Read", "analysis/albedo_trends.py", "240 lignes", 310, 90),
+  tool("cl-4", "Read", "docs/DATA_CHANGELOG.md", "88 lignes", 150, 85),
+  tool("cl-5", "Read", "manuscrit/refs.bib", "1200 lignes", 520, 80),
+  { kind: "tool", name: "__thinking" } as AgentEvent,
+];
+
 const STREAM: AgentEvent[] = [
   { kind: "user", text: "Inspecte puis corrige le composer.", ts: ts(30) } as AgentEvent,
   { kind: "text", text: "Je commence par lire les composants concernés.", ts: ts(28) } as AgentEvent,
@@ -304,6 +316,7 @@ const STATES: Record<string, BenchState> = {
   activityparity: { events: ACTIVITY_PARITY, workingSince: ts(36), attachments: [], usage: { context: 16200, output: 280, cost: null, turns: 1 } },
   slottransition: { events: SLOT_TRANSITION, workingSince: ts(24), attachments: [], usage: { context: 15100, output: 210, cost: null, turns: 1 } },
   thinking: { events: THINKING, workingSince: ts(20), attachments: [], usage: { context: 14000, output: 0, cost: null, turns: 1 } },
+  cinqlectures: { events: CINQ_LECTURES, workingSince: ts(110), attachments: [], usage: null },
   ordrepensee: { events: THINKING_ORDER, workingSince: ts(30), attachments: [], usage: null },
   hermesreply: { events: HERMES_REPLY, workingSince: null, attachments: [], usage: { context: 96000, output: 4200, cost: 0.31, turns: 1 } },
   longthinking: { events: LONG_THINKING, workingSince: ts(60), attachments: [], usage: { context: 15000, output: 0, cost: null, turns: 1 } },

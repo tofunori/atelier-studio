@@ -574,6 +574,9 @@ export function ActiveTurnHeader(p: {
   open?: boolean;
   onToggle?: () => void;
   renderToolLine?: (action: ToolAction, key: React.Key) => ReactNode;
+  /** lignes de travail déjà déposées à l'écran pour ce tour (pas les appels
+   * d'outil : cinq lectures d'affilée n'en forment qu'une) */
+  visibleRuns?: number;
 }) {
   // Bilan cumulatif du tour ENTIER (toutes tranches, pas seulement l'active) :
   // il vit sous le chrono pendant toute la durée du tour, pensée comprise —
@@ -586,12 +589,11 @@ export function ActiveTurnHeader(p: {
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      {/* Le cumul ne vaut qu'au-dessus de plus de dépôts que l'écran n'en
-          montre d'un coup : à un seul groupe il répète la ligne juste en
-          dessous, à deux il concatène cette ligne et le ticker du bas. Il
-          n'apporte une vue d'ensemble qu'à partir du troisième (doublon signalé
-          deux fois par Thierry, 2026-08-21). */}
-      {groups.length >= 3 && segments.length > 0 && (
+      {/* Une seule ligne déposée = le cumul la répète mot pour mot ; il ne
+          devient une vue d'ensemble qu'à partir de deux (doublon signalé trois
+          fois par Thierry le 2026-08-21 — les deux premières corrections
+          comptaient les APPELS d'outil, pas les lignes affichées). */}
+      {(p.visibleRuns ?? 0) >= 2 && segments.length > 0 && (
         <>
           <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
             {segments.map((segment, i) => (

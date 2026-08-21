@@ -393,15 +393,19 @@ describe("anatomie du tour — header d'activité", () => {
     expect(cumulative.querySelector(".turn-cumulative-live")?.textContent).toContain("fichiers");
   });
 
-  it("tour actif : pas de cumul tant que le travail tient en un ou deux dépôts", () => {
+  // Le seuil porte sur les LIGNES déposées, pas sur les appels : cinq lectures
+  // d'affilée n'en forment qu'une, et le cumul la répéterait mot pour mot.
+  it("tour actif : pas de cumul quand tout le travail tient en une seule ligne", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte.", FIXED_TS),
-      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
-      events.text("Je poursuis l'analyse.", FIXED_TS + 100),
-      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
+      events.tool({ id: "r1", name: "Read", detail: "src/a.ts", status: "completed" }),
+      events.tool({ id: "r2", name: "Read", detail: "src/b.ts", status: "completed" }),
+      events.tool({ id: "r3", name: "Read", detail: "src/c.ts", status: "completed" }),
       { kind: "thinking_live", text: "Je vérifie…", ts: FIXED_TS + 200 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    // une seule ligne « 3 fichiers consultés » déposée → aucun cumul au-dessus
+    expect(document.querySelectorAll(".ui-activity:not(.is-summary)").length).toBe(1);
     expect(document.querySelector(".turn-cumulative")).toBeNull();
   });
 
