@@ -566,6 +566,27 @@ export function summarizeTools(actions: ToolAction[]): string {
   return summarizeActivity(actions).label;
 }
 
+/** Segments du bilan cumulatif du tour actif — mêmes clauses que le bilan
+ * replié, mais en morceaux séparés pour que l'UI éclaire la catégorie qui
+ * vient de bouger (`live` = celle de l'action la plus récente). */
+export function activitySegments(actions: ToolAction[]): { text: string; live: boolean }[] {
+  const distinct = distinctToolActions(actions);
+  const items = distinct.map(semanticActivity);
+  const lastItem = items[items.length - 1];
+  const liveKind = lastItem ? partKind(lastItem.kind) : null;
+  const byPart = new Map<SummaryPartKind, SemanticToolActivity[]>();
+  for (const item of items) {
+    const part = partKind(item.kind);
+    const existing = byPart.get(part);
+    if (existing) existing.push(item);
+    else byPart.set(part, [item]);
+  }
+  return SUMMARY_ORDER.flatMap((kind) => {
+    const partItems = byPart.get(kind);
+    return partItems?.length ? [{ text: summaryClause(kind, partItems), live: kind === liveKind }] : [];
+  });
+}
+
 /** Signature de progrès du tour (façon Hermes turn-activity.ts, MIT) : change
  * exactement quand le tour avance visiblement. Le statut fait partie de la
  * clé — un résultat qui arrive MUTE l'appel déjà affiché : sans lui, un outil

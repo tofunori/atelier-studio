@@ -15,7 +15,7 @@ import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, LiveThinking, ThinkingShimmer, Working, reasoningSummary } from "./turnParts";
 import {
-  activeToolLabel, activityIconForAction, activityIconForPhase,
+  activeToolLabel, activityIconForAction, activityIconForPhase, activitySegments,
   distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
@@ -578,9 +578,23 @@ export function ActiveTurnHeader(p: {
   since: number;
   tokens?: number | null;
 }) {
+  // Bilan cumulatif du tour ENTIER (toutes tranches, pas seulement l'active) :
+  // il vit sous le chrono pendant toute la durée du tour, pensée comprise —
+  // le travail déjà fait ne disparaît jamais de l'écran (parti pris Hermes).
+  const segments = activitySegments(p.turn.actionGroups.flatMap((group) => group.actions));
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
+      {segments.length > 0 && (
+        <div className="turn-cumulative">
+          {segments.map((segment, i) => (
+            <span key={i} className={segment.live ? "turn-cumulative-live" : undefined}>
+              {i > 0 && <span className="turn-cumulative-sep" aria-hidden> · </span>}
+              {segment.text}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

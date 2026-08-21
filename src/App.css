@@ -530,6 +530,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent);
   border-radius: var(--r-pill); animation: working-spin .8s linear infinite; }
 .working-tokens { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
+/* Bilan cumulatif du tour actif : périphérie (gris éteint), la catégorie qui
+   vient de bouger un cran plus claire. Indenté sous le libellé du chrono
+   (anneau 12px + gap 10px). */
+.turn-cumulative { color: var(--text-disabled); font-size: var(--fs-m);
+  margin: 2px 0 0 22px; font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-cumulative-live { color: var(--text-muted); }
+.turn-cumulative-sep { color: var(--text-disabled); }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
 .working-note { color: var(--text-disabled); font-variant-numeric: tabular-nums; margin-left: 8px; }

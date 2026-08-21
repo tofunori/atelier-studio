@@ -241,6 +241,33 @@ describe("anatomie du tour — header d'activité", () => {
     expect(tail.textContent).not.toContain("3 actions");
   });
 
+  it("tour actif : le header cumule le travail de tout le tour, tranches fermées comprises", () => {
+    const evs: AgentEvent[] = [
+      events.user("Inspecte.", FIXED_TS),
+      events.tool({ id: "read", name: "Read", detail: "src/App.tsx", status: "completed" }),
+      events.tool({ id: "cmd", name: "Bash", detail: "npm test", status: "completed" }),
+      events.text("Je poursuis l'analyse.", FIXED_TS + 100),
+      { kind: "thinking_live", text: "Je vérifie les régions RGI…", ts: FIXED_TS + 200 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+
+    const cumulative = document.querySelector(".active-turn-header .turn-cumulative") as HTMLElement;
+    expect(cumulative).toBeTruthy();
+    expect(cumulative.textContent).toContain("App.tsx consulté");
+    expect(cumulative.textContent).toContain("commande exécutée");
+    // La catégorie la plus récente est éclairée.
+    expect(cumulative.querySelector(".turn-cumulative-live")?.textContent).toContain("commande");
+  });
+
+  it("tour actif sans outil : pas de ligne cumulative", () => {
+    const evs: AgentEvent[] = [
+      events.user("Réfléchis.", FIXED_TS),
+      { kind: "thinking_live", text: "Hmm…", ts: FIXED_TS + 50 } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    expect(document.querySelector(".turn-cumulative")).toBeNull();
+  });
+
   it("tour actif : n'affiche que l'action courante dans le slot vivant", () => {
     const evs: AgentEvent[] = [
       events.user("Inspecte.", FIXED_TS),

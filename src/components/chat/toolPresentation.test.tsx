@@ -4,6 +4,7 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { setLanguage, t } from "../../lib/i18n";
 import {
   activeToolLabel,
+  activitySegments,
   activityIconForAction,
   distinctToolActions,
   fmtToolDur,
@@ -141,6 +142,17 @@ describe("Codex-style activity presentation", () => {
     expect(turnProgressSignature(settled, 0)).not.toBe(turnProgressSignature(settled, 42));
     expect(turnProgressSignature(settled, 0)).not.toBe(
       turnProgressSignature([...settled, tool("next", "Read", "src/a.ts")], 0));
+  });
+
+  it("segmente le bilan cumulatif et éclaire la catégorie la plus récente", () => {
+    const segments = activitySegments([
+      tool("r1", "Read", "src/a.ts", { input: { path: "src/a.ts" } }),
+      tool("r2", "Read", "src/b.ts", { input: { path: "src/b.ts" } }),
+      tool("c1", "Bash", "npm test"),
+    ]);
+    expect(segments.map((s) => s.text)).toEqual(["read 2 files", "ran a command"]);
+    expect(segments.map((s) => s.live)).toEqual([false, true]);
+    expect(activitySegments([])).toEqual([]);
   });
 
   it("extracts image paths from the structured and legacy Codex formats", () => {
