@@ -124,11 +124,11 @@ describe("settings defaults", () => {
   it("expose les préférences d'affichage du travail avec leurs défauts", () => {
     localStorage.clear();
     const s = loadSettings();
-    expect(s.thinkingCollapsed).toBe(false);
+    expect(s.thinkingCollapsed).toBe(true); // repliée par défaut (2026-08-21)
     expect(s.displayTimestamps).toBe(false);
-    saveSettings({ ...s, thinkingCollapsed: true, displayTimestamps: true });
+    saveSettings({ ...s, thinkingCollapsed: false, displayTimestamps: true });
     const again = loadSettings();
-    expect(again.thinkingCollapsed).toBe(true);
+    expect(again.thinkingCollapsed).toBe(false);
     expect(again.displayTimestamps).toBe(true);
   });
 });

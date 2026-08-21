@@ -84,7 +84,9 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSmoothing: true,
   streamFade: true,
   timeFormat: "system",
-  thinkingCollapsed: false,
+  // Repliée par défaut (demande Thierry 2026-08-21) : fenêtre de 3 lignes,
+  // le flux complet reste à un clic.
+  thinkingCollapsed: true,
   displayTimestamps: false,
   customModels: [],
   modelEfforts: {},
