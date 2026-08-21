@@ -48,7 +48,7 @@ import { linkedConversationForProvider, linkedConversations } from "./lib/thread
 import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
-import { loadSettings, saveSettings, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
+import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
@@ -1410,6 +1410,9 @@ export default function App() {
           setSettings((current) => ({
             ...DEFAULT_SETTINGS,
             ...diskSettings,
+            // Les promotions de CE boot gagnent sur un miroir disque qui les
+            // précède — sinon elles sont perdues à jamais (marquées appliquées).
+            ...bootPromotions(),
             favoriteModels: diskSettings.favoriteModels && typeof diskSettings.favoriteModels === "object"
               ? diskSettings.favoriteModels
               : current.favoriteModels,
@@ -1418,8 +1421,9 @@ export default function App() {
         } else if (Object.keys(diskSettings).length) {
           // boot normal (webview déjà connue) : le disque fait foi pour les
           // réglages simples aussi, mais sans piétiner la vue actuellement
-          // affichée (activeView reste local, non lié au bug rapporté).
-          setSettings((current) => ({ ...current, ...diskSettings }));
+          // affichée (activeView reste local) NI les promotions de ce boot —
+          // le miroir, antérieur à elles, les écraserait définitivement.
+          setSettings((current) => ({ ...current, ...diskSettings, ...bootPromotions() }));
         }
         // Remplacement (pas fusion) pour chaque clé miroitée présente sur
         // disque : une fusion additive/union ne peut jamais représenter une

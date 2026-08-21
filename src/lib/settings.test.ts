@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";
+import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -146,5 +146,19 @@ describe("promotion de défaut : la valeur doit SURVIVRE au redémarrage", () =>
     // 2e démarrage, SANS enregistrement entre les deux (l'app peut redémarrer
     // sans qu'aucun réglage n'ait été touché) : la valeur doit tenir.
     expect(loadSettings().thinkingCollapsed).toBe(true);
+  });
+});
+
+describe("bootPromotions : les clés promues survivent au miroir disque", () => {
+  it("expose les clés promues de ce chargement pour que le merge du boot les fasse gagner", () => {
+    localStorage.clear();
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ thinkingCollapsed: false }));
+    expect(loadSettings().thinkingCollapsed).toBe(true);
+    // Le handler settingsFile fusionne `{...current, ...diskSettings,
+    // ...bootPromotions()}` : la promotion doit y être exposée.
+    expect(bootPromotions()).toMatchObject({ thinkingCollapsed: true });
+    // Simulation du merge avec un miroir disque antérieur à la promotion :
+    const disk = { thinkingCollapsed: false };
+    expect({ ...loadSettings(), ...disk, ...bootPromotions() }.thinkingCollapsed).toBe(true);
   });
 });

@@ -249,6 +249,7 @@ export function loadSettings(): Settings {
     // migration puisse se rejouer. Un échec d'écriture ne fait pas échouer le
     // chargement — au pire la valeur restera à promouvoir.
     if (Object.keys(promoted).length > 0) {
+      lastBootPromotions = promoted;
       try {
         localStorage.setItem(KEY, JSON.stringify(settings));
       } catch {}
@@ -257,6 +258,17 @@ export function loadSettings(): Settings {
   } catch {
     return DEFAULT_SETTINGS;
   }
+}
+
+/** Clés promues au chargement de CE boot. Le miroir disque settings.json
+ * arrive APRÈS, par WebSocket, et « fait foi » : sans cette trace, il écrase
+ * la promotion avec l'ancienne valeur — déjà marquée appliquée, elle ne se
+ * rejouerait jamais (vécu 2026-08-21 : thinkingCollapsed retombait à false à
+ * chaque relance malgré deux correctifs). Le merge du boot doit la faire
+ * gagner UNE fois ; le miroir se met ensuite à jour tout seul. */
+let lastBootPromotions: Partial<Settings> = {};
+export function bootPromotions(): Partial<Settings> {
+  return lastBootPromotions;
 }
 
 export function saveSettings(s: Settings) {
