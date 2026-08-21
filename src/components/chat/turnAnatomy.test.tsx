@@ -166,14 +166,34 @@ describe("anatomie du tour — header d'activité", () => {
     }
   });
 
-  it("chronomètre le silence même pendant une pensée muette", () => {
+  it("chronomètre le silence d'une pensée muette — seulement après un premier progrès", () => {
     vi.useFakeTimers();
-    const evs: AgentEvent[] = [
+    // AVANT tout progrès : le chrono du tour compte déjà la même chose —
+    // « en attente » serait un horodateur en double (vécu 2026-08-21).
+    const sansProgres: AgentEvent[] = [
       events.user("Réfléchis.", FIXED_TS),
       { kind: "tool", name: "__thinking" } as AgentEvent, // pensée SANS texte (headless caviardé)
     ];
-    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    const first = renderUi(<Chat {...chatProps({ events: sansProgres, workingSince: FIXED_TS })} />);
+    act(() => { vi.advanceTimersByTime(3100); });
     expect(document.querySelector(".turn-quiet")).toBeNull();
+    first.unmount();
+
+    // APRÈS un progrès (un outil réglé), le silence diverge du chrono du
+    // tour : le minuteur remplace le shimmer dans la ligne Réflexion.
+    const apresProgres: AgentEvent[] = [
+      events.user("Réfléchis.", FIXED_TS),
+      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "completed" }),
+      { kind: "tool", name: "__thinking" } as AgentEvent,
+    ];
+    const view = renderUi(<Chat {...chatProps({ events: apresProgres, workingSince: FIXED_TS })} />);
+    // le montage voit déjà la signature stable : simule le progrès en ajoutant
+    // l'update qui MUTE la signature après coup
+    view.rerender(<Chat {...chatProps({ events: [
+      ...apresProgres.slice(0, 2),
+      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "interrupted" }),
+      { kind: "tool", name: "__thinking" } as AgentEvent,
+    ], workingSince: FIXED_TS })} />);
     act(() => { vi.advanceTimersByTime(3100); });
     expect(document.querySelector(".turn-quiet")?.textContent).toMatch(/en attente · \d+ s/);
     vi.useRealTimers();

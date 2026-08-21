@@ -660,12 +660,24 @@ export function ActiveTurnTail(p: {
   // dernier progrès (un résultat mute l'appel affiché sans rien ajouter).
   const lastStreamingEvent = [...p.events].reverse().find((e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
   const answerLength = lastStreamingEvent?.text.length ?? 0;
-  const signature = turnProgressSignature(actions, currentThought(p.turn, p.events).length, answerLength);
+  // Signature sur TOUT le tour, pas la seule tranche active : depuis la
+  // progression (dépôt des groupes réglés), un outil qui se termine sort des
+  // groupes actifs — sans ça, sa fin ne compterait plus comme un progrès.
+  const signature = turnProgressSignature(
+    p.turn.actionGroups.flatMap((group) => group.actions),
+    currentThought(p.turn, p.events).length,
+    answerLength,
+  );
   const quietSinceRef = useRef(Date.now());
   const prevSignatureRef = useRef(signature);
+  // « en attente » n'a de sens qu'après un PREMIER progrès : avant, son compte
+  // est identique au chrono du tour juste au-dessus — horodateur en double
+  // (vécu 2026-08-21). Le pulse + temps porte seul l'attente initiale.
+  const hadProgressRef = useRef(false);
   if (prevSignatureRef.current !== signature) {
     prevSignatureRef.current = signature;
     quietSinceRef.current = Date.now();
+    hadProgressRef.current = true;
   }
   const [, forceQuietTick] = useState(0);
   useEffect(() => {
@@ -700,7 +712,7 @@ export function ActiveTurnTail(p: {
           collapsedByDefault={p.thinkingCollapsed ?? false}
           // Pas de double narration : quand la pensée est MUETTE, le minuteur
           // d'attente remplace le shimmer DANS la même ligne, jamais dessous.
-          quietSeconds={!running ? quietSeconds : null}
+          quietSeconds={!running && hadProgressRef.current ? quietSeconds : null}
         />
       ) : (
         <ActivityDisclosure
