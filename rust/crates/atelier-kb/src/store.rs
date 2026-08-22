@@ -49,6 +49,50 @@ pub fn flag(mut base: Value, warning: &Option<String>) -> Value {
     base
 }
 
+/// `decodeURIComponent` pour les seules séquences `%XX` valides — une
+/// séquence incomplète ou non hexadécimale reste littérale (Node lèverait ;
+/// ici on préfère laisser passer le nom de fichier tel quel).
+fn decode_uri_component(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(byte) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Découpe `zotero://<pdfKey>/<pdfFile>[#itemKey]` — miroir du regex
+/// `/^zotero:\/\/([^/]+)\/(.+?)(?:#([A-Za-z0-9]*))?$/` de `knowledge.mjs`.
+/// La clé d'item n'est reconnue que si elle est alphanumérique : un `#` suivi
+/// d'autre chose appartient au nom de fichier.
+fn parse_zotero_origin(origin: &str) -> Result<(String, String, Option<String>), String> {
+    const ERR: &str = "--kind zotero attend zotero://<pdfKey>/<pdfFile>[#itemKey]";
+    let rest = origin.strip_prefix("zotero://").ok_or(ERR)?;
+    let (pdf_key, tail) = rest.split_once('/').ok_or(ERR)?;
+    if pdf_key.is_empty() || tail.is_empty() {
+        return Err(ERR.to_string());
+    }
+    let (file_raw, zotero_key) = match tail.rsplit_once('#') {
+        Some((head, key))
+            if !head.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            (head, (!key.is_empty()).then(|| key.to_string()))
+        }
+        _ => (tail, None),
+    };
+    Ok((pdf_key.to_string(), decode_uri_component(file_raw), zotero_key))
+}
+
 pub fn source_id(kind: &str, key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{kind}\n{key}").as_bytes());
@@ -114,6 +158,9 @@ pub struct KnowledgeStore {
     cache_dir: PathBuf,
     pdf_cache_dir: PathBuf,
     lock_dir: PathBuf,
+    /// Racine du stockage Zotero. `None` = `~/Zotero/storage` (miroir de
+    /// `this.deps.resolveZotero` côté Node : injectable pour les tests).
+    zotero_storage_root: Option<PathBuf>,
     pub sources: Map<String, Value>,
     pub source_order: Vec<String>,
     pub collections: Vec<Value>,
@@ -132,9 +179,16 @@ impl KnowledgeStore {
             source_order: Vec::new(),
             collections: Vec::new(),
             warning: None,
+            zotero_storage_root: None,
         };
         store.reload_from_disk();
         store
+    }
+
+    /// Racine de stockage Zotero explicite (tests, installation non standard).
+    pub fn with_zotero_storage_root(mut self, root: PathBuf) -> Self {
+        self.zotero_storage_root = Some(root);
+        self
     }
 
     fn reload_from_disk(&mut self) {
@@ -609,8 +663,9 @@ impl KnowledgeStore {
             "pdf" => self.add_pdf(origin, title),
             "web" => self.add_web(origin, title, text),
             "gbrain" => self.add_gbrain(origin, title),
+            "zotero" => self.add_zotero(origin, title),
             other => Err(format!(
-                "kind '{other}' non pris en charge par ce moteur (vague 3 : store local + gbrain + web (texte fourni ou fetch réel) ; youtube/zotero hors périmètre)"
+                "kind '{other}' non pris en charge par ce moteur (vague 3 : store local + gbrain + web (texte fourni ou fetch réel) ; youtube hors périmètre)"
             )),
         }
     }
@@ -710,6 +765,41 @@ impl KnowledgeStore {
             })).collect::<Vec<_>>(),
         });
         self.upsert_raw(&id, "folder", Some(&folder_title), Some(&path.to_string_lossy()), chars, meta, cache_payload)
+    }
+
+    /// `add --kind zotero` — miroir de la branche `zotero` de
+    /// `KnowledgeStore.add` (`knowledge.mjs`) : l'origine encode la pièce
+    /// jointe (`zotero://<pdfKey>/<pdfFile>[#itemKey]`), le PDF est résolu
+    /// dans le stockage Zotero avec la garde anti-traversée, puis extrait
+    /// comme un `pdf` ordinaire — donc via le cache PDF DU STORE, pas celui
+    /// des passages (`zotero::extract_pdf_pages`, qui sert le corpus).
+    fn add_zotero(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
+        let (pdf_key, pdf_file, zotero_key) = parse_zotero_origin(origin.unwrap_or(""))?;
+        let storage_root = self
+            .zotero_storage_root
+            .clone()
+            .unwrap_or_else(crate::zotero::default_storage_root);
+        let candidate = storage_root.join(&pdf_key).join(&pdf_file);
+        let abs = crate::zotero::resolve_zotero_pdf(&candidate.to_string_lossy(), &storage_root)?;
+        let stat = std::fs::metadata(&abs).map_err(|e| e.to_string())?;
+        let extracted = extract_pdf_pages(&abs, &self.pdf_cache_dir)?;
+        let zotero_title = title
+            .filter(|t| !t.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| pdf_file.trim_end_matches(".pdf").to_string());
+        let mut meta = json!({
+            "pages": extracted.pages.len(),
+            "mtimeMs": stat.modified_ms(),
+            "size": stat.len(),
+            "pdfKey": pdf_key,
+            "pdfFile": pdf_file,
+        });
+        // Node : `...(zoteroKey ? { zoteroKey } : {})` — clé absente si vide.
+        if let Some(key) = zotero_key.filter(|k| !k.is_empty()) {
+            meta["zoteroKey"] = json!(key);
+        }
+        let id = source_id("zotero", &format!("{pdf_key}/{pdf_file}"));
+        self.upsert_entry(&id, "zotero", Some(&zotero_title), Some(&abs.to_string_lossy()), extracted.pages, meta)
     }
 
     fn add_pdf(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
@@ -1200,6 +1290,97 @@ mod tests {
         );
         let refreshed = store.get(&id).unwrap();
         assert_eq!(refreshed["meta"]["files"], json!(2));
+    }
+
+    // --- ajout `zotero` : dernier recours au CLI Node retiré (2026-08-22).
+    // Miroir de la branche `zotero` de `KnowledgeStore.add` (knowledge.mjs
+    // :826-849) — URI d'attachement, garde anti-traversée, extraction par le
+    // cache PDF DU STORE (pas celui des passages). ---
+
+    /// PDF minimal lisible par pdftotext (une page, un mot).
+    fn write_mini_pdf(path: &Path, word: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let stream = format!("BT /F1 12 Tf 20 100 Td ({word}) Tj ET");
+        let pdf = format!(
+            "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+             2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+             3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R\
+             /Resources<</Font<</F1 5 0 R>>>>>>endobj\n\
+             4 0 obj<</Length {}>>stream\n{stream}\nendstream\nendobj\n\
+             5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n\
+             trailer<</Root 1 0 R>>\n",
+            stream.len()
+        );
+        std::fs::write(path, pdf).unwrap();
+    }
+
+    #[test]
+    fn parse_zotero_origin_decode_le_fichier_et_la_cle_item() {
+        assert_eq!(
+            parse_zotero_origin("zotero://ABCD1234/mon%20article.pdf#ITEM99").unwrap(),
+            (
+                "ABCD1234".to_string(),
+                "mon article.pdf".to_string(),
+                Some("ITEM99".to_string())
+            )
+        );
+        assert_eq!(
+            parse_zotero_origin("zotero://ABCD1234/doc.pdf").unwrap(),
+            ("ABCD1234".to_string(), "doc.pdf".to_string(), None)
+        );
+        // `#` vide = pas de clé d'item (Node : `zoteroKey ? {...} : {}`)
+        assert_eq!(parse_zotero_origin("zotero://KEY/doc.pdf#").unwrap().2, None);
+        // un `#` suivi d'autre chose que de l'alphanumérique fait partie du nom
+        assert_eq!(parse_zotero_origin("zotero://KEY/a#b.pdf").unwrap().1, "a#b.pdf");
+        assert!(parse_zotero_origin("https://example.org/x.pdf").is_err());
+        assert!(parse_zotero_origin("").is_err());
+    }
+
+    #[test]
+    fn add_kind_zotero_extrait_le_pdf_et_porte_les_cles() {
+        let dir = tempdir().unwrap();
+        let storage = dir.path().join("Zotero").join("storage");
+        write_mini_pdf(&storage.join("ABCD1234").join("mon article.pdf"), "AlbedoZotero");
+
+        let mut store = KnowledgeStore::open(dir.path().join("kb"))
+            .with_zotero_storage_root(storage.clone());
+        let (entry, replaced) = store
+            .add("zotero", Some("zotero://ABCD1234/mon%20article.pdf#ITEM99"), None, None)
+            .unwrap();
+
+        // second membre = « une entrée existait déjà » (upsert_raw : prev.is_some())
+        assert!(!replaced);
+        assert_eq!(entry["kind"], json!("zotero"));
+        // titre par défaut = nom du fichier sans .pdf (Node : basename(pdfFile, ".pdf"))
+        assert_eq!(entry["title"], json!("mon article"));
+        // origin = chemin ABSOLU résolu, pas l'URI
+        let origin = entry["origin"].as_str().unwrap();
+        assert!(origin.ends_with("mon article.pdf"), "origin={origin}");
+        assert!(!origin.starts_with("zotero://"), "origin={origin}");
+        assert_eq!(entry["meta"]["pdfKey"], json!("ABCD1234"));
+        assert_eq!(entry["meta"]["pdfFile"], json!("mon article.pdf"));
+        assert_eq!(entry["meta"]["zoteroKey"], json!("ITEM99"));
+        assert_eq!(entry["meta"]["pages"], json!(1));
+        // l'id dérive de la PAIRE clé/fichier, pas du chemin absolu
+        assert_eq!(entry["id"], json!(source_id("zotero", "ABCD1234/mon article.pdf")));
+        // le texte est bien extrait dans le cache de pages du store
+        let pages = store.read_pages_cache(entry["id"].as_str().unwrap()).unwrap();
+        assert!(pages[0].text.contains("AlbedoZotero"), "pages={pages:?}");
+    }
+
+    #[test]
+    fn add_kind_zotero_refuse_un_pdf_hors_du_stockage() {
+        let dir = tempdir().unwrap();
+        let storage = dir.path().join("Zotero").join("storage");
+        std::fs::create_dir_all(&storage).unwrap();
+        // le PDF existe, mais AILLEURS que sous storage/ : traversée refusée
+        write_mini_pdf(&dir.path().join("ailleurs").join("vole.pdf"), "Dehors");
+        let mut store = KnowledgeStore::open(dir.path().join("kb"))
+            .with_zotero_storage_root(storage);
+        let err = store
+            .add("zotero", Some("zotero://../ailleurs/vole.pdf"), None, None)
+            .unwrap_err();
+        assert!(!err.contains("hors périmètre"), "err={err}");
     }
 
     // --- B5 (plans/065-revue-findings.md, KBS-01/KBC-29) : plus de panic
