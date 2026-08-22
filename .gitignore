@@ -48,3 +48,6 @@ playwright-report/
 
 # Companion visuel brainstorming (superpowers)
 .superpowers/
+
+# restes d'ecritures atomiques du serveur galerie (tue avant le rename)
+.figures_index.html.*.tmp
