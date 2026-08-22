@@ -78,6 +78,36 @@ function findStreamingIdx(list: AgentEvent[], ev: AgentEvent): number {
   return -1;
 }
 
+/** Recolle deux morceaux de raisonnement du même tour.
+ *
+ * Deux régimes cohabitent et on ne peut pas les traiter pareil :
+ *
+ *  - Grok découpe un flux CONTINU tous les ~100 caractères, en tranches
+ *    brutes : aucun caractère n'est perdu, la coupure tombe où elle tombe —
+ *    en plein mot (« …read CLA » + « UDE.md ») ou juste avant l'espace qui
+ *    suit un point (« …rules. » + «  Let me »). Ces morceaux doivent se
+ *    ressouder SANS rien ajouter, sinon le texte est corrompu.
+ *  - Claude envoie des résumés de raisonnement COMPLETS, déjà détourés :
+ *    le morceau suivant commence par une majuscule, sans espace de tête. Les
+ *    souder tels quels donnait « Let me follow...Let me read the semantic »
+ *    (capture Thierry 2026-08-22) — illisible.
+ *
+ * D'où la règle, qui lit la jointure plutôt que le provider : une tranche
+ * brute laisse TOUJOURS une trace au point de coupe (espace conservé d'un
+ * côté, ou mot coupé de part et d'autre) ; son absence signe deux blocs
+ * distincts, qui méritent un saut de paragraphe. */
+export function collerPensee(avant: string, apres: string): string {
+  if (!avant) return apres;
+  if (!apres) return avant;
+  const finAvant = avant[avant.length - 1];
+  const debutApres = apres[0];
+  // l'espacement du flux d'origine est conservé : rien à ajouter
+  if (/\s/u.test(finAvant) || /\s/u.test(debutApres)) return avant + apres;
+  // mot coupé en deux par la tranche : ressouder à l'identique
+  const motCoupe = /[\p{L}\p{N}]/u.test(finAvant) && /[\p{L}\p{N}]/u.test(debutApres);
+  return motCoupe ? avant + apres : `${avant}\n\n${apres}`;
+}
+
 /** Le dernier élément est-il un thinking_live rattachable à `ev` ?
  * (même règle turn-scoped que le streaming ; sans meta → comportement
  * historique : simple test du dernier élément). */
@@ -178,7 +208,7 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
         continue;
       }
       if (evMeta && turnOf(item) !== evMeta.turnId) break;
-      next[idx] = { ...item, text: item.text + ev.text, meta: ev.meta ?? item.meta };
+      next[idx] = { ...item, text: collerPensee(item.text, ev.text), meta: ev.meta ?? item.meta };
       return next;
     }
     next.push({ kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta });

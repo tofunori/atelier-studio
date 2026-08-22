@@ -254,6 +254,10 @@ describe("anatomie du tour — header d'activité", () => {
     vi.useRealTimers();
   });
 
+  // Le dédoublonnage par inclusion est couvert par ses propres tests unitaires
+  // (src/lib/chat/thinkingDedup.test.ts) : ici, le pli d'activité d'un tour
+  // terminé masque déjà les blocs, donc le DOM n'en dirait rien de fiable.
+
   // Régression (vécu 2026-08-22, capture de Thierry) : « en attente · Ns » se
   // montait puis se démontait sur une ligne à elle. Le fil étant ancré en bas,
   // chaque aller-retour poussait tout le transcript vers le haut puis le

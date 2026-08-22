@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "./ws";
 import {
+  collerPensee,
   eventIdentity,
   materializeHarnessHistory,
   mergeHarnessHistory,
@@ -437,6 +438,56 @@ describe("pensée découpée par le provider", () => {
     const blocs = list.filter((e) => e.kind === "thinking");
     expect(blocs).toHaveLength(1);
     expect((blocs[0] as any).text).toBe("The user wants me to read CLAUDE.md and summarize the design rules.");
+  });
+
+  // Deux régimes de découpage cohabitent (2026-08-22) : les tranches BRUTES de
+  // Grok doivent se ressouder à l'identique, les résumés COMPLETS de Claude
+  // méritent un saut de paragraphe — sinon « Let me follow...Let me read ».
+  describe("collerPensee — lire la jointure, pas le provider", () => {
+    it("ressoude un mot coupé par une tranche (Grok)", () => {
+      expect(collerPensee("The user wants me to read CLA", "UDE.md")).toBe(
+        "The user wants me to read CLAUDE.md",
+      );
+    });
+
+    it("respecte l'espacement conservé par le flux d'origine", () => {
+      // l'espace part avec la tranche suivante : rien à ajouter
+      expect(collerPensee("…and summarize", " the design rules.")).toBe("…and summarize the design rules.");
+      // ou reste sur la précédente : idem
+      expect(collerPensee("…rules. ", "Let me")).toBe("…rules. Let me");
+      // un saut de ligne du flux est un espacement comme un autre
+      expect(collerPensee("…rules.", "\nLet me")).toBe("…rules.\nLet me");
+    });
+
+    it("sépare deux résumés complets, jamais soudés bord à bord (Claude)", () => {
+      expect(collerPensee("Let me follow...", "Let me read the semantic layer")).toBe(
+        "Let me follow...\n\nLet me read the semantic layer",
+      );
+      expect(collerPensee("…du flag aérosol ?", "Je cherche le décompte.")).toBe(
+        "…du flag aérosol ?\n\nJe cherche le décompte.",
+      );
+    });
+
+    it("un morceau vide ne fabrique pas de séparateur", () => {
+      expect(collerPensee("", "seul")).toBe("seul");
+      expect(collerPensee("seul", "")).toBe("seul");
+    });
+  });
+
+  it("recolle les résumés Claude avec un saut de paragraphe, via le réducteur", () => {
+    const meta = (seq: number) => ({
+      threadId: "t", turnId: "tour-1", eventId: `e${seq}`, sequence: seq,
+      ts: 1_000 + seq, durable: true, origin: "provider", provider: "claude", schemaVersion: 1,
+    });
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "thinking", text: "Let me follow...", ts: 1, meta: meta(1) } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "Je lis le passage.", ts: 2, meta: meta(2) } as AgentEvent);
+    list = reduceHarnessEvent(list, {
+      kind: "thinking", text: "Let me read the semantic layer references.", ts: 3, meta: meta(3),
+    } as AgentEvent);
+    const blocs = list.filter((e) => e.kind === "thinking");
+    expect(blocs).toHaveLength(1);
+    expect((blocs[0] as any).text).toBe("Let me follow...\n\nLet me read the semantic layer references.");
   });
 
   it("ne recolle pas deux tours différents", () => {

@@ -21,6 +21,7 @@ import {
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { deriveChangedFiles } from "./changedFiles";
+import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -182,21 +183,10 @@ export function ChatTimeline(p: {
     }
     return -1;
   }, [events]);
-  // Une même pensée peut atterrir deux fois dans le fil (bloc du tour + bloc
-  // recollé après la réponse) : elles portent alors un texte identique. On ne
-  // garde que la PREMIÈRE — celle qui précède la réponse, à sa place logique.
-  const doublonsPensee = useMemo(() => {
-    const vus = new Set<string>();
-    const aSauter = new Set<number>();
-    events.forEach((event, idx) => {
-      if (event.kind !== "thinking" && event.kind !== "thinking_live") return;
-      const cle = event.text.trim();
-      if (!cle) return;
-      if (vus.has(cle)) aSauter.add(idx);
-      else vus.add(cle);
-    });
-    return aSauter;
-  }, [events]);
+  // Une même pensée peut atterrir plusieurs fois dans le fil (bloc du tour,
+  // bloc recollé après la réponse, morceau isolé) : on ne rend que le bloc le
+  // plus complet de chaque tour — cf. doublonsDePensee.
+  const doublonsPensee = useMemo(() => doublonsDePensee(events), [events]);
 
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
