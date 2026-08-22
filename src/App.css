@@ -579,9 +579,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .turn-cumulative-live { color: var(--text-muted); }
 .turn-cumulative-sep { color: var(--text-disabled); }
 /* attente universelle chronométrée : mêmes seuil/discrétion que le tick du
-   ticker, mais hors du branch `activity` — pensée muette, permission, etc. */
+   ticker, mais hors du branch `activity` — pensée muette, permission, etc.
+   Le slot est TOUJOURS rendu (voir ActiveTurnTail) : il apparaît en fondu sans
+   jamais changer la hauteur du fil, qui est ancré en bas. */
 .turn-quiet { color: var(--text-disabled); font-size: var(--fs-s);
   font-variant-numeric: tabular-nums; }
+.turn-tail-row .turn-quiet { opacity: 0; transition: opacity var(--ease); }
+.turn-tail-row .turn-quiet.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .turn-tail-row .turn-quiet { transition: none; }
+}
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
 .working-note { color: var(--text-disabled); font-variant-numeric: tabular-nums; margin-left: 8px; }
@@ -980,6 +987,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .stop-hint { background: transparent; border: none; color: var(--text-disabled); font-size: var(--fs-s);
   padding: 2px 0; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
   align-self: flex-start; }
+/* rappel d'interruption + attente chronométrée sur UNE ligne : le silence
+   s'écrit à droite d'un contrôle déjà présent, donc rien ne se réagence
+   quand il apparaît ou s'efface. */
+.turn-tail-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.turn-tail-row .stop-hint { align-self: center; }
 .stop-hint kbd { background: var(--bg-ctl); border: 1px solid var(--border); border-radius: var(--r-s);
   padding: 0 5px; font-size: var(--fs-xs); font-family: inherit; color: var(--text-disabled); line-height: 1.5; }
 .stop-hint:hover, .stop-hint:hover kbd { color: var(--text-secondary); border-color: var(--border2); }

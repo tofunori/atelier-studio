@@ -215,7 +215,8 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     const first = renderUi(<Chat {...chatProps({ events: sansProgres, workingSince: FIXED_TS })} />);
     act(() => { vi.advanceTimersByTime(3100); });
-    expect(document.querySelector(".turn-quiet")).toBeNull();
+    // Le slot existe toujours (il réserve sa place) mais reste MUET.
+    expect(document.querySelector(".turn-quiet")?.textContent).toBe("");
     first.unmount();
 
     // APRÈS un progrès (un outil réglé), le silence diverge du chrono du
@@ -249,7 +250,40 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
     act(() => { vi.advanceTimersByTime(3100); });
-    expect(document.querySelector(".turn-quiet")).toBeNull();
+    expect(document.querySelector(".turn-quiet")?.textContent).toBe("");
+    vi.useRealTimers();
+  });
+
+  // Régression (vécu 2026-08-22, capture de Thierry) : « en attente · Ns » se
+  // montait puis se démontait sur une ligne à elle. Le fil étant ancré en bas,
+  // chaque aller-retour poussait tout le transcript vers le haut puis le
+  // relâchait. Le slot doit donc EXISTER en permanence, sur la ligne du rappel
+  // d'interruption : l'apparition du texte ne change aucune géométrie.
+  it("le silence n'ajoute ni ne retire de ligne : slot permanent sur la ligne d'interruption", () => {
+    vi.useFakeTimers();
+    const evs: AgentEvent[] = [
+      events.user("Réfléchis.", FIXED_TS),
+      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "completed" }),
+      { kind: "tool", name: "__thinking" } as AgentEvent,
+    ];
+    const view = renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    const ligneAvant = document.querySelector(".turn-tail-row");
+    expect(ligneAvant).toBeTruthy();
+    // le slot est déjà là, muet, et vit DANS la ligne du rappel d'interruption
+    expect(ligneAvant!.querySelector(".turn-quiet")?.textContent).toBe("");
+    expect(ligneAvant!.querySelector(".stop-hint")).toBeTruthy();
+
+    // progrès puis silence : le texte apparaît SANS créer de nouvelle ligne
+    view.rerender(<Chat {...chatProps({ events: [
+      ...evs.slice(0, 2),
+      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "interrupted" }),
+      { kind: "tool", name: "__thinking" } as AgentEvent,
+    ], workingSince: FIXED_TS })} />);
+    act(() => { vi.advanceTimersByTime(3100); });
+    const ligneApres = document.querySelector(".turn-tail-row")!;
+    expect(ligneApres.querySelector(".turn-quiet")?.textContent).toMatch(/en attente · \d+ s/);
+    expect(ligneApres.childElementCount).toBe(ligneAvant!.childElementCount);
+    expect(document.querySelectorAll(".turn-tail-row")).toHaveLength(1);
     vi.useRealTimers();
   });
 

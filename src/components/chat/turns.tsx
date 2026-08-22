@@ -663,14 +663,25 @@ export function ActiveTurnTail(p: {
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      {silencieux && (
-        <div className="turn-quiet" role="status" aria-live="polite">
-          {t("chat.quiet-wait", { s: quietSeconds })}
-        </div>
-      )}
-      <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
-        <kbd>esc</kbd> {t("action.interrupt")}
-      </RowButton>
+      {/* Le silence chronométré vit SUR la ligne d'interruption, jamais sur une
+          ligne à lui : montée puis démontée, elle poussait tout le fil vers le
+          haut et le relâchait à chaque aller-retour (le fil est ancré en bas —
+          « ça remonte et ça descend », Thierry 2026-08-22). Le slot est donc
+          toujours là, à droite d'une ligne qui existe déjà : seul le TEXTE
+          apparaît, la géométrie ne bouge pas. Région live montée en permanence
+          = la bonne façon de faire annoncer un changement de contenu. */}
+      <div className="turn-tail-row">
+        <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
+          <kbd>esc</kbd> {t("action.interrupt")}
+        </RowButton>
+        <span
+          className={`turn-quiet${silencieux ? " is-on" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          {silencieux ? t("chat.quiet-wait", { s: quietSeconds }) : ""}
+        </span>
+      </div>
     </div>
   );
 }
