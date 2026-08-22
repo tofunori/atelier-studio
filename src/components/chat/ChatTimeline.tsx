@@ -1067,16 +1067,28 @@ export function ChatTimeline(p: {
             <span className="anno-editor-hint">{t("chat.annotation-hint")}</span>
             <span className="anno-editor-actions">
               {marks.some((m) => m.text === noteDraft.text.trim()) && (
-                <RowButton onClick={() => { removeAnnotation(noteDraft.text); setNoteDraft(null); setQuote(null); }}>
-                  {t("chat.annotation-remove")}
-                </RowButton>
+                <IconButton
+                  size="s"
+                  label={t("chat.annotation-remove")}
+                  title={t("chat.annotation-remove")}
+                  onClick={() => { removeAnnotation(noteDraft.text); setNoteDraft(null); setQuote(null); }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                    <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" />
+                  </svg>
+                </IconButton>
               )}
-              <RowButton
+              <IconButton
+                size="s"
                 className="anno-editor-confirm"
+                label={t("chat.annotate")}
+                title={t("chat.annotate")}
                 onClick={() => { addAnnotation(noteDraft.text, noteDraft.note); setNoteDraft(null); setQuote(null); }}
               >
-                {t("chat.annotate")}
-              </RowButton>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                  <path d="M3.5 8.5l3 3 6-7" />
+                </svg>
+              </IconButton>
             </span>
           </div>
         </div>

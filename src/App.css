@@ -1933,9 +1933,10 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--surface-inset); border: none; border-radius: var(--r-s);
   color: var(--text-primary); font-family: var(--ui-font); font-size: var(--fs-m); line-height: 1.5; }
 .anno-editor-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.anno-editor-hint { font-size: var(--fs-xs); color: var(--text-disabled); }
-.anno-editor-actions { display: flex; align-items: center; gap: 2px; }
-.anno-editor-confirm { font-weight: 500; }
+.anno-editor-hint { font-size: var(--fs-xs); color: var(--text-disabled); line-height: 1.5; }
+.anno-editor-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+/* l'action de confirmation porte l'encre pleine, la suppression reste éteinte */
+.anno-editor-confirm { color: var(--text-primary); }
 /* pilule agrégée du composer + sa liste dépliée */
 .anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
 .anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
