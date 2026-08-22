@@ -788,7 +788,9 @@ export default function App() {
       clicked: root,
       activeProject,
       lastThreadByProject,
-      knownThreadIds: allThreadsRef.current.map((th) => th.id),
+      knownThreadIds: allThreadsRef.current
+        .filter((th) => (th.projectRoot ?? "") === root)
+        .map((th) => th.id),
     });
     setActiveProject(project);
     setActiveId(threadId);
@@ -1218,7 +1220,15 @@ export default function App() {
   // l'entrée, il n'y a pas de conversation à retenir.
   useEffect(() => {
     if (!activeProject) return;
-    setLastThreadByProject((memory) => rememberForProject(memory, activeProject, activeId));
+    // un fil sans projet (ou d'un autre projet) ne doit JAMAIS devenir le
+    // « dernier fil » de celui-ci : au retour il serait restauré comme actif
+    // alors que la liste du projet ne peut pas l'afficher (contexte strict).
+    const owned =
+      activeId !== null &&
+      (allThreadsRef.current.find((th) => th.id === activeId)?.projectRoot ?? "") === activeProject;
+    setLastThreadByProject((memory) =>
+      rememberForProject(memory, activeProject, owned ? activeId : null),
+    );
   }, [activeProject, activeId]);
 
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
@@ -2751,7 +2761,9 @@ export default function App() {
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
-    if (projectRoot) setActiveProject(projectRoot);
+    // le contexte de la sidebar suit le chat créé : sans cela un chat sans
+    // projet, créé depuis un projet actif, reste introuvable dans la liste
+    setActiveProject(projectRoot || null);
     setNewChatRequest(null);
   }
 
@@ -2763,6 +2775,7 @@ export default function App() {
     setActiveId(threadId);
     activeIdRef.current = threadId;
     if (!projectRoot) {
+      setActiveProject(null);
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       if (!events[threadId]?.length && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
