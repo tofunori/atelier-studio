@@ -36,6 +36,10 @@
      texte emprunté de la voix de l'agent — réservé aux citations de passage,
      jamais à l'interface. */
   --quote-font: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
+  /* filet d'une citation au repos : --info est LE bleu des références (ligne 32),
+     tenu bas pour ne pas crier dans le fil. Sans lui, la carte non épinglée
+     n'avait aucun ancrage coloré et s'éteignait dans le fond (2026-08-22). */
+  --quote-rule: color-mix(in srgb, var(--info) 55%, var(--bg));
   --code-font: ui-monospace, 'SF Mono', Menlo, monospace;
   --fs-xs: 10px; --fs-s: 11px; --fs-m: 12px; --fs-l: 13px; --fs-xl: 15px;
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
@@ -3838,11 +3842,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    md.tsx) se rend ici — repliée : une ligne (RowButton pleine largeur) +
    épingle en sibling ; dépliée : citation complète + actions */
 .passage-card { display: flex; align-items: flex-start; gap: 8px; max-width: 540px;
-  border-left: 2px solid var(--border2); padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--quote-rule); padding: 2px 0 2px 14px;
   transition: border-color var(--motion-fast) var(--ease-out); }
+.passage-card:hover { border-left-color: var(--info); }
 /* l'état épinglé vit dans la STRUCTURE (le filet), pas dans une icône de 12px :
-   c'est l'information la plus lourde de la carte. */
-.passage-card.has-pin { border-left-color: var(--accent); }
+   c'est l'information la plus lourde de la carte. Il change de TEINTE (bleu
+   référence → orange choisi), pas d'intensité : le survol ne peut donc pas le
+   reprendre — d'où la reprise explicite sur :hover. */
+.passage-card.has-pin, .passage-card.has-pin:hover { border-left-color: var(--accent); }
 .passage-card.open { flex-direction: column; align-items: stretch; gap: 8px; }
 /* combinateur direct : ne touche pas le Tick niché dans .passage-card-collapse
    (état déplié, hors scope) */
@@ -3868,7 +3875,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* « Stroeve 2006 · p. 1030 » : le point médian appartient à la ligne méta de la
    carte, pas au vocabulaire evidence-* partagé avec la surface Preuves. */
-.passage-card-meta .evidence-meta-src { color: var(--text-secondary); }
+.passage-card-meta .evidence-meta-src { color: var(--text-secondary); font-weight: 500; }
 .passage-card-meta .evidence-meta-page::before { content: "·"; margin-right: 6px;
   color: var(--text-disabled); }
 .passage-card-quote-full { font-family: var(--quote-font); font-size: var(--fs-l);
