@@ -751,7 +751,7 @@ export default function Chat(p: {
     const merged = new Map<number, EditEvent>();
     const turnsWithEdits = new Set<number>();
     for (const turn of turnViewModels) {
-      const files = new Map<string, { path: string; add: number | null; del: number | null }>();
+      const files = new Map<string, { path: string; add: number | null; del: number | null; oldText?: string; newText?: string }>();
       let lastEdit = -1;
       let projectRoot: string | null | undefined;
       let baseSha: string | null | undefined;
@@ -767,6 +767,14 @@ export default function Chat(p: {
             path: file.path,
             add: file.add == null && previous?.add == null ? null : (previous?.add ?? 0) + (file.add ?? 0),
             del: file.del == null && previous?.del == null ? null : (previous?.del ?? 0) + (file.del ?? 0),
+            // avant/après du provider (diff inline sans git). Ce sont des
+            // FRAGMENTS (old_string/new_string d'UNE édition) : croiser le
+            // vieux d'une édition avec le neuf d'une autre raconterait un
+            // faux diff — deux éditions du même fichier ⇒ pas de snippet,
+            // le clic retombe sur gitDiff qui dit vrai.
+            ...(previous == null
+              ? { oldText: file.oldText, newText: file.newText }
+              : {}),
           });
         }
       }

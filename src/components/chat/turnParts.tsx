@@ -176,7 +176,15 @@ export function EditLine({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "edit" }>;
   threadId: string | null;
 }) {
-  const [openPath, setOpenPath] = useState<string | null>(null);
+  // Façon Claude Code desktop (demande Thierry 2026-08-22) : quand l'événement
+  // porte déjà l'avant/après (snippet Claude), le diff s'ouvre TOUT SEUL —
+  // lire le changement ne doit pas demander un clic. Zéro réseau : seuls les
+  // fichiers à snippet s'ouvrent d'office ; les autres restent au clic
+  // (fallback gitDiff), pour ne pas déclencher une rafale de sous-processus
+  // git pendant le tour. `.turn-diff-body` borne la hauteur (320px, scroll).
+  const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set(
+    (event.files ?? []).filter((f) => f.newText !== undefined).map((f) => f.path),
+  ));
   const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -213,7 +221,7 @@ export function EditLine({ event, threadId }: {
     <div className="edit-lines">
       {event.files.map((f) => {
         const base = f.path.split("/").pop() || f.path;
-        const open = openPath === f.path;
+        const open = openPaths.has(f.path);
         const diff = diffs[f.path];
         const error = errors[f.path];
         // avant/après portés par l'événement (input du tool) : diff immédiat,
@@ -239,9 +247,13 @@ export function EditLine({ event, threadId }: {
                 className="edit-line-difftoggle"
                 aria-expanded={open}
                 onClick={() => {
-                  const next = open ? null : f.path;
-                  setOpenPath(next);
-                  if (!next || snippet || diffs[f.path] != null || loading === f.path) return;
+                  setOpenPaths((current) => {
+                    const next = new Set(current);
+                    if (next.has(f.path)) next.delete(f.path);
+                    else next.add(f.path);
+                    return next;
+                  });
+                  if (open || snippet || diffs[f.path] != null || loading === f.path) return;
                   setErrors((current) => {
                     const following = { ...current };
                     delete following[f.path];

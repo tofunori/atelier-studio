@@ -724,6 +724,34 @@ describe("anatomie du tour — header d'activité", () => {
     expect(screen.queryByText(t("common.loading"))).toBeNull();
   });
 
+  // Façon Claude Code desktop (2026-08-22) : le diff porté par l'événement
+  // (oldText/newText du tool Edit) s'affiche SANS clic et SANS requête git ;
+  // un edit sans snippet, lui, reste fermé jusqu'au clic.
+  it("le diff d'une édition à snippet s'ouvre tout seul, sans gitDiff", () => {
+    const evs: AgentEvent[] = [
+      events.user("Modifie.", FIXED_TS),
+      { kind: "edit", projectRoot: "/tmp/fixtures/albedo-pipeline",
+        files: [{ path: "scripts/plot.py", add: 1, del: 1, oldText: "x = 1", newText: "x = 2" }] },
+    ] as AgentEvent[];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    expect(document.querySelector(".edit-line-difftoggle")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".turn-diff-body")).toBeTruthy();
+    // un clic referme — le choix manuel garde la main
+    fireEvent.click(document.querySelector(".edit-line-difftoggle") as HTMLButtonElement);
+    expect(document.querySelector(".turn-diff-body")).toBeNull();
+  });
+
+  it("un edit sans snippet reste fermé par défaut", () => {
+    const evs: AgentEvent[] = [
+      events.user("Modifie.", FIXED_TS),
+      { kind: "edit", projectRoot: "/tmp/fixtures/albedo-pipeline",
+        files: [{ path: "scripts/plot.py", add: 1, del: 0 }] },
+    ] as AgentEvent[];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+    expect(document.querySelector(".edit-line-difftoggle")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".turn-diff-body")).toBeNull();
+  });
+
   it("aucun chevron texte ▸/▾ dans le fil", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);
     fireEvent.click(document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement);
