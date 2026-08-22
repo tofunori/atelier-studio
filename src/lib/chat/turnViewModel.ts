@@ -505,6 +505,20 @@ export function projectChatTimeline(
       const open = openFolds.has(fold.key);
       rows.push({ type: "fold", key: fold.key, fold, open });
       if (fold.hasDetail && !open) {
+        // La checklist du plan (`todos`, singleton mis à jour en place) reste
+        // VISIBLE même quand le tour est replié : c'est l'état du travail, pas
+        // un détail d'exécution — l'avaler dans le pli la faisait disparaître
+        // dès la fin du tour (finition checklist, 2026-08-22).
+        for (let inner = index; inner < fold.end; inner += 1) {
+          if (events[inner]?.kind !== "todos") continue;
+          const innerTurn = turnByIndex.get(inner);
+          rows.push({
+            type: "event",
+            key: `event:${innerTurn?.key ?? "orphan"}:${eventKey(events[inner], inner)}`,
+            event: events[inner],
+            index: inner,
+          });
+        }
         index = fold.end - 1;
         continue;
       }

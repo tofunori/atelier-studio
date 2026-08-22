@@ -145,9 +145,14 @@ pub fn map_session_update(
                 "input": update.get("rawInput").cloned().or_else(|| cached.as_ref().and_then(|c| c.get("input").cloned())),
                 "source": "grok",
             })];
-            // edits from diffs
+            // edits from diffs — avec le canal `snippets` (avant/après portés
+            // par le bloc ACP) : diff inline sans git, même précédent que
+            // Claude (plafond SNIPPET_MAX, journalisé tel quel — l'ancienne
+            // réserve « redaction journal » du plan 045 est caduque depuis que
+            // les snippets Claude vivent au journal).
             if let Some(arr) = update.get("content").and_then(|v| v.as_array()) {
                 let mut files = Vec::new();
+                let mut snippets = serde_json::Map::new();
                 for c in arr {
                     if c.get("type").and_then(|v| v.as_str()) != Some("diff") {
                         continue;
@@ -155,21 +160,28 @@ pub fn map_session_update(
                     let Some(path) = c.get("path").and_then(|v| v.as_str()) else {
                         continue;
                     };
-                    let key = format!(
-                        "{}:{}:{}",
-                        id,
-                        path,
-                        c.get("newText")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .len()
-                    );
+                    let new_text = c.get("newText").and_then(|v| v.as_str()).unwrap_or("");
+                    let key = format!("{}:{}:{}", id, path, new_text.len());
                     if seen_edits.insert(key) {
                         files.push(path.to_string());
+                        let old_text = c.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
+                        if !new_text.is_empty()
+                            && new_text.len() <= SNIPPET_MAX
+                            && old_text.len() <= SNIPPET_MAX
+                        {
+                            snippets.insert(
+                                path.to_string(),
+                                json!({"oldText": old_text, "newText": new_text}),
+                            );
+                        }
                     }
                 }
                 if !files.is_empty() {
-                    out.push(json!({"kind":"edit","files": files}));
+                    let mut edit = json!({"kind":"edit","files": files});
+                    if !snippets.is_empty() {
+                        edit["snippets"] = Value::Object(snippets);
+                    }
+                    out.push(edit);
                 }
             }
             out

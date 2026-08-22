@@ -804,21 +804,35 @@ export function ChatTimeline(p: {
             if (coveredByCard) return null;
             return <EditLine key={i} event={e} threadId={threadId} />;
           }
-          if (e.kind === "todos")
+          if (e.kind === "todos") {
+            // Checklist de plan vivante (finition 2026-08-22) : en-tête avec
+            // avancement « n/N », coche par tâche, tâche active marquée. Le
+            // singleton `todos` est réécrit en place à chaque TodoWrite — les
+            // cases se cochent donc en direct pendant le tour.
+            const faits = e.items.filter((todo) => todo.completed).length;
             return (
-              <div key={i} className="todos">
-                {e.items.map((todo, idx) => (
-                  <div key={idx} className={todo.completed ? "todo done" : todo.active ? "todo active" : "todo"}>
-                    <span className="todo-box">{todo.completed ? (
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="m3.5 8.5 3 3 6-7" />
-                      </svg>
-                    ) : null}</span>
-                    <span>{todo.text}</span>
-                  </div>
-                ))}
+              <div key={i} className="todos-card">
+                <div className="todos-head">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M2.5 4l1 1 2-2M2.5 8.5l1 1 2-2M2.5 13l1 1 2-2M8 4.5h5.5M8 9h5.5M8 13.5h5.5" />
+                  </svg>
+                  <span>{t("chat.plan-progress", { done: faits, total: e.items.length })}</span>
+                </div>
+                <div className="todos">
+                  {e.items.map((todo, idx) => (
+                    <div key={idx} className={todo.completed ? "todo done" : todo.active ? "todo active" : "todo"}>
+                      <span className="todo-box">{todo.completed ? (
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m3.5 8.5 3 3 6-7" />
+                        </svg>
+                      ) : todo.active ? <span className="todo-dot" aria-hidden="true" /> : null}</span>
+                      <span>{todo.text}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
+          }
           // goal : aucune carte dans le transcript — l'état vit dans la barre
           // épinglée au composer (GoalBar), alimentée par le même événement
           if (e.kind === "goal") return null;

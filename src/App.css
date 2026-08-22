@@ -419,7 +419,17 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   padding: 8px; color: var(--text-secondary); font: var(--fs-m)/1.45 var(--code-font);
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .tool-payload pre code.hljs { background: transparent; padding: 0; display: block; }
+/* Checklist de plan (finition 2026-08-22) : carte discrète — en-tête compteur
+   « Plan · n/N », point accent sur la tâche EN COURS. Les transitions suivent
+   le budget motion (140ms) : une case qui se coche ne doit pas clignoter. */
+.todos-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-m); }
+.todos-head { display: flex; align-items: center; gap: 7px; color: var(--text-muted);
+  font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.todo-dot { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--accent); }
 .todos { display: flex; flex-direction: column; gap: 5px; }
+.todo, .todo-box { transition: color var(--ease), border-color var(--ease); }
+@media (prefers-reduced-motion: reduce) { .todo, .todo-box { transition: none; } }
 .todo { display: flex; align-items: flex-start; gap: 7px; color: var(--text-secondary); }
 .todo.done { color: var(--text-disabled); text-decoration: line-through; }
 .todo.active { color: var(--text-primary); }

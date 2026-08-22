@@ -315,6 +315,30 @@ describe("chat turn view model", () => {
     ]);
   });
 
+  // Finition checklist (2026-08-22) : le plan `todos` est l'état du travail,
+  // pas un détail d'exécution — il doit rester visible sous un pli fermé.
+  it("la checklist `todos` survit au pli fermé d'un tour terminé", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "todos", items: [
+        { text: "lire", completed: true },
+        { text: "corriger", completed: false, active: true },
+      ] },
+      { kind: "text", text: "Terminé.", ts: T0 + 400 },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ] as AgentEvent[];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    // pli fermé (openFolds vide) : la ligne todos est quand même projetée
+    const rows = projectChatTimeline(events, [turn], new Set());
+    const kinds = rows.map((row) => (row.type === "event" ? (row.event as AgentEvent).kind : row.type));
+    expect(kinds).toContain("todos");
+    // et une seule fois — pas de doublon quand le pli est OUVERT
+    const openKinds = projectChatTimeline(events, [turn], new Set([turn.fold!.key]))
+      .map((row) => (row.type === "event" ? (row.event as AgentEvent).kind : row.type));
+    expect(openKinds.filter((kind) => kind === "todos")).toHaveLength(1);
+  });
+
   it("une annotation d'attente après le texte ne l'avale pas dans le repli", () => {
     // Régression vécue (2026-08-15) : le marqueur « tour bloqué, attend une
     // précision » émis APRÈS le texte final le déclassait en texte
