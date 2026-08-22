@@ -1387,12 +1387,30 @@ fn normalize_provider_event(
         });
     }
     if event.get("kind").and_then(Value::as_str) == Some("done") {
-        let files_changed = snapshot_sha
-            .and_then(|sha| atelier_workspace::changed_since(project_root, sha).ok())
+        // Un seul spawn git : les stats portent les chemins ET les ± contre le
+        // snapshot du TOUR (remplace l'enrichissement numstat du sidecar Node,
+        // perdu au port Rust — il comptait contre HEAD, donc trop large).
+        let file_stats = snapshot_sha
+            .and_then(|sha| atelier_workspace::changed_since_stats(project_root, sha).ok())
             .unwrap_or_default();
+        let files_changed: Vec<String> =
+            file_stats.iter().map(|entry| entry.path.clone()).collect();
         if let Some(obj) = event.as_object_mut() {
             obj.insert("projectRoot".into(), json!(project_root));
             obj.insert("filesChanged".into(), json!(files_changed));
+            // fileStats et filesChanged portent EXACTEMENT le même ensemble de
+            // chemins : canDiff (frontend) rendrait des lignes inertes sinon.
+            obj.insert(
+                "fileStats".into(),
+                json!(file_stats
+                    .iter()
+                    .map(|entry| json!({
+                        "path": entry.path,
+                        "add": entry.add,
+                        "del": entry.del,
+                    }))
+                    .collect::<Vec<_>>()),
+            );
             if let Some(sha) = snapshot_sha {
                 obj.insert(
                     "checkpoint".into(),
@@ -1817,6 +1835,42 @@ mod tests {
             event.get("snippets").is_none(),
             "le canal provider est retiré du contrat avant broadcast/journal"
         );
+    }
+
+    /// Le `done` porte les ± du tour (fileStats) calculés en un seul spawn git
+    /// contre le snapshot — et filesChanged reste EXACTEMENT le même ensemble
+    /// de chemins (canDiff côté frontend rendrait des lignes inertes sinon).
+    #[test]
+    fn done_carries_file_stats_aligned_with_files_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.email", "t@test"],
+            vec!["config", "user.name", "t"],
+        ] {
+            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+        }
+        std::fs::write(dir.path().join("a.txt"), b"un\n").unwrap();
+        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        let sha = atelier_workspace::snapshot(root).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"un\ndeux\n").unwrap();
+
+        let event = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha));
+        assert_eq!(event["filesChanged"], json!(["a.txt"]));
+        assert_eq!(event["fileStats"], json!([{"path":"a.txt","add":1,"del":0}]));
+        assert_eq!(event["checkpoint"]["filesChanged"], json!(["a.txt"]));
+    }
+
+    /// Sans snapshot (projectRoot vide, pas un repo…) : listes vides, pas de
+    /// panique — même contrat dégradé qu'avant.
+    #[test]
+    fn done_without_snapshot_keeps_empty_stats() {
+        let event = normalize_provider_event(json!({"kind":"done"}), "", None, None);
+        assert_eq!(event["filesChanged"], json!([]));
+        assert_eq!(event["fileStats"], json!([]));
+        assert!(event.get("checkpoint").is_none());
     }
 
     #[test]

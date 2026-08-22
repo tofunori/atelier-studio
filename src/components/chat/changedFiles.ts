@@ -1,10 +1,10 @@
-// Dérivation pure de la liste « fichiers modifiés » d'un tour : cumul des
-// +/− par fichier depuis les événements `edit`, complétée par les chemins de
-// `done.filesChanged` absents des edits. En production les providers
-// n'envoient pas toujours de compte +/− (chemins nus) : add/del restent
-// `null` tant qu'aucun événement n'a porté de nombre pour ce chemin, plutôt
-// que d'afficher un +0/−0 mensonger. Tri par volume décroissant, null en
-// dernier.
+// Dérivation pure de la liste « fichiers modifiés » d'un tour : les ± par
+// fichier viennent d'abord de `done.fileStats` (numstat Rust contre le
+// snapshot du tour — la source qui fait AUTORITÉ, calculée au done pour tous
+// les providers), complétés par les événements `edit` pour les chemins que le
+// done ne couvre pas. add/del restent `null` quand personne n'a compté (ou
+// pour un binaire), plutôt que d'afficher un +0/−0 mensonger. Tri par volume
+// décroissant, null en dernier.
 import type { AgentEvent } from "../../lib/ws";
 
 export type ChangedFile = { path: string; name: string; add: number | null; del: number | null };
@@ -28,6 +28,11 @@ export function deriveChangedFiles(
       const cur = byPath.get(f.path) ?? { add: null, del: null };
       byPath.set(f.path, { add: latest(cur.add, f.add), del: latest(cur.del, f.del) });
     }
+  }
+  // Le numstat du done ÉCRASE les valeurs venues des edits : il est contre le
+  // snapshot du tour, donc plus juste que tout ce qu'un provider a pu envoyer.
+  for (const stat of done?.fileStats ?? []) {
+    byPath.set(stat.path, { add: stat.add, del: stat.del });
   }
   for (const path of done?.filesChanged ?? []) {
     if (!byPath.has(path)) byPath.set(path, { add: null, del: null });

@@ -963,7 +963,30 @@ pub fn snapshot(root: &str) -> Result<String> {
     Ok(sha)
 }
 
+/// Un fichier changé pendant le tour, avec ses ± quand git sait les compter
+/// (`None`/`None` pour les binaires — `-\t-` en sortie numstat).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedStat {
+    pub path: String,
+    pub add: Option<i64>,
+    pub del: Option<i64>,
+}
+
 pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
+    // Dérivée des stats : mêmes arbres, même spawn git — seule la projection
+    // diffère. Garde son contrat historique (chemins seuls, triés).
+    Ok(changed_since_stats(root, sha)?
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect())
+}
+
+/// Fichiers changés pendant le tour AVEC leurs ± (`git diff-tree --numstat`
+/// sur le couple d'arbres snapshot↔worktree). Remplace l'enrichissement
+/// numstat du sidecar Node legacy (router.mjs enrichEditEvent, perdu au port
+/// Rust) — et le remplace en mieux : contre le snapshot du TOUR, pas contre
+/// HEAD qui gonflait les compteurs avec les modifs préexistantes.
+pub fn changed_since_stats(root: &str, sha: &str) -> Result<Vec<ChangedStat>> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
     if sha.len() < 4 || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -983,20 +1006,34 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
     let snap_tree = format!("{sha}^{{tree}}");
     let out = git(
         &real,
-        &["diff-tree", "-r", "--name-only", &snap_tree, &now_tree],
+        &["diff-tree", "-r", "--numstat", &snap_tree, &now_tree],
         &[],
     )?;
     if !out.status.success() {
         return Err(msg("diff snapshot impossible"));
     }
-    let mut changed = String::from_utf8_lossy(&out.stdout)
+    // Format numstat : `add\tdel\tpath` — `-` de part et d'autre pour un
+    // binaire. Les renommages ne sont pas détectés (pas de -M) : un chemin
+    // par ligne, jamais la forme `a => b`.
+    let mut changed: Vec<ChangedStat> = String::from_utf8_lossy(&out.stdout)
         .lines()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    changed.sort();
-    changed.dedup();
+        .filter_map(|line| {
+            let mut cols = line.splitn(3, '\t');
+            let add = cols.next()?.trim();
+            let del = cols.next()?.trim();
+            let path = cols.next()?.trim();
+            if path.is_empty() {
+                return None;
+            }
+            Some(ChangedStat {
+                path: path.to_string(),
+                add: add.parse::<i64>().ok(),
+                del: del.parse::<i64>().ok(),
+            })
+        })
+        .collect();
+    changed.sort_by(|a, b| a.path.cmp(&b.path));
+    changed.dedup_by(|a, b| a.path == b.path);
     Ok(changed)
 }
 
@@ -1217,6 +1254,36 @@ mod tests {
         assert_eq!(
             changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
             vec!["deja_la.txt".to_string()],
+        );
+    }
+
+    /// Les ± du tour : contre le snapshot (pas HEAD), lignes comptées par
+    /// fichier, binaire → None/None. Même couple d'arbres que changed_since.
+    #[test]
+    fn changed_since_stats_counts_lines_against_snapshot() {
+        let dir = init_repo();
+        // a.txt vaut "hello" (1 ligne) au commit ; on le réécrit AVANT le
+        // snapshot — ces lignes-là ne doivent PAS compter dans le tour.
+        std::fs::write(dir.path().join("a.txt"), b"ligne un\nligne deux\n").unwrap();
+        let sha = snapshot(dir.path().to_str().unwrap()).unwrap();
+        // pendant le tour : +1 ligne sur a.txt, un nouveau fichier de 3 lignes,
+        // et un binaire (octet nul → git le classe binaire).
+        std::fs::write(dir.path().join("a.txt"), b"ligne un\nligne deux\nligne trois\n").unwrap();
+        std::fs::write(dir.path().join("nouveau.txt"), b"a\nb\nc\n").unwrap();
+        std::fs::write(dir.path().join("image.bin"), b"\x00\x01\x02").unwrap();
+        let stats = changed_since_stats(dir.path().to_str().unwrap(), &sha).unwrap();
+        assert_eq!(
+            stats,
+            vec![
+                ChangedStat { path: "a.txt".into(), add: Some(1), del: Some(0) },
+                ChangedStat { path: "image.bin".into(), add: None, del: None },
+                ChangedStat { path: "nouveau.txt".into(), add: Some(3), del: Some(0) },
+            ],
+        );
+        // le contrat historique reste dérivé des mêmes arbres
+        assert_eq!(
+            changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
+            vec!["a.txt".to_string(), "image.bin".to_string(), "nouveau.txt".to_string()],
         );
     }
 

@@ -160,6 +160,9 @@ type AgentEventBody =
       result: string;
       projectRoot?: string;
       filesChanged?: string[];
+      /** ± par fichier contre le snapshot du tour (git numstat côté Rust) —
+       * même ensemble de chemins que filesChanged ; null = binaire. */
+      fileStats?: { path: string; add: number | null; del: number | null }[];
       checkpoint?: { snapshotSha: string; filesChanged: string[] };
       usage?: { context: number; output: number; cost: number | null; turns: number | null };
       ts?: number;

@@ -36,6 +36,30 @@ describe("deriveChangedFiles", () => {
     expect(deriveChangedFiles([], null)).toEqual([]);
   });
 
+  // Le numstat Rust du done fait autorité : contre le snapshot du tour, il
+  // écrase les valeurs approximatives venues des edits, et couvre les chemins
+  // que les providers n'ont jamais chiffrés (2026-08-22).
+  it("done.fileStats remplit et corrige les ± de tous les fichiers", () => {
+    const turn: AgentEvent[] = [
+      { kind: "edit", files: [{ path: "src/a.ts", add: 99, del: 99 }] } as AgentEvent,
+      { kind: "edit", files: [{ path: "src/b.ts", add: null, del: null }] } as AgentEvent,
+    ];
+    const done = {
+      kind: "done", ok: true,
+      filesChanged: ["src/a.ts", "src/b.ts", "assets/logo.bin"],
+      fileStats: [
+        { path: "src/a.ts", add: 12, del: 4 },
+        { path: "src/b.ts", add: 3, del: 0 },
+        { path: "assets/logo.bin", add: null, del: null }, // binaire
+      ],
+    } as AgentEvent;
+    expect(deriveChangedFiles(turn, done as Extract<AgentEvent, { kind: "done" }>)).toEqual([
+      { path: "src/a.ts", name: "a.ts", add: 12, del: 4 },
+      { path: "src/b.ts", name: "b.ts", add: 3, del: 0 },
+      { path: "assets/logo.bin", name: "logo.bin", add: null, del: null },
+    ]);
+  });
+
   it("edits sans compte +/- (chemins nus) : add/del restent null", () => {
     const turn: AgentEvent[] = [
       { kind: "edit", files: [{ path: "src/a.ts", add: null, del: null }] } as AgentEvent,
