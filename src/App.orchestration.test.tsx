@@ -120,6 +120,12 @@ async function loadExactHistory(sock: FakeWS) {
   });
 }
 
+/** Le transcript seul : depuis la marge annotée, l'aperçu d'un prompt existe
+ * aussi dans le rail de navigation — ces assertions parlent des messages. */
+function transcript() {
+  return within(document.querySelector(".messages") as HTMLElement);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   resetTestState();
@@ -235,8 +241,8 @@ describe("orchestration App — caractérisation", () => {
     expect(continuation.threadId).toBe("thread-A");
     expect(continuation.handoffFromThreadId).toBeUndefined();
     expect(continuation.prompt).toBe("Continue avec Claude");
-    expect(screen.getByText("Question source")).toBeTruthy();
-    expect(screen.getByText("Continue avec Claude")).toBeTruthy();
+    expect(transcript().getByText("Question source")).toBeTruthy();
+    expect(transcript().getByText("Continue avec Claude")).toBeTruthy();
   });
   it("squelette DOM du shell inchangé (TopBar → app-row → rail/panneau/poignée/main-card)", async () => {
     await mountApp();
@@ -401,7 +407,7 @@ describe("orchestration App — caractérisation", () => {
       type: "history", threadId: "thread-A",
       events: [events.user("Question initiale ?"), events.text("Réponse initiale.")],
     });
-    expect(screen.getByText("Question initiale ?")).toBeTruthy();
+    expect(transcript().getByText("Question initiale ?")).toBeTruthy();
     expect(screen.getByText("Réponse initiale.")).toBeTruthy();
 
     // protection anti-écrasement (App.tsx ~927) : un history tardif sur un fil
@@ -410,7 +416,7 @@ describe("orchestration App — caractérisation", () => {
       type: "history", threadId: "thread-A",
       events: [events.user("Question rechargée ?")],
     });
-    expect(screen.getByText("Question initiale ?")).toBeTruthy();
+    expect(transcript().getByText("Question initiale ?")).toBeTruthy();
     expect(screen.queryByText("Question rechargée ?")).toBeNull();
   });
 

@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
+import type { Pin } from "../lib/pins";
 import { buildHighlightContext } from "../lib/highlightContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
@@ -161,7 +162,7 @@ export default function Chat(p: {
   /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
   onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
   onUnlinkLinkedAgent?: (threadId: string) => void;
-  pins: { index: number; label: string; color?: string; style?: string }[];
+  pins: Pin[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
   onTogglePin: (index: number, label: string) => void;
   disabled: boolean;
@@ -397,32 +398,6 @@ export default function Chat(p: {
     window.addEventListener("review-result", onReview);
     return () => window.removeEventListener("review-result", onReview);
   }, [p.threadId]);
-  const [tickPos, setTickPos] = useState<Record<number, number>>({});
-
-  function resolvePinEl(index: number, label?: string, anchor?: string): HTMLElement | null {
-    let el = document.getElementById(`msg-${index}`);
-    const key = anchor || label;
-    if (!el && key) {
-      const needle = key.slice(0, 30).toLowerCase();
-      el = ([...document.querySelectorAll(".user-wrap, .msg-wrap")].find((n) =>
-        (n.textContent ?? "").toLowerCase().includes(needle)
-      ) as HTMLElement) ?? null;
-    }
-    return el;
-  }
-
-  // ordre chronologique réel (position du message), affichage groupé en haut
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      const pos: Record<number, number> = {};
-      for (const pin of p.pins) {
-        const el = resolvePinEl(pin.index, pin.label, (pin as any).anchor);
-        if (el) pos[pin.index] = el.offsetTop;
-      }
-      setTickPos(pos);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [p.pins, p.events.length, p.threadId]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
 
   // ---- marques persistantes (Highlight / Underline) sur les réponses ----
@@ -988,7 +963,7 @@ export default function Chat(p: {
         }}
         scroll={{ messagesRef, onMessagesMouseUp }}
         working={{ onStop: p.onStop }}
-        chapters={{ tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin: p.onStylePin }}
+        chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
         selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}
       />

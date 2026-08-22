@@ -191,7 +191,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    l'autre. 40 px à gauche garde aussi le rail .chapters (10→26 px) au clair. */
 .messages { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 40px 8px; }
 .messages.is-first-turn-settling { visibility: hidden; }
-.timeline-virtual-row { max-width: var(--chat-col, 760px); width: 100%; margin: 0 auto; padding-bottom: 14px; }
+/* PIÈGE (2026-08-21) : chaque rangée virtualisée vit dans un conteneur
+   `contain: content` — tout ce qu'on peint HORS de sa boîte est découpé. Le
+   filet du message épinglé ne peut donc pas déborder à gauche : la rangée
+   réserve elle-même sa gouttière (14px), et la colonne de texte garde sa
+   largeur en compensant sur max-width. */
+.timeline-virtual-row { position: relative; box-sizing: border-box;
+  max-width: calc(var(--chat-col, 760px) + 14px); width: 100%; margin: 0 auto;
+  padding-left: 14px; padding-bottom: 14px; }
 /* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
    texte/de l'action qui le précède, sans compacter le reste du transcript. */
 .timeline-virtual-row:has(+ .timeline-virtual-row .active-turn-tail),
@@ -1204,36 +1211,66 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .context-attachment { max-width: 300px; }
 .context-attachment-image { width: 80px; }
 .context-attachment-image [data-slot="attachment-content"] { width: auto; }
-/* rail de chapitres épinglés */
+/* ═══ La marge annotée (design 2026-08-21) ═══════════════════════════════
+   Une seule colonne à gauche du transcript porte tout ce qui se repère : un
+   trait court et éteint par question posée, un trait plein accentué et NOMMÉ
+   par épingle. Un seul signe, deux intensités — les quatre formes et la
+   couleur libre de l'ancien rail ont disparu : elles demandaient une décision
+   à chaque épingle sans rien encoder. L'orange reste la voix de l'interface ;
+   l'ambre --hl-line est l'encre du lecteur (voir ::highlight(chat-hl)). */
 .chat { position: relative; }
-/* bord gauche : le bord droit reste à la scrollbar et au bouton plein écran */
-.chapters { position: absolute; top: 24px; left: 10px; z-index: 40;
-  width: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
-/* décaler sous la barre Reviewer quand elle est présente (sinon chevauchement) */
-.chapters.below-reviewer { top: 60px; }
-/* ligne-guide courte derrière le groupe */
-.chapters::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%;
-  width: 1px; background: var(--border); }
-.chapter-tick { position: relative; width: 16px; height: 16px;
-  display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.chapter-bar { background: var(--bg); border: 2px solid var(--border-strong);
-  transition: transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
-.chapter-tick:hover .chapter-bar { transform: scale(1.3); border-color: var(--text-primary); }
-.chapter-bar.st-dot, .chapter-bar.st-bar { width: 10px; height: 10px; border-radius: var(--r-pill); }
-.chapter-bar.st-square { width: 9px; height: 9px; border-radius: var(--r-s); }
-.chapter-bar.st-flag { width: 9px; height: 9px; border-radius: var(--r-s); transform: rotate(45deg); }
-.chapter-tick:hover .chapter-bar.st-flag { transform: rotate(45deg) scale(1.3); }
-.chapter-label { position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
-  font-size: var(--fs-m); color: var(--text-secondary); background: var(--bg-pop);
-  border: 1px solid var(--border); border-radius: var(--r-m); padding: 4px 10px; white-space: nowrap;
-  max-width: 320px; overflow: hidden; text-overflow: ellipsis; opacity: 0; pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-out); z-index: 50; }
-.chapter-tick:hover .chapter-label { opacity: 1; }
-.pin-style-btn { background: transparent; border: 1px solid var(--border); border-radius: var(--r-s);
-  width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-  cursor: pointer; }
-.pin-style-btn:hover { border-color: var(--border2); background: var(--bg-ctl); }
-.pin-style-btn .chapter-bar { opacity: 1; }
+.tl-marge {
+  position: absolute; top: 24px; left: 2px; z-index: 40;
+  width: 20px; max-height: calc(100% - 64px);
+  display: flex; flex-direction: column; gap: 6px;
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
+  border-radius: var(--r-m); padding: 6px 0;
+  transition: width var(--motion-fast) var(--ease-out),
+              background var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-fast) var(--ease-out);
+}
+.tl-marge::-webkit-scrollbar { display: none; }
+.tl-marge.below-reviewer { top: 60px; }
+/* ligne-guide, à l'aplomb exact des traits */
+.tl-marge::before { content: ""; position: absolute; top: 10px; bottom: 10px;
+  left: 9px; width: 1px; background: var(--border); }
+.tl-marge:hover::before, .tl-marge:focus-within::before { left: 15px; }
+/* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus) —
+   les noms se lisent sans survoler chaque entrée une par une */
+.tl-marge:hover, .tl-marge:focus-within {
+  width: 188px; background: var(--bg-pop); box-shadow: var(--elev); padding: 6px;
+}
+.tl-mark-item { display: block; }
+.tl-mark {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 20px; padding: 2px 4px; border: none; background: transparent;
+  border-radius: var(--r-s); cursor: pointer; text-align: left;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.tl-marge:hover .tl-mark:hover, .tl-mark:focus-visible { background: var(--bg-ctl); }
+.tl-mark-sign {
+  flex: none; margin-left: 4px; width: 3px; height: 10px;
+  border-radius: var(--r-pill); background: var(--mark-neutral-strong);
+  transition: height var(--motion-fast) var(--ease-out);
+}
+.tl-mark[data-mark="pin"] .tl-mark-sign { height: 20px; background: var(--accent); }
+.tl-mark-label {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-s); line-height: 1.4; color: var(--text-muted);
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out);
+}
+.tl-marge:hover .tl-mark-label, .tl-marge:focus-within .tl-mark-label { opacity: 1; }
+.tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
+@media (prefers-reduced-motion: reduce) {
+  .tl-marge, .tl-mark, .tl-mark-sign, .tl-mark-label { transition: none; }
+}
+/* le message épinglé porte le même accent que sa marque : la marge et le
+   message deviennent visiblement le même objet, et l'état survit au départ
+   de la souris (l'ancienne icône ne vivait qu'au survol) */
+.timeline-virtual-row.is-pinned::before {
+  content: ""; position: absolute; left: 2px; top: 2px; bottom: 16px;
+  width: 2px; border-radius: var(--r-pill); background: var(--accent);
+}
 /* pendant le drag des séparateurs, les iframes ne volent plus la souris */
 .app-row.dragging iframe { pointer-events: none; }
 .handle[data-resize-handle-active] { background: transparent; }
@@ -1834,8 +1871,10 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: transparent; border: none; color: var(--text-secondary); font-size: var(--fs-l);
   padding: 5px 10px; border-radius: var(--r-pill); cursor: pointer; }
 .sel-toolbar button:hover { background: var(--bg-ctl); color: var(--text-primary); }
-::highlight(chat-hl) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
-::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+/* Encre du lecteur : ambre --hl-line, la couleur des fiches Surlignés — pas
+   l'accent, qui signale partout ailleurs « actif / interactif ». */
+::highlight(chat-hl) { background: color-mix(in srgb, var(--hl-line) 34%, transparent); }
+::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--hl-line); text-underline-offset: 3px; }
 /* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
    (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
    ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */

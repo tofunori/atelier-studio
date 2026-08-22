@@ -428,6 +428,7 @@ const fr = {
   "qa.no-recents": "Aucun Quick Ask récent.",
 
   "chat.unpin": "Retirer la marque",
+  "chat.marge": "Navigation par message",
   "biblio.search-aria": "Rechercher dans Zotero",
   "biblio.title": "Bibliothèque",
   "biblio.cite": "Citer dans le chat",
@@ -1885,6 +1886,7 @@ const en: Record<keyof typeof fr, string> = {
   "qa.no-recents": "No recent Quick Asks.",
 
   "chat.unpin": "Remove mark",
+  "chat.marge": "Jump to message",
   "biblio.search-aria": "Search Zotero",
   "biblio.title": "Library",
   "biblio.cite": "Cite in chat",

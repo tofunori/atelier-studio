@@ -2,7 +2,7 @@
 // l'extraction : streaming, ordre outils/texte, running→done, changement de
 // thread, ancrage du scroll, markdown/Mermaid, review/usage par tour.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
@@ -226,11 +226,14 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     const { rerender } = renderUi(
       <Chat {...chatProps({ threadId: "A", events: [events.user("Question du fil A")] })} />,
     );
-    expect(screen.getByText("Question du fil A")).toBeTruthy();
+    // depuis la marge annotée, l'aperçu d'un prompt vit aussi dans le rail de
+    // navigation : ces assertions portent sur le transcript lui-même
+    const transcript = () => within(document.querySelector(".messages") as HTMLElement);
+    expect(transcript().getByText("Question du fil A")).toBeTruthy();
 
     rerender(<Chat {...chatProps({ threadId: "B", events: [events.user("Question du fil B")] })} />);
     expect(screen.queryByText("Question du fil A")).toBeNull();
-    expect(screen.getByText("Question du fil B")).toBeTruthy();
+    expect(transcript().getByText("Question du fil B")).toBeTruthy();
   });
 
   it("scroll : le retour au bas apparaît seulement quand la lecture s'en éloigne", () => {

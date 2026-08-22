@@ -25,6 +25,8 @@ import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
+import { deriveMargeEntries, sameMargeEntries, type MargeEntry } from "../../lib/marge";
+import type { Pin } from "../../lib/pins";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverContent } from "../shadcn/popover";
 import {
@@ -75,7 +77,7 @@ export type TimelineList = {
 export type TimelineMsg = {
   editing: { index: number; text: string } | null;
   setEditing: React.Dispatch<React.SetStateAction<{ index: number; text: string } | null>>;
-  pins: { index: number; label: string; color?: string; style?: string }[];
+  pins: Pin[];
   onTogglePin: (index: number, label: string) => void;
   onRevert: (index: number, text: string, edit: boolean) => void;
   onEditSend: (index: number, oldText: string, newText: string) => void;
@@ -95,8 +97,6 @@ export type TimelineScroll = {
 };
 export type TimelineWorking = { onStop: () => void };
 export type TimelineChapters = {
-  tickPos: Record<number, number>;
-  resolvePinEl: (index: number, label: string, anchor?: string) => HTMLElement | null | undefined;
   pinMenu: { index: number; x: number; y: number } | null;
   setPinMenu: React.Dispatch<React.SetStateAction<{ index: number; x: number; y: number } | null>>;
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
@@ -211,7 +211,7 @@ export function ChatTimeline(p: {
   const penseeMasquee = vue === "resume";
   const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
-  const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
+  const { pinMenu, setPinMenu, onStylePin } = p.chapters;
   const { onNewChat, onOpenProject } = p.empty;
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
@@ -262,6 +262,16 @@ export function ChatTimeline(p: {
     reviewOpen,
     workingSince,
   }), [editing, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail]);
+  // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
+  // est conservée quand la marge ne change pas (les deltas de stream ne créent
+  // jamais d'entrée) — même discipline d'identité que listExtraData.
+  const margeRef = React.useRef<MargeEntry[]>([]);
+  const margeEntries = useMemo(() => {
+    const next = deriveMargeEntries(events, pins);
+    if (sameMargeEntries(margeRef.current, next)) return margeRef.current;
+    margeRef.current = next;
+    return next;
+  }, [events, pins]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
@@ -534,9 +544,10 @@ export function ChatTimeline(p: {
           // continu pendant le stream, un tel sélecteur romprait le budget de
           // style récursif — même discipline que typeset.contract.test.ts.
           const isLiveStream = item.type === "event" && item.event.kind === "streaming";
+          const rowPinned = item.type === "event" && pins.some((c) => c.index === item.index);
           return (
           <div
-            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}`}
+            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}${rowPinned ? " is-pinned" : ""}`}
             id={messageId}
             data-message-id={messageId}
           >
@@ -822,32 +833,35 @@ export function ChatTimeline(p: {
         working={workingSince != null}
         onClick={scrollToBottom}
       />
-      {pins.length > 0 && (
-        <div className={`chapters${threadId && review ? " below-reviewer" : ""}`}>
-          {[...pins].sort((a, b) => (tickPos[a.index] ?? a.index) - (tickPos[b.index] ?? b.index)).map((c) => (
-            <div
-              key={c.index}
-              className="chapter-tick"
+      {margeEntries.length > 0 && (
+        <div
+          className={`tl-marge${threadId && review ? " below-reviewer" : ""}`}
+          role="list"
+          aria-label={t("chat.marge")}
+        >
+          {margeEntries.map((entry) => (
+            <span role="listitem" key={entry.index} className="tl-mark-item">
+            <RowButton
+              className="tl-mark"
+              data-mark={entry.kind}
+              title={entry.label}
               onClick={() => {
-                const index = virtualIndexForEvent(c.index);
+                const index = virtualIndexForEvent(entry.index);
                 if (index >= 0) {
-                  void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 }).then(() => {
-                    resolvePinEl(c.index, c.label, (c as any).anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  });
+                  void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
                 }
               }}
               onContextMenu={(e) => {
+                if (entry.kind !== "pin") return;
                 e.preventDefault();
                 e.stopPropagation();
-                setPinMenu({ index: c.index, x: e.clientX, y: e.clientY });
+                setPinMenu({ index: entry.index, x: e.clientX, y: e.clientY });
               }}
             >
-              <span
-                className={`chapter-bar st-${c.style ?? "bar"}`}
-                style={c.color ? { borderColor: c.color, background: `color-mix(in srgb, ${c.color} 25%, transparent)` } : undefined}
-              />
-              <span className="chapter-label">{c.label}</span>
-            </div>
+              <span className="tl-mark-sign" aria-hidden="true" />
+              <span className="tl-mark-label">{entry.label}</span>
+            </RowButton>
+            </span>
           ))}
         </div>
       )}
@@ -885,29 +899,6 @@ export function ChatTimeline(p: {
               if (v && v !== cur) onStylePin(pinMenu.index, { label: v });
             }}
           />
-          <div className="swatches" style={{ padding: "6px 10px" }}>
-            {["#e05d5d", "#e8823a", "#e0b74a", "#22b07d", "#3b82f6", "#8b5cf6"].map((col) => (
-              <span key={col} className="swatch" style={{ background: col }}
-                onClick={() => { onStylePin(pinMenu.index, { color: col }); setPinMenu(null); }} />
-            ))}
-            <span className="swatch none" onClick={() => { onStylePin(pinMenu.index, { color: undefined }); setPinMenu(null); }}>∅</span>
-          </div>
-          <div className="pin-styles" style={{ display: "flex", gap: 6, padding: "2px 10px 8px" }}>
-            {[
-              // Aperçus pleins des marques de chapitre : même exception gelée
-              // que .dot.claude dans App.css — un fond de marque en encre
-              // secondaire, palier au-dessus de --mark-neutral-strong.
-              { id: "bar", el: <span className="chapter-bar st-bar" style={{ background: "var(--fg2)" }} /> },
-              { id: "dot", el: <span className="chapter-bar st-dot" style={{ background: "var(--fg2)" }} /> },
-              { id: "square", el: <span className="chapter-bar st-square" style={{ background: "var(--fg2)" }} /> },
-              { id: "flag", el: <span className="chapter-bar st-flag" style={{ background: "var(--fg2)" }} /> },
-            ].map((st) => (
-              <RowButton key={st.id} className="pin-style-btn"
-                onClick={() => { onStylePin(pinMenu.index, { style: st.id }); setPinMenu(null); }}>
-                {st.el}
-              </RowButton>
-            ))}
-          </div>
           <RowButton className="pin-unpin" onClick={() => {
             const pin = pins.find((x) => x.index === pinMenu.index);
             if (pin) onTogglePin(pinMenu.index, pin.label);

@@ -14,6 +14,7 @@ import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
 
 const NOW = Date.now();
+const BENCH_PINS = [{ index: 6, label: "Validation W&M reproduite", anchor: "La validation reproduit" }];
 const ts = (offsetS: number) => NOW - offsetS * 1000;
 const noop = () => {};
 
@@ -390,7 +391,9 @@ export function ChatBench() {
         highlights={[]}
         defaults={{ defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
         providers={PROVIDERS}
-        pins={[]} onStylePin={noop} onTogglePin={noop}
+        // une épingle figée : le banc doit montrer les DEUX intensités de la
+        // marge (repère de prompt éteint, épingle accentuée et nommée)
+        pins={BENCH_PINS} onStylePin={noop} onTogglePin={noop}
         disabled={false}
         onSubmit={interactiveFirstMessage ? (prompt) => {
           setFirstMessageEvents([{ kind: "user", text: prompt, ts: Date.now() } as AgentEvent]);
