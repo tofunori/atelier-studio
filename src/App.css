@@ -2888,11 +2888,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    elle retrouve sa hauteur libre. */
 .thinking.live.open .thinking-body { max-height: 190px; overflow-y: auto;
   scrollbar-width: thin; overscroll-behavior: contain; }
-/* Replié : même fenêtre de 4 lignes calée sur la fin que la pensée vivante
-   (3-4 lignes max en vue Normal — demande Thierry 2026-08-21). */
-.thinking-body.windowed { max-height: 6.2em; max-height: 4lh;
-  overflow-y: auto; scrollbar-width: none; }
-.thinking-body.windowed::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* Une pensée déposée dans le fil n'a plus de corps quand elle est repliée
+   (2026-08-22) : elle se réduit à sa ligne d'en-tête. La fenêtre bornée ne
+   survit donc que pour la pensée VIVANTE (.thinking-live-stream.windowed). */
 .reasoning-trace { margin: 1px 0; min-width: 0; }
 .reasoning-trace-head { width: 100%; min-width: 0; display: flex; align-items: center; gap: 7px;
   padding: 2px 0; border: 0; background: transparent; color: var(--text-muted); font: inherit;

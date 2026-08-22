@@ -438,12 +438,17 @@ export function ThinkingBlock(
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         <Tick open={open} />
       </RowButton>
-      {/* Replié = la MÊME fenêtre de 4 lignes calée sur la fin que la pensée
-          vivante : un aperçu d'une ligne ne laissait pas suivre le
-          raisonnement (Thierry 2026-08-21). Déplié = le flux entier. */}
-      <div className={`thinking-body${open ? "" : " windowed"}`} ref={bodyRef}>
-        <ThinkingProse text={normalized} />
-      </div>
+      {/* Une pensée TERMINÉE se réduit à sa seule ligne (demande Thierry
+          2026-08-22) : la fenêtre de 4 lignes n'a de sens que tant que le
+          raisonnement s'écrit — après coup, elle n'apporte qu'un pavé de
+          texte figé, répété à chaque bloc, qui fait grossir le fil par
+          à-coups. Un clic rouvre le flux entier. En vue « Réflexion en
+          cours »/« Détaillé », `open` est vrai d'office : rien n'est caché. */}
+      {open ? (
+        <div className="thinking-body" ref={bodyRef}>
+          <ThinkingProse text={normalized} />
+        </div>
+      ) : null}
     </div>
   );
 }

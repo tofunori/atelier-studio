@@ -446,11 +446,23 @@ describe("ThinkingBlock — vue de la transcription", () => {
     expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("vue Normal : replié en fenêtre, en direct comme après le tour", () => {
+  // Demande Thierry (2026-08-22) : une pensée déposée dans le fil se réduit à
+  // sa SEULE ligne — plus de fenêtre de 4 lignes, plus de pavé figé qui fait
+  // grossir le transcript à chaque bloc. Le clic rouvre le flux entier.
+  it("vue Normal : réduite à sa ligne — aucun corps tant qu'on ne clique pas", () => {
     const { rerender } = renderUi(<ThinkingBlock text="je réfléchis longuement" live collapsedByDefault />);
     expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelector(".thinking-body.windowed")).toBeTruthy();
+    expect(document.querySelector(".thinking-body")).toBeNull();
+    expect(screen.queryByText("je réfléchis longuement")).toBeNull();
+
     rerender(<ThinkingBlock text="je réfléchis longuement" live={false} collapsedByDefault />);
     expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".thinking-body")).toBeNull();
+
+    // un clic rouvre le flux complet (jamais tronqué)
+    fireEvent.click(screen.getByRole("button"));
+    expect(document.querySelector(".thinking-body")).toBeTruthy();
+    expect(document.querySelector(".thinking-body.windowed")).toBeNull();
+    expect(screen.getByText("je réfléchis longuement")).toBeTruthy();
   });
 });
