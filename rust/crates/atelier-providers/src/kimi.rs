@@ -72,6 +72,10 @@ pub struct KimiProvider {
     /// (`always_thinking` ⇒ ["on"], `thinking` ⇒ ["off","on"]) — raffiné
     /// ensuite par les snapshots configOptions des sessions ouvertes.
     discovered_reasoning: StdMutex<serde_json::Map<String, Value>>,
+    /// Plafond d'un tour, figé À LA CONSTRUCTION (jamais relu depuis l'env
+    /// pendant un send) : muter `ATELIER_TURN_TIMEOUT_SECS` en cours de route
+    /// contaminait les autres tests en parallèle (flake `interruption_via_is_cancelled`).
+    turn_timeout_secs: u64,
 }
 
 impl KimiProvider {
@@ -91,7 +95,16 @@ impl KimiProvider {
             active_turns: StdMutex::new(HashMap::new()),
             discovered_models: StdMutex::new(Vec::new()),
             discovered_reasoning: StdMutex::new(serde_json::Map::new()),
+            turn_timeout_secs: turn_timeout_secs(),
         }
+    }
+
+    /// Plafond du tour injecté sur l'instance (tests du filet de timeout) —
+    /// jamais de mutation d'env, qui serait globale au binaire de test.
+    #[cfg(test)]
+    fn with_turn_timeout_secs(mut self, secs: u64) -> Self {
+        self.turn_timeout_secs = secs;
+        self
     }
 
     /// Chemin du binaire résolu (affiché par le Setup).
@@ -1008,7 +1021,7 @@ impl KimiProvider {
         let prompt_res = tokio::time::timeout(
             // Même filet que Grok/Codex : sans plafond, un CLI kimi-code figé
             // (vivant, muet) laissait le tour « en cours » sans terminal.
-            Duration::from_secs(turn_timeout_secs()),
+            Duration::from_secs(self.turn_timeout_secs),
             self.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": prompt_blocks}),
@@ -1018,7 +1031,7 @@ impl KimiProvider {
         .await
         .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
             "timeout Kimi ({}s) — CLI figé sans répondre",
-            turn_timeout_secs()
+            self.turn_timeout_secs
         ))));
 
         // Finalisation systématique : sonde, handlers, tour actif.
