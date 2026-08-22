@@ -424,7 +424,7 @@ export default function QuickAsk({
             <div key={i} className={`qa-msg ${msg.role}`}>
               {msg.role === "assistant" ? (
                 <>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>{msg.text}</ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
                     <IconButton className="qa-inject-one" label={t("qa.inject")} title={t("qa.inject")}
                       onClick={() => { onInject(msg.text); close(); }}>

@@ -555,7 +555,7 @@ function loadMath() {
     import("katex/dist/katex.min.css"),
   ]).then(([rm, rk]) => {
     mathPlugins = {
-      remark: [remarkGfm, rm.default],
+      remark: [GFM_PLUGIN, rm.default],
       rehype: [[rk.default, { throwOnError: false }]],
     };
     mathListeners.forEach((cb) => cb());
@@ -565,7 +565,12 @@ function loadMath() {
 if (typeof requestIdleCallback === "function") requestIdleCallback(() => loadMath());
 else setTimeout(loadMath, 400);
 
-const BASE_PLUGINS: MdPlugins = { remark: [remarkGfm], rehype: [] };
+// singleTilde:false — GFM accepte `~mot~` comme barré, mais dans un chat
+// scientifique le tilde SEUL est l'espace insécable LaTeX (« 10~m … 20~m ») :
+// tout le texte entre deux tildes se faisait rayer (capture Thierry
+// 2026-08-22). Le barré volontaire reste disponible via `~~texte~~`.
+const GFM_PLUGIN = [remarkGfm, { singleTilde: false }] as const;
+const BASE_PLUGINS: MdPlugins = { remark: [GFM_PLUGIN], rehype: [] };
 
 /** Plugins markdown courants — se mettent à jour une fois KaTeX chargé. */
 export function useMdPlugins(): MdPlugins {

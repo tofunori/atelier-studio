@@ -53,7 +53,7 @@ export function ProposedPlanCard({ event, threadId }: { event: PlanEvent; thread
         ) : null}
       </header>
       <div className={`proposed-plan-body${!expanded && collapsible ? " is-preview" : ""}`}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>{markdown}</ReactMarkdown>
       </div>
       <footer className="proposed-plan-actions">
         <Button variant="ghost" onClick={async () => {
