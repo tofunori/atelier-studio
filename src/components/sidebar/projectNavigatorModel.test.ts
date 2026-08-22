@@ -196,6 +196,29 @@ describe("règles 10-12 — ordre visible, dates invalides, limite", () => {
     expect(older?.threads.map((t) => t.id)).toContain("bad");
   });
 
+  it("règle 13 : la conversation ouverte hors contexte reste listée, sans changer de projet", () => {
+    const loose = makeThread({ id: "libre", title: "Fil sans projet", projectRoot: "", updatedAt: iso(-3 * HOUR) });
+    const model = deriveProjectNavigatorModel(
+      baseInput({ threads: [...mixedThreads(), loose], activeId: "libre" }),
+    );
+    expect(model.visibleThreadIds).toContain("libre");
+    // le contexte affiché ne bouge pas : l'atelier reste sur son projet
+    expect(model.mode).toBe("project");
+    expect(model.identity?.root).toBe(PROJECT_ROOT);
+    // aucun autre fil étranger n'est admis pour autant
+    expect(model.visibleThreadIds).not.toContain("b1");
+  });
+
+  it("règle 13 : la conversation ouverte échappe à la limite des 5", () => {
+    const many = Array.from({ length: 9 }, (_, i) =>
+      makeThread({ id: `t${i}`, title: `Conv ${i}`, updatedAt: iso(-i * HOUR) }),
+    );
+    const model = deriveProjectNavigatorModel(baseInput({ threads: many, activeId: "t8" }));
+    expect(model.visibleThreadIds).toContain("t8");
+    expect(model.visibleThreadIds).toHaveLength(CONVERSATIONS_VISIBLE + 1);
+    expect(model.hiddenCount).toBe(9 - CONVERSATIONS_VISIBLE - 1);
+  });
+
   it("hiddenCount décrit les conversations au-delà de la limite ; expanded les révèle", () => {
     const many = Array.from({ length: 9 }, (_, i) =>
       makeThread({ id: `t${i}`, title: `Conv ${i}`, updatedAt: iso(-i * HOUR) }),

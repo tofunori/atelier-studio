@@ -104,6 +104,20 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
     context.push(t);
   }
 
+  // règle 13 : la conversation OUVERTE est toujours listée, même si elle
+  // n'appartient pas au contexte affiché — un chat sans projet ouvert depuis
+  // un projet, ou un fil d'un autre projet atteint par la palette, restait
+  // sinon visible à droite et INTROUVABLE à gauche. Le contexte de l'atelier
+  // (galerie, onglets) n'a pas à bouger pour autant : c'est la liste qui
+  // s'élargit d'une ligne, pas le projet actif qui change.
+  if (input.activeId && !seen.has(input.activeId)) {
+    const active = input.threads.find((t) => t.id === input.activeId);
+    if (active) {
+      seen.add(active.id);
+      context.push(active);
+    }
+  }
+
   // ordre de référence : récence (desc, stable) ou ordre manuel existant
   const byRecency = [...context].sort((a, b) => updatedTs(b) - updatedTs(a));
   const ordered =
@@ -146,8 +160,17 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
   const pinnedIds = new Set(pinnedThreads.map((t) => t.id));
   const rest = ordered.filter((t) => !pinnedIds.has(t.id));
 
-  // règle 12 : limite existante + décompte des masqués
+  // règle 12 : limite existante + décompte des masqués. La conversation
+  // ouverte échappe à la limite (règle 13) : la masquer la rendrait
+  // introuvable exactement comme l'exclusion de contexte.
   const shown = input.expanded ? rest : rest.slice(0, CONVERSATIONS_VISIBLE);
+  if (
+    input.activeId &&
+    !shown.some((t) => t.id === input.activeId) &&
+    rest.some((t) => t.id === input.activeId)
+  ) {
+    shown.push(rest.find((t) => t.id === input.activeId)!);
+  }
   const hiddenCount = rest.length - shown.length;
 
   // règles 6-7 : buckets de récence, ou ordre manuel sans label temporel

@@ -226,13 +226,12 @@ describe("orchestration App — caractérisation", () => {
     expect(typeof upserts[0].thread.id).toBe("string");
   });
 
-  it("ouvrir un fil sans projet depuis un autre contexte le rend VISIBLE dans la liste", async () => {
+  it("ouvrir un fil sans projet le rend VISIBLE sans faire perdre son projet à l'atelier", async () => {
     const { sock } = await mountApp();
     const loose = makeThread({ id: "thread-U", title: "Fil sans projet", projectRoot: "" });
     await pushThreads(sock, [THREAD_A, THREAD_B, loose]);
     const inSidebar = () =>
       within(document.querySelector(".sidebar") as HTMLElement).queryAllByText("Fil sans projet");
-    // contexte projet : le fil sans projet n'y figure pas (contexte strict)
     expect(inSidebar()).toHaveLength(0);
 
     // ouverture inter-contexte (palette, lien d'agent, reprise de session)
@@ -241,12 +240,10 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
 
-    // le contexte suit la conversation ouverte, sinon elle n'apparaît nulle part
+    // la conversation ouverte est listée…
     expect(inSidebar().length).toBeGreaterThan(0);
-    // et le projet ne mémorise JAMAIS un fil qui ne lui appartient pas : au
-    // retour, il serait restauré comme actif tout en restant introuvable
-    const memory = JSON.parse(localStorage.getItem("atelier-studio.lastThreadByProject") ?? "{}");
-    expect(memory[PROJECT_ROOT]).not.toBe("thread-U");
+    // …et le projet actif ne bouge PAS : la galerie et les onglets le suivent
+    expect(screen.getAllByText("albedo-pipeline").length).toBeGreaterThan(0);
   });
 
   it("le picker de modèles reste verrouillé sur le provider du fil", async () => {

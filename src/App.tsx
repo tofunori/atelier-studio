@@ -2761,9 +2761,7 @@ export default function App() {
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
-    // le contexte de la sidebar suit le chat créé : sans cela un chat sans
-    // projet, créé depuis un projet actif, reste introuvable dans la liste
-    setActiveProject(projectRoot || null);
+    if (projectRoot) setActiveProject(projectRoot);
     setNewChatRequest(null);
   }
 
@@ -2775,7 +2773,6 @@ export default function App() {
     setActiveId(threadId);
     activeIdRef.current = threadId;
     if (!projectRoot) {
-      setActiveProject(null);
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       if (!events[threadId]?.length && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
