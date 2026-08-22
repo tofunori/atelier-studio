@@ -194,15 +194,22 @@ pub(crate) fn tool_call_update_event(update: &Value, ctx: &mut TurnCtx, source: 
     )
 }
 
+/// Plafond des snippets avant/après (même valeur que claude_parse) : au-delà,
+/// le diff inline retombe sur gitDiff à la demande.
+const SNIPPET_MAX: usize = 24 * 1024;
+
 /// Events `edit` depuis les contenus diff, dédupliqués par
-/// (toolCallId, path, len(newText)) — grok.mjs:427-441. `files` seulement,
-/// pas de snippets (piège redaction journal, décision 6 du plan 045).
+/// (toolCallId, path, len(newText)) — grok.mjs:427-441. Le canal `snippets`
+/// transporte l'avant/après du bloc ACP (diff inline sans git) : la réserve
+/// « redaction journal » de la décision 6 du plan 045 est caduque depuis que
+/// les snippets Claude vivent au journal sans caviardage (précédent 2026-08).
 pub(crate) fn edit_events(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
     let id = update
         .get("toolCallId")
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let mut files: Vec<String> = Vec::new();
+    let mut snippets = Map::new();
     let items = update.get("content").and_then(|v| v.as_array());
     for c in items.into_iter().flatten() {
         if c.get("type").and_then(|v| v.as_str()) != Some("diff") {
@@ -211,22 +218,29 @@ pub(crate) fn edit_events(update: &Value, ctx: &mut TurnCtx) -> Vec<Value> {
         let Some(path) = non_empty(c.get("path").and_then(|v| v.as_str())) else {
             continue;
         };
-        let len = c
-            .get("newText")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .len();
-        let key = format!("{id}:{path}:{len}");
+        let new_text = c.get("newText").and_then(|v| v.as_str()).unwrap_or("");
+        let key = format!("{id}:{path}:{}", new_text.len());
         if ctx.seen_edits.contains(&key) {
             continue;
         }
         ctx.seen_edits.insert(key);
         files.push(path.to_string());
+        let old_text = c.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
+        if !new_text.is_empty() && new_text.len() <= SNIPPET_MAX && old_text.len() <= SNIPPET_MAX {
+            snippets.insert(
+                path.to_string(),
+                json!({"oldText": old_text, "newText": new_text}),
+            );
+        }
     }
     if files.is_empty() {
         vec![]
     } else {
-        vec![json!({"kind": "edit", "files": files})]
+        let mut edit = json!({"kind": "edit", "files": files});
+        if !snippets.is_empty() {
+            edit["snippets"] = Value::Object(snippets);
+        }
+        vec![edit]
     }
 }
 
@@ -465,7 +479,9 @@ mod tests {
         let evs = map_session_update(&u, &mut ctx);
         assert_eq!(evs.len(), 2);
         assert_eq!(evs[0]["kind"], "tool_update");
-        assert_eq!(evs[1], json!({"kind":"edit","files":["/a.txt"]}));
+        // le canal snippets porte l'avant/après du bloc ACP (diff inline, 2026-08-22)
+        assert_eq!(evs[1], json!({"kind":"edit","files":["/a.txt"],
+            "snippets":{"/a.txt":{"oldText":"","newText":"x"}}}));
         // même update rejouée avec le même ctx : plus d'edit
         let evs2 = map_session_update(&u, &mut ctx);
         assert_eq!(evs2.len(), 1);

@@ -5,6 +5,10 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
+/// Plafond du diff unifié embarqué sur l'event `edit` (même valeur que le
+/// SNIPPET_MAX de claude_parse) : au-delà, gitDiff à la demande fait foi.
+const SNIPPET_MAX: usize = 24 * 1024;
+
 pub const TOOL_OUTPUT_MAX: usize = 64 * 1024;
 
 #[derive(Debug, Default)]
@@ -260,19 +264,33 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
                             .and_then(|v| v.as_str())
                             .unwrap_or("completed"),
                     ));
-                    let paths: Vec<String> = item
+                    // Le canal `snippets` transporte le diff UNIFIÉ de Codex
+                    // (le protocole ne donne pas d'avant/après séparés) : le
+                    // frontend le rend inline sans git, comme les snippets
+                    // avant/après de Claude/Grok/Kimi. Même plafond.
+                    let mut paths: Vec<String> = Vec::new();
+                    let mut snippets = serde_json::Map::new();
+                    for ch in item
                         .get("changes")
                         .and_then(|v| v.as_array())
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|ch| {
-                                    ch.get("path").and_then(|p| p.as_str()).map(str::to_string)
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                        .into_iter()
+                        .flatten()
+                    {
+                        let Some(path) = ch.get("path").and_then(|p| p.as_str()) else {
+                            continue;
+                        };
+                        paths.push(path.to_string());
+                        let diff = ch.get("diff").and_then(|d| d.as_str()).unwrap_or("");
+                        if !diff.is_empty() && diff.len() <= SNIPPET_MAX {
+                            snippets.insert(path.to_string(), json!({"unified": diff}));
+                        }
+                    }
                     if !paths.is_empty() {
-                        events.push(json!({"kind":"edit","files": paths}));
+                        let mut edit = json!({"kind":"edit","files": paths});
+                        if !snippets.is_empty() {
+                            edit["snippets"] = Value::Object(snippets);
+                        }
+                        events.push(edit);
                     }
                 }
                 "mcpToolCall" => {

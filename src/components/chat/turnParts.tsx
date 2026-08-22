@@ -183,7 +183,9 @@ export function EditLine({ event, threadId }: {
   // (fallback gitDiff), pour ne pas déclencher une rafale de sous-processus
   // git pendant le tour. `.turn-diff-body` borne la hauteur (320px, scroll).
   const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set(
-    (event.files ?? []).filter((f) => f.newText !== undefined).map((f) => f.path),
+    (event.files ?? [])
+      .filter((f) => f.newText !== undefined || f.unified !== undefined)
+      .map((f) => f.path),
   ));
   const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
   const [loading, setLoading] = useState<string | null>(null);
@@ -225,8 +227,10 @@ export function EditLine({ event, threadId }: {
         const diff = diffs[f.path];
         const error = errors[f.path];
         // avant/après portés par l'événement (input du tool) : diff immédiat,
-        // sans aller-retour git — sinon fallback historique gitDiff à la demande
+        // sans aller-retour git — sinon fallback historique gitDiff à la demande.
+        // `unified` = variante Codex (diff unifié brut, rendu ligne à ligne).
         const snippet = f.newText !== undefined ? { before: f.oldText ?? "", after: f.newText } : null;
+        const unified = f.unified;
         return (
           <div key={f.path} className="edit-line">
             <div className="edit-line-row" title={f.path}>
@@ -253,7 +257,7 @@ export function EditLine({ event, threadId }: {
                     else next.add(f.path);
                     return next;
                   });
-                  if (open || snippet || diffs[f.path] != null || loading === f.path) return;
+                  if (open || snippet || unified || diffs[f.path] != null || loading === f.path) return;
                   setErrors((current) => {
                     const following = { ...current };
                     delete following[f.path];
@@ -288,6 +292,10 @@ export function EditLine({ event, threadId }: {
                   <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
                     <AtelierDiffView before={snippet.before} after={snippet.after} path={f.path} compact />
                   </Suspense>
+                ) : unified ? (
+                  <pre className="turn-diff-raw">{unified.split("\n").map((line, idx) => (
+                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
+                  ))}</pre>
                 ) : loading === f.path && diff == null ? (
                   <span className="muted">{t("common.loading")}</span>
                 ) : error ? (

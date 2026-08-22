@@ -97,7 +97,12 @@ type AgentEventBody =
       baseSha?: string | null;
       /** oldText/newText : avant/après fournis par le provider (input du tool
        * Edit, contenu d'un Write de fichier nouveau) — diff immédiat sans git */
-      files: { path: string; add: number | null; del: number | null; oldText?: string; newText?: string }[];
+      files: {
+        path: string; add: number | null; del: number | null;
+        oldText?: string; newText?: string;
+        /** diff unifié (Codex — le protocole ne sépare pas avant/après) */
+        unified?: string;
+      }[];
       ts?: number;
     }
   | {

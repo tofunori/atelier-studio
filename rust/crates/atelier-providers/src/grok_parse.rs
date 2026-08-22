@@ -3,6 +3,10 @@
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
+/// Plafond des snippets avant/après (même valeur que claude_parse) : au-delà,
+/// le diff inline retombe sur gitDiff à la demande.
+const SNIPPET_MAX: usize = 24 * 1024;
+
 /// Legacy `grok -p --output-format streaming-json` line → events.
 pub fn normalize_grok_message(msg: &Value) -> Vec<Value> {
     let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");

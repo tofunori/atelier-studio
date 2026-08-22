@@ -182,7 +182,9 @@ mod tests {
         assert_eq!(evs[0]["status"], "completed");
         assert_eq!(evs[0]["name"], "Write", "méta reprise du tool_call");
         assert!(evs[0]["output"].as_str().unwrap().contains("/tmp/a.txt"));
-        assert_eq!(evs[1], json!({"kind":"edit","files":["/tmp/a.txt"]}));
+        // le canal snippets porte l'avant/après du bloc ACP (diff inline, 2026-08-22)
+        assert_eq!(evs[1], json!({"kind":"edit","files":["/tmp/a.txt"],
+            "snippets":{"/tmp/a.txt":{"oldText":"","newText":"neuf"}}}));
         // Rejouée : le diff est dédupliqué, plus d'event edit.
         let evs2 = map_kimi_session_update(&u, &mut ctx);
         assert_eq!(evs2.len(), 1);

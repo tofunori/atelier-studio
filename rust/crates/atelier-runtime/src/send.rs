@@ -1453,12 +1453,16 @@ fn normalize_provider_event(
             // avant/après fournis par le provider (diff immédiat sans git) —
             // clé = chemin ORIGINAL de event.files, porté sur l'entrée normalisée
             if let Some(sn) = event.get("snippets").and_then(|s| s.get(&original)) {
+                let obj = entry.as_object_mut().expect("entry objet");
                 if let Some(new_text) = sn.get("newText").and_then(Value::as_str) {
-                    let obj = entry.as_object_mut().expect("entry objet");
                     obj.insert("newText".into(), json!(new_text));
                     if let Some(old_text) = sn.get("oldText").and_then(Value::as_str) {
                         obj.insert("oldText".into(), json!(old_text));
                     }
+                }
+                // variante Codex : diff UNIFIÉ (pas d'avant/après séparés)
+                if let Some(unified) = sn.get("unified").and_then(Value::as_str) {
+                    obj.insert("unified".into(), json!(unified));
                 }
             }
             Some(entry)
@@ -1467,7 +1471,7 @@ fn normalize_provider_event(
     if let Some(obj) = event.as_object_mut() {
         obj.insert("files".into(), Value::Array(files));
         // le canal provider `snippets` ne fait pas partie du contrat AgentEvent :
-        // son contenu vit désormais dans files[].oldText/newText
+        // son contenu vit désormais dans files[].oldText/newText/unified
         obj.remove("snippets");
         obj.insert(
             "projectRoot".into(),

@@ -751,7 +751,7 @@ export default function Chat(p: {
     const merged = new Map<number, EditEvent>();
     const turnsWithEdits = new Set<number>();
     for (const turn of turnViewModels) {
-      const files = new Map<string, { path: string; add: number | null; del: number | null; oldText?: string; newText?: string }>();
+      const files = new Map<string, { path: string; add: number | null; del: number | null; oldText?: string; newText?: string; unified?: string }>();
       let lastEdit = -1;
       let projectRoot: string | null | undefined;
       let baseSha: string | null | undefined;
@@ -773,7 +773,7 @@ export default function Chat(p: {
             // faux diff — deux éditions du même fichier ⇒ pas de snippet,
             // le clic retombe sur gitDiff qui dit vrai.
             ...(previous == null
-              ? { oldText: file.oldText, newText: file.newText }
+              ? { oldText: file.oldText, newText: file.newText, unified: file.unified }
               : {}),
           });
         }
