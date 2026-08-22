@@ -1909,8 +1909,47 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .sel-toolbar button:hover { background: var(--bg-ctl); color: var(--text-primary); }
 /* Encre du lecteur : ambre --hl-line, la couleur des fiches Surlignés — pas
    l'accent, qui signale partout ailleurs « actif / interactif ». */
-::highlight(chat-hl) { background: color-mix(in srgb, var(--hl-line) 34%, transparent); }
-::highlight(chat-ul) { text-decoration: underline; text-decoration-color: var(--hl-line); text-underline-offset: 3px; }
+::highlight(chat-an) { background: color-mix(in srgb, var(--hl-line) 26%, transparent); }
+/* Pastille d'annotation : calque fixe posé au bout du passage, JAMAIS insérée
+   dans le DOM du markdown (React le reconstruit à chaque frame de streaming).
+   Monochrome — l'accent signale « actif », pas « annoté ». */
+.anno-badge { position: fixed; z-index: var(--z-popover); transform: translate(2px, -2px);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0; border: none; border-radius: var(--r-pill);
+  background: var(--text-secondary); color: var(--surface-app);
+  font-family: var(--ui-font); font-size: var(--fs-xs); font-weight: 600;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: transform var(--ease); }
+.anno-badge:hover { transform: translate(2px, -2px) scale(1.12); }
+.anno-editor { position: fixed; z-index: var(--z-popover); width: 268px; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  background: var(--surface-overlay); border-radius: var(--r-m);
+  box-shadow: var(--elevation-overlay); }
+.anno-editor-src { font-family: var(--quote-font); font-size: var(--fs-m);
+  color: var(--text-muted); line-height: 1.5; padding-left: 8px;
+  border-left: 2px solid var(--hl-line);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.anno-editor-note { min-height: 52px; resize: none; padding: 7px 8px;
+  background: var(--surface-inset); border: none; border-radius: var(--r-s);
+  color: var(--text-primary); font-family: var(--ui-font); font-size: var(--fs-m); line-height: 1.5; }
+.anno-editor-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.anno-editor-hint { font-size: var(--fs-xs); color: var(--text-disabled); }
+.anno-editor-actions { display: flex; align-items: center; gap: 2px; }
+.anno-editor-confirm { font-weight: 500; }
+/* pilule agrégée du composer + sa liste dépliée */
+.anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
+.anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
+.anno-pill-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px;
+  border-radius: var(--r-s); }
+.anno-pill-row:hover { background: var(--surface-inset); }
+.anno-pill-num { flex: none; width: 16px; height: 16px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--text-secondary); color: var(--surface-app);
+  font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
+.anno-pill-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.anno-pill-quote { font-family: var(--quote-font); font-size: var(--fs-m); color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.anno-pill-note { font-size: var(--fs-m); color: var(--text-secondary); }
 /* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
    (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
    ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */

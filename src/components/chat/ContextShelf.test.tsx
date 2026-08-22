@@ -103,3 +103,49 @@ describe("ContextShelf en pilules unifiées", () => {
     expect(onRemoveAttachment.mock.calls.map((c) => c[0])).toEqual([1, 0]);
   });
 });
+
+// Annotations de réponse (2026-08-22) : une SEULE pilule agrégée, dépliable.
+describe("pilule d'annotations", () => {
+  const marks = [
+    { text: "tuiles MOD10A1", kind: "an" as const, note: "vérifie plutôt août" },
+    { text: "fraction glaciaire", kind: "an" as const },
+  ];
+
+  it("agrège les annotations en une pilule comptée, dépliable et retirable", () => {
+    const onRemoveAnnotation = vi.fn();
+    const { container } = render(
+      <ContextShelf
+        attachments={[]}
+        onRemoveAttachment={vi.fn()}
+        onOpenPaste={vi.fn()}
+        annotations={marks}
+        onRemoveAnnotation={onRemoveAnnotation}
+      />,
+    );
+
+    const pills = container.querySelectorAll(".chip.context-pill");
+    expect(pills).toHaveLength(1);
+    expect(pills[0]).toHaveTextContent("2 annotations");
+
+    fireEvent.click(screen.getByText("2 annotations"));
+    expect(screen.getByText("« tuiles MOD10A1 »")).toBeTruthy();
+    expect(screen.getByText("vérifie plutôt août")).toBeTruthy();
+    expect(screen.getByText("Annotation sans commentaire")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retirer fraction glaciaire" }));
+    expect(onRemoveAnnotation).toHaveBeenCalledWith("fraction glaciaire");
+  });
+
+  it("accorde le libellé au singulier", () => {
+    render(
+      <ContextShelf
+        attachments={[]}
+        onRemoveAttachment={vi.fn()}
+        onOpenPaste={vi.fn()}
+        annotations={[marks[0]]}
+        onRemoveAnnotation={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("1 annotation")).toBeTruthy();
+  });
+});

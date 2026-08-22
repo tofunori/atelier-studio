@@ -25,12 +25,18 @@
 //   dv.isEquivalent(a, b)     équivalence whitespace adaptée au type de fichier
 //   dv.isShown()            le mode comparaison est-il actif ?
 //     onMarks: (list) => ...,          // OPTIONNEL — publie les marques en
-//       termes de SOURCE : [{kind:'add'|'del', line, text}]. Appelé à chaque
-//       (re)calcul et avec [] à la fermeture. Sert aux vues qui n'affichent
-//       pas l'éditeur (vue Lecture) : elles ne peuvent pas lire les marques
-//       CodeMirror, mais savent retrouver un texte source dans leur rendu.
+//       termes de SOURCE : [{kind:'add'|'bridge'|'del', line, text}]. Appelé à
+//       chaque (re)calcul et avec [] à la fermeture. 'bridge' = fragment
+//       inchangé court absorbé par la fusion sémantique (à peindre plus pâle).
+//       Sert aux vues qui n'affichent pas l'éditeur (vue Lecture) : elles ne
+//       peuvent pas lire les marques CodeMirror, mais savent retrouver un
+//       texte source dans leur rendu.
+//     onNavigate: (line, index, total) => bool, // OPTIONNEL — ⌥↓/⌥↑ et
+//       l'ouverture de la comparaison passent d'abord par l'hôte ; true =
+//       la vue visible (Lecture) a pris le changement en charge, l'éditeur
+//       masqué ne défile pas.
 window.DiffVersions = function(opts){
-  const { getCm, path, notify, els, restoreText, onMarks } = opts;
+  const { getCm, path, notify, els, restoreText, onMarks, onNavigate } = opts;
   const launchParams = (() => {
     try{ return new URLSearchParams(location.search); }
     catch(e){ return {get: () => null}; }
@@ -426,17 +432,23 @@ window.DiffVersions = function(opts){
       while(i2 < parts.length){
         const pt = parts[i2];
         if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
+        // segs distingue, DANS le bloc ajouté fusionné, les vrais ajouts des
+        // « ponts » (fragments inchangés ≤ 16 car. absorbés par la fusion) —
+        // la Lecture les peint dans un vert plus pâle (kind "bridge").
         let R = "", A = "", j2 = i2;
+        const segs = [];
         while(j2 < parts.length){
           const q = parts[j2];
           if(q.removed){ R += q.value; j2++; continue; }
-          if(q.added){ A += q.value; j2++; continue; }
+          if(q.added){ A += q.value; segs.push({value: q.value}); j2++; continue; }
           const nx = parts[j2 + 1];
-          if(nx && (nx.added || nx.removed) && q.value.length <= 16){ R += q.value; A += q.value; j2++; continue; }
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){
+            R += q.value; A += q.value; segs.push({value: q.value, bridge: true}); j2++; continue;
+          }
           break;
         }
         if(R) merged.push({removed: true, value: R});
-        if(A) merged.push({added: true, value: A});
+        if(A) merged.push({added: true, value: A, segs});
         i2 = j2;
       }
       parts = merged;
@@ -468,14 +480,23 @@ window.DiffVersions = function(opts){
           if(j >= 0){ skip.add(j); continue; }
         }
         if(!wsn(pt.value)) continue;
-        const disp = pt.value.replace(/\s+/g, " ").trim();
-        out.push({kind: "del", line, text: disp.length > 160 ? disp.slice(0, 157) + "\u22ef" : disp});
+        // Texte COMPLET : la Lecture le d\u00e9plie sur place (barr\u00e9 repliable),
+        // une troncature ici rendrait la comparaison mot \u00e0 mot impossible.
+        out.push({kind: "del", line, text: pt.value.replace(/\s+/g, " ").trim()});
         continue;
       }
       if(pt.added && wsn(pt.value)){
         const j = noisePair(i);
         if(j >= 0){ skip.add(j); line += countNl(pt.value); continue; }
-        out.push({kind: "add", line, text: pt.value});
+        if(pt.segs && pt.segs.some(sg => sg.bridge)){
+          let segLine = line;
+          for(const sg of pt.segs){
+            if(wsn(sg.value)) out.push({kind: sg.bridge ? "bridge" : "add", line: segLine, text: sg.value});
+            segLine += countNl(sg.value);
+          }
+        } else {
+          out.push({kind: "add", line, text: pt.value});
+        }
       }
       if(!pt.removed) line += countNl(pt.value);
     }
@@ -664,16 +685,19 @@ window.DiffVersions = function(opts){
         const pt = parts[i2];
         if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
         let R = "", A = "", j2 = i2;
+        const segs = []; // vrais ajouts vs « ponts » absorbés (voir computeSrcMarks)
         while(j2 < parts.length){
           const q = parts[j2];
           if(q.removed){ R += q.value; j2++; continue; }
-          if(q.added){ A += q.value; j2++; continue; }
+          if(q.added){ A += q.value; segs.push({value: q.value}); j2++; continue; }
           const nx = parts[j2 + 1];
-          if(nx && (nx.added || nx.removed) && q.value.length <= 16){ R += q.value; A += q.value; j2++; continue; }
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){
+            R += q.value; A += q.value; segs.push({value: q.value, bridge: true}); j2++; continue;
+          }
           break;
         }
         if(R) merged.push({removed: true, value: R});
-        if(A) merged.push({added: true, value: A});
+        if(A) merged.push({added: true, value: A, segs});
         i2 = j2;
       }
       parts = merged;
@@ -727,7 +751,16 @@ window.DiffVersions = function(opts){
         if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
         const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
         marks.push(cm.markText(from, to, {className: "dAddM"}));
-        srcMarks.push({kind: "add", line: from.line, text: pt.value});
+        if(pt.segs && pt.segs.some(sg => sg.bridge)){
+          let o = 0;
+          for(const sg of pt.segs){
+            if(wsn(sg.value))
+              srcMarks.push({kind: sg.bridge ? "bridge" : "add", line: cm.posFromIndex(at + o).line, text: sg.value});
+            o += sg.value.length;
+          }
+        } else {
+          srcMarks.push({kind: "add", line: from.line, text: pt.value});
+        }
         if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos: from, ch: at});
       }
       at += pt.value.length;
@@ -855,8 +888,15 @@ window.DiffVersions = function(opts){
     const cm = getCm();
     if(!cm || !changePts.length) return;
     changeAt = Math.max(0, Math.min(changePts.length - 1, k));
-    cm.scrollIntoView(changePts[changeAt].pos, 120);
-    if(flash) flashAt(changePts[changeAt].pos);
+    const target = changePts[changeAt];
+    // L'hôte peut router la navigation vers une autre vue (Lecture) : s'il
+    // prend le changement en charge (true), l'éditeur masqué ne défile pas.
+    if(typeof onNavigate === "function" && onNavigate(target.pos.line, changeAt, changePts.length)){
+      updateNav();
+      return;
+    }
+    cm.scrollIntoView(target.pos, 120);
+    if(flash) flashAt(target.pos);
     updateNav();
   }
   function ensureNavUi(){

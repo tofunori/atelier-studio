@@ -342,6 +342,27 @@ export function proseRuns(text: string): string[] {
   return runs.filter((run) => run.length >= 4);
 }
 
+/** Apparie CHAQUE suite de prose retrouvable dans le texte rendu, en avançant
+ *  strictement (jamais de retour en arrière). Une suite absente du rendu
+ *  (contenu transformé : citation, math) est simplement sautée — les suites
+ *  suivantes restent appariées. Sert au surlignage du diff en vue Lecture :
+ *  un segment par suite, au lieu d'une seule plage première→dernière qui se
+ *  tronquait dès qu'une suite manquait. */
+export function proseRunRanges(
+  blockText: string,
+  runs: readonly string[],
+): Array<{start: number; end: number}> {
+  const segments: Array<{start: number; end: number}> = [];
+  let cursor = 0;
+  for (const run of runs) {
+    const at = blockText.indexOf(run, cursor);
+    if (at < 0) continue;
+    segments.push({start: at, end: at + run.length});
+    cursor = at + run.length;
+  }
+  return segments;
+}
+
 export function createLatexReadingController(options: LatexReadingOptions): LatexReadingController {
   const doc = options.document || document;
   const win = options.window || window;
@@ -765,31 +786,69 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // relire au propre, une prose constamment barbouillée ne s'y prête pas.
   let diffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
   const applyDiffMarks = (): void => {
-    for (const old of reading.querySelectorAll(".tr-cut")) old.remove();
+    for (const old of reading.querySelectorAll(".tr-cut, .tr-cut-text")) old.remove();
     const registry = (win as unknown as {CSS?: {highlights?: Map<string, unknown>}}).CSS?.highlights;
     const HighlightCtor = (win as unknown as {Highlight?: new (...ranges: Range[]) => unknown}).Highlight;
     registry?.delete("texc-read-diff");
+    registry?.delete("texc-read-diff-bridge");
     if (!enabled || !diffMarks.length) return;
     const added: Range[] = [];
+    const bridged: Range[] = [];
+    // Les suppressions insérées avant les surlignages : le texte déplié d'une
+    // coupe changerait les offsets des plages déjà calculées dans le même bloc.
     for (const mark of diffMarks) {
+      if (mark.kind !== "del") continue;
       // `line` vient de CodeMirror (0-based), les ancres du rendu sont 1-based
       const block = blockForLine(mark.line + 1);
       if (!block) continue;
-      if (mark.kind === "del") {
-        // Une suppression n'existe PLUS dans le texte rendu : impossible de la
-        // surligner. On pose un repère dans la marge, qui porte le texte retiré.
-        const cut = doc.createElement("span");
-        cut.className = "tr-cut";
-        cut.title = mark.text;
-        cut.setAttribute("aria-label", `Texte supprimé : ${mark.text}`);
-        block.insertBefore(cut, block.firstChild);
-        continue;
-      }
-      const range = locateText(block, mark.text);
-      if (range) added.push(range);
+      // Une suppression n'existe PLUS dans le texte rendu : impossible de la
+      // surligner. La barre de marge devient un bouton : un clic déplie le
+      // texte retiré EN BARRÉ au début du bloc, un second le replie. Le nœud
+      // injecté est retiré au repli (et à chaque re-rendu), donc les ancres
+      // `data-line` et le calcul de sélection restent intacts.
+      const cut = doc.createElement("span");
+      cut.className = "tr-cut";
+      cut.setAttribute("role", "button");
+      cut.tabIndex = 0;
+      cut.setAttribute("aria-expanded", "false");
+      cut.setAttribute("aria-label", `Texte supprimé : ${mark.text}`);
+      cut.title = "Afficher le texte supprimé";
+      const body = doc.createElement("del");
+      body.className = "tr-cut-text";
+      body.textContent = mark.text + " ";
+      const toggle = (): void => {
+        const open = !body.parentNode;
+        if (open) block.insertBefore(body, cut.nextSibling);
+        else body.remove();
+        cut.classList.toggle("open", open);
+        cut.setAttribute("aria-expanded", open ? "true" : "false");
+        cut.title = open ? "Replier le texte supprimé" : "Afficher le texte supprimé";
+      };
+      cut.addEventListener("click", (event) => { event.stopPropagation(); toggle(); });
+      cut.addEventListener("keydown", (event) => {
+        const key = event as KeyboardEvent;
+        if (key.key === "Enter" || key.key === " ") { key.preventDefault(); toggle(); }
+      });
+      block.insertBefore(cut, block.firstChild);
     }
-    if (added.length && registry && HighlightCtor) {
-      registry.set("texc-read-diff", new HighlightCtor(...added));
+    for (const mark of diffMarks) {
+      if (mark.kind === "del") continue;
+      const block = blockForLine(mark.line + 1);
+      if (!block) continue;
+      // Un segment par suite de prose retrouvée (les suites transformées au
+      // rendu sont sautées) — le surlignage ne se tronque plus à la première
+      // suite introuvable. Les « ponts » (inchangés absorbés par la fusion)
+      // vont dans un registre à part, peint plus pâle.
+      const blockText = block.textContent || "";
+      const bucket = mark.kind === "bridge" ? bridged : added;
+      for (const segment of proseRunRanges(blockText, proseRuns(mark.text))) {
+        const range = rangeFromOffsets(block, segment.start, segment.end);
+        if (range) bucket.push(range);
+      }
+    }
+    if (registry && HighlightCtor) {
+      if (added.length) registry.set("texc-read-diff", new HighlightCtor(...added));
+      if (bridged.length) registry.set("texc-read-diff-bridge", new HighlightCtor(...bridged));
     }
   };
   const setDiffMarks = (marks: ReadonlyArray<{kind: string; line: number; text: string}>): void => {

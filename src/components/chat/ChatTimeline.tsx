@@ -11,6 +11,8 @@ import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/cha
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
+import { findTextRanges } from "../../lib/markRanges";
+import type { Mark } from "../../lib/annotations";
 import { isValidSkill } from "./mentions";
 import { CloseIcon, MinusIcon, ZapIcon } from "../icons";
 import {
@@ -121,12 +123,12 @@ export function ChatTimeline(p: {
   selection: {
     quote: { x: number; y: number; text: string } | null;
     setQuote: React.Dispatch<React.SetStateAction<{ x: number; y: number; text: string } | null>>;
-    quoteHasHl: boolean;
-    quoteHasUl: boolean;
-    addMark: (text: string, kind: "hl" | "ul") => void;
-    removeMark: (text: string, kind: "hl" | "ul") => void;
-    /** passages surlignés du fil — l'encoche ambre de la marge */
-    marks: { text: string; kind: "hl" | "ul" }[];
+    /** le passage sélectionné porte déjà une annotation */
+    quoteAnnotated: boolean;
+    addAnnotation: (text: string, note: string) => void;
+    removeAnnotation: (text: string) => void;
+    /** passages annotés du fil — l'encoche ambre de la marge */
+    marks: Mark[];
   };
 }) {
   const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
@@ -208,7 +210,9 @@ export function ChatTimeline(p: {
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
-  const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark, marks } = p.selection;
+  const { quote, setQuote, quoteAnnotated, addAnnotation, removeAnnotation, marks } = p.selection;
+  // éditeur de commentaire : ouvert par « Annoter » ou par un clic sur une pastille
+  const [noteDraft, setNoteDraft] = React.useState<{ x: number; y: number; text: string; note: string } | null>(null);
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
@@ -381,6 +385,40 @@ export function ChatTimeline(p: {
       (messagesRef as MutableRefObject<HTMLDivElement | null>).current = null;
     };
   }, [messagesRef, threadId]);
+
+  // Pastilles numérotées : calculées depuis les Range des passages annotés et
+  // rendues dans un calque `position: fixed` — jamais insérées dans le DOM du
+  // markdown, que React reconstruit à chaque frame de streaming.
+  const [badges, setBadges] = React.useState<{ n: number; x: number; y: number; mark: Mark }[]>([]);
+  React.useEffect(() => {
+    const host = messagesRef.current;
+    if (!host || !marks.length) { setBadges([]); return; }
+    let frame = 0;
+    const compute = () => {
+      frame = 0;
+      const bounds = host.getBoundingClientRect();
+      const next: { n: number; x: number; y: number; mark: Mark }[] = [];
+      marks.forEach((mark, i) => {
+        const ranges = findTextRanges(host, mark.text);
+        const rects = ranges[ranges.length - 1]?.getClientRects();
+        const rect = rects?.[rects.length - 1];
+        if (!rect) return;
+        // hors du scroller (virtualisation, défilement) : pas de pastille
+        if (rect.bottom < bounds.top + 2 || rect.top > bounds.bottom - 2) return;
+        next.push({ n: i + 1, x: rect.right, y: rect.top, mark });
+      });
+      setBadges(next);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(compute); };
+    compute();
+    host.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      host.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [marks, events, messagesRef]);
 
   React.useEffect(() => {
     phaseRef.current = phase;
@@ -950,34 +988,8 @@ export function ChatTimeline(p: {
         </PopoverContent>
         </Popover>
       )}
-      {quote && (
+      {quote && !noteDraft && (
         <div className="sel-toolbar" style={{ left: quote.x, top: quote.y - 44 }}>
-          <RowButton
-            onMouseDown={(e) => {
-              e.preventDefault();
-              if (quoteHasHl) removeMark(quote.text, "hl"); else addMark(quote.text, "hl");
-              setQuote(null);
-              window.getSelection()?.removeAllRanges();
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <path d="M10.5 2.5l3 3L6 13H3v-3z" /><path d="M9 4l3 3" />
-            </svg>
-            {quoteHasHl ? t("chat.remove-highlight") : t("chat.highlight")}
-          </RowButton>
-          <RowButton
-            onMouseDown={(e) => {
-              e.preventDefault();
-              if (quoteHasUl) removeMark(quote.text, "ul"); else addMark(quote.text, "ul");
-              setQuote(null);
-              window.getSelection()?.removeAllRanges();
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <path d="M4 2.5v5a4 4 0 008 0v-5" /><path d="M3.5 13.5h9" />
-            </svg>
-            {quoteHasUl ? t("chat.remove-underline") : t("chat.underline")}
-          </RowButton>
           <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
@@ -988,6 +1000,21 @@ export function ChatTimeline(p: {
           >
             <ZapIcon />
             {t("qa.title")}
+          </RowButton>
+          <RowButton
+            className="sel-annotate"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const existing = marks.find((m) => m.text === quote.text.trim());
+              setNoteDraft({ x: quote.x, y: quote.y, text: quote.text, note: existing?.note ?? "" });
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M13.5 9.5A2 2 0 0111.5 11.5H6l-3 2.5V4A1.5 1.5 0 014.5 2.5h7A2 2 0 0113.5 4.5z" />
+              <path d="M6 6.5h4M6 8.5h2.5" />
+            </svg>
+            {quoteAnnotated ? t("chat.edit-annotation") : t("chat.annotate")}
           </RowButton>
           <RowButton
             onMouseDown={(e) => {
@@ -1002,6 +1029,56 @@ export function ChatTimeline(p: {
             </svg>
             {t("action.add-to-chat")}
           </RowButton>
+        </div>
+      )}
+      {badges.map((badge) => (
+        <RowButton
+          key={badge.mark.text}
+          className="anno-badge"
+          style={{ left: badge.x, top: badge.y }}
+          title={badge.mark.note || t("chat.annotation-no-note")}
+          onClick={() => setNoteDraft({
+            x: badge.x, y: badge.y + 18, text: badge.mark.text, note: badge.mark.note ?? "",
+          })}
+        >
+          {badge.n}
+        </RowButton>
+      ))}
+      {noteDraft && (
+        <div className="anno-editor" style={{ left: noteDraft.x, top: noteDraft.y - 44 }}>
+          <div className="anno-editor-src">{noteDraft.text}</div>
+          <textarea
+            className="anno-editor-note"
+            autoFocus
+            value={noteDraft.note}
+            placeholder={t("chat.annotation-placeholder")}
+            onChange={(e) => setNoteDraft({ ...noteDraft, note: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setNoteDraft(null); setQuote(null); }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addAnnotation(noteDraft.text, noteDraft.note);
+                setNoteDraft(null);
+                setQuote(null);
+              }
+            }}
+          />
+          <div className="anno-editor-row">
+            <span className="anno-editor-hint">{t("chat.annotation-hint")}</span>
+            <span className="anno-editor-actions">
+              {marks.some((m) => m.text === noteDraft.text.trim()) && (
+                <RowButton onClick={() => { removeAnnotation(noteDraft.text); setNoteDraft(null); setQuote(null); }}>
+                  {t("chat.annotation-remove")}
+                </RowButton>
+              )}
+              <RowButton
+                className="anno-editor-confirm"
+                onClick={() => { addAnnotation(noteDraft.text, noteDraft.note); setNoteDraft(null); setQuote(null); }}
+              >
+                {t("chat.annotate")}
+              </RowButton>
+            </span>
+          </div>
         </div>
       )}
       </div>

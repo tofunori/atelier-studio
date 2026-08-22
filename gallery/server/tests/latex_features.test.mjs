@@ -307,3 +307,25 @@ test("LaTeX selection pill stays inside the actual editor rectangle", () => {
     {width: 20, height: 20},
   ), null);
 });
+
+test("proseRunRanges maps each findable prose run to its own rendered segment", () => {
+  // Texte SOURCE avec une commande au milieu : deux suites de prose.
+  const source = "carbon is the sum of \\citep{Chen2019} secondary organic matter";
+  // Prose RENDUE : la citation devient « [Chen2019] » — introuvable telle quelle.
+  const rendered = "Fire carbon is the sum of [Chen2019] secondary organic matter (POM).";
+  const segments = latex.proseRunRanges(rendered, latex.proseRuns(source));
+  assert.equal(segments.length, 2);
+  assert.equal(rendered.slice(segments[0].start, segments[0].end), "carbon is the sum of");
+  assert.equal(rendered.slice(segments[1].start, segments[1].end), "secondary organic matter");
+  // Les segments progressent strictement (jamais de retour en arrière).
+  assert.ok(segments[1].start >= segments[0].end);
+});
+
+test("proseRunRanges skips runs missing from the rendered block without giving up", () => {
+  const rendered = "alpha beta gamma delta";
+  const segments = latex.proseRunRanges(rendered, ["alpha beta", "absent entirely", "delta long"]);
+  // Array.from LOCAL : segments vient du realm VM (prototype d'Array différent)
+  assert.deepEqual(Array.from(segments, (s) => rendered.slice(s.start, s.end)), ["alpha beta"]);
+  // tableau issu du realm VM : comparer la longueur, pas le prototype
+  assert.equal(latex.proseRunRanges("rien ici", ["introuvable totalement"]).length, 0);
+});

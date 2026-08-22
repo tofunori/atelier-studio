@@ -6,6 +6,7 @@ import React, { useEffect, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
+import type { Mark } from "../../lib/annotations";
 import { type KbBinding } from "./KbPicker";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
@@ -86,6 +87,8 @@ export type ComposerContextBundle = {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
   onOpenPaste: (paste: { name: string; text: string }) => void;
+  annotations?: Mark[];
+  onRemoveAnnotation?: (text: string) => void;
 };
 
 /** Base de connaissances (plan 049 T3) — attache par conversation. */
@@ -119,7 +122,8 @@ export function ChatComposer(props: {
   const { input, model, menus, catalog, context, host, kb } = props;
   const { text, setText } = input;
   const { goalOpen, goalText, setGoalText, setGoalOpen } = menus;
-  const hasContent = Boolean(text.trim()) || context.attachments.length > 0;
+  const hasContent = Boolean(text.trim()) || context.attachments.length > 0
+    || (context.annotations?.length ?? 0) > 0;
   // un goal actif rend l'éditeur de création inerte : referme l'état goalOpen
   // pour que l'éditeur ne surgisse pas au moment où le goal sera arrêté
   useEffect(() => { if (host.activeGoal) setGoalOpen(false); }, [host.activeGoal, setGoalOpen]);
@@ -246,6 +250,8 @@ export function ChatComposer(props: {
           <SuggestionsList suggestions={input.suggestions} selIdx={input.selIdx} applySuggestion={input.applySuggestion} />
           <ContextShelf
             attachments={context.attachments}
+            annotations={context.annotations}
+            onRemoveAnnotation={context.onRemoveAnnotation}
             onRemoveAttachment={context.onRemoveAttachment}
             onOpenPaste={context.onOpenPaste}
           />

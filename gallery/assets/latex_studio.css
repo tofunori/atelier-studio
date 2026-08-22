@@ -413,10 +413,21 @@
      Vert d'addition distinct des teintes d'annotation : « ça a changé » ne
      doit pas se confondre avec « j'ai commenté ça ». */
   ::highlight(texc-read-diff){background:rgba(62,160,107,.26)}
+  /* « pont » : fragment inchangé absorbé par la fusion sémantique — plus pâle,
+     pour que l'œil distingue le vraiment modifié du simplement encadré */
+  ::highlight(texc-read-diff-bridge){background:rgba(62,160,107,.11)}
   #texread [data-line]{position:relative}
-  .tr-cut{position:absolute;left:-14px;top:.28em;width:3px;height:1.15em;border-radius:2px;
-    background:var(--dv-del,#e06c75);opacity:.85;cursor:help}
-  .tr-cut:hover{opacity:1}
+  /* barre de coupe : bouton (zone de clic élargie, barre visible en ::before) —
+     un clic déplie le texte supprimé en barré au début du bloc */
+  .tr-cut{position:absolute;left:-19px;top:.14em;width:13px;height:1.4em;
+    cursor:pointer;opacity:.85;background:none;border:0;padding:0}
+  .tr-cut::before{content:"";position:absolute;left:5px;top:.14em;bottom:.11em;width:3px;
+    border-radius:2px;background:var(--dv-del,#e06c75)}
+  .tr-cut:hover,.tr-cut.open{opacity:1}
+  .tr-cut:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+  .tr-cut.open::before{width:5px;left:4px}
+  .tr-cut-text{color:var(--dv-del,#e06c75);background:color-mix(in srgb,var(--dv-del,#e06c75) 9%,transparent);
+    border-radius:2px;text-decoration:line-through;text-decoration-thickness:1px}
   ::highlight(texc-read-amber){background:rgba(224,183,74,.26)}
   ::highlight(texc-read-red){background:rgba(240,125,115,.26)}
   ::highlight(texc-read-blue){background:rgba(91,157,255,.24)}

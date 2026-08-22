@@ -603,6 +603,14 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     // une comparaison ouverte AVANT le premier passage en Lecture publiait
     // vers un lecteur inexistant — puis plus jamais (vécu 2026-08-16).
     onMarks: (marks) => { pendingDiffMarks = marks; reader?.setDiffMarks(marks); },
+    // ⌥↓/⌥↑ en Lecture : suivre le changement dans la PROSE (l'éditeur est
+    // masqué, le faire défiler ne montrerait rien) + compteur en barre d'état.
+    onNavigate: (line, index, total) => {
+      if (!reader?.isReading()) return false;
+      if (!reader.revealSourceLine(line)) return false;
+      setState("ok", `modification ${index + 1} / ${total} · ⌥↓ suivante · ⌥↑ précédente`);
+      return true;
+    },
     restoreText: async (text) => {
       if (!path) return false;
       const currentSession = ensureSession();

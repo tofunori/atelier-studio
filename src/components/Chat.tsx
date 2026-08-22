@@ -5,6 +5,8 @@ import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import type { Pin } from "../lib/pins";
 import { buildHighlightContext } from "../lib/highlightContext";
+import { buildAnnotationBlock, migrateMarks, type Mark } from "../lib/annotations";
+import { findTextRanges } from "../lib/markRanges";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { Button, IconButton } from "./ui";
@@ -400,14 +402,15 @@ export default function Chat(p: {
   }, [p.threadId]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
 
-  // ---- marques persistantes (Highlight / Underline) sur les réponses ----
-  type Mark = { text: string; kind: "hl" | "ul" };
+  // ---- annotations persistantes sur les réponses ----
+  // Remplacent les anciennes marques Highlight / Underline : une annotation
+  // sans commentaire fait le même travail (migrateMarks relit les deux).
   const [marks, setMarks] = useState<Mark[]>([]);
   const messagesRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!p.threadId) { setMarks([]); return; }
     try {
-      setMarks(JSON.parse(localStorage.getItem("atelier-studio.marks." + p.threadId) ?? "[]"));
+      setMarks(migrateMarks(JSON.parse(localStorage.getItem("atelier-studio.marks." + p.threadId) ?? "[]")));
     } catch { setMarks([]); }
   }, [p.threadId]);
   function saveMarks(next: Mark[]) {
@@ -424,16 +427,21 @@ export default function Chat(p: {
   }
   // création : mark local (rendu in-chat, inchangé) + fiche durable envoyée
   // au sidecar avec le contexte photographié à l'instant du clic (spec §2)
-  function addMark(text: string, kind: "hl" | "ul") {
+  function addAnnotation(text: string, note: string) {
     const txt = text.trim();
     if (!txt) return;
-    saveMarks([...marks, { text: txt, kind }]);
+    const clean = note.trim();
+    saveMarks([...marks.filter((m) => m.text !== txt), clean ? { text: txt, kind: "an", note: clean } : { text: txt, kind: "an" }]);
     wsSend({
       type: "addHighlight",
       highlight: {
         text: txt,
         context: buildHighlightContext(findEventTextContaining(txt), txt),
-        kind,
+        // la fiche durable « Surlignés » reste alimentée : l'annotation est
+        // l'unique geste de marquage depuis la refonte (2026-08-22). Le
+        // commentaire n'y est PAS porté — HighlightStore (Rust) n'a pas de
+        // champ `note` et le normalize le jetterait en silence.
+        kind: "hl",
         projectRoot: p.projectRoot ?? "",
         projectName: (p.projectRoot ?? "").split("/").filter(Boolean).pop() ?? "",
         threadId: p.threadId ?? "",
@@ -444,11 +452,11 @@ export default function Chat(p: {
   }
   // retrait EXPLICITE (action nommée dans le popover, jamais silencieux) :
   // retire le mark local ET la fiche correspondante (match threadId+text+kind)
-  function removeMark(text: string, kind: "hl" | "ul") {
+  function removeAnnotation(text: string) {
     const txt = text.trim();
     if (!txt) return;
-    saveMarks(marks.filter((m) => !(m.text === txt && m.kind === kind)));
-    const match = p.highlights.find((h) => h.threadId === p.threadId && h.text === txt && h.kind === kind);
+    saveMarks(marks.filter((m) => m.text !== txt));
+    const match = p.highlights.find((h) => h.threadId === p.threadId && h.text === txt);
     if (match) wsSend({ type: "removeHighlight", id: match.id });
   }
   // applique les marques via la CSS Custom Highlight API (aucune chirurgie DOM)
@@ -456,29 +464,14 @@ export default function Chat(p: {
     const H = (window as any).Highlight;
     const reg = (CSS as any).highlights;
     if (!H || !reg || !messagesRef.current) return;
-    const find = (needle: string): Range[] => {
-      const out: Range[] = [];
-      const root = messagesRef.current!;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      // concatène les nœuds texte par message pour retrouver le passage même s'il
-      // traverse du gras/des liens : on cherche nœud par nœud (couvre la majorité)
-      let n: Node | null;
-      while ((n = walker.nextNode())) {
-        const idx = (n.textContent ?? "").indexOf(needle);
-        if (idx >= 0) {
-          const r = document.createRange();
-          r.setStart(n, idx);
-          r.setEnd(n, idx + needle.length);
-          out.push(r);
-        }
-      }
-      return out;
-    };
-    const hl = new H(), ul = new H();
-    for (const m of marks) for (const r of find(m.text)) (m.kind === "hl" ? hl : ul).add(r);
-    reg.set("chat-hl", hl);
-    reg.set("chat-ul", ul);
-    return () => { reg.delete("chat-hl"); reg.delete("chat-ul"); };
+    // recherche aplatie (src/lib/markRanges.ts) : un passage qui traverse du
+    // gras, un lien ou deux paragraphes DOIT matcher — la recherche nœud par
+    // nœud d'origine ne trouvait que les sélections d'un seul nœud texte.
+    const find = (needle: string) => findTextRanges(messagesRef.current!, needle);
+    const an = new H();
+    for (const m of marks) for (const r of find(m.text)) an.add(r);
+    reg.set("chat-an", an);
+    return () => { reg.delete("chat-an"); };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
@@ -901,8 +894,7 @@ export default function Chat(p: {
   // déjà posé ? → le bouton devient une action "Retirer" explicite (jamais
   // de suppression silencieuse en re-cliquant le même bouton, spec §2)
   const quoteText = quote?.text.trim() ?? "";
-  const quoteHasHl = !!quoteText && marks.some((m) => m.text === quoteText && m.kind === "hl");
-  const quoteHasUl = !!quoteText && marks.some((m) => m.text === quoteText && m.kind === "ul");
+  const quoteAnnotated = !!quoteText && marks.some((m) => m.text === quoteText);
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
@@ -973,7 +965,7 @@ export default function Chat(p: {
         working={{ onStop: p.onStop }}
         chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
-        selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark, marks }}
+        selection={{ quote, setQuote, quoteAnnotated, addAnnotation, removeAnnotation, marks }}
       />
       <QueuedTurns
         turns={p.queuedTurns ?? []}
@@ -1003,7 +995,11 @@ export default function Chat(p: {
           modelsFor, sortByFav, modelLabel, modelButtonLabel, favModels,
           toggleFavModel, attachFiles,
         }}
-        context={{ attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onOpenPaste: setPasteView }}
+        context={{
+          attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment,
+          onOpenPaste: setPasteView,
+          annotations: marks, onRemoveAnnotation: removeAnnotation,
+        }}
         kb={p.onKbChange ? {
           // sans thread actif (boot, accueil) : liaison « en attente » portée
           // par App, transférée au fil dès sa création (plan 050)
@@ -1013,7 +1009,14 @@ export default function Chat(p: {
         } : undefined}
         host={{
           usage: p.usage, disabled: p.disabled, workingSince: p.workingSince,
-          onStop: p.onStop, onSubmit: p.onSubmit,
+          onStop: p.onStop,
+          // les annotations partent en tête du message PUIS sont consommées :
+          // la conversation garde la trace, le fil se nettoie (spec 2026-08-22)
+          onSubmit: (prompt, ...rest) => {
+            const block = buildAnnotationBlock(marks);
+            p.onSubmit(block ? `${block}\n\n${prompt}` : prompt, ...rest);
+            if (block) saveMarks([]);
+          },
           onOpenModelSettings: p.onOpenModelSettings,
           followUpMode: p.followUpMode ?? "queue",
           onFollowUpModeChange: p.onFollowUpModeChange,

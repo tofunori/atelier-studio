@@ -261,6 +261,8 @@ function makeModuleHarness({
   postResponses = [],
   workerAvailable = false,
   search = "",
+  onMarks = null,
+  onNavigate = null,
 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, _children: [],
@@ -372,6 +374,8 @@ function makeModuleHarness({
     getCm: () => cm, path: filePath, notify: (m) => notes.push(m),
     els: { tag, prev: null, next: null, restore, group },
     restoreText: async (text) => { restored.push(text); return restoreResult; },
+    ...(onMarks ? { onMarks } : {}),
+    ...(onNavigate ? { onNavigate } : {}),
   });
   const nav = () => navPill && {
     prev: navPill._children.find((child) => child?.dataset?.d === "-1") || navPill.querySelector('[data-d="-1"]'),
@@ -1718,10 +1722,85 @@ async function timelineTests() {
   }
 }
 
+// ------------------------------------------- marques SOURCE pour la Lecture
+// Améliorations 2026-08-22 : kind « bridge » pour les fragments inchangés
+// absorbés par la fusion sémantique, texte de suppression NON tronqué dans les
+// marques publiées, et relais onNavigate (⌥↓/⌥↑ suivis par la vue Lecture).
+async function readingMarksTests() {
+  const before = "aa bb cc dd ee\n";
+  const after = "aa XX cc YY ee\n";
+  // R1. chemin cm5 (applyRender) : le pont « cc » est publié à part, en bridge
+  {
+    const published = [];
+    const h = makeModuleHarness({ onMarks: (list) => published.push(list) });
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick();
+    await sleep(50);
+    const last = published.at(-1) || [];
+    const kinds = last.map((m) => m.kind + ":" + m.text.trim());
+    ok("bridge cm5 : ajout XX publié", kinds.some((k) => k === "add:XX"), JSON.stringify(last));
+    ok("bridge cm5 : ajout YY publié", kinds.some((k) => k === "add:YY"), JSON.stringify(last));
+    ok("bridge cm5 : pont cc en kind bridge", kinds.some((k) => k === "bridge:cc"), JSON.stringify(last));
+    ok("bridge cm5 : cc jamais en add", !kinds.some((k) => k === "add:cc" || /^add:XX cc/.test(k)), JSON.stringify(last));
+    h.tag.onclick();
+  }
+  // R2. chemin cm6 (computeSrcMarks) : même contrat que le chemin cm5
+  {
+    const published = [];
+    const h = makeModuleHarness({ onMarks: (list) => published.push(list) });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = () => [];
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick();
+    await sleep(50);
+    const last = published.at(-1) || [];
+    const kinds = last.map((m) => m.kind + ":" + m.text.trim());
+    ok("bridge cm6 : ajouts XX et YY publiés", kinds.some((k) => k === "add:XX") && kinds.some((k) => k === "add:YY"), JSON.stringify(last));
+    ok("bridge cm6 : pont cc en kind bridge", kinds.some((k) => k === "bridge:cc"), JSON.stringify(last));
+    h.tag.onclick();
+  }
+  // R3. suppression longue : le texte publié pour la Lecture n'est PAS tronqué
+  {
+    const cutText = ("glacier albedo declines sharply after each fire season and ").repeat(4).trim(); // > 160 car.
+    const longBefore = "debut " + cutText + " fin\n";
+    const longAfter = "debut fin\n";
+    const published = [];
+    const h = makeModuleHarness({ onMarks: (list) => published.push(list) });
+    h.cm.hasNativeMergeDiff = true; // chemin cm6 : c'est computeSrcMarks qui tronquait
+    h.cm.showMergeDiff = () => [];
+    h.cm._v = longAfter;
+    h.dv.push(longBefore, longAfter);
+    h.tag.onclick();
+    await sleep(50);
+    const del = (published.at(-1) || []).find((m) => m.kind === "del");
+    ok("del non tronqué : marque publiée", !!del, JSON.stringify(published.at(-1)));
+    ok("del non tronqué : texte complet (> 160 car., sans ⋯)",
+      del && del.text.length > 160 && !del.text.includes("⋯"), del && del.text.length + " car.");
+    h.tag.onclick();
+  }
+  // R4. onNavigate : l'hôte peut router ⌥↓/⌥↑ vers la Lecture (retour true =
+  // pas de défilement éditeur)
+  {
+    const navCalls = [];
+    const h = makeModuleHarness({ onNavigate: (line, index, total) => { navCalls.push({line, index, total}); return true; } });
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick();
+    await sleep(50);
+    ok("onNavigate : appelé à l'ouverture de la comparaison", navCalls.length >= 1, JSON.stringify(navCalls));
+    ok("onNavigate : index/total cohérents", navCalls.every((c) => c.total >= 1 && c.index >= 0 && c.index < c.total), JSON.stringify(navCalls));
+    ok("onNavigate true : l'éditeur ne défile pas", h.scrollLog.length === 0, JSON.stringify(h.scrollLog));
+    h.tag.onclick();
+  }
+}
+
 // -------------------------------------------------------------------- run all
 try {
   await serverTests();
   await moduleTests();
+  await readingMarksTests();
   editorCallSiteTests();
   commitComposerContractTests();
   await latexStudioTests();
