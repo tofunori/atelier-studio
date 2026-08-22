@@ -2728,19 +2728,26 @@ export default function App() {
     const id = crypto.randomUUID();
     // sélection KB faite avant toute conversation : adoptée par le fil créé
     const kbInit = consumePendingKb({ id, provider, projectRoot, title: t("app.new-chat-title") });
-    setDraftThreads((p) => [
-      {
-        id,
-        projectRoot,
-        title: t("app.new-chat-title"),
-        provider,
-        sessionId: null,
-        status: "idle" as const,
-        updatedAt: new Date().toISOString(),
-        ...kbInit,
-      },
-      ...p,
-    ]);
+    const created = {
+      id,
+      projectRoot,
+      title: t("app.new-chat-title"),
+      provider,
+      sessionId: null,
+      status: "idle" as const,
+      updatedAt: new Date().toISOString(),
+      ...kbInit,
+    };
+    setDraftThreads((p) => [created, ...p]);
+    // un chat vide doit survivre a la relance : on l'ecrit tout de suite dans
+    // threads.json au lieu d'attendre le premier message (consumePendingKb a
+    // deja fait l'upsert quand une selection KB etait en attente)
+    if (!("kbSourceIds" in kbInit) && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: { id, projectRoot, provider, title: created.title },
+      }));
+    }
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));

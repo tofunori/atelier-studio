@@ -213,6 +213,19 @@ describe("orchestration App — caractérisation", () => {
     expect(sends[sends.length - 1]).toMatchObject({ provider: "codex", prompt: "Analyse ce projet" });
   });
 
+  it("un chat vide est persisté dès sa création (il survit à la relance)", async () => {
+    const { sock } = await mountApp();
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].thread).toMatchObject({ provider: "codex" });
+    expect(typeof upserts[0].thread.id).toBe("string");
+  });
+
   it("le picker de modèles reste verrouillé sur le provider du fil", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
