@@ -482,7 +482,16 @@ window.DiffVersions = function(opts){
         if(!wsn(pt.value)) continue;
         // Texte COMPLET : la Lecture le d\u00e9plie sur place (barr\u00e9 repliable),
         // une troncature ici rendrait la comparaison mot \u00e0 mot impossible.
-        out.push({kind: "del", line, text: pt.value.replace(/\s+/g, " ").trim()});
+        // `next` = d\u00e9but du texte qui SUIT la coupe (remplacement ou commun,
+        // donc pr\u00e9sent dans la prose rendue) : la Lecture y ancre le barr\u00e9
+        // d\u00e9pli\u00e9 \u00e0 sa vraie position au lieu de la t\u00eate de bloc.
+        let next = "";
+        for(let j2 = i + 1; j2 < parts.length; j2++){
+          if(parts[j2].removed) continue;
+          const w2 = wsn(parts[j2].value);
+          if(w2){ next = w2.slice(0, 80); break; }
+        }
+        out.push({kind: "del", line, text: pt.value.replace(/\s+/g, " ").trim(), next});
         continue;
       }
       if(pt.added && wsn(pt.value)){
@@ -740,7 +749,14 @@ window.DiffVersions = function(opts){
         if(disp.length > 160) w.title = disp;
         const pos = cm.posFromIndex(at);
         marks.push(cm.setBookmark(pos, {widget: w}));
-        srcMarks.push({kind: "del", line: pos.line, text: disp});
+        // même contrat que computeSrcMarks : `next` = texte suivant la coupe
+        let next = "";
+        for(let j2 = i + 1; j2 < parts.length; j2++){
+          if(parts[j2].removed) continue;
+          const w2 = wsn(parts[j2].value);
+          if(w2){ next = w2.slice(0, 80); break; }
+        }
+        srcMarks.push({kind: "del", line: pos.line, text: disp, next});
         // un mot remplacé = suppression + ajout à la MÊME position : un seul stop
         if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos, ch: at});
         continue;

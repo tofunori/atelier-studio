@@ -1778,6 +1778,27 @@ async function readingMarksTests() {
     ok("del non tronqué : marque publiée", !!del, JSON.stringify(published.at(-1)));
     ok("del non tronqué : texte complet (> 160 car., sans ⋯)",
       del && del.text.length > 160 && !del.text.includes("⋯"), del && del.text.length + " car.");
+    // la marque porte le CONTEXTE SUIVANT la coupe : la Lecture y ancre le
+    // barré déplié à sa vraie position dans la prose, pas en tête de bloc
+    ok("del : contexte suivant publié (next)", del && typeof del.next === "string" && del.next.startsWith("fin"), del && JSON.stringify(del.next));
+    h.tag.onclick();
+  }
+  // R3b. remplacement : le contexte suivant d'une suppression = le texte AJOUTÉ
+  // qui la remplace (présent dans la prose rendue, donc ancrable) — les deux
+  // chemins cm5 et cm6 publient le même contrat
+  for (const native of [false, true]) {
+    const published = [];
+    const h = makeModuleHarness({ onMarks: (list) => published.push(list) });
+    if (native) { h.cm.hasNativeMergeDiff = true; h.cm.showMergeDiff = () => []; }
+    const b2 = "intro formally RAQDPS-FW with emissions considered here\n";
+    const a2 = "intro officially designated RAQDPS-FW with emissions considered here\n";
+    h.cm._v = a2;
+    h.dv.push(b2, a2);
+    h.tag.onclick();
+    await sleep(50);
+    const del2 = (published.at(-1) || []).find((m) => m.kind === "del");
+    ok(`del remplacement (${native ? "cm6" : "cm5"}) : next ancre sur le texte de remplacement`,
+      del2 && typeof del2.next === "string" && /officially/.test(del2.next), del2 && JSON.stringify(del2));
     h.tag.onclick();
   }
   // R4. onNavigate : l'hôte peut router ⌥↓/⌥↑ vers la Lecture (retour true =

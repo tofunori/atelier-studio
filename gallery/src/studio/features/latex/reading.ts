@@ -819,9 +819,23 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       const body = doc.createElement("del");
       body.className = "tr-cut-text";
       body.textContent = mark.text + " ";
+      // Position réelle de la coupe : la marque porte le début du texte qui la
+      // SUIT dans la source (`next` — remplacement ou commun, donc présent
+      // dans la prose rendue). On insère le barré juste avant ce contexte ;
+      // introuvable (transformé au rendu) = repli en tête de bloc.
+      const insertAtAnchor = (): void => {
+        const context = (mark as {next?: string}).next || "";
+        for (const run of proseRuns(context)) {
+          const at = (block.textContent || "").indexOf(run);
+          if (at < 0) continue;
+          const anchor = rangeFromOffsets(block, at, at);
+          if (anchor) { anchor.insertNode(body); return; }
+        }
+        block.insertBefore(body, cut.nextSibling);
+      };
       const toggle = (): void => {
         const open = !body.parentNode;
-        if (open) block.insertBefore(body, cut.nextSibling);
+        if (open) insertAtAnchor();
         else body.remove();
         cut.classList.toggle("open", open);
         cut.setAttribute("aria-expanded", open ? "true" : "false");
