@@ -14,6 +14,7 @@ import {
 import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
+import { createPin, resolvePins } from "./lib/pins";
 import {
   mergeReorderedTabs,
   pickActiveTabForProject,
@@ -874,6 +875,22 @@ export default function App() {
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
+  // Épingles du fil actif, recalées sur le tableau d'événements courant : au
+  // redémarrage celui-ci est reconstruit par rejeu, donc les index glissent
+  // (cf. src/lib/pins.ts). Le recalage est ensuite REPERSISTÉ, ce qui migre au
+  // passage les épingles héritées vers leur eventId durable.
+  const activePins = useMemo(
+    () => activeId ? resolvePins(events[activeId] ?? [], pins[activeId] ?? []) : [],
+    [activeId, events, pins],
+  );
+  useEffect(() => {
+    if (!activeId) return;
+    setPins((current) => (
+      current[activeId] && current[activeId] !== activePins && activePins.length
+        ? { ...current, [activeId]: activePins }
+        : current
+    ));
+  }, [activeId, activePins]);
   // Les mises à jour Codex arrivent sur le fil parent. Garder l'id de l'agent
   // ouvert, mais dériver son état actuel depuis ce fil afin que le panneau droit
   // évolue sans devoir être refermé puis rouvert.
@@ -4017,7 +4034,7 @@ export default function App() {
             }
             if (edit) setInjectText(text);
           }}
-          pins={activeId ? (pins[activeId] ?? []) : []}
+          pins={activePins}
           onStylePin={(index, patch) => {
             if (!activeId) return;
             const id = activeId;
@@ -4036,7 +4053,8 @@ export default function App() {
                 ...p,
                 [id]: exists
                   ? cur.filter((c) => c.index !== index)
-                  : [...cur, { index, label, anchor: label }].sort((a, b) => a.index - b.index),
+                  : [...cur, createPin(eventsRef.current[id] ?? [], index, label)]
+                      .sort((a, b) => a.index - b.index),
               };
             });
           }}
