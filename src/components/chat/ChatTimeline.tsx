@@ -546,10 +546,9 @@ export function ChatTimeline(p: {
           // continu pendant le stream, un tel sélecteur romprait le budget de
           // style récursif — même discipline que typeset.contract.test.ts.
           const isLiveStream = item.type === "event" && item.event.kind === "streaming";
-          const rowPinned = item.type === "event" && pins.some((c) => c.index === item.index);
           return (
           <div
-            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}${rowPinned ? " is-pinned" : ""}`}
+            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}`}
             id={messageId}
             data-message-id={messageId}
           >

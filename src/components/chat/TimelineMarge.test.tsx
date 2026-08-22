@@ -67,13 +67,16 @@ describe("la marge annotée", () => {
     expect(reperes).toHaveLength(1);
   });
 
-  it("marque d'un accent la réponse épinglée, dans la marge et sur le message", () => {
+  // Décision 2026-08-21 (Thierry) : l'accent ne double plus tout le côté du
+  // message — sur un long message le filet devenait une barre d'un écran de
+  // haut. La marge seule porte l'épingle.
+  it("marque l'épingle dans la marge, et ne peint rien le long du message", () => {
     renderUi(<Chat {...chatProps({
       events: TOUR,
       pins: [{ index: 1, label: "La découverte", anchor: "La découverte" }],
     })} />);
     expect(document.querySelectorAll('.tl-mark[data-mark="pin"]')).toHaveLength(1);
-    expect(document.querySelector(".timeline-virtual-row.is-pinned")).toBeTruthy();
+    expect(document.querySelector(".timeline-virtual-row.is-pinned")).toBeNull();
   });
 
   it("nomme l'épingle en toutes lettres — le nom n'attend plus le survol", () => {
