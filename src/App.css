@@ -1254,6 +1254,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   transition: height var(--motion-fast) var(--ease-out);
 }
 .tl-mark[data-mark="pin"] .tl-mark-sign { height: 20px; background: var(--accent); }
+/* encoche du passage surligné : l'encre du lecteur, plus courte que l'épingle
+   — c'est un passage dans un message, pas le message */
+.tl-mark[data-mark="hl"] .tl-mark-sign { height: 14px; background: var(--hl-line); }
 .tl-mark-label {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--fs-s); line-height: 1.4; color: var(--text-muted);
@@ -1261,6 +1264,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .tl-marge:hover .tl-mark-label, .tl-marge:focus-within .tl-mark-label { opacity: 1; }
 .tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
+.tl-mark[data-mark="hl"] .tl-mark-label { font-style: italic; }
 @media (prefers-reduced-motion: reduce) {
   .tl-marge, .tl-mark, .tl-mark-sign, .tl-mark-label { transition: none; }
 }

@@ -52,3 +52,32 @@ describe("sameMargeEntries", () => {
     expect(sameMargeEntries(a, b)).toBe(false);
   });
 });
+
+describe("les surlignages dans la marge", () => {
+  const FIL_HL = [
+    { kind: "user", text: "Et la pente ?" },
+    { kind: "text", text: "La pente moyenne est de −0,00899 Gt an⁻¹ sur 22 ans." },
+  ];
+
+  it("dépose une encoche à la hauteur du message qui porte le passage", () => {
+    const entries = deriveMargeEntries(FIL_HL, [], [{ text: "−0,00899 Gt an⁻¹", kind: "hl" }]);
+    expect(entries).toEqual([
+      { index: 0, kind: "prompt", label: "Et la pente ?" },
+      { index: 1, kind: "hl", label: "−0,00899 Gt an⁻¹" },
+    ]);
+  });
+
+  it("laisse cohabiter l'épingle du message et l'encoche du passage", () => {
+    const entries = deriveMargeEntries(
+      FIL_HL,
+      [{ index: 1, label: "La pente" }],
+      [{ text: "−0,00899 Gt an⁻¹", kind: "hl" }],
+    );
+    expect(entries.map((e) => e.kind)).toEqual(["prompt", "pin", "hl"]);
+  });
+
+  it("ignore un passage qu'aucun message ne porte plus", () => {
+    const entries = deriveMargeEntries(FIL_HL, [], [{ text: "passage effacé", kind: "hl" }]);
+    expect(entries.map((e) => e.kind)).toEqual(["prompt"]);
+  });
+});

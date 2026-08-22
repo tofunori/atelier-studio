@@ -965,7 +965,7 @@ export default function Chat(p: {
         working={{ onStop: p.onStop }}
         chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
-        selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark }}
+        selection={{ quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark, marks }}
       />
       <QueuedTurns
         turns={p.queuedTurns ?? []}

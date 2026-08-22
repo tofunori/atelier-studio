@@ -11,12 +11,13 @@
 
 export type MargeEntry = {
   index: number;
-  kind: "prompt" | "pin";
+  kind: "prompt" | "pin" | "hl";
   label: string;
 };
 
 type MargeEvent = { kind?: string; text?: string };
 type MargePin = { index: number; label: string };
+type MargeMark = { text: string; kind?: string };
 
 const LABEL_MAX = 72;
 
@@ -26,17 +27,34 @@ export function margeLabel(text: string): string {
   return flat.length > LABEL_MAX ? `${flat.slice(0, LABEL_MAX - 1)}…` : flat;
 }
 
-export function deriveMargeEntries(events: MargeEvent[], pins: MargePin[]): MargeEntry[] {
+export function deriveMargeEntries(
+  events: MargeEvent[],
+  pins: MargePin[],
+  marks: MargeMark[] = [],
+): MargeEntry[] {
   const pinByIndex = new Map(pins.map((pin) => [pin.index, pin]));
+  // Un passage surligné se rattache au message qui le porte encore : le mark
+  // ne connaît que son texte (localStorage), jamais un index.
+  const marksByIndex = new Map<number, MargeMark[]>();
+  for (const mark of marks) {
+    const passage = (mark.text ?? "").trim();
+    if (!passage) continue;
+    const index = events.findIndex((event) => (event.text ?? "").includes(passage));
+    if (index < 0) continue;
+    marksByIndex.set(index, [...(marksByIndex.get(index) ?? []), mark]);
+  }
   const out: MargeEntry[] = [];
   events.forEach((event, index) => {
     const pin = pinByIndex.get(index);
     if (pin) {
       out.push({ index, kind: "pin", label: margeLabel(pin.label) });
-      return;
-    }
-    if (event.kind === "user" && (event.text ?? "").trim()) {
+    } else if (event.kind === "user" && (event.text ?? "").trim()) {
       out.push({ index, kind: "prompt", label: margeLabel(event.text ?? "") });
+    }
+    // l'encoche du passage vit SOUS l'épingle du message : deux granularités,
+    // le message et le passage, jamais l'une à la place de l'autre
+    for (const mark of marksByIndex.get(index) ?? []) {
+      out.push({ index, kind: "hl", label: margeLabel(mark.text) });
     }
   });
   return out;

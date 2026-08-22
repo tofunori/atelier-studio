@@ -124,6 +124,8 @@ export function ChatTimeline(p: {
     quoteHasUl: boolean;
     addMark: (text: string, kind: "hl" | "ul") => void;
     removeMark: (text: string, kind: "hl" | "ul") => void;
+    /** passages surlignés du fil — l'encoche ambre de la marge */
+    marks: { text: string; kind: "hl" | "ul" }[];
   };
 }) {
   const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
@@ -216,7 +218,7 @@ export function ChatTimeline(p: {
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
-  const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark } = p.selection;
+  const { quote, setQuote, quoteHasHl, quoteHasUl, addMark, removeMark, marks } = p.selection;
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
@@ -267,11 +269,11 @@ export function ChatTimeline(p: {
   // jamais d'entrée) — même discipline d'identité que listExtraData.
   const margeRef = React.useRef<MargeEntry[]>([]);
   const margeEntries = useMemo(() => {
-    const next = deriveMargeEntries(events, pins);
+    const next = deriveMargeEntries(events, pins, marks);
     if (sameMargeEntries(margeRef.current, next)) return margeRef.current;
     margeRef.current = next;
     return next;
-  }, [events, pins]);
+  }, [events, pins, marks]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
@@ -840,7 +842,7 @@ export function ChatTimeline(p: {
           aria-label={t("chat.marge")}
         >
           {margeEntries.map((entry) => (
-            <span role="listitem" key={entry.index} className="tl-mark-item">
+            <span role="listitem" key={`${entry.kind}:${entry.index}:${entry.label}`} className="tl-mark-item">
             <RowButton
               className="tl-mark"
               data-mark={entry.kind}
