@@ -428,6 +428,13 @@
   .tr-cut.open::before{width:5px;left:4px}
   .tr-cut-text{color:var(--dv-del,#e06c75);background:color-mix(in srgb,var(--dv-del,#e06c75) 9%,transparent);
     border-radius:2px;text-decoration:line-through;text-decoration-thickness:1px}
+  /* compteur ⌥↓/⌥↑ transitoire (la barre d'état de l'hôte est masquée en Lecture) */
+  .tr-navpill{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:6;
+    padding:4px 12px;border-radius:999px;background:var(--card);box-shadow:0 4px 16px rgba(0,0,0,.25);
+    font-size:11px;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums;
+    opacity:0;pointer-events:none;transition:opacity .15s}
+  .tr-navpill.show{opacity:1}
+  @media (prefers-reduced-motion: reduce){.tr-navpill{transition:none}}
   ::highlight(texc-read-amber){background:rgba(224,183,74,.26)}
   ::highlight(texc-read-red){background:rgba(240,125,115,.26)}
   ::highlight(texc-read-blue){background:rgba(91,157,255,.24)}

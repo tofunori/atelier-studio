@@ -57,6 +57,9 @@ export interface LatexReadingController {
   /** Amène la vue Lecture sur la ligne SOURCE demandée (plan du document).
    *  Rend false hors vue Lecture : l'appelant retombe alors sur l'éditeur. */
   revealSourceLine(line: number): boolean;
+  /** Navigation ⌥↓/⌥↑ d'une comparaison : révèle le bloc du changement et
+   *  affiche un compteur transitoire (la barre d'état est masquée en Lecture). */
+  revealChange(line: number, index: number, total: number): boolean;
   /** Marques du diff en termes de SOURCE, publiées par le moteur de
    *  comparaison. Liste vide = comparaison fermée, la prose redevient calme. */
   setDiffMarks(marks: ReadonlyArray<{kind: string; line: number; text: string}>): void;
@@ -870,6 +873,25 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     return true;
   };
 
+  // Compteur « k / N » transitoire pour ⌥↓/⌥↑ : la barre d'état de l'hôte est
+  // masquée en Lecture, le repère doit vivre DANS la vue.
+  let navPill: HTMLElement | null = null;
+  let navPillTimer = 0;
+  const revealChange = (line: number, index: number, total: number): boolean => {
+    if (!revealSourceLine(line)) return false;
+    if (!navPill) {
+      navPill = doc.createElement("span");
+      navPill.className = "tr-navpill";
+      navPill.setAttribute("aria-live", "polite");
+      options.right.appendChild(navPill);
+    }
+    navPill.textContent = `${index + 1} / ${total}`;
+    navPill.classList.add("show");
+    win.clearTimeout(navPillTimer);
+    navPillTimer = win.setTimeout(() => navPill?.classList.remove("show"), 1600);
+    return true;
+  };
+
   return {bind, render, setRead, syncMode, isReading: () => enabled,
-    revealSourceLine, setDiffMarks, refreshAnnotations: applyAnnotationHighlights};
+    revealSourceLine, revealChange, setDiffMarks, refreshAnnotations: applyAnnotationHighlights};
 }

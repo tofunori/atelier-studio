@@ -607,9 +607,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     // masqué, le faire défiler ne montrerait rien) + compteur en barre d'état.
     onNavigate: (line, index, total) => {
       if (!reader?.isReading()) return false;
-      if (!reader.revealSourceLine(line)) return false;
-      setState("ok", `modification ${index + 1} / ${total} · ⌥↓ suivante · ⌥↑ précédente`);
-      return true;
+      return reader.revealChange(line, index, total);
     },
     restoreText: async (text) => {
       if (!path) return false;
