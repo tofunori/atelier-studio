@@ -1214,8 +1214,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .chat { position: relative; }
 .tl-marge {
   position: absolute; top: 24px; left: 2px; z-index: 40;
-  width: 20px; max-height: calc(100% - 64px);
-  display: flex; flex-direction: column; gap: 6px;
+  width: 30px; max-height: calc(100% - 64px);
+  display: flex; flex-direction: column; gap: 9px;
   overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
   border-radius: var(--r-m); padding: 6px 0;
   transition: width var(--motion-fast) var(--ease-out),
@@ -1224,10 +1224,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .tl-marge::-webkit-scrollbar { display: none; }
 .tl-marge.below-reviewer { top: 60px; }
-/* ligne-guide, à l'aplomb exact des traits */
-.tl-marge::before { content: ""; position: absolute; top: 10px; bottom: 10px;
-  left: 9px; width: 1px; background: var(--border); }
-.tl-marge:hover::before, .tl-marge:focus-within::before { left: 15px; }
 /* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus) —
    les noms se lisent sans survoler chaque entrée une par une */
 .tl-marge:hover, .tl-marge:focus-within {
@@ -1235,21 +1231,22 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .tl-mark-item { display: block; }
 .tl-mark {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  min-height: 20px; padding: 2px 4px; border: none; background: transparent;
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 14px; padding: 1px 2px; border: none; background: transparent;
   border-radius: var(--r-s); cursor: pointer; text-align: left;
   transition: background var(--motion-fast) var(--ease-out);
 }
 .tl-marge:hover .tl-mark:hover, .tl-mark:focus-visible { background: var(--bg-ctl); }
 .tl-mark-sign {
-  flex: none; margin-left: 4px; width: 3px; height: 10px;
+  flex: none; margin-left: 4px; width: 14px; height: 2px;
   border-radius: var(--r-pill); background: var(--mark-neutral-strong);
-  transition: height var(--motion-fast) var(--ease-out);
+  transition: width var(--motion-fast) var(--ease-out),
+              height var(--motion-fast) var(--ease-out);
 }
-.tl-mark[data-mark="pin"] .tl-mark-sign { height: 20px; background: var(--accent); }
-/* encoche du passage surligné : l'encre du lecteur, plus courte que l'épingle
-   — c'est un passage dans un message, pas le message */
-.tl-mark[data-mark="hl"] .tl-mark-sign { height: 14px; background: var(--hl-line); }
+/* l'épingle et le passage surligné pèsent plus : barre pleine, un poil plus
+   longue — l'accent pour le message retenu, l'ambre pour le passage */
+.tl-mark[data-mark="pin"] .tl-mark-sign { width: 16px; height: 3px; background: var(--accent); }
+.tl-mark[data-mark="hl"] .tl-mark-sign { width: 16px; height: 3px; background: var(--hl-line); }
 .tl-mark-label {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--fs-s); line-height: 1.4; color: var(--text-muted);
