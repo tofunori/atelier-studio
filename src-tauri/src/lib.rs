@@ -1,6 +1,5 @@
 mod appsnap;
 mod atelier;
-mod bin_resolver;
 mod boot_metrics;
 mod browser;
 mod identity;

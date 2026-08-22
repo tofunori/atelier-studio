@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && bash scripts/stage-node-runtime.sh && bash scripts/stage-sidecar.sh && bash scripts/stage-gallery.sh && bash scripts/stage-mobile.sh && bash scripts/stage-rust-server.sh && bash scripts/stage-appsnap.sh",
+    "beforeBuildCommand": "npm run build && bash scripts/stage-gallery.sh && bash scripts/stage-mobile.sh && bash scripts/stage-rust-server.sh && bash scripts/stage-appsnap.sh",
     "frontendDist": "../dist"
   },
   "app": {
@@ -40,8 +40,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "node-dist": "node-runtime",
-      "sidecar-dist": "sidecar",
       "gallery-dist": "gallery",
       "rust-server-dist": "rust-server",
       "mobile-dist": "mobile",

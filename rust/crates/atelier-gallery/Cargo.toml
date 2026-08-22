@@ -10,6 +10,10 @@ default-run = "atelier-gallery-server"
 name = "atelier-gallery-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "atelier-gallery-tool"
+path = "src/gallery_tool_main.rs"
+
 [dependencies]
 atelier-core = { path = "../atelier-core" }
 axum = "0.8"
@@ -29,6 +33,7 @@ rand = "0.8"
 zip = { version = "2", features = ["deflate"] }
 flate2 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [dev-dependencies]
 tempfile = "3"

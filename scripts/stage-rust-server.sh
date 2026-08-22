@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DIST=src-tauri/rust-server-dist
-BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-agent-mcp)
+BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp)
 # Wrappers agents KB (plan 065, vague 3 — préparation) : binaires Rust
 # stagés CÔTÉ À CÔTÉ des scripts sh existants (sidecar/atelier-kb,
 # sidecar/atelier-zotero-passages), jamais à leur place — le suffixe `-rs`
@@ -50,12 +50,9 @@ for BIN_NAME in "${KB_BIN_NAMES[@]}"; do
   chmod +x "$DIST/$BIN_NAME"
 done
 
-cp sidecar/gallery_tool_cli.mjs sidecar/atelier-gallery-tool \
-  sidecar/zotero_passages.mjs sidecar/zotero_passage_cli.mjs sidecar/atelier-zotero-passages \
-  sidecar/knowledge.mjs sidecar/kb_prompt.mjs sidecar/kb_cli.mjs \
-  sidecar/article.mjs sidecar/article_meta.mjs sidecar/csv_digest.mjs \
-  sidecar/atelier-kb "$DIST/"
-chmod +x "$DIST/atelier-gallery-tool" "$DIST/atelier-zotero-passages" "$DIST/atelier-kb"
+# Plus AUCUN .mjs stagé : la chaîne KB, l'outil galerie et les passages
+# Zotero sont tous portés en Rust (2026-08-22). atelier-gallery-tool est
+# désormais le binaire Rust copié par la boucle BIN_NAMES ci-dessus.
 # Garde-fou : la chaîne d'imports des modules stagés doit se résoudre DANS le
 # dist (un import ajouté côté sidecar/ mais absent de la liste cp ci-dessus a
 # déjà cassé le CLI kb dans le bundle — échouer au build, pas au runtime).
