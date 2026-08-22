@@ -149,9 +149,14 @@ describe("PassageCard", () => {
     expect(document.querySelectorAll(".passage-card")).toHaveLength(1);
   });
 
-  it("carte gbrain repliée : libellé = slug humanisé, pas de « p. N »", () => {
-    render(<PassageCard refData={GBRAIN_REF} />);
-    expect(screen.getByText("Williamson 2021 Fire Aerosol")).toBeTruthy();
+  // Redesign « Filet éditorial » (2026-08-22) : la ligne méta ne porte plus que
+  // l'identité (« Auteur Année ») — le titre entier s'y tronquait sans rien
+  // apprendre. Il reste au survol, sinon on perd la source réelle.
+  it("carte gbrain repliée : libellé court « Auteur Année », titre complet au survol, pas de « p. N »", () => {
+    const { container } = render(<PassageCard refData={GBRAIN_REF} />);
+    const src = container.querySelector(".evidence-meta-src");
+    expect(src?.textContent).toBe("Williamson 2021");
+    expect(src?.getAttribute("title")).toBe("Williamson 2021 Fire Aerosol");
     expect(screen.queryByText(/p\. \d/)).toBeNull();
   });
 
@@ -178,7 +183,7 @@ describe("PassageCard", () => {
         source: "gbrain",
         quote: GBRAIN_REF.quote,
         gbrainSlug: GBRAIN_REF.slug,
-        citeLabel: "Williamson 2021 Fire Aerosol",
+        citeLabel: "Williamson 2021",
       },
     });
   });
@@ -198,6 +203,20 @@ describe("PassageCard", () => {
     render(<PassageCard refData={sameQuote} />);
     // le pin zotero (PIN1) porte la même quote mais une autre source : pas épinglé
     expect(screen.getByRole("button", { name: /épingler|pin/i })).toBeTruthy();
+  });
+
+  // ---- filet éditorial (redesign 2026-08-22) ------------------------------
+
+  it("passage épinglé : la carte porte has-pin (le filet accent PORTE l'état, pas l'icône seule)", () => {
+    pushEvidencePins({ type: "evidencePins", projectRoot: "/proj/a", pins: [PIN1] });
+    const { container } = render(<PassageCard refData={REF} />);
+    expect(container.querySelector(".passage-card")?.classList.contains("has-pin")).toBe(true);
+  });
+
+  it("passage non épinglé : pas de has-pin", () => {
+    pushEvidencePins({ type: "evidencePins", projectRoot: "/proj/a", pins: [] });
+    const { container } = render(<PassageCard refData={REF} />);
+    expect(container.querySelector(".passage-card")?.classList.contains("has-pin")).toBe(false);
   });
 
   // ---- fiche deux lignes (plan 066) ---------------------------------------

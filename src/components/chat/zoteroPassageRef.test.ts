@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, parseGbrainPassageRef, parseZoteroPassageRef,
+  gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, parseGbrainPassageRef, parseZoteroPassageRef,
 } from "./md";
 
 describe("lien de passage Zotero dans le chat", () => {
@@ -112,5 +112,29 @@ describe("humanizeGbrainSlug — libellé source d'une carte gbrain (tâche 6)",
   it("slug hiérarchique : seul le dernier segment est humanisé", () => {
     expect(humanizeGbrainSlug("papers/acp-19-1393-2019")).toBe("Acp 19 1393 2019");
     expect(humanizeGbrainSlug("articles/bair-e.-h.-stillinger")).toBe("Bair E. H. Stillinger");
+  });
+});
+
+// Redesign « Filet éditorial » (2026-08-22) : la ligne méta d'une carte n'a la
+// place que de l'identité. humanizeGbrainSlug garde le titre entier (survol),
+// gbrainCiteLabel en tire « Auteur Année » — même grammaire que citeLabel côté
+// Zotero, pour que les deux sources se citent pareil.
+describe("gbrainCiteLabel — libellé court de la ligne méta", () => {
+  it("coupe le titre après l'année", () => {
+    expect(gbrainCiteLabel("williamson-2021-fire-aerosol")).toBe("Williamson 2021");
+    expect(gbrainCiteLabel("papers/stroeve-2006-evaluation-of-the-modis-mod10a1")).toBe("Stroeve 2006");
+  });
+
+  it("« et al. » est du bruit dans une pilule de 11px : l'année lève l'ambiguïté", () => {
+    expect(gbrainCiteLabel("williamson-et-al-2025-temperature-mediated-albedo")).toBe("Williamson 2025");
+  });
+
+  it("plusieurs auteurs avant l'année : tous gardés", () => {
+    expect(gbrainCiteLabel("dimauro-fugazza-2022-pan-alpine")).toBe("Dimauro Fugazza 2022");
+  });
+
+  it("sans année : repli sur le titre humanisé, tronqué comme citeLabel", () => {
+    expect(gbrainCiteLabel("notes/albedo")).toBe("Albedo");
+    expect(gbrainCiteLabel("notes/" + "tres-long-".repeat(6))).toHaveLength(34);
   });
 });

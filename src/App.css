@@ -32,6 +32,10 @@
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
+  /* voix citée (redesign « Filet éditorial », 2026-08-22) : le serif sépare le
+     texte emprunté de la voix de l'agent — réservé aux citations de passage,
+     jamais à l'interface. */
+  --quote-font: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
   --code-font: ui-monospace, 'SF Mono', Menlo, monospace;
   --fs-xs: 10px; --fs-s: 11px; --fs-m: 12px; --fs-l: 13px; --fs-xl: 15px;
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
@@ -3834,24 +3838,41 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    md.tsx) se rend ici — repliée : une ligne (RowButton pleine largeur) +
    épingle en sibling ; dépliée : citation complète + actions */
 .passage-card { display: flex; align-items: flex-start; gap: 8px; max-width: 540px;
-  background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-m);
-  padding: 8px 12px; }
+  border-left: 2px solid var(--border2); padding: 2px 0 2px 14px;
+  transition: border-color var(--motion-fast) var(--ease-out); }
+/* l'état épinglé vit dans la STRUCTURE (le filet), pas dans une icône de 12px :
+   c'est l'information la plus lourde de la carte. */
+.passage-card.has-pin { border-left-color: var(--accent); }
 .passage-card.open { flex-direction: column; align-items: stretch; gap: 8px; }
 /* combinateur direct : ne touche pas le Tick niché dans .passage-card-collapse
    (état déplié, hors scope) */
 .passage-card > .tool-tick { flex: none; }
+/* actions au repos invisibles — même motif que .evidence-actions dans la
+   surface Preuves : au repos la carte n'est que citation + attribution. */
+.passage-card > .tool-tick, .passage-card > .passage-card-pin {
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.passage-card:hover > .tool-tick, .passage-card:hover > .passage-card-pin,
+.passage-card:focus-within > .tool-tick,
+.passage-card:focus-within > .passage-card-pin { opacity: 1; }
 .passage-card-row { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.passage-card-quote { font-style: italic; font-size: var(--fs-l); color: var(--text-primary);
-  line-height: 1.45; white-space: normal; display: -webkit-box; -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical; overflow: hidden; }
-.passage-card-quote.is-absent { font-style: normal; color: var(--text-secondary); }
+.passage-card-quote { font-family: var(--quote-font); font-size: var(--fs-l);
+  color: var(--text-primary); line-height: 1.55; white-space: normal;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; }
+/* pas de citation : ce n'est plus une voix citée, donc plus de serif */
+.passage-card-quote.is-absent { font-family: var(--ui-font); color: var(--text-secondary); }
 /* .passage-card-meta est PARTAGÉ avec l'état déplié (ligne texte simple,
    plan 066 hors scope) : display:flex sur un nœud texte unique reste un
    rendu identique — un seul enfant anonyme, rien à aligner. */
 .passage-card-meta { display: flex; align-items: baseline; gap: 6px; min-width: 0;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.passage-card-quote-full { font-style: italic; font-size: var(--fs-l); line-height: 1.5;
-  color: var(--text-primary); margin: 0; }
+/* « Stroeve 2006 · p. 1030 » : le point médian appartient à la ligne méta de la
+   carte, pas au vocabulaire evidence-* partagé avec la surface Preuves. */
+.passage-card-meta .evidence-meta-src { color: var(--text-secondary); }
+.passage-card-meta .evidence-meta-page::before { content: "·"; margin-right: 6px;
+  color: var(--text-disabled); }
+.passage-card-quote-full { font-family: var(--quote-font); font-size: var(--fs-l);
+  line-height: 1.55; color: var(--text-primary); margin: 0; }
 /* dépliée : la ligne de citation porte les actions en icônes (variante A) —
    la citation prend la place, le repli reste en bout de ligne. */
 .passage-card.open .passage-card-meta { align-items: center; gap: 4px; }

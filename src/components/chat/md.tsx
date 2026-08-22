@@ -139,6 +139,23 @@ export function humanizeGbrainSlug(slug: string): string {
     .join(" ");
 }
 
+/** Libellé COURT d'une source gbrain (redesign « Filet éditorial », 2026-08-22) :
+ * la ligne méta d'une carte n'a la place que de l'identité — « Stroeve 2006 » —
+ * pas du titre entier, qui s'y tronquait sans rien apprendre. Le titre complet
+ * reste accessible au survol (humanizeGbrainSlug). Même grammaire que citeLabel
+ * côté Zotero, pour que les deux sources se citent pareil. */
+export function gbrainCiteLabel(slug: string): string {
+  const full = humanizeGbrainSlug(slug);
+  const m = /^(.+?)\s+((?:1[89]|20)\d{2})(?:\b|$)/.exec(full);
+  if (m) {
+    // « Williamson Et Al. 2025 » : le « et al. » est du bruit dans une pilule
+    // de 11px — l'année suffit à lever l'ambiguïté entre deux articles.
+    const who = m[1].replace(/\s+Et\s+Al\.?$/i, "");
+    return `${who} ${m[2]}`;
+  }
+  return full.length > 34 ? full.slice(0, 33) + "\u2026" : full;
+}
+
 // Carte passage (tâche 5) : un paragraphe dont l'UNIQUE enfant significatif
 // est un lien passage se rend en carte repliable plutôt qu'en <p> + pilule
 // inline. `children` ici sont les descripteurs React NON ENCORE rendus que

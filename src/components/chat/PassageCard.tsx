@@ -11,7 +11,7 @@ import { evidencePinsSnapshot, isPinned, subscribeEvidencePins } from "../../lib
 import { citeLabel } from "./turnParts";
 import { Tick } from "./toolPresentation";
 import { IconButton, RowButton, Tooltip } from "../ui";
-import { humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, type PassageRef } from "./md";
+import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, type PassageRef } from "./md";
 
 function DocIcon({ size = 15 }: { size?: number }) {
   return (
@@ -37,7 +37,10 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const [open, setOpen] = useState(false);
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
   const isGbrain = refData.kind === "gbrain";
-  const label = isGbrain ? humanizeGbrainSlug(refData.slug) : citeLabel(refData.pdfFile);
+  // Deux libellés : le COURT tient dans la ligne méta (« Stroeve 2006 »), le
+  // long reste au survol — la carte cite, elle ne catalogue pas.
+  const label = isGbrain ? gbrainCiteLabel(refData.slug) : citeLabel(refData.pdfFile);
+  const fullLabel = isGbrain ? humanizeGbrainSlug(refData.slug) : refData.pdfFile;
   const pin = isGbrain
     ? isPinned({ gbrainSlug: refData.slug, quote: refData.quote })
     : isPinned({ pdfKey: refData.pdfKey, page: refData.page, quote: refData.quote });
@@ -80,7 +83,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   if (!open) {
     const hasQuote = Boolean(refData.quote.trim());
     return (
-      <div className="passage-card">
+      <div className={pin ? "passage-card has-pin" : "passage-card"}>
         <RowButton
           className="passage-card-row"
           aria-label={t("passage.expand")}
@@ -90,11 +93,9 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
             {hasQuote ? refData.quote : t("preuves.open-source", { source: label })}
           </span>
           <span className="passage-card-meta">
-            <span
-              className={isGbrain ? "evidence-meta-kind is-gbrain" : "evidence-meta-kind"}
-              aria-hidden="true"
-            />
-            <span className="evidence-meta-src">{label}</span>
+            {/* titre complet en title natif : la rangée EST déjà un bouton,
+                un Tooltip imbriquerait un déclencheur dans un déclencheur */}
+            <span className="evidence-meta-src" title={fullLabel}>{label}</span>
             {!isGbrain && <span className="evidence-meta-page">p. {refData.page}</span>}
           </span>
         </RowButton>
@@ -115,10 +116,12 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   // rejoignent la ligne de citation en icônes — une rangée de moins, même
   // grammaire que l'état replié, la page vit déjà dans la citation.
   return (
-    <div className="passage-card open">
+    <div className={pin ? "passage-card open has-pin" : "passage-card open"}>
       <p className="passage-card-quote-full">{refData.quote}</p>
       <div className="passage-card-meta">
-        <span className="passage-card-cite">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
+        <Tooltip label={fullLabel}>
+          <span className="passage-card-cite">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
+        </Tooltip>
         <Tooltip label={openLabel}>
           <IconButton label={openLabel} onClick={openPassage}>
             <DocIcon />
