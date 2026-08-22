@@ -1632,19 +1632,14 @@ pub(crate) fn err(message: impl Into<String>) -> String {
 /// soak — voir plan 065 phase C). Le texte transite par stdin (`--text -`)
 /// côté Node pour éviter la limite ARG_MAX ; côté Rust in-process cette
 /// limite n'existe pas, le texte est substitué directement dans les args.
+#[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum KbEngine {
     Node,
     Rust,
 }
 
-fn kb_engine() -> KbEngine {
-    match std::env::var("ATELIER_KB_ENGINE").ok().as_deref() {
-        Some("rust") => KbEngine::Rust,
-        _ => KbEngine::Node,
-    }
-}
-
+#[cfg(test)]
 fn kb_node_bin() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
         let pb = std::path::PathBuf::from(p);
@@ -1671,15 +1666,6 @@ fn kb_node_bin() -> Option<std::path::PathBuf> {
 
 /// `add --kind <kind>` : le kind ajouté, s'il s'agit bien d'une commande
 /// `add` (sinon `None`). Utilisé par `kb_cli_run` pour aiguiller
-/// youtube/zotero vers le moteur Node (B3) sans toucher `kb_cli_run_engine`,
-/// que les tests de parité invoquent directement pour forcer un moteur.
-fn kb_add_kind<'a>(args: &[&'a str]) -> Option<&'a str> {
-    if args.first().copied() != Some("add") {
-        return None;
-    }
-    args.iter().position(|a| *a == "--kind").and_then(|i| args.get(i + 1)).copied()
-}
-
 /// Exécute une commande du CLI kb — dispatch selon `ATELIER_KB_ENGINE`.
 /// `stdin_text` non vide correspond à un `--text -` ajouté par l'appelant.
 /// `add --kind youtube|zotero` reste hors périmètre du moteur Rust (pas de
@@ -1689,16 +1675,12 @@ fn kb_add_kind<'a>(args: &[&'a str]) -> Option<&'a str> {
 /// très bien ; on les route systématiquement vers lui, quel que soit le
 /// moteur actif (le registre/cache sur disque est partagé entre les deux).
 fn kb_cli_run(
-    server_dir: &str,
+    _server_dir: &str,
     app_dir: &std::path::Path,
     args: &[&str],
     stdin_text: &str,
 ) -> Result<Value, String> {
-    let engine = match kb_add_kind(args) {
-        Some("youtube") | Some("zotero") => KbEngine::Node,
-        _ => kb_engine(),
-    };
-    kb_cli_run_engine(engine, server_dir, app_dir, args, stdin_text)
+    kb_cli_run_rust(app_dir, args, stdin_text)
 }
 
 /// Variante asynchrone de `kb_cli_run` — délègue au pool bloquant tokio.
@@ -1720,6 +1702,7 @@ async fn kb_cli_run_async(
     .unwrap_or_else(|e| Err(format!("kb: tâche interrompue ({e})")))
 }
 
+#[cfg(test)]
 fn kb_cli_run_engine(
     engine: KbEngine,
     server_dir: &str,
@@ -1760,6 +1743,7 @@ fn kb_rust_args(app_dir: &std::path::Path, args: &[&str], stdin_text: &str) -> V
 /// Exécute une commande du CLI kb (`kb_cli.mjs` stagé dans server_dir) et
 /// parse sa sortie JSON. `stdin_text` non vide est transmis via `--text -`
 /// ajouté par l'appelant ; l'APP_DIR du serveur est propagé au CLI.
+#[cfg(test)]
 fn kb_cli_run_node(
     server_dir: &str,
     app_dir: &std::path::Path,
@@ -1808,25 +1792,12 @@ fn kb_cli_run_node(
 /// (voir `kb_cli_run`). Seul appelant réel : `article-import --progress`
 /// (`handle_article_import`).
 fn kb_cli_stream(
-    server_dir: &str,
+    _server_dir: &str,
     app_dir: &std::path::Path,
     args: &[&str],
     on_progress: impl FnMut(Value),
 ) -> Result<Value, String> {
-    kb_cli_stream_engine(kb_engine(), server_dir, app_dir, args, on_progress)
-}
-
-fn kb_cli_stream_engine(
-    engine: KbEngine,
-    server_dir: &str,
-    app_dir: &std::path::Path,
-    args: &[&str],
-    on_progress: impl FnMut(Value),
-) -> Result<Value, String> {
-    match engine {
-        KbEngine::Rust => kb_cli_stream_rust(app_dir, args, on_progress),
-        KbEngine::Node => kb_cli_stream_node(server_dir, app_dir, args, on_progress),
-    }
+    kb_cli_stream_rust(app_dir, args, on_progress)
 }
 
 /// Moteur `rust` : appelle `atelier_kb::article::import_article` directement
@@ -1858,58 +1829,6 @@ fn kb_cli_stream_rust(app_dir: &std::path::Path, args: &[&str], mut on_progress:
 /// chaque `{"progress":…}` PENDANT que la commande tourne. La dernière ligne
 /// qui n'est pas un progrès est le résultat. Sans ça, une conversion MinerU de
 /// plusieurs minutes ne dit rien jusqu'à son terme et l'interface reste muette.
-fn kb_cli_stream_node(
-    server_dir: &str,
-    app_dir: &std::path::Path,
-    args: &[&str],
-    mut on_progress: impl FnMut(Value),
-) -> Result<Value, String> {
-    let cli = std::path::Path::new(server_dir).join("kb_cli.mjs");
-    if !cli.is_file() {
-        return Err(format!("kb_cli.mjs introuvable dans {server_dir}"));
-    }
-    let node = kb_node_bin().ok_or("node introuvable pour atelier-kb")?;
-    let mut child = std::process::Command::new(node)
-        .arg(&cli)
-        .args(args)
-        .env("ATELIER_APP_DIR", app_dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn atelier-kb: {e}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or("stdout atelier-kb indisponible")?;
-    let mut last: Option<Value> = None;
-    {
-        use std::io::BufRead;
-        for line in std::io::BufReader::new(stdout).lines() {
-            let line = line.map_err(|e| e.to_string())?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            match value.get("progress") {
-                Some(step) => on_progress(step.clone()),
-                None => last = Some(value),
-            }
-        }
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if message.is_empty() {
-            "atelier-kb: échec".into()
-        } else {
-            message
-        });
-    }
-    last.ok_or_else(|| "sortie atelier-kb vide".to_string())
-}
 
 fn kb_error(message: String) -> Vec<String> {
     vec![json_msg(json!({"type": "kbError", "message": message}))]
@@ -3942,26 +3861,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn kb_add_erreurs_propres_kind_et_cli_absent() {
+    async fn kb_add_erreurs_propres_kind_manquant_et_origine_invalide() {
         let dir = tempdir().unwrap();
         let s = state(dir.path());
-        // kind manquant → kbError local, sans spawn
+        // kind manquant → kbError local
         let out = route_ws(&s, r#"{"type":"kbAdd"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
         assert!(v["message"].as_str().unwrap().contains("kind requis"));
-        // server_dir=/tmp sans kb_cli.mjs → kbError explicite
-        let out = route_ws(
-            &s,
-            r#"{"type":"kbAdd","kind":"web","origin":"https://x.org","text":"t"}"#,
-        )
-        .await;
+        // origine invalide → kbError du moteur Rust (le CLI Node n'est plus
+        // consulté : l'absence de kb_cli.mjs n'est plus une erreur possible)
+        let out = route_ws(&s, r#"{"type":"kbAdd","kind":"zotero","origin":"pas-une-uri"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
-        assert!(v["message"]
-            .as_str()
-            .unwrap()
-            .contains("kb_cli.mjs introuvable"));
+        let message = v["message"].as_str().unwrap();
+        assert!(message.contains("zotero://"), "message={message}");
+        assert!(!message.contains("kb_cli.mjs"), "message={message}");
     }
 
     /// Import d'article (plan 053) : les gardes locales répondent SANS spawn,
@@ -3986,15 +3901,14 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert!(v["message"].as_str().unwrap().contains("slug requis"));
 
-        // server_dir=/tmp sans kb_cli.mjs → échec explicite, pas de silence
-        let out = route_ws(&s, r#"{"type":"articleImport","requestId":"r4","path":"/tmp/a.pdf"}"#).await;
+        // PDF inexistant → échec explicite du moteur Rust, pas de silence
+        let out = route_ws(&s, r#"{"type":"articleImport","requestId":"r4","path":"/tmp/atelier-absent-fixture.pdf"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "articleError");
         assert_eq!(v["requestId"], "r4");
-        assert!(v["message"]
-            .as_str()
-            .unwrap()
-            .contains("kb_cli.mjs introuvable"));
+        let message = v["message"].as_str().unwrap();
+        assert!(!message.is_empty(), "message vide");
+        assert!(!message.contains("kb_cli.mjs"), "message={message}");
     }
 
     /// L'année arrive en nombre depuis l'UI : elle doit survivre au passage
@@ -4018,14 +3932,15 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "gbrainResults");
         assert_eq!(v["results"].as_array().unwrap().len(), 0);
-        // server_dir=/tmp sans kb_cli.mjs → error portée par gbrainResults
+        // Une vraie requête répond TOUJOURS sur gbrainResults, jamais sur
+        // kbError — qu'elle aboutisse ou qu'elle échoue (dépôt gbrain absent
+        // de la machine de test). Un échec voyage dans `error`, en place.
         let out = route_ws(&s, r#"{"type":"gbrainSearch","query":"albédo"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
-        assert_eq!(v["type"], "gbrainResults");
-        assert!(v["error"]
-            .as_str()
-            .unwrap()
-            .contains("kb_cli.mjs introuvable"));
+        assert_eq!(v["type"], "gbrainResults", "réponse: {v}");
+        if let Some(error) = v["error"].as_str() {
+            assert!(!error.contains("kb_cli.mjs"), "error={error}");
+        }
     }
 
     #[tokio::test]
@@ -4036,14 +3951,13 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
         assert!(v["message"].as_str().unwrap().contains("id requis"));
-        // server_dir=/tmp sans kb_cli.mjs → kbError explicite, jamais d'écriture
+        // page inconnue → kbError explicite du moteur Rust, jamais d'écriture
         let out = route_ws(&s, r#"{"type":"kbPromotePage","id":"x","write":true}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
-        assert!(v["message"]
-            .as_str()
-            .unwrap()
-            .contains("kb_cli.mjs introuvable"));
+        let message = v["message"].as_str().unwrap();
+        assert!(!message.is_empty(), "message vide");
+        assert!(!message.contains("kb_cli.mjs"), "message={message}");
     }
 
     #[tokio::test]
@@ -4170,18 +4084,28 @@ mod tests {
         assert_eq!(text_node["text"], "Contenu de test pour comparer les deux moteurs.");
     }
 
-    /// B3 (plans/065-revue-findings.md) : `add --kind youtube|zotero` doit
-    /// être détecté quel que soit le reste des arguments, pour que
-    /// `kb_cli_run` puisse forcer le moteur Node dessus (pas de port
-    /// yt-dlp) — toute autre commande/kind ne doit PAS déclencher l'override.
+    /// 2026-08-22 : `youtube` et `zotero` sont portés en Rust, donc plus
+    /// AUCUN ajout ne route vers le CLI Node. Preuve observable : un
+    /// `server_dir` vide (pas de `kb_cli.mjs`) ne change plus rien — le
+    /// chemin Node aurait échoué sur « kb_cli.mjs introuvable » avant même de
+    /// regarder les arguments, le chemin Rust va jusqu'à valider l'origine.
     #[test]
-    fn kb_add_kind_detecte_add_kind_uniquement() {
-        assert_eq!(kb_add_kind(&["add", "--kind", "youtube", "--origin", "https://x"]), Some("youtube"));
-        assert_eq!(kb_add_kind(&["add", "--kind", "zotero"]), Some("zotero"));
-        assert_eq!(kb_add_kind(&["add", "--kind", "file"]), Some("file"));
-        assert_eq!(kb_add_kind(&["add"]), None);
-        assert_eq!(kb_add_kind(&["list"]), None);
-        assert_eq!(kb_add_kind(&["gbrain-search", "--query", "add"]), None);
+    fn aucun_ajout_ne_route_plus_vers_le_cli_node() {
+        let dir = tempdir().unwrap();
+        for (kind, origin, attendu) in [
+            ("zotero", "pas-une-uri-zotero", "zotero://"),
+            ("youtube", "https://example.org/x", "URL YouTube non reconnue"),
+        ] {
+            let err = kb_cli_run(
+                "/dev/null/server-dir-inexistant",
+                dir.path(),
+                &["add", "--kind", kind, "--origin", origin],
+                "",
+            )
+            .unwrap_err();
+            assert!(err.contains(attendu), "{kind}: err={err}");
+            assert!(!err.contains("kb_cli.mjs"), "{kind} passe encore par Node: {err}");
+        }
     }
 
     #[tokio::test]
