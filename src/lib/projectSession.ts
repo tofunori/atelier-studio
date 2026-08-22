@@ -133,3 +133,20 @@ export function rememberForProject(
   if (memory[project] === value) return memory;
   return { ...memory, [project]: value };
 }
+
+/**
+ * Applique un réordonnancement partiel : `orderedIds` ne décrit que les
+ * onglets visibles (la bande d'onglets ignore les autres projets), les onglets
+ * masqués gardent leurs places. Remapper la liste entière sur ces seuls ids
+ * effacerait tout ce qui n'y figure pas.
+ */
+export function mergeReorderedTabs<T extends { id: string }>(
+  tabs: readonly T[],
+  orderedIds: readonly string[],
+): T[] {
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const queue = orderedIds.map((id) => byId.get(id)).filter((tab): tab is T => Boolean(tab));
+  const moving = new Set(queue.map((tab) => tab.id));
+  let cursor = 0;
+  return tabs.map((tab) => (moving.has(tab.id) ? queue[cursor++] : tab));
+}

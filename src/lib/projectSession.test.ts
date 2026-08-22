@@ -5,6 +5,7 @@
 // conversation en cours et les fichiers ouverts (vécu 2026-08-21).
 import { describe, expect, it } from "vitest";
 import {
+  mergeReorderedTabs,
   pickActiveTabForProject,
   pickThreadOnProjectSelect,
   rememberForProject,
@@ -163,5 +164,30 @@ describe("rememberForProject", () => {
   it("ignore un projet vide", () => {
     const memoire = { [A]: "t-a" };
     expect(rememberForProject(memoire, "", "t-x")).toBe(memoire);
+  });
+});
+
+describe("mergeReorderedTabs", () => {
+  const t = (id: string) => ({ id, url: "", title: id });
+  const [a, b, c, cache] = [t("a"), t("b"), t("c"), t("cache")];
+
+  it("réordonne les onglets visibles à leurs propres places", () => {
+    // la bande d'onglets ne connaît QUE le projet actif : elle renvoie
+    // ["c","a"], et les onglets masqués doivent rester où ils sont
+    expect(mergeReorderedTabs([a, cache, c], ["c", "a"])).toEqual([c, cache, a]);
+  });
+
+  it("ne perd jamais un onglet masqué", () => {
+    const next = mergeReorderedTabs([a, cache, b, c], ["c", "b", "a"]);
+    expect(next).toHaveLength(4);
+    expect(next).toContain(cache);
+  });
+
+  it("ignore un id inconnu plutôt que de trouer la liste", () => {
+    expect(mergeReorderedTabs([a, b], ["b", "fantome", "a"])).toEqual([b, a]);
+  });
+
+  it("rend la liste inchangée quand l'ordre ne bouge pas", () => {
+    expect(mergeReorderedTabs([a, cache, b], ["a", "b"])).toEqual([a, cache, b]);
   });
 });

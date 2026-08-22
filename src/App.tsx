@@ -14,6 +14,13 @@ import {
 import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
+import {
+  mergeReorderedTabs,
+  pickActiveTabForProject,
+  pickThreadOnProjectSelect,
+  rememberForProject,
+  visibleTabsForProject,
+} from "./lib/projectSession";
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -573,7 +580,9 @@ export default function App() {
   function savePinned(tabs: typeof atelierTabs) {
     if (!activeProject) return;
     const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
-    store[activeProject] = tabs
+    // la liste porte maintenant les onglets de TOUS les projets visités :
+    // sans ce filtre, le store d'un projet avalerait les épingles d'un autre
+    store[activeProject] = visibleTabsForProject(tabs, activeProject, atelierOriginRef.current)
       .filter((t) => t.pinned)
       .map((t) => ({ url: t.url, title: t.title, color: t.color }));
     localStorage.setItem("atelier-studio.pinnedTabs", JSON.stringify(store));
@@ -738,19 +747,63 @@ export default function App() {
   const activeView = settings.activeView;
   const setActiveView = (v: Settings["activeView"]) =>
     setSettings((s) => (s.activeView === v ? s : { ...s, activeView: v }));
+  // Session par projet : dernier fil et dernier onglet d'atelier visités.
+  // Sans cette mémoire, un aller-retour entre deux projets ramenait sur
+  // l'accueil et sur la galerie — la conversation en cours et le fichier
+  // ouvert étaient perdus (vécu 2026-08-21).
+  const [lastThreadByProject, setLastThreadByProject] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.lastThreadByProject") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [lastTabByProject, setLastTabByProject] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("atelier-studio.lastTabByProject") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.lastThreadByProject", JSON.stringify(lastThreadByProject));
+  }, [lastThreadByProject]);
+  useEffect(() => {
+    localStorage.setItem("atelier-studio.lastTabByProject", JSON.stringify(lastTabByProject));
+  }, [lastTabByProject]);
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
   const selectProject = (root: string) => {
-    setActiveProject(root);
     if (activeView === "highlights") {
+      setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
       return;
     }
-    // Le projet est aussi le point d'entrée de son accueil. Sans remettre le
-    // thread actif à null, cet accueil n'était accessible qu'après une relance.
-    setActiveId(null);
-    activeIdRef.current = null;
+    // Le clic ordinaire RESTAURE le dernier fil du projet ; le re-clic sur le
+    // projet déjà actif bascule vers son accueil, qui reste ainsi accessible
+    // sans relance (c'était la raison du setActiveId(null) inconditionnel).
+    const { project, threadId } = pickThreadOnProjectSelect({
+      clicked: root,
+      activeProject,
+      lastThreadByProject,
+      knownThreadIds: allThreadsRef.current.map((th) => th.id),
+    });
+    setActiveProject(project);
+    setActiveId(threadId);
+    activeIdRef.current = threadId;
+    if (threadId) {
+      setUnread((u) => {
+        if (!u.has(threadId)) return u;
+        const n = new Set(u);
+        n.delete(threadId);
+        return n;
+      });
+      // fil pas encore en mémoire → recharger son historique, comme selectThread
+      if (!events[threadId]?.length && ws.current?.readyState === 1) {
+        ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+      }
+    }
     setActiveView("chats");
   };
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
@@ -777,6 +830,10 @@ export default function App() {
   pinsRef.current = pins;
   const recentFilesRef = useRef(recentFiles);
   recentFilesRef.current = recentFiles;
+  const lastThreadByProjectRef = useRef(lastThreadByProject);
+  lastThreadByProjectRef.current = lastThreadByProject;
+  const lastTabByProjectRef = useRef(lastTabByProject);
+  lastTabByProjectRef.current = lastTabByProject;
   // Payload complet miroité vers settings.json (disque) via le sidecar —
   // TOUT ce qui doit survivre à un `pkill -9` : réglages, projets, favoris,
   // chapitres épinglés, onglets épinglés, fichiers récents. Le disque fait foi
@@ -793,6 +850,8 @@ export default function App() {
       pins: pinsRef.current,
       recentFiles: recentFilesRef.current,
       pinnedTabs: JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}"),
+      lastThreadByProject: lastThreadByProjectRef.current,
+      lastTabByProject: lastTabByProjectRef.current,
     };
   }
   // le localStorage WebKit s'écrit paresseusement et se perd si l'app est tuée :
@@ -807,7 +866,7 @@ export default function App() {
       }
     }, MIRROR_WRITE_DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [projMeta, projects, favorites, pins, recentFiles]);
+  }, [projMeta, projects, favorites, pins, recentFiles, lastThreadByProject, lastTabByProject]);
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
@@ -1094,25 +1153,56 @@ export default function App() {
   }, [atelierUrl]);
 
   // Les URLs d'éditeur sont servies par un serveur galerie propre à chaque
-  // projet (et donc à un port distinct). Un onglet conservé après un changement
-  // de projet chargerait le bon chemin sur le mauvais serveur et finirait en
-  // 404. Fermer ces onglets morts; les onglets épinglés restent persistés dans
-  // leur store par projet et seront restaurés au retour.
+  // projet, donc à un port distinct : un onglet d'un autre projet chargerait
+  // le bon chemin sur le mauvais serveur. On les MASQUE au lieu de les fermer
+  // — l'atelier monte déjà tous ses onglets dans un pool en display:none, donc
+  // terminaux connectés, défilement et état d'éditeur survivent à
+  // l'aller-retour. L'ancienne version les retirait de l'état (et perdait au
+  // passage des ptys jamais fermés côté serveur).
+  const atelierOrigin = useMemo(() => {
+    if (!atelierUrl) return null;
+    try { return new URL(atelierUrl).origin; } catch { return null; }
+  }, [atelierUrl]);
+  const atelierOriginRef = useRef(atelierOrigin);
+  atelierOriginRef.current = atelierOrigin;
+  const visibleAtelierTabs = useMemo(
+    () => visibleTabsForProject(atelierTabs, activeProject, atelierOrigin),
+    [atelierTabs, activeProject, atelierOrigin],
+  );
+  const visibleAtelierTabsRef = useRef(visibleAtelierTabs);
+  visibleAtelierTabsRef.current = visibleAtelierTabs;
+
+  // `activeTab` est un état unique : en rejoignant un projet il faut lui
+  // rendre SON onglet, sinon on affiche celui du projet qu'on vient de
+  // quitter — donc un panneau vide une fois le masquage appliqué. On attend
+  // que le serveur du projet réponde (atelierUrl), puis on ne restaure qu'une
+  // fois par projet, pour ne pas défaire une navigation en cours à chaque
+  // relance dure du serveur.
+  const tabRestoredFor = useRef<string | null>(null);
   useEffect(() => {
     if (!activeProject || !atelierUrl) return;
-    let origin = "";
-    try { origin = new URL(atelierUrl).origin; } catch { return; }
-    const tabs = atelierTabsRef.current;
-    const next = tabs.filter((tab) => {
-      if (tab.kind === "term") return !tab.cwd || tab.cwd === activeProject;
-      if (tab.projectRoot) return tab.projectRoot === activeProject;
-      try { return new URL(tab.url).origin === origin; } catch { return false; }
-    });
-    if (next.length === tabs.length) return;
-    const kept = new Set(next.map((tab) => tab.id));
-    setActiveTab((current) => kept.has(current) || current === "ide" ? current : "gallery");
-    setAtelierTabs(next);
+    if (tabRestoredFor.current === activeProject) return;
+    tabRestoredFor.current = activeProject;
+    setActiveTab(pickActiveTabForProject(
+      lastTabByProjectRef.current[activeProject],
+      visibleAtelierTabsRef.current.map((tab) => tab.id),
+    ));
   }, [activeProject, atelierUrl]);
+
+  // Mémorisation de l'onglet actif — seulement APRÈS la restauration de ce
+  // projet, sinon l'onglet du projet précédent s'écrirait dans la mémoire du
+  // nouveau pendant le battement du changement.
+  useEffect(() => {
+    if (!activeProject || tabRestoredFor.current !== activeProject) return;
+    setLastTabByProject((memory) => rememberForProject(memory, activeProject, activeTab));
+  }, [activeProject, activeTab]);
+
+  // Mémorisation du fil actif : l'accueil du projet (activeId null) efface
+  // l'entrée, il n'y a pas de conversation à retenir.
+  useEffect(() => {
+    if (!activeProject) return;
+    setLastThreadByProject((memory) => rememberForProject(memory, activeProject, activeId));
+  }, [activeProject, activeId]);
 
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
@@ -1281,7 +1371,7 @@ export default function App() {
   // d'accueil IDE (onglet sentinelle "ide" : fichiers récents + explorateur).
   function goToIde() {
     switchToSurface("atelier");
-    const fileTabs = atelierTabsRef.current.filter((tb) => tb.kind !== "term");
+    const fileTabs = visibleAtelierTabsRef.current.filter((tb) => tb.kind !== "term");
     if (fileTabs.length) {
       // garder l'onglet fichier actif s'il y en a un, sinon le dernier ouvert
       const keep = fileTabs.find((tb) => tb.id === activeTab) ?? fileTabs[fileTabs.length - 1];
@@ -1400,6 +1490,8 @@ export default function App() {
           pins: diskPins,
           pinnedTabs: diskPinnedTabs,
           recentFiles: diskRecentFiles,
+          lastThreadByProject: diskLastThread,
+          lastTabByProject: diskLastTab,
           ...diskSettings
         } = msg.settings;
         if (!hasLocal) {
@@ -1458,6 +1550,12 @@ export default function App() {
         }
         if (Array.isArray(diskRecentFiles)) {
           setRecentFiles(diskRecentFiles);
+        }
+        if (diskLastThread && typeof diskLastThread === "object") {
+          setLastThreadByProject(diskLastThread);
+        }
+        if (diskLastTab && typeof diskLastTab === "object") {
+          setLastTabByProject(diskLastTab);
         }
       }
       if (msg.type === "threads") {
@@ -3551,7 +3649,7 @@ export default function App() {
   // IDE actif : l'atelier est visible, la surface est la galerie, et l'onglet
   // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
-    && (activeTab === "ide" || atelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"));
+    && (activeTab === "ide" || visibleAtelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"));
   // tauri.conf.json) repositionnés dans la TopBar — plus de feux custom
   const topBarNode = (
     <TopBar
@@ -4140,8 +4238,9 @@ export default function App() {
               files={files}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {
-                  const byId = new Map(tabs.map((t) => [t.id, t]));
-                  const next = ids.map((id) => byId.get(id)!).filter(Boolean);
+                  // `ids` ne décrit que les onglets VISIBLES : remapper la
+                  // liste entière dessus effacerait les autres projets.
+                  const next = mergeReorderedTabs(tabs, ids);
                   savePinned(next);
                   return next;
                 });
@@ -4162,7 +4261,7 @@ export default function App() {
                 });
               }}
               onOpenFile={(rel) => openFileTab(rel)}
-              tabs={atelierTabs}
+              tabs={visibleAtelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               onActiveSurfaceChange={setActiveSurface}
