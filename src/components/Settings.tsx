@@ -768,8 +768,18 @@ export default function SettingsPage(p: {
                   ]}
                 />
               </Row>
-              <Row title={t("settings.thinking-collapsed")} desc={t("settings.thinking-collapsed-desc")}>
-                <Toggle label={t("settings.thinking-collapsed")} checked={s.thinkingCollapsed} onChange={(v) => set({ thinkingCollapsed: v })} />
+              <Row title={t("chat.transcript-view")} desc={t("settings.transcript-view-desc")}>
+                <Select
+                  title={t("chat.transcript-view")}
+                  value={s.transcriptView}
+                  onChange={(value) => set({ transcriptView: value as S["transcriptView"] })}
+                  options={[
+                    { value: "normal", label: t("chat.transcript-view.normal") },
+                    { value: "reflexion", label: t("chat.transcript-view.reflexion") },
+                    { value: "detaille", label: t("chat.transcript-view.detaille") },
+                    { value: "resume", label: t("chat.transcript-view.resume") },
+                  ]}
+                />
               </Row>
               <Row title={t("settings.display-timestamps")} desc={t("settings.display-timestamps-desc")}>
                 <Toggle label={t("settings.display-timestamps")} checked={s.displayTimestamps} onChange={(v) => set({ displayTimestamps: v })} />

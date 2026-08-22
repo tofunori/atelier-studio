@@ -54,7 +54,7 @@ describe("anatomie du tour — header d'activité", () => {
     const { rerender } = renderUi(<LiveThinking thought="Je pèse les options." />);
     expect(document.querySelector(".thinking-live-head > .thinking-icon[aria-hidden='true']")).toBeTruthy();
 
-    rerender(<ThinkingBlock text="Je vérifie les éléments utiles." live={false} />);
+    rerender(<ThinkingBlock text="Je vérifie les éléments utiles." live={false} collapsedByDefault />);
     const head = document.querySelector(".thinking-head") as HTMLButtonElement;
     expect(head.firstElementChild?.classList.contains("thinking-icon")).toBe(true);
     expect(head.lastElementChild?.classList.contains("tool-tick")).toBe(true);
@@ -121,7 +121,7 @@ describe("anatomie du tour — header d'activité", () => {
       events.user("Réfléchis.", FIXED_TS),
       { kind: "thinking_live", text: "Une longue pensée déjà en cours.", ts: FIXED_TS + 50 } as AgentEvent,
     ];
-    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS, defaults: { thinkingCollapsed: true } })} />);
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS, defaults: { transcriptView: "normal" } })} />);
     // Réduit = fenêtre courte (quelques lignes, calée sur la fin), pas le flux.
     const fenetre = document.querySelector(".thinking-live-stream.windowed");
     expect(fenetre?.textContent).toContain("longue pensée");

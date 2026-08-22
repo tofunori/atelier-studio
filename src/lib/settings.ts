@@ -4,6 +4,9 @@ export type ProviderId = string;
 // fonctionnellement au lot 2, seul le placeholder existe pour l'instant
 export type ViewId = "chats" | "highlights" | "automations";
 
+/** Vue de la transcription — façon Claude Code desktop (sélecteur du header). */
+export type TranscriptView = "normal" | "reflexion" | "detaille" | "resume";
+
 export type Settings = {
   defaultProvider: ProviderId;
   defaultModel: Record<string, string>;
@@ -40,8 +43,15 @@ export type Settings = {
   fontSmoothing: boolean;
   streamFade: boolean;
   timeFormat: "system" | "24h" | "12h";
-  /** Pensée (vivante et durable) repliée par défaut — préférence d'affichage locale. */
+  /** Héritée (2026-08-21) : remplacée par `transcriptView` — conservée pour que
+   * les miroirs disque/localStorage existants restent valides, plus consommée. */
   thinkingCollapsed: boolean;
+  /** Vue de la transcription (sélecteur du header de conversation) :
+   * normal = pensée en fenêtre de 4 lignes, runs repliés ;
+   * reflexion = pensée en flux complet ;
+   * detaille = pensée complète + lignes d'outils dépliées d'office ;
+   * resume = pensée masquée, bilans et réponses seulement. */
+  transcriptView: TranscriptView;
   /** Horodatage début → fin sur les lignes durables du transcript (défaut off). */
   displayTimestamps: boolean;
   customModels: { provider: ProviderId; id: string }[];
@@ -87,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Repliée par défaut (demande Thierry 2026-08-21) : fenêtre de 3 lignes,
   // le flux complet reste à un clic.
   thinkingCollapsed: true,
+  transcriptView: "normal",
   displayTimestamps: false,
   customModels: [],
   modelEfforts: {},

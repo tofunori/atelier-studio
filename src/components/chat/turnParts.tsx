@@ -405,7 +405,10 @@ export function ThinkingBlock(
   const [manuel, setManuel] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const liveRef = useRef(live);
-  const open = manuel ?? (live && !collapsedByDefault);
+  // Vue de la transcription (2026-08-21) : « Réflexion en cours »/« Détaillé »
+  // passent collapsedByDefault=false et veulent le flux complet AUSSI sur les
+  // blocs passés — le défaut suit donc la vue, plus le seul direct.
+  const open = manuel ?? !collapsedByDefault;
   const normalized = text.trim();
 
   useEffect(() => {
@@ -435,7 +438,7 @@ export function ThinkingBlock(
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         <Tick open={open} />
       </RowButton>
-      {/* Replié = la MÊME fenêtre de 6 lignes calée sur la fin que la pensée
+      {/* Replié = la MÊME fenêtre de 4 lignes calée sur la fin que la pensée
           vivante : un aperçu d'une ligne ne laissait pas suivre le
           raisonnement (Thierry 2026-08-21). Déplié = le flux entier. */}
       <div className={`thinking-body${open ? "" : " windowed"}`} ref={bodyRef}>

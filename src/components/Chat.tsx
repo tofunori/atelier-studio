@@ -138,7 +138,7 @@ export default function Chat(p: {
     defaultEffort: Record<string, string>;
     defaultPermissionMode: string;
     timeFormat?: "system" | "24h" | "12h";
-    thinkingCollapsed?: boolean;
+    transcriptView?: "normal" | "reflexion" | "detaille" | "resume";
     displayTimestamps?: boolean;
     customModels?: { provider: string; id: string }[];
     modelEfforts?: Record<string, string>;
@@ -158,6 +158,8 @@ export default function Chat(p: {
     direction: "parent" | "child";
   }[];
   onOpenLinkedAgent?: (threadId: string) => void;
+  /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
+  onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
   onUnlinkLinkedAgent?: (threadId: string) => void;
   pins: { index: number; label: string; color?: string; style?: string }[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
@@ -961,6 +963,8 @@ export default function Chat(p: {
           linkedAgents={p.linkedAgents}
           onOpenLinkedAgent={p.onOpenLinkedAgent}
           onUnlinkLinkedAgent={p.onUnlinkLinkedAgent}
+          transcriptView={p.defaults.transcriptView}
+          onTranscriptViewChange={p.onTranscriptViewChange}
         />
       )}
       <ChatTimeline

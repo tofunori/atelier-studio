@@ -76,6 +76,43 @@ export function ResumeIcon({ size = 13 }: IconProps) {
   );
 }
 
+/* Vue de la transcription (sélecteur du header de conversation, 2026-08-21) :
+   une icône par mode — œil (Normal), cerveau (Réflexion en cours, la même
+   silhouette que la ligne « réfléchit »), liste arborescente (Détaillé),
+   lignes décroissantes (Résumé). */
+export function ViewNormalIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" />
+      <circle cx="8" cy="8" r="2" />
+    </StrokeIcon>
+  );
+}
+
+export function ViewThinkingIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M6 2.5a2 2 0 0 0-2 2c-1.2.3-2 1.3-2 2.5s.8 2.2 2 2.5a2 2 0 0 0 2 2M10 2.5a2 2 0 0 1 2 2c1.2.3 2 1.3 2 2.5s-.8 2.2-2 2.5a2 2 0 0 1-2 2M6 2.5v9M10 2.5v9" />
+    </StrokeIcon>
+  );
+}
+
+export function ViewDetailedIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M2.5 3.5h11M2.5 8h2M7.5 8h6M2.5 12.5h2M7.5 12.5h6" />
+    </StrokeIcon>
+  );
+}
+
+export function ViewSummaryIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M2.5 5h11M2.5 8h7M2.5 11h4" />
+    </StrokeIcon>
+  );
+}
+
 export function ForkIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

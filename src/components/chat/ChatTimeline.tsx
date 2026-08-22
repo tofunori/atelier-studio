@@ -82,7 +82,11 @@ export type TimelineMsg = {
   onFork: (index: number) => void;
   setPasteView: (v: { name: string; text: string } | null) => void;
   commands: { name: string; source: string }[];
-  defaults: { timeFormat?: "system" | "24h" | "12h"; thinkingCollapsed?: boolean; displayTimestamps?: boolean };
+  defaults: {
+    timeFormat?: "system" | "24h" | "12h";
+    transcriptView?: "normal" | "reflexion" | "detaille" | "resume";
+    displayTimestamps?: boolean;
+  };
   onQuote: (text: string) => void;
 };
 export type TimelineScroll = {
@@ -198,6 +202,13 @@ export function ChatTimeline(p: {
     renderToolLine, fmtWorkDur, plugins, onOpenAgent,
   } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
+  // Vue de la transcription (sélecteur du header, façon Claude Code desktop) :
+  // elle remplace l'ancien booléen thinkingCollapsed. « normal » replie la
+  // pensée en fenêtre de 4 lignes ; « reflexion » et « detaille » la déplient ;
+  // « resume » la masque ; « detaille » déplie aussi les lignes d'outils.
+  const vue = defaults.transcriptView ?? "normal";
+  const penseeRepliee = vue !== "reflexion" && vue !== "detaille";
+  const penseeMasquee = vue === "resume";
   const { messagesRef, onMessagesMouseUp } = p.scroll;
   const { onStop } = p.working;
   const { tickPos, resolvePinEl, pinMenu, setPinMenu, onStylePin } = p.chapters;
@@ -502,7 +513,9 @@ export function ChatTimeline(p: {
                   <div className="working-row">
                     <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
                   </div>
-                  <LiveThinking thought={liveThought} collapsedByDefault={defaults.thinkingCollapsed ?? false} />
+                  {/* En vue Résumé la pensée est masquée : sans texte,
+                      LiveThinking retombe sur la seule ligne « en attente ». */}
+                  <LiveThinking thought={penseeMasquee ? null : liveThought} collapsedByDefault={penseeRepliee} />
                   <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
                     <kbd>esc</kbd> {t("action.interrupt")}
                   </RowButton>
@@ -586,7 +599,11 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "actions") {
-            const open = openToolGroups.has(item.key);
+            // Vue Détaillé : les lignes d'outils s'ouvrent d'office — le Set
+            // devient alors « écarts au défaut » (un clic referme quand même).
+            const open = vue === "detaille"
+              ? !openToolGroups.has(item.key)
+              : openToolGroups.has(item.key);
             // La DERNIÈRE ligne de travail d'un tour en cours est la ligne
             // vivante : elle tique à chaque nouvelle action au lieu d'afficher
             // un résumé figé. C'est le seul endroit où l'action courante
@@ -681,7 +698,7 @@ export function ChatTimeline(p: {
                 onTogglePin={onTogglePin}
               />
             );
-          if ((e.kind === "thinking_live" || e.kind === "thinking") && doublonsPensee.has(i))
+          if ((e.kind === "thinking_live" || e.kind === "thinking") && (doublonsPensee.has(i) || penseeMasquee))
             return null;
           if (e.kind === "thinking_live" || e.kind === "thinking") {
             // « en direct » ne peut pas se déduire du KIND : Grok n'envoie
@@ -697,7 +714,7 @@ export function ChatTimeline(p: {
                 <LiveThinking
                   key={`live-thinking:${i}`}
                   thought={liveThought}
-                  collapsedByDefault={defaults.thinkingCollapsed ?? false}
+                  collapsedByDefault={penseeRepliee}
                 />
               );
             }
@@ -706,7 +723,7 @@ export function ChatTimeline(p: {
                 key={i}
                 text={e.text}
                 live={false}
-                collapsedByDefault={defaults.thinkingCollapsed ?? false}
+                collapsedByDefault={penseeRepliee}
               />
             );
           }

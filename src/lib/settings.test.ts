@@ -125,6 +125,7 @@ describe("settings defaults", () => {
     localStorage.clear();
     const s = loadSettings();
     expect(s.thinkingCollapsed).toBe(true); // repliée par défaut (2026-08-21)
+    expect(s.transcriptView).toBe("normal"); // vue de la transcription (2026-08-21)
     expect(s.displayTimestamps).toBe(false);
     saveSettings({ ...s, thinkingCollapsed: false, displayTimestamps: true });
     const again = loadSettings();

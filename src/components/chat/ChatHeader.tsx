@@ -3,7 +3,7 @@
 // complet), zone statut (méta provider + StatusBadge) séparée de l'action
 // overflow, ≤ 3 actions visibles. Aucune logique métier ici : le renommage
 // reste le workflow existant côté App (callback onRename).
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { Button, IconButton, StatusBadge, SurfaceHeader, Tooltip } from "../ui";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import {
@@ -14,10 +14,27 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { Separator } from "../shadcn/separator";
-import { SessionBridgeIcon } from "../icons";
+import {
+  SessionBridgeIcon,
+  ViewDetailedIcon,
+  ViewNormalIcon,
+  ViewSummaryIcon,
+  ViewThinkingIcon,
+} from "../icons";
 import { t } from "../../lib/i18n";
 import type { PresentedStatus } from "../../lib/statusPresentation";
+import type { TranscriptView } from "../../lib/settings";
 import "../../styles/local-headers.css";
+
+/* Vue de la transcription (2026-08-21, façon Claude Code desktop) : le bouton
+   ne montre QUE l'icône du mode actif (demande Thierry — pas de texte) ; le
+   nom complet vit dans le menu et dans le tooltip. */
+const TRANSCRIPT_VIEWS: { id: TranscriptView; icon: () => ReactElement }[] = [
+  { id: "normal", icon: () => <ViewNormalIcon /> },
+  { id: "reflexion", icon: () => <ViewThinkingIcon /> },
+  { id: "detaille", icon: () => <ViewDetailedIcon /> },
+  { id: "resume", icon: () => <ViewSummaryIcon /> },
+];
 
 
 export function ChatHeader(p: {
@@ -40,10 +57,15 @@ export function ChatHeader(p: {
   }[];
   onOpenLinkedAgent?: (threadId: string) => void;
   onUnlinkLinkedAgent?: (threadId: string) => void;
+  /** Vue de la transcription — sélecteur à droite du header ; absent = masqué. */
+  transcriptView?: TranscriptView;
+  onTranscriptViewChange?: (view: TranscriptView) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   // triggerRef transmis à LazyDropdownMenu (Base UI gère dismiss et focus)
   const moreAnchor = useRef<HTMLButtonElement | null>(null);
+  const viewAnchor = useRef<HTMLButtonElement | null>(null);
 
   const status = p.status;
   // « idle » n'est pas un état à montrer : le badge n'existe que pour un
@@ -95,6 +117,41 @@ export function ChatHeader(p: {
         <>
           {/* demande Thierry (2026-07-10) : pas de méta provider dans
               l'en-tête — le provider est visible dans le composer */}
+          {p.onTranscriptViewChange != null && (() => {
+            const active = p.transcriptView ?? "normal";
+            const ActiveIcon = (TRANSCRIPT_VIEWS.find((v) => v.id === active) ?? TRANSCRIPT_VIEWS[0]).icon;
+            return (
+              <LazyDropdownMenu
+                open={viewMenuOpen}
+                onOpenChange={setViewMenuOpen}
+                triggerRef={viewAnchor}
+                align="end"
+                label={t("chat.transcript-view")}
+                header={t("chat.transcript-view")}
+                trigger={
+                  <IconButton
+                    label={`${t("chat.transcript-view")} : ${t(`chat.transcript-view.${active}`)}`}
+                    aria-haspopup="menu"
+                    aria-expanded={viewMenuOpen}
+                  >
+                    <ActiveIcon />
+                  </IconButton>
+                }
+                items={TRANSCRIPT_VIEWS.map((view) => ({
+                  key: view.id,
+                  className: "transcript-view-item",
+                  label: (
+                    <>
+                      <span className="tv-check" aria-hidden="true">{view.id === active ? "✓" : ""}</span>
+                      {view.icon()}
+                      <span>{t(`chat.transcript-view.${view.id}`)}</span>
+                    </>
+                  ),
+                  onSelect: () => p.onTranscriptViewChange?.(view.id),
+                }))}
+              />
+            );
+          })()}
           {badge != null && (
             <StatusBadge status={badge.tone} title={badge.a11y}>
               {badge.label}

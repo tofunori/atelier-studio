@@ -114,4 +114,32 @@ describe("ChatHeader", () => {
     fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.unlinkNamed", { provider: "Codex" }) }));
     expect(onUnlink).toHaveBeenCalledWith("codex-1");
   });
+
+  // Vue de la transcription (2026-08-21) : bouton icône seule (pas de texte),
+  // menu des 4 modes avec coche sur l'actif ; absent sans onTranscriptViewChange.
+  it("sélecteur de vue : icône seule, 4 modes, remonte le choix", async () => {
+    const onChange = vi.fn();
+    render(
+      <ChatHeader {...base} transcriptView="normal" onTranscriptViewChange={onChange} />,
+    );
+    const trigger = screen.getByRole("button", {
+      name: `${t("chat.transcript-view")} : ${t("chat.transcript-view.normal")}`,
+    });
+    // icône seule : aucun libellé texte dans le bouton
+    expect(trigger.textContent).toBe("");
+    fireEvent.click(trigger);
+    const itemDetaille = await screen.findByText(t("chat.transcript-view.detaille"));
+    // coche sur le mode actif seulement
+    const items = document.querySelectorAll(".transcript-view-item");
+    expect(items).toHaveLength(4);
+    expect(items[0].querySelector(".tv-check")?.textContent).toBe("✓");
+    expect(items[2].querySelector(".tv-check")?.textContent).toBe("");
+    fireEvent.click(itemDetaille);
+    expect(onChange).toHaveBeenCalledWith("detaille");
+  });
+
+  it("sans onTranscriptViewChange, aucun sélecteur de vue", () => {
+    render(<ChatHeader {...base} />);
+    expect(screen.queryByRole("button", { name: new RegExp(t("chat.transcript-view")) })).toBeNull();
+  });
 });

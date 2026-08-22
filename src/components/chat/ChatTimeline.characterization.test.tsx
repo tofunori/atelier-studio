@@ -421,22 +421,33 @@ describe("timeline Chat — caractérisation avant extraction", () => {
   });
 });
 
-// Déroulement de la pensée (plan 058) : ouverte pendant le tour, repliée après.
-describe("ThinkingBlock — déroulement en direct", () => {
-  it("s'ouvre en direct, se replie à la fin, et respecte un clic manuel", async () => {
+// Vue de la transcription (2026-08-21) : c'est `collapsedByDefault` — dérivé de
+// la vue choisie — qui pilote le défaut, plus le direct. Réflexion/Détaillé
+// (false) laissent le flux ouvert MÊME après le tour ; Normal (true) le replie
+// en fenêtre. Le clic manuel garde toujours la main.
+describe("ThinkingBlock — vue de la transcription", () => {
+  it("suit collapsedByDefault et respecte un clic manuel", async () => {
     const { rerender } = renderUi(<ThinkingBlock text="je réfléchis longuement" live />);
-    // en direct : le corps est déroulé, l'aperçu de 140 caractères disparaît
+    // défaut déplié (vue Réflexion/Détaillé) : le corps est déroulé
     expect(screen.getByText("je réfléchis longuement")).toBeTruthy();
     expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
 
-    // fin du tour : repli automatique, l'aperçu revient
+    // fin du tour : la vue dépliée le RESTE (flux complet façon Hermes)
     rerender(<ThinkingBlock text="je réfléchis longuement" live={false} />);
-    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
 
     // un clic reprend la main et survit au changement d'état
     fireEvent.click(screen.getByRole("button"));
-    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
     rerender(<ThinkingBlock text="je réfléchis encore" live={false} />);
-    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("vue Normal : replié en fenêtre, en direct comme après le tour", () => {
+    const { rerender } = renderUi(<ThinkingBlock text="je réfléchis longuement" live collapsedByDefault />);
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".thinking-body.windowed")).toBeTruthy();
+    rerender(<ThinkingBlock text="je réfléchis longuement" live={false} collapsedByDefault />);
+    expect(document.querySelector(".thinking-head")?.getAttribute("aria-expanded")).toBe("false");
   });
 });

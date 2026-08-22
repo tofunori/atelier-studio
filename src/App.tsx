@@ -3877,6 +3877,8 @@ export default function App() {
           }}
           onFavoriteModelsChange={(favoriteModels) =>
             setSettings((current) => ({ ...current, favoriteModels }))}
+          onTranscriptViewChange={(transcriptView) =>
+            setSettings((current) => ({ ...current, transcriptView }))}
           onOpenModelSettings={() => openSettings("providers")}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
