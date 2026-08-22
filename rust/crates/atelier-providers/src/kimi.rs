@@ -1540,17 +1540,13 @@ mod tests {
     /// `ok:false` et le journal doit porter l'erreur de timeout.
     #[tokio::test]
     async fn cli_fige_le_timeout_termine_le_tour_avec_erreur() {
-        // Plafond de test : 1 s (le vrai plafond reste 600 s en prod). La
-        // variable est posée JUSTE avant le send et retirée juste après —
-        // en série (--test-threads=1, exigence du protocole) pour qu'aucun
-        // autre test ne lise cette valeur de test.
-        std::env::set_var("ATELIER_TURN_TIMEOUT_SECS", "1");
-        let Some(p) = fixture_provider("nominal") else {
-            std::env::remove_var("ATELIER_TURN_TIMEOUT_SECS");
+        // Plafond de test : 1 s (le vrai plafond reste 600 s en prod), injecté
+        // SUR L'INSTANCE. Aucune mutation d'env : elle serait globale au
+        // binaire de test et volait le plafond des tests voisins en parallèle.
+        let Some(p) = fixture_provider("nominal").map(|p| p.with_turn_timeout_secs(1)) else {
             return;
         };
         let out = run_turn(&p, "[hang] question", None, None, None, None, None).await;
-        std::env::remove_var("ATELIER_TURN_TIMEOUT_SECS");
         assert!(!out.result.ok, "le tour figé doit échouer: {:?}", out.result);
         assert!(
             out.errors().iter().any(|m| m.contains("timeout Kimi")),
