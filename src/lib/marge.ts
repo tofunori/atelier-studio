@@ -69,3 +69,27 @@ export function sameMargeEntries(a: MargeEntry[], b: MargeEntry[]): boolean {
     entry.index === b[i].index && entry.kind === b[i].kind && entry.label === b[i].label
   ));
 }
+
+/**
+ * Entrée « où j'en suis » : la géométrie EST la vérité, aucun état à maintenir.
+ * `tops` donne, pour les entrées dont la rangée est réellement rendue (le fil
+ * est virtualisé — les autres n'existent pas dans le DOM), l'écart entre le
+ * haut de la rangée et le haut de la fenêtre de lecture. L'entrée active est la
+ * dernière déjà passée sous ce bord ; si aucune ne l'a passé, la première
+ * visible. Rend null quand rien n'est mesurable.
+ */
+export function activeMargeIndex(
+  entries: MargeEntry[],
+  tops: Record<number, number>,
+  slack = 8,
+): number | null {
+  let passed: number | null = null;
+  let firstVisible: number | null = null;
+  for (const entry of entries) {
+    const top = tops[entry.index];
+    if (top == null) continue;
+    if (top <= slack) passed = entry.index;
+    else if (firstVisible == null) firstVisible = entry.index;
+  }
+  return passed ?? firstVisible;
+}

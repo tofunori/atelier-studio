@@ -25,7 +25,7 @@ import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
-import { deriveMargeEntries, sameMargeEntries, type MargeEntry } from "../../lib/marge";
+import { activeMargeIndex, deriveMargeEntries, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverContent } from "../shadcn/popover";
@@ -274,6 +274,41 @@ export function ChatTimeline(p: {
     margeRef.current = next;
     return next;
   }, [events, pins, marks]);
+  // « Où j'en suis » : mesuré au défilement, jamais maintenu à la main. Cadencé
+  // par rAF comme le reste du composant, et seules les rangées RÉELLEMENT
+  // rendues sont mesurables (liste virtualisée).
+  const [hereIndex, setHereIndex] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    // le scroller natif est posé dans messagesRef par un AUTRE effet : le
+    // résoudre ici aussi, sinon l'ordre de montage décide si la mesure marche
+    const host = messagesRef.current
+      ?? timelineWrapRef.current?.querySelector<HTMLDivElement>(".messages")
+      ?? null;
+    if (!host || !margeEntries.length) { setHereIndex(null); return; }
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const hostTop = host.getBoundingClientRect().top;
+      const tops: Record<number, number> = {};
+      for (const entry of margeEntries) {
+        const row = document.getElementById(`message-${entry.index}`);
+        if (row) tops[entry.index] = row.getBoundingClientRect().top - hostTop;
+      }
+      setHereIndex(activeMargeIndex(margeEntries, tops));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    schedule();
+    // la liste virtualisée n'a pas encore posé ses rangées au premier cadre :
+    // sans cette seconde passe, rien n'est mesurable et la marge reste muette
+    // jusqu'au premier défilement.
+    const settle = setTimeout(schedule, 120);
+    host.addEventListener("scroll", schedule, { passive: true });
+    return () => {
+      clearTimeout(settle);
+      host.removeEventListener("scroll", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [messagesRef, margeEntries, threadId, events.length]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
@@ -845,6 +880,7 @@ export function ChatTimeline(p: {
             <RowButton
               className="tl-mark"
               data-mark={entry.kind}
+              data-here={entry.index === hereIndex ? "true" : undefined}
               title={entry.label}
               onClick={() => {
                 const index = virtualIndexForEvent(entry.index);

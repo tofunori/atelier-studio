@@ -1247,6 +1247,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    longue — l'accent pour le message retenu, l'ambre pour le passage */
 .tl-mark[data-mark="pin"] .tl-mark-sign { width: 16px; height: 3px; background: var(--accent); }
 .tl-mark[data-mark="hl"] .tl-mark-sign { width: 16px; height: 3px; background: var(--hl-line); }
+/* l'entrée où l'on lit : barre pleine en encre vive — désignée par la
+   géométrie du défilement, jamais par un clic */
+.tl-mark[data-here] .tl-mark-sign { width: 18px; height: 3px; background: var(--text-primary); }
+.tl-mark[data-here] .tl-mark-label { color: var(--text-primary); }
 .tl-mark-label {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--fs-s); line-height: 1.4; color: var(--text-muted);

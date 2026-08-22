@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveMargeEntries, margeLabel, sameMargeEntries } from "./marge";
+import { activeMargeIndex, deriveMargeEntries, margeLabel, sameMargeEntries } from "./marge";
 
 const FIL = [
   { kind: "user", text: "Vérifie d'où vient le −0,00975" },
@@ -79,5 +79,35 @@ describe("les surlignages dans la marge", () => {
   it("ignore un passage qu'aucun message ne porte plus", () => {
     const entries = deriveMargeEntries(FIL_HL, [], [{ text: "passage effacé", kind: "hl" }]);
     expect(entries.map((e) => e.kind)).toEqual(["prompt"]);
+  });
+});
+
+describe("activeMargeIndex — l'entrée où l'on lit", () => {
+  const ENTRIES = deriveMargeEntries(
+    [
+      { kind: "user", text: "Un" },
+      { kind: "text", text: "réponse" },
+      { kind: "user", text: "Deux" },
+      { kind: "user", text: "Trois" },
+    ],
+    [],
+  );
+
+  it("désigne le dernier message passé sous le haut de la fenêtre", () => {
+    // Un est remonté (-120), Deux est juste sous le bord (-4), Trois arrive
+    expect(activeMargeIndex(ENTRIES, { 0: -120, 2: -4, 3: 260 })).toBe(2);
+  });
+
+  it("retombe sur la première entrée visible quand rien n'est encore passé", () => {
+    expect(activeMargeIndex(ENTRIES, { 0: 40, 2: 300, 3: 560 })).toBe(0);
+  });
+
+  it("ne désigne rien quand aucune entrée n'est mesurée", () => {
+    expect(activeMargeIndex(ENTRIES, {})).toBeNull();
+  });
+
+  it("ignore une entrée dont la rangée n'est pas rendue (fil virtualisé)", () => {
+    // seule Trois est mesurée : c'est elle, même si Un et Deux la précèdent
+    expect(activeMargeIndex(ENTRIES, { 3: -10 })).toBe(3);
   });
 });
