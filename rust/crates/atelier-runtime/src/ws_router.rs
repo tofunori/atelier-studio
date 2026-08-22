@@ -3303,10 +3303,14 @@ async fn handle_get_usage(state: &AppState) -> Vec<String> {
             obj.insert("output".into(), json!(out));
         }
     }
+    let providers = crate::usage::collect_providers().await;
+    // Clés legacy claude/codex = miroir de providers.* (anciens clients).
+    let legacy = |k: &str| providers.get(k).cloned().unwrap_or(Value::Null);
     vec![json_msg(json!({
         "type": "usage",
-        "claude": Value::Null,
-        "codex": Value::Null,
+        "providers": providers,
+        "claude": legacy("claude"),
+        "codex": legacy("codex"),
         "models": models,
     }))]
 }

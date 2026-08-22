@@ -15,6 +15,7 @@ pub mod paths;
 pub mod send;
 pub mod server;
 pub mod state;
+pub mod usage;
 pub mod ws_router;
 
 pub use atomic::write_file_atomic;
