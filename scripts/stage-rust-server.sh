@@ -15,6 +15,12 @@ KB_BIN_NAMES=(atelier-kb-rs atelier-zotero-passages-rs)
 
 mkdir -p "$DIST"
 
+# Purge des reliquats Node (2026-08-22) : le dist n'est jamais recréé de zéro,
+# donc un fichier qu'on cesse de stager y SURVIT et repart dans le .app. Tous
+# les .mjs et les wrappers shell qui les lançaient sont portés en Rust.
+find "$DIST" -maxdepth 1 -name '*.mjs' -delete
+rm -f "$DIST/atelier-kb" "$DIST/atelier-zotero-passages"
+
 if [[ "${ATELIER_SKIP_RUST_BUILD:-}" != "1" ]]; then
   echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb --release"
   cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb --release --manifest-path rust/Cargo.toml --bins
@@ -53,18 +59,8 @@ done
 # Plus AUCUN .mjs stagé : la chaîne KB, l'outil galerie et les passages
 # Zotero sont tous portés en Rust (2026-08-22). atelier-gallery-tool est
 # désormais le binaire Rust copié par la boucle BIN_NAMES ci-dessus.
-# Garde-fou : la chaîne d'imports des modules stagés doit se résoudre DANS le
-# dist (un import ajouté côté sidecar/ mais absent de la liste cp ci-dessus a
-# déjà cassé le CLI kb dans le bundle — échouer au build, pas au runtime).
-# kb_cli.mjs est la RACINE réelle (il tire knowledge.mjs, article.mjs,
-# zotero_passages.mjs) : c'est lui qu'il faut charger, sinon un import ajouté
-# plus haut dans la chaîne passe le garde-fou et casse au runtime.
-# Le chemin passe par l'ENVIRONNEMENT, pas par argv[1] : kb_cli.mjs décide
-# s'il est un point d'entrée en comparant `import.meta.url` à `process.argv[1]`.
-# Le lui donner en argv le faisait se croire lancé en CLI — il affichait son
-# mode d'emploi et sortait en 1, faisant échouer tous les builds alors que
-# l'import lui-même avait réussi.
-KB_ENTRY="$DIST/kb_cli.mjs" node -e "import(require('node:url').pathToFileURL(process.env.KB_ENTRY).href).then(()=>{}, (e)=>{ console.error('[stage-rust-server] import du dist KO:', e.message); process.exit(1); })"
+# La garde d'imports .mjs a disparu avec les .mjs : le dist ne contient plus
+# que des binaires, dont l'intégrité est déjà couverte par BUILD_STAMP.txt.
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
