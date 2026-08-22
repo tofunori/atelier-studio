@@ -16,5 +16,6 @@ pub mod pdf;
 pub mod search;
 pub mod store;
 pub mod web;
+pub mod youtube;
 pub mod zotero;
 pub mod zotero_cli;

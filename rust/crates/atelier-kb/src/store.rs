@@ -8,6 +8,7 @@ use crate::csv_digest::{csv_digest, js_len, CSV_FULL_MAX};
 use crate::folder::{folder_fingerprint, scan_folder, FolderFile};
 use crate::pdf::extract_pdf_pages;
 use crate::search::{search_passages, Page};
+use crate::youtube::{fetch_youtube, parse_youtube_url, vtt_to_pages, FetchedVideo, YT_BUCKET_SECONDS};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -161,6 +162,9 @@ pub struct KnowledgeStore {
     /// Racine du stockage Zotero. `None` = `~/Zotero/storage` (miroir de
     /// `this.deps.resolveZotero` côté Node : injectable pour les tests).
     zotero_storage_root: Option<PathBuf>,
+    /// Récupération de la transcription YouTube. `None` = `yt-dlp` réel
+    /// (miroir de `this.deps.fetchYoutube`).
+    youtube_fetcher: Option<Box<dyn Fn(&str) -> Result<FetchedVideo, String> + Send + Sync>>,
     pub sources: Map<String, Value>,
     pub source_order: Vec<String>,
     pub collections: Vec<Value>,
@@ -180,6 +184,7 @@ impl KnowledgeStore {
             collections: Vec::new(),
             warning: None,
             zotero_storage_root: None,
+            youtube_fetcher: None,
         };
         store.reload_from_disk();
         store
@@ -188,6 +193,16 @@ impl KnowledgeStore {
     /// Racine de stockage Zotero explicite (tests, installation non standard).
     pub fn with_zotero_storage_root(mut self, root: PathBuf) -> Self {
         self.zotero_storage_root = Some(root);
+        self
+    }
+
+    /// Récupération de transcription explicite (tests : pas de spawn yt-dlp,
+    /// pas de réseau).
+    pub fn with_youtube_fetcher(
+        mut self,
+        fetcher: impl Fn(&str) -> Result<FetchedVideo, String> + Send + Sync + 'static,
+    ) -> Self {
+        self.youtube_fetcher = Some(Box::new(fetcher));
         self
     }
 
@@ -663,9 +678,10 @@ impl KnowledgeStore {
             "pdf" => self.add_pdf(origin, title),
             "web" => self.add_web(origin, title, text),
             "gbrain" => self.add_gbrain(origin, title),
+            "youtube" => self.add_youtube(origin, title),
             "zotero" => self.add_zotero(origin, title),
             other => Err(format!(
-                "kind '{other}' non pris en charge par ce moteur (vague 3 : store local + gbrain + web (texte fourni ou fetch réel) ; youtube hors périmètre)"
+                "kind '{other}' non pris en charge par ce moteur (vague 3 : store local + gbrain + web (texte fourni ou fetch réel))"
             )),
         }
     }
@@ -765,6 +781,37 @@ impl KnowledgeStore {
             })).collect::<Vec<_>>(),
         });
         self.upsert_raw(&id, "folder", Some(&folder_title), Some(&path.to_string_lossy()), chars, meta, cache_payload)
+    }
+
+    /// `add --kind youtube` — miroir de la branche `youtube` de
+    /// `KnowledgeStore.add` (`knowledge.mjs:781-797`) : l'URL est normalisée
+    /// en `watch?v=<id>` (clé d'identité stable quelle que soit la forme
+    /// saisie), la transcription VTT découpée en segments d'une minute.
+    fn add_youtube(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
+        let video = parse_youtube_url(origin.unwrap_or(""))?;
+        let fetched = match &self.youtube_fetcher {
+            Some(fetcher) => fetcher(&video.href)?,
+            None => fetch_youtube(&video.href)?,
+        };
+        let pages = vtt_to_pages(&fetched.vtt, YT_BUCKET_SECONDS);
+        if pages.is_empty() {
+            return Err("Aucun sous-titre exploitable pour cette vidéo".to_string());
+        }
+        let video_title = title
+            .filter(|t| !t.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| Some(fetched.title.trim().to_string()).filter(|t| !t.is_empty()))
+            .unwrap_or_else(|| video.href.clone());
+        let mut meta = json!({ "segmentSeconds": YT_BUCKET_SECONDS, "segments": pages.len() });
+        // Node : `...(fetched.duration ? {...} : {})` — 0 et null omis.
+        if let Some(duration) = fetched.duration.filter(|d| *d != 0.0) {
+            meta["duration"] = json!(duration);
+        }
+        if let Some(channel) = fetched.channel.filter(|c| !c.is_empty()) {
+            meta["channel"] = json!(channel);
+        }
+        let id = source_id("youtube", &video.href);
+        self.upsert_entry(&id, "youtube", Some(&video_title), Some(&video.href), pages, meta)
     }
 
     /// `add --kind zotero` — miroir de la branche `zotero` de
@@ -1381,6 +1428,64 @@ mod tests {
             .add("zotero", Some("zotero://../ailleurs/vole.pdf"), None, None)
             .unwrap_err();
         assert!(!err.contains("hors périmètre"), "err={err}");
+    }
+
+    // --- ajout `youtube` : dernier recours au CLI Node retiré (2026-08-22).
+    // Le fetch (spawn yt-dlp + réseau) est injecté, comme `this.deps
+    // .fetchYoutube` côté Node — les tests couvrent l'assemblage, pas
+    // YouTube lui-même. ---
+
+    #[test]
+    fn add_kind_youtube_assemble_les_segments_et_la_meta() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf()).with_youtube_fetcher(|_url| {
+            Ok(crate::youtube::FetchedVideo {
+                title: "Bilan radiatif de la neige".to_string(),
+                duration: Some(142.0),
+                channel: Some("Glacio".to_string()),
+                vtt: "WEBVTT\n\n00:00:03.000 --> 00:00:06.000\npremiere minute\n\n\
+                      00:01:10.000 --> 00:01:12.000\nseconde minute\n"
+                    .to_string(),
+            })
+        });
+
+        let (entry, replaced) = store
+            .add("youtube", Some("https://youtu.be/dQw4w9WgXcQ"), None, None)
+            .unwrap();
+
+        assert!(!replaced);
+        assert_eq!(entry["kind"], json!("youtube"));
+        // origin = href CANONIQUE, pas la forme saisie (youtu.be)
+        assert_eq!(entry["origin"], json!("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assert_eq!(entry["id"], json!(source_id("youtube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")));
+        assert_eq!(entry["title"], json!("Bilan radiatif de la neige"));
+        assert_eq!(entry["meta"]["segmentSeconds"], json!(60));
+        assert_eq!(entry["meta"]["segments"], json!(2));
+        assert_eq!(entry["meta"]["duration"], json!(142.0));
+        assert_eq!(entry["meta"]["channel"], json!("Glacio"));
+        let pages = store.read_pages_cache(entry["id"].as_str().unwrap()).unwrap();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[1].text, "seconde minute");
+    }
+
+    #[test]
+    fn add_kind_youtube_refuse_une_video_sans_sous_titre_exploitable() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf())
+            .with_youtube_fetcher(|_url| Ok(crate::youtube::FetchedVideo::default()));
+        let err = store
+            .add("youtube", Some("https://youtu.be/dQw4w9WgXcQ"), None, None)
+            .unwrap_err();
+        assert!(err.contains("Aucun sous-titre exploitable"), "err={err}");
+    }
+
+    #[test]
+    fn add_kind_youtube_rejette_une_url_qui_n_est_pas_une_video() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf())
+            .with_youtube_fetcher(|_url| panic!("le fetch ne doit pas être tenté"));
+        let err = store.add("youtube", Some("https://example.org/x"), None, None).unwrap_err();
+        assert!(err.contains("URL YouTube non reconnue"), "err={err}");
     }
 
     // --- B5 (plans/065-revue-findings.md, KBS-01/KBC-29) : plus de panic
