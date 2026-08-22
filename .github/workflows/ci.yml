@@ -45,8 +45,6 @@ jobs:
         run: cd gallery && npx playwright install chromium webkit
       - name: Stage bundled resources for Tauri checks
         run: |
-          bash scripts/stage-node-runtime.sh
-          bash scripts/stage-sidecar.sh
           bash scripts/stage-gallery.sh
           bash scripts/stage-mobile.sh
           bash scripts/stage-appsnap.sh

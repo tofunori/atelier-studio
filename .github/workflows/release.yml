@@ -9,16 +9,12 @@ permissions:
 
 jobs:
   build-macos:
-    # macos-15 is the Apple Silicon image; Node and node-pty are arm64-only.
+    # macos-15 is the Apple Silicon image; the Rust binaries are arm64-only.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Require Apple Silicon runner
         run: test "$(uname -m)" = arm64
-      - uses: actions/cache@v4
-        with:
-          path: .cache/node-runtime
-          key: node-runtime-22.22.3-darwin-arm64
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: dtolnay/rust-toolchain@stable
@@ -40,8 +36,6 @@ jobs:
         run: cd gallery && npx playwright install chromium webkit
       - name: Stage bundled resources for Tauri checks
         run: |
-          bash scripts/stage-node-runtime.sh
-          bash scripts/stage-sidecar.sh
           bash scripts/stage-gallery.sh
           bash scripts/stage-mobile.sh
           bash scripts/stage-rust-server.sh
@@ -50,7 +44,7 @@ jobs:
       - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
         run: npm run verify
         env:
-          # The shipped gallery runtime is Node and the app backend is Rust.
+          # The shipped gallery runtime and the app backend are both Rust.
           # Keep Python parity for local migration checks, but do not let the
           # legacy reference interpreter block production release runners.
           ATELIER_SKIP_LEGACY_PYTHON_PARITY: "1"
@@ -95,10 +89,18 @@ jobs:
         run: |
           APP="src-tauri/target/release/bundle/macos/Atelier.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          NODE="$APP/Contents/Resources/node-runtime/bin/node"
-          test -x "$NODE"
-          test "$("$NODE" --version)" = "v22.22.3"
-          file "$NODE" | grep -q "arm64"
+          # Le runtime Node embarqué a disparu (2026-08-22) : ce sont les
+          # binaires Rust qu'on vérifie désormais — présents, exécutables,
+          # arm64. Et on interdit explicitement le retour d'un Node livré.
+          RS="$APP/Contents/Resources/rust-server"
+          for BIN in atelier-studio-server atelier-gallery-server atelier-gallery-tool; do
+            test -x "$RS/$BIN"
+            file "$RS/$BIN" | grep -q "arm64"
+          done
+          if find "$APP" \( -name node -o -type d -name node-runtime -o -type d -name node_modules \) | grep -q .; then
+            echo "ERREUR : un runtime Node est reparti dans le bundle"
+            exit 1
+          fi
       - name: Publish verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
