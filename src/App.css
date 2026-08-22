@@ -1205,19 +1205,19 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .context-attachment-image { width: 80px; }
 .context-attachment-image [data-slot="attachment-content"] { width: auto; }
 /* ═══ La marge annotée (design 2026-08-21) ═══════════════════════════════
-   Une seule colonne à gauche du transcript porte tout ce qui se repère : un
-   trait court et éteint par question posée, un trait plein accentué et NOMMÉ
-   par épingle. Un seul signe, deux intensités — les quatre formes et la
-   couleur libre de l'ancien rail ont disparu : elles demandaient une décision
-   à chaque épingle sans rien encoder. L'orange reste la voix de l'interface ;
-   l'ambre --hl-line est l'encre du lecteur (voir ::highlight(chat-hl)). */
+   Une seule colonne à gauche du transcript porte tout ce qui se repère : une
+   ligne par question posée, la même ligne en accent pour une épingle, en ambre
+   pour un passage surligné, en encre vive pour l'endroit où l'on lit. Seule la
+   COULEUR distingue — la taille reste constante (métriques d'Hermes Desktop :
+   rangée de 8px, ligne de 12×1px, inactive en demi-teinte à 70 %). Repliée
+   c'est une carte du fil ; dépliée, les noms apparaissent. */
 .chat { position: relative; }
 .tl-marge {
   position: absolute; top: 24px; left: 2px; z-index: 40;
-  width: 30px; max-height: calc(100% - 64px);
-  display: flex; flex-direction: column; gap: 9px;
+  width: 28px; max-height: calc(100% - 64px);
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0;
   overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
-  border-radius: var(--r-m); padding: 6px 0;
+  border-radius: var(--r-m); padding: 4px 0;
   transition: width var(--motion-fast) var(--ease-out),
               background var(--motion-fast) var(--ease-out),
               box-shadow var(--motion-fast) var(--ease-out);
@@ -1227,38 +1227,53 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus) —
    les noms se lisent sans survoler chaque entrée une par une */
 .tl-marge:hover, .tl-marge:focus-within {
-  width: 188px; background: var(--bg-pop); box-shadow: var(--elev); padding: 6px;
+  width: 188px; align-items: stretch; gap: 2px; padding: 6px;
+  background: var(--bg-pop); box-shadow: var(--elev);
 }
-.tl-mark-item { display: block; }
+.tl-mark-item { display: block; width: 100%; }
 .tl-mark {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  min-height: 14px; padding: 1px 2px; border: none; background: transparent;
-  border-radius: var(--r-s); cursor: pointer; text-align: left;
-  transition: background var(--motion-fast) var(--ease-out);
+  display: flex; align-items: center; justify-content: flex-end; gap: 0;
+  width: 100%; height: 8px; min-height: 8px; padding: 0 4px 0 0;
+  border: none; background: transparent; border-radius: var(--r-s);
+  cursor: pointer; text-align: left;
+  transition: height var(--motion-fast) var(--ease-out),
+              min-height var(--motion-fast) var(--ease-out),
+              background var(--motion-fast) var(--ease-out);
+}
+.tl-marge:hover .tl-mark, .tl-marge:focus-within .tl-mark {
+  height: auto; min-height: 20px; justify-content: flex-start; gap: 10px;
+  padding: 2px 6px;
 }
 .tl-marge:hover .tl-mark:hover, .tl-mark:focus-visible { background: var(--bg-ctl); }
+/* la ligne : 12×1px, constante. L'inactive est une demi-teinte (trame conique
+   de 2px sur currentColor) — c'est ce qui la fait disparaître dans le fond
+   sans la faire mentir sur sa position. */
 .tl-mark-sign {
-  flex: none; margin-left: 4px; width: 14px; height: 2px;
-  border-radius: var(--r-pill); background: var(--mark-neutral-strong);
-  transition: width var(--motion-fast) var(--ease-out),
-              height var(--motion-fast) var(--ease-out);
+  flex: none; width: 12px; height: 1px;
+  color: var(--mark-neutral); opacity: .7;
+  background: repeating-conic-gradient(currentColor 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
-/* l'épingle et le passage surligné pèsent plus : barre pleine, un poil plus
-   longue — l'accent pour le message retenu, l'ambre pour le passage */
-.tl-mark[data-mark="pin"] .tl-mark-sign { width: 16px; height: 3px; background: var(--accent); }
-.tl-mark[data-mark="hl"] .tl-mark-sign { width: 16px; height: 3px; background: var(--hl-line); }
-/* l'entrée où l'on lit : barre pleine en encre vive — désignée par la
+.tl-mark[data-mark="pin"] .tl-mark-sign { background: var(--accent); opacity: 1; }
+.tl-mark[data-mark="hl"] .tl-mark-sign { background: var(--hl-line); opacity: 1; }
+/* l'entrée où l'on lit : ligne pleine en encre vive — désignée par la
    géométrie du défilement, jamais par un clic */
-.tl-mark[data-here] .tl-mark-sign { width: 18px; height: 3px; background: var(--text-primary); }
-.tl-mark[data-here] .tl-mark-label { color: var(--text-primary); }
+.tl-mark[data-here] .tl-mark-sign { background: var(--text-primary); opacity: 1; }
+/* PIÈGE : repliée, le libellé ne doit prendre AUCUNE place — invisible mais
+   dans le flux, sa largeur intrinsèque poussait les traits hors de l'écran. */
 .tl-mark-label {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: var(--fs-s); line-height: 1.4; color: var(--text-muted);
-  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out);
+  flex: 0 0 0; width: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: var(--fs-s); line-height: 1.4;
+  color: var(--text-muted); opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.tl-marge:hover .tl-mark-label, .tl-marge:focus-within .tl-mark-label {
+  flex: 1 1 auto; width: auto;
 }
 .tl-marge:hover .tl-mark-label, .tl-marge:focus-within .tl-mark-label { opacity: 1; }
 .tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
 .tl-mark[data-mark="hl"] .tl-mark-label { font-style: italic; }
+.tl-mark[data-here] .tl-mark-label { color: var(--text-primary); }
 @media (prefers-reduced-motion: reduce) {
   .tl-marge, .tl-mark, .tl-mark-sign, .tl-mark-label { transition: none; }
 }
