@@ -56,6 +56,12 @@ window.DiffVersions = function(opts){
   const curVersion = () => extCmp || baseVersion;
   let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
   let baseGitLocked = false;
+  // Ancre du journal PERSISTÉ : posée à l'init du state serveur et jamais
+  // réécrite. `baseVersion` peut avancer avec le dépôt (nouveau commit
+  // significatif) ; la base du state v2, elle, est immuable — la faire bouger
+  // ferait diverger `serverBaseHash` du serveur → « conflit de base ».
+  let journalBase = null;
+  let pendingRebase = null; // avancée de base retenue pendant une vue historique
   const KEY = "texDiffV1:" + path;
   const GUTTER = "dv-git";
   const SOURCES = new Set(["user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy"]);
@@ -290,8 +296,9 @@ window.DiffVersions = function(opts){
   function compactState(){
     const texts = {};
     const put = (text) => { const hash = hashText(text); texts[hash] = text; return hash; };
-    const baseText = baseVersion && typeof baseVersion.before === "string"
-      ? baseVersion.before : (INTERVENTIONS[0]?.before ?? lastKnown ?? "");
+    const anchor = journalBase && typeof journalBase.before === "string" ? journalBase : baseVersion;
+    const baseText = anchor && typeof anchor.before === "string"
+      ? anchor.before : (INTERVENTIONS[0]?.before ?? lastKnown ?? "");
     const baseHash = put(baseText);
     const interventions = [];
     for(const it of INTERVENTIONS) interventions.push({id: it.id,
@@ -303,8 +310,8 @@ window.DiffVersions = function(opts){
     const currentText = typeof lastKnown === "string" ? lastKnown : liveText();
     const current = {hash: put(currentText), ts: Date.now()};
     return {v: 2, path, revision: serverRevision,
-      base: {hash: baseHash, kind: baseVersion?.head ? "git" : "session",
-        sha: baseVersion?.sha || "", ts: baseVersion?.ts},
+      base: {hash: baseHash, kind: anchor?.head ? "git" : "session",
+        sha: anchor?.sha || "", ts: anchor?.ts},
       texts, interventions, legacySnapshots, current, lastKnown: currentText};
   }
   function stopPersistence(message){
@@ -869,6 +876,7 @@ window.DiffVersions = function(opts){
     ttExit();
     navMode = -1;
     extCmp = null;
+    settleRebase();
     updateTag();
     render();
   }
@@ -1206,6 +1214,7 @@ window.DiffVersions = function(opts){
       ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
       navMode = -1;
       extCmp = null; clearMarks();
+      settleRebase();
       if(typeof cm.hideMergeDiff === "function") cm.hideMergeDiff();
       cm.setOption("readOnly", false); cm.refresh(); notify("");
       changePts = [];
@@ -1239,6 +1248,7 @@ window.DiffVersions = function(opts){
       source: normalized.source, status: normalized.status};
     INTERVENTIONS.push(intervention);
     if(!baseVersion) baseVersion = {before, ts: storedTs, head: false, sha: ""};
+    if(!journalBase) journalBase = {before, ts: storedTs, head: false, sha: ""};
     return intervention;
   }
   function push(before, after, meta){
@@ -1658,6 +1668,32 @@ window.DiffVersions = function(opts){
       gutterWorker.postMessage({kind:"gutter",requestId,before,after});
     }catch(e){ fallback(); }
   }
+  // Avancer la base du ± et du ruban sur un nouveau commit significatif.
+  // L'ancre du journal persisté (`journalBase`) ne bouge PAS : les
+  // interventions restent dans l'historique, elles sortent seulement du cumul
+  // « tout » (filtre `baseTs` de interList).
+  function applyGitBase(next){
+    const wasCount = interList().length;
+    baseVersion = {before: next.text, ts: null, head: true, sha: next.sha};
+    baseTs = next.ts;
+    if(extCmp && extCmp.head)
+      extCmp = {before: next.text, label: "HEAD" + (next.sha ? " (" + next.sha + ")" : ""), head: true};
+    updateTag();
+    updateNav();
+    if(shown) render();
+    const dropped = wasCount - interList().length;
+    if(dropped > 0)
+      notify("base git avancée" + (next.sha ? " (" + next.sha + ")" : "") + " — " + dropped
+        + " intervention" + (dropped > 1 ? "s" : "") + " désormais dans l'historique du dépôt");
+  }
+  // Une avancée arrivée pendant un voyage dans le temps est retenue : renuméroter
+  // les interventions sous les yeux de l'utilisateur déplacerait la vue affichée.
+  function settleRebase(){
+    if(!pendingRebase || tt || navMode >= 0) return;
+    const next = pendingRebase;
+    pendingRebase = null;
+    applyGitBase(next);
+  }
   async function fetchHead(){
     try{
       const requested = requestedBase ? "&base=" + encodeURIComponent(requestedBase) : "";
@@ -1665,14 +1701,24 @@ window.DiffVersions = function(opts){
       const j = await r.json();
       if(!j || !j.ok || typeof j.text !== "string"){ return false; }
       const changed = headText !== j.text;
+      const prevSha = baseVersion && baseVersion.head ? (baseVersion.sha || "") : "";
       headSha = j.sha || "";
       headText = j.text;
       if(!baseGitLocked){
-        baseTs = (Number(j.ts) || 0) * 1000; // figé avec la première base Git de session
+        baseTs = (Number(j.ts) || 0) * 1000; // première base Git de la session
         baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
+        if(!journalBase) journalBase = {...baseVersion};
         baseGitLocked = true;
         arm();
         if(shown) render();
+      } else if(!requestedBase && headSha && headSha !== prevSha){
+        // Un commit SIGNIFICATIF est arrivé — `gitBase` saute les « auto: », le
+        // sha ne bouge donc pas à chaque tour d'agent. La base suit le dépôt :
+        // ce qui vient d'être committé quitte le cumul et le ruban.
+        // Base explicite (?base=…, visionneuse de diff) : jamais rebasée.
+        const next = {text: j.text, sha: headSha, ts: (Number(j.ts) || 0) * 1000};
+        if(tt || navMode >= 0) pendingRebase = next;
+        else applyGitBase(next);
       } else if(changed && extCmp && extCmp.head){
         extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
         if(shown) render();
@@ -1739,9 +1785,11 @@ window.DiffVersions = function(opts){
       data = durable;
       serverRevision = durable.revision;
       serverBaseHash = durable.baseHash;
-      if(!baseGitLocked && typeof durable.baseText === "string")
-        baseVersion = {before: durable.baseText, ts: durable.baseMeta?.ts ?? null,
+      if(typeof durable.baseText === "string"){
+        journalBase = {before: durable.baseText, ts: durable.baseMeta?.ts ?? null,
           head: durable.baseMeta?.kind === "git", sha: durable.baseMeta?.sha || ""};
+        if(!baseGitLocked) baseVersion = {...journalBase};
+      }
       for(const it of durable.interventions) acknowledgedIds.add(it.id);
     }
     let added = 0;
@@ -1845,6 +1893,7 @@ window.DiffVersions = function(opts){
     INTERVENTIONS.splice(0, INTERVENTIONS.length);
     LEGACY_SNAPSHOTS.splice(0, LEGACY_SNAPSHOTS.length);
     if(!baseGitLocked) baseVersion = null;
+    journalBase = null;
     lastKnown = null;
     addV2(data);
   }
@@ -1915,9 +1964,11 @@ window.DiffVersions = function(opts){
         if(!reconciled) return;
         replaceWithV2(reconciled);
         const baseOwner = decodedServer || decodedLocal;
-        if(!baseGitLocked && baseOwner && typeof baseOwner.baseText === "string")
-          baseVersion = {before: baseOwner.baseText, ts: baseOwner.baseMeta?.ts ?? null,
+        if(baseOwner && typeof baseOwner.baseText === "string"){
+          journalBase = {before: baseOwner.baseText, ts: baseOwner.baseMeta?.ts ?? null,
             head: baseOwner.baseMeta?.kind === "git", sha: baseOwner.baseMeta?.sha || ""};
+          if(!baseGitLocked) baseVersion = {...journalBase};
+        }
       } else loadData(serverData);
     }
     else if(serverData && !hasLocalV2){
