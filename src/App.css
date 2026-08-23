@@ -1404,6 +1404,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   display: inline-flex; align-items: center; gap: 7px; }
 .set-btn.quiet { background: transparent; border-color: transparent; color: var(--text-muted); }
 .set-btn.quiet:hover { color: var(--text-primary); background: var(--bg-ctl); }
+/* Repli « Avancé » d'une section de réglages (lot 1). Le chevron pivote,
+   rien d'autre ne bouge : 140ms, sous le plafond de 200ms du système. */
+.set-advanced { margin-bottom: 28px; }
+.set-advanced-trigger { display: flex; align-items: center; gap: 8px;
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 500; color: var(--text-muted); padding: 8px 4px; }
+.set-advanced-trigger:hover { color: var(--text-primary); }
+.set-advanced-trigger svg { transition: transform var(--ease); }
+.set-advanced-trigger.on svg { transform: rotate(90deg); }
+.set-advanced-body { margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .set-advanced-trigger svg { transition: none; }
+}
+/* Pastille « Enregistré » : confirme l'écriture immédiate. 140ms d'opacité,
+   jamais de déplacement — la rangée ne doit pas sauter. */
+.set-saved { display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-s); color: var(--status-success);
+  opacity: 0; transition: opacity var(--ease); }
+.set-saved.on { opacity: 1; }
+.set-saved.failed { color: var(--status-warning); }
+@media (prefers-reduced-motion: reduce) { .set-saved { transition: none; } }
 /* interrupteur iOS */
 .switch { position: relative; width: 38px; height: 22px; border-radius: var(--r-pill); flex-shrink: 0;
   background: var(--bg-ctl); border: 1px solid var(--border2); cursor: pointer; padding: 0;
@@ -1547,12 +1568,14 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   /* les items sont désormais de vrais boutons (plan 020 : menus au clavier) */
   background: transparent; border: none; width: 100%; font-family: inherit; text-align: left; }
 .mp-item:hover { background: var(--bg-ctl); }
-.mp-item:focus-visible, .model-provider-row:focus-visible, .ef-track:focus-visible {
+/* .ef-track garde son propre focus (halo sur la poignée, plus bas) : l'anneau
+   générique cerclait une piste de 20px de haut autour d'une marque de 14px. */
+.mp-item:focus-visible, .model-provider-row:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
 .mp-effort-sum { white-space: nowrap; font-size: var(--fs-m); }
 .ef-block { padding: 2px 4px 6px; }
-.ef-block .ef-scale { margin-bottom: 5px; gap: 12px; }
+.ef-block .ef-scale { gap: 12px; }
 .ef-block .ef-title { font-size: var(--fs-m); }
 .ef-block .ef-title { margin-top: 6px; }
 .mp-check { margin-left: auto; color: var(--text-primary); }
@@ -3613,22 +3636,49 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .icon-letter:focus { border-color: var(--accent); }
 /* ===== popover effort façon Claude Code desktop (slider glissable) ===== */
 /* .effort-pop supprimé : l'effort vit dans le popover modèle (plan 020) */
-.ef-title { font-size: var(--fs-l); color: var(--text-muted); margin-bottom: 8px; }
-.ef-title b { color: var(--text-primary); font-weight: 600; }
-.ef-scale { display: flex; justify-content: space-between; font-size: var(--fs-m);
-  color: var(--text-muted); margin-bottom: 8px; }
-.ef-track { position: relative; height: 24px; background: var(--bg-side);
-  border-radius: var(--r-pill); cursor: pointer; touch-action: none;
-  margin: 0 9px; }
-.ef-fill { position: absolute; left: -9px; top: 0; bottom: 0; padding-right: 9px;
-  background: var(--bg-ctl); border-radius: var(--r-pill); box-sizing: content-box; }
-.ef-dot { position: absolute; top: 50%; width: 4.5px; height: 4.5px; border-radius: 50%;
-  background: var(--mark-neutral); transform: translate(-50%, -50%); pointer-events: none; }
-.ef-dot.last { background: var(--accent); }
-.ef-thumb { position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%;
-  /* marque en encre secondaire — exception gelée, voir .dot.claude */
-  background: var(--fg2); transform: translate(-50%, -50%); pointer-events: none;
-  box-shadow: 0 1px 5px rgba(0,0,0,.45); transition: left 90ms ease; }
+/* Rail fin : l'ACCENT porte la valeur choisie, rien d'autre. L'ambre marquait
+   la dernière graduation (`.ef-dot.last`) — la seule couleur du contrôle
+   pointait donc à côté de l'état réel. Le remplissage, lui, était --bg-ctl sur
+   --bg-side : deux crans de gris, invisible. Les deux sont corrigés ici. */
+.ef-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: var(--fs-m); color: var(--text-muted); margin-bottom: 8px; }
+.ef-title b { font-size: var(--fs-l); color: var(--text-primary); font-weight: 600;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+/* légendes d'axe SOUS la piste : elles cadrent l'échelle, elles ne titrent pas */
+.ef-scale { display: flex; justify-content: space-between; margin-top: 8px;
+  font-size: var(--fs-xs); letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-disabled); }
+.ef-track { position: relative; height: 20px; cursor: pointer; touch-action: none;
+  margin: 0 7px; }
+.ef-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
+  height: 3px; margin-top: -1.5px; border-radius: var(--r-pill); background: var(--bg-ctl); }
+.ef-fill { position: absolute; left: 0; top: 50%; height: 3px; margin-top: -1.5px;
+  border-radius: var(--r-pill); background: var(--accent); transition: width var(--ease); }
+.ef-dot { position: absolute; top: 50%; width: 3px; height: 3px; border-radius: 50%;
+  background: var(--border2); transform: translate(-50%, -50%); pointer-events: none; }
+.ef-dot.on { background: color-mix(in srgb, var(--accent) 55%, var(--bg-pop)); }
+.ef-thumb { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg-pop); border: 1.5px solid var(--accent); box-sizing: border-box;
+  transform: translate(-50%, -50%); pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,.30); transition: left var(--ease), box-shadow var(--ease); }
+.ef-track:focus-visible { outline: none; }
+.ef-track:focus-visible .ef-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Cran terminal (Claude « ultracode ») : xhigh + orchestration multi-agents,
+   session seulement. Ce n'est pas la suite du même continuum, donc la piste
+   s'arrête avant et le dernier segment vit après une coupure, en --info — le
+   bleu informationnel du système. L'ambre reste l'effort. */
+.ef-track.ef-has-ultra::before { right: 18%; }
+.ef-ultra { position: absolute; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
+  border-radius: var(--r-pill); background: var(--bg-ctl); transition: background var(--ease); }
+.ef-ultra.on { background: var(--info); }
+.ef-thumb.ultra { border-color: var(--info); }
+.ef-track:focus-visible .ef-thumb.ultra {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 24%, transparent); }
+.ef-title b.ef-ultra-on { color: var(--info); }
+@media (prefers-reduced-motion: reduce) {
+  .ef-fill, .ef-thumb { transition: none; }
+}
 
 /* frontières lazy (plan 022) : détail technique du chunk en échec */
 .lazy-error { flex-wrap: wrap; }

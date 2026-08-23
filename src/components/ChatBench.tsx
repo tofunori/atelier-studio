@@ -22,7 +22,9 @@ const PROVIDERS: ProviderInfo[] = [
   {
     id: "claude", label: "Claude Code", kind: "cli", version: "2.1.0", ok: true,
     models: ["claude-fable-5", "claude-sonnet-5"], defaultModel: "claude-fable-5",
-    efforts: ["low", "medium", "high"],
+    // échelle réelle de claude.rs, ultracode compris : le banc doit montrer le
+    // cran terminal détaché, pas une échelle raccourcie
+    efforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
     capabilities: {
       resume: true, steering: true, queue: true, goals: false, tools: true,
       toolOutput: true, permissions: true,

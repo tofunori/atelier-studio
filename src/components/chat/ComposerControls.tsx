@@ -131,9 +131,36 @@ export function ComposerControls(p: {
     high: "High",
     xhigh: "Extra High",
     max: "Max",
+    // Cran terminal de Claude Code : xhigh + orchestration multi-agents, posé
+    // par --settings côté Rust. Session seulement, comme /effort ultracode.
+    ultracode: "Ultracode",
   };
   const effortIndex = Math.max(0, effortLevels.indexOf(effort));
   const effortSummary = effortLabels[effort] ?? effort;
+  // Cran terminal séparé : « ultracode » n'est pas la suite du même continuum
+  // (xhigh + orchestration multi-agents, session seulement). Il vit après une
+  // coupure, dans la couleur informationnelle — l'ambre reste l'effort. Sous
+  // trois paliers, la coupure mangerait l'échelle : rail uniforme.
+  const effortHasUltra = effortLevels.length >= 3
+    && effortLevels[effortLevels.length - 1] === "ultracode";
+  const effortIsUltra = effortHasUltra && effort === "ultracode";
+  const effortSpanEnd = effortHasUltra ? 82 : 100;
+  /** Position en % d'un palier sur la piste. */
+  const effortPos = (index: number) => {
+    if (!effortHasUltra) return (index / (effortLevels.length - 1)) * 100;
+    if (index === effortLevels.length - 1) return 100;
+    return (index / (effortLevels.length - 2)) * effortSpanEnd;
+  };
+  /** Palier visé par un pointeur, en fraction de la largeur de la piste. Le
+   *  cran terminal ne s'attrape que dans son propre segment : c'est ce qui
+   *  empêche un glissé distrait de basculer la session en ultracode. */
+  const effortIndexAt = (ratio: number) => {
+    const last = effortLevels.length - 1;
+    const pct = ratio * 100;
+    if (!effortHasUltra) return Math.min(last, Math.max(0, Math.round(ratio * last)));
+    if (pct > (effortSpanEnd + 100) / 2) return last;
+    return Math.min(last - 1, Math.max(0, Math.round((pct / effortSpanEnd) * (last - 1))));
+  };
   // Niveau de service Codex (Fast = service_tier `priority`). Ni un modèle ni
   // un effort : orthogonal aux deux, d'où un contrôle distinct entre eux. Les
   // autres providers n'exposent aucun équivalent → contrôle absent.
@@ -579,10 +606,12 @@ export function ComposerControls(p: {
                   aria-label={effortTitle}
                 >
                   <div className="ef-block">
-                    <div className="ef-title">{effortTitle} <b>{effortSummary}</b></div>
-                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
+                    <div className="ef-title">
+                      {effortTitle}
+                      <b className={effortIsUltra ? "ef-ultra-on" : ""}>{effortSummary}</b>
+                    </div>
                     <div
-                      className="ef-track"
+                      className={`ef-track ${effortHasUltra ? "ef-has-ultra" : ""}`}
                       role="slider"
                       tabIndex={0}
                       aria-label={effortTitle}
@@ -604,28 +633,33 @@ export function ComposerControls(p: {
                       onPointerDown={(e) => {
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                         const rect = e.currentTarget.getBoundingClientRect();
-                        const index = Math.min(effortLevels.length - 1, Math.max(0,
-                          Math.round(((e.clientX - rect.left) / rect.width) * (effortLevels.length - 1))));
+                        const index = effortIndexAt((e.clientX - rect.left) / rect.width);
                         if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
                       }}
                       onPointerMove={(e) => {
                         if (!e.buttons) return;
                         const rect = e.currentTarget.getBoundingClientRect();
-                        const index = Math.min(effortLevels.length - 1, Math.max(0,
-                          Math.round(((e.clientX - rect.left) / rect.width) * (effortLevels.length - 1))));
+                        const index = effortIndexAt((e.clientX - rect.left) / rect.width);
                         if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
                       }}
                     >
-                      <div className="ef-fill" style={{ width: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
+                      <div className="ef-fill" style={{ width: `${Math.min(effortPos(effortIndex), effortSpanEnd)}%` }} />
+                      {effortHasUltra && (
+                        <div className={`ef-ultra ${effortIsUltra ? "on" : ""}`} style={{ left: `${effortSpanEnd + 4}%` }} />
+                      )}
                       {effortLevels.map((level, index) => (
                         <span
                           key={level}
-                          className={`ef-dot ${index === effortLevels.length - 1 ? "last" : ""}`}
-                          style={{ left: `${(index / (effortLevels.length - 1)) * 100}%` }}
+                          className={`ef-dot ${index < effortIndex ? "on" : ""}`}
+                          style={{ left: `${effortPos(index)}%` }}
                         />
                       ))}
-                      <div className="ef-thumb" style={{ left: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
+                      <div
+                        className={`ef-thumb ${effortIsUltra ? "ultra" : ""}`}
+                        style={{ left: `${effortPos(effortIndex)}%` }}
+                      />
                     </div>
+                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
                   </div>
                 </PopoverContent>
               )}

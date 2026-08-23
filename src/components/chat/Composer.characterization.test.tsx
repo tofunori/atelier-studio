@@ -614,6 +614,33 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(Number(after)).toBe(Number(before) + 1);
   });
 
+  it("détache le cran ultracode du reste de l'échelle", () => {
+    // catalogue réel de claude.rs : ultracode ferme la liste. Ce n'est pas la
+    // suite du continuum (xhigh + orchestration, session seulement), donc la
+    // piste s'arrête avant lui et il ne s'attrape que dans son segment.
+    renderUi(<Chat {...chatProps({
+      providers: [makeProviderInfo({ efforts: ["low", "medium", "high", "xhigh", "max", "ultracode"] })],
+    })} />);
+    fireEvent.click(document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement);
+    const track = document.querySelector(".ef-track") as HTMLElement;
+    expect(track.classList.contains("ef-has-ultra")).toBe(true);
+    expect(document.querySelector(".ef-ultra")).toBeTruthy();
+    expect(document.querySelector(".ef-ultra.on")).toBeNull();
+    // le dernier palier est seul au bout ; l'avant-dernier reste dans la piste
+    const dots = [...document.querySelectorAll(".ef-dot")] as HTMLElement[];
+    expect(dots).toHaveLength(7); // Auto + les six paliers annoncés
+    expect(dots[dots.length - 1].style.left).toBe("100%");
+    expect(dots[dots.length - 2].style.left).toBe("82%");
+
+    // Fin (End n'est pas géré) : on remonte au bout à la flèche, cran par cran
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.keyDown(document.querySelector(".ef-track") as HTMLElement, { key: "ArrowRight" });
+    }
+    expect(document.querySelector(".ef-title b")?.textContent).toBe("Ultracode");
+    expect(document.querySelector(".ef-ultra.on")).toBeTruthy();
+    expect(document.querySelector(".ef-thumb.ultra")).toBeTruthy();
+  });
+
   it("le bouton modèle ouvre seulement la liste des modèles", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);

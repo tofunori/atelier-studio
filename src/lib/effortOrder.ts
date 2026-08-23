@@ -25,6 +25,10 @@ const EFFORT_RANK: Record<string, number> = {
   high: 5,
   xhigh: 6,
   max: 7,
+  // Claude Code : cran terminal annoncé par claude.rs. Il vaut xhigh + le
+  // réglage `ultracode` (orchestration multi-agents), donc il se range APRÈS
+  // max sur l'axe rapide→intelligent, jamais avant.
+  ultracode: 8,
 };
 
 const UNKNOWN_RANK = 90;
