@@ -366,7 +366,7 @@ troisième colonne synthétique serait revenu à dupliquer en moins bien ce que
 la feuille offre déjà gratuitement.
 
 Le repli « sous 1 100 px » et la consommation directe de `--chat-fs`,
-`--chat-w`, `--chat-lh` (App.tsx:638-640) décrits plus haut ne s'appliquent
+`--chat-w`, `--chat-lh` (App.tsx:647-649) décrits plus haut ne s'appliquent
 donc plus : il n'y a plus de colonne d'aperçu à replier, et ce sont les
 valeurs déjà en vigueur sur le fil réel — pas une copie — qui réagissent.
 

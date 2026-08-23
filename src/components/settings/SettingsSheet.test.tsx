@@ -150,13 +150,44 @@ describe("SettingsSheet", () => {
     );
   });
 
-  it("--scrim (tokens.css) reste translucide — un voile opaque annulerait le lot", () => {
+  // Piège documenté du dépôt (voir MEMORY.md « App.css : règles écrasées
+  // plus bas ») : une règle posée à un endroit peut être redéfinie plus loin
+  // dans le fichier, typiquement sous un bloc [data-theme="dark"]. `.match`
+  // sans drapeau global ne renvoie QUE la première occurrence — si une
+  // redéfinition plus bas remontait l'alpha à 1 (voile opaque en thème
+  // sombre), ce test resterait vert en ne regardant que la définition de
+  // tête. `matchAll` force à vérifier TOUTES les définitions de --scrim,
+  // pas seulement la première trouvée.
+  it("--scrim (tokens.css) reste translucide sur TOUTES ses définitions — un voile opaque annulerait le lot", () => {
     const tokensCss = readFileSync(join(__dirname, "..", "..", "styles", "tokens.css"), "utf8");
-    const match = tokensCss.match(/--scrim:\s*rgba?\(([^)]+)\)/);
-    expect(match, "--scrim doit être défini en rgb(a)(...) dans tokens.css").not.toBeNull();
-    const parts = match![1].split(",").map((n) => parseFloat(n.trim()));
-    const alpha = parts.length === 4 ? parts[3] : 1;
-    expect(alpha, "--scrim ne doit être ni totalement opaque ni transparent").toBeGreaterThan(0);
-    expect(alpha).toBeLessThan(1);
+    const matches = [...tokensCss.matchAll(/--scrim:\s*rgba?\(([^)]+)\)/g)];
+    expect(matches.length, "--scrim doit être défini au moins une fois en rgb(a)(...) dans tokens.css").toBeGreaterThan(0);
+    for (const match of matches) {
+      const parts = match[1].split(",").map((n) => parseFloat(n.trim()));
+      const alpha = parts.length === 4 ? parts[3] : 1;
+      expect(alpha, `--scrim ne doit être ni totalement opaque ni transparent (définition: "${match[0]}")`).toBeGreaterThan(0);
+      expect(alpha, `--scrim ne doit être ni totalement opaque ni transparent (définition: "${match[0]}")`).toBeLessThan(1);
+    }
+  });
+
+  // Le voile (DialogOverlay) porte un flou d'arrière-plan préexistant et
+  // volontairement LÉGER (backdrop-blur-xs). Le contrat du lot est que le
+  // fil de conversation reste LISIBLE derrière la feuille de réglages — un
+  // flou fort (blur-md/lg/xl/2xl/3xl) rendrait le texte du fil illisible
+  // même si --scrim garde une alpha translucide et même si `var(--scrim)`
+  // reste bien utilisé : les deux autres tests de ce fichier resteraient
+  // verts pendant que la lisibilité, elle, aurait disparu. Ce test verrouille
+  // donc la classe de flou elle-même, indépendamment de la couleur du voile.
+  it("le flou du voile reste discret (backdrop-blur-xs/sm) — un flou fort rendrait le fil illisible derrière la feuille", () => {
+    const dialogSource = readFileSync(join(__dirname, "..", "shadcn", "dialog.tsx"), "utf8");
+    const blurMatches = [...dialogSource.matchAll(/backdrop-blur-([a-z0-9]+)/g)].map((m) => m[1]);
+    expect(blurMatches.length, "aucune classe backdrop-blur trouvée dans dialog.tsx").toBeGreaterThan(0);
+    const cransDiscrets = new Set(["xs", "sm"]);
+    for (const cran of blurMatches) {
+      expect(
+        cransDiscrets.has(cran),
+        `backdrop-blur-${cran} est trop fort pour le voile des réglages — seuls xs/sm gardent le fil lisible derrière`,
+      ).toBe(true);
+    }
   });
 });
