@@ -3716,6 +3716,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-toolbar .ui-iconbtn svg, .narval-files-head .ui-iconbtn svg { width: 16px; height: 16px; }
 .narval-toolbar .ui-iconbtn { color: var(--text-muted); }
 .narval-toolbar-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+/* Les contrôles du pane vivent DANS la barre (slot), jamais en flottant :
+   le calque se posait sur les boutons Actualiser/Terminal. */
+.narval-toolbar > .workspace-pane-controls-slot { flex: none; margin-left: 4px; }
 .narval-refresh.is-loading svg { animation: narval-spin 900ms linear infinite; }
 @keyframes narval-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .narval-refresh.is-loading svg { animation: none; } }

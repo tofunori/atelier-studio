@@ -180,9 +180,12 @@ function sshTerminalCommand(status: NarvalStatus | null) {
   return gateway ? `ssh ${gateway} -t ssh ${host}` : `ssh ${host}`;
 }
 
-export default function NarvalSurface({ visible, onOpenTerminal }: {
+export default function NarvalSurface({ visible, onOpenTerminal, paneControls }: {
   visible: boolean;
   onOpenTerminal: (command: string) => void;
+  /** Contrôles du pane (grip + fermeture) intégrés à la barre : flottants,
+      ils se posaient SUR les actions de la surface (chevauchement 2026-08-23). */
+  paneControls?: React.ReactNode;
 }) {
   const [profile, setProfile] = useState<ClusterId>(() => {
     const stored = localStorage.getItem(CLUSTER_STORAGE_KEY);
@@ -575,6 +578,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                 <SquareTerminalIcon />
               </IconButton>
             </div>
+            {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
           </header>
           {error && snapshot && (
             <Alert variant="destructive" className="narval-alert">

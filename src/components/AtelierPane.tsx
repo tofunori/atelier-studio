@@ -125,7 +125,7 @@ function ownsNativeChrome(ref: WorkspaceTabRef | null): boolean {
 
 function integratesPaneControls(ref: WorkspaceTabRef | null): boolean {
   return ref?.kind === "surface"
-    && ["terminal", "browser", "biblio", "connaissances"].includes(ref.surface);
+    && ["terminal", "browser", "biblio", "connaissances", "narval"].includes(ref.surface);
 }
 
 export default function AtelierPane({
@@ -876,7 +876,11 @@ export default function AtelierPane({
     return (
       <div key="surface:narval" className="workspace-tab-content surface-body" style={{ display }}>
         <LazyBoundary fallback={<div className="pane-slot" />}>
-          <NarvalSurface visible={active} onOpenTerminal={openNarvalTerminal} />
+          <NarvalSurface
+            visible={active}
+            onOpenTerminal={openNarvalTerminal}
+            paneControls={renderPaneControls(paneNode, ref, "integrated")}
+          />
         </LazyBoundary>
       </div>
     );
