@@ -7,14 +7,15 @@
 // Décision de dessin tranchée ici (le brief demandait de la juger à l'œil) :
 // pas de colonne « identifiant » dédiée. Un slug comme
 // `openrouter/anthropic/claude-sonnet-4-5-20250929` (45 caractères) dans une
-// colonne coincée entre cinq autres sur ~870px de large ne laisserait que
+// colonne coincée entre cinq autres sur ~816px de large ne laisserait que
 // 15-20 caractères visibles avant l'ellipse — quasi illisible même avec un
 // `title`. L'identifiant devient donc la seconde ligne, en `--code-font`
 // atténué, sous le libellé du modèle : il hérite de toute la largeur de la
 // colonne « Modèle » (la plus large, puisqu'elle porte déjà le texte le plus
 // long) au lieu de se battre pour de la place dans une colonne étroite à lui
 // tout seul. Le texte complet reste disponible via `title` en cas de coupure.
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
+import { useRef } from "react";
 import { EmptyState, RowButton, StatusBadge } from "../../ui";
 import { Select } from "../../Select";
 import { ProviderIcon, StarIcon } from "../../icons";
@@ -47,6 +48,14 @@ export function ModelsGrid(props: {
   // qui traduit « un seul défaut par fournisseur » aux technologies
   // d'assistance (un <tbody role="radiogroup"> par fournisseur, les radios
   // de ses lignes en descendants).
+  //
+  // HYPOTHÈSE FRAGILE, à surveiller à la tâche 4 : ce découpage suppose que
+  // les lignes d'un même fournisseur restent contiguës dans `rows`. Si un tri
+  // (par nom, par statut…) s'intercale un jour entre buildModelRows et ce
+  // composant, deux tronçons du même fournisseur redeviendraient possibles —
+  // la clé React ci-dessous (dérivée de la première ligne du tronçon, pas du
+  // seul id de fournisseur) évite la collision de clé, mais le radiogroup se
+  // scinderait quand même en deux groupes ARIA distincts, silencieusement.
   const groups: ModelRow[][] = [];
   for (const row of rows) {
     const last = groups[groups.length - 1];
@@ -81,31 +90,23 @@ export function ModelsGrid(props: {
                 <th scope="col" className="mg-col-default">
                   <span className="tw:sr-only">{t("settings.models-grid.default")}</span>
                 </th>
-                <th scope="col">{t("settings.models-grid.model")}</th>
-                <th scope="col">{t("settings.models-grid.provider")}</th>
-                <th scope="col">{t("settings.models-grid.effort")}</th>
-                <th scope="col">{t("settings.models-grid.status")}</th>
+                <th scope="col" className="mg-col-model">{t("settings.models-grid.model")}</th>
+                <th scope="col" className="mg-col-provider">{t("settings.models-grid.provider")}</th>
+                <th scope="col" className="mg-col-effort">{t("settings.models-grid.effort")}</th>
+                <th scope="col" className="mg-col-status">{t("settings.models-grid.status")}</th>
                 <th scope="col" className="mg-col-favorite">
                   <span className="tw:sr-only">{t("settings.models-grid.favorite")}</span>
                 </th>
               </tr>
             </thead>
             {groups.map((group) => (
-              <tbody
-                key={group[0].provider}
-                role="radiogroup"
-                aria-label={t("settings.models-grid.default-group", { provider: group[0].providerLabel })}
-              >
-                {group.map((row) => (
-                  <ModelGridRow
-                    key={row.key}
-                    row={row}
-                    onSetDefault={onSetDefault}
-                    onToggleFavorite={onToggleFavorite}
-                    onSetEffort={onSetEffort}
-                  />
-                ))}
-              </tbody>
+              <ProviderGroup
+                key={`group-${group[0].key}`}
+                rows={group}
+                onSetDefault={onSetDefault}
+                onToggleFavorite={onToggleFavorite}
+                onSetEffort={onSetEffort}
+              />
             ))}
           </table>
         </div>
@@ -114,13 +115,93 @@ export function ModelsGrid(props: {
   );
 }
 
-function ModelGridRow(props: {
-  row: ModelRow;
+// Un <tbody> par fournisseur = un radiogroup ARIA. Calqué sur le roving
+// tabindex de SegmentedControl (src/components/ui/SegmentedControl.tsx,
+// fonction `move`) : dans un groupe, seule la ligne par défaut (ou la
+// première si aucune ne l'est encore) porte tabIndex 0, les autres -1. Les
+// flèches déplacent le focus ET la sélection dans le groupe — sans ça, un
+// fournisseur qui publie des centaines de modèles (opencode) forcerait à
+// appuyer sur Tab autant de fois qu'il y a de lignes pour sortir du groupe.
+function ProviderGroup(props: {
+  rows: ModelRow[];
   onSetDefault: (row: ModelRow) => void;
   onToggleFavorite: (row: ModelRow) => void;
   onSetEffort: (row: ModelRow, effort: string) => void;
 }) {
-  const { row, onSetDefault, onToggleFavorite, onSetEffort } = props;
+  const { rows, onSetDefault, onToggleFavorite, onSetEffort } = props;
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const providerLabel = rows[0].providerLabel;
+
+  const defaultIndex = rows.findIndex((row) => row.isDefault);
+  const tabbableIndex = defaultIndex === -1 ? 0 : defaultIndex;
+
+  const focusRadioAt = (index: number) => {
+    const radios = Array.from(
+      bodyRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
+    );
+    radios[index]?.focus();
+  };
+
+  const selectAt = (index: number) => {
+    onSetDefault(rows[index]);
+    focusRadioAt(index);
+  };
+
+  // La position courante se lit sur l'élément RÉELLEMENT focalisé (et non
+  // sur un data-attribute) : ce composant reste présentationnel, `rows` ne
+  // change qu'au prochain rendu du parent, donc l'index le plus fiable est
+  // celui du bouton radio que le clavier vient de quitter.
+  const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
+    const radios = Array.from(
+      bodyRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
+    );
+    const currentIndex = radios.indexOf(document.activeElement as HTMLButtonElement);
+    if (currentIndex === -1) return; // focus sur l'effort/le favori : on laisse passer
+
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      selectAt((currentIndex + 1) % rows.length);
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      selectAt((currentIndex - 1 + rows.length) % rows.length);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      selectAt(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      selectAt(rows.length - 1);
+    }
+  };
+
+  return (
+    <tbody
+      ref={bodyRef}
+      role="radiogroup"
+      aria-label={t("settings.models-grid.default-group", { provider: providerLabel })}
+      onKeyDown={onKeyDown}
+    >
+      {rows.map((row, index) => (
+        <ModelGridRow
+          key={row.key}
+          row={row}
+          tabbable={index === tabbableIndex}
+          onSetDefault={onSetDefault}
+          onToggleFavorite={onToggleFavorite}
+          onSetEffort={onSetEffort}
+        />
+      ))}
+    </tbody>
+  );
+}
+
+function ModelGridRow(props: {
+  row: ModelRow;
+  tabbable: boolean;
+  onSetDefault: (row: ModelRow) => void;
+  onToggleFavorite: (row: ModelRow) => void;
+  onSetEffort: (row: ModelRow, effort: string) => void;
+}) {
+  const { row, tabbable, onSetDefault, onToggleFavorite, onSetEffort } = props;
   const defaultLabel = t("settings.models-grid.default-for", { model: row.label });
   const favoriteLabel = row.isFavorite
     ? t("settings.models-grid.favorite-remove", { model: row.label })
@@ -135,6 +216,7 @@ function ModelGridRow(props: {
           aria-checked={row.isDefault}
           aria-label={defaultLabel}
           className="mg-radio"
+          tabIndex={tabbable ? 0 : -1}
           onClick={() => { if (!row.isDefault) onSetDefault(row); }}
         >
           <span className="mg-radio-dot" aria-hidden="true" />

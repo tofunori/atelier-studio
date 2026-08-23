@@ -1404,7 +1404,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 
 .mg-scroll { max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-m);
   background: var(--bg-card); }
-.mg-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+/* table-layout: fixed — sans ça les largeurs de colonnes ci-dessous ne sont
+   que des suggestions pour l'algorithme de rendu, et WKWebView (le moteur de
+   l'app) est précisément celui où ce comportement est le moins prévisible.
+   Budget de largeur (feuille modale min(1100px,94vw), 220px de nav, 64px de
+   padding .settings-page.embedded .set-body ⇒ ~816px utiles, App.css:2690) :
+   défaut 40 + fournisseur 130 + effort 140 + état 100 + favori 40 = 450px de
+   colonnes à largeur fixe ; la colonne « Modèle », seule sans largeur
+   déclarée, hérite du reste (~364px, bien au-dessus de son min-width). */
+.mg-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .mg-table th, .mg-table td { padding: 8px 12px; text-align: left; vertical-align: middle; }
 .mg-table thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card);
   border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: var(--fs-xs);
@@ -1420,13 +1428,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .mg-col-effort { width: 140px; }
 .mg-col-status { width: 100px; }
 
-.mg-model { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mg-model { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .mg-model-name { font-size: var(--fs-l); font-weight: 500; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .mg-model-id { font-family: var(--code-font); font-size: var(--fs-s); color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.mg-provider { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-l); }
+.mg-provider { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-l); }
 .mg-provider svg { flex: none; }
 
 .mg-radio { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;

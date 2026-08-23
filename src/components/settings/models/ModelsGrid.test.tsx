@@ -67,6 +67,27 @@ describe("ModelsGrid", () => {
     expect(screen.getByText(/2 modèles/)).toBeInTheDocument();
   });
 
+  it("radiogroup : un seul arrêt de tabulation par groupe, la flèche bas déplace la sélection", () => {
+    const onSetDefault = vi.fn();
+    const rows = [
+      row({ key: "claude:opus", modelId: "opus", label: "Opus", isDefault: true }),
+      row({ key: "claude:sonnet", modelId: "sonnet", label: "Sonnet" }),
+      row({ key: "claude:haiku", modelId: "haiku", label: "Haiku" }),
+    ];
+    renderUi(<ModelsGrid {...props({ rows, onSetDefault })} />);
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    // un seul radio du groupe est un arrêt de tabulation (roving tabindex) —
+    // celui de la ligne par défaut, ici Opus.
+    const tabbables = radios.filter((r) => r.getAttribute("tabindex") === "0");
+    expect(tabbables).toHaveLength(1);
+    expect(tabbables[0]).toHaveAttribute("aria-label", expect.stringContaining("Opus"));
+
+    tabbables[0].focus();
+    fireEvent.keyDown(tabbables[0], { key: "ArrowDown" });
+    expect(onSetDefault).toHaveBeenCalledWith(expect.objectContaining({ modelId: "sonnet" }));
+  });
+
   it("sans aucune ligne, dit pourquoi au lieu de rendre un tableau vide", () => {
     renderUi(<ModelsGrid {...props({ rows: [] })} />);
     expect(screen.queryByRole("table")).toBeNull();
