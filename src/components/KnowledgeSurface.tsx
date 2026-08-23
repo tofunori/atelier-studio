@@ -9,6 +9,7 @@ import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import {
   kbArchivedSnapshot,
+  kbCollectionsSnapshot,
   kbSourcesSnapshot,
   requestKbSources,
   subscribeKbSources,
@@ -39,6 +40,9 @@ export default function KnowledgeSurface(p: {
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
+  // Les dossiers existaient dans le registre depuis le plan 051 ; la surface
+  // ne les recevait simplement pas — c'est ce qui les rendait invisibles.
+  const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
   const noopBinding = useMemo<KbBinding>(
     () => ({ attached: [], fullContent: [], onChange: () => {} }),
     [],
@@ -187,18 +191,24 @@ export default function KnowledgeSurface(p: {
         onDismissError={() => actions.setError(null)}
         onToggle={actions.toggle}
         onToggleFull={actions.toggleFull}
-        onRemoveSource={actions.removeSource}
+        onRemoveSources={actions.removeMany}
         onPromote={actions.promote}
         onPromotePage={requestPage}
         onResync={actions.addGbrain}
-        onArchive={actions.archiveSource}
+        onArchive={(ids, off) => (off
+          ? ids.forEach((id) => actions.archiveSource(id, true))
+          : actions.archiveMany(ids))}
         archived={archived}
+        collections={collections}
+        onCreateCollection={actions.createCollection}
+        onTag={(ids, slug, off) => (off
+          ? ids.forEach((id) => actions.tagSource(id, slug, true))
+          : actions.tagMany(ids, slug))}
         onAddFiles={() => { void actions.addFiles(); }}
         onAddFolder={() => { void actions.addFolder(); }}
         onAddNote={(title, text) => actions.addNote(title, text)}
         onAddUrl={(url) => actions.addUrl(url)}
         onBatchAttach={actions.attachMany}
-        onBatchArchive={actions.archiveMany}
         onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
         gbrain={{
           query: gbrainQuery,

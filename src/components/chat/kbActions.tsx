@@ -117,6 +117,21 @@ export function useKbActions(
     }
   }
 
+  /** Suppression en lot (redesign de la base) : UN message, UNE liste fraîche.
+   *  Le détachement local suit, sinon la conversation garde des pilules
+   *  orphelines jusqu'au prochain kbList. */
+  function removeMany(ids: string[]) {
+    if (!ids.length) return;
+    wsSend({ type: "kbRemove", ids });
+    const dropped = new Set(ids);
+    if (binding.attached.some((x) => dropped.has(x)) || binding.fullContent.some((x) => dropped.has(x))) {
+      binding.onChange({
+        kbSourceIds: binding.attached.filter((x) => !dropped.has(x)),
+        kbFullContent: binding.fullContent.filter((x) => !dropped.has(x)),
+      });
+    }
+  }
+
   function promote(id: string) {
     setError(null);
     wsSend({ type: "kbPromote", id });
@@ -220,7 +235,7 @@ export function useKbActions(
 
   return {
     error, setError, promoted,
-    toggle, toggleFull, removeSource, promote,
+    toggle, toggleFull, removeSource, removeMany, promote,
     addFiles, addFolder, addPdf, addUrl, addNote, addGbrain,
     createCollection, tagSource, archiveSource,
     tagMany, archiveMany, attachMany,

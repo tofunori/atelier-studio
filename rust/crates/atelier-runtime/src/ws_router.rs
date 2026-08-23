@@ -2566,11 +2566,24 @@ async fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Ve
 }
 
 async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
-    let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    if id.is_empty() {
-        return kb_error("kbRemove: id requis".into());
-    }
-    let args = vec!["remove".to_string(), "--id".to_string(), id.to_string()];
+    // Suppression en lot (redesign de la base) : `ids` prime sur `id`. Le CLI
+    // n'est spawné qu'une fois — sinon une sélection de vingt sources relit et
+    // réécrit le registre vingt fois.
+    let batch = ids_arg(msg);
+    let ids: Vec<String> = match &batch {
+        Some(joined) => joined.split(',').map(str::to_string).collect(),
+        None => {
+            let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if id.is_empty() {
+                return kb_error("kbRemove: id ou ids requis".into());
+            }
+            vec![id.to_string()]
+        }
+    };
+    let args = match &batch {
+        Some(joined) => vec!["remove".to_string(), "--ids".to_string(), joined.clone()],
+        None => vec!["remove".to_string(), "--id".to_string(), ids[0].clone()],
+    };
     if let Err(message) =
         kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
     {
@@ -2588,8 +2601,8 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
                     .collect()
             })
             .unwrap_or_default();
-        let had = items.iter().any(|x| x == id);
-        (items.into_iter().filter(|x| x != id).collect(), had)
+        let had = items.iter().any(|x| ids.contains(x));
+        (items.into_iter().filter(|x| !ids.contains(x)).collect(), had)
     };
     let patches: Vec<Value> = {
         let store = state.threads().lock().await;

@@ -42,6 +42,7 @@ fn usage() -> String {
         "  collection --add <titre> | --rename <slug> --title <t> | --remove <slug>".to_string(),
         "  tag (--id <id> | --ids a,b,c) --collection <slug> [--off]".to_string(),
         "  archive (--id <id> | --ids a,b,c) [--off]".to_string(),
+        "  remove (--id <id> | --ids a,b,c)".to_string(),
         format!("Option commune: --dir <répertoire> (défaut: {})", default_knowledge_dir().display()),
     ]
     .join("\n")
@@ -257,7 +258,14 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             Ok(flag(json!({"ok": true, "source": store.get(id).cloned()}), &store.warning))
         }
         "remove" => {
-            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id".to_string())?.to_string();
+            // --ids : suppression en lot (redesign de la base) — une seule
+            // écriture du registre pour toute la sélection.
+            if let Some(ids) = opt_str(&parsed.options, "ids") {
+                let ids: Vec<String> = ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let removed = store.remove_many(&ids)?;
+                return Ok(flag(json!({"ok": true, "removed": removed}), &store.warning));
+            }
+            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?.to_string();
             store.remove(&id)?;
             Ok(flag(json!({"ok": true, "removed": id}), &store.warning))
         }

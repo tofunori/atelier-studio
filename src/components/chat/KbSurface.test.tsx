@@ -5,6 +5,7 @@ import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
 import { consumePendingPassageOpen, resetPendingPassageOpenForTests, setPendingPassageOpen } from "../../lib/pendingPassageOpen";
+import { resetKbTrashForTests } from "../../lib/kbTrash";
 // L'état des imports vit dans un store module : on le pilote depuis les tests
 // plutôt que de simuler tout le cycle websocket.
 const articleState: { jobs: unknown[]; focused: string | null; open: boolean } = {
@@ -60,7 +61,7 @@ function props(over: Partial<Parameters<typeof KbSurface>[0]> = {}) {
     error: null,
     onToggle: vi.fn(),
     onToggleFull: vi.fn(),
-    onRemoveSource: vi.fn(),
+    onRemoveSources: vi.fn(),
     onPromote: vi.fn(),
     onAddFiles: vi.fn(),
     onAddFolder: vi.fn(),
@@ -76,6 +77,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   articleState.jobs = [];
+  resetKbTrashForTests();
   cleanup();
   resetTestState?.();
   resetPendingPassageOpenForTests();
@@ -129,7 +131,7 @@ describe("classement", () => {
 });
 
 describe("KbSurface", () => {
-  it("affiche une seule liste, sans en-tête de section ni collections", () => {
+  it("affiche une seule liste, avec le rail de rangement à gauche", () => {
     renderUi(<KbSurface {...props()} />);
     expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
@@ -138,8 +140,11 @@ describe("KbSurface", () => {
     // les sections d'avant ont disparu
     expect(screen.queryByText(/Attachées à/)).toBeNull();
     expect(screen.queryByText("Bibliothèque")).toBeNull();
-    expect(screen.queryByText("+ collection")).toBeNull();
     expect(screen.queryByText("→ gbrain")).toBeNull();
+    // le rail : les vues et les dossiers, visibles sans ouvrir de menu
+    expect(screen.getByText("Toutes les sources")).toBeTruthy();
+    expect(screen.getByText("Jointes au fil")).toBeTruthy();
+    expect(screen.getByText("Dossiers")).toBeTruthy();
   });
 
   it("sépare la base du dépôt gbrain, et n'y laisse entrer que par un geste", () => {
@@ -160,13 +165,19 @@ describe("KbSurface", () => {
     expect(onPin).not.toHaveBeenCalled();
   });
 
-  it("les types filtrent au lieu de replier des groupes", () => {
+  // Le rail porte ce que l'utilisateur range ; le type, que le système déduit,
+  // tient dans un menu — la rangée de puces mangeait une ligne en permanence
+  // pour un filtre occasionnel.
+  it("les types filtrent depuis un menu, pas depuis une rangée de puces", async () => {
     renderUi(<KbSurface {...props()} />);
-    fireEvent.click(screen.getByText("PDF · 1"));
+    expect(screen.queryByText("Tout · 3")).toBeNull();
+    fireEvent.click(screen.getByText("Type"));
+    fireEvent.click(await screen.findByText("PDF · 1"));
     expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
     expect(screen.queryByText("Albedo feedbacks review")).toBeNull();
-    // re-cliquer la même chip revient à tout
-    fireEvent.click(screen.getByText("PDF · 1"));
+    // le déclencheur porte le filtre actif, et « tous les types » y revient
+    fireEvent.click(screen.getByText("PDF"));
+    fireEvent.click(await screen.findByText(/Tous les types/));
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
   });
 
@@ -230,13 +241,14 @@ describe("KbSurface", () => {
     expect(onPin).toHaveBeenCalledWith("papers/aubry-wake-2022");
   });
 
-  // Le cercle attache, la rangée ouvre : le clic n'est plus dépensé pour
-  // l'attachement, sinon rien n'ouvre jamais la source.
-  it("attache par le cercle, ouvre par la rangée, et filtre sur les attachées", () => {
+  // Un contrôle, un sens : le trombone joint la conversation, la case
+  // sélectionne, la rangée ouvre. Le cercle d'avant portait les deux premiers
+  // selon un mode invisible — personne ne trouvait ni l'un ni l'autre.
+  it("joint par le trombone, ouvre par la rangée, et filtre par la vue « jointes »", () => {
     const onToggle = vi.fn();
     const { container } = renderUi(<KbSurface {...props({ attached: ["bbbb2222"], onToggle })} />);
 
-    fireEvent.click(container.querySelectorAll(".kb-check-btn")[0]);
+    fireEvent.click(container.querySelectorAll(".kb-clip")[0]);
     expect(onToggle).toHaveBeenCalledWith("aaaa1111");
 
     // la rangée ouvre le lecteur, sans rien attacher de plus
@@ -246,7 +258,7 @@ describe("KbSurface", () => {
     expect(screen.getByText("Base")).toBeTruthy();
     fireEvent.click(screen.getByText("Base"));
 
-    fireEvent.click(screen.getByText("1 attachée(s)"));
+    fireEvent.click(screen.getByText("Jointes au fil"));
     expect(screen.getByText("Albedo feedbacks review")).toBeTruthy();
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
   });
@@ -308,21 +320,141 @@ describe("KbSurface", () => {
     expect(openArticleDialog).toHaveBeenCalledWith("r2");
   });
 
-  it("sélection en lot : attacher plusieurs sources d'un coup", async () => {
+  // La sélection n'a plus de mode : la case est là au survol, et le premier
+  // clic dessus ouvre la barre de lot.
+  it("sélection en lot sans mode : la case suffit, la barre d'actions suit", () => {
     const onBatchAttach = vi.fn();
     const onToggle = vi.fn();
-    renderUi(<KbSurface {...props({ onBatchAttach, onToggle })} />);
-    fireEvent.click(screen.getByLabelText("Options du volet"));
-    fireEvent.click(await screen.findByText("Sélectionner"));
-    // en mode sélection, le clic sélectionne au lieu d'attacher
-    fireEvent.click(screen.getByText("Cuffey & Paterson ch. 5"));
-    fireEvent.click(screen.getByText("Notes terrain — Saskatchewan"));
+    const { container } = renderUi(<KbSurface {...props({ onBatchAttach, onToggle })} />);
+    // aucun mode à activer dans un menu
+    expect(screen.queryByText("Sélectionner")).toBeNull();
+    const picks = container.querySelectorAll(".kb-pick");
+    fireEvent.click(picks[0]);
+    fireEvent.click(picks[2]);
     expect(onToggle).not.toHaveBeenCalled();
     expect(screen.getByText("2 sélectionnée(s)")).toBeTruthy();
     fireEvent.click(screen.getByText("Attacher"));
     expect(onBatchAttach).toHaveBeenCalledWith(["aaaa1111", "cccc3333"]);
     // la barre se referme après l'action
     expect(screen.queryByText(/sélectionnée/)).toBeNull();
+  });
+
+  it("⇧-clic prend la plage entre l'ancre et la rangée cliquée", () => {
+    const { container } = renderUi(<KbSurface {...props()} />);
+    const picks = container.querySelectorAll(".kb-pick");
+    fireEvent.click(picks[0]);
+    fireEvent.click(picks[2], { shiftKey: true });
+    expect(screen.getByText("3 sélectionnée(s)")).toBeTruthy();
+  });
+
+  it("tout sélectionner porte sur ce qui est affiché, pas sur toute la base", () => {
+    renderUi(<KbSurface {...props()} />);
+    fireEvent.change(screen.getByPlaceholderText(/Chercher, ou coller une URL/), {
+      target: { value: "albedo" },
+    });
+    fireEvent.click(screen.getByText("Tout sélectionner"));
+    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+  });
+
+  // Supprimer existait déjà (menu de rangée), mais sans retour ni retour en
+  // arrière : la suppression a lieu à l'écran tout de suite, part au backend
+  // seulement à l'expiration du filet — annuler = ne jamais envoyer.
+  it("supprimer une source la retire aussitôt de la liste, et le filet la ramène", async () => {
+    const onRemoveSources = vi.fn();
+    renderUi(<KbSurface {...props({ onRemoveSources })} />);
+    fireEvent.click(screen.getAllByLabelText("Actions")[0]);
+    fireEvent.click(await screen.findByText("Supprimer de la base"));
+
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    expect(screen.getByText(/supprimée/)).toBeTruthy();
+    // rien n'est encore parti : le geste reste réversible
+    expect(onRemoveSources).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Annuler"));
+    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
+    expect(onRemoveSources).not.toHaveBeenCalled();
+  });
+
+  it("passé le délai, la suppression part au backend en UN message", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRemoveSources = vi.fn();
+      const { container } = renderUi(<KbSurface {...props({ onRemoveSources })} />);
+      const picks = container.querySelectorAll(".kb-pick");
+      fireEvent.click(picks[0]);
+      fireEvent.click(picks[1]);
+      fireEvent.click(screen.getByText("Supprimer"));
+      expect(screen.getByText("2 sources supprimées")).toBeTruthy();
+      expect(onRemoveSources).not.toHaveBeenCalled();
+
+      await act(async () => { vi.advanceTimersByTime(8000); });
+      expect(onRemoveSources).toHaveBeenCalledTimes(1);
+      expect(onRemoveSources).toHaveBeenCalledWith(["aaaa1111", "bbbb2222"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("⌫ supprime la sélection sans passer par un menu", () => {
+    const { container } = renderUi(<KbSurface {...props()} />);
+    fireEvent.click(container.querySelectorAll(".kb-pick")[0]);
+    fireEvent.keyDown(window, { key: "Backspace" });
+    expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
+    expect(screen.getByText(/supprimée/)).toBeTruthy();
+  });
+
+  // Les dossiers vivaient dans le registre depuis le plan 051 sans jamais
+  // arriver à l'écran : le rail les montre, et le lot les remplit.
+  it("les dossiers filtrent depuis le rail et se remplissent par lot", async () => {
+    const onTag = vi.fn();
+    const collections = [{ slug: "ch1", title: "Chapitre 1" }];
+    const sources = [
+      { ...SOURCES[0], collections: ["ch1"] },
+      SOURCES[1],
+      SOURCES[2],
+    ] as unknown as KbSource[];
+    const { container } = renderUi(<KbSurface {...props({ sources, collections, onTag })} />);
+
+    // le dossier est dans le rail, avec son compte, et la rangée porte sa puce
+    expect(screen.getByText("Chapitre 1", { selector: ".kbs-chip-coll" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Chapitre 1", { selector: ".kbs-rail-name" }));
+    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
+    expect(screen.queryByText("Albedo feedbacks review")).toBeNull();
+
+    fireEvent.click(screen.getByText("Toutes les sources", { selector: ".kbs-rail-name" }));
+    fireEvent.click(container.querySelectorAll(".kb-pick")[1]);
+    fireEvent.click(screen.getByText("Classer"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Chapitre 1" }));
+    expect(onTag).toHaveBeenCalledWith(["bbbb2222"], "ch1", false);
+  });
+
+  // Glisser une rangée sur un dossier du rail : le geste que le rail rend
+  // possible, et la raison pour laquelle les dossiers valent une colonne.
+  it("glisser une sélection sur un dossier la classe", () => {
+    const onTag = vi.fn();
+    const collections = [{ slug: "ch1", title: "Chapitre 1" }];
+    const { container } = renderUi(<KbSurface {...props({ collections, onTag })} />);
+    const picks = container.querySelectorAll(".kb-pick");
+    fireEvent.click(picks[0]);
+    fireEvent.click(picks[1]);
+
+    const row = container.querySelectorAll(".kb-row")[0];
+    const folder = screen.getByText("Chapitre 1", { selector: ".kbs-rail-name" }).closest("button");
+    const dataTransfer = { effectAllowed: "", setData: vi.fn(), getData: () => "aaaa1111" };
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.dragOver(folder as Element, { dataTransfer });
+    fireEvent.drop(folder as Element, { dataTransfer });
+    expect(onTag).toHaveBeenCalledWith(["aaaa1111", "bbbb2222"], "ch1", false);
+  });
+
+  it("créer un dossier depuis le rail, sans quitter la liste", () => {
+    const onCreateCollection = vi.fn();
+    renderUi(<KbSurface {...props({ onCreateCollection })} />);
+    fireEvent.click(screen.getByText("Nouveau dossier"));
+    const input = screen.getByPlaceholderText(/Nom du dossier/);
+    fireEvent.change(input, { target: { value: "Chapitre 2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCreateCollection).toHaveBeenCalledWith("Chapitre 2");
   });
 
   it("dit quand la recherche ne donne rien", () => {

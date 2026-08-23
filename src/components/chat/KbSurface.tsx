@@ -1,12 +1,32 @@
-// Surface « Connaissances » refondue (plan 054) : UNE liste, UNE barre, UN
-// bouton. Les types deviennent des filtres au lieu de sections, les actions de
-// rangée passent dans un menu au survol, et la recherche du corpus se fait
-// depuis la même barre que le filtre local. Le popover du composer garde son
-// panneau historique (KbPickerPanel) — c'est la table de travail qui change.
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+// Surface « Connaissances » — redesign 2026-08-22 (base rangeable).
+//
+// Le panneau de plan 054 (une liste, une barre, un bouton) tenait, mais trois
+// gestes n'existaient pas À L'ÉCRAN : supprimer (enterré dans un menu de
+// rangée invisible hors survol), sélectionner plusieurs sources (mode caché
+// dans le menu du volet, qui redéfinissait en douce le cercle d'attache) et
+// ranger (les collections existaient côté store, plus personne ne les
+// affichait). Ce qui change :
+//
+//   - un RAIL à gauche : les vues (toutes / jointes / archivées) et les
+//     dossiers, avec dépôt par glisser ;
+//   - la sélection SANS mode : l'icône de type devient une case au survol,
+//     ⇧-clic prend une plage, ⌘-clic ajoute, ⌘A tout, ⌫ supprime ;
+//   - un contrôle = un sens : la case sélectionne, le trombone joint la
+//     conversation, la rangée ouvre ;
+//   - la suppression est immédiate et réversible 8 s (lib/kbTrash) — pas de
+//     modale pour un geste qu'on répare en deux clics ;
+//   - les types passent de la rangée de puces à un menu « Type » : ce que
+//     l'utilisateur crée mérite une colonne, ce que le système déduit non.
+//
+// Le dépôt gbrain garde sa nature : lecture et épinglage, ni dossiers ni
+// suppression — on ne cure pas un corpus depuis une liste de travail.
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
 import SourceReader, { type ReaderTarget } from "./SourceReader";
-import type { KbSource } from "../../lib/kbSources";
+import type { KbCollection, KbSource } from "../../lib/kbSources";
+import {
+  kbTrashBatchSnapshot, kbTrashSnapshot, scheduleKbRemove, subscribeKbTrash, undoKbRemove,
+} from "../../lib/kbTrash";
 import {
   articleImportSnapshot, dismissArticleImport, fileName, openArticleDialog, openGbrainPage,
   stageLabel, startDoiImport, subscribeArticleImport, type ArticleJob,
@@ -20,6 +40,9 @@ import { Input } from "../shadcn/input";
 import { RowButton } from "../ui/RowButton";
 
 export type KbFilter = "all" | "attached" | "pdf" | "note" | "web" | "file" | "corpus";
+
+/** Vue courante du rail : ce que l'utilisateur a rangé, pas ce que le système déduit. */
+export type KbView = "all" | "attached" | "archived" | `coll:${string}`;
 
 /** Famille de filtre d'une source — les kinds voisins sont regroupés. */
 export function filterOf(kind: string): KbFilter {
@@ -73,6 +96,12 @@ function pinnedSlugs(sources: KbSource[]) {
   return new Set(
     sources.filter((s) => s.kind === "gbrain").map((s) => String(s.meta?.slug ?? s.origin ?? "")),
   );
+}
+
+/** Collections d'une source, quel que soit l'âge de l'entrée du registre. */
+export function collectionsOf(source: KbSource | null): string[] {
+  const raw = (source as { collections?: unknown } | null)?.collections;
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
 }
 
 /** La BASE : uniquement ce que l'utilisateur a mis là. Le dépôt gbrain ne s'y
@@ -130,12 +159,18 @@ export default function KbSurface(p: {
   onDismissError?: () => void;
   onToggle: (id: string) => void;
   onToggleFull: (id: string) => void;
-  onRemoveSource: (id: string) => void;
+  /** Suppression d'une source OU d'une sélection — passe par la corbeille. */
+  onRemoveSources: (ids: string[]) => void;
   onPromote: (id: string) => void;
   onPromotePage?: (id: string) => void;
   onResync?: (slug: string) => void;
-  onArchive?: (id: string, off: boolean) => void;
+  /** Archivage d'une source ou d'un lot ; `off` désarchive. */
+  onArchive?: (ids: string[], off: boolean) => void;
   archived?: { count: number; sources: KbSource[] };
+  /** Dossiers (collections du registre) — le rail les affiche enfin. */
+  collections?: KbCollection[];
+  onCreateCollection?: (title: string) => void;
+  onTag?: (ids: string[], slug: string, off: boolean) => void;
   onAddFiles: () => void;
   onAddFolder: () => void;
   onAddNote: (title: string, text: string) => void;
@@ -144,21 +179,27 @@ export default function KbSurface(p: {
   /** Ouvre le PDF d'origine d'une page du dépôt (chemin du front matter). */
   onOpenOrigin?: (path: string) => void;
   onBatchAttach?: (ids: string[]) => void;
-  onBatchArchive?: (ids: string[]) => void;
   gbrain?: GbrainSectionProps;
   headerEnd?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<KbFilter>("all");
-  const [archivedView, setArchivedView] = useState(false);
+  const [type, setType] = useState<KbFilter>("all");
+  const [view, setView] = useState<KbView>("all");
   const [addOpen, setAddOpen] = useState(false);
+  const [typeOpen, setTypeOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [tagOpen, setTagOpen] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteTitle, setNoteTitle] = useState("");
   const [noteText, setNoteText] = useState("");
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [newColl, setNewColl] = useState<string | null>(null);
+  // Sélection ordonnée : l'ordre sert aux plages ⇧-clic et aux actions de lot.
+  const [selected, setSelected] = useState<string[]>([]);
+  const anchorRef = useRef<string | null>(null);
+  const dragRef = useRef<string[]>([]);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   // Deux territoires : « base » est ce que l'utilisateur a choisi et cure,
   // « gbrain » est le dépôt qui s'accumule et où les PDF entrent. Ils n'ont pas
   // la même vie ; les mélanger faisait grossir la base à chaque ingestion.
@@ -207,30 +248,57 @@ export default function KbSurface(p: {
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
   const [now, setNow] = useState(() => Date.now());
   const live = imports.jobs.filter((job) => job.phase !== "error");
+  // Corbeille : les sources en attente de suppression sont déjà hors de la
+  // liste, et le bandeau d'annulation court.
+  const trashIds = useSyncExternalStore(subscribeKbTrash, kbTrashSnapshot);
+  const trashBatch = useSyncExternalStore(subscribeKbTrash, kbTrashBatchSnapshot);
 
-  const shown = archivedView ? (p.archived?.sources ?? []) : p.sources;
+  const archivedView = view === "archived";
+  const collections = p.collections ?? [];
+  const shown = useMemo(() => {
+    const pool = archivedView ? (p.archived?.sources ?? []) : p.sources;
+    return trashIds.length ? pool.filter((s) => !trashIds.includes(s.id)) : pool;
+  }, [archivedView, p.archived?.sources, p.sources, trashIds]);
   const rows = useMemo(() => buildRows(shown), [shown]);
   const corpusRows = useMemo(
     () => buildCorpusRows(p.sources, p.articles ?? []),
     [p.sources, p.articles],
   );
 
+  // Les sources de la VUE courante (avant filtre de type et recherche) : c'est
+  // sur elles que comptent les puces de type et « tout sélectionner ».
+  const inView = useMemo(() => rows.filter((row) => {
+    if (view === "attached") return Boolean(row.source && p.attached.includes(row.source.id));
+    if (view.startsWith("coll:")) return collectionsOf(row.source).includes(view.slice(5));
+    return true;
+  }), [rows, view, p.attached]);
+
   const counts = useMemo(() => {
-    const out: Record<string, number> = { all: rows.length, attached: p.attached.length };
-    for (const row of rows) out[row.filter] = (out[row.filter] ?? 0) + 1;
+    const out: Record<string, number> = { all: inView.length };
+    for (const row of inView) out[row.filter] = (out[row.filter] ?? 0) + 1;
     return out;
-  }, [rows, p.attached.length]);
+  }, [inView]);
 
   const needle = query.trim().toLowerCase();
   const corpusVisible = corpusRows.filter((row) => !needle
     || `${row.title} ${row.slug ?? ""}`.toLowerCase().includes(needle));
-  const visible = rows.filter((row) => {
-    if (filter === "attached") {
-      if (!row.source || !p.attached.includes(row.source.id)) return false;
-    } else if (filter !== "all" && row.filter !== filter) return false;
+  const visible = inView.filter((row) => {
+    if (type !== "all" && row.filter !== type) return false;
     if (!needle) return true;
     return `${row.title} ${row.slug ?? ""} ${row.source?.origin ?? ""}`.toLowerCase().includes(needle);
   });
+  const visibleIds = visible.map((row) => row.source?.id).filter((id): id is string => Boolean(id));
+
+  // Une sélection ne survit ni à un changement de vue ni à la disparition de
+  // ses rangées : une action de lot doit toujours porter sur ce qu'on voit.
+  useEffect(() => {
+    setSelected((current) => {
+      const next = current.filter((id) => visibleIds.includes(id));
+      return next.length === current.length ? current : next;
+    });
+    // visibleIds change à chaque rendu : on compare par contenu
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds.join(",")]);
 
   // Une URL collée s'épingle, un DOI importe sa fiche de référence ; le reste
   // filtre la liste. La barre dit ce qu'elle fera avant qu'on valide.
@@ -276,7 +344,6 @@ export default function KbSurface(p: {
             ? void openGbrainPage(String(job.writtenSlug ?? ""))
             : openArticleDialog(job.requestId))}
         >
-          <span className="kb-check" aria-hidden />
           <span className="kb-kind">
             {job.phase === "converting" || job.phase === "writing" ? (
               <svg className="kbs-spin" width="13" height="13" viewBox="0 0 16 16" fill="none"
@@ -322,18 +389,96 @@ export default function KbSurface(p: {
     );
   }
 
-  function toggleSelected(id: string) {
+  /** Sélection : clic simple bascule, ⇧-clic prend la plage depuis l'ancre. */
+  function pick(id: string, range: boolean) {
     setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      if (range && anchorRef.current && visibleIds.includes(anchorRef.current)) {
+        const a = visibleIds.indexOf(anchorRef.current);
+        const b = visibleIds.indexOf(id);
+        if (a > -1 && b > -1) {
+          const slice = visibleIds.slice(Math.min(a, b), Math.max(a, b) + 1);
+          return [...current, ...slice.filter((x) => !current.includes(x))];
+        }
+      }
+      anchorRef.current = id;
+      return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
     });
   }
 
-  function exitSelect() {
-    setSelectMode(false);
-    setSelected(new Set());
+  function clearSelection() {
+    anchorRef.current = null;
+    setSelected([]);
+  }
+
+  function removeSources(ids: string[]) {
+    if (!ids.length) return;
+    const titles = ids
+      .map((id) => p.sources.find((s) => s.id === id)?.title ?? "")
+      .filter(Boolean);
+    clearSelection();
+    scheduleKbRemove(ids, p.onRemoveSources, { titles });
+  }
+
+  function tag(ids: string[], slug: string, off: boolean) {
+    if (!ids.length) return;
+    p.onTag?.(ids, slug, off);
+    if (!off) clearSelection();
+  }
+
+  function archive(ids: string[], off: boolean) {
+    if (!ids.length) return;
+    p.onArchive?.(ids, off);
+    clearSelection();
+  }
+
+  // Clavier : les raccourcis n'entrent en jeu qu'une fois la sélection
+  // commencée ou le focus dans le panneau — sinon ⌘A volerait la sélection de
+  // texte du composer voisin.
+  useEffect(() => {
+    if (tab !== "base" || lecture) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      // `e.target` peut être window/document (raccourci global, tests) : sans
+      // ce garde-fou, `contains` reçoit un non-Node et lève.
+      const raw = e.target as unknown;
+      const el = raw && typeof (raw as HTMLElement).tagName === "string" ? (raw as HTMLElement) : null;
+      const typing = Boolean(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA"
+        || el.isContentEditable));
+      const inside = Boolean(el && panelRef.current?.contains(el));
+      if (typing) return;
+      if (!selected.length && !inside) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        anchorRef.current = visibleIds[0] ?? null;
+        setSelected(visibleIds);
+      } else if (e.key === "Escape" && selected.length) {
+        clearSelection();
+      } else if ((e.key === "Backspace" || e.key === "Delete") && selected.length) {
+        e.preventDefault();
+        removeSources(selected);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  function collectionItems(ids: string[], current: string[] = []): LazyDropdownMenuItem[] {
+    const items: LazyDropdownMenuItem[] = collections.map((coll) => {
+      const on = current.includes(coll.slug);
+      return {
+        key: `coll-${coll.slug}`,
+        label: on ? `✓ ${coll.title}` : coll.title,
+        onSelect: () => tag(ids, coll.slug, on),
+      };
+    });
+    if (p.onCreateCollection) {
+      items.push({
+        key: "coll-new",
+        separatorBefore: items.length > 0,
+        label: t("kbs.new-folder"),
+        onSelect: () => setNewColl(""),
+      });
+    }
+    return items;
   }
 
   function rowMenu(row: Row): LazyDropdownMenuItem[] {
@@ -341,12 +486,30 @@ export default function KbSurface(p: {
     const source = row.source;
     if (source) {
       items.push({
+        key: "open",
+        label: t("kbs.menu-open"),
+        onSelect: () => openLecture({ kind: "source", id: source.id }),
+      });
+      items.push({
+        key: "attach",
+        label: t(p.attached.includes(source.id) ? "kbs.detach" : "kbs.attach"),
+        onSelect: () => p.onToggle(source.id),
+      });
+      items.push({
         key: "full",
         label: t(p.fullContent.includes(source.id) ? "kbs.menu-full-on" : "kbs.menu-full"),
         onSelect: () => p.onToggleFull(source.id),
       });
+      if (p.onTag) {
+        items.push({
+          key: "classify",
+          separatorBefore: true,
+          label: t("kbs.menu-classify"),
+          children: collectionItems([source.id], collectionsOf(source)),
+        });
+      }
       if (p.onPromotePage) {
-        items.push({ key: "page", label: t("kb.promote-page"), onSelect: () => p.onPromotePage?.(source.id) });
+        items.push({ key: "page", separatorBefore: true, label: t("kb.promote-page"), onSelect: () => p.onPromotePage?.(source.id) });
       }
       items.push({ key: "promote", label: t("kb.promote"), onSelect: () => p.onPromote(source.id) });
       if (row.slug && p.onResync) {
@@ -357,14 +520,14 @@ export default function KbSurface(p: {
           key: "archive",
           separatorBefore: true,
           label: t(archivedView ? "kb.unarchive" : "kb.archive"),
-          onSelect: () => p.onArchive?.(source.id, archivedView),
+          onSelect: () => archive([source.id], archivedView),
         });
       }
       items.push({
         key: "remove",
         destructive: true,
         label: t("kb.remove-source"),
-        onSelect: () => p.onRemoveSource(source.id),
+        onSelect: () => removeSources([source.id]),
       });
       return items;
     }
@@ -384,42 +547,85 @@ export default function KbSurface(p: {
     const source = row.source;
     const on = Boolean(source && p.attached.includes(source.id));
     const full = Boolean(source && p.fullContent.includes(source.id));
-    // Le dépôt ne s'attache pas à une conversation : on y puise. Pas de case,
-    // et une seule action utile — faire entrer la page dans la base.
+    const sel = Boolean(source && selected.includes(source.id));
+    // Le dépôt ne s'attache pas à une conversation : on y puise. Ni case, ni
+    // trombone — une seule action utile, faire entrer la page dans la base.
     const corpus = !source;
+    const chips = collectionsOf(source);
     return (
-      <div className={`kb-row ${on ? "on" : ""}`} key={row.key}>
-        {/* Le cercle porte l'attachement, la rangée ouvre. Le clic était
-            dépensé pour attacher et rien n'ouvrait la source ; le cercle, lui,
-            ne faisait que refléter l'état. Même grammaire dans les deux
-            onglets : cliquer ouvre, un geste distinct engage. */}
+      <div
+        className={`kb-row ${on ? "on" : ""} ${sel ? "sel" : ""}`}
+        key={row.key}
+        draggable={Boolean(source) && Boolean(p.onTag)}
+        onDragStart={(e) => {
+          if (!source) return;
+          dragRef.current = selected.includes(source.id) ? [...selected] : [source.id];
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", source.id);
+        }}
+        onDragEnd={() => { dragRef.current = []; setDropOn(null); }}
+      >
+        {/* Un contrôle, un sens : l'icône de type devient la case au survol,
+            le trombone joint la conversation, la rangée ouvre. Le cercle
+            d'avant portait l'attachement ET la sélection selon un mode
+            invisible — personne ne trouvait ni l'un ni l'autre. */}
         {!corpus && source && (
           <RowButton
-            className={`kb-check-btn ${selectMode ? (selected.has(source.id) ? "on" : "") : on ? "on" : ""}`}
-            aria-pressed={selectMode ? selected.has(source.id) : on}
-            title={t(selectMode ? "kbs.select" : on ? "kbs.detach" : "kbs.attach")}
-            onClick={() => (selectMode ? toggleSelected(source.id) : p.onToggle(source.id))}
+            className={`kb-pick ${sel ? "on" : ""}`}
+            aria-pressed={sel}
+            title={t("kbs.select")}
+            onClick={(e) => pick(source.id, e.shiftKey)}
           >
-            <span className="kb-check" aria-hidden />
+            <span className="kb-pick-kind"><KindIcon kind={row.kind} /></span>
+            <span className="kb-pick-box" aria-hidden />
           </RowButton>
         )}
+        {corpus && <span className="kb-kind kb-pick"><KindIcon kind={row.kind} /></span>}
         <RowButton
           className="kb-row-main"
           title={source?.origin ?? row.slug ?? row.title}
-          onClick={() => {
-            if (selectMode && source) toggleSelected(source.id);
+          onClick={(e) => {
+            if (source && (e.shiftKey || e.metaKey || e.ctrlKey)) pick(source.id, e.shiftKey);
+            else if (source && selected.length) pick(source.id, false);
             else if (source) openLecture({ kind: "source", id: source.id });
             else openLecture({ kind: "gbrain", slug: row.slug ?? "" });
           }}
         >
-          <span className="kb-kind"><KindIcon kind={row.kind} /></span>
           <span className="kb-name">{row.title}</span>
           {full && <span className="kbs-flag">{t("kbs.flag-full")}</span>}
           {corpus && row.pinned && (
             <span className="kbs-flag kbs-flag-quiet">{t("kbs.flag-in-base")}</span>
           )}
-          <span className="kb-meta">{row.meta}</span>
+          {/* Une puce suffit à dire « c'est rangé » ; les autres se comptent.
+              Et dans un dossier ouvert, sa propre puce ne dit plus rien. */}
+          {chips
+            .filter((slug) => `coll:${slug}` !== view)
+            .slice(0, 1)
+            .map((slug) => (
+              <span className="kbs-chip-coll" key={slug}>
+                {collections.find((c) => c.slug === slug)?.title ?? slug}
+              </span>
+            ))}
+          {chips.filter((slug) => `coll:${slug}` !== view).length > 1 && (
+            <span className="kbs-chip-more">
+              +{chips.filter((slug) => `coll:${slug}` !== view).length - 1}
+            </span>
+          )}
         </RowButton>
+        {!corpus && source && (
+          <RowButton
+            className={`kb-clip ${on ? "on" : ""}`}
+            aria-pressed={on}
+            title={t(on ? "kbs.detach" : "kbs.attach")}
+            onClick={() => p.onToggle(source.id)}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+              strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.6 3.6v7.2a3.1 3.1 0 0 1-6.2 0V4.2a2 2 0 0 1 4 0v6.4a1 1 0 0 1-2 0V4.8" />
+            </svg>
+          </RowButton>
+        )}
+        <span className="kb-meta">{row.meta}</span>
         <span className="kb-row-actions">
           <LazyDropdownMenu
             open={menuFor === row.key}
@@ -440,6 +646,95 @@ export default function KbSurface(p: {
     );
   }
 
+  function railItem(key: KbView, label: string, kind: string, n: number, droppable = false) {
+    return (
+      <RowButton
+        key={key}
+        className={`kbs-rail-item ${view === key ? "on" : ""} ${dropOn === key ? "drop" : ""}`}
+        aria-pressed={view === key}
+        onClick={() => { setView(key); clearSelection(); }}
+        onDragOver={droppable ? (e) => { e.preventDefault(); setDropOn(key); } : undefined}
+        onDragLeave={droppable ? () => setDropOn((cur) => (cur === key ? null : cur)) : undefined}
+        onDrop={droppable ? (e) => {
+          e.preventDefault();
+          setDropOn(null);
+          const ids = dragRef.current;
+          dragRef.current = [];
+          if (ids.length && key.startsWith("coll:")) tag(ids, key.slice(5), false);
+        } : undefined}
+      >
+        <span className="kbs-rail-icon"><KindIcon kind={kind} /></span>
+        <span className="kbs-rail-name">{label}</span>
+        <span className="kbs-rail-n">{n}</span>
+      </RowButton>
+    );
+  }
+
+  function renderRail() {
+    if (tab === "brain") {
+      return (
+        <aside className="kbs-rail">
+          <div className="kbs-rail-label">{t("kbs.tab-brain")}</div>
+          <p className="kbs-rail-note">{t("kbs.brain-note")}</p>
+        </aside>
+      );
+    }
+    const base = rows.filter((row) => row.source);
+    return (
+      <aside className="kbs-rail">
+        <div className="kbs-rail-label">{t("kbs.views")}</div>
+        {railItem("all", t("kbs.view-all"), "file", archivedView ? p.sources.length : base.length)}
+        {railItem("attached", t("kbs.view-attached"), "gbrain", p.attached.length)}
+        <div className="kbs-rail-label">{t("kbs.folders")}</div>
+        {collections.map((coll) => railItem(
+          `coll:${coll.slug}`,
+          coll.title,
+          "folder",
+          p.sources.filter((s) => collectionsOf(s).includes(coll.slug)).length,
+          Boolean(p.onTag),
+        ))}
+        {collections.length === 0 && newColl === null && (
+          <p className="kbs-rail-note">{t("kbs.folders-empty")}</p>
+        )}
+        {newColl === null ? (
+          p.onCreateCollection && (
+            <RowButton className="kbs-rail-new" onClick={() => setNewColl("")}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                strokeWidth="1.35" strokeLinecap="round" aria-hidden="true">
+                <path d="M8 3.5v9M3.5 8h9" />
+              </svg>
+              {t("kbs.new-folder")}
+            </RowButton>
+          )
+        ) : (
+          <Input
+            autoFocus
+            className="kbs-rail-input"
+            placeholder={t("kbs.new-folder-placeholder")}
+            value={newColl}
+            onChange={(e) => setNewColl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const title = newColl.trim();
+                if (title) p.onCreateCollection?.(title);
+                setNewColl(null);
+              }
+              if (e.key === "Escape") setNewColl(null);
+            }}
+            onBlur={() => {
+              const title = (newColl ?? "").trim();
+              if (title) p.onCreateCollection?.(title);
+              setNewColl(null);
+            }}
+          />
+        )}
+        <div className="kbs-rail-sep" />
+        {railItem("archived", t("kbs.view-archived"), "note", p.archived?.count ?? 0)}
+      </aside>
+    );
+  }
+
   if (lecture) {
     return (
       <div className="kb-panel kb-panel-surface kbs">
@@ -455,8 +750,13 @@ export default function KbSurface(p: {
     );
   }
 
+  const allPicked = visibleIds.length > 0 && selected.length === visibleIds.length;
+
   return (
-    <div className="kb-panel kb-panel-surface kbs">
+    <div
+      className={`kb-panel kb-panel-surface kbs ${selected.length ? "kbs-picking" : ""}`}
+      ref={panelRef}
+    >
       <div className="kb-head">
         <span className="kb-title">{t("kbs.title")}</span>
         <span className="kbs-seg" role="tablist" aria-label={t("kbs.tabs-label")}>
@@ -464,7 +764,7 @@ export default function KbSurface(p: {
             role="tab"
             aria-selected={tab === "base"}
             className={`kbs-seg-tab ${tab === "base" ? "on" : ""}`}
-            onClick={() => setTab("base")}
+            onClick={() => { setTab("base"); clearSelection(); }}
           >
             {t("kbs.tab-base")} <span className="kbs-seg-n">{rows.length}</span>
           </RowButton>
@@ -472,21 +772,37 @@ export default function KbSurface(p: {
             role="tab"
             aria-selected={tab === "brain"}
             className={`kbs-seg-tab ${tab === "brain" ? "on" : ""}`}
-            onClick={() => setTab("brain")}
+            onClick={() => { setTab("brain"); clearSelection(); }}
           >
             {t("kbs.tab-brain")} <span className="kbs-seg-n">{corpusRows.length}</span>
           </RowButton>
         </span>
-        {tab === "base" && p.attached.length > 0 && (
-          <RowButton
-            className={`kb-chip-filter ${filter === "attached" ? "on" : ""}`}
-            title={t("kbs.attached-title", { title: p.threadTitle?.trim() || t("app.new-chat-title") })}
-            onClick={() => setFilter((current) => (current === "attached" ? "all" : "attached"))}
-          >
-            {t("kbs.attached", { n: p.attached.length })}
-          </RowButton>
-        )}
         <span className="kbs-spacer" />
+        {tab === "base" && (
+          <LazyDropdownMenu
+            open={typeOpen}
+            onOpenChange={setTypeOpen}
+            align="end"
+            label={t("kbs.type")}
+            trigger={(
+              <Button type="button" variant="ghost" className={`ghost kbs-add ${type === "all" ? "" : "on"}`}>
+                {type === "all" ? t("kbs.type") : t(FILTER_LABELS[type as Exclude<KbFilter, "all" | "attached">])}
+              </Button>
+            )}
+            items={[
+              {
+                key: "type-all",
+                label: `${type === "all" ? "✓ " : ""}${t("kbs.type-all")} · ${counts.all ?? 0}`,
+                onSelect: () => setType("all"),
+              },
+              ...FILTER_ORDER.filter((key) => (counts[key] ?? 0) > 0).map((key) => ({
+                key: `type-${key}`,
+                label: `${type === key ? "✓ " : ""}${t(FILTER_LABELS[key])} · ${counts[key]}`,
+                onSelect: () => setType(key),
+              })),
+            ]}
+          />
+        )}
         {tab === "brain" ? (
           // Dans le dépôt, une seule entrée possible : un PDF à convertir.
           <Button
@@ -536,182 +852,216 @@ export default function KbSurface(p: {
           )}
           items={[
             {
-              key: "select",
-              label: t(selectMode ? "kb.select-cancel" : "kb.select"),
-              onSelect: () => (selectMode ? exitSelect() : setSelectMode(true)),
+              key: "select-all",
+              label: t(allPicked ? "kbs.select-none" : "kbs.select-all"),
+              disabled: visibleIds.length === 0,
+              onSelect: () => (allPicked ? clearSelection() : setSelected(visibleIds)),
             },
             {
               key: "archived",
               separatorBefore: true,
               label: t(archivedView ? "kbs.menu-back" : "kbs.menu-archived", { n: p.archived?.count ?? 0 }),
               disabled: !archivedView && (p.archived?.count ?? 0) === 0,
-              onSelect: () => setArchivedView((v) => !v),
+              onSelect: () => { setView(archivedView ? "all" : "archived"); clearSelection(); },
             },
           ]}
         />
         {p.headerEnd && <div className="workspace-pane-controls-slot">{p.headerEnd}</div>}
       </div>
 
-      <Input
-        className="kbs-search"
-        placeholder={t(tab === "brain" ? "kbs.search-brain" : "kbs.search")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submitBar();
-          }
-        }}
-      />
-      {doi && <div className="kbs-hint">{t("kbs.hint-doi")}</div>}
-      {looksLikeUrl && <div className="kbs-hint">{t("kbs.hint-url")}</div>}
-
-      {/* Le dépôt est d'une seule nature : rien à filtrer par type. */}
-      {tab === "base" && (
-        <div className="kb-chips-row">
-          <RowButton
-            className={`kb-chip-filter ${filter === "all" ? "on" : ""}`}
-            onClick={() => setFilter("all")}
-          >
-            {t("kbs.filter-all", { n: counts.all ?? 0 })}
-          </RowButton>
-          {FILTER_ORDER.filter((key) => (counts[key] ?? 0) > 0).map((key) => (
-            <RowButton
-              key={key}
-              className={`kb-chip-filter ${filter === key ? "on" : ""}`}
-              onClick={() => setFilter((current) => (current === key ? "all" : key))}
-            >
-              {t(FILTER_LABELS[key])} · {counts[key]}
-            </RowButton>
-          ))}
-        </div>
-      )}
-
-      {noteOpen && (
-        <div className="kb-note-form">
+      <div className="kbs-body">
+        {renderRail()}
+        <div className="kbs-main">
           <Input
-            autoFocus
-            placeholder={t("kb.note-title")}
-            value={noteTitle}
-            onChange={(e) => setNoteTitle(e.target.value)}
+            className="kbs-search"
+            placeholder={t(tab === "brain" ? "kbs.search-brain" : "kbs.search")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitBar();
+              }
+            }}
           />
-          <textarea
-            className="kb-note-text"
-            placeholder={t("kb.note-text")}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            rows={3}
-          />
-          <div className="kb-note-actions">
-            <Button type="button" variant="ghost" className="ghost" onClick={() => setNoteOpen(false)}>
-              {t("action.cancel")}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="ghost"
-              onClick={() => {
-                if (!noteTitle.trim() && !noteText.trim()) return;
-                p.onAddNote(noteTitle.trim(), noteText.trim());
-                setNoteTitle("");
-                setNoteText("");
-                setNoteOpen(false);
-              }}
-            >
-              {t("kb.note-save")}
-            </Button>
+          {doi && <div className="kbs-hint">{t("kbs.hint-doi")}</div>}
+          {looksLikeUrl && <div className="kbs-hint">{t("kbs.hint-url")}</div>}
+
+          <div className="kbs-listhead">
+            {tab === "base" && (
+              <RowButton
+                className="kbs-listhead-act"
+                disabled={visibleIds.length === 0}
+                onClick={() => (allPicked ? clearSelection() : setSelected(visibleIds))}
+              >
+                {t(allPicked ? "kbs.select-none" : "kbs.select-all")}
+              </RowButton>
+            )}
+            <span className="kbs-spacer" />
+            <span className="kbs-listhead-count">
+              {tab === "brain"
+                ? t("kbs.count-brain", { n: corpusVisible.length })
+                : t("kbs.count-base", { n: visible.length, a: p.attached.length })}
+            </span>
+          </div>
+
+          {noteOpen && (
+            <div className="kb-note-form">
+              <Input
+                autoFocus
+                placeholder={t("kb.note-title")}
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+              />
+              <textarea
+                className="kb-note-text"
+                placeholder={t("kb.note-text")}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                rows={3}
+              />
+              <div className="kb-note-actions">
+                <Button type="button" variant="ghost" className="ghost" onClick={() => setNoteOpen(false)}>
+                  {t("action.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="ghost"
+                  onClick={() => {
+                    if (!noteTitle.trim() && !noteText.trim()) return;
+                    p.onAddNote(noteTitle.trim(), noteText.trim());
+                    setNoteTitle("");
+                    setNoteText("");
+                    setNoteOpen(false);
+                  }}
+                >
+                  {t("kb.note-save")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {p.error && (
+            <div className="kb-error">
+              <span className="kb-error-text">{p.error}</span>
+              {p.onDismissError && (
+                <IconButton
+                  size="s"
+                  className="ghost"
+                  label={t("kb.error-dismiss")}
+                  title={t("kb.error-dismiss")}
+                  onClick={() => p.onDismissError?.()}
+                >
+                  ×
+                </IconButton>
+              )}
+            </div>
+          )}
+
+          <div className="kb-list">
+            {/* Les conversions vivent dans le dépôt : elles n'ont rien à faire dans
+                la liste que l'utilisateur cure. */}
+            {tab === "brain" && live.map(renderJob)}
+            {tab === "brain" && corpusVisible.map(renderRow)}
+            {tab === "brain" && corpusVisible.length === 0 && live.length === 0 && (
+              <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty-brain")}</div>
+            )}
+            {tab === "brain" && corpusRows.length > 0 && (
+              <div className="kbs-foot">{t("kbs.brain-cap", { n: corpusRows.length })}</div>
+            )}
+            {tab === "base" && visible.map(renderRow)}
+            {tab === "base" && visible.length === 0 && (
+              <div className="kb-empty">
+                {t(needle
+                  ? "kbs.empty-search"
+                  : view.startsWith("coll:")
+                    ? "kbs.empty-folder"
+                    : archivedView
+                      ? "kb.archived-empty"
+                      : "kbs.empty")}
+              </div>
+            )}
+
+            {/* Le corpus se cherche depuis la même barre : dernière ligne, pas
+                deuxième champ. */}
+            {p.gbrain && needle.length >= 2 && !looksLikeUrl && (
+              <>
+                <RowButton className="kbs-corpus-cta" onClick={submitBar}>
+                  {p.gbrain.searching
+                    ? t("kb.gbrain-searching")
+                    : t("kbs.search-corpus", { q: query.trim() })}
+                </RowButton>
+                {p.gbrain.error && <div className="kb-error">{p.gbrain.error}</div>}
+                {p.gbrain.results.map((result) => (
+                  <div key={result.slug} className="kb-row">
+                    <RowButton
+                      className="kb-row-main"
+                      title={result.snippet ?? result.slug}
+                      onClick={() => p.gbrain?.onPin(result.slug)}
+                    >
+                      <span className="kb-kind"><KindIcon kind="gbrain" /></span>
+                      <span className="kb-name">{result.slug}</span>
+                      <span className="kb-meta">{t("kb.gbrain-meta-nas")}</span>
+                    </RowButton>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </div>
-      )}
-
-      {p.error && (
-        <div className="kb-error">
-          <span className="kb-error-text">{p.error}</span>
-          {p.onDismissError && (
-            <IconButton
-              size="s"
-              className="ghost"
-              label={t("kb.error-dismiss")}
-              title={t("kb.error-dismiss")}
-              onClick={() => p.onDismissError?.()}
-            >
-              ×
-            </IconButton>
-          )}
-        </div>
-      )}
-
-      <div className="kb-list">
-        {/* Les conversions vivent dans le dépôt : elles n'ont rien à faire dans
-            la liste que l'utilisateur cure. */}
-        {tab === "brain" && live.map(renderJob)}
-        {tab === "brain" && corpusVisible.map(renderRow)}
-        {tab === "brain" && corpusVisible.length === 0 && live.length === 0 && (
-          <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty-brain")}</div>
-        )}
-        {tab === "brain" && corpusRows.length > 0 && (
-          <div className="kbs-foot">{t("kbs.brain-cap", { n: corpusRows.length })}</div>
-        )}
-        {tab === "base" && visible.map(renderRow)}
-        {tab === "base" && visible.length === 0 && (
-          <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty")}</div>
-        )}
-
-        {/* Le corpus se cherche depuis la même barre : dernière ligne, pas
-            deuxième champ. */}
-        {p.gbrain && needle.length >= 2 && !looksLikeUrl && (
-          <>
-            <RowButton className="kbs-corpus-cta" onClick={submitBar}>
-              {p.gbrain.searching
-                ? t("kb.gbrain-searching")
-                : t("kbs.search-corpus", { q: query.trim() })}
-            </RowButton>
-            {p.gbrain.error && <div className="kb-error">{p.gbrain.error}</div>}
-            {p.gbrain.results.map((result) => (
-              <div key={result.slug} className="kb-row">
-                <RowButton
-                  className="kb-row-main"
-                  title={result.snippet ?? result.slug}
-                  onClick={() => p.gbrain?.onPin(result.slug)}
-                >
-                  <span className="kb-check" aria-hidden />
-                  <span className="kb-kind"><KindIcon kind="gbrain" /></span>
-                  <span className="kb-name">{result.slug}</span>
-                  <span className="kb-meta">{t("kb.gbrain-meta-nas")}</span>
-                </RowButton>
-              </div>
-            ))}
-          </>
-        )}
       </div>
 
-      {selectMode && (
+      {selected.length > 0 && (
         <div className="kb-batchbar">
-          <span className="kb-batch-count">{t("kb.selected-count", { n: selected.size })}</span>
-          <RowButton
-            className="kb-batch-act"
-            onClick={() => {
-              p.onBatchAttach?.([...selected]);
-              exitSelect();
-            }}
-          >
-            {t("kbs.batch-attach")}
-          </RowButton>
-          {p.onBatchArchive && (
+          <span className="kb-batch-count">{t("kb.selected-count", { n: selected.length })}</span>
+          {p.onBatchAttach && (
             <RowButton
               className="kb-batch-act"
               onClick={() => {
-                p.onBatchArchive?.([...selected]);
-                exitSelect();
+                p.onBatchAttach?.(selected);
+                clearSelection();
               }}
             >
-              {t("kb.archive")}
+              {t("kbs.batch-attach")}
             </RowButton>
           )}
-          <RowButton className="kb-batch-act kb-batch-cancel" onClick={exitSelect}>
+          {p.onTag && (
+            <LazyDropdownMenu
+              open={tagOpen}
+              onOpenChange={setTagOpen}
+              align="center"
+              label={t("kbs.batch-tag")}
+              trigger={<RowButton className="kb-batch-act">{t("kbs.batch-tag")}</RowButton>}
+              items={collectionItems(selected)}
+            />
+          )}
+          {p.onArchive && (
+            <RowButton className="kb-batch-act" onClick={() => archive(selected, archivedView)}>
+              {t(archivedView ? "kb.unarchive" : "kb.archive")}
+            </RowButton>
+          )}
+          <RowButton
+            className="kb-batch-act kb-batch-danger"
+            onClick={() => removeSources(selected)}
+          >
+            {t("kbs.batch-remove")}
+          </RowButton>
+          <RowButton className="kb-batch-act kb-batch-cancel" onClick={clearSelection}>
             {t("action.cancel")}
           </RowButton>
+        </div>
+      )}
+
+      {/* Suppression : elle a déjà eu lieu à l'écran, le filet court 8 s. */}
+      {trashBatch && (
+        <div className="kb-undo" role="status">
+          <span className="kb-undo-text">
+            {trashBatch.ids.length > 1
+              ? t("kbs.removed", { n: trashBatch.ids.length })
+              : t("kbs.removed-one", { title: trashBatch.titles[0] ?? "" })}
+          </span>
+          <RowButton className="kb-undo-act" onClick={undoKbRemove}>{t("kbs.undo")}</RowButton>
         </div>
       )}
     </div>

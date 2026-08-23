@@ -4012,7 +4012,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Surface Connaissances (plan 050) : le même panneau, en pleine hauteur de
    pane — la liste prend l'espace restant, la recherche s'élargit. */
 .ksurface { height: 100%; overflow: hidden; display: flex; justify-content: center; }
-.ksurface .kb-panel-surface { width: 100%; max-width: 640px; padding: 16px 20px;
+.ksurface .kb-panel-surface { width: 100%; max-width: 880px; padding: 16px 20px;
   display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .ksurface .kb-panel-surface .kb-list { max-height: none; flex: 1; }
 .ksurface .kb-panel-surface .kb-search { width: 200px; }
@@ -4098,7 +4098,117 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kbs-foot { padding: 6px 2px 0; font-size: var(--fs-xs); color: var(--text-muted); }
 .kbs-search { width: 100%; height: 28px; font-size: var(--fs-m); margin: 2px 0 4px; }
 .kbs-hint { font-size: var(--fs-s); color: var(--text-muted); padding: 0 2px 2px; }
-.kbs .kb-row-actions { opacity: 0; transition: opacity var(--ease); }
+/* ── Redesign de la base (2026-08-22) ────────────────────────────────────
+   Le rail range (vues + dossiers, dépôt par glisser), la case sélectionne
+   sans mode, le trombone joint la conversation, le bandeau rattrape une
+   suppression. Trois gestes qui existaient dans le code mais pas à l'écran. */
+.kbs-body { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 14px;
+  flex: 1; min-height: 0; }
+.kbs-rail { display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto;
+  padding-right: 12px; border-right: 1px solid var(--border); }
+.kbs-rail-label { padding: 10px 8px 3px; font-size: var(--fs-xs); font-weight: 500;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text-disabled); }
+.kbs-rail-label:first-child { padding-top: 2px; }
+.kbs-rail-note { margin: 2px 8px 6px; font-size: var(--fs-s); line-height: 1.5;
+  color: var(--text-disabled); }
+.kbs-rail-item { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px;
+  border-radius: var(--r-s); font-size: var(--fs-m); color: var(--text-secondary);
+  text-align: left; transition: background var(--ease), color var(--ease); }
+.kbs-rail-item:hover { background: var(--bg-ctl); color: var(--text-primary); }
+.kbs-rail-item.on { background: var(--accent-subtle); color: var(--accent); }
+/* Cible de dépôt : le dossier se signale par l'accent plein, pas par une
+   bordure de plus — on doit voir où la source va tomber en un coup d'œil. */
+.kbs-rail-item.drop { background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent); }
+.kbs-rail-icon { display: inline-flex; flex: none; color: currentColor; opacity: .85; }
+.kbs-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kbs-rail-n { flex: none; font-size: var(--fs-xs); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; }
+.kbs-rail-item.on .kbs-rail-n { color: var(--accent); }
+.kbs-rail-new { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px;
+  border-radius: var(--r-s); font-size: var(--fs-m); color: var(--text-muted); text-align: left;
+  transition: background var(--ease), color var(--ease); }
+.kbs-rail-new:hover { background: var(--bg-ctl); color: var(--text-secondary); }
+.kbs-rail-input { height: 26px; font-size: var(--fs-m); margin: 1px 0; }
+.kbs-rail-sep { height: 1px; margin: 8px 8px; background: var(--border); }
+.kbs-main { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.kbs-listhead { display: flex; align-items: center; gap: 8px; padding: 2px 2px 2px 4px;
+  font-size: var(--fs-s); color: var(--text-muted); }
+.kbs-listhead-act { padding: 2px 7px; border-radius: var(--r-s); font-size: var(--fs-s);
+  color: var(--text-muted); transition: background var(--ease), color var(--ease); }
+.kbs-listhead-act:hover { background: var(--bg-ctl); color: var(--text-primary); }
+.kbs-listhead-act:disabled { color: var(--text-disabled); }
+.kbs-listhead-count { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
+/* La case de sélection prend la place de l'icône de type au survol : toujours
+   là, jamais en trop. Aucun mode à activer dans un menu. */
+.kb-pick { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; padding: 0; border-radius: var(--r-s); background: transparent;
+  color: var(--text-muted); }
+.kb-pick-kind { display: inline-flex; }
+.kb-pick-box { display: none; position: relative; width: 13px; height: 13px; flex: none;
+  border: 1.5px solid var(--mark-neutral-strong); border-radius: var(--r-s); }
+.kb-row:hover .kb-pick-kind, .kb-row.sel .kb-pick-kind,
+.kbs-picking .kb-row .kb-pick-kind { display: none; }
+.kb-row:hover .kb-pick-box, .kb-row.sel .kb-pick-box,
+.kbs-picking .kb-row .kb-pick-box { display: block; }
+.kb-row .kb-pick.on .kb-pick-box { border-color: var(--accent); background: var(--accent); }
+.kb-row .kb-pick.on .kb-pick-box::after { content: ""; position: absolute; left: 3.5px; top: 0.5px;
+  width: 3px; height: 7px; border: solid var(--surface-app); border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg); }
+.kb-row.sel { background: var(--selection-surface); }
+.kb-clip { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; padding: 0; border-radius: var(--r-s); background: transparent;
+  color: var(--text-disabled); opacity: 0; transition: opacity var(--ease), color var(--ease); }
+.kb-row:hover .kb-clip, .kb-row:focus-within .kb-clip, .kb-clip.on { opacity: 1; }
+.kb-clip.on { color: var(--accent); }
+.kb-clip:hover { color: var(--text-primary); }
+/* Puce de dossier : elle cède AVANT le titre. Sans facteur de rétrécissement
+   propre, une source rangée dans deux dossiers réduisait son propre titre à
+   une initiale — la puce disait alors tout, sauf de quoi il s'agit. */
+.kbs-chip-coll { flex: 0 3 auto; min-width: 6ch; max-width: 128px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border-radius: var(--r-pill);
+  background: var(--bg-ctl); color: var(--text-muted); font-size: var(--fs-xs); }
+.kbs-chip-more { flex: none; font-size: var(--fs-xs); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; }
+.kbs .kb-row-main { overflow: hidden; }
+.kbs .kb-name { flex: 4 1 auto; min-width: 11ch; }
+/* Dans la surface, le fond teinté d'une rangée dit UNE chose : elle est
+   sélectionnée. L'attachement à la conversation, lui, se lit au trombone
+   allumé — deux teintes du même accent pour deux états différents ne se
+   distinguaient pas. */
+.kbs .kb-row.on { background: transparent; }
+.kbs .kb-row.on:hover { background: var(--bg-ctl); }
+.kbs .kb-row.on.sel, .kbs .kb-row.sel { background: var(--selection-surface); }
+.kb-batch-danger { color: var(--status-error); }
+.kb-batch-danger:hover { background: color-mix(in srgb, var(--status-error) 18%, transparent);
+  color: var(--status-error); }
+/* Bandeau d'annulation : la suppression a déjà eu lieu à l'écran, le filet
+   court quelques secondes. Surface élevée = fond + ombre, pas une bordure. */
+.kb-undo { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 14px;
+  border-radius: var(--r-pill); background: var(--surface-overlay);
+  box-shadow: var(--elevation-overlay); font-size: var(--fs-m); color: var(--text-primary);
+  z-index: var(--z-toast); }
+.kb-undo-text { font-variant-numeric: tabular-nums; }
+.kb-undo-act { padding: 3px 10px; border-radius: var(--r-pill); color: var(--accent);
+  font-size: var(--fs-m); transition: background var(--ease); }
+.kb-undo-act:hover { background: var(--accent-subtle); }
+/* Volet étroit : le rail passe en rangée défilante plutôt que de manger la
+   liste. Les dossiers restent atteignables, le dépôt par glisser cesse. */
+@container (max-width: 660px) {
+  .kbs-chip-coll, .kbs-chip-more { display: none; }
+}
+@container (max-width: 520px) {
+  .kbs-body { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .kbs-rail { flex-direction: row; align-items: center; gap: 4px; overflow-x: auto;
+    padding: 0 0 6px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .kbs-rail-label, .kbs-rail-sep, .kbs-rail-note { display: none; }
+  .kbs-rail-item, .kbs-rail-new { flex: none; white-space: nowrap; }
+}
+/* La place du menu ⋮ est RÉSERVÉE : sans elle, l'âge de la dernière rangée
+   collait au bord (et perdait son « j »), et toute la rangée sursautait au
+   survol quand le bouton apparaissait. */
+.kbs .kb-row-actions { display: inline-flex; opacity: 0; transition: opacity var(--ease); }
 .kbs .kb-row:hover .kb-row-actions,
 .kbs .kb-row:focus-within .kb-row-actions { opacity: 1; }
 /* Rangée vivante : un import en cours occupe sa place dans la liste au lieu
@@ -4155,7 +4265,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); transition: color var(--ease), background var(--ease); }
 .kb-article-dup-use:hover { color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.ksurface { position: relative; }
+.ksurface { position: relative; container-type: inline-size; }
+.ksurface .kb-panel-surface { position: relative; }
 .kb-group-section { margin-top: 8px; border-top: 1px solid var(--border);
   padding-top: 10px; color: var(--text-secondary); }
 /* Rangée de contexte unifiée (plan 050 P2) : pilules fines pour toutes les
@@ -4227,12 +4338,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .gbr-src { margin: 0; font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-s);
   line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
 .gbr-empty { padding: 24px 0; color: var(--text-muted); font-size: var(--fs-m); }
-/* Le cercle porte l'attachement : il devient une cible cliquable à part
-   entière, et la rangée se libère pour ouvrir la source. */
-.kb-check-btn { display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; flex: none; padding: 0; border-radius: var(--radius-control);
-  background: transparent; }
-.kb-check-btn:hover { background: var(--bg-ctl); }
 .gbr-files { display: flex; flex-direction: column; gap: 1px; }
 .gbr-file { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 8px;
   border-radius: var(--radius-control); font-size: var(--fs-m); color: var(--text); }

@@ -501,6 +501,30 @@ impl KnowledgeStore {
         })
     }
 
+    /// Suppression en lot (redesign de la base, 2026-08-22) : UN verrou, UN
+    /// persist — la variante `remove` boucle sinon sur autant de spawns CLI
+    /// que d'ids, et chaque tour relit puis réécrit le registre entier.
+    /// Un id inconnu est ignoré plutôt que fatal : quand le geste porte sur
+    /// une sélection, une entrée déjà disparue ne doit pas annuler les autres.
+    pub fn remove_many(&mut self, ids: &[String]) -> Result<Vec<String>, String> {
+        let targets: Vec<(String, PathBuf)> =
+            ids.iter().map(|id| (id.clone(), self.cache_path(id))).collect();
+        self.with_lock(move |this| {
+            this.reload_from_disk();
+            let mut removed: Vec<String> = Vec::new();
+            for (id, cache) in &targets {
+                if this.sources.remove(id).is_none() {
+                    continue;
+                }
+                this.source_order.retain(|x| x != id);
+                let _ = std::fs::remove_file(cache);
+                removed.push(id.clone());
+            }
+            this.persist()?;
+            Ok(removed)
+        })
+    }
+
     pub fn collection_add(&mut self, title: &str) -> Result<String, String> {
         let title = title.to_string();
         self.with_lock(move |this| {
@@ -1181,6 +1205,35 @@ mod tests {
         // rapport 065-w1) : garde-fou si l'algorithme dérive un jour.
         assert_eq!(source_id("note", "Note fixture"), "6746246a");
         assert_eq!(source_id("web", "https://example.org/fixture"), "08e91a5c");
+    }
+
+    // Redesign de la base (2026-08-22) : la sélection se supprime d'un geste.
+    // Un id inconnu au milieu du lot ne doit pas faire échouer les autres, et
+    // le cache de pages doit partir avec la source.
+    #[test]
+    fn remove_many_supprime_le_lot_et_ignore_les_ids_inconnus() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let a = store.add("note", None, Some("Note A"), Some("aaa")).unwrap().0["id"]
+            .as_str().unwrap().to_string();
+        let b = store.add("note", None, Some("Note B"), Some("bbb")).unwrap().0["id"]
+            .as_str().unwrap().to_string();
+        let c = store.add("note", None, Some("Note C"), Some("ccc")).unwrap().0["id"]
+            .as_str().unwrap().to_string();
+        assert!(store.cache_path(&a).exists());
+
+        let removed = store
+            .remove_many(&[a.clone(), "inconnu0".to_string(), c.clone()])
+            .unwrap();
+        assert_eq!(removed, vec![a.clone(), c.clone()]);
+        assert!(store.get(&a).is_none());
+        assert!(store.get(&c).is_none());
+        assert!(store.get(&b).is_some(), "la source hors lot reste");
+        assert!(!store.cache_path(&a).exists(), "le cache de pages part avec la source");
+
+        // relecture depuis le disque : la suppression a bien été persistée
+        let reread = KnowledgeStore::open(dir.path().to_path_buf());
+        assert_eq!(reread.list(None, false).len(), 1);
     }
 
     #[test]
