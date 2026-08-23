@@ -259,6 +259,11 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "high".into(),
                 "xhigh".into(),
                 "max".into(),
+                // Cran terminal : xhigh + orchestration multi-agents, session
+                // seulement. claude.rs le traduit en
+                // `--effort xhigh --settings '{"ultracode":true}'` — jamais en
+                // `--effort ultracode`, que le CLI refuse.
+                "ultracode".into(),
             ],
             capabilities: ProviderCapabilities {
                 reasoning: true,

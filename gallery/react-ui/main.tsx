@@ -542,6 +542,7 @@ function presentConfirmation(request: ConfirmRequest): ConfirmPresentation {
 function GalleryToolbar() {
   const [, refresh] = React.useReducer((value) => value + 1, 0)
   const filterTriggerRef = React.useRef<HTMLButtonElement>(null)
+  const selectionMoreRef = React.useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [collectionOpen, setCollectionOpen] = React.useState(false)
@@ -672,22 +673,37 @@ function GalleryToolbar() {
       <div className="gallery-command-bar gallery-selection-command-bar" role="toolbar" aria-label="Selected files actions" data-gallery-toolbar-state="selection">
         <div className="gallery-selection-count" aria-live="polite">
           <CheckSquare2 aria-hidden="true" />
-          <span>{selection.rels.length} selected</span>
+          <span>{selection.rels.length}<span className="gallery-selection-word"> selected</span></span>
         </div>
         <div className="gallery-command-spacer" />
         {selection.rels.length === 1 && (
-          <Button variant="outline" size="sm" data-gallery-selection-action="open" onClick={() => selectionAdapter?.open()}>Open</Button>
+          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="open" onClick={() => selectionAdapter?.open()}>Open</Button>
         )}
         {selection.imageCount >= 2 && (
-          <Button variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Compare</Button>
+          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Compare</Button>
         )}
-        <Button variant="outline" size="sm" data-gallery-selection-action="collect" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collect</Button>
-        <Button variant="outline" size="sm" data-gallery-selection-action="export" onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(event.currentTarget) }}>
+        <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="collect" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collect</Button>
+        <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="export" onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(event.currentTarget) }}>
           Export <ChevronDown data-icon="inline-end" />
         </Button>
         <DropdownMenu modal={false}>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="More selection actions"><Ellipsis /></Button>} />
+          <DropdownMenuTrigger render={<Button ref={selectionMoreRef} variant="ghost" size="icon-sm" aria-label="More selection actions"><Ellipsis /></Button>} />
           <DropdownMenuContent align="end" className="tw:w-48">
+            {/* Repli étroit : les mêmes actions que les boutons, affichées
+                seulement quand la barre n'a plus la place de les porter (CSS).
+                Elles s'ancrent sur le déclencheur ⋯ — pas sur l'item de menu,
+                qui disparaît avec le menu avant que la position soit lue. */}
+            <DropdownMenuGroup className="gallery-selection-overflow">
+              {selection.rels.length === 1 && (
+                <DropdownMenuItem onClick={() => selectionAdapter?.open()}>Open</DropdownMenuItem>
+              )}
+              {selection.imageCount >= 2 && (
+                <DropdownMenuItem onClick={() => selectionAdapter?.compare()}>Compare</DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => selectionAdapter?.collect(selectionMoreRef.current)}>Collect</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => selectionAdapter?.export(selectionMoreRef.current)}>Export</DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator className="gallery-selection-overflow" />
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => selectionAdapter?.hide()}>Hide selected</DropdownMenuItem>
             </DropdownMenuGroup>

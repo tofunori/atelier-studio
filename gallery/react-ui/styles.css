@@ -68,8 +68,18 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-filter-chip { min-width:0;max-width:180px;flex:0 1 auto;overflow:hidden; }
 .gallery-filter-chip > span,
 .gallery-filter-chip { text-overflow:ellipsis;white-space:nowrap; }
-.gallery-selection-count { display:flex;min-width:0;align-items:center;gap:8px;font-size:13px;font-weight:600;white-space:nowrap; }
-.gallery-selection-count svg { width:16px;height:16px;color:var(--primary); }
+/* ── Barre de sélection : ce qui cède quand la barre rétrécit ────────────
+   Les boutons shadcn sont incompressibles (`shrink-0`) : toute la pression
+   tombait donc sur le compteur, seul élément élastique. Il s'écrasait à
+   quelques pixels sans jamais tronquer son texte — « 2 selected » passait
+   SOUS « Compare », et sous le panneau étroit les boutons débordaient de la
+   barre. On pose l'ordre de repli : le mot « selected » part d'abord, puis les
+   actions textuelles rejoignent le menu ⋯ (qui les porte déjà, masquées). */
+.gallery-selection-count { display:flex;min-width:0;flex:0 0 auto;align-items:center;gap:8px;font-size:13px;font-weight:600;white-space:nowrap; }
+.gallery-selection-count svg { width:16px;height:16px;flex:0 0 auto;color:var(--primary); }
+/* Le repli étroit vit dans le menu ⋯ : au large, les items doublonneraient les
+   boutons de la barre. */
+.gallery-selection-overflow { display:none; }
 
 .gallery-filter-popover { max-height:min(560px,var(--available-height));overflow:hidden;border-radius:10px; }
 .gallery-filter-panel-head { display:flex;min-height:40px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px; }
@@ -120,4 +130,13 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
   .gallery-command-sort { display:none; }
   .gallery-filter-label, .gallery-fav-label { display:none; }
   .gallery-selection-count { font-size:12px; }
+  /* Premier cran : le chiffre suffit, l'icône dit déjà « sélection ». */
+  .gallery-selection-word { display:none; }
+}
+
+/* Second cran — sous ~460px la barre ne tient plus ses trois actions plus les
+   deux icônes ; elles basculent dans ⋯ au lieu de se chevaucher. */
+@media (max-width:460px) {
+  .gallery-selection-inline { display:none; }
+  .gallery-selection-overflow { display:block; }
 }
