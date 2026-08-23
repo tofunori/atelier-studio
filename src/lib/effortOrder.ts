@@ -42,3 +42,25 @@ export function sortEffortLevels(levels: string[]): string[] {
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map((entry) => entry.level);
 }
+
+// Fournisseurs sans option "Auto" (le CLI ne propose pas de laisser le
+// harnais décider) — Grok exige un palier explicite. Source de vérité
+// unique : Chat.tsx et buildModelRows.ts (lot B1) importent tous deux cette
+// liste plutôt que de la redéfinir, pour ne jamais diverger sur QUI a droit
+// à l'option Auto.
+export const NO_AUTO_EFFORT = new Set(["grok"]);
+
+/**
+ * Paliers d'effort à proposer pour un fournisseur non-API, dérivés du
+ * catalogue vivant (`efforts`, jamais préfixé de "" côté backend — voir
+ * claude.rs/codex.rs/opencode.rs). "" = Auto (le CLI décide), toujours en
+ * tête sauf pour NO_AUTO_EFFORT. Logique reproduite de Chat.tsx (fonction
+ * `levelsFor`, branche non-API) : c'est la même liste qui doit apparaître
+ * dans le composer ET dans la colonne Effort du tableau des réglages —
+ * sinon un modèle sans effort choisi (valeur "" par défaut) n'a aucune
+ * option correspondante dans son propre menu.
+ */
+export function effortOptionsFor(providerId: string, rawEfforts: string[]): string[] {
+  if (NO_AUTO_EFFORT.has(providerId) && rawEfforts.length) return sortEffortLevels([...rawEfforts]);
+  return sortEffortLevels(["", ...rawEfforts]);
+}

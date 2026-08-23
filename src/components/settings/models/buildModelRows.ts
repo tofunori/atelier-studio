@@ -12,6 +12,7 @@
 // Models.tsx:76 et sa fonction authLabel), jamais passée à cette fonction.
 // Inventer un troisième état ici produirait un état toujours vide ; on
 // réduit donc le type à "ready" | "absent", dérivé du seul booléen dispo.
+import { effortOptionsFor } from "../../../lib/effortOrder";
 import { modelDisplayLabel } from "../../../lib/modelCatalog";
 import type { Settings } from "../../../lib/settings";
 import type { ProviderCatalogRow } from "../shared";
@@ -60,7 +61,16 @@ export function buildModelRows(
     }
 
     const status: ModelRow["status"] = row.ok ? "ready" : "absent";
-    const efforts = row.efforts ?? [];
+    // Correction de revue (C1, 2026-08-23) : AUCUN backend n'émet "" dans
+    // `efforts` (claude.rs, codex.rs, opencode.rs annoncent tous
+    // ["low","medium",…] sans l'entrée Auto) — c'est le CONSOMMATEUR qui la
+    // préfixe (Chat.tsx, fonction levelsFor). Sans ce préfixe ici, `effort`
+    // valait "" par défaut sur chaque ligne mais aucune option "" n'existait
+    // dans `efforts` : le trigger du Select de la colonne Effort s'affichait
+    // vide sur TOUTES les lignes. effortOptionsFor (lib/effortOrder.ts)
+    // reproduit exactement la logique de Chat.tsx:levelsFor, y compris
+    // NO_AUTO_EFFORT (grok n'a pas d'Auto).
+    const efforts = effortOptionsFor(row.id, row.efforts ?? []);
     const version = row.version ?? null;
     // Set une fois par fournisseur plutôt qu'un .includes() par ligne : le
     // catalogue opencode peut publier des milliers de modèles routés.

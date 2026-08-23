@@ -11,7 +11,7 @@ import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
-import { sortEffortLevels } from "../lib/effortOrder";
+import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
 import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
@@ -42,8 +42,9 @@ import {
 // d'effort « Auto » ("") — il exige un effort explicite (défaut "high" dans
 // DEFAULT_SETTINGS) et son catalogue liste déjà minimal…max au complet. Le
 // registry sidecar n'expose pas (encore) de donnée « effort par défaut vide »,
-// donc la nuance reste keyed par id de provider ici.
-const NO_AUTO_EFFORT = new Set(["grok"]);
+// donc la nuance reste keyed par id de provider — NO_AUTO_EFFORT vit dans
+// lib/effortOrder.ts (source unique, aussi consommée par buildModelRows.ts
+// pour la colonne Effort du tableau de réglages, lot B1 correction C1).
 const API_REASONING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // réf. fichier type "main.tex:31", "sections/method.tex:60-74", "script.py"
@@ -263,12 +264,10 @@ export default function Chat(p: {
         return sortEffortLevels(["", ...meta.supported_efforts]);
       }
       // Catalogue sidecar = source des efforts. "" (Auto — le CLI décide)
-      // en tête, sauf providers sans Auto (NO_AUTO_EFFORT). Catalogue pas
-      // encore chargé : [""] dégradé (Auto seul), comme avant pour les
-      // providers hors liste.
-      const efforts = info?.efforts ?? [];
-      if (NO_AUTO_EFFORT.has(pv) && efforts.length) return sortEffortLevels([...efforts]);
-      return sortEffortLevels(["", ...efforts]);
+      // en tête, sauf providers sans Auto (NO_AUTO_EFFORT, lib/effortOrder.ts).
+      // Catalogue pas encore chargé : [""] dégradé (Auto seul), comme avant
+      // pour les providers hors liste.
+      return effortOptionsFor(pv, info?.efforts ?? []);
     }
     const meta = info.modelReasoning?.[modelId];
     const supported = Array.isArray(meta?.supported_efforts) && meta.supported_efforts.length

@@ -95,6 +95,20 @@ function filterModelRows(rows: ModelRow[], filter: string): ModelRow[] {
     || row.providerLabel.toLowerCase().includes(q));
 }
 
+// Ordre du picker : providerOrder d'abord, puis le reste dans l'ordre du
+// catalogue. Extrait en fonction pure (correction de revue, importants) :
+// avant, seul le bloc « ordre du sélecteur » d'Avancé appliquait ce tri —
+// le tableau lisait `provs` brut, donc les deux blocs de LA MÊME PAGE
+// donnaient un ordre différent pour LE MÊME réglage. Une seule fonction,
+// deux appelants.
+function sortProvidersByOrder(provs: ProviderCatalogRow[], order: string[]): ProviderCatalogRow[] {
+  return [...provs].sort((a, b) => {
+    const ra = order.indexOf(a.id), rb = order.indexOf(b.id);
+    return (ra === -1 ? order.length + provs.findIndex((x) => x.id === a.id) : ra)
+      - (rb === -1 ? order.length + provs.findIndex((x) => x.id === b.id) : rb);
+  });
+}
+
 export default function Models(p: SectionProps) {
   const save = (patch: Partial<Settings>) => { p.set(patch); p.onSaved(); };
   const s = p.s;
@@ -182,11 +196,62 @@ export default function Models(p: SectionProps) {
     return () => ws.removeEventListener("message", onMessage);
   }, [p.ws]);
 
+  // Le tableau respecte l'ordre ET la visibilité réglés dans Avancé →
+  // Ordre du sélecteur (correction de revue, importants : deux vues
+  // contradictoires du même réglage sur la même page). `provsOrdonnes`
+  // (non filtré) reste la source de la liste « Ordre du sélecteur »
+  // elle-même — c'est SA raison d'être de montrer aussi les fournisseurs
+  // masqués, pour pouvoir les démasquer.
+  const provsOrdonnes = provs ? sortProvidersByOrder(provs, s.providerOrder ?? []) : null;
+  const hiddenSet = new Set(s.hiddenProviders ?? []);
+  const provsVisibles = provsOrdonnes?.filter((row) => !hiddenSet.has(row.id)) ?? null;
+
   // Dérivation pure (tâche 2) : catalogue + favoris + efforts + slugs +
   // défauts → une ligne par modèle, plus les fournisseurs sans rien à
   // montrer.
-  const { rows, unavailable } = buildModelRows(provs, s);
-  const filteredRows = filterModelRows(rows, modelFilter);
+  const { rows, unavailable } = buildModelRows(provsVisibles, s);
+
+  // Correction de revue (C2) : `buildModelRows` ne connaît que `ok`
+  // (catalogue providerStatus) — pas l'authentification (message
+  // setupStatus, canal séparé, voir buildModelRows.ts). Un fournisseur
+  // installé (`ok: true`) peut retomber sur un catalogue statique
+  // (send.rs:1541) alors qu'il n'est PAS authentifié (auth ≠ "ready") :
+  // sans ce croisement, sa ligne s'affichait « Prêt » dans le tableau, et
+  // comme buildModelRows ne le classait pas non plus dans `unavailable`
+  // (il A des modèles), aucun bouton « Se connecter » n'était accessible
+  // nulle part dans l'app pour lui.
+  const authByProvider = new Map((setup?.providers ?? []).map((sp) => [sp.id, sp.auth]));
+  const rowsAvecAuth: ModelRow[] = rows.map((row) => {
+    const auth = authByProvider.get(row.provider);
+    if (row.status === "ready" && auth && auth !== "ready") {
+      return { ...row, status: "absent" };
+    }
+    return row;
+  });
+  const filteredRows = filterModelRows(rowsAvecAuth, modelFilter);
+
+  // « Non disponibles » : union de `unavailable` (buildModelRows — zéro
+  // modèle) ET des fournisseurs qui ONT des modèles mais dont la ligne est
+  // passée « absent » (ok:false d'origine, OU croisement d'auth ci-dessus).
+  // Un fournisseur peut avoir des modèles ET être inutilisable (C2) : il
+  // reste visible dans le tableau (pour qu'on voie CE qu'il proposerait),
+  // et gagne aussi une entrée ici pour porter l'action qui débloque —
+  // deux vues avec un rôle distinct (parcourir vs. agir), pas la double
+  // liste « installé/détecté » du lot 1 qui listait TOUJOURS tous les
+  // fournisseurs des deux côtés.
+  const unavailableIds = new Set(unavailable.map((row) => row.id));
+  const bloques = new Set(rowsAvecAuth.filter((row) => row.status === "absent").map((row) => row.provider));
+  const nonDisponibles = [
+    ...unavailable,
+    ...(provsVisibles ?? []).filter((row) => bloques.has(row.id) && !unavailableIds.has(row.id)),
+  ];
+
+  function refreshCatalog() {
+    if (p.ws?.readyState !== 1) return;
+    p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "setupStatus" }));
+    p.ws.send(JSON.stringify({ type: "apiProviders" }));
+  }
 
   function handleSetDefault(row: ModelRow) {
     save({ defaultModel: { ...s.defaultModel, [row.provider]: row.modelId } });
@@ -274,28 +339,51 @@ export default function Models(p: SectionProps) {
         </InlineNotice>
       )}
 
-      {/* Bloc 2 : le tableau dense (spec §6.2, tâche 3). */}
-      <h2>{t("settings.models-table")}</h2>
-      {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
-      <ModelsGrid
-        rows={filteredRows}
-        onSetDefault={handleSetDefault}
-        onToggleFavorite={handleToggleFavorite}
-        onSetEffort={handleSetEffort}
-        filter={modelFilter}
-        onFilterChange={setModelFilter}
-      />
+      {/* Bloc 2 : le tableau dense (spec §6.2, tâche 3). En-tête avec action
+          d'actualisation (correction de revue, importants) : sans elle,
+          aucun moyen de constater un `grok login` réussi sans quitter la
+          section et y revenir — rien ne pousse un nouveau providerStatus
+          après le montage. */}
+      <div className="set-headline">
+        <h2>{t("settings.models-table")}</h2>
+        <span className="set-headline-actions">
+          <Button variant="ghost" className="set-btn quiet" onClick={refreshCatalog}>
+            {t("action.refresh")}
+          </Button>
+        </span>
+      </div>
+      {/* Explication de priorité de l'effort (correction de revue,
+          importants) : le comportement (l'effort PAR MODÈLE, colonne
+          Effort, prime sur l'effort par défaut du fournisseur) n'a pas
+          changé depuis l'ancien Settings.tsx:820-844 — seule l'explication
+          avait disparu avec la liste plate qui la portait. */}
+      <p className="set-sub">{t("settings.model-effort-sub")}</p>
+      {provs === null ? (
+        // Un seul message à la fois : avant, « Vérification… » et le vide
+        // générique de ModelsGrid (rows=[] tant que provs est null)
+        // s'affichaient TOUS LES DEUX — correction de revue, importants.
+        <p className="set-empty">{t("settings.checking")}</p>
+      ) : (
+        <ModelsGrid
+          rows={filteredRows}
+          onSetDefault={handleSetDefault}
+          onToggleFavorite={handleToggleFavorite}
+          onSetEffort={handleSetEffort}
+          filter={modelFilter}
+          onFilterChange={setModelFilter}
+        />
+      )}
 
-      {/* Bloc 3 : Non disponibles — un fournisseur SANS AUCUN modèle
-          exploitable (voir buildModelRows.ts). L'information d'installation
-          de l'ancienne section setup devient ici la pastille d'état et le
-          bouton de la ligne, jamais une seconde liste complète. */}
-      {unavailable.length > 0 && (
+      {/* Bloc 3 : Non disponibles — fournisseurs sans accès utilisable pour
+          l'instant (voir le commentaire sur `nonDisponibles` ci-dessus).
+          L'information d'installation de l'ancienne section setup devient
+          ici la pastille d'état et le bouton de la ligne. */}
+      {nonDisponibles.length > 0 && (
         <>
           <h2>{t("settings.models-unavailable")}</h2>
           <p className="set-sub">{t("settings.models-unavailable-sub")}</p>
           <Group>
-            {unavailable.map((row) => {
+            {nonDisponibles.map((row) => {
               const su = setup?.providers.find((sp) => sp.id === row.id) ?? null;
               return (
                 <Row
@@ -347,14 +435,11 @@ export default function Models(p: SectionProps) {
         <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
         {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
         {provs && (() => {
-          // ordre du picker : providerOrder d'abord, puis le reste dans l'ordre du catalogue
-          const order = s.providerOrder ?? [];
-          const hidden = new Set(s.hiddenProviders ?? []);
-          const sorted = [...provs].sort((a, b) => {
-            const ra = order.indexOf(a.id), rb = order.indexOf(b.id);
-            return (ra === -1 ? order.length + provs.findIndex((x) => x.id === a.id) : ra)
-              - (rb === -1 ? order.length + provs.findIndex((x) => x.id === b.id) : rb);
-          });
+          // Même tri que le tableau (fonction `sortProvidersByOrder`
+          // partagée ci-dessus) : UNE source d'ordre pour toute la page.
+          // Non filtré par `hiddenSet` ici — c'est justement l'endroit pour
+          // démasquer un fournisseur masqué.
+          const sorted = sortProvidersByOrder(provs, s.providerOrder ?? []);
           const move = (id: string, dir: -1 | 1) => {
             const ids = sorted.map((x) => x.id);
             const i = ids.indexOf(id);
@@ -377,7 +462,7 @@ export default function Models(p: SectionProps) {
                     title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</Button>
                   <Button variant="ghost" className="set-btn quiet" disabled={i === sorted.length - 1}
                     title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</Button>
-                  <Toggle label={pr.label} checked={!hidden.has(pr.id)} onChange={(v) => {
+                  <Toggle label={pr.label} checked={!hiddenSet.has(pr.id)} onChange={(v) => {
                     const next = new Set(s.hiddenProviders ?? []);
                     if (v) next.delete(pr.id); else next.add(pr.id);
                     save({ hiddenProviders: [...next] });

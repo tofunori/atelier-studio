@@ -101,17 +101,20 @@ describe("Section Général", () => {
     expect(screen.getAllByText("connecté")).toHaveLength(1);
   });
 
-  it("liste les modèles codex du catalogue providerStatus dans le menu par défaut", async () => {
-    // Régression : providerModels("codex") ne doit pas se limiter au modèle
-    // déjà sélectionné une fois le catalogue chargé (coordinateur, ronde 2).
-    const ws = fakeWs();
-    renderUi(<General {...props({ ws })} />);
-    emitWs(ws, {
-      type: "providerStatus",
-      providers: [{ id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5-codex", "gpt-5-codex-mini"] }],
-    });
-    fireEvent.click(screen.getByRole("combobox", { name: "Modèle Codex par défaut" }));
-    expect(await screen.findByRole("option", { name: "gpt-5-codex" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "gpt-5-codex-mini" })).toBeInTheDocument();
+  it("n'a plus de Select « provider par défaut » ni « modèle par défaut » (doublon retiré, correction C3)", () => {
+    // Régression : ces contrôles écrivaient les MÊMES clés (defaultProvider,
+    // defaultModel[provider]) que le segmenté et le marqueur radio de
+    // Models.tsx (spec §6.1 : « les défauts se règlent là où on voit les
+    // modèles »). Remplace le test « liste les modèles codex du catalogue
+    // providerStatus dans le menu par défaut », dont le sujet (le Select
+    // codex par défaut) a disparu de cette section.
+    renderUi(<General {...props()} />);
+    expect(screen.queryByRole("combobox", { name: "Provider par défaut" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Modèle Claude par défaut" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Modèle Codex par défaut" })).toBeNull();
+    // L'effort par défaut du fournisseur reste ICI : réglage différent
+    // (defaultEffort), pas un doublon du marqueur radio ni de la colonne
+    // Effort du tableau (modelEfforts, par MODÈLE).
+    expect(screen.getByRole("combobox", { name: "Effort Claude par défaut" })).toBeInTheDocument();
   });
 });

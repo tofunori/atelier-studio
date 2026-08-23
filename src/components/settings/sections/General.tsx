@@ -19,14 +19,13 @@
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
-import type { ProviderCatalogRow, SectionProps, SetupStatus } from "../shared";
+import type { SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
 import { Select } from "../../Select";
 import { Button, InlineNotice } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
-import { CLAUDE_MODELS, modelLabel, providerModels } from "../models";
 
 // Paliers d'effort — non dupliqués côté Models.tsx au sens du bug signalé
 // (seul le catalogue de modèles désalignait les deux sections), donc pas
@@ -51,16 +50,14 @@ export default function General(p: SectionProps) {
   // abonnements en lecture seule au même message, sans effet de bord, même
   // principe que providerStatus ci-dessous.
   const [setup, setSetup] = useState<SetupStatus | null>(null);
-  // Catalogue codex dynamique (providerStatus) — alimente le menu « Modèle
-  // Codex par défaut » ci-dessous. Aussi consommé par Models.tsx (tâche 7) ;
-  // deux abonnements indépendants au même type de message sont sans effet de
-  // bord, chacun ne fait que dériver son propre état local.
-  const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
 
   // Abonnement WebSocket : cette section n'écoute que les types de message
   // dont dépendent ses propres rangées (status, pastedCleared, pastedList,
-  // retitleAllDone, providerStatus, setupStatus) et ignore les autres
-  // (apiProviders, apiModels), qui restent dans Models.tsx.
+  // retitleAllDone, setupStatus) et ignore les autres (providerStatus,
+  // apiProviders, apiModels), qui restent dans Models.tsx — providerStatus
+  // n'a plus de consommateur ici depuis le retrait des Select « modèle par
+  // défaut » (correction de revue C3 : doublon avec le marqueur radio du
+  // tableau de Models.tsx).
   //
   // Régression connue et assumée : dans l'ancien Settings.tsx, cet
   // abonnement vivait au niveau de la page entière, donc changer de section
@@ -84,14 +81,6 @@ export default function General(p: SectionProps) {
         p.ws!.send(JSON.stringify({ type: "listPasted" }));
       }
       if (m.type === "pastedList") setPasted(m.files ?? []);
-      if (m.type === "providerStatus") {
-        const providers = Array.isArray(m.providers) ? m.providers : [];
-        setProvs(providers.map((provider: ProviderCatalogRow) => ({
-          ...provider,
-          models: Array.isArray(provider?.models) ? provider.models : [],
-          efforts: Array.isArray(provider?.efforts) ? provider.efforts : [],
-        })));
-      }
       if (m.type === "retitleAllDone") {
         setRetitleStatus(m.running ? t("settings.retitle-running") : t("settings.retitle-done", { count: m.renamed }));
       }
@@ -100,7 +89,6 @@ export default function General(p: SectionProps) {
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "listPasted" }));
-    p.ws.send(JSON.stringify({ type: "providerStatus" }));
     p.ws.send(JSON.stringify({ type: "setupStatus" }));
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
@@ -143,35 +131,17 @@ export default function General(p: SectionProps) {
         </Row>
       </Group>
 
-      {/* Settings.tsx:500-544 */}
+      {/* Settings.tsx:500-544, réduit (correction de revue C3, lot B1) : le
+          fournisseur de départ ET le modèle par défaut par fournisseur se
+          réglaient ICI ET dans Models.tsx (segmenté + marqueur radio par
+          ligne, spec §6.1) — même champ `defaultProvider`/`defaultModel`,
+          deux contrôles. Retirés d'ici ; la spec place explicitement ces
+          défauts « là où on voit les modèles ». L'effort par défaut du
+          fournisseur (ci-dessous) reste ICI : c'est un réglage DIFFÉRENT du
+          marqueur radio de la table — celui-ci écrit `defaultModel`, ceci
+          écrit `defaultEffort`, jamais la même clé que la colonne Effort du
+          tableau (`modelEfforts`, par MODÈLE). */}
       <Group label={t("settings.group.agents")}>
-        <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
-          <Select
-            title={t("settings.default-provider")}
-            value={s.defaultProvider}
-            onChange={(value) => save({ defaultProvider: value as Settings["defaultProvider"] })}
-            options={[
-              { value: "claude", label: "Claude" },
-              { value: "codex", label: "Codex" },
-            ]}
-          />
-        </Row>
-        <Row title={t("settings.default-claude-model")}>
-          <Select
-            title={t("settings.default-claude-model")}
-            value={s.defaultModel.claude}
-            onChange={(value) => save({ defaultModel: { ...s.defaultModel, claude: value } })}
-            options={CLAUDE_MODELS.map((m) => ({ value: m.id, label: modelLabel(m) }))}
-          />
-        </Row>
-        <Row title={t("settings.default-codex-model")}>
-          <Select
-            title={t("settings.default-codex-model")}
-            value={s.defaultModel.codex}
-            onChange={(value) => save({ defaultModel: { ...s.defaultModel, codex: value } })}
-            options={providerModels("codex", provs, s.defaultModel).map((m) => ({ value: m.id, label: modelLabel(m) }))}
-          />
-        </Row>
         <Row title={t("settings.default-claude-effort")}>
           <Select
             title={t("settings.default-claude-effort")}

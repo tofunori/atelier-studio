@@ -78,9 +78,15 @@ export function ModelsGrid(props: {
       </div>
 
       {rows.length === 0 ? (
+        // Deux raisons distinctes pour un tableau vide (correction de revue,
+        // importants) : aucun fournisseur actif (message générique), OU un
+        // filtre actif qui ne trouve rien (message ré-employé de l'ancienne
+        // recherche opencode dédiée — settings.model-no-match — plutôt
+        // qu'un message qui parle de « fournisseurs » quand le problème est
+        // la recherche).
         <EmptyState
           title={t("settings.models-grid.empty-title")}
-          description={t("settings.models-grid.empty-desc")}
+          description={filter.trim() ? t("settings.model-no-match") : t("settings.models-grid.empty-desc")}
         />
       ) : (
         <div className="mg-scroll">

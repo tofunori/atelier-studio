@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
-import { setLanguage } from "../../../lib/i18n";
+import { setLanguage, t } from "../../../lib/i18n";
 import type { ModelRow } from "./buildModelRows";
 import { ModelsGrid } from "./ModelsGrid";
 
@@ -92,5 +92,14 @@ describe("ModelsGrid", () => {
     renderUi(<ModelsGrid {...props({ rows: [] })} />);
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByText(/aucun modèle/i)).toBeInTheDocument();
+  });
+
+  it("filtre actif sans résultat : message de recherche, pas « aucun fournisseur » (correction de revue)", () => {
+    // Avant : le même message générique (« aucun fournisseur actif
+    // n'expose de modèle ») s'affichait que ce soit vraiment vide OU juste
+    // que le filtre ne trouve rien — trompeur dans le second cas.
+    renderUi(<ModelsGrid {...props({ rows: [], filter: "zzz-introuvable" })} />);
+    expect(screen.queryByText(/aucun fournisseur actif/i)).toBeNull();
+    expect(screen.getByText(t("settings.model-no-match"))).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ import { buildModelRows } from "./buildModelRows";
 const claude: ProviderCatalogRow = {
   id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli",
   models: ["claude-opus-5[1m]", "claude-sonnet-5[1m]"],
-  defaultModel: "claude-opus-5[1m]", efforts: ["", "low", "high", "xhigh"],
+  defaultModel: "claude-opus-5[1m]", efforts: ["low", "high", "xhigh"],
 };
 
 describe("buildModelRows", () => {
@@ -26,7 +26,7 @@ describe("buildModelRows", () => {
   it("un seul défaut par fournisseur, même si deux fournisseurs coexistent", () => {
     const codex: ProviderCatalogRow = {
       id: "codex", label: "Codex", version: "0.58", ok: true, kind: "cli",
-      models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", efforts: ["", "medium"],
+      models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", efforts: ["medium"],
     };
     const { rows } = buildModelRows([claude, codex], { ...DEFAULT_SETTINGS });
     const parProvider = rows.filter((r) => r.isDefault).map((r) => r.provider);
@@ -121,13 +121,38 @@ describe("buildModelRows", () => {
     expect(unavailable.map((p) => p.id)).toEqual([]);
   });
 
+  // --- Correction de revue C1 (2026-08-23) : le trigger Effort était vide
+  // sur chaque ligne. Fixtures réalistes (AUCUN backend n'émet "" dans
+  // `efforts` — claude.rs, codex.rs, opencode.rs) : ce sont ces fixtures-là,
+  // pas la logique, qui masquaient le défaut initialement.
+
+  it("préfixe l'option Auto (\"\") absente du catalogue brut, pour un fournisseur normal", () => {
+    const { rows } = buildModelRows([claude], { ...DEFAULT_SETTINGS });
+    // Fixture `claude` : efforts: ["low", "high", "xhigh"] — jamais "" en entrée.
+    expect(rows[0].efforts).toEqual(["", "low", "high", "xhigh"]);
+    // Sans le préfixe, `effort` (qui vaut "" par défaut, aucun override) ne
+    // correspondrait à AUCUNE option du Select — trigger vide au chargement.
+    expect(rows[0].effort).toBe("");
+    expect(rows[0].efforts).toContain(rows[0].effort);
+  });
+
+  it("NE préfixe PAS l'option Auto pour un fournisseur NO_AUTO_EFFORT (grok) au catalogue chargé", () => {
+    const grok: ProviderCatalogRow = {
+      id: "grok", label: "Grok CLI", version: "1.0", ok: true, kind: "cli",
+      models: ["grok-4.6"], efforts: ["low", "medium", "high", "xhigh"],
+    };
+    const { rows } = buildModelRows([grok], { ...DEFAULT_SETTINGS });
+    expect(rows[0].efforts).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(rows[0].efforts).not.toContain("");
+  });
+
   // Piège opencode (lot B2, hors périmètre ici) : identifiants routés,
   // potentiellement des milliers. La fonction doit rester robuste et rapide.
   it("reste rapide et correct sur un catalogue de plusieurs milliers d'entrées (opencode routé)", () => {
     const many = Array.from({ length: 5000 }, (_, i) => `openrouter/z-ai/glm-5.2-${i}`);
     const opencode: ProviderCatalogRow = {
       id: "opencode", label: "OpenCode", version: "0.9", ok: true, kind: "cli",
-      models: many, defaultModel: many[0], efforts: [""],
+      models: many, defaultModel: many[0], efforts: [],
     };
     const s = {
       ...DEFAULT_SETTINGS,

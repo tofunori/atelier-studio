@@ -50,7 +50,7 @@ describe("Section Modèles", () => {
     renderUi(<Models {...props({ ws })} />);
     emit(ws, {
       type: "providerStatus",
-      providers: [{ id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: [""] }],
+      providers: [{ id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: ["low", "high"] }],
     });
     expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0);
   });
@@ -90,7 +90,7 @@ describe("Section Modèles", () => {
     renderUi(<Models {...props({ ws, set })} />);
     emit(ws, {
       type: "providerStatus",
-      providers: [{ id: "opencode", label: "opencode", ok: true, kind: "cli", models: ["opencode/glm-5.2"], efforts: [""] }],
+      providers: [{ id: "opencode", label: "opencode", ok: true, kind: "cli", models: ["opencode/glm-5.2"], efforts: [] }],
     });
     const search = screen.getByPlaceholderText(t("settings.models-grid.filter-ph"));
     fireEvent.change(search, { target: { value: "glm" } });
@@ -110,7 +110,7 @@ describe("Section Modèles", () => {
       type: "providerStatus",
       providers: [{
         id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli",
-        models: ["claude-opus-5", "claude-sonnet-5"], efforts: ["", "low", "high"],
+        models: ["claude-opus-5", "claude-sonnet-5"], efforts: ["low", "high"],
       }],
     });
     // "claude-opus-5" est mappé par BUILTIN_MODEL_LABELS (src/lib/modelCatalog.ts) → "Opus 5".
@@ -128,7 +128,7 @@ describe("Section Modèles", () => {
     renderUi(<Models {...props({ ws })} />);
     emit(ws, {
       type: "providerStatus",
-      providers: [{ id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: [""] }],
+      providers: [{ id: "claude", label: "Claude Code", version: "2.4.1", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: ["low", "high"] }],
     });
     expect(screen.getAllByText("Claude Code")).toHaveLength(1);
   });
@@ -141,7 +141,7 @@ describe("Section Modèles", () => {
       type: "providerStatus",
       providers: [{
         id: "claude", label: "Claude Code", ok: true, kind: "cli",
-        models: ["claude-opus-5", "claude-sonnet-5"], efforts: [""],
+        models: ["claude-opus-5", "claude-sonnet-5"], efforts: ["low", "high"],
       }],
     });
     // Aucun des deux modèles n'est le défaut courant (DEFAULT_SETTINGS pointe
@@ -163,7 +163,7 @@ describe("Section Modèles", () => {
     renderUi(<Models {...props({ ws, set })} />);
     emit(ws, {
       type: "providerStatus",
-      providers: [{ id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5.6-sol"], efforts: [""] }],
+      providers: [{ id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5.6-sol"], efforts: ["medium", "high"] }],
     });
     const favori = screen.getByRole("button", { name: /favori/i });
     fireEvent.click(favori);
@@ -204,5 +204,95 @@ describe("Section Modèles", () => {
 
     expect(capture).not.toBeNull();
     expect((capture as unknown as CustomEvent).detail).toEqual({ command: "grok login" });
+  });
+
+  // --- Correction de revue (2026-08-23) ---
+
+  it("C2 : un fournisseur installé mais non authentifié n'affiche pas « Prêt » et garde une action pour se connecter", () => {
+    // send.rs:1541 retombe sur le catalogue statique quand le catalogue
+    // vivant est vide : grok peut arriver avec ok:true ET des modèles tout
+    // en étant login_needed. buildModelRows seul (qui ne connaît pas
+    // `setup.providers[].auth`) le marquerait "ready" — Models.tsx doit
+    // croiser l'auth pour corriger le statut de la ligne du TABLEAU, pas
+    // seulement du bloc Non disponibles.
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{ id: "grok", label: "Grok CLI", ok: true, kind: "cli", models: ["grok-4.6"], efforts: ["low", "medium", "high"] }],
+    });
+    emit(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "22.0.0", version: "1.0.0", bundled: true },
+        sidecar: { pid: 1, startedAt: "", appVersion: "1.0.0", bundleHash: "x", dir: "/x" },
+        providers: [{
+          id: "grok", label: "Grok CLI", kind: "cli", installed: true, version: "1.0",
+          binPath: "/usr/local/bin/grok", auth: "login_needed", models: 1, loginCommand: "grok login",
+        }],
+      },
+    });
+    // La ligne existe bien dans le tableau (le modèle reste consultable)…
+    const table = screen.getByRole("table");
+    const [ligne] = within(table).getAllByText("grok-4.6").map((el) => el.closest("tr"));
+    expect(ligne).not.toBeNull();
+    // …mais son état n'est PAS « Prêt ».
+    expect(within(ligne as HTMLElement).queryByText(t("settings.models-grid.status-ready"))).toBeNull();
+    expect(within(ligne as HTMLElement).getByText(t("settings.models-grid.status-absent"))).toBeInTheDocument();
+    // Et une action de connexion existe quelque part dans la page (bloc Non
+    // disponibles) — ce n'était nulle part avant ce correctif, alors que la
+    // ligne semblait pourtant « prête ».
+    expect(screen.getByRole("button", { name: t("settings.setup-login-terminal") })).toBeInTheDocument();
+  });
+
+  it("respecte providerOrder ET hiddenProviders dans le tableau (même réglage que « Ordre du sélecteur »)", () => {
+    const ws = fakeWsOuvert();
+    const s = { ...DEFAULT_SETTINGS, providerOrder: ["codex", "claude"], hiddenProviders: ["grok"] };
+    renderUi(<Models {...props({ ws, s })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [
+        { id: "claude", label: "Claude Code", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: ["low"] },
+        { id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5.6-sol"], efforts: ["medium"] },
+        { id: "grok", label: "Grok CLI", ok: true, kind: "cli", models: ["grok-4.6"], efforts: ["low"] },
+      ],
+    });
+    const table = screen.getByRole("table");
+    // grok est masqué : absent du tableau (visible seulement depuis Avancé
+    // → Ordre du sélecteur, où on peut le démasquer).
+    expect(within(table).queryByText("grok-4.6")).toBeNull();
+    // codex avant claude, dans l'ordre de providerOrder — pas l'ordre
+    // d'arrivée du catalogue (claude, codex, grok ci-dessus).
+    const fournisseurs = within(table).getAllByText(/Claude Code|Codex/).map((el) => el.textContent);
+    const iCodex = fournisseurs.findIndex((t) => t === "Codex");
+    const iClaude = fournisseurs.findIndex((t) => t === "Claude Code");
+    expect(iCodex).toBeGreaterThanOrEqual(0);
+    expect(iClaude).toBeGreaterThan(iCodex);
+  });
+
+  it("une action d'actualisation existe et redemande le catalogue au sidecar", () => {
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    const avant = ws.sent.length;
+    fireEvent.click(screen.getByRole("button", { name: t("action.refresh") }));
+    expect(ws.sent.length).toBeGreaterThan(avant);
+    expect(ws.sentTypes().slice(avant)).toEqual(
+      expect.arrayContaining(["providerStatus", "setupStatus", "apiProviders"]),
+    );
+  });
+
+  it("ne montre jamais « Vérification… » en même temps que le vide du tableau", () => {
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    // Avant toute réponse du sidecar : « Vérification… », PAS le message
+    // générique de ModelsGrid (qui mentirait — ce n'est pas « aucun
+    // fournisseur actif », c'est « pas encore de réponse »).
+    expect(screen.getByText(t("settings.checking"))).toBeInTheDocument();
+    expect(screen.queryByText(t("settings.models-grid.empty-title"))).toBeNull();
+
+    emit(ws, { type: "providerStatus", providers: [] });
+    // Catalogue chargé, vraiment vide cette fois : l'inverse.
+    expect(screen.queryByText(t("settings.checking"))).toBeNull();
+    expect(screen.getByText(t("settings.models-grid.empty-title"))).toBeInTheDocument();
   });
 });
