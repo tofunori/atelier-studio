@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
-import type { SectionProps } from "../shared";
+import type { ProviderCatalogRow, SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
 import { Select } from "../../Select";
@@ -31,6 +31,10 @@ const CLAUDE_MODELS = [
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
 
+const MODEL_LABELS: Record<string, Record<string, string>> = {
+  claude: Object.fromEntries(CLAUDE_MODELS.filter((m) => m.id).map((m) => [m.id, m.label ?? m.id])),
+};
+
 function modelLabel(m: { label?: string; labelKey?: string }) {
   return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
 }
@@ -46,16 +50,24 @@ export default function General(p: SectionProps) {
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
+  // Catalogue codex dynamique (providerStatus) — alimente le menu « Modèle
+  // Codex par défaut » ci-dessous. Aussi consommé par Models.tsx (tâche 7) ;
+  // deux abonnements indépendants au même type de message sont sans effet de
+  // bord, chacun ne fait que dériver son propre état local.
+  const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
 
-  // Le catalogue codex dynamique (providerStatus) est désormais le seul
-  // ressort de Models.tsx (tâche 7) — pas de doublon d'abonnement ici. Sans
-  // lui, la liste des modèles codex se limite au modèle par défaut courant.
-  const providerModels = () => [s.defaultModel.codex].filter(Boolean).map((id) => ({ id, label: id }));
+  function providerModels(provider: "claude" | "codex") {
+    if (provider === "claude") return CLAUDE_MODELS;
+    const row = provs?.find((pr) => pr.id === provider);
+    const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
+    const labels = MODEL_LABELS[provider] ?? {};
+    return ids.map((id) => ({ id, label: labels[id] ?? id }));
+  }
 
-  // Abonnement WebSocket : cette section n'écoute que ses propres types de
-  // message (status, pastedCleared, pastedList, retitleAllDone) et ignore
-  // les autres (providerStatus, apiProviders, setupStatus, apiModels), qui
-  // partent dans Models.tsx à la tâche 7.
+  // Abonnement WebSocket : cette section n'écoute que les types de message
+  // dont dépendent ses propres rangées (status, pastedCleared, pastedList,
+  // retitleAllDone, providerStatus) et ignore les autres (apiProviders,
+  // setupStatus, apiModels), qui partent dans Models.tsx à la tâche 7.
   useEffect(() => {
     if (!p.ws || p.ws.readyState !== 1) return;
     const onMsg = (e: MessageEvent) => {
@@ -66,6 +78,14 @@ export default function General(p: SectionProps) {
         p.ws!.send(JSON.stringify({ type: "listPasted" }));
       }
       if (m.type === "pastedList") setPasted(m.files ?? []);
+      if (m.type === "providerStatus") {
+        const providers = Array.isArray(m.providers) ? m.providers : [];
+        setProvs(providers.map((provider: ProviderCatalogRow) => ({
+          ...provider,
+          models: Array.isArray(provider?.models) ? provider.models : [],
+          efforts: Array.isArray(provider?.efforts) ? provider.efforts : [],
+        })));
+      }
       if (m.type === "retitleAllDone") {
         setRetitleStatus(m.running ? t("settings.retitle-running") : t("settings.retitle-done", { count: m.renamed }));
       }
@@ -73,6 +93,7 @@ export default function General(p: SectionProps) {
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "listPasted" }));
+    p.ws.send(JSON.stringify({ type: "providerStatus" }));
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
 
@@ -127,7 +148,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-codex-model")}
             value={s.defaultModel.codex}
             onChange={(value) => save({ defaultModel: { ...s.defaultModel, codex: value } })}
-            options={providerModels().map((m) => ({ value: m.id, label: modelLabel(m) }))}
+            options={providerModels("codex").map((m) => ({ value: m.id, label: modelLabel(m) }))}
           />
         </Row>
         <Row title={t("settings.default-claude-effort")}>
