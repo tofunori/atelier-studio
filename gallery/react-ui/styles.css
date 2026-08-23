@@ -142,3 +142,15 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
   .gallery-selection-inline { display:none; }
   .gallery-selection-overflow { display:block; }
 }
+
+/* Embarqué dans Atelier : 120px de l'en-tête sont réservés aux contrôles de
+   panneau flottants (voir gallery_template.html). La barre dispose donc de
+   120px de moins que la fenêtre — les deux crans arrivent d'autant plus tôt,
+   sinon la sélection reborde sous les contrôles de l'app. */
+@media (max-width:680px) {
+  html.emb .gallery-selection-word { display:none; }
+}
+@media (max-width:540px) {
+  html.emb .gallery-selection-inline { display:none; }
+  html.emb .gallery-selection-overflow { display:block; }
+}

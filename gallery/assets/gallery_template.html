@@ -146,6 +146,12 @@
   /* 4 + 36 (barre) + 4 = 44 : la barre est centrée dans l'en-tête, et les
      boutons de 26 px retombent à 9 px des deux bords. */
   html.emb header{padding:4px 12px;height:44px;box-sizing:border-box}
+  /* Atelier pose SES contrôles de panneau (recharger, poignée, ⋯, fermer) en
+     flottant au-dessus de l'iframe, coin haut-droit — quatre boutons de 24px,
+     1px de gouttière, 2px de padding, 6px du bord : 109px, plus une respiration. Sans réserve, la
+     barre d'outils de la galerie passe dessous et les deux se chevauchent
+     (visible dès que la sélection remplit la barre). On leur laisse la bande. */
+  html.emb header{padding-right:120px}
   /* Les contrôles de la barre React font 30 px : dans une barre de 44 px il ne
      reste que 7 px de respiration, et l'ensemble paraît serré (les boutons
      sont pourtant centrés au pixel). On les ramène à 26 px, la taille des
