@@ -85,11 +85,28 @@ fn first_message_for_title(msg: &Value, provider_prompt: &str) -> String {
         .to_string()
 }
 
-fn is_new_chat_placeholder(title: &str) -> bool {
+pub(crate) fn is_new_chat_placeholder(title: &str) -> bool {
     matches!(
         title.trim().to_lowercase().as_str(),
         "" | "sans titre" | "nouveau chat" | "new chat"
     )
+}
+
+// auto_title : le brouillon créé par le frontend porte déjà un titre
+// placeholder (« nouveau chat ») — l'écraser par le titre provisoire,
+// sinon maybe_title_new_thread ne reconnaît jamais le fil.
+fn upsert_title(
+    auto_title: bool,
+    explicit_title: Option<String>,
+    prev_title: Option<&str>,
+    provisional_title: &str,
+) -> String {
+    if auto_title {
+        return provisional_title.to_string();
+    }
+    explicit_title
+        .or_else(|| prev_title.filter(|s| !s.is_empty()).map(str::to_string))
+        .unwrap_or_else(|| provisional_title.to_string())
 }
 
 fn should_auto_title(
@@ -853,21 +870,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             "provider": provider,
             "status": "running",
         });
-        if let Some(t) = title.or_else(|| {
-            prev.as_ref()
-                .map(|p| p.title.clone())
-                .filter(|s| !s.is_empty())
-        }) {
-            patch
-                .as_object_mut()
-                .unwrap()
-                .insert("title".into(), json!(t));
-        } else {
-            patch
-                .as_object_mut()
-                .unwrap()
-                .insert("title".into(), json!(provisional_title));
-        }
+        let upsert_title = upsert_title(
+            auto_title,
+            title,
+            prev.as_ref().map(|p| p.title.as_str()),
+            &provisional_title,
+        );
+        patch
+            .as_object_mut()
+            .unwrap()
+            .insert("title".into(), json!(upsert_title));
         let _ = store.upsert(patch, false);
     }
 
@@ -1611,6 +1623,29 @@ mod tests {
     use super::*;
     use crate::paths::AppPaths;
     use tempfile::tempdir;
+
+    #[test]
+    fn upsert_title_ecrase_le_placeholder_du_brouillon() {
+        // Régression 2026-08-23 : le brouillon frontend écrit « nouveau chat »
+        // avant le premier send ; l'auto-titrage doit quand même s'amorcer.
+        assert_eq!(
+            upsert_title(true, None, Some("nouveau chat"), "salut peux-tu"),
+            "salut peux-tu"
+        );
+        // Titre explicite du client : prioritaire quand pas d'auto-titrage.
+        assert_eq!(
+            upsert_title(false, Some("Mon titre".into()), Some("ancien"), "prov"),
+            "Mon titre"
+        );
+        // Fil existant déjà titré : conservé.
+        assert_eq!(
+            upsert_title(false, None, Some("Vrai titre"), "prov"),
+            "Vrai titre"
+        );
+        // Aucun titre nulle part : titre provisoire.
+        assert_eq!(upsert_title(false, None, None, "prov"), "prov");
+        assert_eq!(upsert_title(false, None, Some(""), "prov"), "prov");
+    }
 
     #[test]
     fn fast_mode_est_explicite_et_suit_le_meme_provider() {

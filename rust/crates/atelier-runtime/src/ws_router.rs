@@ -3242,8 +3242,7 @@ async fn handle_retitle_all(state: &AppState) -> Vec<String> {
     let mut renamed = 0usize;
     for t in threads {
         let title = t.title.trim();
-        let is_raw = title.is_empty()
-            || title == "Sans titre"
+        let is_raw = crate::send::is_new_chat_placeholder(title)
             || title.starts_with("Session ")
             || title.chars().count() >= 40;
         if !is_raw {
