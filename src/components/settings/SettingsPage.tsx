@@ -34,6 +34,11 @@ export default function SettingsPage(p: {
   ws: WebSocket | null;
   projects?: string[];
   initialSection?: string;
+  /** Vrai quand la page est posée dans `SettingsSheet` (lot A) : elle ne doit
+   *  plus occuper toute la fenêtre ni gérer Échap elle-même — la feuille
+   *  porte ce contrat via le Dialog Base UI. Comportement par défaut
+   *  (absent/`false`) strictement inchangé — `SetBench` en dépend. */
+  embedded?: boolean;
 }) {
   const [section, setSection] = useState<SectionId>(() => resolveSection(p.initialSection));
   // ≤880 px : la nav colonne écraserait le contenu — select compact au-dessus.
@@ -53,7 +58,10 @@ export default function SettingsPage(p: {
   // Conservé verbatim de l'ancien Settings.tsx:271-285 : Échap ferme la page
   // (convention app) — jamais pendant une saisie, et capturé en amont du
   // handler global d'App qui utilise Échap pour interrompre un tour actif.
+  // `embedded` (lot A) : posée dans SettingsSheet, c'est le Dialog Base UI
+  // qui porte ce contrat — installer aussi cet écouteur ferait doublon.
   useEffect(() => {
+    if (p.embedded) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const el = document.activeElement;
@@ -64,13 +72,13 @@ export default function SettingsPage(p: {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [p.onClose]);
+  }, [p.onClose, p.embedded]);
 
   const set = (patch: Partial<S>) => p.onChange({ ...p.settings, ...patch });
   const Panel = PANELS[section];
 
   return (
-    <div className={`settings-page ${narrow ? "narrow" : ""}`}>
+    <div className={`settings-page ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
       {narrow ? (
         <div className="set-nav-compact">
           <Button variant="ghost" className="set-back" onClick={p.onClose}>{t("settings.back")}</Button>

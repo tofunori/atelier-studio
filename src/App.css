@@ -2615,6 +2615,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .settings-page button:focus-visible, .settings-page input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
+/* Intégrée dans la feuille modale (lot A) : ne prend plus toute la fenêtre. */
+.settings-page.embedded { height: 100%; }
+
+/* Feuille modale des réglages (lot A). Large à dessein : la section Modèles
+   porte un tableau dense qu'un panneau étroit rendrait illisible. */
+.settings-sheet { width: min(1100px, 94vw); height: min(760px, 90vh);
+  max-width: min(1100px, 94vw); padding: 0; overflow: hidden;
+  box-shadow: var(--elevation-overlay); border-radius: var(--r-m); }
+.settings-sheet .settings-page { border-radius: var(--r-m); }
 
 /* ===== Research Navigator (plan 024) — Precision Native =====
    Panneau du projet actif : header d'identité, action primaire, chronologie
