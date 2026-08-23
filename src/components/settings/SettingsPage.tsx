@@ -1,24 +1,29 @@
 // Coquille des réglages (lot 1). Elle ne connaît AUCUN réglage : nav, mode
 // compact, Échap, restauration des défauts, routage. Chaque section reçoit
 // exactement ce dont elle a besoin — jamais l'objet de props entier.
-import React, { lazy, Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../../lib/settings";
 import { t } from "../../lib/i18n";
 import { Button, RowButton } from "../ui";
 import { Select } from "../Select";
+import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
 
-const General = lazy(() => import("./sections/General"));
-const Models = lazy(() => import("./sections/Models"));
-const Appearance = lazy(() => import("./sections/Appearance"));
-const Atelier = lazy(() => import("./sections/Atelier"));
+// lazyWithRetry (pas React.lazy nu) : React.lazy mémorise un import rejeté,
+// donc un chunk de section en échec resterait mort jusqu'au redémarrage de
+// l'app même après un clic sur « Réessayer » dans la LazyBoundary parente
+// (App.tsx). Voir LazyBoundary.tsx pour le détail du mécanisme.
+const General = lazyWithRetry(() => import("./sections/General"));
+const Models = lazyWithRetry(() => import("./sections/Models"));
+const Appearance = lazyWithRetry(() => import("./sections/Appearance"));
+const Atelier = lazyWithRetry(() => import("./sections/Atelier"));
 
 type PanelComponent = React.ComponentType<SectionProps>;
 
-const PANELS: Record<SectionId, React.LazyExoticComponent<PanelComponent>> = {
+const PANELS: Record<SectionId, PanelComponent> = {
   general: General, modeles: Models, apparence: Appearance, atelier: Atelier,
 };
 

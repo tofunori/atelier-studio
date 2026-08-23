@@ -21,10 +21,19 @@ describe("resolveSection", () => {
   });
 
   it("retombe sur « general » pour une section inconnue", () => {
-    // Les sections retirées (setup, providers, review, appsnap, avance) sont
-    // encore citées par d'anciens deep-links et par openSettings(App.tsx:1139).
-    expect(resolveSection("providers")).toBe("general");
+    expect(resolveSection("cette-section-nexiste-pas")).toBe("general");
     expect(resolveSection(undefined)).toBe("general");
+  });
+
+  it("fait retomber les anciennes sections fusionnées sur leur héritière", () => {
+    // Les sections retirées (setup, providers, review, appsnap, avance) sont
+    // encore citées par d'anciens deep-links et par openSettings(App.tsx:1139) ;
+    // leur contenu a fusionné ailleurs, pas dans « general ».
+    expect(resolveSection("setup")).toBe("modeles");
+    expect(resolveSection("providers")).toBe("modeles");
+    expect(resolveSection("review")).toBe("atelier");
+    expect(resolveSection("appsnap")).toBe("atelier");
+    expect(resolveSection("avance")).toBe("general");
   });
 
   it("retombe sur « general » pour null, la chaîne vide ou un type inattendu, sans lever", () => {

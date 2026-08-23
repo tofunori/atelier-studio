@@ -13,13 +13,24 @@ export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
 ];
 
 /** Les anciennes sections (setup, providers, review, appsnap, avance) sont
- *  encore citées par des deep-links : elles retombent sur « general » plutôt
- *  que d'afficher une page vide. Garde runtime volontairement large — les
- *  deep-links (App.tsx) ne garantissent pas `string | undefined` à
- *  l'exécution : `null`, la chaîne vide ou un type inattendu retombent
- *  aussi sur « general » sans lever. */
+ *  encore citées par des deep-links : elles retombent sur la section qui a
+ *  hérité de leur contenu, pas sur « general » par défaut — setup/providers
+ *  ont fusionné dans « modeles », review/appsnap dans « atelier », avance
+ *  dans « general ». Garde runtime volontairement large — les deep-links
+ *  (App.tsx) ne garantissent pas `string | undefined` à l'exécution :
+ *  `null`, la chaîne vide ou un type inattendu retombent sur « general »
+ *  sans lever. */
+const LEGACY_REDIRECTS: Record<string, SectionId> = {
+  setup: "modeles",
+  providers: "modeles",
+  review: "atelier",
+  appsnap: "atelier",
+  avance: "general",
+};
+
 export function resolveSection(raw: string | undefined): SectionId {
   if (typeof raw !== "string" || raw === "") return "general";
   const found = SECTIONS.find((s) => s.id === raw);
-  return found ? found.id : "general";
+  if (found) return found.id;
+  return LEGACY_REDIRECTS[raw] ?? "general";
 }

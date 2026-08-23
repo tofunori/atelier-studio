@@ -29,28 +29,13 @@ import { ScrollArea } from "../../shadcn/scroll-area";
 import { Toggle as ShadcnToggle } from "../../shadcn/toggle";
 import { ToggleGroup, ToggleGroupItem } from "../../shadcn/toggle-group";
 import { CheckIcon } from "lucide-react";
+import { CLAUDE_MODELS, modelLabel, providerModels } from "../models";
 
-// Catalogue statique des modèles Claude et des paliers d'effort — dupliqué
-// tel quel dans General.tsx. Settings.tsx (source d'origine, lignes 48-60)
-// a été supprimé ; la mise en commun de ce catalogue entre les deux sections
-// est renvoyée au lot qui refondra la section Modèles, pas traitée ici.
-const CLAUDE_MODELS = [
-  { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
-  { id: "claude-opus-5[1m]", label: "Opus 5 · 1M" },
-  { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
-  { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
-  { id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 · 1M" },
-];
+// Paliers d'effort — pas dupliqués au sens du bug signalé (seul le
+// catalogue de modèles désalignait General.tsx et Models.tsx), donc pas
+// déplacés dans models.ts.
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
-
-const MODEL_LABELS: Record<string, Record<string, string>> = {
-  claude: Object.fromEntries(CLAUDE_MODELS.filter((m) => m.id).map((m) => [m.id, m.label ?? m.id])),
-};
-
-function modelLabel(m: { label?: string; labelKey?: string }) {
-  return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
-}
 
 // Copié tel quel de Settings.tsx:85-109 — seul consommateur restant.
 function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
@@ -133,14 +118,6 @@ export default function Models(p: SectionProps) {
       ? current.filter((id) => id !== model)
       : [...current, model];
     save({ favoriteModels: { ...favoriteModels, [provider]: next } });
-  }
-
-  function providerModels(provider: "claude" | "codex") {
-    if (provider === "claude") return CLAUDE_MODELS;
-    const row = provs?.find((pr) => pr.id === provider);
-    const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
-    const labels = MODEL_LABELS[provider] ?? {};
-    return ids.map((id) => ({ id, label: labels[id] ?? id }));
   }
 
   function refreshSetup() {
@@ -444,7 +421,7 @@ export default function Models(p: SectionProps) {
       <Group label={t("settings.model-effort-sub")}>
         {([
           ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
-          ...providerModels("codex").filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
+          ...providerModels("codex", provs, s.defaultModel).filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
           ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
         ]).map((m) => {
           const key = m.provider + ":" + m.id;

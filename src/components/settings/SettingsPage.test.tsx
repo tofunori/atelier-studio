@@ -48,10 +48,14 @@ describe("SettingsPage — navigation et fermeture", () => {
     expect(items[0]).toHaveAttribute("aria-current", "true");
   });
 
-  it("un deep-link vers une section supprimée retombe sur Général", () => {
+  it("un deep-link vers une section fusionnée retombe sur son héritière (modeles), pas sur Général", () => {
+    // Correction de revue : « providers » a fusionné dans « modeles », pas
+    // dans « general » (sections.ts:resolveSection). Voir sections.test.ts
+    // pour la couverture complète du repli (setup/providers → modeles,
+    // review/appsnap → atelier, avance/inconnu → general).
     renderUi(<SettingsPage {...props({ initialSection: "providers" })} />);
     const items = screen.getAllByRole("button").filter((b) => b.classList.contains("set-nav-item"));
-    expect(items[0]).toHaveAttribute("aria-current", "true");
+    expect(items[1]).toHaveAttribute("aria-current", "true");
   });
 
   it("cliquer une section bascule le contenu et l'état actif", async () => {

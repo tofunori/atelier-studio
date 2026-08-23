@@ -18,26 +18,13 @@ import { Select } from "../../Select";
 import { Button, InlineNotice } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
+import { CLAUDE_MODELS, modelLabel, providerModels } from "../models";
 
-// Catalogue statique des modèles Claude et des paliers d'effort — copié tel
-// quel de Settings.tsx (constantes de module, hors composant).
-const CLAUDE_MODELS = [
-  { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
-  { id: "claude-opus-5[1m]", label: "Opus 5 · 1M" },
-  { id: "claude-opus-4-8[1m]", label: "Opus 4.8 · 1M" },
-  { id: "claude-sonnet-5[1m]", label: "Sonnet 5 · 1M" },
-  { id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 · 1M" },
-];
+// Paliers d'effort — non dupliqués côté Models.tsx au sens du bug signalé
+// (seul le catalogue de modèles désalignait les deux sections), donc pas
+// déplacés ici.
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
-
-const MODEL_LABELS: Record<string, Record<string, string>> = {
-  claude: Object.fromEntries(CLAUDE_MODELS.filter((m) => m.id).map((m) => [m.id, m.label ?? m.id])),
-};
-
-function modelLabel(m: { label?: string; labelKey?: string }) {
-  return m.labelKey === "common.default-cli" ? t("common.default-cli") : m.label ?? "";
-}
 
 export default function General(p: SectionProps) {
   // Un seul point de sortie : toute écriture confirme (pastille « Enregistré »).
@@ -56,18 +43,23 @@ export default function General(p: SectionProps) {
   // bord, chacun ne fait que dériver son propre état local.
   const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
 
-  function providerModels(provider: "claude" | "codex") {
-    if (provider === "claude") return CLAUDE_MODELS;
-    const row = provs?.find((pr) => pr.id === provider);
-    const ids = row?.models?.length ? row.models : [s.defaultModel[provider]].filter(Boolean);
-    const labels = MODEL_LABELS[provider] ?? {};
-    return ids.map((id) => ({ id, label: labels[id] ?? id }));
-  }
-
   // Abonnement WebSocket : cette section n'écoute que les types de message
   // dont dépendent ses propres rangées (status, pastedCleared, pastedList,
   // retitleAllDone, providerStatus) et ignore les autres (apiProviders,
   // setupStatus, apiModels), qui partent dans Models.tsx à la tâche 7.
+  //
+  // Régression connue et assumée : dans l'ancien Settings.tsx, cet
+  // abonnement vivait au niveau de la page entière, donc changer de section
+  // pendant un « Générer les titres » gardait l'écouteur et affichait le
+  // résultat au retour. Ici il vit dans General et meurt avec elle : si
+  // l'utilisateur quitte General avant que le sidecar réponde
+  // (retitleAllDone), l'opération aboutit quand même côté sidecar mais
+  // `retitleStatus` ne s'affiche jamais — silencieux, sans erreur. Même
+  // sort, plus bénin, pour `pastedCleared` (la liste des images collées ne
+  // se rafraîchit pas si on a changé de section entre-temps). Remonter
+  // l'abonnement dans la coquille violerait « la coquille ne connaît aucun
+  // réglage » ; basculer le résultat vers un toast changerait le
+  // comportement dans un lot qui l'interdit. Assumé tel quel.
   useEffect(() => {
     if (!p.ws || p.ws.readyState !== 1) return;
     const onMsg = (e: MessageEvent) => {
@@ -148,7 +140,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-codex-model")}
             value={s.defaultModel.codex}
             onChange={(value) => save({ defaultModel: { ...s.defaultModel, codex: value } })}
-            options={providerModels("codex").map((m) => ({ value: m.id, label: modelLabel(m) }))}
+            options={providerModels("codex", provs, s.defaultModel).map((m) => ({ value: m.id, label: modelLabel(m) }))}
           />
         </Row>
         <Row title={t("settings.default-claude-effort")}>
