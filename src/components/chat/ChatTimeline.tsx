@@ -555,7 +555,11 @@ export function ChatTimeline(p: {
         recycleItems={false}
         initialScrollAtEnd
         alignItemsAtEnd
-        maintainScrollAtEnd={autoFollow}
+        // animated : le suivi du bas s'interpole au lieu de téléporter le fil
+        // d'une hauteur de ligne à chaque wrap — mesuré au banc
+        // #chatbench-livestream (12 pas instantanés de 20-63 px sans,
+        // demande de fluidité Thierry 2026-08-23).
+        maintainScrollAtEnd={autoFollow ? { animated: true } : false}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
         className={`messages${isFirstTurnSettling ? " is-first-turn-settling" : ""}`}
