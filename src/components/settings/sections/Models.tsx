@@ -266,15 +266,18 @@ export default function Models(p: SectionProps) {
             ]}
           />
         </Row>
-        <Row title={t("settings.models-new-thread")}>
-          <span className="set-row-static">
-            {t("settings.models-new-thread-desc", {
-              provider: providerLabelFor(s.defaultProvider),
-              model: activeModelLabel,
-              effort: activeEffort || t("common.provider-default"),
-              permission: permissionLabels[s.defaultPermissionMode] ?? s.defaultPermissionMode,
-            })}
-          </span>
+        <Row
+          title={t("settings.models-new-thread")}
+          desc={t("settings.models-new-thread-desc", {
+            provider: providerLabelFor(s.defaultProvider),
+            model: activeModelLabel,
+            effort: activeEffort || t("common.provider-default"),
+            permission: permissionLabels[s.defaultPermissionMode] ?? s.defaultPermissionMode,
+          })}
+        >
+          {/* Lecture seule, dérivée (spec §6.1) : aucun contrôle, seule la
+              description de la rangée porte l'information. */}
+          <></>
         </Row>
       </Group>
 
