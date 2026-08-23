@@ -9,6 +9,7 @@ import {
   SearchIcon,
   ServerIcon,
   SquareTerminalIcon,
+  XIcon,
 } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
@@ -105,6 +106,13 @@ function statusTone(state: string): "neutral" | "running" | "success" | "warning
   return "neutral";
 }
 
+// Slurm renvoie « None » quand il n'y a rien à signaler : ce n'est pas une
+// raison, c'est du bruit — l'inspecteur ne l'affiche pas.
+function meaningfulReason(reason: string) {
+  const value = reason.trim();
+  return !value || value.toLowerCase() === "none" ? "" : value;
+}
+
 function displayState(state: string) {
   return state.replace(/_/g, " ");
 }
@@ -184,6 +192,9 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   const [runDays, setRunDays] = useState(30);
   const [visibleRunCount, setVisibleRunCount] = useState(RUN_PAGE_SIZE);
   const [filesOpen, setFilesOpen] = useState(true);
+  // En panneau étroit l'inspecteur devient un calque : il ne doit s'ouvrir que
+  // sur un clic explicite, jamais sur la sélection automatique du 1er job.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -233,8 +244,9 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     requestSnapshot();
   };
 
-  const inspectJob = useCallback((job: SlurmJob) => {
+  const inspectJob = useCallback((job: SlurmJob, reveal = true) => {
     setSelectedJobId(job.id);
+    if (reveal) setInspectorOpen(true);
     setDetail(null);
     setPreview(null);
     setPreviewError(null);
@@ -288,7 +300,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
         setSnapshot(next);
         setSelectedJobId((current) => current ?? next.active[0]?.id ?? next.recent[0]?.id ?? null);
         const first = next.active[0] ?? next.recent[0];
-        if (!selectedJobId && first) inspectJob(first);
+        if (!selectedJobId && first) inspectJob(first, false);
       }
       if (msg.type === "narvalDirectory" && msg.path) {
         const expected = directoryRequests.current.get(msg.path);
@@ -338,6 +350,17 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   useEffect(() => {
     setVisibleRunCount(RUN_PAGE_SIZE);
   }, [runDays, runQuery, runStateFilter]);
+
+  // En calque (panneau étroit), Échap referme l'inspecteur comme n'importe
+  // quelle surface superposée. En trois colonnes l'attribut n'a aucun effet.
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInspectorOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inspectorOpen]);
 
   const toggleDirectory = (path: string, open: boolean) => {
     setExpanded((current) => {
@@ -400,314 +423,334 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   const visibleRecentRuns = filteredRecentRuns.slice(0, visibleRunCount);
 
   return (
-    <div className="narval-surface" data-visible={visible} data-files-open={filesOpen}>
-      <aside id="narval-remote-files" className="narval-files" aria-label={t("narval.remote-files")}>
-        <header className="narval-files-head">
-          <label className="narval-search">
-            <SearchIcon />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("narval.search-files")} />
-          </label>
-          <IconButton
-            className="narval-files-toggle"
-            size="s"
-            hit40
-            label={t("narval.hide-files")}
-            title={t("narval.hide-files")}
-            aria-expanded
-            aria-describedby="narval-files-toggle-description"
-            onClick={() => setFilesOpen(false)}
-          >
-            <SidebarIcon size={16} />
-          </IconButton>
-        </header>
-        <ScrollArea className="narval-tree-scroll">
-          <div className="narval-tree">
-            {loading && roots.length === 0 && <TreeSkeleton depth={0} />}
-            {matches ? matches.map((entry) => renderEntry(entry, 0)) : roots.map((root) => {
-              const open = expanded.has(root);
-              return (
-                <Collapsible key={root} open={open} onOpenChange={(next) => toggleDirectory(root, next)}>
-                  <CollapsibleTrigger render={<RowButton className="narval-tree-row narval-root" title={root} />}>
-                    <ChevronRightIcon className={open ? "narval-tree-chevron open" : "narval-tree-chevron"} />
-                    {open ? <FolderOpenIcon /> : <FolderIcon />}
-                    <span>{root === status?.home ? `~  ${remoteName(root)}` : root}</span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    {loadingDirectories.has(root) && <TreeSkeleton depth={1} />}
-                    {directories[root]?.map((entry) => renderEntry(entry, 1))}
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-          </div>
-        </ScrollArea>
-      </aside>
-
-      <main className="narval-main">
-        <header className="narval-toolbar">
-          {!filesOpen && (
+    // La coquille porte le conteneur de requêtes : `@container` interroge
+    // toujours un ANCÊTRE, jamais l'élément qui déclare `container-type`.
+    <div className="narval-shell" data-visible={visible}>
+      <div
+        className="narval-surface"
+        data-files-open={filesOpen}
+        data-inspector={inspectorOpen ? "open" : "closed"}
+      >
+        <aside id="narval-remote-files" className="narval-files" aria-label={t("narval.remote-files")}>
+          <header className="narval-files-head">
+            <label className="narval-search">
+              <SearchIcon />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("narval.search-files")} />
+            </label>
             <IconButton
               className="narval-files-toggle"
               size="s"
               hit40
-              label={t("narval.show-files")}
-              title={t("narval.show-files")}
-              aria-expanded={false}
+              label={t("narval.hide-files")}
+              title={t("narval.hide-files")}
+              aria-expanded
               aria-describedby="narval-files-toggle-description"
-              onClick={() => setFilesOpen(true)}
+              onClick={() => setFilesOpen(false)}
             >
               <SidebarIcon size={16} />
             </IconButton>
-          )}
-          <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
-          <h1 title={t("narval.monitor-title")}>{t("narval.title-short")}</h1>
-          <span
-            className={status?.connected ? "narval-connection connected" : "narval-connection"}
-            title={status?.connected ? t("narval.connected-now") : t("narval.not-connected")}
-          >
-            <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
-          </span>
-          <div className="narval-toolbar-actions">
-            <IconButton
-              className={loading ? "narval-refresh is-loading" : "narval-refresh"}
-              size="s"
-              hit40
-              label={t("narval.refresh")}
-              title={t("narval.refresh")}
-              onClick={refresh}
-            >
-              <RefreshCwIcon />
-            </IconButton>
-            <IconButton
-              size="s"
-              hit40
-              label={t("narval.terminal")}
-              title={t("narval.terminal")}
-              onClick={() => onOpenTerminal(sshTerminalCommand(status))}
-            >
-              <SquareTerminalIcon />
-            </IconButton>
-          </div>
-        </header>
-        {error && snapshot && (
-          <Alert variant="destructive" className="narval-alert">
-            <ServerIcon />
-            <AlertTitle>{t("narval.error-title")}</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
-          </Alert>
-        )}
-        {error && !snapshot ? (
-          <div className="narval-offline">
-            <ServerIcon aria-hidden="true" />
-            <strong>{t("narval.error-title")}</strong>
-            <p>{error.message}</p>
-            <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
-              <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
-            </Button>
-          </div>
-        ) : (
-        <ScrollArea className="narval-main-scroll">
-          <section className="narval-section" aria-labelledby="narval-jobs-title">
-            <div className="narval-section-title">
-              <h2 id="narval-jobs-title">{t("narval.jobs")}</h2>
-              <StatusBadge>{snapshot?.active.length ?? 0} {t("narval.jobs-count")}</StatusBadge>
+          </header>
+          <ScrollArea className="narval-tree-scroll">
+            <div className="narval-tree">
+              {loading && roots.length === 0 && <TreeSkeleton depth={0} />}
+              {matches ? matches.map((entry) => renderEntry(entry, 0)) : roots.map((root) => {
+                const open = expanded.has(root);
+                return (
+                  <Collapsible key={root} open={open} onOpenChange={(next) => toggleDirectory(root, next)}>
+                    <CollapsibleTrigger render={<RowButton className="narval-tree-row narval-root" title={root} />}>
+                      <ChevronRightIcon className={open ? "narval-tree-chevron open" : "narval-tree-chevron"} />
+                      {open ? <FolderOpenIcon /> : <FolderIcon />}
+                      <span>{root === status?.home ? `~  ${remoteName(root)}` : root}</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      {loadingDirectories.has(root) && <TreeSkeleton depth={1} />}
+                      {directories[root]?.map((entry) => renderEntry(entry, 1))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                );
+              })}
             </div>
-            {!snapshot && loading ? <JobsSkeleton /> : (snapshot?.active.length ?? 0) === 0 ? (
-              <Empty className="narval-empty">
-                <EmptyHeader>
-                  <EmptyMedia className="narval-empty-icon"><Clock3Icon /></EmptyMedia>
-                  <EmptyTitle>{t("narval.no-active-jobs")}</EmptyTitle>
-                  <EmptyDescription>{t("narval.no-active-jobs-desc")}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <div className="narval-active-jobs">
-                {snapshot?.active.map((job) => (
-                  <RowButton
-                    key={job.id}
-                    className="narval-job-row"
-                    data-state={selectedJobId === job.id ? "selected" : undefined}
-                    aria-pressed={selectedJobId === job.id}
-                    onClick={() => inspectJob(job)}
-                  >
-                    <span className="narval-job-identity">
-                      <strong title={job.name}>{job.name}</strong>
-                      <code>{job.id}</code>
-                    </span>
-                    <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
-                    <span className="narval-job-metrics">
-                      <span><small>{t("narval.time")}</small><code>{job.elapsed || "—"}</code></span>
-                      <span><small>{t("narval.cpus")}</small><b>{job.cpus || "—"}</b></span>
-                    </span>
-                  </RowButton>
-                ))}
-              </div>
-            )}
-          </section>
-          <section className="narval-section" aria-labelledby="narval-runs-title">
-            <div className="narval-section-title narval-runs-title">
-              <h2 id="narval-runs-title">{t("narval.recent-runs")}</h2>
-              <span>{filteredRecentRuns.length} / {snapshot?.recent.length ?? 0}</span>
-            </div>
-            {(snapshot?.recent.length ?? 0) > 0 && (
-            <div className="narval-run-controls">
-              <label className="narval-run-search">
-                <SearchIcon aria-hidden="true" />
-                <Input
-                  value={runQuery}
-                  onChange={(event) => setRunQuery(event.target.value)}
-                  placeholder={t("narval.search-runs")}
-                  aria-label={t("narval.search-runs")}
-                />
-              </label>
-              <SegmentedControl
-                className="narval-run-state-filter"
-                label={t("narval.filter-state")}
-                value={runStateFilter}
-                onChange={(value) => setRunStateFilter(value as RunStateFilter)}
-                options={[
-                  { value: "all", label: t("narval.filter-all") },
-                  { value: "completed", label: t("narval.filter-completed") },
-                  { value: "failed", label: t("narval.filter-failed") },
-                  { value: "cancelled", label: t("narval.filter-cancelled") },
-                ]}
-              />
-              <label className="narval-run-period">
-                <span>{t("narval.period")}</span>
-                <select value={runDays} onChange={(event) => setRunDays(Number(event.target.value))}>
-                  <option value={7}>{t("narval.days-7")}</option>
-                  <option value={30}>{t("narval.days-30")}</option>
-                  <option value={90}>{t("narval.days-90")}</option>
-                </select>
-              </label>
-            </div>
-            )}
-            <div className="narval-runs">
-              {visibleRecentRuns.map((job) => (
-                <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
-                  <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
-                  <strong>{job.name}</strong>
-                  <code>{job.id}</code>
-                  <span>{job.endedAt || job.startedAt || job.elapsed}</span>
-                </RowButton>
-              ))}
-              {snapshot && snapshot.recent.length === 0 && <p className="narval-muted">{t("narval.no-recent-runs")}</p>}
-              {snapshot && snapshot.recent.length > 0 && filteredRecentRuns.length === 0 && (
-                <p className="narval-muted">{t("narval.no-matching-runs")}</p>
-              )}
-            </div>
-            {visibleRunCount < filteredRecentRuns.length && (
-              <Button className="narval-runs-more" variant="ghost" onClick={() => setVisibleRunCount((count) => count + RUN_PAGE_SIZE)}>
-                {t("narval.show-more-runs")} · {Math.min(RUN_PAGE_SIZE, filteredRecentRuns.length - visibleRunCount)}
-              </Button>
-            )}
-          </section>
-        </ScrollArea>
-        )}
-      </main>
+          </ScrollArea>
+        </aside>
 
-      <aside className="narval-inspector" aria-label={t("narval.job-inspector")}>
-        {!selectedJob ? (
-          <Empty className="narval-inspector-empty">
-            <EmptyHeader>
-              <EmptyMedia className="narval-empty-icon"><ServerIcon /></EmptyMedia>
-              <EmptyTitle>{t("narval.select-job")}</EmptyTitle>
-              <EmptyDescription>{t("narval.select-job-desc")}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <>
-            <header className="narval-inspector-head">
-              <div><code>{selectedJob.id}</code><span> · </span><strong>{selectedJob.name}</strong></div>
-              <StatusBadge status={statusTone(selectedJob.state)}>{displayState(selectedJob.state)}</StatusBadge>
-              {selectedJob.reason && <span className="narval-reason">{selectedJob.reason}</span>}
-            </header>
-            <Tabs value={tab} onValueChange={setTab} className="narval-tabs">
-              <TabsList className="narval-tabs-list">
-                <TabsTrigger value="overview">{t("narval.overview")}</TabsTrigger>
-                <TabsTrigger value="logs">{t("narval.logs")}</TabsTrigger>
-                <TabsTrigger value="files">{t("narval.run-files-tab")}</TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview">
-                <ScrollArea className="narval-inspector-scroll">
-                  {detailLoading ? <DetailSkeleton /> : (
-                    <dl className="narval-detail-list">
-                      <dt>{t("narval.job-id")}</dt><dd><code>{selectedJob.id}</code></dd>
-                      <dt>{t("narval.state")}</dt><dd>{displayState(selectedJob.state)}</dd>
-                      <dt>{t("narval.reason")}</dt><dd>{selectedJob.reason || "—"}</dd>
-                      <dt>{t("narval.work-dir")}</dt><dd><code>{detail?.job.workDir || selectedJob.workDir || "—"}</code></dd>
-                      <dt>{t("narval.submitted")}</dt><dd>{detail?.submittedAt || "—"}</dd>
-                      <dt>{t("narval.partition")}</dt><dd>{detail?.job.partition || selectedJob.partition || "—"}</dd>
-                      <dt>{t("narval.resources")}</dt><dd>{selectedJob.cpus || "—"} CPU · {detail?.requestedMemory || "—"}</dd>
-                      <dt>{t("narval.elapsed")}</dt><dd>{selectedJob.elapsed || "—"}</dd>
-                    </dl>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-              <TabsContent value="logs">
-                <div className="narval-log-toolbar">
-                  {detail?.stdoutPath && <Button variant="ghost" onClick={() => readText(resolvePath(detail.job.workDir, detail.stdoutPath))}>stdout</Button>}
-                  {detail?.stderrPath && <Button variant="ghost" onClick={() => readText(resolvePath(detail.job.workDir, detail.stderrPath))}>stderr</Button>}
-                  {selectedPath && <code>{remoteName(selectedPath)}</code>}
-                </div>
-                <ScrollArea className="narval-log-scroll">
-                  {previewLoading ? <DetailSkeleton /> : previewError ? (
-                    <p className="narval-muted">{previewError}</p>
-                  ) : preview ? <pre>{preview.content || t("narval.empty-log")}</pre> : (
-                    <p className="narval-muted">{t("narval.no-log")}</p>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-              <TabsContent value="files">
-                <ScrollArea className="narval-inspector-scroll">
-                  <div className="narval-run-files">
-                    {runFilesLoading ? <DetailSkeleton /> : runFilesError ? (
-                      <p className="narval-muted">{runFilesError}</p>
-                    ) : runFiles ? (
-                      <>
-                        <header className="narval-run-files-summary">
-                          <strong>{t("narval.run-files-title", { count: runFiles.entries.length })}</strong>
-                          <p>{t("narval.run-files-help")}</p>
-                        </header>
-                        <div className="narval-run-file-roots">
-                          {runFiles.roots.map((root) => (
-                            <div key={`${root.source}:${root.path}`}>
-                              <span>{root.source === "declared" ? t("narval.run-root-declared") : root.source === "run-root" ? t("narval.run-root-run") : t("narval.run-root-workdir")}</span>
-                              <code title={root.path}>{root.path}</code>
-                            </div>
-                          ))}
-                        </div>
-                        {confirmedFiles.length > 0 && (
-                          <RunFileGroup title={t("narval.run-files-confirmed")} help={t("narval.run-files-confirmed-help")} entries={confirmedFiles} />
-                        )}
-                        {probableFiles.length > 0 && (
-                          <RunFileGroup title={t("narval.run-files-probable")} help={t("narval.run-files-probable-help")} entries={probableFiles} />
-                        )}
-                        {runFiles.entries.length === 0 && (
-                          <div className="narval-run-files-empty">
-                            <FileIcon aria-hidden="true" />
-                            <strong>{t("narval.run-files-none")}</strong>
-                            <p>{t("narval.run-files-none-help")}</p>
-                          </div>
-                        )}
-                        {runFiles.truncated && <p className="narval-run-files-truncated">{t("narval.run-files-truncated")}</p>}
-                      </>
-                    ) : (
-                      <p className="narval-muted">{t("narval.run-files-waiting")}</p>
-                    )}
-                  </div>
-                </ScrollArea>
-              </TabsContent>
-            </Tabs>
-            <footer className="narval-inspector-foot">
+        <main className="narval-main">
+          <header className="narval-toolbar">
+            {!filesOpen && (
+              <IconButton
+                className="narval-files-toggle"
+                size="s"
+                hit40
+                label={t("narval.show-files")}
+                title={t("narval.show-files")}
+                aria-expanded={false}
+                aria-describedby="narval-files-toggle-description"
+                onClick={() => setFilesOpen(true)}
+              >
+                <SidebarIcon size={16} />
+              </IconButton>
+            )}
+            <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
+            <h1 title={t("narval.monitor-title")}>{t("narval.title-short")}</h1>
+            <span
+              className={status?.connected ? "narval-connection connected" : "narval-connection"}
+              title={status?.connected ? t("narval.connected-now") : t("narval.not-connected")}
+            >
+              <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
+            </span>
+            <div className="narval-toolbar-actions">
+              <IconButton
+                className={loading ? "narval-refresh is-loading" : "narval-refresh"}
+                size="s"
+                hit40
+                label={t("narval.refresh")}
+                title={t("narval.refresh")}
+                onClick={refresh}
+              >
+                <RefreshCwIcon />
+              </IconButton>
+              <IconButton
+                size="s"
+                hit40
+                label={t("narval.terminal")}
+                title={t("narval.terminal")}
+                onClick={() => onOpenTerminal(sshTerminalCommand(status))}
+              >
+                <SquareTerminalIcon />
+              </IconButton>
+            </div>
+          </header>
+          {error && snapshot && (
+            <Alert variant="destructive" className="narval-alert">
+              <ServerIcon />
+              <AlertTitle>{t("narval.error-title")}</AlertTitle>
+              <AlertDescription>{error.message}</AlertDescription>
+            </Alert>
+          )}
+          {error && !snapshot ? (
+            <div className="narval-offline">
+              <ServerIcon aria-hidden="true" />
+              <strong>{t("narval.error-title")}</strong>
+              <p>{error.message}</p>
               <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
                 <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
               </Button>
-              <StatusBadge status="neutral">{t("narval.read-only")}</StatusBadge>
-            </footer>
-          </>
-        )}
-      </aside>
+            </div>
+          ) : (
+          <ScrollArea className="narval-main-scroll">
+            <section className="narval-section" aria-labelledby="narval-jobs-title">
+              <div className="narval-section-title">
+                <h2 id="narval-jobs-title">{t("narval.jobs")}</h2>
+                <StatusBadge>{snapshot?.active.length ?? 0} {t("narval.jobs-count")}</StatusBadge>
+              </div>
+              {!snapshot && loading ? <JobsSkeleton /> : (snapshot?.active.length ?? 0) === 0 ? (
+                <Empty className="narval-empty">
+                  <EmptyHeader>
+                    <EmptyMedia className="narval-empty-icon"><Clock3Icon /></EmptyMedia>
+                    <EmptyTitle>{t("narval.no-active-jobs")}</EmptyTitle>
+                    <EmptyDescription>{t("narval.no-active-jobs-desc")}</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <div className="narval-active-jobs">
+                  {snapshot?.active.map((job) => (
+                    <RowButton
+                      key={job.id}
+                      className="narval-job-row"
+                      data-state={selectedJobId === job.id ? "selected" : undefined}
+                      aria-pressed={selectedJobId === job.id}
+                      onClick={() => inspectJob(job)}
+                    >
+                      <span className="narval-job-identity">
+                        <strong title={job.name}>{job.name}</strong>
+                        <code>{job.id}</code>
+                      </span>
+                      <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
+                      <span className="narval-job-metrics">
+                        <span><small>{t("narval.time")}</small><code>{job.elapsed || "—"}</code></span>
+                        <span><small>{t("narval.cpus")}</small><b>{job.cpus || "—"}</b></span>
+                      </span>
+                    </RowButton>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="narval-section" aria-labelledby="narval-runs-title">
+              <div className="narval-section-title narval-runs-title">
+                <h2 id="narval-runs-title">{t("narval.recent-runs")}</h2>
+                <span>{filteredRecentRuns.length} / {snapshot?.recent.length ?? 0}</span>
+              </div>
+              {(snapshot?.recent.length ?? 0) > 0 && (
+              <div className="narval-run-controls">
+                <label className="narval-run-search">
+                  <SearchIcon aria-hidden="true" />
+                  <Input
+                    value={runQuery}
+                    onChange={(event) => setRunQuery(event.target.value)}
+                    placeholder={t("narval.search-runs")}
+                    aria-label={t("narval.search-runs")}
+                  />
+                </label>
+                <SegmentedControl
+                  className="narval-run-state-filter"
+                  label={t("narval.filter-state")}
+                  value={runStateFilter}
+                  onChange={(value) => setRunStateFilter(value as RunStateFilter)}
+                  options={[
+                    { value: "all", label: t("narval.filter-all") },
+                    { value: "completed", label: t("narval.filter-completed") },
+                    { value: "failed", label: t("narval.filter-failed") },
+                    { value: "cancelled", label: t("narval.filter-cancelled") },
+                  ]}
+                />
+                <label className="narval-run-period">
+                  <span>{t("narval.period")}</span>
+                  <select value={runDays} onChange={(event) => setRunDays(Number(event.target.value))}>
+                    <option value={7}>{t("narval.days-7")}</option>
+                    <option value={30}>{t("narval.days-30")}</option>
+                    <option value={90}>{t("narval.days-90")}</option>
+                  </select>
+                </label>
+              </div>
+              )}
+              <div className="narval-runs">
+                {visibleRecentRuns.map((job) => (
+                  <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
+                    <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
+                    <strong>{job.name}</strong>
+                    <code>{job.id}</code>
+                    <span>{job.endedAt || job.startedAt || job.elapsed}</span>
+                  </RowButton>
+                ))}
+                {snapshot && snapshot.recent.length === 0 && <p className="narval-muted">{t("narval.no-recent-runs")}</p>}
+                {snapshot && snapshot.recent.length > 0 && filteredRecentRuns.length === 0 && (
+                  <p className="narval-muted">{t("narval.no-matching-runs")}</p>
+                )}
+              </div>
+              {visibleRunCount < filteredRecentRuns.length && (
+                <Button className="narval-runs-more" variant="ghost" onClick={() => setVisibleRunCount((count) => count + RUN_PAGE_SIZE)}>
+                  {t("narval.show-more-runs")} · {Math.min(RUN_PAGE_SIZE, filteredRecentRuns.length - visibleRunCount)}
+                </Button>
+              )}
+            </section>
+          </ScrollArea>
+          )}
+        </main>
+
+        <aside className="narval-inspector" aria-label={t("narval.job-inspector")}>
+          {!selectedJob ? (
+            <Empty className="narval-inspector-empty">
+              <EmptyHeader>
+                <EmptyMedia className="narval-empty-icon"><ServerIcon /></EmptyMedia>
+                <EmptyTitle>{t("narval.select-job")}</EmptyTitle>
+                <EmptyDescription>{t("narval.select-job-desc")}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <>
+              <header className="narval-inspector-head">
+                <IconButton
+                  className="narval-inspector-close"
+                  size="s"
+                  hit40
+                  label={t("narval.close-inspector")}
+                  title={t("narval.close-inspector")}
+                  onClick={() => setInspectorOpen(false)}
+                >
+                  <XIcon />
+                </IconButton>
+                <div><code>{selectedJob.id}</code><span> · </span><strong>{selectedJob.name}</strong></div>
+                <StatusBadge status={statusTone(selectedJob.state)}>{displayState(selectedJob.state)}</StatusBadge>
+                {meaningfulReason(selectedJob.reason) && (
+                  <span className="narval-reason">{meaningfulReason(selectedJob.reason)}</span>
+                )}
+              </header>
+              <Tabs value={tab} onValueChange={setTab} className="narval-tabs">
+                <TabsList className="narval-tabs-list">
+                  <TabsTrigger value="overview">{t("narval.overview")}</TabsTrigger>
+                  <TabsTrigger value="logs">{t("narval.logs")}</TabsTrigger>
+                  <TabsTrigger value="files">{t("narval.run-files-tab")}</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview">
+                  <ScrollArea className="narval-inspector-scroll">
+                    {detailLoading ? <DetailSkeleton /> : (
+                      <dl className="narval-detail-list">
+                        <dt>{t("narval.job-id")}</dt><dd><code>{selectedJob.id}</code></dd>
+                        <dt>{t("narval.state")}</dt><dd>{displayState(selectedJob.state)}</dd>
+                        <dt>{t("narval.reason")}</dt><dd>{meaningfulReason(selectedJob.reason) || "—"}</dd>
+                        <dt>{t("narval.work-dir")}</dt><dd><code>{detail?.job.workDir || selectedJob.workDir || "—"}</code></dd>
+                        <dt>{t("narval.submitted")}</dt><dd>{detail?.submittedAt || "—"}</dd>
+                        <dt>{t("narval.partition")}</dt><dd>{detail?.job.partition || selectedJob.partition || "—"}</dd>
+                        <dt>{t("narval.resources")}</dt><dd>{selectedJob.cpus || "—"} CPU · {detail?.requestedMemory || "—"}</dd>
+                        <dt>{t("narval.elapsed")}</dt><dd>{selectedJob.elapsed || "—"}</dd>
+                      </dl>
+                    )}
+                  </ScrollArea>
+                </TabsContent>
+                <TabsContent value="logs">
+                  <div className="narval-log-toolbar">
+                    {detail?.stdoutPath && <Button variant="ghost" onClick={() => readText(resolvePath(detail.job.workDir, detail.stdoutPath))}>stdout</Button>}
+                    {detail?.stderrPath && <Button variant="ghost" onClick={() => readText(resolvePath(detail.job.workDir, detail.stderrPath))}>stderr</Button>}
+                    {selectedPath && <code>{remoteName(selectedPath)}</code>}
+                  </div>
+                  <ScrollArea className="narval-log-scroll">
+                    {previewLoading ? <DetailSkeleton /> : previewError ? (
+                      <p className="narval-muted">{previewError}</p>
+                    ) : preview ? <pre>{preview.content || t("narval.empty-log")}</pre> : (
+                      <p className="narval-muted">{t("narval.no-log")}</p>
+                    )}
+                  </ScrollArea>
+                </TabsContent>
+                <TabsContent value="files">
+                  <ScrollArea className="narval-inspector-scroll">
+                    <div className="narval-run-files">
+                      {runFilesLoading ? <DetailSkeleton /> : runFilesError ? (
+                        <p className="narval-muted">{runFilesError}</p>
+                      ) : runFiles ? (
+                        <>
+                          <header className="narval-run-files-summary">
+                            <strong>{t("narval.run-files-title", { count: runFiles.entries.length })}</strong>
+                            <p>{t("narval.run-files-help")}</p>
+                          </header>
+                          <div className="narval-run-file-roots">
+                            {runFiles.roots.map((root) => (
+                              <div key={`${root.source}:${root.path}`}>
+                                <span>{root.source === "declared" ? t("narval.run-root-declared") : root.source === "run-root" ? t("narval.run-root-run") : t("narval.run-root-workdir")}</span>
+                                <code title={root.path}>{root.path}</code>
+                              </div>
+                            ))}
+                          </div>
+                          {confirmedFiles.length > 0 && (
+                            <RunFileGroup title={t("narval.run-files-confirmed")} help={t("narval.run-files-confirmed-help")} entries={confirmedFiles} />
+                          )}
+                          {probableFiles.length > 0 && (
+                            <RunFileGroup title={t("narval.run-files-probable")} help={t("narval.run-files-probable-help")} entries={probableFiles} />
+                          )}
+                          {runFiles.entries.length === 0 && (
+                            <div className="narval-run-files-empty">
+                              <FileIcon aria-hidden="true" />
+                              <strong>{t("narval.run-files-none")}</strong>
+                              <p>{t("narval.run-files-none-help")}</p>
+                            </div>
+                          )}
+                          {runFiles.truncated && <p className="narval-run-files-truncated">{t("narval.run-files-truncated")}</p>}
+                        </>
+                      ) : (
+                        <p className="narval-muted">{t("narval.run-files-waiting")}</p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+              <footer className="narval-inspector-foot">
+                <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
+                  <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
+                </Button>
+                <StatusBadge status="neutral">{t("narval.read-only")}</StatusBadge>
+              </footer>
+            </>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

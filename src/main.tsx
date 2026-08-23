@@ -112,6 +112,18 @@ async function boot() {
     );
     return;
   }
+  // banc de captures de la surface Narval (redesign panneau)
+  if (visualBench && window.location.hash.startsWith("#nvbench")) {
+    const { NarvalBench } = await import("./components/NarvalBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <BootBoundary>
+          <NarvalBench />
+        </BootBoundary>
+      </React.StrictMode>,
+    );
+    return;
+  }
   // banc de captures de la page Réglages (plan 021)
   if (visualBench && window.location.hash.startsWith("#setbench")) {
     const { SetBench } = await import("./components/SetBench");
