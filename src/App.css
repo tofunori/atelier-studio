@@ -1409,7 +1409,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-advanced { margin-bottom: 28px; }
 .set-advanced-trigger { display: flex; align-items: center; gap: 8px;
   font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em;
-  font-weight: 500; color: var(--text-muted); padding: 6px 2px; }
+  font-weight: 500; color: var(--text-muted); padding: 8px 4px; }
 .set-advanced-trigger:hover { color: var(--text-primary); }
 .set-advanced-trigger svg { transition: transform var(--ease); }
 .set-advanced-trigger.on svg { transform: rotate(90deg); }
