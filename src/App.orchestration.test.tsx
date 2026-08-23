@@ -232,14 +232,12 @@ describe("orchestration App — caractérisation", () => {
     // — visible pendant la session (fil actif toujours listé), mais exclu du
     // projet par le filtre strict au redémarrage : « mes nouveaux chats
     // disparaissent ».
+    // mountApp seed atelier-studio.projects → projet actif = albedo-pipeline,
+    // aucun fil sélectionné : l'accueil (ResearchHome) porte son « New chat »
+    // branché sur newChat(), le chemin qui perdait le projet.
     const { sock } = await mountApp();
-    await pushThreads(sock, [THREAD_A]);
-    await selectThread(sock, "Fil A — albédo");
-    // fil vide → l'état vide de la timeline offre son propre « New chat »
-    await push(sock, { type: "history", threadId: "thread-A", events: [] });
-
     const timeline = document.querySelector(".messages") as HTMLElement;
-    fireEvent.click(within(timeline).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(within(timeline).getByText(t("action.new-chat")));
     fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
     await act(async () => { await flushMicrotasks(4); });
 

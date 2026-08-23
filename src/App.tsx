@@ -2757,13 +2757,18 @@ export default function App() {
     setDraftThreads((p) => [created, ...p]);
     // un chat vide doit survivre a la relance : on l'ecrit tout de suite dans
     // threads.json au lieu d'attendre le premier message (consumePendingKb a
-    // deja fait l'upsert quand une selection KB etait en attente)
+    // deja fait l'upsert quand une selection KB etait en attente). WS fermée
+    // (reconnexion) : le filet sur wsReady republiera ce brouillon.
     if (!("kbSourceIds" in kbInit) && ws.current?.readyState === 1) {
+      publishedDraftsRef.current.add(id);
       ws.current.send(JSON.stringify({
         type: "upsertThread",
         thread: { id, projectRoot, provider, title: created.title },
       }));
     }
+    // (cas KB : consumePendingKb a fait — ou raté, WS fermée — son upsert
+    // complet ; le filet ne double que d'une fusion inoffensive, on ne marque
+    // donc rien ici)
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
@@ -3416,7 +3421,8 @@ export default function App() {
     if (!wsReady || ws.current?.readyState !== 1) return;
     const known = new Set(threads.map((t) => t.id));
     for (const draft of draftThreads) {
-      if (known.has(draft.id)) continue;
+      if (known.has(draft.id) || publishedDraftsRef.current.has(draft.id)) continue;
+      publishedDraftsRef.current.add(draft.id);
       ws.current.send(JSON.stringify({
         type: "upsertThread",
         thread: { id: draft.id, projectRoot: draft.projectRoot, provider: draft.provider, title: draft.title },
