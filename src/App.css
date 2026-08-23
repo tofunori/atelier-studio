@@ -3664,6 +3664,18 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-track:focus-visible { outline: none; }
 .ef-track:focus-visible .ef-thumb {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Cran terminal (Claude « ultracode ») : xhigh + orchestration multi-agents,
+   session seulement. Ce n'est pas la suite du même continuum, donc la piste
+   s'arrête avant et le dernier segment vit après une coupure, en --info — le
+   bleu informationnel du système. L'ambre reste l'effort. */
+.ef-track.ef-has-ultra::before { right: 18%; }
+.ef-ultra { position: absolute; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
+  border-radius: var(--r-pill); background: var(--bg-ctl); transition: background var(--ease); }
+.ef-ultra.on { background: var(--info); }
+.ef-thumb.ultra { border-color: var(--info); }
+.ef-track:focus-visible .ef-thumb.ultra {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 24%, transparent); }
+.ef-title b.ef-ultra-on { color: var(--info); }
 @media (prefers-reduced-motion: reduce) {
   .ef-fill, .ef-thumb { transition: none; }
 }
