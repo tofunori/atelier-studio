@@ -23,10 +23,19 @@ export function SettingsSheet(p: {
   projects?: string[];
   initialSection?: string;
 }) {
-  if (!p.open) return null;
+  // Pas de `if (!p.open) return null` ici : ça arracherait le sous-arbre de
+  // façon synchrone et couperait la transition de sortie à 120 ms déjà
+  // câblée dans shadcn.css ([data-slot="dialog-content"][data-closed]).
+  // `open` est lié directement à `p.open` — Base UI gère lui-même le
+  // montage : `DialogPortal.keepMounted` vaut `false` par défaut, donc rien
+  // n'est monté avant la première ouverture, et le démontage réel du
+  // popup n'a lieu qu'après la fin de l'animation de fermeture (vérifié
+  // dans node_modules/@base-ui/react/dialog/{portal,popup}/*.js :
+  // `shouldRender = mounted || keepMounted`, `mounted` ne repasse à `false`
+  // qu'une fois la transition « ending » terminée).
   return (
     <Dialog
-      open
+      open={p.open}
       onOpenChange={(next, eventDetails) => {
         // Base UI Dialog est contrôlé : `onOpenChange` ne ferme rien de
         // lui-même, il demande. Le vrai verrou du contrat « Échap ne ferme
