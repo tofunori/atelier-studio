@@ -205,8 +205,17 @@ export default function Chat(p: {
       ta.scrollTop = 0;
       return;
     }
+    // Mesure sous hauteur extérieure FIGÉE : le passage par height:auto
+    // rétrécit le textarea un instant, le fil au-dessus grandit, son
+    // scrollTop est clampé, puis le filet re-scrollait en animé — le
+    // transcript oscillait à chaque frappe d'un prompt multi-ligne (mesuré
+    // Playwright 2026-08-23 : amplitude 53 px, motif clamp→remontée).
+    const wrap = ta.parentElement;
+    const lockHeight = wrap?.offsetHeight;
+    if (wrap && lockHeight) wrap.style.minHeight = `${lockHeight}px`;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
+    if (wrap) wrap.style.minHeight = "";
     // au plafond 220px : réactiver le scroll (le CSS le cache pour éviter la
     // scrollbar fantôme due à l'arrondi WebKit d'1px)
     const overflows = ta.scrollHeight > 220;
