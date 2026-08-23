@@ -34,10 +34,14 @@ describe("Général × Modèles — le fournisseur/modèle de départ ne se règ
   });
 
   it("aucun Select « modèle par défaut » dans General (doublon du marqueur radio de la table)", () => {
+    // Libellés en dur, PAS tirés de t("settings.default-claude-model" / …) :
+    // ces deux clés i18n sont supprimées avec les Select qu'elles
+    // nommaient (correction de revue, round 2) — un test qui vérifie
+    // l'ABSENCE d'un contrôle n'a pas besoin que sa clé existe encore.
     const s = { ...DEFAULT_SETTINGS };
     renderUi(<><General {...props({ s })} /><Models {...props({ s })} /></>);
-    expect(screen.queryByRole("combobox", { name: t("settings.default-claude-model") })).toBeNull();
-    expect(screen.queryByRole("combobox", { name: t("settings.default-codex-model") })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Modèle Claude par défaut" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Modèle Codex par défaut" })).toBeNull();
   });
 
   it("changer le fournisseur de départ depuis Models() écrit bien defaultProvider (pas de contrôle mort ailleurs)", () => {

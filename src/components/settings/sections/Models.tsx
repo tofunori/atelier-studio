@@ -26,10 +26,12 @@
 // structure à 4 blocs ci-dessus ne lui laisse nulle part où aller. Sur
 // consigne du coordinateur (revue de cette tâche), il est restauré dans
 // General.tsx → Avancé, fusionné avec la rangée Sidecar qui y existait déjà
-// (même connexion, pas deux badges d'état pour la même chose). Les actions
-// « copier le diagnostic »/« actualiser » de l'ancienne section, elles,
-// restent abandonnées : aucune n'était mentionnée par le coordinateur ni
-// n'a de nouvelle destination évidente.
+// (même connexion, pas deux badges d'état pour la même chose). L'action
+// « copier le diagnostic » de l'ancienne section, elle, reste abandonnée
+// (aucune nouvelle destination évidente) — mais PAS « actualiser » : une
+// action « Recharger » est restaurée en tête du bloc 2 ci-dessous (correction
+// de revue, importants), sans quoi rien ne pousse un nouveau providerStatus
+// après le montage (ex. après un `grok login` réussi).
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
@@ -196,20 +198,20 @@ export default function Models(p: SectionProps) {
     return () => ws.removeEventListener("message", onMessage);
   }, [p.ws]);
 
-  // Le tableau respecte l'ordre ET la visibilité réglés dans Avancé →
+  // Ordre du tableau ET de « Non disponibles » : celui réglé dans Avancé →
   // Ordre du sélecteur (correction de revue, importants : deux vues
-  // contradictoires du même réglage sur la même page). `provsOrdonnes`
-  // (non filtré) reste la source de la liste « Ordre du sélecteur »
-  // elle-même — c'est SA raison d'être de montrer aussi les fournisseurs
-  // masqués, pour pouvoir les démasquer.
+  // contradictoires du même réglage sur la même page).
   const provsOrdonnes = provs ? sortProvidersByOrder(provs, s.providerOrder ?? []) : null;
   const hiddenSet = new Set(s.hiddenProviders ?? []);
-  const provsVisibles = provsOrdonnes?.filter((row) => !hiddenSet.has(row.id)) ?? null;
 
   // Dérivation pure (tâche 2) : catalogue + favoris + efforts + slugs +
   // défauts → une ligne par modèle, plus les fournisseurs sans rien à
-  // montrer.
-  const { rows, unavailable } = buildModelRows(provsVisibles, s);
+  // montrer. Calculée sur `provsOrdonnes` NON filtré par hiddenSet — sinon
+  // un fournisseur masqué ET bloqué (auth) disparaîtrait aussi de « Non
+  // disponibles », avec lui son seul bouton de déblocage (mineur signalé en
+  // revue). Seul le TABLEAU lui-même filtre les fournisseurs masqués,
+  // quelques lignes plus bas.
+  const { rows, unavailable } = buildModelRows(provsOrdonnes, s);
 
   // Correction de revue (C2) : `buildModelRows` ne connaît que `ok`
   // (catalogue providerStatus) — pas l'authentification (message
@@ -228,7 +230,9 @@ export default function Models(p: SectionProps) {
     }
     return row;
   });
-  const filteredRows = filterModelRows(rowsAvecAuth, modelFilter);
+  // Le TABLEAU, lui, respecte hiddenProviders (démasquer se fait depuis
+  // Avancé → Ordre du sélecteur, pas depuis ici).
+  const filteredRows = filterModelRows(rowsAvecAuth.filter((row) => !hiddenSet.has(row.provider)), modelFilter);
 
   // « Non disponibles » : union de `unavailable` (buildModelRows — zéro
   // modèle) ET des fournisseurs qui ONT des modèles mais dont la ligne est
@@ -238,12 +242,13 @@ export default function Models(p: SectionProps) {
   // et gagne aussi une entrée ici pour porter l'action qui débloque —
   // deux vues avec un rôle distinct (parcourir vs. agir), pas la double
   // liste « installé/détecté » du lot 1 qui listait TOUJOURS tous les
-  // fournisseurs des deux côtés.
+  // fournisseurs des deux côtés. Non filtré par hiddenSet, volontairement
+  // (voir commentaire sur `provsOrdonnes` plus haut).
   const unavailableIds = new Set(unavailable.map((row) => row.id));
   const bloques = new Set(rowsAvecAuth.filter((row) => row.status === "absent").map((row) => row.provider));
   const nonDisponibles = [
     ...unavailable,
-    ...(provsVisibles ?? []).filter((row) => bloques.has(row.id) && !unavailableIds.has(row.id)),
+    ...(provsOrdonnes ?? []).filter((row) => bloques.has(row.id) && !unavailableIds.has(row.id)),
   ];
 
   function refreshCatalog() {
@@ -347,7 +352,12 @@ export default function Models(p: SectionProps) {
       <div className="set-headline">
         <h2>{t("settings.models-table")}</h2>
         <span className="set-headline-actions">
-          <Button variant="ghost" className="set-btn quiet" onClick={refreshCatalog}>
+          <Button
+            variant="ghost"
+            className="set-btn quiet"
+            disabled={p.ws?.readyState !== 1}
+            onClick={refreshCatalog}
+          >
             {t("action.refresh")}
           </Button>
         </span>
@@ -362,6 +372,17 @@ export default function Models(p: SectionProps) {
         // Un seul message à la fois : avant, « Vérification… » et le vide
         // générique de ModelsGrid (rows=[] tant que provs est null)
         // s'affichaient TOUS LES DEUX — correction de revue, importants.
+        //
+        // Mineur signalé en revue, laissé tel quel : tant que `provs` n'est
+        // pas arrivé, AUCUN defaultModel[provider] n'est réglable — même
+        // celui de Claude, qui restait pourtant réglable hors ligne avant
+        // C3 via la liste statique CLAUDE_MODELS de l'ex-Select General.tsx
+        // (supprimé, doublon du marqueur radio de cette table — voir
+        // GeneralModelsDefaults.test.tsx). Remettre une liste statique de
+        // secours ici recréerait exactement la duplication que C3 a retirée
+        // ; le réglage existant (dans `s.defaultModel.claude`) n'est pas
+        // perdu, juste temporairement non modifiable tant que le sidecar
+        // n'a pas répondu.
         <p className="set-empty">{t("settings.checking")}</p>
       ) : (
         <ModelsGrid

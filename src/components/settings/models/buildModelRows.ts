@@ -12,7 +12,7 @@
 // Models.tsx:76 et sa fonction authLabel), jamais passée à cette fonction.
 // Inventer un troisième état ici produirait un état toujours vide ; on
 // réduit donc le type à "ready" | "absent", dérivé du seul booléen dispo.
-import { effortOptionsFor } from "../../../lib/effortOrder";
+import { sortEffortLevels } from "../../../lib/effortOrder";
 import { modelDisplayLabel } from "../../../lib/modelCatalog";
 import type { Settings } from "../../../lib/settings";
 import type { ProviderCatalogRow } from "../shared";
@@ -61,16 +61,21 @@ export function buildModelRows(
     }
 
     const status: ModelRow["status"] = row.ok ? "ready" : "absent";
-    // Correction de revue (C1, 2026-08-23) : AUCUN backend n'émet "" dans
-    // `efforts` (claude.rs, codex.rs, opencode.rs annoncent tous
-    // ["low","medium",…] sans l'entrée Auto) — c'est le CONSOMMATEUR qui la
-    // préfixe (Chat.tsx, fonction levelsFor). Sans ce préfixe ici, `effort`
-    // valait "" par défaut sur chaque ligne mais aucune option "" n'existait
-    // dans `efforts` : le trigger du Select de la colonne Effort s'affichait
-    // vide sur TOUTES les lignes. effortOptionsFor (lib/effortOrder.ts)
-    // reproduit exactement la logique de Chat.tsx:levelsFor, y compris
-    // NO_AUTO_EFFORT (grok n'a pas d'Auto).
-    const efforts = effortOptionsFor(row.id, row.efforts ?? []);
+    // Correction de revue (C1, 2026-08-23 ; re-corrigé le même jour — round
+    // 2). AUCUN backend n'émet "" dans `efforts` (claude.rs, codex.rs,
+    // opencode.rs, grok.rs) : c'est le CONSOMMATEUR qui décide du sens de
+    // "". PREMIÈRE version de ce correctif réutilisait `effortOptionsFor`
+    // (lib/effortOrder.ts), qui exclut "" pour NO_AUTO_EFFORT (grok) — juste
+    // pour Chat.tsx, où "" veut dire « Auto, le CLI décide », légitimement
+    // absent chez grok. ICI, dans la colonne Effort du tableau, "" a un
+    // sens DIFFÉRENT : « pas d'override, hérite de defaultEffort »
+    // (Models.tsx, handleSetEffort : `delete next[key]`) — un état légitime
+    // pour TOUS les fournisseurs, grok compris. Réutiliser la même fonction
+    // pour les deux avait fusionné deux sémantiques distinctes de "" et
+    // recréé EXACTEMENT le défaut C1 pour grok (trigger vide, override
+    // ineffaçable). Ici, donc : préfixe INCONDITIONNEL, jamais
+    // `effortOptionsFor`/`NO_AUTO_EFFORT` (réservées à Chat.tsx).
+    const efforts = sortEffortLevels(["", ...(row.efforts ?? [])]);
     const version = row.version ?? null;
     // Set une fois par fournisseur plutôt qu'un .includes() par ligne : le
     // catalogue opencode peut publier des milliers de modèles routés.

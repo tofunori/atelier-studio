@@ -136,14 +136,39 @@ describe("buildModelRows", () => {
     expect(rows[0].efforts).toContain(rows[0].effort);
   });
 
-  it("NE préfixe PAS l'option Auto pour un fournisseur NO_AUTO_EFFORT (grok) au catalogue chargé", () => {
+  it("préfixe AUSSI l'option \"\" pour grok, malgré NO_AUTO_EFFORT (round 2 — \"\" n'a pas le même sens ici que dans Chat.tsx)", () => {
+    // NO_AUTO_EFFORT (lib/effortOrder.ts) exclut grok de l'option Auto DANS
+    // LE COMPOSER, où "" veut dire « laisser le CLI décider ». Dans la
+    // colonne Effort du tableau, "" veut dire autre chose : « pas
+    // d'override, hérite de defaultEffort » (Models.tsx, handleSetEffort) —
+    // un état légitime pour TOUS les fournisseurs, grok compris. Round 1 de
+    // ce correctif réutilisait `effortOptionsFor` (qui applique
+    // NO_AUTO_EFFORT) ici aussi et recréait le bug C1 pour grok : ce test
+    // vérifie l'inverse de ce qu'il vérifiait avant la re-correction.
     const grok: ProviderCatalogRow = {
       id: "grok", label: "Grok CLI", version: "1.0", ok: true, kind: "cli",
       models: ["grok-4.6"], efforts: ["low", "medium", "high", "xhigh"],
     };
     const { rows } = buildModelRows([grok], { ...DEFAULT_SETTINGS });
-    expect(rows[0].efforts).toEqual(["low", "medium", "high", "xhigh"]);
-    expect(rows[0].efforts).not.toContain("");
+    expect(rows[0].efforts).toEqual(["", "low", "medium", "high", "xhigh"]);
+    expect(rows[0].efforts).toContain(rows[0].effort);
+  });
+
+  it("invariant : sur un catalogue multi-fournisseurs incluant grok, chaque ligne a son effort courant dans SES options", () => {
+    // Attrape les DEUX versions du bug C1 : celle où aucun fournisseur
+    // n'avait "" (round 1 avant fix), et celle où seul grok en était privé
+    // (round 1 après fix, avant cette re-correction).
+    const grok: ProviderCatalogRow = {
+      id: "grok", label: "Grok CLI", version: "1.0", ok: true, kind: "cli",
+      models: ["grok-4.6"], efforts: ["low", "medium", "high", "xhigh"],
+    };
+    const codex: ProviderCatalogRow = {
+      id: "codex", label: "Codex", version: "0.58", ok: true, kind: "cli",
+      models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol", efforts: ["medium"],
+    };
+    const { rows } = buildModelRows([claude, codex, grok], { ...DEFAULT_SETTINGS });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.efforts.includes(r.effort))).toBe(true);
   });
 
   // Piège opencode (lot B2, hors périmètre ici) : identifiants routés,
