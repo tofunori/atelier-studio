@@ -1,8 +1,8 @@
 // Primitives de réglages (lot 1) : contrat de rendu des rangées et groupes.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
-import { Group, Row } from "./index";
+import { Advanced, Group, Row, Toggle } from "./index";
 
 beforeEach(() => resetTestState());
 afterEach(cleanup);
@@ -38,5 +38,49 @@ describe("Group", () => {
     const { container } = renderUi(<Group><Row title="Mode"><span /></Row></Group>);
     expect(container.querySelector(".set-group-label")).toBeNull();
     expect(container.querySelector(".set-card")).not.toBeNull();
+  });
+});
+
+describe("Advanced", () => {
+  it("est fermé par défaut : le contenu n'est pas dans le document", () => {
+    renderUi(
+      <Advanced count={2}>
+        <Row title="Format d'heure"><span /></Row>
+      </Advanced>,
+    );
+    expect(screen.queryByText("Format d'heure")).toBeNull();
+  });
+
+  it("le déclencheur est un bouton nommé, avec aria-expanded", () => {
+    renderUi(<Advanced count={2}><Row title="Format d'heure"><span /></Row></Advanced>);
+    const trigger = screen.getByRole("button", { name: /Avancé/ });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("cliquer déplie le contenu et bascule aria-expanded", () => {
+    renderUi(<Advanced count={2}><Row title="Format d'heure"><span /></Row></Advanced>);
+    const trigger = screen.getByRole("button", { name: /Avancé/ });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Format d'heure")).toBeInTheDocument();
+  });
+
+  it("annonce le nombre de réglages repliés", () => {
+    renderUi(<Advanced count={3}><Row title="X"><span /></Row></Advanced>);
+    expect(screen.getByRole("button", { name: /3 réglages/ })).toBeInTheDocument();
+  });
+});
+
+describe("Toggle", () => {
+  it("expose role=switch avec le nom accessible passé en label", () => {
+    renderUi(<Toggle checked={false} onChange={() => {}} label="Notifications" />);
+    expect(screen.getByRole("switch", { name: "Notifications" })).toBeInTheDocument();
+  });
+
+  it("cliquer appelle onChange avec la valeur inverse", () => {
+    const calls: boolean[] = [];
+    renderUi(<Toggle checked={false} onChange={(v) => calls.push(v)} label="Notifications" />);
+    fireEvent.click(screen.getByRole("switch", { name: "Notifications" }));
+    expect(calls).toEqual([true]);
   });
 });
