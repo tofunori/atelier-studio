@@ -39,11 +39,15 @@ import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./c
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
-const SettingsPage = lazyWithRetry(() => import("./components/settings/SettingsPage"));
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
 const PluginPanel = lazyWithRetry(() => import("./components/PluginPanel"));
+// SettingsSheet n'a pas d'export par défaut (export nommé) : import statique,
+// pas de lazyWithRetry. Elle importe elle-même SettingsPage directement
+// (task 2) — le découpage en chunk séparé de l'ancien SettingsPage lazy
+// n'a plus lieu d'être ici.
+import { SettingsSheet } from "./components/settings/SettingsSheet";
 import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
@@ -3641,10 +3645,15 @@ export default function App() {
     },
   }), [activeProject, allThreads, files, zoteroItems]);
 
-  // Onglets du pane focalisé, publiés par AtelierPane (plan 057). Ces hooks
-  // DOIVENT rester au-dessus du `if (showSettings) return` : un hook posé
-  // après n'est exécuté que sur un des deux chemins de rendu, et React
-  // refuse alors de rendre (« Rendered fewer hooks than expected »).
+  // Onglets du pane focalisé, publiés par AtelierPane (plan 057).
+  // Historique (lot A, tâche 3) : ces hooks étaient placés ici parce qu'un
+  // `if (showSettings) return (…)` suivait plus bas — un hook posé après
+  // n'aurait été exécuté que sur un des deux chemins de rendu, et React
+  // aurait refusé de rendre (« Rendered fewer hooks than expected »). Ce
+  // `return` a disparu (les réglages sont maintenant une surcouche dans
+  // l'arbre normal, cf. `overlaysNode`), donc la contrainte ne s'applique
+  // plus — mais aucun hook n'est déclaré plus bas dans le composant, donc
+  // rien à déplacer.
   const [paneTabs, setPaneTabs] = useState<
     { id: string; title: string; kind?: "document" | "surface" | "agent" | "ide"; surface?: Surface; url?: string }[]
   >([]);
@@ -3681,34 +3690,6 @@ export default function App() {
     });
     setActiveTab((cur) => (cur === id ? "gallery" : cur));
   }, []);
-
-  if (showSettings) {
-    return (
-      <>
-        <LazyBoundary fallback={<div className="settings-page" />}>
-          <SettingsPage
-            settings={settings}
-            onChange={setSettings}
-            onClose={() => setShowSettings(false)}
-            ws={ws.current}
-            projects={projects}
-            initialSection={settingsInitialSection}
-          />
-        </LazyBoundary>
-        {paletteOpen && (
-          <LazyBoundary fallback={null}>
-            <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
-          </LazyBoundary>
-        )}
-      <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
-      {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
-        <LazyBoundary fallback={null}>
-          <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
-        </LazyBoundary>
-      </div>}
-      </>
-    );
-  }
 
   // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
   // composition est déléguée au shell.
@@ -3912,6 +3893,20 @@ export default function App() {
   );
   const overlaysNode = (
     <>
+      {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
+          `if (showSettings) return`) — la feuille se pose ici, par-dessus
+          l'arbre monté, comme les autres surcouches de ce fragment. */}
+      <LazyBoundary fallback={null}>
+        <SettingsSheet
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          settings={settings}
+          onChange={setSettings}
+          ws={ws.current}
+          projects={projects}
+          initialSection={settingsInitialSection}
+        />
+      </LazyBoundary>
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
