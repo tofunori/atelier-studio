@@ -2731,7 +2731,13 @@ export default function App() {
   }
 
   function newChat() {
-    setNewChatRequest({ projectRoot: "" });
+    // Un nouveau chat créé pendant qu'un projet est ouvert APPARTIENT à ce
+    // projet : les entrées « + » (rail compact, état vide de la timeline)
+    // passaient projectRoot:"" et le fil, visible pendant la session (règle
+    // 13 du navigateur : fil actif toujours listé), disparaissait du projet
+    // au redémarrage — le filtre strict (règle 1) l'excluait (Thierry
+    // 2026-08-23, threads.json alternait "" et le projet actif).
+    setNewChatRequest({ projectRoot: activeProject ?? "" });
   }
 
   function createChat(projectRoot: string, provider: string) {
@@ -3400,6 +3406,23 @@ export default function App() {
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
+  // Filet de persistance : un fil créé pendant que la WS était fermée
+  // (reconnexion, redémarrage serveur) n'avait envoyé aucun upsertThread — et
+  // rien ne le rejouait au retour de la connexion : le fil vivait en mémoire
+  // seulement et mourait avec la fenêtre. Dès que la WS est prête, on
+  // republie tout brouillon inconnu du serveur (upsert idempotent, fusion
+  // côté store — un doublon transitoire est sans effet).
+  useEffect(() => {
+    if (!wsReady || ws.current?.readyState !== 1) return;
+    const known = new Set(threads.map((t) => t.id));
+    for (const draft of draftThreads) {
+      if (known.has(draft.id)) continue;
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: { id: draft.id, projectRoot: draft.projectRoot, provider: draft.provider, title: draft.title },
+      }));
+    }
+  }, [wsReady, draftThreads, threads]);
   // Attache KB de la conversation active (plan 049/050) — partagé entre le
   // picker du composer et la surface Connaissances. Optimiste sur threads ET
   // brouillons ; upsert COMPLET (un patch minimal sur un brouillon inconnu du
