@@ -118,6 +118,17 @@ describe("NarvalSurface", () => {
     expect(screen.getAllByText("current").length).toBeGreaterThan(0);
   });
 
+  it("switches cluster from the title menu and re-queries the new profile", async () => {
+    render(<NarvalSurface visible onOpenTerminal={() => {}} />);
+    expect(lastRequest("narvalStatus").profile).toBe("narval");
+    fireEvent.click(screen.getByRole("button", { name: /^narval$/i }));
+    const item = await screen.findByText("RORQUAL");
+    fireEvent.click(item);
+    expect(lastRequest("narvalStatus").profile).toBe("rorqual");
+    expect(lastRequest("narvalSnapshot").profile).toBe("rorqual");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("RORQUAL");
+  });
+
   it("sorts recent runs newest first, filters them, and reveals more by batches", () => {
     const { container } = render(<NarvalSurface visible onOpenTerminal={() => {}} />);
     const snapshotRequest = lastRequest("narvalSnapshot");

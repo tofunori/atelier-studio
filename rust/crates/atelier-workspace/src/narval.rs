@@ -42,19 +42,36 @@ pub struct NarvalProfile {
     pub roots: Vec<String>,
 }
 
+/// Grappes Alliance surveillées par la surface. Même protocole SSH, mêmes
+/// commandes Slurm : seuls l'alias distant et les racines changent. Les alias
+/// par défaut sont ceux du NAS (passerelle) — `ssh nas -t ssh <alias>`.
+const PROFILES: &[(&str, &str, &str)] = &[
+    ("narval", "NARVAL", "narval-vpn"),
+    ("rorqual", "RORQUAL", "rorqual-vpn"),
+];
+
+pub fn known_profiles() -> impl Iterator<Item = (&'static str, &'static str)> {
+    PROFILES.iter().map(|(id, label, _)| (*id, *label))
+}
+
 impl NarvalProfile {
     pub fn from_env(id: &str) -> Result<Self, NarvalError> {
-        if id != "narval" {
-            return Err(NarvalError::new("invalid_profile", "profil Narval inconnu"));
-        }
-        let host = std::env::var("ATELIER_NARVAL_HOST").unwrap_or_else(|_| "narval-vpn".into());
+        let Some((_, _, default_host)) = PROFILES.iter().find(|(known, _, _)| *known == id) else {
+            return Err(NarvalError::new("invalid_profile", "profil de grappe inconnu"));
+        };
+        // ATELIER_NARVAL_* reste le préfixe du profil narval (compatibilité) ;
+        // les autres profils prennent leur propre préfixe majuscule.
+        let prefix = format!("ATELIER_{}", id.to_uppercase());
+        let host = std::env::var(format!("{prefix}_HOST"))
+            .unwrap_or_else(|_| (*default_host).to_string());
         if !valid_ssh_alias(&host) {
             return Err(NarvalError::new(
                 "invalid_profile",
-                "alias SSH Narval invalide",
+                "alias SSH de grappe invalide",
             ));
         }
-        let gateway = std::env::var("ATELIER_NARVAL_GATEWAY").unwrap_or_else(|_| "nas".into());
+        let gateway =
+            std::env::var(format!("{prefix}_GATEWAY")).unwrap_or_else(|_| "nas".into());
         let gateway = if gateway.trim().is_empty() {
             None
         } else {
@@ -66,10 +83,10 @@ impl NarvalProfile {
         {
             return Err(NarvalError::new(
                 "invalid_profile",
-                "passerelle SSH Narval invalide",
+                "passerelle SSH de grappe invalide",
             ));
         }
-        let roots = std::env::var("ATELIER_NARVAL_ROOTS")
+        let roots = std::env::var(format!("{prefix}_ROOTS"))
             .unwrap_or_else(|_| "/home,/project,/scratch,/lustre06,/lustre07".into())
             .split(',')
             .map(str::trim)
@@ -852,6 +869,23 @@ mod tests {
         assert!(profile.validate_path("/home/u/../secret").is_err());
         assert!(profile.validate_path("/etc/passwd").is_err());
         assert!(NarvalProfile::from_env("other").is_err());
+        assert!(NarvalProfile::from_env("rorqual").is_ok());
+        assert_eq!(
+            known_profiles().map(|(id, _)| id).collect::<Vec<_>>(),
+            vec!["narval", "rorqual"],
+        );
+    }
+
+    #[test]
+    fn each_profile_targets_its_own_remote_alias() {
+        // Sans variable d'environnement, chaque grappe porte l'alias déclaré
+        // sur le NAS. Aucun test ne MUTE l'env ici : ce serait une course avec
+        // les autres tests du binaire (vécu 2026, flake kimi).
+        let narval = NarvalProfile::from_env("narval").unwrap();
+        let rorqual = NarvalProfile::from_env("rorqual").unwrap();
+        assert_ne!(narval.host, rorqual.host);
+        assert_eq!(narval.id, "narval");
+        assert_eq!(rorqual.id, "rorqual");
     }
 
     #[test]

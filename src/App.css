@@ -3706,6 +3706,13 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-bottom: 1px solid var(--border-subtle); }
 .narval-toolbar h1 { margin: 0; flex: none; color: var(--text-primary);
   font-size: var(--fs-body-s); font-weight: 600; letter-spacing: .08em; }
+/* Sélecteur de grappe : le titre EST le déclencheur — une grappe à la fois,
+   pas d'onglets qui doubleraient la barre. */
+.narval-cluster { flex: none; display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 6px; border-radius: var(--radius-control); color: var(--text-primary); }
+.narval-cluster:hover { background: var(--surface-inset); }
+.narval-cluster:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 1px; }
+.narval-cluster > svg { width: 13px; height: 13px; color: var(--text-muted); }
 .narval-toolbar .ui-iconbtn svg, .narval-files-head .ui-iconbtn svg { width: 16px; height: 16px; }
 .narval-toolbar .ui-iconbtn { color: var(--text-muted); }
 .narval-toolbar-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }

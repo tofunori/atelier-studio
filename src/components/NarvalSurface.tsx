@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ChevronDownIcon,
   ChevronRightIcon,
   Clock3Icon,
   FileIcon,
@@ -24,8 +25,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
 import { Button } from "./ui/Button";
 import { StatusBadge } from "./ui/StatusBadge";
 import { IconButton, RowButton, SegmentedControl } from "./ui";
+import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
-const PROFILE = "narval";
+// Grappes Alliance surveillées (même contrat côté Rust : atelier-workspace
+// narval.rs → PROFILES). L'alias SSH vit sur la passerelle, pas ici.
+const CLUSTERS = [
+  { id: "narval", label: "NARVAL" },
+  { id: "rorqual", label: "RORQUAL" },
+] as const;
+type ClusterId = (typeof CLUSTERS)[number]["id"];
+const DEFAULT_CLUSTER: ClusterId = "narval";
+const CLUSTER_STORAGE_KEY = "atelier.narval.cluster";
 const POLL_MS = 30_000;
 const RUN_PAGE_SIZE = 25;
 
@@ -174,6 +184,11 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
   visible: boolean;
   onOpenTerminal: (command: string) => void;
 }) {
+  const [profile, setProfile] = useState<ClusterId>(() => {
+    const stored = localStorage.getItem(CLUSTER_STORAGE_KEY);
+    return CLUSTERS.some((cluster) => cluster.id === stored) ? (stored as ClusterId) : DEFAULT_CLUSTER;
+  });
+  const [clusterMenuOpen, setClusterMenuOpen] = useState(false);
   const [status, setStatus] = useState<NarvalStatus | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [directories, setDirectories] = useState<Record<string, RemoteEntry[]>>({});
@@ -218,30 +233,56 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     const id = requestId();
     directoryRequests.current.set(path, id);
     setLoadingDirectories((current) => new Set(current).add(path));
-    wsSend({ type: "narvalListDirectory", profile: PROFILE, path, requestId: id });
-  }, []);
+    wsSend({ type: "narvalListDirectory", profile, path, requestId: id });
+  }, [profile]);
 
   const requestStatus = useCallback(() => {
     const id = requestId();
     statusRequest.current = id;
     setLoading(true);
     setError(null);
-    if (!wsSend({ type: "narvalStatus", profile: PROFILE, requestId: id })) {
+    if (!wsSend({ type: "narvalStatus", profile, requestId: id })) {
       setLoading(false);
       setError({ code: "sidecar", message: t("narval.sidecar-offline") });
     }
-  }, []);
+  }, [profile]);
 
   const requestSnapshot = useCallback(() => {
     const id = requestId();
     snapshotRequest.current = id;
     setLoading(true);
-    wsSend({ type: "narvalSnapshot", profile: PROFILE, days: runDays, requestId: id });
-  }, [runDays]);
+    wsSend({ type: "narvalSnapshot", profile, days: runDays, requestId: id });
+  }, [profile, runDays]);
 
   const refresh = () => {
     requestStatus();
     requestSnapshot();
+  };
+
+  // Changer de grappe repart de zéro : l'arbre, l'instantané et la sélection
+  // appartiennent au cluster quitté ; les garder afficherait les jobs de
+  // Narval sous l'en-tête de Rorqual le temps d'un aller-retour SSH.
+  const switchCluster = (next: ClusterId) => {
+    if (next === profile) return;
+    setProfile(next);
+    localStorage.setItem(CLUSTER_STORAGE_KEY, next);
+    setStatus(null);
+    setSnapshot(null);
+    setDirectories({});
+    setExpanded(new Set());
+    setLoadingDirectories(new Set());
+    setSelectedJobId(null);
+    setDetail(null);
+    setPreview(null);
+    setPreviewError(null);
+    setRunFiles(null);
+    setRunFilesError(null);
+    setSelectedPath(null);
+    setInspectorOpen(false);
+    setError(null);
+    setQuery("");
+    setRunQuery("");
+    setVisibleRunCount(RUN_PAGE_SIZE);
   };
 
   const inspectJob = useCallback((job: SlurmJob, reveal = true) => {
@@ -258,14 +299,14 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     setTab("overview");
     const id = requestId();
     detailRequest.current = id;
-    wsSend({ type: "narvalInspectJob", profile: PROFILE, jobId: job.id, requestId: id });
+    wsSend({ type: "narvalInspectJob", profile, jobId: job.id, requestId: id });
     const filesId = requestId();
     runFilesRequest.current = filesId;
-    if (!wsSend({ type: "narvalRunFiles", profile: PROFILE, jobId: job.id, requestId: filesId })) {
+    if (!wsSend({ type: "narvalRunFiles", profile, jobId: job.id, requestId: filesId })) {
       setRunFilesLoading(false);
       setRunFilesError(t("narval.sidecar-offline"));
     }
-  }, []);
+  }, [profile]);
 
   const readText = useCallback((path: string) => {
     if (!path) return;
@@ -276,8 +317,8 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     setTab("logs");
     const id = requestId();
     textRequest.current = id;
-    wsSend({ type: "narvalReadText", profile: PROFILE, path, tailLines: 600, requestId: id });
-  }, []);
+    wsSend({ type: "narvalReadText", profile, path, tailLines: 600, requestId: id });
+  }, [profile]);
 
   useEffect(() => {
     const onMessage = (event: Event) => {
@@ -490,7 +531,23 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
               </IconButton>
             )}
             <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
-            <h1 title={t("narval.monitor-title")}>{t("narval.title-short")}</h1>
+            <LazyDropdownMenu
+              open={clusterMenuOpen}
+              onOpenChange={setClusterMenuOpen}
+              align="start"
+              label={t("narval.choose-cluster")}
+              items={CLUSTERS.map((cluster) => ({
+                key: cluster.id,
+                label: cluster.label,
+                onSelect: () => switchCluster(cluster.id),
+              }))}
+              trigger={(
+                <RowButton className="narval-cluster" title={t("narval.choose-cluster")}>
+                  <h1>{CLUSTERS.find((cluster) => cluster.id === profile)?.label}</h1>
+                  <ChevronDownIcon aria-hidden="true" />
+                </RowButton>
+              )}
+            />
             <span
               className={status?.connected ? "narval-connection connected" : "narval-connection"}
               title={status?.connected ? t("narval.connected-now") : t("narval.not-connected")}
