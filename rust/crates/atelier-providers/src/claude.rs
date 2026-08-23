@@ -669,10 +669,19 @@ impl Provider for ClaudeProvider {
             for ev in flush {
                 on_event(ev);
             }
-            on_event(json!({
-                "kind": "error",
-                "message": err_msg.clone().unwrap_or_else(|| "session terminée sans résultat".into())
-            }));
+            // Un kill (Stop, steer) fait sortir la boucle par EOF AVANT le
+            // re-test d'is_cancelled en tête de boucle : sans ce test-ci, une
+            // interruption volontaire s'affichait comme un échec « session
+            // terminée sans résultat » (Thierry 2026-08-23).
+            let message = if is_cancelled() {
+                "interrupted".to_string()
+            } else {
+                err_msg
+                    .clone()
+                    .unwrap_or_else(|| "session terminée sans résultat".into())
+            };
+            err_msg = Some(message.clone());
+            on_event(json!({"kind": "error", "message": message}));
             ok = false;
         }
 

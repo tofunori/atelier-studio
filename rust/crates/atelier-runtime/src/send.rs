@@ -895,7 +895,33 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
 
     // Steer on active run
-    if running && mode != "queue" {
+    //
+    // Claude n'a PAS de vrai steer : le CLI tourne en one-shot avec stdin
+    // fermé, et le chemin générique ci-dessous (kill du process + resume sur
+    // le MÊME turn_id) cassait tout en cascade — l'EOF du process tué
+    // émettait « session terminée sans résultat », consommait l'unique
+    // terminal du tour, et le done du process relancé était avalé : chrono
+    // infini, file de relances bloquée, Stop inopérant (Thierry 2026-08-23).
+    // Un steer claude devient donc : interruption propre du tour en cours,
+    // puis le message part comme un TOUR NORMAL. Le session_id est capturé à
+    // l'init et persisté par le nettoyage du tour interrompu avant
+    // clear_running, donc le nouveau tour reprend la même session (--resume),
+    // contexte intact — même en steerant le premier tour d'un fil.
+    if running && mode != "queue" && provider == "claude" {
+        state.harness().request_cancel(&thread_id).await;
+        // Laisse le watcher (poll 50 ms) propager le flag vers is_cancelled
+        // AVANT de tuer le process : l'ancien tour se termine alors en
+        // « interrupted », pas en faux échec.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        let _ = provider_impl.interrupt(&thread_id).await;
+        for _ in 0..100 {
+            if !state.harness().is_running(&thread_id).await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        // … puis on tombe dans le chemin « nouveau tour » ci-dessous.
+    } else if running && mode != "queue" {
         let turn_id = {
             let mut guard = h.lock().await;
             guard.steer(client_mid.as_deref(), Some(user_event.clone()))
