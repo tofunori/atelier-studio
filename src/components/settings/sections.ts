@@ -10,7 +10,7 @@ export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "modeles", labelKey: "settings.models" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "atelier", labelKey: "settings.atelier" },
-] as const;
+];
 
 /** Les anciennes sections (setup, providers, review, appsnap, avance) sont
  *  encore citées par des deep-links : elles retombent sur « general » plutôt
