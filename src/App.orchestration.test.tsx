@@ -226,6 +226,28 @@ describe("orchestration App — caractérisation", () => {
     expect(typeof upserts[0].thread.id).toBe("string");
   });
 
+  it("un chat créé pendant qu'un projet est ouvert APPARTIENT à ce projet", async () => {
+    // Régression 2026-08-23 : les entrées « + » qui passent par newChat()
+    // (état vide de la timeline, rail compact) créaient un fil projectRoot:""
+    // — visible pendant la session (fil actif toujours listé), mais exclu du
+    // projet par le filtre strict au redémarrage : « mes nouveaux chats
+    // disparaissent ».
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    // fil vide → l'état vide de la timeline offre son propre « New chat »
+    await push(sock, { type: "history", threadId: "thread-A", events: [] });
+
+    const timeline = document.querySelector(".messages") as HTMLElement;
+    fireEvent.click(within(timeline).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].thread).toMatchObject({ provider: "codex", projectRoot: PROJECT_ROOT });
+  });
+
   it("ouvrir un fil sans projet le rend VISIBLE sans faire perdre son projet à l'atelier", async () => {
     const { sock } = await mountApp();
     const loose = makeThread({ id: "thread-U", title: "Fil sans projet", projectRoot: "" });
