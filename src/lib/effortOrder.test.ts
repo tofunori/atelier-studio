@@ -24,6 +24,17 @@ describe("sortEffortLevels", () => {
     expect(sortEffortLevels(levels)).toEqual(levels);
   });
 
+  it("range ultracode après max, au bout intelligent de l'échelle Claude", () => {
+    // catalogue réel de rust/crates/atelier-providers/src/claude.rs, précédé
+    // de "" (Auto) par levelsFor. Sans rang explicite, ultracode tombait dans
+    // les inconnus (rang 90) : la place était bonne par accident, pas par
+    // contrat — et un second palier inconnu l'aurait doublé.
+    expect(sortEffortLevels(["", "low", "medium", "high", "xhigh", "max", "ultracode"])).toEqual([
+      "", "low", "medium", "high", "xhigh", "max", "ultracode",
+    ]);
+    expect(sortEffortLevels(["ultracode", "max", "low"])).toEqual(["low", "max", "ultracode"]);
+  });
+
   it("garde Auto en tête quel que soit l'ordre annoncé", () => {
     expect(sortEffortLevels(["high", "", "low"])).toEqual(["", "low", "high"]);
   });
