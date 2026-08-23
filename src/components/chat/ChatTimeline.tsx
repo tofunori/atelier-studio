@@ -45,6 +45,10 @@ import { TimelineStamp } from "./TimelineStamp";
 // jamais le bas.
 const MAINTAIN_END_ANIMATED = { animated: true } as const;
 
+// Échelle 4 px (système) — l'ancien padding vertical de `.messages` dans
+// App.css, déplacé ici pour que LegendList le compte dans son contenu.
+const MESSAGES_VERTICAL_PADDING = { paddingTop: 24, paddingBottom: 8 } as const;
+
 type RenderedItem =
   | ProjectedTimelineItem
   | { type: "actions"; actions: ToolAction[]; index: number; key: string }
@@ -391,6 +395,30 @@ export function ChatTimeline(p: {
     };
   }, [messagesRef, threadId]);
 
+  // Filet du suivi animé : le scrollToEnd animé de LegendList fige sa cible
+  // au départ — si le contenu grandit PENDANT l'animation, elle atterrit
+  // quelques pixels au-dessus du bas, sous le seuil où le maintain se
+  // re-déclenche, et la ligne « esc Interrompre » reste cachée (mesuré au banc
+  // #chatbench-livestream : arrêt stable à 32 px du bas, 2026-08-23). Quand le
+  // fil est stable depuis un battement et pas exactement au bas, on re-vise la
+  // fin — une seule fois par stabilisation, jamais contre l'utilisateur
+  // (autoFollow est déjà coupé dès qu'il remonte).
+  React.useEffect(() => {
+    if (!autoFollow) return;
+    let lastScrollHeight = -1;
+    const id = window.setInterval(() => {
+      const native = messagesRef.current;
+      if (!native) return;
+      const stable = native.scrollHeight === lastScrollHeight;
+      lastScrollHeight = native.scrollHeight;
+      const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
+      if (stable && distance > 2) {
+        timelineListRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
+    return () => window.clearInterval(id);
+  }, [autoFollow, messagesRef]);
+
   // Pastilles numérotées : calculées depuis les Range des passages annotés et
   // rendues dans un calque `position: fixed` — jamais insérées dans le DOM du
   // markdown, que React reconstruit à chaque frame de streaming.
@@ -568,6 +596,10 @@ export function ChatTimeline(p: {
         // interne en boucle, qui s'arrêtait à ~32 px du bas — sous le seuil de
         // tolérance — et laissait la ligne « esc Interrompre » cachée.
         maintainScrollAtEnd={autoFollow ? MAINTAIN_END_ANIMATED : false}
+        // Padding vertical ICI et pas dans App.css : LegendList l'extrait de
+        // ce prop pour son modèle de contenu (extractPadding) — sinon chaque
+        // scrollToEnd vise (paddingTop+paddingBottom) px au-dessus du vrai bas.
+        style={MESSAGES_VERTICAL_PADDING}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
         className={`messages${isFirstTurnSettling ? " is-first-turn-settling" : ""}`}
