@@ -40,6 +40,11 @@ import {
 import { AgentMessageCard } from "./AgentMessageCard";
 import { TimelineStamp } from "./TimelineStamp";
 
+// Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
+// chaque render relance l'animation de suivi en boucle et elle n'atteint
+// jamais le bas.
+const MAINTAIN_END_ANIMATED = { animated: true } as const;
+
 type RenderedItem =
   | ProjectedTimelineItem
   | { type: "actions"; actions: ToolAction[]; index: number; key: string }
@@ -558,8 +563,11 @@ export function ChatTimeline(p: {
         // animated : le suivi du bas s'interpole au lieu de téléporter le fil
         // d'une hauteur de ligne à chaque wrap — mesuré au banc
         // #chatbench-livestream (12 pas instantanés de 20-63 px sans,
-        // demande de fluidité Thierry 2026-08-23).
-        maintainScrollAtEnd={autoFollow ? { animated: true } : false}
+        // demande de fluidité Thierry 2026-08-23). L'objet DOIT être une
+        // constante module : recréé à chaque render, il relançait l'animation
+        // interne en boucle, qui s'arrêtait à ~32 px du bas — sous le seuil de
+        // tolérance — et laissait la ligne « esc Interrompre » cachée.
+        maintainScrollAtEnd={autoFollow ? MAINTAIN_END_ANIMATED : false}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
         className={`messages${isFirstTurnSettling ? " is-first-turn-settling" : ""}`}
