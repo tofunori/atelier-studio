@@ -2615,8 +2615,18 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .settings-page button:focus-visible, .settings-page input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
-/* Intégrée dans la feuille modale (lot A) : ne prend plus toute la fenêtre. */
-.settings-page.embedded { height: 100%; }
+/* Intégrée dans la feuille modale (lot A) : ne prend plus toute la fenêtre.
+   `.settings-page.embedded` est un enfant de grille (`Popup` dans
+   shadcn/dialog.tsx porte `tw:grid tw:min-h-0`) — or un enfant de grille a
+   `min-height: auto` par défaut : il refuse de rétrécir sous la hauteur de
+   son propre contenu. `height: 100%` ne suffit donc pas seul : sans ce
+   `min-height: 0`, l'élément gonfle à la hauteur de `.set-body` (flex:1
+   depuis .settings-page), qui gonfle en retour avec lui — sa règle
+   `.set-body { overflow-y: auto }` ne s'active alors jamais, et
+   `.settings-sheet { overflow: hidden }` coupe simplement ce qui dépasse.
+   Mesuré : sans cette ligne, popup 400/2032 (client/scroll), sans défilement ;
+   avec, popup 400/400 et .set-body 400/2032 — le défilement s'active. */
+.settings-page.embedded { height: 100%; min-height: 0; }
 /* Correction de revue lot A #2 : `.set-body` plafonnait à 860px + 40/48px de
    rembourrage plein écran, hérités et jamais retouchés par le lot — dans la
    feuille de 1100px cela retombait exactement à la largeur de l'ancienne

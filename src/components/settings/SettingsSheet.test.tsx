@@ -185,6 +185,34 @@ describe("SettingsSheet", () => {
   // reste bien utilisé : les deux autres tests de ce fichier resteraient
   // verts pendant que la lisibilité, elle, aurait disparu. Ce test verrouille
   // donc la classe de flou elle-même, indépendamment de la couleur du voile.
+  // Bug bloquant (mesuré en vrai navigateur, pas en jsdom — jsdom ne calcule
+  // aucune mise en page, donc aucun test unitaire ne peut prouver qu'on
+  // défile réellement) : `.settings-page.embedded` est un enfant de grille
+  // (`Popup` dans shadcn/dialog.tsx porte `tw:grid tw:min-h-0`), et un
+  // enfant de grille a `min-height: auto` par défaut — il refuse de
+  // rétrécir sous la hauteur de son propre contenu. Sans `min-height: 0`
+  // explicite ici, l'élément gonfle à la hauteur de `.set-body` (qui
+  // gonfle en retour avec lui), sa règle `.set-body { overflow-y: auto }`
+  // ne s'active donc jamais, et `.settings-sheet { overflow: hidden }`
+  // coupe simplement ce qui dépasse : contenu inaccessible, aucun
+  // ascenseur. Mesuré : sans cette ligne, popup 400/2032 (client/scroll) et
+  // pas de défilement ; avec, popup 400/400 et .set-body 400/2032, le
+  // défilement s'active. On scanne donc la SOURCE App.css comme pour
+  // `.settings-sheet` ci-dessus — un test « vivant » (rendu jsdom) ne peut
+  // pas détecter la régression, quelqu'un pourrait retirer la ligne sans
+  // qu'aucun test ne le remarque.
+  it("App.css : .settings-page.embedded garde min-height:0 — sinon la feuille de réglages ne défile plus", () => {
+    const appCss = readFileSync(join(__dirname, "..", "..", "App.css"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = appCss.match(/\.settings-page\.embedded\s*\{([^}]*)\}/);
+    expect(rule, ".settings-page.embedded doit exister dans App.css").not.toBeNull();
+    const body = rule![1];
+    expect(
+      body.replace(/\s+/g, " "),
+      "min-height: 0 manquant sur .settings-page.embedded : enfant de grille, min-height:auto par défaut l'empêche de rétrécir sous son contenu, donc .set-body ne défile jamais",
+    ).toMatch(/min-height:\s*0\b/);
+  });
+
   it("le flou du voile reste discret (backdrop-blur-xs/sm) — un flou fort rendrait le fil illisible derrière la feuille", () => {
     const dialogSource = readFileSync(join(__dirname, "..", "shadcn", "dialog.tsx"), "utf8");
     const blurMatches = [...dialogSource.matchAll(/backdrop-blur-([a-z0-9]+)/g)].map((m) => m[1]);
