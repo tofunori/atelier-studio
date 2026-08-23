@@ -30,9 +30,10 @@ import { Toggle as ShadcnToggle } from "../../shadcn/toggle";
 import { ToggleGroup, ToggleGroupItem } from "../../shadcn/toggle-group";
 import { CheckIcon } from "lucide-react";
 
-// Catalogue statique des modèles Claude et des paliers d'effort — copié tel
-// quel de Settings.tsx:48-60 (aussi dupliqué dans General.tsx : la
-// déduplication aura lieu à la tâche 8, qui supprime Settings.tsx).
+// Catalogue statique des modèles Claude et des paliers d'effort — dupliqué
+// tel quel dans General.tsx. Settings.tsx (source d'origine, lignes 48-60)
+// a été supprimé ; la mise en commun de ce catalogue entre les deux sections
+// est renvoyée au lot qui refondra la section Modèles, pas traitée ici.
 const CLAUDE_MODELS = [
   { id: "claude-fable-5[1m]", label: "Fable 5 · 1M" },
   { id: "claude-opus-5[1m]", label: "Opus 5 · 1M" },
