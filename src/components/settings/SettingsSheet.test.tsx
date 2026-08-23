@@ -129,4 +129,34 @@ describe("SettingsSheet", () => {
     expect(body).not.toMatch(/rgba\(/);
     expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
+
+  // Le brief proposait de lire `getComputedStyle(voile).backgroundColor` en
+  // jsdom : ça ne peut pas échouer, jsdom ne résout pas var(--scrim) et
+  // retourne une chaîne vide, jamais "rgb(0, 0, 0)" — le test passerait même
+  // si le voile devenait réellement opaque. On scanne donc les SOURCES qui
+  // déterminent l'opacité réelle du voile, comme pour .settings-sheet
+  // ci-dessus (et comme css-contract.test.ts le fait pour les autres jetons).
+  it("le voile derrière la feuille vient de --scrim et n'est pas surchargé en dur", () => {
+    // DialogOverlay (composant partagé) doit peindre le voile via le jeton,
+    // jamais une couleur littérale — sinon aucune section Apparence ne
+    // pourrait le rendre translucide.
+    const dialogSource = readFileSync(join(__dirname, "..", "shadcn", "dialog.tsx"), "utf8");
+    expect(dialogSource).toContain("var(--scrim)");
+    // La feuille des réglages ne doit pas passer overlayClassName pour
+    // remplacer ce voile partagé par quelque chose d'opaque.
+    const sheetSource = readFileSync(join(__dirname, "SettingsSheet.tsx"), "utf8");
+    expect(sheetSource, "SettingsSheet ne doit pas surcharger le voile partagé").not.toMatch(
+      /overlayClassName/,
+    );
+  });
+
+  it("--scrim (tokens.css) reste translucide — un voile opaque annulerait le lot", () => {
+    const tokensCss = readFileSync(join(__dirname, "..", "..", "styles", "tokens.css"), "utf8");
+    const match = tokensCss.match(/--scrim:\s*rgba?\(([^)]+)\)/);
+    expect(match, "--scrim doit être défini en rgb(a)(...) dans tokens.css").not.toBeNull();
+    const parts = match![1].split(",").map((n) => parseFloat(n.trim()));
+    const alpha = parts.length === 4 ? parts[3] : 1;
+    expect(alpha, "--scrim ne doit être ni totalement opaque ni transparent").toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(1);
+  });
 });
