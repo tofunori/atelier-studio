@@ -3,7 +3,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
-import { setLanguage } from "../../../lib/i18n";
+import { setLanguage, t } from "../../../lib/i18n";
 import { DEFAULT_SETTINGS } from "../../../lib/settings";
 import type { SectionProps } from "../shared";
 import Models from "./Models";
@@ -72,6 +72,16 @@ describe("Section Modèles", () => {
     const search = await screen.findByPlaceholderText(/rechercher/i);
     fireEvent.change(search, { target: { value: "glm" } });
     await waitFor(() => expect(screen.getByRole("button", { name: /favori/i })).toBeInTheDocument());
+  });
+
+  it("sans sidecar : notice d'avertissement (role=status), pas couleur seule", () => {
+    // Contrat conservé de Settings.test.tsx:142 — non porté lors de la fusion
+    // setup+providers+modeles (tâche 6) ni de la migration de suite (tâche 8).
+    renderUi(<Models {...props({ ws: null })} />);
+    const notice = document.querySelector(".ui-notice--warning");
+    expect(notice).toBeTruthy();
+    expect(notice!.getAttribute("role")).toBe("status");
+    expect(notice!.textContent).toContain(t("settings.sidecar-disconnected-notice"));
   });
 
   it("garde les fournisseurs API et les slugs sous le repli « Avancé »", () => {
