@@ -302,6 +302,54 @@ const QUEUED_TURNS: QueuedTurn[] = [
   },
 ];
 
+// --- Scénario VIVANT (diagnostic « ça monte et ça descend », 2026-08-23) ---
+// Rejoue un tour réaliste DANS LE TEMPS : pensée qui grandit mot à mot, outil
+// qui court avec fenêtre de silence (→ « en attente · Ns »), dépôts successifs
+// (→ apparition du cumul), puis réponse streamée. Sert au banc de mesure des
+// sauts de scroll ; aucune capture golden ne le référence (non déterministe).
+const LIVE_THOUGHT = ("Je dois vérifier la section méthodes contre les sorties du pipeline avant de répondre. "
+  + "D'abord relire le panel bayésien, puis confronter chaque chiffre cité au CSV source, et enfin juger "
+  + "si la structure de la section tient la route pour la soumission.").split(" ");
+const LIVE_ANSWER = ("La section est solide dans l'ensemble. **Points forts** : la chaîne de "
+  + "traçabilité des chiffres est complète, chaque valeur citée provient d'un artefact "
+  + "vérifiable, et la justification du modèle Student-t est bien argumentée.\n\n"
+  + "**À corriger avant soumission** :\n\n1. Le seuil NDSI cité (0,42) ne correspond pas "
+  + "au code (0,40).\n2. La phrase sur les 11 sous-régions gagnerait une référence RGI v7 "
+  + "explicite.\n3. Le tableau 2 répète une valeur déjà donnée dans le texte.\n\n"
+  + "Rien de structurel : une passe de cohérence chiffre-par-chiffre suffit.").split(" ");
+
+function liveEventsAt(elapsedMs: number): AgentEvent[] {
+  const out: AgentEvent[] = [
+    { kind: "user", text: "que penses tu de cette section", ts: NOW, label: "methods_en.tex (lines 198-224)" } as AgentEvent,
+    { kind: "started", ts: NOW } as AgentEvent,
+  ];
+  // 0,2 s → ~3,2 s : la pensée grandit mot à mot
+  if (elapsedMs >= 200) {
+    const mots = Math.min(LIVE_THOUGHT.length, Math.floor((elapsedMs - 200) / 60));
+    if (mots > 0) out.push({ kind: "thinking_live", text: LIVE_THOUGHT.slice(0, mots).join(" "), ts: NOW } as AgentEvent);
+  }
+  // 3,4 s : un Bash part et court 5 s — fenêtre de silence, comme la capture
+  // de Thierry (« A exécuté f=$(find …) » + « en attente · 3 s »)
+  if (elapsedMs >= 3400) {
+    out.push({
+      kind: "tool_update", id: "live-bash", name: "Bash",
+      detail: 'f=$(find . -name "panel_bayes_JJA.csv" 2>/dev/null | head -1); echo "FILE: $f"',
+      output: elapsedMs >= 8400 ? "FILE: ./data/panel_bayes_JJA.csv" : "",
+      status: elapsedMs >= 8400 ? "completed" : "running", input: {}, source: null,
+      durationMs: elapsedMs >= 8400 ? 5000 : undefined, ts: NOW,
+    } as AgentEvent);
+  }
+  // 8,6 s puis 9,0 s : deux lectures déposées (déclenche le cumul à ≥2 lignes)
+  if (elapsedMs >= 8600) out.push(tool("live-r1", "Read", "manuscrit/methods_en.tex", "27 lignes", 300, 0));
+  if (elapsedMs >= 9000) out.push(tool("live-r2", "Read", "analysis/panel_bayes.py", "180 lignes", 260, 0));
+  // 9,6 s → fin : réponse streamée mot à mot (~18 mots/s)
+  if (elapsedMs >= 9600) {
+    const mots = Math.min(LIVE_ANSWER.length, Math.floor((elapsedMs - 9600) / 55));
+    if (mots > 0) out.push({ kind: "streaming", text: LIVE_ANSWER.slice(0, mots).join(" "), ts: NOW } as AgentEvent);
+  }
+  return out;
+}
+
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
