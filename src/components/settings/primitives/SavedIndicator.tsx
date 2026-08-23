@@ -34,7 +34,7 @@ export function SavedIndicator(p: { visible: boolean; failed?: boolean }) {
       {p.visible && (
         <>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             {p.failed ? <path d="M12 8v5M12 17h.01" /> : <path d="M20 6L9 17l-5-5" />}
           </svg>
           {p.failed ? t("settings.save-failed") : t("settings.saved")}
