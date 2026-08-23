@@ -3,20 +3,72 @@
 // Consommé par ws.test.ts et les tests de caractérisation App.
 import { vi } from "vitest";
 
-export class FakeWS {
+/**
+ * FakeWS étend EventTarget pour se comporter comme un vrai WebSocket :
+ * certains consommateurs (src/lib/ws.ts) s'abonnent via les propriétés
+ * onmessage/onopen/onclose/onerror, d'autres (sections de réglages,
+ * src/components/settings/sections/*) via addEventListener("message", …).
+ * Les deux styles doivent fonctionner et rester interopérables sans
+ * double livraison au même écouteur.
+ *
+ * Implémentation : les propriétés onX sont des accesseurs qui, en interne,
+ * font addEventListener/removeEventListener sur le même EventTarget que
+ * celui utilisé par les consommateurs "addEventListener". Il n'existe donc
+ * qu'un seul chemin de livraison (dispatchEvent) — pas de double appel
+ * manuel en plus du dispatch.
+ */
+export class FakeWS extends EventTarget {
   static instances: FakeWS[] = [];
   url: string;
   sent: string[] = [];
   closed = false;
-  onopen: (() => void) | null = null;
-  onerror: ((e?: unknown) => void) | null = null;
-  onclose: (() => void) | null = null;
-  onmessage: ((e: { data: string }) => void) | null = null;
   readyState = 0; // CONNECTING
 
+  #onopen: ((e: Event) => void) | null = null;
+  #onerror: ((e: Event) => void) | null = null;
+  #onclose: ((e: Event) => void) | null = null;
+  #onmessage: ((e: MessageEvent) => void) | null = null;
+
   constructor(url: string) {
+    super();
     this.url = url;
     FakeWS.instances.push(this);
+  }
+
+  get onopen(): ((e: Event) => void) | null {
+    return this.#onopen;
+  }
+  set onopen(fn: ((e: Event) => void) | null) {
+    if (this.#onopen) this.removeEventListener("open", this.#onopen);
+    this.#onopen = fn;
+    if (fn) this.addEventListener("open", fn);
+  }
+
+  get onerror(): ((e: Event) => void) | null {
+    return this.#onerror;
+  }
+  set onerror(fn: ((e: Event) => void) | null) {
+    if (this.#onerror) this.removeEventListener("error", this.#onerror);
+    this.#onerror = fn;
+    if (fn) this.addEventListener("error", fn);
+  }
+
+  get onclose(): ((e: Event) => void) | null {
+    return this.#onclose;
+  }
+  set onclose(fn: ((e: Event) => void) | null) {
+    if (this.#onclose) this.removeEventListener("close", this.#onclose);
+    this.#onclose = fn;
+    if (fn) this.addEventListener("close", fn);
+  }
+
+  get onmessage(): ((e: MessageEvent) => void) | null {
+    return this.#onmessage;
+  }
+  set onmessage(fn: ((e: MessageEvent) => void) | null) {
+    if (this.#onmessage) this.removeEventListener("message", this.#onmessage as EventListener);
+    this.#onmessage = fn;
+    if (fn) this.addEventListener("message", fn as EventListener);
   }
 
   send(d: string) {
@@ -31,18 +83,27 @@ export class FakeWS {
   /** Le serveur accepte la connexion. */
   open() {
     this.readyState = 1; // OPEN
-    this.onopen?.();
+    this.dispatchEvent(new Event("open"));
   }
 
   /** Le sidecar meurt (kill) : close côté client. */
   fireClose() {
     this.readyState = 3;
-    this.onclose?.();
+    this.dispatchEvent(new Event("close"));
   }
 
-  /** Le sidecar pousse un message JSON. */
+  /**
+   * Le sidecar pousse un message JSON : construit un vrai MessageEvent
+   * (data: JSON.stringify(payload)) et le dispatch une seule fois — reçu
+   * aussi bien par onmessage que par les écouteurs addEventListener.
+   */
+  emit(payload: unknown) {
+    this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(payload) }));
+  }
+
+  /** Alias historique de emit(), conservé pour compat avec les tests existants. */
   push(msg: unknown) {
-    this.onmessage?.({ data: JSON.stringify(msg) });
+    this.emit(msg);
   }
 
   /** Types des messages envoyés par le client (ordre d'envoi). */
