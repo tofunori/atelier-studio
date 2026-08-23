@@ -18,7 +18,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./shadcn/co
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
 import { Input } from "./shadcn/input";
 import { ScrollArea } from "./shadcn/scroll-area";
-import { Separator } from "./shadcn/separator";
 import { Skeleton } from "./shadcn/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
 import { Button } from "./ui/Button";
@@ -404,28 +403,22 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
     <div className="narval-surface" data-visible={visible} data-files-open={filesOpen}>
       <aside id="narval-remote-files" className="narval-files" aria-label={t("narval.remote-files")}>
         <header className="narval-files-head">
-          <div>
-            <strong>{t("narval.title-short")}</strong>
-            <span className={status?.connected ? "narval-connection connected" : "narval-connection"}>
-              <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
-            </span>
-            <IconButton
-              className="narval-files-toggle"
-              size="s"
-              hit40
-              label={t("narval.hide-files")}
-              title={t("narval.hide-files")}
-              aria-expanded
-              aria-describedby="narval-files-toggle-description"
-              onClick={() => setFilesOpen(false)}
-            >
-              <SidebarIcon size={17} />
-            </IconButton>
-          </div>
           <label className="narval-search">
             <SearchIcon />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("narval.search-files")} />
           </label>
+          <IconButton
+            className="narval-files-toggle"
+            size="s"
+            hit40
+            label={t("narval.hide-files")}
+            title={t("narval.hide-files")}
+            aria-expanded
+            aria-describedby="narval-files-toggle-description"
+            onClick={() => setFilesOpen(false)}
+          >
+            <SidebarIcon size={16} />
+          </IconButton>
         </header>
         <ScrollArea className="narval-tree-scroll">
           <div className="narval-tree">
@@ -452,43 +445,67 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
 
       <main className="narval-main">
         <header className="narval-toolbar">
-          <div className="narval-toolbar-lead">
-            {!filesOpen && (
-              <IconButton
-                className="narval-files-toggle"
-                size="s"
-                hit40
-                label={t("narval.show-files")}
-                title={t("narval.show-files")}
-                aria-expanded={false}
-                aria-describedby="narval-files-toggle-description"
-                onClick={() => setFilesOpen(true)}
-              >
-                <SidebarIcon size={17} />
-              </IconButton>
-            )}
-            <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
-            <div>
-              <h1>{t("narval.monitor-title")}</h1>
-              <p>{status?.connected ? t("narval.connected-now") : t("narval.not-connected")}</p>
-            </div>
-          </div>
+          {!filesOpen && (
+            <IconButton
+              className="narval-files-toggle"
+              size="s"
+              hit40
+              label={t("narval.show-files")}
+              title={t("narval.show-files")}
+              aria-expanded={false}
+              aria-describedby="narval-files-toggle-description"
+              onClick={() => setFilesOpen(true)}
+            >
+              <SidebarIcon size={16} />
+            </IconButton>
+          )}
+          <span id="narval-files-toggle-description" className="sr-only">{t("narval.remote-files")}</span>
+          <h1 title={t("narval.monitor-title")}>{t("narval.title-short")}</h1>
+          <span
+            className={status?.connected ? "narval-connection connected" : "narval-connection"}
+            title={status?.connected ? t("narval.connected-now") : t("narval.not-connected")}
+          >
+            <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
+          </span>
           <div className="narval-toolbar-actions">
-            <Button variant="secondary" onClick={refresh} loading={loading}>
-              <RefreshCwIcon data-icon="inline-start" /> {t("narval.refresh")}
-            </Button>
-            <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
-              <SquareTerminalIcon data-icon="inline-start" /> {t("narval.terminal")}
-            </Button>
+            <IconButton
+              className={loading ? "narval-refresh is-loading" : "narval-refresh"}
+              size="s"
+              hit40
+              label={t("narval.refresh")}
+              title={t("narval.refresh")}
+              onClick={refresh}
+            >
+              <RefreshCwIcon />
+            </IconButton>
+            <IconButton
+              size="s"
+              hit40
+              label={t("narval.terminal")}
+              title={t("narval.terminal")}
+              onClick={() => onOpenTerminal(sshTerminalCommand(status))}
+            >
+              <SquareTerminalIcon />
+            </IconButton>
           </div>
         </header>
-        {error && (
+        {error && snapshot && (
           <Alert variant="destructive" className="narval-alert">
             <ServerIcon />
             <AlertTitle>{t("narval.error-title")}</AlertTitle>
             <AlertDescription>{error.message}</AlertDescription>
           </Alert>
         )}
+        {error && !snapshot ? (
+          <div className="narval-offline">
+            <ServerIcon aria-hidden="true" />
+            <strong>{t("narval.error-title")}</strong>
+            <p>{error.message}</p>
+            <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
+              <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
+            </Button>
+          </div>
+        ) : (
         <ScrollArea className="narval-main-scroll">
           <section className="narval-section" aria-labelledby="narval-jobs-title">
             <div className="narval-section-title">
@@ -527,12 +544,12 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
               </div>
             )}
           </section>
-          <Separator />
           <section className="narval-section" aria-labelledby="narval-runs-title">
             <div className="narval-section-title narval-runs-title">
               <h2 id="narval-runs-title">{t("narval.recent-runs")}</h2>
               <span>{filteredRecentRuns.length} / {snapshot?.recent.length ?? 0}</span>
             </div>
+            {(snapshot?.recent.length ?? 0) > 0 && (
             <div className="narval-run-controls">
               <label className="narval-run-search">
                 <SearchIcon aria-hidden="true" />
@@ -564,6 +581,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
                 </select>
               </label>
             </div>
+            )}
             <div className="narval-runs">
               {visibleRecentRuns.map((job) => (
                 <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
@@ -585,6 +603,7 @@ export default function NarvalSurface({ visible, onOpenTerminal }: {
             )}
           </section>
         </ScrollArea>
+        )}
       </main>
 
       <aside className="narval-inspector" aria-label={t("narval.job-inspector")}>
