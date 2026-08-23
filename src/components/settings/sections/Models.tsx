@@ -21,14 +21,19 @@
 //   3. Non disponibles — fournisseurs sans aucun modèle exploitable.
 //   4. Avancé — ordre du sélecteur, fournisseurs API, slugs personnalisés.
 //
-// Le bloc « Runtime » (Node/sidecar) et les actions « copier le diagnostic »/
-// « actualiser » de l'ancienne section setup disparaissent : ce ne sont ni
-// des fournisseurs ni des modèles, et la structure à 4 blocs ci-dessus est
-// prescrite par le brief. Signalé dans le rapport de tâche.
+// Le bloc « Runtime » (Node/sidecar) de l'ancienne section setup n'a PAS sa
+// place ici : ce ne sont ni des fournisseurs ni des modèles, et la
+// structure à 4 blocs ci-dessus ne lui laisse nulle part où aller. Sur
+// consigne du coordinateur (revue de cette tâche), il est restauré dans
+// General.tsx → Avancé, fusionné avec la rangée Sidecar qui y existait déjà
+// (même connexion, pas deux badges d'état pour la même chose). Les actions
+// « copier le diagnostic »/« actualiser » de l'ancienne section, elles,
+// restent abandonnées : aucune n'était mentionnée par le coordinateur ni
+// n'a de nouvelle destination évidente.
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
-import type { ApiProviderRow, ProviderCatalogRow, SectionProps } from "../shared";
+import type { ApiProviderRow, ProviderCatalogRow, SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import { modelDisplayLabel } from "../../../lib/modelCatalog";
@@ -70,30 +75,12 @@ function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
   });
 }
 
-// Types locaux à l'ancienne section setup (Settings.tsx:111-130) — seul
-// consommateur restant : enrichir les lignes « Non disponibles » avec le
-// détail d'auth (login requis, commande de terminal…) que le catalogue
-// providerStatus n'expose pas (voir buildModelRows.ts, commentaire d'en-tête).
-type SetupProvider = {
-  id: string;
-  label: string;
-  kind: "cli" | "api";
-  installed: boolean;
-  version: string | null;
-  binPath: string | null;
-  auth: string;
-  models: number;
-  defaultModel?: string | null;
-  modelError?: string | null;
-  /** Commande de login annoncée par le harnais (Kimi, plan 046). */
-  loginCommand?: string | null;
-};
-
-type SetupStatus = {
-  runtime: { node: string; version: string; bundled: boolean };
-  sidecar: { pid: number; startedAt: string; appVersion: string; bundleHash: string; dir: string };
-  providers: SetupProvider[];
-};
+// SetupStatus/SetupProvider (message setupStatus) vivent dans shared.ts —
+// General.tsx les consomme aussi (Runtime/Sidecar, repli Avancé) depuis la
+// correction de revue de cette tâche. Ici, seul consommateur restant :
+// enrichir les lignes « Non disponibles » avec le détail d'auth (login
+// requis, commande de terminal…) que le catalogue providerStatus n'expose
+// pas (voir buildModelRows.ts, commentaire d'en-tête).
 
 // Filtre textuel du tableau : appliqué ICI (pas dans ModelsGrid, qui reste
 // présentationnel — voir son commentaire d'en-tête). Ne trie ni ne réordonne

@@ -43,3 +43,30 @@ export type ApiProviderRow = {
   apiKeyEnv?: string | null;
   modelReasoning?: Record<string, unknown>;
 };
+
+// Statut de l'ancienne section « setup » (message WebSocket setupStatus).
+// Deux consommateurs partagent ce type (lot B1, tâche 4 puis correction) :
+// Models.tsx enrichit ses lignes « Non disponibles » avec `providers`
+// (auth, commande de login) ; General.tsx affiche `runtime`/`sidecar` dans
+// son repli Avancé. Défini ici plutôt que dupliqué dans les deux fichiers —
+// même principe que ProviderCatalogRow/ApiProviderRow ci-dessus.
+export type SetupProvider = {
+  id: string;
+  label: string;
+  kind: "cli" | "api";
+  installed: boolean;
+  version: string | null;
+  binPath: string | null;
+  auth: string;
+  models: number;
+  defaultModel?: string | null;
+  modelError?: string | null;
+  /** Commande de login annoncée par le harnais (Kimi, plan 046). */
+  loginCommand?: string | null;
+};
+
+export type SetupStatus = {
+  runtime: { node: string; version: string; bundled: boolean };
+  sidecar: { pid: number; startedAt: string; appVersion: string; bundleHash: string; dir: string };
+  providers: SetupProvider[];
+};

@@ -8,10 +8,18 @@
 // conversations (ces rangées vivent ailleurs : format d'heure dans
 // « apparence » → tâche 6 ; ordre des fils est déjà dans le groupe
 // Conversations ci-dessous, dans la partie essentielle de « general »).
+//
+// Correction lot B1 (tâche 4, revue coordinateur) : le bloc Runtime de
+// l'ex-section setup (version Node, pid/version/dossier du sidecar) avait
+// disparu pendant la fusion de Models.tsx — ni fournisseur ni modèle, il n'y
+// avait nulle part où le caser dans les 4 blocs de cette section. Restauré
+// ICI, sous Avancé, fusionné avec la rangée Sidecar déjà présente (même
+// connexion WebSocket : un seul badge état, pas deux rangées qui répètent
+// « connecté »/« déconnecté »).
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
-import type { ProviderCatalogRow, SectionProps } from "../shared";
+import type { ProviderCatalogRow, SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
 import { Select } from "../../Select";
@@ -37,6 +45,12 @@ export default function General(p: SectionProps) {
   const [status, setStatus] = useState<{ port: number | null; pastedCount: number; pasteDir: string } | null>(null);
   const [pasted, setPasted] = useState<{ name: string; size: number; mtime: number; dataURL?: string }[] | null>(null);
   const [retitleStatus, setRetitleStatus] = useState("");
+  // Runtime/Sidecar (repli Avancé) — restauré ici après la fusion lot B1 de
+  // Models.tsx (voir commentaire d'en-tête). Models.tsx écoute aussi
+  // setupStatus pour ses propres lignes « Non disponibles » : deux
+  // abonnements en lecture seule au même message, sans effet de bord, même
+  // principe que providerStatus ci-dessous.
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
   // Catalogue codex dynamique (providerStatus) — alimente le menu « Modèle
   // Codex par défaut » ci-dessous. Aussi consommé par Models.tsx (tâche 7) ;
   // deux abonnements indépendants au même type de message sont sans effet de
