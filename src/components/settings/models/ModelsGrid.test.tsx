@@ -94,6 +94,57 @@ describe("ModelsGrid", () => {
     expect(screen.getByText(/aucun modèle/i)).toBeInTheDocument();
   });
 
+  // Tâche 5 : repli en cartes sous le seuil de la feuille modale.
+  it("compact=true : aucun tableau, une carte par modèle", () => {
+    renderUi(<ModelsGrid {...props({
+      rows: [row(), row({ key: "claude:sonnet", modelId: "s", label: "Sonnet 5" })],
+      compact: true,
+    })} />);
+    expect(screen.queryByRole("table")).toBeNull();
+    // toujours une ligne par modèle, identifiée par son libellé.
+    expect(screen.getByText("Opus 5 · 1M")).toBeInTheDocument();
+    expect(screen.getByText("Sonnet 5")).toBeInTheDocument();
+  });
+
+  it("compact=true : cliquer le favori appelle onToggleFavorite", () => {
+    const onToggleFavorite = vi.fn();
+    renderUi(<ModelsGrid {...props({
+      rows: [row({ isFavorite: true })], onToggleFavorite, compact: true,
+    })} />);
+    const etoile = screen.getByRole("button", { name: /favori/i });
+    expect(etoile).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(etoile);
+    expect(onToggleFavorite).toHaveBeenCalledWith(expect.objectContaining({ modelId: "claude-opus-5[1m]" }));
+  });
+
+  it("compact=true : le marqueur de défaut reste un radio, cliquer appelle onSetDefault", () => {
+    const onSetDefault = vi.fn();
+    renderUi(<ModelsGrid {...props({ onSetDefault, compact: true })} />);
+    const marqueur = screen.getByRole("radio", { name: /défaut/i });
+    fireEvent.click(marqueur);
+    expect(onSetDefault).toHaveBeenCalledWith(expect.objectContaining({ modelId: "claude-opus-5[1m]" }));
+  });
+
+  it("compact=true : la navigation aux flèches du radiogroup survit au repli en cartes", () => {
+    const onSetDefault = vi.fn();
+    const rows = [
+      row({ key: "claude:opus", modelId: "opus", label: "Opus", isDefault: true }),
+      row({ key: "claude:sonnet", modelId: "sonnet", label: "Sonnet" }),
+      row({ key: "claude:haiku", modelId: "haiku", label: "Haiku" }),
+    ];
+    renderUi(<ModelsGrid {...props({ rows, onSetDefault, compact: true })} />);
+    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    const tabbables = radios.filter((r) => r.getAttribute("tabindex") === "0");
+    expect(tabbables).toHaveLength(1);
+    expect(tabbables[0]).toHaveAttribute("aria-label", expect.stringContaining("Opus"));
+
+    tabbables[0].focus();
+    fireEvent.keyDown(tabbables[0], { key: "ArrowDown" });
+    expect(onSetDefault).toHaveBeenCalledWith(expect.objectContaining({ modelId: "sonnet" }));
+  });
+
   it("filtre actif sans résultat : message de recherche, pas « aucun fournisseur » (correction de revue)", () => {
     // Avant : le même message générique (« aucun fournisseur actif
     // n'expose de modèle ») s'affichait que ce soit vraiment vide OU juste

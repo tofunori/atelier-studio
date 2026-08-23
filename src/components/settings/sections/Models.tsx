@@ -392,6 +392,10 @@ export default function Models(p: SectionProps) {
           onSetEffort={handleSetEffort}
           filter={modelFilter}
           onFilterChange={setModelFilter}
+          // Seuil de la feuille modale, calculé UNE fois par la coquille
+          // (SettingsPage) — voir SectionProps.narrow. Pas de second
+          // ResizeObserver ici (tâche 5).
+          compact={p.narrow ?? false}
         />
       )}
 

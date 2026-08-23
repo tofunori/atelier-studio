@@ -135,7 +135,7 @@ export default function SettingsPage(p: {
       <div className="set-body">
         <div className="set-body-status"><SavedIndicator visible={saved} /></div>
         <Suspense fallback={<p className="set-empty">{t("settings.checking")}</p>}>
-          <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects} />
+          <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects} narrow={narrow} />
         </Suspense>
       </div>
     </div>

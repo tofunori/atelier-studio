@@ -14,6 +14,15 @@ export type SectionProps = {
   /** À appeler après tout changement : déclenche la pastille « Enregistré ». */
   onSaved: () => void;
   projects?: string[];
+  /** Vrai sous le seuil ≤880px de la feuille modale (calculé UNE fois par
+   *  la coquille SettingsPage — ResizeObserver sur la feuille en mode
+   *  embarqué, matchMedia sur la fenêtre sinon). Une section qui a besoin
+   *  d'un repli visuel lit CE champ plutôt que de recalculer sa propre
+   *  mesure : un second ResizeObserver sur le même élément peut diverger
+   *  silencieusement du premier (lot B1, tâche 5). Optionnel pour ne pas
+   *  casser les tests qui construisent un SectionProps à la main sans ce
+   *  champ (défaut implicite : non replié). */
+  narrow?: boolean;
 };
 
 export type ProviderCatalogRow = {

@@ -38,8 +38,13 @@ export function ModelsGrid(props: {
   onSetEffort: (row: ModelRow, effort: string) => void;
   filter: string;
   onFilterChange: (value: string) => void;
+  /** Repli en liste de cartes (tâche 5), sous le seuil ≤880px de la feuille
+   *  modale — voir SectionProps.narrow (Models.tsx) pour la source unique de
+   *  ce booléen. Même rappels, mêmes groupes ARIA (radiogroup par
+   *  fournisseur) : seule la mise en page change, jamais `role="table"` ici. */
+  compact?: boolean;
 }) {
-  const { rows, onSetDefault, onToggleFavorite, onSetEffort, filter, onFilterChange } = props;
+  const { rows, onSetDefault, onToggleFavorite, onSetEffort, filter, onFilterChange, compact = false } = props;
 
   // Regroupe les lignes CONSÉCUTIVES du même fournisseur : buildModelRows
   // (tâche 2) itère déjà provider par provider, donc un simple découpage en
@@ -88,6 +93,27 @@ export function ModelsGrid(props: {
           title={t("settings.models-grid.empty-title")}
           description={filter.trim() ? t("settings.model-no-match") : t("settings.models-grid.empty-desc")}
         />
+      ) : compact ? (
+        // Repli en cartes (tâche 5) : une carte par modèle, aucun <table> —
+        // donc aucun role="table" implicite. Les mêmes tronçons par
+        // fournisseur (même hypothèse de contiguïté que la table) deviennent
+        // des <div role="radiogroup">, pas des <tbody> : ProviderGroup choisit
+        // la balise selon `compact`, le radiogroup et sa navigation aux
+        // flèches (roving tabindex) sont inchangés.
+        <div className="mg-scroll">
+          <div className="mg-cards">
+            {groups.map((group) => (
+              <ProviderGroup
+                key={`group-${group[0].key}`}
+                rows={group}
+                compact
+                onSetDefault={onSetDefault}
+                onToggleFavorite={onToggleFavorite}
+                onSetEffort={onSetEffort}
+              />
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="mg-scroll">
           <table className="mg-table">
@@ -109,6 +135,7 @@ export function ModelsGrid(props: {
               <ProviderGroup
                 key={`group-${group[0].key}`}
                 rows={group}
+                compact={false}
                 onSetDefault={onSetDefault}
                 onToggleFavorite={onToggleFavorite}
                 onSetEffort={onSetEffort}
@@ -130,12 +157,19 @@ export function ModelsGrid(props: {
 // appuyer sur Tab autant de fois qu'il y a de lignes pour sortir du groupe.
 function ProviderGroup(props: {
   rows: ModelRow[];
+  compact: boolean;
   onSetDefault: (row: ModelRow) => void;
   onToggleFavorite: (row: ModelRow) => void;
   onSetEffort: (row: ModelRow, effort: string) => void;
 }) {
-  const { rows, onSetDefault, onToggleFavorite, onSetEffort } = props;
-  const bodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const { rows, compact, onSetDefault, onToggleFavorite, onSetEffort } = props;
+  // Un seul type de ref pour les deux balises possibles (<tbody> en tableau,
+  // <div> en cartes) : querySelectorAll/focus ne dépendent pas de la balise
+  // exacte, et HTMLElement est un supertype des deux — la ref-callback reste
+  // assignable à Ref<HTMLTableSectionElement> ET à Ref<HTMLDivElement> par
+  // contravariance de paramètre.
+  const bodyRef = useRef<HTMLElement | null>(null);
+  const setBodyRef = (el: HTMLElement | null) => { bodyRef.current = el; };
   const providerLabel = rows[0].providerLabel;
 
   const defaultIndex = rows.findIndex((row) => row.isDefault);
@@ -157,7 +191,7 @@ function ProviderGroup(props: {
   // sur un data-attribute) : ce composant reste présentationnel, `rows` ne
   // change qu'au prochain rendu du parent, donc l'index le plus fiable est
   // celui du bouton radio que le clavier vient de quitter.
-  const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const radios = Array.from(
       bodyRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
     );
@@ -179,95 +213,163 @@ function ProviderGroup(props: {
     }
   };
 
-  return (
-    <tbody
-      ref={bodyRef}
+  const groupLabel = t("settings.models-grid.default-group", { provider: providerLabel });
+  const items = rows.map((row, index) => (
+    <ModelGridRow
+      key={row.key}
+      row={row}
+      compact={compact}
+      tabbable={index === tabbableIndex}
+      onSetDefault={onSetDefault}
+      onToggleFavorite={onToggleFavorite}
+      onSetEffort={onSetEffort}
+    />
+  ));
+
+  // Même radiogroup ARIA, deux balises : <tbody> en tableau (déjà en place),
+  // <div> en cartes (tâche 5) — le rôle, le libellé et la navigation aux
+  // flèches (onKeyDown ci-dessus) sont identiques dans les deux cas, `ref`
+  // et `onKeyDown` acceptent bien les deux grâce au typage HTMLElement plus
+  // haut.
+  return compact ? (
+    <div
+      ref={setBodyRef}
+      className="mg-card-group"
       role="radiogroup"
-      aria-label={t("settings.models-grid.default-group", { provider: providerLabel })}
+      aria-label={groupLabel}
       onKeyDown={onKeyDown}
     >
-      {rows.map((row, index) => (
-        <ModelGridRow
-          key={row.key}
-          row={row}
-          tabbable={index === tabbableIndex}
-          onSetDefault={onSetDefault}
-          onToggleFavorite={onToggleFavorite}
-          onSetEffort={onSetEffort}
-        />
-      ))}
+      {items}
+    </div>
+  ) : (
+    <tbody
+      ref={setBodyRef}
+      role="radiogroup"
+      aria-label={groupLabel}
+      onKeyDown={onKeyDown}
+    >
+      {items}
     </tbody>
   );
 }
 
 function ModelGridRow(props: {
   row: ModelRow;
+  compact: boolean;
   tabbable: boolean;
   onSetDefault: (row: ModelRow) => void;
   onToggleFavorite: (row: ModelRow) => void;
   onSetEffort: (row: ModelRow, effort: string) => void;
 }) {
-  const { row, tabbable, onSetDefault, onToggleFavorite, onSetEffort } = props;
+  const { row, compact, tabbable, onSetDefault, onToggleFavorite, onSetEffort } = props;
   const defaultLabel = t("settings.models-grid.default-for", { model: row.label });
   const favoriteLabel = row.isFavorite
     ? t("settings.models-grid.favorite-remove", { model: row.label })
     : t("settings.models-grid.favorite-add", { model: row.label });
   const effortLabel = `${t("settings.models-grid.effort")} — ${row.label}`;
 
+  const defaultRadio = (
+    <RowButton
+      role="radio"
+      aria-checked={row.isDefault}
+      aria-label={defaultLabel}
+      className={cx("mg-radio", compact && "mg-card-radio")}
+      tabIndex={tabbable ? 0 : -1}
+      onClick={() => { if (!row.isDefault) onSetDefault(row); }}
+    >
+      <span className="mg-radio-dot" aria-hidden="true" />
+    </RowButton>
+  );
+
+  const favoriteButton = (
+    <RowButton
+      aria-pressed={row.isFavorite}
+      aria-label={favoriteLabel}
+      className={cx("mg-fav", compact && "mg-card-fav")}
+      onClick={() => onToggleFavorite(row)}
+    >
+      <StarIcon size={14} />
+    </RowButton>
+  );
+
+  const effortSelect = (
+    <Select
+      compact
+      title={effortLabel}
+      value={row.effort}
+      onChange={(value) => onSetEffort(row, value)}
+      options={row.efforts.map((effort) => ({
+        value: effort,
+        label: effort === "" ? t("common.provider-default") : effort,
+      }))}
+    />
+  );
+
+  const statusBadge = (
+    <StatusBadge status={row.status === "ready" ? "success" : "error"}>
+      {row.status === "ready"
+        ? t("settings.models-grid.status-ready")
+        : t("settings.models-grid.status-absent")}
+    </StatusBadge>
+  );
+
+  const providerTag = (
+    <span className="mg-provider">
+      <ProviderIcon provider={row.provider} size={13} />
+      {row.providerLabel}
+    </span>
+  );
+
+  // Bloc .mg-model INCHANGÉ (voir commentaire d'en-tête du fichier) : un
+  // <div> flex-colonne autonome, déjà indépendant de la structure de
+  // tableau — il se déplace tel quel dans la carte.
+  const modelBlock = (
+    <div className="mg-model">
+      <span className="mg-model-name">{row.label}</span>
+      <span className="mg-model-id" title={row.modelId}>{row.modelId}</span>
+    </div>
+  );
+
+  if (compact) {
+    // Une carte par modèle : même contenu que la ligne de tableau (radio de
+    // défaut, modèle, fournisseur, effort, statut, favori), disposé en deux
+    // rangées internes plutôt qu'en six cellules — les cinq rappels restent
+    // les mêmes fonctions, appelées avec le même `row`.
+    return (
+      <div className={cx("mg-card", row.isDefault && "mg-card--default")}>
+        <div className="mg-card-head">
+          {defaultRadio}
+          {modelBlock}
+          {favoriteButton}
+        </div>
+        <div className="mg-card-meta">
+          {providerTag}
+          {effortSelect}
+          {statusBadge}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <tr className={cx("mg-row", row.isDefault && "mg-row--default")}>
       <td className="mg-col-default">
-        <RowButton
-          role="radio"
-          aria-checked={row.isDefault}
-          aria-label={defaultLabel}
-          className="mg-radio"
-          tabIndex={tabbable ? 0 : -1}
-          onClick={() => { if (!row.isDefault) onSetDefault(row); }}
-        >
-          <span className="mg-radio-dot" aria-hidden="true" />
-        </RowButton>
+        {defaultRadio}
       </td>
       <td className="mg-col-model">
-        <div className="mg-model">
-          <span className="mg-model-name">{row.label}</span>
-          <span className="mg-model-id" title={row.modelId}>{row.modelId}</span>
-        </div>
+        {modelBlock}
       </td>
       <td className="mg-col-provider">
-        <span className="mg-provider">
-          <ProviderIcon provider={row.provider} size={13} />
-          {row.providerLabel}
-        </span>
+        {providerTag}
       </td>
       <td className="mg-col-effort">
-        <Select
-          compact
-          title={effortLabel}
-          value={row.effort}
-          onChange={(value) => onSetEffort(row, value)}
-          options={row.efforts.map((effort) => ({
-            value: effort,
-            label: effort === "" ? t("common.provider-default") : effort,
-          }))}
-        />
+        {effortSelect}
       </td>
       <td className="mg-col-status">
-        <StatusBadge status={row.status === "ready" ? "success" : "error"}>
-          {row.status === "ready"
-            ? t("settings.models-grid.status-ready")
-            : t("settings.models-grid.status-absent")}
-        </StatusBadge>
+        {statusBadge}
       </td>
       <td className="mg-col-favorite">
-        <RowButton
-          aria-pressed={row.isFavorite}
-          aria-label={favoriteLabel}
-          className="mg-fav"
-          onClick={() => onToggleFavorite(row)}
-        >
-          <StarIcon size={14} />
-        </RowButton>
+        {favoriteButton}
       </td>
     </tr>
   );

@@ -1450,6 +1450,28 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 
 .mg-col-effort .custom-select { width: 100%; }
 
+/* ---- ModelsGrid, repli en cartes (lot B1, tâche 5) ---------------------
+   Sous ≤880px de feuille modale : plus de <table>, une carte par modèle.
+   .mg-model est repris tel quel (voir ModelsGrid.tsx) ; ce sont les autres
+   cellules (radio de défaut, effort, statut, favori) qui se réarrangent en
+   deux rangées internes. Même groupe ARIA radiogroup par fournisseur — seule
+   la balise change (<div> ici, <tbody> en tableau). */
+.mg-cards { display: flex; flex-direction: column; gap: 16px; padding: 12px; }
+.mg-card-group { display: flex; flex-direction: column; gap: 8px; }
+
+.mg-card { display: flex; flex-direction: column; gap: 12px; padding: 12px;
+  border: 1px solid var(--border); border-radius: var(--r-m); background: var(--bg-card);
+  transition: background-color var(--ease); }
+.mg-card--default { box-shadow: inset 2px 0 0 var(--accent); }
+
+.mg-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.mg-card-head .mg-model { flex: 1; min-width: 0; }
+.mg-card-radio { margin-top: 2px; }
+.mg-card-radio, .mg-card-fav { flex: none; }
+
+.mg-card-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mg-card-meta .custom-select { min-width: 120px; }
+
 .appsnap-intro { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px;
   align-items: start; margin: 0 0 28px; padding: 24px 26px; border: 1px solid var(--border2);
   border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 70%, transparent); }
