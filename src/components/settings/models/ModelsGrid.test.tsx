@@ -1,7 +1,7 @@
 // Tableau dense des modèles (lot B1) : colonnes comparables, actions sur la
 // ligne. Présentationnel — aucune connaissance du socket ni des réglages.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
 import { setLanguage, t } from "../../../lib/i18n";
 import type { ModelRow } from "./buildModelRows";
@@ -53,6 +53,26 @@ describe("ModelsGrid", () => {
     expect(etoile).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(etoile);
     expect(onToggleFavorite).toHaveBeenCalled();
+  });
+
+  // Correction de revue (tâche 5) : jusqu'ici aucun test n'exerçait
+  // vraiment le sélecteur d'effort (ni en tableau, ni en cartes) — la
+  // parité de cette colonne entre les deux modes ne reposait que sur la
+  // lecture du code. La tâche 4 a déjà passé trois rounds sur cette même
+  // colonne (menu vide sur toutes les lignes) sans qu'aucun test ne le
+  // voie ; ce test choisit une vraie option du popup Base UI plutôt que de
+  // se contenter de vérifier la présence du contrôle.
+  it("le sélecteur d'effort remonte le changement à onSetEffort", async () => {
+    const onSetEffort = vi.fn();
+    renderUi(<ModelsGrid {...props({ onSetEffort })} />);
+    fireEvent.click(screen.getByRole("combobox"));
+    const option = await screen.findByRole("option", { name: "low" });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    await waitFor(() => expect(onSetEffort).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: "claude-opus-5[1m]" }), "low",
+    ));
   });
 
   it("le filtre remonte la saisie sans filtrer lui-même", () => {
@@ -123,6 +143,19 @@ describe("ModelsGrid", () => {
     const marqueur = screen.getByRole("radio", { name: /défaut/i });
     fireEvent.click(marqueur);
     expect(onSetDefault).toHaveBeenCalledWith(expect.objectContaining({ modelId: "claude-opus-5[1m]" }));
+  });
+
+  it("compact=true : le sélecteur d'effort remonte le changement à onSetEffort", async () => {
+    const onSetEffort = vi.fn();
+    renderUi(<ModelsGrid {...props({ onSetEffort, compact: true })} />);
+    fireEvent.click(screen.getByRole("combobox"));
+    const option = await screen.findByRole("option", { name: "low" });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    await waitFor(() => expect(onSetEffort).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: "claude-opus-5[1m]" }), "low",
+    ));
   });
 
   it("compact=true : la navigation aux flèches du radiogroup survit au repli en cartes", () => {
