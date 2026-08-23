@@ -346,19 +346,29 @@ Quatre groupes, avec les contrôles réels (plus de replis opaques du type
    colonne, interligne, densité des rangées.
 4. **Avancé** — fondu du streaming, horodatages.
 
-### 9.1 L'aperçu vivant (direction Cockpit)
+### 9.1 Aperçu : sans objet depuis le passage en feuille modale (2026-08-23)
 
-Une troisième colonne montre un **extrait réel de conversation** qui adopte
-immédiatement taille, largeur, interligne et densité. Les réglages
-typographiques sont les seuls dont on ne peut pas juger sans voir.
+Cette section prévoyait une troisième colonne avec un extrait de conversation
+reconstitué, adoptant immédiatement taille, largeur, interligne et densité —
+seul moyen de juger les réglages typographiques sans les appliquer pour de
+vrai.
 
-- **Apparence uniquement.** Aucune autre section n'a de rendu à montrer ;
-  y coller un aperçu vide serait pire que pas d'aperçu.
-- **Sous 1 100 px, la colonne disparaît** au profit d'un spécimen inline
-  au-dessus des contrôles. La fenêtre large ne doit pas devenir obligatoire.
-- L'aperçu consomme les mêmes variables CSS que le vrai fil (`--chat-fs`,
-  `--chat-w`, `--chat-lh`, App.tsx:638-640) : il ne peut donc pas dériver du
-  rendu réel.
+**Décision (lot A, 2026-08-23) : abandonné, sans remplacement en interne aux
+réglages.** Les réglages sont devenus une **feuille modale** posée sur
+l'application (`SettingsSheet`, voir `docs/PROTOCOLE_RELANCE.md` et
+`src/components/settings/SettingsSheet.tsx`) au lieu de remplacer l'écran :
+le fil de conversation reste monté et visible derrière le voile pendant
+qu'on règle Apparence. Changer la taille du texte, la largeur de colonne ou
+l'interligne se voit donc **en direct sur le vrai fil**, avec ses vrais
+messages, son vrai contenu (code, markdown, pièces jointes) — un aperçu
+qu'aucune maquette reconstituée en colonne ne pouvait égaler. Construire une
+troisième colonne synthétique serait revenu à dupliquer en moins bien ce que
+la feuille offre déjà gratuitement.
+
+Le repli « sous 1 100 px » et la consommation directe de `--chat-fs`,
+`--chat-w`, `--chat-lh` (App.tsx:638-640) décrits plus haut ne s'appliquent
+donc plus : il n'y a plus de colonne d'aperçu à replier, et ce sont les
+valeurs déjà en vigueur sur le fil réel — pas une copie — qui réagissent.
 
 ## 10. Persistance et confirmation
 
@@ -434,8 +444,9 @@ Chaque lot est livrable et testable seul.
 | **4 — Routeur** | `RoutedModel` en Rust, regroupement par modèle, épinglage par route | 3 |
 | **5 — Extensions** | Inventaire trois familles, matrice de compatibilité, « Ouvrir le fichier » | 1 |
 | **6 — Installer** | Dialogue, construction de commande, spawn Rust, sortie streamée | 5 |
-| **7 — Cockpit** | Aperçu vivant d'Apparence, repli sous 1 100 px | 1 |
+| **7 — Cockpit** | ~~Aperçu vivant d'Apparence, repli sous 1 100 px~~ — **supprimé** (voir §9.1) : la feuille modale (lot A, 2026-08-23) laisse le vrai fil visible derrière les réglages, ce qui rend l'aperçu reconstitué sans objet | 1 |
 
-Ordre recommandé : 1 → 3 → 2 → 4 → 5 → 6 → 7. Le lot 3 avant le 2 parce que
-la sélection de modèles est le grief n°1 ; la recherche gagne à être écrite
-quand les rangées ont leur forme définitive.
+Ordre recommandé : 1 → 3 → 2 → 4 → 5 → 6. Le lot 3 avant le 2 parce que la
+sélection de modèles est le grief n°1 ; la recherche gagne à être écrite
+quand les rangées ont leur forme définitive. Le lot 7 est retiré de l'ordre
+d'exécution : il n'a plus de contenu à livrer.
