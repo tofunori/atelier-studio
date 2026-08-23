@@ -134,9 +134,11 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
   .gallery-selection-word { display:none; }
 }
 
-/* Second cran — sous ~460px la barre ne tient plus ses trois actions plus les
-   deux icônes ; elles basculent dans ⋯ au lieu de se chevaucher. */
-@media (max-width:460px) {
+/* Second cran — sous ~420px la barre ne tient plus ses trois actions plus les
+   deux icônes ; elles basculent dans ⋯ au lieu de se chevaucher. Mesuré sur la
+   variante la plus large (mode autonome, contrôles 28-30px) : 366px de contenu
+   pour 420px de barre, marge comprise. */
+@media (max-width:420px) {
   .gallery-selection-inline { display:none; }
   .gallery-selection-overflow { display:block; }
 }

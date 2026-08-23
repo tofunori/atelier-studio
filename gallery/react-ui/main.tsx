@@ -700,8 +700,11 @@ function GalleryToolbar() {
               {selection.imageCount >= 2 && (
                 <DropdownMenuItem onClick={() => selectionAdapter?.compare()}>Compare</DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => selectionAdapter?.collect(selectionMoreRef.current)}>Collect</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => selectionAdapter?.export(selectionMoreRef.current)}>Export</DropdownMenuItem>
+              {/* stopPropagation comme sur les boutons de la barre : le clic
+                  remonte sinon jusqu'au listener global de la galerie, qui
+                  referme aussitôt le menu hérité qu'on vient d'ouvrir. */}
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(selectionMoreRef.current) }}>Collect</DropdownMenuItem>
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(selectionMoreRef.current) }}>Export</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator className="gallery-selection-overflow" />
             <DropdownMenuGroup>
