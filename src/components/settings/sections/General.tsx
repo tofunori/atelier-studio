@@ -59,8 +59,8 @@ export default function General(p: SectionProps) {
 
   // Abonnement WebSocket : cette section n'écoute que les types de message
   // dont dépendent ses propres rangées (status, pastedCleared, pastedList,
-  // retitleAllDone, providerStatus) et ignore les autres (apiProviders,
-  // setupStatus, apiModels), qui partent dans Models.tsx à la tâche 7.
+  // retitleAllDone, providerStatus, setupStatus) et ignore les autres
+  // (apiProviders, apiModels), qui restent dans Models.tsx.
   //
   // Régression connue et assumée : dans l'ancien Settings.tsx, cet
   // abonnement vivait au niveau de la page entière, donc changer de section
@@ -95,13 +95,28 @@ export default function General(p: SectionProps) {
       if (m.type === "retitleAllDone") {
         setRetitleStatus(m.running ? t("settings.retitle-running") : t("settings.retitle-done", { count: m.renamed }));
       }
+      if (m.type === "setupStatus") setSetup(m.status ?? null);
     };
     p.ws.addEventListener("message", onMsg);
     p.ws.send(JSON.stringify({ type: "status" }));
     p.ws.send(JSON.stringify({ type: "listPasted" }));
     p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "setupStatus" }));
     return () => p.ws?.removeEventListener("message", onMsg);
   }, [p.ws]);
+
+  // Rangée Sidecar fusionnée : port (message `status`) + pid/version/dossier
+  // (message `setupStatus`, ex-section setup) dans UNE seule description —
+  // le badge connecté/déconnecté (dérivé de p.ws.readyState) ne se répète
+  // qu'une fois, pas une par source de données.
+  const sidecarDesc = setup
+    ? t("settings.sidecar-desc-full", {
+      appVersion: setup.sidecar.appVersion,
+      pid: setup.sidecar.pid,
+      port: status?.port ?? "?",
+      dir: setup.sidecar.dir,
+    })
+    : (status ? t("settings.sidecar-desc", { port: status.port }) : "…");
 
   return (
     <>
@@ -227,15 +242,27 @@ export default function General(p: SectionProps) {
         </Row>
       </Group>
 
-      {/* Settings.tsx:1255-1289 (ex-« avance ») : Sidecar, images collées,
-          appareils distants — trois rangées/groupes sous le repli. */}
-      <Advanced count={3}>
-        <Group>
-          <Row title={t("settings.sidecar")} desc={status ? t("settings.sidecar-desc", { port: status.port }) : "…"}>
+      {/* Settings.tsx:1255-1289 (ex-« avance ») : Runtime, Sidecar, images
+          collées, appareils distants — quatre rangées/groupes sous le repli.
+          Runtime (Node) rejoint Sidecar dans son propre groupe, restauré
+          depuis l'ex-section setup (voir commentaire d'en-tête) : mêmes
+          données de diagnostic, même famille. */}
+      <Advanced count={4}>
+        <Group label={t("settings.setup-runtime")}>
+          <Row title={t("settings.setup-node")} desc={setup ? `${setup.runtime.version} — ${setup.runtime.node}` : "…"}>
+            {setup && (
+              <span className={`set-badge ${setup.runtime.bundled ? "ok" : "warn"}`}>
+                {setup.runtime.bundled ? t("settings.setup-bundled") : t("settings.setup-system")}
+              </span>
+            )}
+          </Row>
+          <Row title={t("settings.sidecar")} desc={sidecarDesc}>
             <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
               {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
             </span>
           </Row>
+        </Group>
+        <Group>
           <Row title={t("settings.pasted-images")} desc={status ? t("settings.pasted-images-desc", { count: status.pastedCount, dir: status.pasteDir }) : "…"}>
             <Button variant="ghost" className="set-btn quiet"
               onClick={async () => {

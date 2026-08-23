@@ -64,6 +64,43 @@ describe("Section Général", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it("le bloc de diagnostics (Runtime) apparaît sous « Avancé » et affiche la version reçue par le socket", () => {
+    // Restauré ici (lot B1, revue de la tâche 4) : le bloc Runtime de
+    // l'ex-section setup avait disparu pendant la fusion de Models.tsx.
+    const ws = fakeWs();
+    renderUi(<General {...props({ ws })} />);
+    emitWs(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "22.4.0", version: "2.4.1", bundled: true },
+        sidecar: { pid: 4242, startedAt: "", appVersion: "2.4.1", bundleHash: "abc123", dir: "/tmp/atelier" },
+        providers: [],
+      },
+    });
+    // Fermé par défaut.
+    expect(screen.queryByText("2.4.1 — 22.4.0")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    expect(screen.getByText("2.4.1 — 22.4.0")).toBeInTheDocument();
+  });
+
+  it("fusionne Runtime et la rangée Sidecar existante au lieu de dupliquer le badge de connexion", () => {
+    const ws = fakeWs();
+    renderUi(<General {...props({ ws })} />);
+    emitWs(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "22.4.0", version: "2.4.1", bundled: true },
+        sidecar: { pid: 4242, startedAt: "", appVersion: "2.4.1", bundleHash: "abc123", dir: "/tmp/atelier" },
+        providers: [],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    // Une seule rangée « Sidecar » (pas une deuxième pour le diagnostic de
+    // l'ex-section setup) et un seul badge « connecté ».
+    expect(screen.getAllByText("Sidecar")).toHaveLength(1);
+    expect(screen.getAllByText("connecté")).toHaveLength(1);
+  });
+
   it("liste les modèles codex du catalogue providerStatus dans le menu par défaut", async () => {
     // Régression : providerModels("codex") ne doit pas se limiter au modèle
     // déjà sélectionné une fois le catalogue chargé (coordinateur, ronde 2).
