@@ -4,38 +4,85 @@
     {
       "name": "preview",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "preview", "--port", "4173", "--strictPort"],
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
       "port": 4173
     },
     {
       "name": "dev",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["VITE_VISUAL_BENCH=1", "npx", "vite", "--port", "4174", "--strictPort"],
+      "runtimeArgs": [
+        "VITE_VISUAL_BENCH=1",
+        "npx",
+        "vite",
+        "--port",
+        "4174",
+        "--strictPort"
+      ],
       "port": 4174
     },
     {
       "name": "dev-alt",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["VITE_VISUAL_BENCH=1", "npx", "vite", "--port", "4180", "--strictPort"],
+      "runtimeArgs": [
+        "VITE_VISUAL_BENCH=1",
+        "npx",
+        "vite",
+        "--port",
+        "4180",
+        "--strictPort"
+      ],
       "port": 4180
     },
     {
       "name": "gallery-static",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8899"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8899"
+      ],
       "port": 8899
     },
     {
       "name": "gallery-server",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["gallery/server/main.mjs"],
+      "runtimeArgs": [
+        "gallery/server/main.mjs"
+      ],
       "port": 8790
     },
     {
       "name": "website",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "website", "run", "dev", "--", "-p", "3000"],
+      "runtimeArgs": [
+        "--prefix",
+        "website",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3000"
+      ],
       "port": 3000
+    },
+    {
+      "name": "dev-bench2",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "VITE_VISUAL_BENCH=1",
+        "npx",
+        "vite",
+        "--port",
+        "4185",
+        "--strictPort"
+      ],
+      "port": 4185
     }
   ]
 }

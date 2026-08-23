@@ -45,6 +45,12 @@ import { TimelineStamp } from "./TimelineStamp";
 // chaque render relance l'animation de suivi en boucle et elle n'atteint
 // jamais le bas.
 const MAINTAIN_END_ANIMATED = { animated: true } as const;
+// Au repos, le suivi reste INSTANTANÉ : la variation de hauteur du composer
+// (frappe multi-ligne) déclenchait sinon un glissement animé puis un
+// claquement au recalcul du spacer — le fil oscillait à chaque wrap (mesuré
+// Playwright 2026-08-23 : scrollTop 0→18→0). L'interpolation n'a de sens que
+// pendant un tour en cours, quand le TEXTE pousse le bas.
+const MAINTAIN_END_INSTANT = { animated: false } as const;
 
 // Échelle 4 px (système) — l'ancien padding vertical de `.messages` dans
 // App.css, déplacé ici pour que LegendList le compte dans son contenu.
@@ -652,7 +658,7 @@ export function ChatTimeline(p: {
         // constante module : recréé à chaque render, il relançait l'animation
         // interne en boucle, qui s'arrêtait à ~32 px du bas — sous le seuil de
         // tolérance — et laissait la ligne « esc Interrompre » cachée.
-        maintainScrollAtEnd={autoFollow ? MAINTAIN_END_ANIMATED : false}
+        maintainScrollAtEnd={autoFollow ? (workingSince != null ? MAINTAIN_END_ANIMATED : MAINTAIN_END_INSTANT) : false}
         // Padding vertical ICI et pas dans App.css : LegendList l'extrait de
         // ce prop pour son modèle de contenu (extractPadding) — sinon chaque
         // scrollToEnd vise (paddingTop+paddingBottom) px au-dessus du vrai bas.
