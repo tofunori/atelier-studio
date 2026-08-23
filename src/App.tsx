@@ -39,7 +39,7 @@ import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./c
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
-const SettingsPage = lazyWithRetry(() => import("./components/Settings"));
+const SettingsPage = lazyWithRetry(() => import("./components/settings/SettingsPage"));
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
@@ -1136,7 +1136,7 @@ export default function App() {
     onError: (message) => setAppBanner({
       text: `start_atelier: ${message}`,
       actionLabel: t("app.start-settings"),
-      onAction: () => openSettings("providers"),
+      onAction: () => openSettings("modeles"),
       closable: true,
     }),
     onReady: (project) => {
@@ -4011,7 +4011,7 @@ export default function App() {
             setSettings((current) => ({ ...current, favoriteModels }))}
           onTranscriptViewChange={(transcriptView) =>
             setSettings((current) => ({ ...current, transcriptView }))}
-          onOpenModelSettings={() => openSettings("providers")}
+          onOpenModelSettings={() => openSettings("modeles")}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           draftText={activeComposerDraft.prompt}

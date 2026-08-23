@@ -350,6 +350,14 @@ function liveEventsAt(elapsedMs: number): AgentEvent[] {
   return out;
 }
 
+// Transcript long : vérifier en vrai navigateur que la liste virtualise
+// (pendant du test jsdom « virtualise un long transcript »).
+const LONG_TRANSCRIPT: AgentEvent[] = Array.from({ length: 400 }, (_, i) => (
+  i % 2 === 0
+    ? { kind: "user", text: `Question ${i}`, ts: ts(400 - i) } as AgentEvent
+    : { kind: "text", text: `Réponse ${i} — un paragraphe de longueur raisonnable pour donner une hauteur réaliste à la ligne.`, ts: ts(400 - i) } as AgentEvent
+));
+
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
@@ -362,6 +370,7 @@ type BenchState = {
 const STATES: Record<string, BenchState> = {
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
   livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
+  long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null },
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },

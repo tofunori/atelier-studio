@@ -130,15 +130,30 @@ describe("timeline Chat — caractérisation avant extraction", () => {
   });
 
   it("virtualise un long transcript au lieu de monter toutes les lignes", () => {
-    const longTranscript = Array.from({ length: 400 }, (_, index) => (
-      index % 2 === 0 ? events.user(`Question ${index}`) : events.text(`Réponse ${index}`)
-    ));
-    renderUi(<Chat {...chatProps({ events: longTranscript })} />);
+    // jsdom mesure tout à 0 : depuis LegendList 3.3.3 (mesures appliquées en
+    // lot), une liste entièrement à hauteur nulle monte TOUTES les lignes. On
+    // fournit donc un viewport et des lignes mesurables ; la virtualisation en
+    // vrai navigateur est observable via le banc #chatbench-long (~15 lignes
+    // montées sur 401 au 2026-08-23).
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const h = this.classList.contains("messages") ? 600 : 40;
+        return { x: 0, y: 0, top: 0, left: 0, right: 760, bottom: h, width: 760, height: h, toJSON: () => ({}) } as DOMRect;
+      },
+    );
+    try {
+      const longTranscript = Array.from({ length: 400 }, (_, index) => (
+        index % 2 === 0 ? events.user(`Question ${index}`) : events.text(`Réponse ${index}`)
+      ));
+      renderUi(<Chat {...chatProps({ events: longTranscript })} />);
 
-    const mountedRows = document.querySelectorAll(".timeline-virtual-row");
-    expect(mountedRows.length).toBeGreaterThan(0);
-    expect(mountedRows.length).toBeLessThan(80);
-    expect(screen.getByText("Réponse 399")).toBeTruthy();
+      const mountedRows = document.querySelectorAll(".timeline-virtual-row");
+      expect(mountedRows.length).toBeGreaterThan(0);
+      expect(mountedRows.length).toBeLessThan(80);
+      expect(screen.getByText("Réponse 399")).toBeTruthy();
+    } finally {
+      rectSpy.mockRestore();
+    }
   });
 
   it("porte les tours dans Message et les surfaces dans Bubble", () => {
