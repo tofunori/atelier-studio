@@ -2534,7 +2534,7 @@ body.dragging iframe { pointer-events: none; }
    supporte (progressive enhancement, aucun impact layout sinon) */
 /* PAS .ui-surface-header .title ici : son contrat = nowrap + ellipsis, or le
    shorthand text-wrap réinitialise text-wrap-mode à wrap (piège vérifié) */
-.rh-title, .set-body h1, .pnav-name, .empty-title { text-wrap: balance; }
+.rh-title, .set-body h1, .set-body h2, .pnav-name, .empty-title { text-wrap: balance; }
 .msg p, .rh-question, .set-sub { text-wrap: pretty; }
 
 /* ===== A11y (plan 021, partie B) ===== */
