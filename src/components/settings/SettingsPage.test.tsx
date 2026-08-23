@@ -63,16 +63,20 @@ describe("SettingsPage — navigation et fermeture", () => {
     fireEvent.click(screen.getByText(t("settings.appearance")));
     expect(document.querySelector('.set-nav-item[aria-current="true"]')?.textContent)
       .toBe(t("settings.appearance"));
-    // Panel chargé en lazy (React.lazy + Suspense) : le contenu apparaît de
-    // façon asynchrone après le clic.
-    expect(await screen.findByText(t("settings.appearance-sub"))).toBeTruthy();
+    // Panneau chargé en lazy depuis le refactor (React.lazy + Suspense) :
+    // l'import du chunk peut dépasser le timeout par défaut de Testing
+    // Library sous charge (suite complète), d'où un timeout généreux ici.
+    expect(await screen.findByText(t("settings.appearance-sub"), {}, { timeout: 5000 })).toBeTruthy();
   });
 
-  it("Échap ferme la page — mais jamais pendant une saisie", () => {
+  it("Échap ferme la page — mais jamais pendant une saisie", async () => {
     const p = props();
     renderUi(<SettingsPage {...p} />);
     fireEvent.click(screen.getByText(t("settings.appearance")));
-    const search = document.querySelector(".theme-search") as HTMLInputElement;
+    // Panneau chargé en lazy depuis le refactor : attendre la RÉSOLUTION du
+    // champ de recherche avant d'agir dessus, plutôt que d'agir puis
+    // d'espérer — sous charge, l'import du chunk peut dépasser le défaut.
+    const search = await screen.findByPlaceholderText(t("settings.search-theme"), {}, { timeout: 5000 });
     search.focus();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(p.onClose).not.toHaveBeenCalled();
