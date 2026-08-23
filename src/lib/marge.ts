@@ -74,15 +74,21 @@ export function sameMargeEntries(a: MargeEntry[], b: MargeEntry[]): boolean {
  * Entrée « où j'en suis » : la géométrie EST la vérité, aucun état à maintenir.
  * `tops` donne, pour les entrées dont la rangée est réellement rendue (le fil
  * est virtualisé — les autres n'existent pas dans le DOM), l'écart entre le
- * haut de la rangée et le haut de la fenêtre de lecture. L'entrée active est la
- * dernière déjà passée sous ce bord ; si aucune ne l'a passé, la première
- * visible. Rend null quand rien n'est mesurable.
+ * haut de la rangée et la LIGNE DE LECTURE (`slack` px sous le haut de la
+ * fenêtre — le tiers de la fenêtre en pratique : mesuré 2026-08-23, le bord
+ * haut désignait la question précédente pendant qu'on lisait la réponse
+ * suivante, encore à mi-écran). L'entrée active est la dernière déjà passée
+ * sous cette ligne ; si aucune ne l'a passée, la première visible. Au bas du
+ * fil, c'est la dernière entrée, mesurable ou non : le lecteur est à la fin,
+ * la barre aussi. Rend null quand rien n'est mesurable.
  */
 export function activeMargeIndex(
   entries: MargeEntry[],
   tops: Record<number, number>,
   slack = 8,
+  atBottom = false,
 ): number | null {
+  if (atBottom && entries.length) return entries[entries.length - 1].index;
   let passed: number | null = null;
   let firstVisible: number | null = null;
   for (const entry of entries) {

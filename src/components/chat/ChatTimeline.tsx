@@ -298,7 +298,11 @@ export function ChatTimeline(p: {
         const row = document.getElementById(`message-${entry.index}`);
         if (row) tops[entry.index] = row.getBoundingClientRect().top - hostTop;
       }
-      setHereIndex(activeMargeIndex(margeEntries, tops));
+      // ligne de lecture au tiers de la fenêtre (le bord haut désignait la
+      // question précédente pendant la lecture de la réponse) ; au bas du
+      // fil, la dernière entrée est active — le lecteur est à la fin.
+      const atBottom = host.scrollHeight - host.clientHeight - host.scrollTop <= 32;
+      setHereIndex(activeMargeIndex(margeEntries, tops, Math.max(8, host.clientHeight / 3), atBottom));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     schedule();

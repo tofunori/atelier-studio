@@ -110,4 +110,17 @@ describe("activeMargeIndex — l'entrée où l'on lit", () => {
     // seule Trois est mesurée : c'est elle, même si Un et Deux la précèdent
     expect(activeMargeIndex(ENTRIES, { 3: -10 })).toBe(3);
   });
+
+  // Mesuré 2026-08-23 : au bas du fil, la barre restait au milieu — la
+  // dernière question était encore à mi-écran, donc « pas passée » sous la
+  // ligne de lecture, et les vieilles bulles occupaient le haut.
+  it("désigne la dernière entrée au bas du fil, même non mesurable", () => {
+    expect(activeMargeIndex(ENTRIES, { 0: -120, 2: 40 }, 8, true)).toBe(3);
+  });
+
+  it("laisse la ligne de lecture (slack élargi) désigner la question qu'on lit", () => {
+    // Deux est à 180 px du haut, la ligne de lecture au tiers d'une fenêtre
+    // de 900 px (300) : on lit bien le tour de Deux, pas celui d'avant
+    expect(activeMargeIndex(ENTRIES, { 0: -400, 2: 180, 3: 700 }, 300)).toBe(2);
+  });
 });
