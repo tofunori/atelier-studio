@@ -1388,6 +1388,60 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-badge.ok { background: color-mix(in srgb, var(--status-success) 15%, transparent); color: var(--status-success); }
 .set-badge.ko { background: color-mix(in srgb, var(--status-error) 15%, transparent); color: var(--status-error); }
 .set-badge.warn { background: color-mix(in srgb, var(--status-warning) 16%, transparent); color: var(--status-warning); }
+
+/* ---- ModelsGrid (lot B1, tâche 3) : tableau dense des modèles ----------
+   Colonnes alignées pour comparer d'un coup d'œil (voir ModelsGrid.tsx pour
+   la décision sur la colonne identifiant, absorbée en seconde ligne sous le
+   nom du modèle plutôt qu'en colonne dédiée). La ligne par défaut se marque
+   par un filet d'accent à gauche, jamais par la couleur seule. */
+.mg-root { display: flex; flex-direction: column; gap: 12px; }
+.mg-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mg-search { flex: 1; max-width: 320px; background: var(--bg-ctl); border: 1px solid var(--border2);
+  border-radius: var(--r-s); padding: 6px 12px; font-size: var(--fs-l); color: inherit; outline: none; }
+.mg-search::placeholder { color: var(--text-muted); }
+.mg-search:focus-visible { border-color: var(--accent); }
+.mg-count { color: var(--text-muted); font-size: var(--fs-m); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.mg-scroll { max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--bg-card); }
+.mg-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.mg-table th, .mg-table td { padding: 8px 12px; text-align: left; vertical-align: middle; }
+.mg-table thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card);
+  border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: var(--fs-xs);
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+.mg-table tbody tr + tr td { border-top: 1px solid var(--border); }
+.mg-row { transition: background-color var(--ease); }
+.mg-row:hover { background: var(--bg-ctl); }
+.mg-row--default { box-shadow: inset 2px 0 0 var(--accent); }
+
+.mg-col-default, .mg-col-favorite { width: 40px; text-align: center; }
+.mg-col-model { min-width: 260px; max-width: 360px; }
+.mg-col-provider { width: 130px; white-space: nowrap; }
+.mg-col-effort { width: 140px; }
+.mg-col-status { width: 100px; }
+
+.mg-model { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mg-model-name { font-size: var(--fs-l); font-weight: 500; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mg-model-id { font-family: var(--code-font); font-size: var(--fs-s); color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mg-provider { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-l); }
+.mg-provider svg { flex: none; }
+
+.mg-radio { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border-radius: var(--r-pill); background: transparent; }
+.mg-radio-dot { width: 10px; height: 10px; border-radius: var(--r-pill); border: 1.5px solid var(--border2);
+  transition: border-color var(--ease), background-color var(--ease); }
+.mg-radio[aria-checked="true"] .mg-radio-dot { border-color: var(--accent); background: var(--accent); }
+
+.mg-fav { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border-radius: var(--r-s); color: var(--text-muted); background: transparent; transition: color var(--ease); }
+.mg-fav:hover { color: var(--text-primary); }
+.mg-fav[aria-pressed="true"] { color: var(--accent); }
+
+.mg-col-effort .custom-select { width: 100%; }
+
 .appsnap-intro { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px;
   align-items: start; margin: 0 0 28px; padding: 24px 26px; border: 1px solid var(--border2);
   border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 70%, transparent); }
