@@ -323,7 +323,15 @@ export function ChatTimeline(p: {
   // coupe donc le suivi, on saute, puis on recale sur la géométrie réelle une
   // fois le défilement stabilisé (décision pure dans src/lib/margeJump.ts).
   const jumpFrameRef = React.useRef(0);
-  React.useEffect(() => () => cancelAnimationFrame(jumpFrameRef.current), []);
+  // Saut en cours : le handler onScroll ré-engage autoFollow dès qu'on est à
+  // ≤32 px du bas — or un saut cliqué DEPUIS le bas y passe ses premières
+  // frames (easing), et le filet re-visait alors le bas. Tant que le saut
+  // vit, on ne ré-engage pas le suivi.
+  const jumpActiveRef = React.useRef(false);
+  React.useEffect(() => () => {
+    cancelAnimationFrame(jumpFrameRef.current);
+    jumpActiveRef.current = false;
+  }, [threadId]);
   const jumpToEvent = React.useCallback((eventIndex: number) => {
     const index = virtualIndexForEvent(eventIndex);
     if (index < 0) return;
@@ -333,6 +341,7 @@ export function ChatTimeline(p: {
     cancelAnimationFrame(jumpFrameRef.current);
     const host = messagesRef.current;
     if (!host) return;
+    jumpActiveRef.current = true;
     let state = initialJumpState();
     const step = () => {
       jumpFrameRef.current = 0;
@@ -342,7 +351,10 @@ export function ChatTimeline(p: {
         : null;
       const [nextState, action] = nextJumpAction(state, { scrollTop: host.scrollTop, rowDelta });
       state = nextState;
-      if (action.kind === "done" || action.kind === "abandon") return;
+      if (action.kind === "done" || action.kind === "abandon") {
+        jumpActiveRef.current = false;
+        return;
+      }
       if (action.kind === "correct") host.scrollTop += action.delta;
       if (action.kind === "rescroll") {
         const again = virtualIndexForEvent(eventIndex);
@@ -423,7 +435,9 @@ export function ChatTimeline(p: {
       const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
       const awayFromBottom = distance > 32;
       setIsScrolledFromBottom((current) => current === awayFromBottom ? current : awayFromBottom);
-      if (!awayFromBottom) setAutoFollow(true);
+      // pas de ré-engagement pendant un saut de marge : ses premières frames
+      // (easing) partent du bas et repasseraient ici sous le seuil
+      if (!awayFromBottom && !jumpActiveRef.current) setAutoFollow(true);
     };
     native.addEventListener("wheel", onWheel, { passive: true });
     native.addEventListener("scroll", onScroll, { passive: true });

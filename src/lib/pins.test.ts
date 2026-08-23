@@ -80,6 +80,23 @@ describe("resolvePins", () => {
     expect(resolved.eventId).toBe("a1");
   });
 
+  // Le libellé d'épingle est dérivé du texte STRIPPÉ du markdown (turns.tsx) :
+  // l'ancre d'une réponse ouvrant par `**…**` ou `## …` n'est pas une
+  // sous-chaîne du texte brut — le repli doit normaliser les deux côtés.
+  it("retrouve par l'ancre une réponse qui ouvre en markdown", () => {
+    const nativeReplay: PinEvent[] = [
+      ev("user", "Vérifie d'où vient le −0,00975", "u1"),
+      ev("text", "## La découverte\n\nle **−0,00975** ne vient pas du run courant"),
+    ];
+    const pins: Pin[] = [{
+      index: 5,
+      label: "La découverte le −0,00975 ne vient",
+      anchor: "La découverte le −0,00975 ne vient",
+      eventId: "perdu-au-rejeu-natif",
+    }];
+    expect(resolvePins(nativeReplay, pins)[0].index).toBe(1);
+  });
+
   it("garde l'épingle dont l'événement a disparu du fil plutôt que de la perdre", () => {
     const pins: Pin[] = [{ index: 1, label: "Disparu", anchor: "Disparu", eventId: "zzz" }];
     expect(resolvePins(REPLAY, pins)).toEqual(pins);

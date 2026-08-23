@@ -42,12 +42,19 @@ function indexOfEventId(events: PinEvent[], eventId: string): number {
   return events.findIndex((event) => eventIdOf(event) === eventId);
 }
 
-/** Position du premier événement dont le texte commence par l'ancre — repli
- * pour les épingles héritées, qui n'ont pas d'identifiant durable. */
+/** Même normalisation que le libellé d'épingle (turns.tsx) : le label est
+ * dérivé du texte DÉBARRASSÉ du markdown — comparer des textes bruts ferait
+ * échouer toute réponse ouvrant par `**…**`, `## …` ou une puce. */
+function normalizeAnchorText(text: string): string {
+  return text.replace(/[#*>`]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Position du premier événement dont le texte contient l'ancre — repli
+ * quand l'identifiant durable manque ou a disparu du rejeu. */
 function indexOfAnchor(events: PinEvent[], anchor: string): number {
-  const needle = anchor.slice(0, 30).toLowerCase();
+  const needle = normalizeAnchorText(anchor).slice(0, 30);
   if (!needle) return -1;
-  return events.findIndex((event) => (event.text ?? "").toLowerCase().includes(needle));
+  return events.findIndex((event) => normalizeAnchorText(event.text ?? "").includes(needle));
 }
 
 /**
