@@ -580,7 +580,6 @@ export function ComposerControls(p: {
                 >
                   <div className="ef-block">
                     <div className="ef-title">{effortTitle} <b>{effortSummary}</b></div>
-                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
                     <div
                       className="ef-track"
                       role="slider"
@@ -620,12 +619,13 @@ export function ComposerControls(p: {
                       {effortLevels.map((level, index) => (
                         <span
                           key={level}
-                          className={`ef-dot ${index === effortLevels.length - 1 ? "last" : ""}`}
+                          className={`ef-dot ${index < effortIndex ? "on" : ""}`}
                           style={{ left: `${(index / (effortLevels.length - 1)) * 100}%` }}
                         />
                       ))}
                       <div className="ef-thumb" style={{ left: `${(effortIndex / (effortLevels.length - 1)) * 100}%` }} />
                     </div>
+                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
                   </div>
                 </PopoverContent>
               )}
