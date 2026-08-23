@@ -215,10 +215,13 @@ export default function Models(p: SectionProps) {
       <p className="set-sub">{t("settings.models-sub")}</p>
 
       {/* Settings.tsx:597-609 — en-tête setup : titre propre + actions
-          (copier diagnostic, actualiser). */}
+          (copier diagnostic, actualiser). h2 (pas h1) : correction de revue
+          — deux h1 coexistaient à l'écran, un défaut introduit par la
+          fusion (les trois anciennes sections s'excluaient mutuellement,
+          jamais deux h1 simultanés). Voir App.css:1350. */}
       <div className="set-headline">
         <div>
-          <h1>{t("settings.setup")}</h1>
+          <h2>{t("settings.setup")}</h2>
           <p className="set-sub">{t("settings.setup-sub")}</p>
         </div>
         <span className="set-headline-actions">
