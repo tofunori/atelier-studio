@@ -408,7 +408,9 @@ export function ChatBench() {
   useEffect(() => {
     if (!isLive) return;
     const started = Date.now();
-    const id = window.setInterval(() => setLiveElapsed(Date.now() - started), 80);
+    // Boucle : le cycle recommence toutes les 27 s pour pouvoir observer le
+    // scénario complet sans devoir recharger la page au bon moment.
+    const id = window.setInterval(() => setLiveElapsed((Date.now() - started) % 27000), 80);
     return () => window.clearInterval(id);
   }, [isLive]);
   const activeState = interactiveFirstMessage
