@@ -499,6 +499,10 @@ export default function App() {
   const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
+  // Brouillons dont l'upsertThread a déjà été ÉMIS sur cette connexion : le
+  // filet de persistance (voir effet près d'allThreads) ne republie que les
+  // autres — un fil créé WS fermée n'était jamais écrit dans threads.json.
+  const publishedDraftsRef = useRef<Set<string>>(new Set());
   // fiches « Surlignés » (lot 2) : source de vérité = sidecar (highlights.json),
   // synchronisée par broadcast — jamais recalculée depuis les chats en mémoire
   const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
