@@ -1,9 +1,13 @@
 // Primitives de réglages (lot 1) : contrat de rendu des rangées et groupes.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
+import { setLanguage } from "../../../lib/i18n";
 import { Advanced, Group, Row, Toggle } from "./index";
 
+// jsdom résout la langue système en anglais par défaut (navigator.language) ;
+// les libellés attendus ici sont en français, comme dans le reste des tests.
+beforeAll(() => setLanguage("fr"));
 beforeEach(() => resetTestState());
 afterEach(cleanup);
 
