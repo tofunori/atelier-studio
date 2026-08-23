@@ -357,13 +357,22 @@ vrai.
 réglages.** Les réglages sont devenus une **feuille modale** posée sur
 l'application (`SettingsSheet`, voir `docs/PROTOCOLE_RELANCE.md` et
 `src/components/settings/SettingsSheet.tsx`) au lieu de remplacer l'écran :
-le fil de conversation reste monté et visible derrière le voile pendant
-qu'on règle Apparence. Changer la taille du texte, la largeur de colonne ou
-l'interligne se voit donc **en direct sur le vrai fil**, avec ses vrais
-messages, son vrai contenu (code, markdown, pièces jointes) — un aperçu
-qu'aucune maquette reconstituée en colonne ne pouvait égaler. Construire une
-troisième colonne synthétique serait revenu à dupliquer en moins bien ce que
-la feuille offre déjà gratuitement.
+le fil de conversation reste monté derrière le voile pendant qu'on règle
+Apparence.
+
+**Correction de revue (2026-08-23) : le fil est visible, pas interactif,
+pendant qu'on règle.** C'est une modale — cliquer sur le voile ferme la
+feuille (comportement volontairement conservé : le retirer surprendrait,
+c'est le geste attendu d'une modale), et le fil qu'on aperçoit derrière est
+verrouillé au défilement tant qu'elle reste ouverte. Le bénéfice n'a pas
+besoin d'interactivité pour être réel : changer la taille du texte, la
+largeur de colonne ou l'interligne s'observe **en direct sur le vrai fil**,
+avec ses vrais messages, son vrai contenu (code, markdown, pièces jointes)
+— un aperçu qu'aucune maquette reconstituée en colonne ne pouvait égaler,
+simplement plus étroit que ne le disait la version précédente de cette
+section (on le regarde, on n'agit pas dessus). Construire une troisième
+colonne synthétique serait revenu à dupliquer en moins bien ce que la
+feuille offre déjà gratuitement.
 
 Le repli « sous 1 100 px » et la consommation directe de `--chat-fs`,
 `--chat-w`, `--chat-lh` (App.tsx:647-649) décrits plus haut ne s'appliquent

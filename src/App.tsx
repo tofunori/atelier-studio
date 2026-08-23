@@ -3757,10 +3757,11 @@ export default function App() {
           onAddProject={addProject}
           compact={compact}
           onExpand={() => setCompact((c) => !c)}
-          onSettings={() => {
-            if (showSettings) setShowSettings(false);
-            else openSettings();
-          }}
+          // Correction de revue lot A #6 : la branche « re-clic ferme »
+          // n'est plus atteignable — depuis que les réglages sont une
+          // feuille modale, le Rail vit sous le voile et Base UI Dialog le
+          // rend `inert` pendant que la feuille est ouverte (clic bloqué).
+          onSettings={() => openSettings()}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
           onReorder={(from, to) =>
             setProjects((prev) => {
@@ -3891,6 +3892,10 @@ export default function App() {
           }}
         />
   );
+  // Correction lot A #1 : une surcouche ouverte (réglages, palette, quick
+  // ask, plugins) doit forcer la fermeture des webviews natives enfants de
+  // l'atelier (navigateur…) — aucun z-index HTML ne peut les couvrir.
+  const overlayOpen = showSettings || paletteOpen || qaMode !== "closed" || pluginsOpen;
   const overlaysNode = (
     <>
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
@@ -4342,6 +4347,7 @@ export default function App() {
               agent={activeAgent}
               agentEvents={activeAgentEvents}
               onCloseAgent={closeAgentInAtelier}
+              overlayOpen={overlayOpen}
             />
             {inspected && (
               <>

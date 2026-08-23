@@ -3,7 +3,7 @@
 // contrôles propres à chaque section vivent désormais dans
 // settings/sections/*.test.tsx.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   confirm: vi.fn(async () => true),
@@ -142,5 +142,41 @@ describe("SettingsPage — nav compacte ≤880 px", () => {
     expect(document.querySelector(".set-nav-compact")).toBeTruthy();
     expect(document.querySelector(".set-nav-compact .custom-select")).toBeTruthy();
     Object.defineProperty(window, "matchMedia", { writable: true, value: saved });
+  });
+
+  it("en mode embarqué, la nav compacte suit la largeur de la FEUILLE (ResizeObserver) — pas celle de la fenêtre", () => {
+    // Bande morte corrigée par ce lot : fenêtre large (matchMedia dit "pas
+    // compact") mais feuille flottante resserrée sous 880px. Le double
+    // ResizeObserver global (setup.ts) est un no-op silencieux ; on le
+    // remplace ici pour capturer le callback et simuler un resize réel.
+    const savedRO = globalThis.ResizeObserver;
+    let capturedCallback: ResizeObserverCallback | null = null;
+    class FakeResizeObserver {
+      constructor(cb: ResizeObserverCallback) { capturedCallback = cb; }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+
+    renderUi(<SettingsPage {...props({ embedded: true })} />);
+    // Avant tout signal du ResizeObserver : matchMedia jsdom dit "large",
+    // donc la nav colonne reste affichée (comportement de départ inchangé).
+    expect(document.querySelector(".set-nav")).toBeTruthy();
+    expect(capturedCallback).toBeTruthy();
+
+    // La feuille mesure 800px (sous le seuil) alors que la fenêtre jsdom
+    // resterait "large" pour matchMedia — c'est exactement la bande morte.
+    act(() => {
+      capturedCallback?.(
+        [{ contentRect: { width: 800 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    expect(document.querySelector(".set-nav")).toBeNull();
+    expect(document.querySelector(".set-nav-compact")).toBeTruthy();
+
+    globalThis.ResizeObserver = savedRO;
   });
 });

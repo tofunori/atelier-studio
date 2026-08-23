@@ -60,8 +60,15 @@ describe("SettingsSheet", () => {
   it("Échap NE ferme PAS pendant une saisie — contrat verrouillé", () => {
     const onClose = vi.fn();
     renderUi(<SettingsSheet {...props({ onClose })} />);
+    // Correction de revue : le champ doit vivre DANS la feuille (le
+    // sous-arbre `.settings-sheet` du portail Base UI), pas ajouté
+    // directement sur `document.body` — sinon le test protège un
+    // emplacement que le vrai clavier ne peut pas atteindre pendant une
+    // saisie réelle dans les réglages.
+    const feuille = document.querySelector(".settings-sheet");
+    expect(feuille).toBeTruthy();
     const champ = document.createElement("input");
-    document.body.appendChild(champ);
+    feuille!.appendChild(champ);
     champ.focus();
     fireEvent.keyDown(champ, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();

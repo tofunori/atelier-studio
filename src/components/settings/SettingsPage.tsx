@@ -1,7 +1,7 @@
 // Coquille des réglages (lot 1). Elle ne connaît AUCUN réglage : nav, mode
 // compact, Échap, restauration des défauts, routage. Chaque section reçoit
 // exactement ce dont elle a besoin — jamais l'objet de props entier.
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../../lib/settings";
 import { t } from "../../lib/i18n";
@@ -44,16 +44,35 @@ export default function SettingsPage(p: {
   // ≤880 px : la nav colonne écraserait le contenu — select compact au-dessus.
   const [narrow, setNarrow] = useState(() =>
     typeof window !== "undefined" && window.matchMedia?.("(max-width: 880px)")?.matches === true);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const { visible: saved, flash } = useSavedFlash();
 
   // Conservé verbatim de l'ancien Settings.tsx:263-269 : abonnement matchMedia.
+  // En mode embarqué la page vit dans une feuille flottante (`min(1100px,
+  // 94vw)`), pas dans la fenêtre : mesurer la fenêtre créerait une bande
+  // morte (fenêtre 881–936px avec une feuille déjà sous 880px) — voir
+  // l'effet ResizeObserver ci-dessous pour ce cas.
   useEffect(() => {
+    if (p.embedded) return;
     const mq = window.matchMedia?.("(max-width: 880px)");
     if (!mq) return;
     const onChange = () => setNarrow(mq.matches);
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
-  }, []);
+  }, [p.embedded]);
+
+  // Mode embarqué : mesurer la feuille elle-même plutôt que la fenêtre.
+  useEffect(() => {
+    if (!p.embedded) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (typeof width === "number") setNarrow(width <= 880);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [p.embedded]);
 
   // Conservé verbatim de l'ancien Settings.tsx:271-285 : Échap ferme la page
   // (convention app) — jamais pendant une saisie, et capturé en amont du
@@ -78,7 +97,7 @@ export default function SettingsPage(p: {
   const Panel = PANELS[section];
 
   return (
-    <div className={`settings-page ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
+    <div ref={rootRef} className={`settings-page ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
       {narrow ? (
         <div className="set-nav-compact">
           <Button variant="ghost" className="set-back" onClick={p.onClose}>{t("settings.back")}</Button>

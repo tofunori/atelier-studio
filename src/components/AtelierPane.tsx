@@ -159,6 +159,7 @@ export default function AtelierPane({
   agent,
   agentEvents,
   onCloseAgent,
+  overlayOpen = false,
 }: {
   url: string;
   projectRoot: string;
@@ -191,6 +192,10 @@ export default function AtelierPane({
   agent?: AgentDisplay | null;
   agentEvents?: AgentEvent[];
   onCloseAgent?: () => void;
+  /** Une surcouche (réglages, palette, quick ask, plugins…) est ouverte
+      par-dessus l'app : les webviews natives enfants (navigateur, terminal)
+      doivent se cacher, car aucun z-index HTML ne peut les couvrir. */
+  overlayOpen?: boolean;
 }) {
   const documentTabs = useMemo(() => tabs.filter((tab) => tab.kind !== "term"), [tabs]);
   const documentIdsKey = useMemo(() => documentTabs.map((tab) => tab.id).join("\u0000"), [documentTabs]);
@@ -789,7 +794,7 @@ export default function AtelierPane({
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <BrowserTab
               tabId="main-browser"
-              visible={active}
+              visible={active && !overlayOpen}
               onTitle={() => {}}
               paneControls={renderPaneControls(paneNode, ref, "integrated")}
             />
@@ -804,7 +809,7 @@ export default function AtelierPane({
             <TerminalSurface
               ws={ws}
               cwd={projectRoot}
-              visible={active}
+              visible={active && !overlayOpen}
               bootstrapCommand={terminalBootstrap}
               onBootstrapHandled={() => setTerminalBootstrap(null)}
               paneControls={renderPaneControls(paneNode, ref, "integrated")}

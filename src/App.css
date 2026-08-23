@@ -2617,9 +2617,27 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   outline-offset: var(--focus-ring-offset); }
 /* Intégrée dans la feuille modale (lot A) : ne prend plus toute la fenêtre. */
 .settings-page.embedded { height: 100%; }
+/* Correction de revue lot A #2 : `.set-body` plafonnait à 860px + 40/48px de
+   rembourrage plein écran, hérités et jamais retouchés par le lot — dans la
+   feuille de 1100px cela retombait exactement à la largeur de l'ancienne
+   page plein écran (voir commentaire sur `.settings-sheet` ci-dessous). On
+   lève le plafond et resserre les rembourrages en mode embarqué seulement ;
+   le chemin non embarqué (`SetBench`) reste inchangé. */
+.settings-page.embedded .set-body { max-width: none; padding: 24px 32px; }
+/* Les 40px de rembourrage haut de `.set-nav` dégageaient les feux de
+   circulation natifs de la fenêtre en plein écran ; inutiles dans une
+   modale flottante. `-webkit-app-region: no-drag` : dans cette même modale,
+   glisser la nav déplacerait la fenêtre de l'app et un double-clic la
+   zoomerait — sans effet voulu ici. */
+.settings-page.embedded .set-nav { padding: 24px 10px 16px; -webkit-app-region: no-drag; }
+.settings-page.embedded .set-nav-compact { -webkit-app-region: no-drag; }
 
 /* Feuille modale des réglages (lot A). Large à dessein : la section Modèles
-   porte un tableau dense qu'un panneau étroit rendrait illisible. */
+   porte un tableau dense qu'un panneau étroit rendrait illisible — et ce
+   gain de largeur atteint désormais réellement le contenu grâce à l'override
+   `.settings-page.embedded .set-body` ci-dessus, qui lève le plafond de
+   860px et les rembourrages hérités du plein écran (sans cet override,
+   `.set-body` les réappliquait et annulait tout le gain promis ici). */
 .settings-sheet { width: min(1100px, 94vw); height: min(760px, 90vh);
   max-width: min(1100px, 94vw); padding: 0; overflow: hidden;
   box-shadow: var(--elevation-overlay); border-radius: var(--r-m); }
