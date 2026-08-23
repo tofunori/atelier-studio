@@ -2631,6 +2631,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    zoomerait — sans effet voulu ici. */
 .settings-page.embedded .set-nav { padding: 24px 10px 16px; -webkit-app-region: no-drag; }
 .settings-page.embedded .set-nav-compact { -webkit-app-region: no-drag; }
+/* Correction de revue (spécificité) : `.settings-page.narrow .set-body` et
+   `.settings-page.embedded .set-body` ont la même spécificité (deux
+   classes) — sans ce filet, l'ordre de cascade fait gagner l'embarqué,
+   qui écrase le padding resserré prévu pour l'étroit. Combo à trois
+   classes, strictement plus spécifique, pour que l'étroit garde le dernier
+   mot quand la feuille est À LA FOIS étroite et embarquée (cas atteignable
+   depuis la correction n°3 : la nav bascule maintenant sur la largeur
+   réelle de la feuille, pas seulement de la fenêtre). */
+.settings-page.embedded.narrow .set-body { padding: 20px 24px; max-width: none; }
 
 /* Feuille modale des réglages (lot A). Large à dessein : la section Modèles
    porte un tableau dense qu'un panneau étroit rendrait illisible — et ce

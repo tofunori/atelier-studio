@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -23,6 +23,7 @@ import {
   visibleTabsForProject,
 } from "./lib/projectSession";
 import { buildForkThreadPayload } from "./lib/forkThread";
+import { articleImportSnapshot, subscribeArticleImport } from "./lib/articleImports";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
@@ -3892,10 +3893,36 @@ export default function App() {
           }}
         />
   );
+  // ArticleDialog (import d'article MinerU) est monté globalement dans
+  // AppOverlays.tsx, hors de l'arbre de panes — son état vit dans le store
+  // module `lib/articleImports.ts` (pas un state React local), déclenchable
+  // depuis Connaissances comme depuis le rail d'activité, donc indépendant
+  // de la surface active. Portail Base UI = même voile plein écran que les
+  // réglages : à inclure dans `overlayOpen`.
+  const articleDialogOpen = useSyncExternalStore(
+    subscribeArticleImport,
+    () => articleImportSnapshot().open,
+  );
   // Correction lot A #1 : une surcouche ouverte (réglages, palette, quick
-  // ask, plugins) doit forcer la fermeture des webviews natives enfants de
-  // l'atelier (navigateur…) — aucun z-index HTML ne peut les couvrir.
-  const overlayOpen = showSettings || paletteOpen || qaMode !== "closed" || pluginsOpen;
+  // ask, plugins, dialogue « nouveau chat », import d'article) doit forcer
+  // la fermeture des webviews natives enfants de l'atelier (navigateur…) —
+  // aucun z-index HTML ne peut les couvrir. `qaMode === "open"` seulement :
+  // "min" est un état volontaire et persistant (Quick Ask réduit en
+  // arrière-plan pendant qu'on travaille dans l'atelier) qui ne rend rien à
+  // l'écran (QuickAsk.tsx : `if (minimized) return null`) — le compter
+  // comme surcouche cacherait le navigateur/terminal sans raison.
+  //
+  // Passés en revue et ÉCARTÉS (même voile Base UI plein écran, mais état
+  // profondément local, pas branché ici — voir fix-finale-report.md pour le
+  // détail) : les dialogues de `git/GitCommitsView.tsx` et
+  // `git/GitToolbar.tsx` (5+ booléons `useState` par fichier), le
+  // `pageDraft` de `KnowledgeSurface.tsx`, et `expandedIndex` dans
+  // `chat/ImageViewPreview.tsx` (une instance par message affiché).
+  // `RemoteDevicesPanel` est écarté aussi, mais pour une autre raison :
+  // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
+  // couvert par `showSettings`.
+  const overlayOpen = showSettings || paletteOpen || qaMode === "open" || pluginsOpen
+    || newChatRequest != null || articleDialogOpen;
   const overlaysNode = (
     <>
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
