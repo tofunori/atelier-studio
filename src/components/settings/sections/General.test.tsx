@@ -10,7 +10,7 @@
 //   il vit dans « apparence » → tâche 6. Le test du repli Avancé vérifie donc
 //   la rangée Sidecar, réellement présente ici.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
 import { setLanguage } from "../../../lib/i18n";
 import { DEFAULT_SETTINGS } from "../../../lib/settings";
@@ -28,6 +28,18 @@ function props(over: Partial<SectionProps> = {}): SectionProps {
     onSaved: vi.fn(),
     ...over,
   };
+}
+
+// Motif repris de Settings.test.tsx (fakeWs/emitWs) pour simuler le sidecar.
+function fakeWs() {
+  const ws = new EventTarget() as WebSocket;
+  Object.defineProperty(ws, "readyState", { value: WebSocket.OPEN });
+  Object.defineProperty(ws, "send", { value: vi.fn() });
+  return ws;
+}
+
+function emitWs(ws: WebSocket, message: unknown) {
+  act(() => ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) })));
 }
 
 describe("Section Général", () => {
@@ -50,5 +62,19 @@ describe("Section Général", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Web search Codex" }));
     expect(set).toHaveBeenCalledWith({ webSearch: true });
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("liste les modèles codex du catalogue providerStatus dans le menu par défaut", async () => {
+    // Régression : providerModels("codex") ne doit pas se limiter au modèle
+    // déjà sélectionné une fois le catalogue chargé (coordinateur, ronde 2).
+    const ws = fakeWs();
+    renderUi(<General {...props({ ws })} />);
+    emitWs(ws, {
+      type: "providerStatus",
+      providers: [{ id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5-codex", "gpt-5-codex-mini"] }],
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Modèle Codex par défaut" }));
+    expect(await screen.findByRole("option", { name: "gpt-5-codex" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "gpt-5-codex-mini" })).toBeInTheDocument();
   });
 });
