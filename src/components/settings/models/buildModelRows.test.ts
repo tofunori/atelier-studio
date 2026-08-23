@@ -82,13 +82,43 @@ describe("buildModelRows", () => {
   });
 
   it("réduit le statut à deux états dérivés de `ok`, sans en inventer un troisième", () => {
-    const grokOk: ProviderCatalogRow = {
+    // ok:false malgré le nom du fixture précédent (grokOk) qui induisait en
+    // erreur — renommé après revue.
+    const grokNotOk: ProviderCatalogRow = {
       id: "grok", label: "Grok CLI", version: "1.0", ok: false, kind: "cli",
       models: ["grok-4"], efforts: [],
     };
-    const { rows } = buildModelRows([claude, grokOk], { ...DEFAULT_SETTINGS });
+    const { rows } = buildModelRows([claude, grokNotOk], { ...DEFAULT_SETTINGS });
     expect(rows.find((r) => r.provider === "claude")?.status).toBe("ready");
     expect(rows.find((r) => r.provider === "grok")?.status).toBe("absent");
+  });
+
+  it("habille les modèles Grok/opencode avec leur libellé officiel (modelLabels dynamique)", () => {
+    // Grok n'a aucun libellé en dur (src/lib/modelCatalog.ts) : sans le
+    // troisième argument de modelDisplayLabel, le libellé retombe sur
+    // l'identifiant brut. Régression découverte en revue.
+    const grok: ProviderCatalogRow = {
+      id: "grok", label: "Grok CLI", version: "1.0", ok: true, kind: "cli",
+      models: ["grok-4.6"], efforts: [],
+      modelLabels: { "grok-4.6": "Grok 4.6" },
+    };
+    const { rows } = buildModelRows([grok], { ...DEFAULT_SETTINGS });
+    expect(rows.find((r) => r.modelId === "grok-4.6")?.label).toBe("Grok 4.6");
+  });
+
+  it("garde le slug personnalisé visible même si le catalogue du fournisseur est vide", () => {
+    // Un fournisseur momentanément non détecté (CLI absent, statut
+    // transitoire) ne doit pas faire disparaître un slug enregistré :
+    // Models.tsx le rendait déjà inconditionnellement avant cette fonction.
+    // Régression découverte en revue.
+    const grokVide: ProviderCatalogRow = {
+      id: "grok", label: "Grok CLI", version: null, ok: false, kind: "cli", models: [],
+    };
+    const s = { ...DEFAULT_SETTINGS, customModels: [{ provider: "grok", id: "grok-experimental" }] };
+    const { rows, unavailable } = buildModelRows([grokVide], s);
+    const row = rows.find((r) => r.modelId === "grok-experimental");
+    expect(row?.custom).toBe(true);
+    expect(unavailable.map((p) => p.id)).toEqual([]);
   });
 
   // Piège opencode (lot B2, hors périmètre ici) : identifiants routés,

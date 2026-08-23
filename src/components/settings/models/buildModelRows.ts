@@ -45,11 +45,16 @@ export function buildModelRows(
 
   for (const row of provs ?? []) {
     const models = row.models ?? [];
-    // Un fournisseur sans aucun modèle énumérable n'a rien à montrer dans le
-    // tableau dense : il part dans `unavailable` plutôt que de produire des
-    // lignes vides. Couvre à la fois « CLI non ok » (grok du test) et
-    // « catalogue incomplet, models absent » (aux du test).
-    if (models.length === 0) {
+    const customForRow = customModels.filter((c) => c.provider === row.id);
+    // Un fournisseur sans aucun modèle énumérable ET sans slug personnalisé
+    // n'a rien à montrer : il part dans `unavailable`. Un fournisseur au
+    // catalogue vide mais portant un slug enregistré (CLI momentanément non
+    // détecté, statut transitoire…) garde sa ligne — le slug reste visible
+    // et supprimable, comme le rendait déjà inconditionnellement l'ancien
+    // Models.tsx:585. Le laisser tomber dans `unavailable` le ferait
+    // disparaître de l'écran sans que le réglage sous-jacent ne bouge :
+    // corrigé après revue (2026-08-23).
+    if (models.length === 0 && customForRow.length === 0) {
       unavailable.push(row);
       continue;
     }
@@ -69,7 +74,10 @@ export function buildModelRows(
         provider: row.id,
         providerLabel: row.label,
         modelId,
-        label: modelDisplayLabel(row.id, modelId),
+        // `row.modelLabels` (Grok, Kimi, opencode…) prime sur
+        // BUILTIN_MODEL_LABELS : sans lui, modelDisplayLabel retombe sur
+        // l'identifiant brut pour tout modèle étiqueté dynamiquement.
+        label: modelDisplayLabel(row.id, modelId, row.modelLabels),
         isDefault: modelId === defaultModel[row.id],
         isFavorite: favorites.has(modelId),
         effort: modelEfforts[`${row.id}:${modelId}`] ?? "",
@@ -84,8 +92,8 @@ export function buildModelRows(
 
     // Slugs personnalisés : ajoutés seulement s'ils ne dupliquent pas un
     // modèle déjà listé par le catalogue pour ce même fournisseur.
-    for (const custom of customModels) {
-      if (custom.provider !== row.id || seen.has(custom.id)) continue;
+    for (const custom of customForRow) {
+      if (seen.has(custom.id)) continue;
       pushRow(custom.id, true);
     }
   }

@@ -25,6 +25,11 @@ export type ProviderCatalogRow = {
   models?: string[];
   defaultModel?: string | null;
   efforts?: string[];
+  /** Libellés officiels par modèle (Grok, Kimi, opencode…) — sert de
+   *  priorité à `modelDisplayLabel` sur BUILTIN_MODEL_LABELS. Champ frère
+   *  de `ProviderInfo.modelLabels` (src/lib/providers.ts) : déjà présent au
+   *  runtime dans le payload providerStatus, seul le typage manquait ici. */
+  modelLabels?: Record<string, string>;
 };
 
 export type ApiProviderRow = {
