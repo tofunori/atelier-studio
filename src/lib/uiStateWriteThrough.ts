@@ -48,7 +48,17 @@ export function installUiStateWriteThrough(
   storage: StorageLike = localStorage,
 ): UiStateWriteThroughController {
   const flush = createUiStateFlusher(() => collectUiState(storage), fetchImpl);
-  const orig = storage.setItem; // non lié : restauré À L'IDENTIQUE au cleanup
+  // PIÈGE WebKit (cause du ui.json mort de 2026-07 à 2026-08) : sur un vrai
+  // objet Storage, `storage.setItem = fn` n'installe RIEN — le setter nommé
+  // du Storage range la fonction comme item « setItem » et la méthode du
+  // prototype continue de gagner au lookup. Le patch doit donc viser
+  // Storage.prototype ; l'instance n'est patchée que pour les storages
+  // injectés en test. `this` départage localStorage de sessionStorage.
+  const target = (typeof Storage !== "undefined" && storage instanceof Storage
+    ? (Storage.prototype as unknown)
+    : storage) as StorageLike & { removeItem?: (k: string) => void };
+  const origSet = target.setItem; // non lié : restauré À L'IDENTIQUE au cleanup
+  const origRemove = target.removeItem;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let writeVersion = 0;
   let flushedVersion = 0;
@@ -61,14 +71,29 @@ export function installUiStateWriteThrough(
     return success;
   };
 
-  const patched = (k: string, v: string) => {
-    orig.call(storage, k, v);
-    if (!k.startsWith("atelier-studio")) return;
+  const markDirty = () => {
     writeVersion += 1;
     clearTimeout(timer);
     timer = setTimeout(() => void flushNow(false), 500);
   };
-  storage.setItem = patched;
+  const patchedSet = function (this: unknown, k: string, v: string) {
+    origSet.call(this ?? storage, k, v);
+    if ((this ?? storage) !== storage) return;
+    if (!k.startsWith("atelier-studio")) return;
+    markDirty();
+  };
+  // removeItem marque aussi l'état sale : avant plan 053, le pagehide
+  // inconditionnel persistait les suppressions — parité conservée.
+  const patchedRemove =
+    origRemove &&
+    function (this: unknown, k: string) {
+      origRemove.call(this ?? storage, k);
+      if ((this ?? storage) !== storage) return;
+      if (!k.startsWith("atelier-studio")) return;
+      markDirty();
+    };
+  target.setItem = patchedSet;
+  if (patchedRemove) target.removeItem = patchedRemove;
   // flush avant fermeture/masquage (keepalive survit à l'unload) : un pin
   // ajouté juste avant de quitter n'est plus perdu par le debounce de 500 ms.
   const onPageHide = () => void flushNow(true);
@@ -79,7 +104,8 @@ export function installUiStateWriteThrough(
   document.addEventListener("visibilitychange", onVisibility);
   const dispose = () => {
     clearTimeout(timer);
-    if (storage.setItem === patched) storage.setItem = orig;
+    if (target.setItem === patchedSet) target.setItem = origSet;
+    if (patchedRemove && target.removeItem === patchedRemove) target.removeItem = origRemove;
     window.removeEventListener("pagehide", onPageHide);
     document.removeEventListener("visibilitychange", onVisibility);
   };

@@ -26,18 +26,25 @@ export function createUiStateFlusher(
   };
   return async (keepalive = false) => {
     const info = getSidecarInfo();
-    if (!info) return false;
+    if (!info) {
+      console.warn("Atelier: flush ui.json différé — SidecarInfo pas encore disponible");
+      return false;
+    }
     try {
       await post(info.port, sidecarHeaders(info), keepalive);
       return true;
-    } catch {
+    } catch (error) {
       // pagehide/visibilitychange : pas de chaîne async non bornée pendant l'unload
-      if (keepalive) return false;
+      if (keepalive) {
+        console.warn("Atelier: flush ui.json (keepalive) échoué:", error);
+        return false;
+      }
       try {
         const fresh = await refreshSidecarInfo();
         await post(fresh.port, sidecarHeaders(fresh), false);
         return true;
-      } catch {
+      } catch (retryError) {
+        console.warn("Atelier: écriture ui.json échouée malgré le retry:", retryError);
         return false;
       }
     }

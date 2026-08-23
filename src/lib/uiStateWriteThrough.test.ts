@@ -9,8 +9,9 @@ import {
 } from "./uiStateWriteThrough";
 import { resetSidecarInfo, setSidecarInfo } from "./sidecarInfo";
 
-// storage simple (le localStorage de jsdom est un Proxy : impossible d'y
-// remplacer setItem — en prod WebKit, l'assignation shadow la méthode)
+// storage simple injecté (patché sur l'instance). ATTENTION : en prod WebKit,
+// l'assignation `localStorage.setItem = fn` est un no-op (setter nommé du
+// Storage) — d'où le patch de Storage.prototype, couvert par le test dédié.
 function makeStorage(): StorageLike & { map: Map<string, string> } {
   const map = new Map<string, string>();
   return {
@@ -79,6 +80,43 @@ describe("installUiStateWriteThrough", () => {
     window.dispatchEvent(new Event("pagehide"));
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(storage.getItem("atelier-studio.pins")).toBe("[9]"); // écriture intacte
+  });
+
+  // Régression : sur un VRAI objet Storage (WKWebView, Chromium, jsdom), une
+  // affectation `localStorage.setItem = fn` est un no-op — le setter nommé du
+  // Storage la range comme item et la méthode du prototype gagne au lookup.
+  // Le write-through doit donc patcher Storage.prototype, sinon le suivi
+  // d'état sale ne se déclenche JAMAIS en production (ui.json mort, 2026-07).
+  it("suit les écritures du vrai localStorage (objet Storage, pas un plain object)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({});
+    localStorage.clear();
+    controller = installUiStateWriteThrough(fetchImpl as unknown as typeof fetch, localStorage);
+
+    localStorage.setItem("atelier-studio.pins", "[1]");
+    expect(localStorage.getItem("setItem")).toBeNull(); // pas d'item parasite
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)["atelier-studio.pins"]).toBe("[1]");
+
+    // sessionStorage partage Storage.prototype : ses écritures ne comptent pas
+    sessionStorage.setItem("atelier-studio.ghost", "x");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    // removeItem d'une clé atelier marque l'état sale (parité pré-plan-053 :
+    // l'ancien pagehide inconditionnel persistait aussi les suppressions)
+    localStorage.removeItem("atelier-studio.pins");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    controller.dispose();
+    controller = null;
+    localStorage.setItem("atelier-studio.pins", "[2]");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // prototype restauré
+    localStorage.clear();
+    sessionStorage.clear();
   });
 
   it("garde une écriture sale sans sidecar puis l'envoie au premier flushNow", async () => {
