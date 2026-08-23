@@ -1,6 +1,8 @@
 // Types partagés entre les sections de réglages (lot 1). Déplacés depuis
-// Settings.tsx sans changement (l'ancien fichier garde sa propre copie
-// jusqu'à sa suppression en tâche 8).
+// Settings.tsx (l'ancien fichier garde sa propre copie jusqu'à sa suppression
+// en tâche 8). Un seul écart volontaire : `ApiProviderRow.modelReasoning` est
+// resserré de `Record<string, any>` (Settings.tsx:82) vers
+// `Record<string, unknown>` — `any` désactivait le typage en aval sans raison.
 import type { Settings } from "../../lib/settings";
 
 /** Props que la coquille passe à CHAQUE section. Une section ne reçoit
