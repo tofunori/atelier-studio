@@ -30,6 +30,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, deriveMargeEntries, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
+import { initialJumpState, nextJumpAction } from "../../lib/margeJump";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverContent } from "../shadcn/popover";
 import {
@@ -315,6 +316,44 @@ export function ChatTimeline(p: {
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
+  // Saut de marge (bug mesuré 2026-08-23) : deux forces ramenaient le lecteur
+  // ailleurs que sur la cible. 1) autoFollow restait engagé, et le filet du
+  // suivi re-visait le bas du fil ~300 ms après le clic. 2) scrollToIndex
+  // atterrit sur une position ESTIMÉE pour les rangées jamais mesurées. On
+  // coupe donc le suivi, on saute, puis on recale sur la géométrie réelle une
+  // fois le défilement stabilisé (décision pure dans src/lib/margeJump.ts).
+  const jumpFrameRef = React.useRef(0);
+  React.useEffect(() => () => cancelAnimationFrame(jumpFrameRef.current), []);
+  const jumpToEvent = React.useCallback((eventIndex: number) => {
+    const index = virtualIndexForEvent(eventIndex);
+    if (index < 0) return;
+    setAutoFollow(false);
+    setIsScrolledFromBottom(true);
+    void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+    cancelAnimationFrame(jumpFrameRef.current);
+    const host = messagesRef.current;
+    if (!host) return;
+    let state = initialJumpState();
+    const step = () => {
+      jumpFrameRef.current = 0;
+      const row = document.getElementById(`message-${eventIndex}`);
+      const rowDelta = row
+        ? row.getBoundingClientRect().top - host.getBoundingClientRect().top
+        : null;
+      const [nextState, action] = nextJumpAction(state, { scrollTop: host.scrollTop, rowDelta });
+      state = nextState;
+      if (action.kind === "done" || action.kind === "abandon") return;
+      if (action.kind === "correct") host.scrollTop += action.delta;
+      if (action.kind === "rescroll") {
+        const again = virtualIndexForEvent(eventIndex);
+        if (again >= 0) {
+          void timelineListRef.current?.scrollToIndex({ index: again, animated: false, viewPosition: 0 });
+        }
+      }
+      jumpFrameRef.current = requestAnimationFrame(step);
+    };
+    jumpFrameRef.current = requestAnimationFrame(step);
+  }, [virtualIndexForEvent, messagesRef]);
   let finalAnswerIndex = -1;
   if (phase === "final_answer") {
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -968,12 +1007,7 @@ export function ChatTimeline(p: {
               data-mark={entry.kind}
               data-here={entry.index === hereIndex ? "true" : undefined}
               title={entry.label}
-              onClick={() => {
-                const index = virtualIndexForEvent(entry.index);
-                if (index >= 0) {
-                  void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
-                }
-              }}
+              onClick={() => jumpToEvent(entry.index)}
               onContextMenu={(e) => {
                 if (entry.kind !== "pin") return;
                 e.preventDefault();

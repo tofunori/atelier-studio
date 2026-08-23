@@ -63,6 +63,23 @@ describe("resolvePins", () => {
     expect(resolvePins([], pins)).toBe(pins);
   });
 
+  // Rejeu NATIF (grok/codex/kimi) : prefer_richer_dialogue côté Rust garde les
+  // messages user du journal mais reconstruit les réponses assistant depuis le
+  // transcript du CLI, SANS meta. L'eventId photographié en direct n'existe
+  // plus — c'était le « les marque-pages ne survivent pas au redémarrage »
+  // rapporté 2026-08-23 (épingles posées sur des réponses assistant).
+  it("retombe sur l'ancre texte quand le rejeu natif a perdu les eventId", () => {
+    const nativeReplay: PinEvent[] = [
+      ev("user", "Vérifie d'où vient le −0,00975", "u1"),
+      ev("text", "La découverte : le −0,00975 ne vient pas du run courant"),
+    ];
+    const pins: Pin[] = [createPin(REPLAY, 3, "La découverte")];
+    const [resolved] = resolvePins(nativeReplay, pins);
+    expect(resolved.index).toBe(1);
+    // l'identifiant durable reste photographié pour un futur rejeu journal
+    expect(resolved.eventId).toBe("a1");
+  });
+
   it("garde l'épingle dont l'événement a disparu du fil plutôt que de la perdre", () => {
     const pins: Pin[] = [{ index: 1, label: "Disparu", anchor: "Disparu", eventId: "zzz" }];
     expect(resolvePins(REPLAY, pins)).toEqual(pins);

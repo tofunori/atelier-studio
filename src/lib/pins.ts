@@ -57,14 +57,19 @@ function indexOfAnchor(events: PinEvent[], anchor: string): number {
  * est rendu à l'identique quand rien ne bouge — même discipline d'identité
  * référentielle que le reste de la timeline, pour ne pas re-rendre pendant le
  * stream.
+ *
+ * L'ancre texte reste un repli même quand l'épingle a un eventId : les
+ * historiques grok/codex/kimi rechargés depuis le transcript natif
+ * (prefer_richer_dialogue côté Rust) reconstruisent les réponses assistant
+ * SANS meta — l'eventId photographié en direct n'y existe plus, alors que le
+ * texte, lui, est toujours là.
  */
 export function resolvePins(events: PinEvent[], pins: Pin[]): Pin[] {
   if (!events.length || !pins.length) return pins;
   let changed = false;
   const next = pins.map((pin) => {
-    const found = pin.eventId
-      ? indexOfEventId(events, pin.eventId)
-      : indexOfAnchor(events, pin.anchor ?? pin.label);
+    let found = pin.eventId ? indexOfEventId(events, pin.eventId) : -1;
+    if (found < 0) found = indexOfAnchor(events, pin.anchor ?? pin.label);
     if (found < 0) return pin;
     const eventId = pin.eventId ?? eventIdOf(events[found]);
     if (found === pin.index && eventId === pin.eventId) return pin;

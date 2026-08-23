@@ -87,6 +87,18 @@ describe("la marge annotée", () => {
     expect(screen.getByRole("button", { name: /La découverte/ })).toBeTruthy();
   });
 
+  // Bug mesuré 2026-08-23 : cliquer un repère laissait autoFollow engagé — le
+  // filet du suivi re-visait le bas du fil ~300 ms après le saut, et le lecteur
+  // n'atterrissait jamais sur le message visé. Le clic doit désengager le
+  // suivi ; le bouton « revenir en bas » devient alors le chemin du retour.
+  it("désengage le suivi automatique au clic sur un repère", () => {
+    renderUi(<Chat {...chatProps({ events: TOUR })} />);
+    const bottomBtn = document.querySelector(".ui-scroll-to-bottom")!;
+    expect(bottomBtn.getAttribute("data-active")).toBe("false");
+    fireEvent.click(document.querySelector('.tl-mark[data-mark="prompt"]')!);
+    expect(bottomBtn.getAttribute("data-active")).toBe("true");
+  });
+
   it("n'offre plus de forme d'épingle à choisir dans le menu de l'entrée", () => {
     renderUi(<Chat {...chatProps({
       events: TOUR,
