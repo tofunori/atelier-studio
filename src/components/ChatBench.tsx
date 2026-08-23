@@ -361,6 +361,7 @@ type BenchState = {
 
 const STATES: Record<string, BenchState> = {
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
+  livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
@@ -401,8 +402,19 @@ export function ChatBench() {
   const [firstMessageWorkingSince, setFirstMessageWorkingSince] = useState<number | null>(null);
   const firstMessageStartedTimer = useRef<number | null>(null);
   const interactiveFirstMessage = key === "firstmessage";
+  // Scénario vivant : un tick 80 ms recalcule les événements depuis le départ.
+  const isLive = key === "livestream";
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  useEffect(() => {
+    if (!isLive) return;
+    const started = Date.now();
+    const id = window.setInterval(() => setLiveElapsed(Date.now() - started), 80);
+    return () => window.clearInterval(id);
+  }, [isLive]);
   const activeState = interactiveFirstMessage
     ? { ...st, events: firstMessageEvents, workingSince: firstMessageWorkingSince }
+    : isLive
+    ? { ...st, events: liveEventsAt(liveElapsed) }
     : st;
 
   useEffect(() => {
