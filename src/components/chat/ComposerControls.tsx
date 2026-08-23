@@ -131,6 +131,9 @@ export function ComposerControls(p: {
     high: "High",
     xhigh: "Extra High",
     max: "Max",
+    // Cran terminal de Claude Code : xhigh + orchestration multi-agents, posé
+    // par --settings côté Rust. Session seulement, comme /effort ultracode.
+    ultracode: "Ultracode",
   };
   const effortIndex = Math.max(0, effortLevels.indexOf(effort));
   const effortSummary = effortLabels[effort] ?? effort;

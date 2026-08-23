@@ -19,6 +19,12 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+/// Palier terminal de l'échelle d'effort Claude. Ce n'est pas une valeur que
+/// `--effort` accepte : c'est le nom que le CLI donne au couple « xhigh + le
+/// réglage `ultracode` », exactement comme sa commande /effort ultracode.
+/// Le rendu, lui, le traite comme un cran à part (voir .ef-ultra dans App.css).
+pub const ULTRACODE: &str = "ultracode";
+
 struct ActiveRun {
     child: Child,
 }
@@ -243,8 +249,21 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     }
     if let Some(effort) = &req.effort {
         if !effort.is_empty() {
-            args.push("--effort".into());
-            args.push(effort.clone());
+            // « ultracode » n'existe PAS pour --effort : le drapeau ne connaît
+            // que low|medium|high|xhigh|max (claude --help, 2.1.241). Côté CLI
+            // c'est /effort ultracode qui pose deux choses à la fois — xhigh
+            // plus le réglage booléen `ultracode` (« xhigh effort plus standing
+            // dynamic-workflow orchestration »). On reproduit exactement ce
+            // couple, sinon les deux réglages se contrediraient.
+            if effort == ULTRACODE {
+                args.push("--effort".into());
+                args.push("xhigh".into());
+                args.push("--settings".into());
+                args.push(r#"{"ultracode":true}"#.into());
+            } else {
+                args.push("--effort".into());
+                args.push(effort.clone());
+            }
         }
     }
     if let Some(sid) = &req.session_id {
@@ -489,6 +508,7 @@ impl Provider for ClaudeProvider {
             "high".into(),
             "xhigh".into(),
             "max".into(),
+            ULTRACODE.into(),
         ]
     }
 
@@ -910,7 +930,7 @@ mod title_tests {
 
     use super::{
         build_args, clean_conversation_title, commit_message_prompts, compact_commit_context,
-        parse_commit_message_details,
+        parse_commit_message_details, ULTRACODE,
     };
     use crate::traits::{SendMode, SendRequest};
     use std::sync::Arc;
@@ -958,6 +978,28 @@ mod title_tests {
             .iter()
             .any(|arg| arg == "--dangerously-skip-permissions"));
         assert!(bypass.windows(2).any(|pair| pair == ["--effort", "high"]));
+    }
+
+    #[test]
+    fn ultracode_becomes_xhigh_plus_the_settings_flag() {
+        // --effort ne connaît pas « ultracode » (low|medium|high|xhigh|max) :
+        // l'envoyer tel quel ferait échouer le lancement. Le CLI attend le
+        // couple xhigh + réglage booléen, sondé le 2026-08-23.
+        let mut req = request("acceptEdits");
+        req.effort = Some(ULTRACODE.into());
+        let args = build_args(&req, None);
+        assert!(args.windows(2).any(|pair| pair == ["--effort", "xhigh"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--settings", r#"{"ultracode":true}"#]));
+        assert!(!args.iter().any(|arg| arg == ULTRACODE));
+
+        // Les autres paliers passent inchangés — aucun --settings parasite.
+        let mut plain = request("acceptEdits");
+        plain.effort = Some("max".into());
+        let plain_args = build_args(&plain, None);
+        assert!(plain_args.windows(2).any(|pair| pair == ["--effort", "max"]));
+        assert!(!plain_args.iter().any(|arg| arg == "--settings"));
     }
 
     #[test]
