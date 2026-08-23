@@ -1003,7 +1003,7 @@ pub async fn gitcommit(
     }
     if !git_ok(&["commit", "--no-verify", "-m", &msg, "--", &rel], &root).await {
         let base = git_base(&root).await;
-        // exit 0 from diff --quiet = identical → nothing to commit
+        // exit 0 from diff --quiet = identical to the base → nothing to commit
         if git_ok(&["diff", "--quiet", &base, "HEAD", "--", &rel], &root).await {
             return (
                 StatusCode::OK,
@@ -1014,11 +1014,23 @@ pub async fn gitcommit(
             )
                 .into_response();
         }
-        return (
-            StatusCode::OK,
-            Json(json!({"ok": false, "error": "git commit ciblé a échoué"})),
+        // Clean tree but the file moved since the significant base: the
+        // background auto-commit already recorded the change. Place the
+        // milestone anyway (empty commit carrying the message) so the editor's
+        // base advances — parity with the Node route (diff_suite « gitcommit
+        // jalon sur arbre propre »).
+        if !git_ok(
+            &["commit", "--no-verify", "--allow-empty", "-m", &msg],
+            &root,
         )
-            .into_response();
+        .await
+        {
+            return (
+                StatusCode::OK,
+                Json(json!({"ok": false, "error": "git commit a échoué"})),
+            )
+                .into_response();
+        }
     }
     let sha = git_out(&["rev-parse", "--short", "HEAD"], &root)
         .await

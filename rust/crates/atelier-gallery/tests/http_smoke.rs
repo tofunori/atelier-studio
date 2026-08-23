@@ -391,3 +391,59 @@ fn latex_suggest_warm_roundtrip_empty_and_normalized() {
 
     let _ = fs::remove_dir_all(&fake_dir);
 }
+
+/// Arbre propre parce que le hook Stop a déjà tout committé en « auto: », mais
+/// le fichier a bougé depuis la dernière base significative : le bouton commit
+/// de l'éditeur doit poser un JALON (commit vide porteur du message) pour que
+/// `/githead` — donc la gouttière et le ± — reparte de là. Parité avec la route
+/// Node (`diff_suite` : « gitcommit jalon sur arbre propre »).
+#[test]
+fn gitcommit_places_a_milestone_when_auto_commits_left_a_clean_tree() {
+    let srv = start_server();
+    let repo = srv.root.join("paper");
+    fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "smoke"]);
+    git(&["config", "user.email", "smoke@example.invalid"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    let file = repo.join("methods.tex");
+    fs::write(&file, "version un\n").unwrap();
+    git(&["add", "methods.tex"]);
+    git(&["commit", "-q", "-m", "redaction initiale"]);
+    // le hook Stop de fond enregistre la suite du travail sans message parlant
+    fs::write(&file, "version deux\n").unwrap();
+    git(&["add", "methods.tex"]);
+    git(&["commit", "-q", "-m", "auto: sauvegarde de tour"]);
+
+    let head = format!("/githead?path={}", file.display());
+    let (st, body) = http(srv.port, "GET", &head, None);
+    assert_eq!(st, 200);
+    assert!(body.contains("version un"), "base significative — {body}");
+
+    let payload = format!(
+        "{{\"path\":\"{}\",\"message\":\"jalon methodes\"}}",
+        file.display()
+    );
+    let (st, body) = http(srv.port, "POST", "/gitcommit", Some(&payload));
+    assert_eq!(st, 200);
+    assert!(body.contains("\"ok\":true"), "jalon posé — {body}");
+
+    let (_, body) = http(srv.port, "GET", &head, None);
+    assert!(body.contains("version deux"), "base déplacée — {body}");
+
+    // deuxième appel : plus rien à jalonner
+    let (_, body) = http(srv.port, "POST", "/gitcommit", Some(&payload));
+    assert!(body.contains("\"ok\":false"), "doublon refusé — {body}");
+}

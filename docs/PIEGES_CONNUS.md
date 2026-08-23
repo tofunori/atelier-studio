@@ -58,6 +58,42 @@ elle se vidait quelques minutes après chaque sauvegarde.
 `/^auto: /`. Utilisé par `/githead`, `/commitmsg`, `/gitcommit`. Ne jamais
 retirer le préfixe `auto:` du hook sans ajuster ce filtre.
 
+### 3b. La base SUIT le dépôt — mais l'ancre du journal, jamais (2026-08-23)
+
+Symptôme : « je committe et le diff reste ». Deux causes cumulées.
+
+D'abord la base de session était **gelée** (`baseGitLocked`) : un commit
+significatif en cours de session rafraîchissait `headText` (donc la gouttière)
+mais ni le `±` cumulatif ni le compteur du ruban — il fallait rouvrir le
+fichier. Désormais `fetchHead` compare le **sha** : nouveau sha = vrai commit
+(le filtre `auto:` garantit qu'un tour d'agent n'en produit pas), donc
+`baseVersion`/`baseTs` avancent et les interventions désormais committées
+quittent le cumul « tout » et le ruban (elles restent dans l'historique).
+Trois garde-fous :
+- l'avancée est **retenue** pendant un voyage dans le temps (`tt` ou
+  `navMode >= 0`) et réglée au retour à « tout » — renuméroter les
+  interventions sous les yeux déplacerait la vue affichée (cf. §8) ;
+- l'ancre du journal **persisté** (`journalBase`) ne bouge JAMAIS : la base du
+  state v2 est posée à l'`init` et le serveur ne la réécrit pas. La déplacer
+  fait diverger `serverBaseHash` → « conflit de base » au prochain POST,
+  persistance arrêtée, historique perdu au redémarrage ;
+- une base explicite (`?base=…`, visionneuse de diff) n'est jamais rebasée.
+
+Ensuite — et c'est ce qui bloquait vraiment — **un arbre propre ne veut pas
+dire « rien à jalonner »**. Quand le hook Stop a déjà committé le travail en
+`auto:`, `git commit -m … -- fichier` échoue alors que le fichier diffère
+toujours de la base significative : `/gitcommit` doit retomber sur
+`git commit --allow-empty -m …` pour poser le jalon. La route Node le faisait,
+**la route Rust — celle que l'app exécute — non** : le bouton commit de
+l'éditeur répondait « commit refusé : git commit ciblé a échoué » et la base
+ne pouvait plus jamais avancer. Verrouillé côté Rust par
+`gitcommit_places_a_milestone_when_auto_commits_left_a_clean_tree`
+(`tests/http_smoke.rs`), côté Node par « gitcommit jalon sur arbre propre ».
+
+**Leçon de parité** : un test vert dans `diff_suite.mjs` ne prouve RIEN sur le
+comportement de l'app — l'étage A de cette suite interroge le serveur Node,
+l'app tourne sur Rust. Toute route dupliquée se teste des DEUX côtés.
+
 ## 4. Basculer d'onglet interne (display:none) ne déclenche NI `visibilitychange` NI `IntersectionObserver`
 
 Vérifié empiriquement dans le WebView : un iframe passant de `display:none` à

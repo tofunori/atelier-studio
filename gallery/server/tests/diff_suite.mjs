@@ -1263,8 +1263,44 @@ async function moduleTests() {
     contractOk("artefact du retour terminal unique reste ignorable", h.posts.length === 0, JSON.stringify(h.posts));
   }
 
-  // B19. La première base Git d'une session est immuable : un HEAD plus récent
-  // peut rafraîchir la gouttière, pas rétrécir la timeline ni changer `tout`.
+  // B19. La base suit le dépôt. `gitBase` saute les commits « auto: » : un
+  // nouveau sha SIGNIFIE un vrai commit — ce qui vient d'y entrer quitte le
+  // cumul « tout » et le ruban. L'ancre du journal PERSISTÉ, elle, ne bouge
+  // jamais : la déplacer ferait diverger `serverBaseHash` (« conflit de base »).
+  {
+    const now = Math.floor(Date.now() / 1000);
+    const base = "alpha original avec beaucoup de contexte stable entre les zones\nomega original fin\n";
+    const s1 = base.replace("alpha original", "alpha premiere edition");
+    const s2 = s1.replace("omega original", "omega seconde edition");
+    const s3 = s2.replace("contexte stable", "contexte retouche");
+    const h = makeModuleHarness({
+      headText: base, headTs: now - 600,
+      serverState: {ok: true, v: 2, interventions: [
+        {id: "b19-1", before: base, after: s1, ts: (now - 500) * 1000, source: "user-save", status: "applied"},
+        {id: "b19-2", before: s1, after: s2, ts: (now - 400) * 1000, source: "user-save", status: "applied"},
+      ], legacySnapshots: [], last: s2},
+    });
+    h.cm._v = s2;
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    const before = h.nav()?.count.textContent;
+    const anchorBefore = JSON.parse(h.storage.get("texDiffV1:" + h.filePath)).base.hash;
+    // commit significatif de s2 (le jalon du bouton commit), puis une sauvegarde
+    h.setHead(s2, now - 100, "c0ffee1");
+    h.cm._v = s3;
+    h.dv.push(s2, s3, {source: "user-save", status: "applied"});
+    await sleep(0); await sleep(0);
+    const after = h.nav()?.count.textContent;
+    const anchorAfter = JSON.parse(h.storage.get("texDiffV1:" + h.filePath)).base.hash;
+    const saved = persistedInterventions(h);
+    contractOk("base git avancee purge le cumul des interventions committees",
+      before === "tout · 2" && after === "tout · 1"
+        && anchorBefore === anchorAfter && saved.length === 3,
+      JSON.stringify({before, after, anchor: anchorBefore === anchorAfter, saved: saved.length,
+        note: h.notes[h.notes.length - 1]}));
+  }
+  // B19b. Sans nouveau commit (même sha), un simple rafraîchissement du texte
+  // HEAD ne déplace RIEN : la base d'une session ne bouge que sur un commit.
   {
     const now = Math.floor(Date.now() / 1000);
     const base = "alpha original avec beaucoup de contexte stable entre les zones\nomega original fin\n";
@@ -1276,14 +1312,14 @@ async function moduleTests() {
     await sleep(0); await sleep(0); await sleep(0);
     h.cm._v = s1;
     h.dv.push(base, s1, {source: "user-save", status: "applied"});
-    h.setHead(s1, now + 60, "newhead");
+    h.setHead(s1, now + 60); // même sha : aucun commit n'a eu lieu
     h.cm._v = s2;
     h.dv.push(s1, s2, {source: "user-save", status: "applied"});
     await sleep(0); await sleep(0);
     h.tag.onclick();
     const count = h.nav()?.count.textContent;
     const note = h.notes[h.notes.length - 1] || "";
-    contractOk("base Git de session immuable malgre HEAD ulterieur",
+    contractOk("base Git immuable sans nouveau commit",
       count === "tout · 2" && /· 2 modifications /.test(note),
       JSON.stringify({count, note}));
   }
