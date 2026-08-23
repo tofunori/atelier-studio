@@ -73,7 +73,7 @@
 
   /* -- statuts (sémantique App.css : --u-ok/--u-warn/--u-hot) -------------- */
   --status-info: var(--muted);
-  --status-running: var(--accent);
+  --status-running: var(--u-run, var(--accent));
   --status-success: var(--u-ok, #98c379);
   --status-warning: var(--u-warn, #e0b74a);
   --status-error: var(--u-hot, #e06c75);

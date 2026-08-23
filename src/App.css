@@ -29,6 +29,11 @@
   --card-lift: 0 1px 2px rgba(0,0,0,.28);
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e;
+  /* couleurs SÉMANTIQUES d'état (ok / attention / erreur / en cours). Elles
+     vivent ici, par thème : en clair les teintes sombres étaient illisibles
+     (1,4:1 sur --bg-ctl — pastilles COMPLETED/CANCELLED délavées, 2026-08-23).
+     Contrastes vérifiés sur le fond le plus clair qui les porte (--bg-ctl). */
+  --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; --u-run: var(--accent);
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
@@ -59,6 +64,8 @@
   --accent: #cf630d;
   --info: #3f6fd1;
   --hl-line: #a3771e;
+  /* états assombris : 4,7 / 4,7 / 4,9 / 4,8 sur --bg-ctl (#dadee4) */
+  --u-ok: #2f6b41; --u-warn: #7a5a09; --u-hot: #a8322a; --u-run: #98470b;
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -2398,8 +2405,7 @@ body.dragging iframe { pointer-events: none; }
 .plugin-panel-foot { padding: 13px 22px 16px; color: var(--text-muted); border-top: 1px solid var(--border); font-size: 11px; }
 /* chrome (fond/bordure/ombre/position) fourni par la primitive Popover
  * (Base UI) — ici seulement la géométrie interne et les couleurs de statut */
-.ur-pop { width: 290px; padding: 14px; font-size: var(--fs-m);
-  --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; }
+.ur-pop { width: 290px; padding: 14px; font-size: var(--fs-m); }
 .ur-pop h4 { margin: 0 0 10px; font-size: var(--fs-s); letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-disabled); font-weight: 600; }
 .ur-provs { display: flex; flex-direction: column; }

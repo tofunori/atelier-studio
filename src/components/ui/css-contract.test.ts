@@ -145,8 +145,8 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     const count = (arr: string[]) =>
       arr.reduce<Record<string, number>>((acc, v) => ((acc[v] = (acc[v] ?? 0) + 1), acc), {});
     // #000 : ombres/masques ; #fff : knobs de switch/toggle + fonds d'iframe
-    // web ; la triade : locals documentés de .ur-pop
-    const hexAllow: Record<string, number> = { "#000": 3, "#fff": 6, "#98c379": 1, "#e06c75": 1, "#e0b74a": 1 };
+    // web. Les couleurs d'état ont rejoint les blocs :root par thème.
+    const hexAllow: Record<string, number> = { "#000": 3, "#fff": 6 };
     const hexActual = count([...body.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0].toLowerCase()));
     for (const [v, n] of Object.entries(hexActual)) {
       expect(n, `hex ${v} : ${n} occurrence(s) > allowlist (${hexAllow[v] ?? 0})`).toBeLessThanOrEqual(hexAllow[v] ?? 0);
