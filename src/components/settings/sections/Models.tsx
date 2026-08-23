@@ -1,11 +1,30 @@
-// Section Modèles (lot 1) : ex-« setup » + ex-« providers » + ex-« modeles »
-// fusionnées. Migration verbatim depuis Settings.tsx:595-672 (setup),
-// :790-862 (modeles), :1006-1229 (providers) — trois pages entières
-// deviennent une, dans l'ordre setup → providers → modeles. Le tableau
-// dense de modèles, les défauts sur place et les favoris généralisés sont
-// hors périmètre (lot 3) ; ici on regroupe seulement, sous un repli
-// « Avancé » pour les deux blocs les moins consultés (fournisseurs API,
-// slugs enregistrés — déjà les derniers de leur section d'origine).
+// Section Modèles (lot B1, tâche 4) : câblage du tableau dense sur la
+// dérivation pure `buildModelRows` (tâche 2) et le composant présentationnel
+// `ModelsGrid` (tâche 3). Cette tâche solde aussi la dette du lot 1 : les
+// groupes ex-« setup » et ex-« providers » listaient le MÊME ensemble de
+// fournisseurs l'un sous l'autre (statut d'installation d'un côté, ordre du
+// picker de l'autre) — un fournisseur n'apparaît désormais qu'une fois dans
+// la page, dans le tableau (prêt) ou dans « Non disponibles » (absent).
+//
+// Le vieux bloc « effort par modèle » (Settings.tsx:820-844, une liste plate
+// CLAUDE_MODELS + providerModels + customModels) disparaît aussi : c'est la
+// colonne Effort du tableau qui porte ce réglage maintenant, ligne par ligne
+// — le garder aurait recréé une troisième liste des mêmes modèles. Même sort
+// pour le bloc de recherche/favoris réservé à opencode (Settings.tsx:1053-
+// 1117) : la recherche et les favoris de ModelsGrid couvrent déjà TOUS les
+// fournisseurs (spec §6.2).
+//
+// Structure de page (spec §6.1/§6.2, dans cet ordre) :
+//   1. Au lancement d'une conversation — fournisseur de départ (segmenté) +
+//      rangée récapitulative en lecture seule.
+//   2. Le tableau — ModelsGrid.
+//   3. Non disponibles — fournisseurs sans aucun modèle exploitable.
+//   4. Avancé — ordre du sélecteur, fournisseurs API, slugs personnalisés.
+//
+// Le bloc « Runtime » (Node/sidecar) et les actions « copier le diagnostic »/
+// « actualiser » de l'ancienne section setup disparaissent : ce ne sont ni
+// des fournisseurs ni des modèles, et la structure à 4 blocs ci-dessus est
+// prescrite par le brief. Signalé dans le rapport de tâche.
 import { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
@@ -13,29 +32,16 @@ import type { ApiProviderRow, ProviderCatalogRow, SectionProps } from "../shared
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import { modelDisplayLabel } from "../../../lib/modelCatalog";
-import { PlusIcon, StarIcon } from "../../icons";
+import { buildModelRows, type ModelRow } from "../models/buildModelRows";
+import { ModelsGrid } from "../models/ModelsGrid";
+import { PlusIcon } from "../../icons";
 import { Select } from "../../Select";
-import { Button, InlineNotice } from "../../ui";
+import { Button, InlineNotice, SegmentedControl } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "../../shadcn/input-group";
-import { ScrollArea } from "../../shadcn/scroll-area";
-import { Toggle as ShadcnToggle } from "../../shadcn/toggle";
 import { ToggleGroup, ToggleGroupItem } from "../../shadcn/toggle-group";
 import { CheckIcon } from "lucide-react";
-import { CLAUDE_MODELS, modelLabel, providerModels } from "../models";
-
-// Paliers d'effort — pas dupliqués au sens du bug signalé (seul le
-// catalogue de modèles désalignait General.tsx et Models.tsx), donc pas
-// déplacés dans models.ts.
-const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
-const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
 
 // Copié tel quel de Settings.tsx:85-109 — seul consommateur restant.
 function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
@@ -64,8 +70,10 @@ function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
   });
 }
 
-// Types locaux à la section setup (Settings.tsx:111-130) — seul consommateur
-// restant du statut d'installation.
+// Types locaux à l'ancienne section setup (Settings.tsx:111-130) — seul
+// consommateur restant : enrichir les lignes « Non disponibles » avec le
+// détail d'auth (login requis, commande de terminal…) que le catalogue
+// providerStatus n'expose pas (voir buildModelRows.ts, commentaire d'en-tête).
 type SetupProvider = {
   id: string;
   label: string;
@@ -87,6 +95,19 @@ type SetupStatus = {
   providers: SetupProvider[];
 };
 
+// Filtre textuel du tableau : appliqué ICI (pas dans ModelsGrid, qui reste
+// présentationnel — voir son commentaire d'en-tête). Ne trie ni ne réordonne
+// rien : un simple .filter() préserve la contiguïté par fournisseur que
+// ModelsGrid suppose pour regrouper ses radios ARIA.
+function filterModelRows(rows: ModelRow[], filter: string): ModelRow[] {
+  const q = filter.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((row) =>
+    row.label.toLowerCase().includes(q)
+    || row.modelId.toLowerCase().includes(q)
+    || row.providerLabel.toLowerCase().includes(q));
+}
+
 export default function Models(p: SectionProps) {
   const save = (patch: Partial<Settings>) => { p.set(patch); p.onSaved(); };
   const s = p.s;
@@ -94,9 +115,9 @@ export default function Models(p: SectionProps) {
   const modelEfforts = s.modelEfforts ?? {};
   const favoriteModels = s.favoriteModels ?? {};
 
-  // État local déménagé de Settings.tsx : setup (ex-« setup »), provs +
-  // opencode + apiProvs/apiForm/apiModels* (ex-« providers »), slug*
-  // (ex-« modeles »).
+  // État local déménagé de Settings.tsx : setup (auth des fournisseurs
+  // absents), provs (catalogue vivant, source de buildModelRows) +
+  // apiProvs/apiForm/apiModels* (fournisseurs API), slug* (ajout de slug).
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [provs, setProvs] = useState<ProviderCatalogRow[] | null>(null);
   const [apiProvs, setApiProvs] = useState<ApiProviderRow[]>([]);
@@ -108,21 +129,9 @@ export default function Models(p: SectionProps) {
   const [apiModelsError, setApiModelsError] = useState("");
   const [apiModelsBusy, setApiModelsBusy] = useState(false);
   const [apiModelsQuery, setApiModelsQuery] = useState("");
-  const [openCodeModelQuery, setOpenCodeModelQuery] = useState("");
   const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
   const [slugText, setSlugText] = useState("");
-
-  function toggleFavoriteModel(provider: string, model: string) {
-    const current = favoriteModels[provider] ?? [];
-    const next = current.includes(model)
-      ? current.filter((id) => id !== model)
-      : [...current, model];
-    save({ favoriteModels: { ...favoriteModels, [provider]: next } });
-  }
-
-  function refreshSetup() {
-    if (p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "setupStatus" }));
-  }
+  const [modelFilter, setModelFilter] = useState("");
 
   function authLabel(auth: string) {
     const labels: Record<string, string> = {
@@ -153,12 +162,11 @@ export default function Models(p: SectionProps) {
     return "ko";
   }
 
-  // Abonnement WebSocket : cette section n'écoute que ses propres types de
-  // message (providerStatus, setupStatus, apiProviders, listApiModels).
-  // providerStatus est aussi écouté par General.tsx — sans effet de bord,
-  // chaque section ne fait que dériver son propre état local en lecture
-  // seule. status/pastedCleared/pastedList/retitleAllDone appartiennent à
-  // General.tsx, pas ici.
+  // Abonnement WebSocket (inchangé) : cette section n'écoute que ses propres
+  // types de message (providerStatus, setupStatus, apiProviders,
+  // listApiModels). providerStatus est aussi écouté par General.tsx — sans
+  // effet de bord, chaque section ne fait que dériver son propre état local
+  // en lecture seule.
   useEffect(() => {
     const ws = p.ws;
     if (!ws || ws.readyState !== 1) return;
@@ -187,269 +195,209 @@ export default function Models(p: SectionProps) {
     return () => ws.removeEventListener("message", onMessage);
   }, [p.ws]);
 
+  // Dérivation pure (tâche 2) : catalogue + favoris + efforts + slugs +
+  // défauts → une ligne par modèle, plus les fournisseurs sans rien à
+  // montrer.
+  const { rows, unavailable } = buildModelRows(provs, s);
+  const filteredRows = filterModelRows(rows, modelFilter);
+
+  function handleSetDefault(row: ModelRow) {
+    save({ defaultModel: { ...s.defaultModel, [row.provider]: row.modelId } });
+  }
+
+  function handleToggleFavorite(row: ModelRow) {
+    const current = favoriteModels[row.provider] ?? [];
+    const next = row.isFavorite
+      ? current.filter((id) => id !== row.modelId)
+      : [...current, row.modelId];
+    save({ favoriteModels: { ...favoriteModels, [row.provider]: next } });
+  }
+
+  function handleSetEffort(row: ModelRow, effort: string) {
+    const key = `${row.provider}:${row.modelId}`;
+    const next = { ...modelEfforts };
+    if (effort) next[key] = effort;
+    else delete next[key];
+    save({ modelEfforts: next });
+  }
+
+  // Rangée récapitulative « Conversation neuve » (spec §6.1) : ce que
+  // donnera concrètement un nouveau fil, dérivé en lecture seule des mêmes
+  // réglages que le reste de la page — jamais un état local dupliqué.
+  const activeProviderRow = provs?.find((row) => row.id === s.defaultProvider) ?? null;
+  const activeModelId = s.defaultModel[s.defaultProvider] ?? "";
+  const activeModelLabel = activeModelId
+    ? modelDisplayLabel(s.defaultProvider, activeModelId, activeProviderRow?.modelLabels)
+    : t("settings.checking");
+  // L'effort par modèle (colonne Effort du tableau) prime sur l'effort par
+  // défaut du fournisseur — même règle que l'ancien Settings.tsx:820-844.
+  const perModelEffort = modelEfforts[`${s.defaultProvider}:${activeModelId}`];
+  const activeEffort = perModelEffort || s.defaultEffort[s.defaultProvider] || "";
+  const permissionLabels: Record<string, string> = {
+    bypassPermissions: t("permission.full"),
+    acceptEdits: t("permission.accept-edits"),
+    default: t("action.ask-default"),
+    plan: t("permission.plan"),
+  };
+  // Fournisseur de départ : segmenté à 2 options (Claude/Codex), comme
+  // l'ancien Select de General.tsx (Settings.tsx:500-544 avant migration) —
+  // les autres fournisseurs (API, Grok, opencode…) restent sélectionnables
+  // depuis le tableau via leur propre défaut, mais ne sont pas encore des
+  // fournisseurs de DÉPART complets (pas de defaultModel/defaultEffort dédié
+  // pour tous). Généraliser ce sélecteur est hors périmètre de cette tâche.
+  const providerLabelFor = (id: string) => (id === "claude" ? "Claude" : id === "codex" ? "Codex" : id);
+
   return (
     <>
       <h1>{t("settings.models")}</h1>
       <p className="set-sub">{t("settings.models-sub")}</p>
 
-      {/* Settings.tsx:597-609 — en-tête setup : titre propre + actions
-          (copier diagnostic, actualiser). h2 (pas h1) : correction de revue
-          — deux h1 coexistaient à l'écran, un défaut introduit par la
-          fusion (les trois anciennes sections s'excluaient mutuellement,
-          jamais deux h1 simultanés). Voir App.css:1350. */}
-      <div className="set-headline">
-        <div>
-          <h2>{t("settings.setup")}</h2>
-          <p className="set-sub">{t("settings.setup-sub")}</p>
-        </div>
-        <span className="set-headline-actions">
-          <Button variant="ghost" className="set-btn quiet" onClick={() => {
-            const details = { generatedAt: new Date().toISOString(), setup, wsConnected: p.ws?.readyState === 1 };
-            navigator.clipboard.writeText(JSON.stringify(details, null, 2));
-          }}>{t("settings.copy-details")}</Button>
-          <Button variant="ghost" className="set-btn quiet" onClick={refreshSetup}>{t("action.refresh")}</Button>
-        </span>
-      </div>
-      {/* Settings.tsx:610-614 */}
-      {p.ws?.readyState !== 1 && (
-        <InlineNotice tone="warning" className="set-notice">
-          {t("settings.sidecar-disconnected-notice")}
-        </InlineNotice>
-      )}
-      {/* Settings.tsx:615 */}
-      {!setup && <p className="set-empty">{t("settings.checking")}</p>}
-      {/* Settings.tsx:616-670 */}
-      {setup && (
-        <>
-          <Group label={t("settings.setup-runtime")}>
-            <Row title={t("settings.setup-node")}
-              desc={`${setup.runtime.version} — ${setup.runtime.node}`}>
-              <span className={`set-badge ${setup.runtime.bundled ? "ok" : "warn"}`}>
-                {setup.runtime.bundled ? t("settings.setup-bundled") : t("settings.setup-system")}
-              </span>
-            </Row>
-            <Row title={t("settings.setup-sidecar")}
-              desc={`${setup.sidecar.appVersion} · pid ${setup.sidecar.pid} · ${setup.sidecar.dir}`}>
-              <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
-                {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
-              </span>
-            </Row>
-          </Group>
-          <Group label={t("settings.setup-providers")}>
-            {setup.providers.map((pr) => (
-              <Row key={pr.id} title={pr.label}
-                desc={pr.kind === "api"
-                  ? `${t("settings.provider-api")} · ${pr.defaultModel ?? ""}`
-                  : (pr.binPath || t("settings.path-missing"))}>
-                <span className={`set-badge ${pr.installed ? "ok" : "ko"}`}>
-                  {pr.installed ? t("settings.detected") : t("settings.absent")}
-                </span>
-                <span className={`set-badge ${authClass(pr.auth)}`}>
-                  {authLabel(pr.auth)}
-                </span>
-                {pr.auth === "login_needed" && pr.loginCommand ? (
-                  // ouvre le terminal Atelier avec la commande exacte
-                  // annoncée par le harnais (jamais le canal stdio ACP) ;
-                  // après le login : Refresh ⇒ authenticate + modèles.
-                  <Button
-                    variant="secondary"
-                    className="set-btn"
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent("atelier-terminal-command", {
-                          detail: { command: pr.loginCommand },
-                        }),
-                      )
-                    }
-                  >
-                    {t("settings.setup-login-terminal")}
-                  </Button>
-                ) : null}
-                <span className="setup-model-count">
-                  {pr.models} {t("settings.api-models-count")}
-                </span>
-                {pr.version && <span className="setup-version">{pr.version}</span>}
-              </Row>
-            ))}
-          </Group>
-        </>
-      )}
-
-      {/* Settings.tsx:1010-1051 — catalogue provs : ordre du picker +
-          visibilité. */}
-      {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
-      {provs && (() => {
-        // ordre du picker : providerOrder d'abord, puis le reste dans l'ordre du catalogue
-        const order = s.providerOrder ?? [];
-        const hidden = new Set(s.hiddenProviders ?? []);
-        const sorted = [...provs].sort((a, b) => {
-          const ra = order.indexOf(a.id), rb = order.indexOf(b.id);
-          return (ra === -1 ? order.length + provs.findIndex((x) => x.id === a.id) : ra)
-            - (rb === -1 ? order.length + provs.findIndex((x) => x.id === b.id) : rb);
-        });
-        const move = (id: string, dir: -1 | 1) => {
-          const ids = sorted.map((x) => x.id);
-          const i = ids.indexOf(id);
-          const j = i + dir;
-          if (j < 0 || j >= ids.length) return;
-          [ids[i], ids[j]] = [ids[j], ids[i]];
-          save({ providerOrder: ids });
-        };
-        return (
-          <Group>
-            {sorted.map((pr, i) => (
-              <Row key={pr.id} title={pr.label}
-                desc={pr.ok
-                  ? (pr.kind === "api" ? t("settings.provider-api") : pr.version ?? "")
-                  : (pr.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}>
-                <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
-                  {pr.ok ? t("settings.detected") : t("settings.absent")}
-                </span>
-                <Button variant="ghost" className="set-btn quiet" disabled={i === 0}
-                  title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</Button>
-                <Button variant="ghost" className="set-btn quiet" disabled={i === sorted.length - 1}
-                  title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</Button>
-                <Toggle label={pr.label} checked={!hidden.has(pr.id)} onChange={(v) => {
-                  const next = new Set(s.hiddenProviders ?? []);
-                  if (v) next.delete(pr.id); else next.add(pr.id);
-                  save({ hiddenProviders: [...next] });
-                }} />
-              </Row>
-            ))}
-          </Group>
-        );
-      })()}
-      {/* Settings.tsx:1052 */}
-      <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
-
-      {/* Settings.tsx:1053-1117 — recherche + favoris OpenCode. */}
-      {(() => {
-        const provider = provs?.find((row) => row.id === "opencode");
-        if (!provider) return null;
-        const favorites = favoriteModels.opencode ?? [];
-        const query = openCodeModelQuery.trim().toLowerCase();
-        const models = (provider.models ?? []).filter((id) => {
-          if (!query) return true;
-          return id.toLowerCase().includes(query)
-            || modelDisplayLabel("opencode", id).toLowerCase().includes(query);
-        });
-        return (
-          <Group label={t("settings.opencode-models")}>
-            <Row
-              title={t("settings.opencode-models")}
-              desc={t("settings.opencode-models-sub", {
-                favorites: favorites.length,
-                total: provider.models?.length ?? 0,
-              })}
-            >
-              <Field className="set-model-search-field">
-                <FieldLabel className="tw:sr-only">{t("settings.model-search")}</FieldLabel>
-                <InputGroup>
-                  <InputGroupInput
-                    value={openCodeModelQuery}
-                    placeholder={t("settings.model-search")}
-                    onChange={(event) => setOpenCodeModelQuery(event.target.value)}
-                  />
-                  <InputGroupAddon align="inline-end">
-                    <InputGroupButton
-                      onClick={() => p.ws?.readyState === 1
-                        && p.ws.send(JSON.stringify({ type: "providerStatus" }))}
-                    >
-                      {t("action.refresh")}
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                </InputGroup>
-              </Field>
-            </Row>
-            <ScrollArea className="set-model-scroll">
-              <div className="set-model-list">
-                {models.map((id) => {
-                  const favorite = favorites.includes(id);
-                  return (
-                    <Row key={id} title={modelDisplayLabel("opencode", id)} desc={id}>
-                      <ShadcnToggle
-                        size="sm"
-                        className="set-model-favorite tw:size-7 tw:min-w-7 tw:border tw:border-transparent tw:p-0"
-                        pressed={favorite}
-                        aria-label={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
-                        title={favorite ? t("action.remove-favorite") : t("action.add-favorite")}
-                        onPressedChange={() => toggleFavoriteModel("opencode", id)}
-                      >
-                        <StarIcon size={14} />
-                      </ShadcnToggle>
-                    </Row>
-                  );
-                })}
-                {!models.length && (
-                  <p className="set-empty">{t("settings.model-no-match")}</p>
-                )}
-              </div>
-            </ScrollArea>
-          </Group>
-        );
-      })()}
-
-      {/* Settings.tsx:794-819 — ajouter un slug personnalisé. */}
+      {/* Bloc 1 : Au lancement d'une conversation (spec §6.1). */}
+      <h2>{t("settings.models-startup")}</h2>
       <Group>
-        <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
-          <Select
-            title={t("settings.slug-add")}
-            value={slugProv}
-            onChange={(value) => setSlugProv(value as "claude" | "codex")}
+        <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
+          <SegmentedControl
+            label={t("settings.default-provider")}
+            value={s.defaultProvider}
+            onChange={(value) => save({ defaultProvider: value })}
             options={[
               { value: "claude", label: "Claude" },
               { value: "codex", label: "Codex" },
             ]}
           />
-          <Input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
-            onChange={(e) => setSlugText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && slugText.trim()) {
-                save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
-                setSlugText("");
-              }
-            }} />
-          <Button className="set-btn" onClick={() => {
-            if (!slugText.trim()) return;
-            save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
-            setSlugText("");
-          }}><PlusIcon /> {t("action.add")}</Button>
+        </Row>
+        <Row title={t("settings.models-new-thread")}>
+          <span className="set-row-static">
+            {t("settings.models-new-thread-desc", {
+              provider: providerLabelFor(s.defaultProvider),
+              model: activeModelLabel,
+              effort: activeEffort || t("common.provider-default"),
+              permission: permissionLabels[s.defaultPermissionMode] ?? s.defaultPermissionMode,
+            })}
+          </span>
         </Row>
       </Group>
 
-      {/* Settings.tsx:820-844 — effort par modèle. */}
-      <Group label={t("settings.model-effort-sub")}>
-        {([
-          ...CLAUDE_MODELS.filter((m) => m.id).map((m) => ({ provider: "claude" as const, ...m })),
-          ...providerModels("codex", provs, s.defaultModel).filter((m) => m.id).map((m) => ({ provider: "codex" as const, ...m })),
-          ...customModels.map((m) => ({ provider: m.provider, id: m.id, label: m.id })),
-        ]).map((m) => {
-          const key = m.provider + ":" + m.id;
-          const efforts = m.provider === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
-          return (
-            <Row key={key} title={modelLabel(m)} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-              <Select
-                title={modelLabel(m)}
-                value={modelEfforts[key] ?? ""}
-                onChange={(value) => {
-                  const next = { ...modelEfforts };
-                  if (value) next[key] = value;
-                  else delete next[key];
-                  save({ modelEfforts: next });
-                }}
-                options={efforts.map((l) => ({ value: l, label: l === "" ? t("common.provider-default") : l }))}
-              />
-            </Row>
-          );
-        })}
-      </Group>
+      {p.ws?.readyState !== 1 && (
+        <InlineNotice tone="warning" className="set-notice">
+          {t("settings.sidecar-disconnected-notice")}
+        </InlineNotice>
+      )}
 
-      {/* Repli « Avancé » : fournisseurs API (Settings.tsx:1118-1248) et
-          slugs enregistrés (Settings.tsx:845-860) — dans chaque section
-          d'origine, ces deux blocs étaient déjà les derniers, les moins
-          consultés au quotidien (CRUD d'endpoint personnalisé, gestion des
-          slugs déjà ajoutés). */}
-      <Advanced count={2}>
+      {/* Bloc 2 : le tableau dense (spec §6.2, tâche 3). */}
+      <h2>{t("settings.models-table")}</h2>
+      {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
+      <ModelsGrid
+        rows={filteredRows}
+        onSetDefault={handleSetDefault}
+        onToggleFavorite={handleToggleFavorite}
+        onSetEffort={handleSetEffort}
+        filter={modelFilter}
+        onFilterChange={setModelFilter}
+      />
+
+      {/* Bloc 3 : Non disponibles — un fournisseur SANS AUCUN modèle
+          exploitable (voir buildModelRows.ts). L'information d'installation
+          de l'ancienne section setup devient ici la pastille d'état et le
+          bouton de la ligne, jamais une seconde liste complète. */}
+      {unavailable.length > 0 && (
+        <>
+          <h2>{t("settings.models-unavailable")}</h2>
+          <p className="set-sub">{t("settings.models-unavailable-sub")}</p>
+          <Group>
+            {unavailable.map((row) => {
+              const su = setup?.providers.find((sp) => sp.id === row.id) ?? null;
+              return (
+                <Row
+                  key={row.id}
+                  title={row.label}
+                  desc={su
+                    ? (su.kind === "api"
+                      ? `${t("settings.provider-api")} · ${su.defaultModel ?? ""}`
+                      : (su.binPath || t("settings.path-missing")))
+                    : (row.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}
+                >
+                  <span className={`set-badge ${row.ok ? "ok" : "ko"}`}>
+                    {row.ok ? t("settings.detected") : t("settings.absent")}
+                  </span>
+                  {su && (
+                    <span className={`set-badge ${authClass(su.auth)}`}>{authLabel(su.auth)}</span>
+                  )}
+                  {su?.auth === "login_needed" && su.loginCommand ? (
+                    // ouvre le terminal Atelier avec la commande exacte
+                    // annoncée par le harnais ; après le login : la ligne se
+                    // rafraîchit au prochain providerStatus/setupStatus.
+                    <Button
+                      variant="secondary"
+                      className="set-btn"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("atelier-terminal-command", {
+                            detail: { command: su.loginCommand },
+                          }),
+                        )
+                      }
+                    >
+                      {t("settings.setup-login-terminal")}
+                    </Button>
+                  ) : null}
+                  {row.version && <span className="setup-version">{row.version}</span>}
+                </Row>
+              );
+            })}
+          </Group>
+        </>
+      )}
+
+      {/* Bloc 4 : Avancé — ordre du sélecteur, fournisseurs API, slugs
+          personnalisés (spec §6.1/§6.2). Chaque sous-bloc porte désormais son
+          étiquette : le groupe « ordre du sélecteur » n'en avait AUCUNE
+          avant cette tâche (revue du lot 1). */}
+      <Advanced count={3}>
+        <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
+        {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
+        {provs && (() => {
+          // ordre du picker : providerOrder d'abord, puis le reste dans l'ordre du catalogue
+          const order = s.providerOrder ?? [];
+          const hidden = new Set(s.hiddenProviders ?? []);
+          const sorted = [...provs].sort((a, b) => {
+            const ra = order.indexOf(a.id), rb = order.indexOf(b.id);
+            return (ra === -1 ? order.length + provs.findIndex((x) => x.id === a.id) : ra)
+              - (rb === -1 ? order.length + provs.findIndex((x) => x.id === b.id) : rb);
+          });
+          const move = (id: string, dir: -1 | 1) => {
+            const ids = sorted.map((x) => x.id);
+            const i = ids.indexOf(id);
+            const j = i + dir;
+            if (j < 0 || j >= ids.length) return;
+            [ids[i], ids[j]] = [ids[j], ids[i]];
+            save({ providerOrder: ids });
+          };
+          return (
+            <Group label={t("settings.models-picker-order")}>
+              {sorted.map((pr, i) => (
+                <Row key={pr.id} title={pr.label}
+                  desc={pr.ok
+                    ? (pr.kind === "api" ? t("settings.provider-api") : pr.version ?? "")
+                    : (pr.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}>
+                  <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
+                    {pr.ok ? t("settings.detected") : t("settings.absent")}
+                  </span>
+                  <Button variant="ghost" className="set-btn quiet" disabled={i === 0}
+                    title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</Button>
+                  <Button variant="ghost" className="set-btn quiet" disabled={i === sorted.length - 1}
+                    title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</Button>
+                  <Toggle label={pr.label} checked={!hidden.has(pr.id)} onChange={(v) => {
+                    const next = new Set(s.hiddenProviders ?? []);
+                    if (v) next.delete(pr.id); else next.add(pr.id);
+                    save({ hiddenProviders: [...next] });
+                  }} />
+                </Row>
+              ))}
+            </Group>
+          );
+        })()}
+
         <Group label={t("settings.api-providers")}>
           {apiProvs.map((ap) => (
             <Row key={ap.id} title={ap.label}
@@ -581,22 +529,44 @@ export default function Models(p: SectionProps) {
             </div>
           )}
         </Group>
-        <div className="set-group">
-          <div className="set-group-label">{t("settings.slug-saved")}</div>
+
+        <Group label={t("settings.models-slug-group")}>
+          <Row title={t("settings.slug-add")} desc={t("settings.slug-add-desc")}>
+            <Select
+              title={t("settings.slug-add")}
+              value={slugProv}
+              onChange={(value) => setSlugProv(value as "claude" | "codex")}
+              options={[
+                { value: "claude", label: "Claude" },
+                { value: "codex", label: "Codex" },
+              ]}
+            />
+            <Input className="set-text" placeholder={t("settings.slug-placeholder")} value={slugText}
+              onChange={(e) => setSlugText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && slugText.trim()) {
+                  save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
+                  setSlugText("");
+                }
+              }} />
+            <Button className="set-btn" onClick={() => {
+              if (!slugText.trim()) return;
+              save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
+              setSlugText("");
+            }}><PlusIcon /> {t("action.add")}</Button>
+          </Row>
           {customModels.length > 0 ? (
-            <div className="set-card">
-              {customModels.map((m, i) => (
-                <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                  <Button variant="ghost" className="set-btn quiet" onClick={() =>
-                    save({ customModels: customModels.filter((_, j) => j !== i) })
-                  }>{t("action.remove")}</Button>
-                </Row>
-              ))}
-            </div>
+            customModels.map((m, i) => (
+              <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
+                <Button variant="ghost" className="set-btn quiet" onClick={() =>
+                  save({ customModels: customModels.filter((_, j) => j !== i) })
+                }>{t("action.remove")}</Button>
+              </Row>
+            ))
           ) : (
             <p className="set-empty">{t("settings.no-custom-models")}</p>
           )}
-        </div>
+        </Group>
       </Advanced>
     </>
   );
