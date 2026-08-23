@@ -51,21 +51,34 @@ describe("FakeWS", () => {
     expect(events).toEqual(["onopen", "listener:open", "onclose", "listener:close"]);
   });
 
-  it("n'appelle pas onmessage deux fois quand addEventListener est aussi utilisé (pas de double livraison)", () => {
+  it("deux styles d'abonnement (onmessage et addEventListener) coexistent sans se voler l'événement", () => {
+    // Ceci teste la coexistence de deux ABONNÉS DISTINCTS, pas la double
+    // livraison à un même abonné (voir le test suivant pour ce risque-là).
     const ws = new FakeWS("ws://test");
     const onMessageCalls: unknown[] = [];
     const listenerCalls: unknown[] = [];
 
-    // Deux styles branchés simultanément, chacun avec son propre callback.
     ws.onmessage = (e) => onMessageCalls.push(JSON.parse(e.data));
     ws.addEventListener("message", (e) => listenerCalls.push(JSON.parse((e as MessageEvent).data)));
 
     ws.emit({ type: "once" });
 
-    // Chaque abonné reçoit l'événement une seule fois — pas de double
-    // livraison au sein d'un même chemin d'abonnement.
     expect(onMessageCalls).toEqual([{ type: "once" }]);
     expect(listenerCalls).toEqual([{ type: "once" }]);
+  });
+
+  it("un même onmessage n'est invoqué qu'une seule fois par emit() (pas de double dispatch)", () => {
+    // Le vrai risque : un bug d'implémentation qui ferait addEventListener
+    // sans removeEventListener préalable, ou qui appellerait le handler
+    // manuellement EN PLUS du dispatch — le même chemin serait alors
+    // invoqué deux fois pour un seul événement.
+    const ws = new FakeWS("ws://test");
+    const handler = vi.fn();
+
+    ws.onmessage = handler;
+    ws.emit({ type: "once" });
+
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("réassigner onmessage détache l'ancien gestionnaire (pas d'accumulation)", () => {
@@ -79,5 +92,28 @@ describe("FakeWS", () => {
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("réassigner onmessage à la même référence reste idempotent (pas de doublon)", () => {
+    const ws = new FakeWS("ws://test");
+    const handler = vi.fn();
+
+    ws.onmessage = handler;
+    ws.onmessage = handler; // même référence, deux fois de suite
+    ws.emit({ type: "ping" });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("onmessage = null neutralise l'abonnement (motif de src/lib/ws.ts:313, onclose = null à l'abort)", () => {
+    const ws = new FakeWS("ws://test");
+    const handler = vi.fn();
+
+    ws.onmessage = handler;
+    ws.onmessage = null; // équivalent de ws.onclose = null utilisé en production pour désarmer la reconnexion
+    ws.emit({ type: "ping" });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(ws.onmessage).toBeNull();
   });
 });
