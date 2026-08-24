@@ -37,7 +37,12 @@ const MODEL_CATALOG_TTL: Duration = Duration::from_secs(5 * 60);
 const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_CATALOG_MODELS: usize = 5_000;
 
-fn parse_model_catalog(output: &str) -> Vec<String> {
+/// Itère les lignes valides d'une sortie `opencode models` : non vides, avec
+/// un slash, sans espace ni `://`, pas trop longues, dédoublonnées et
+/// plafonnées à `MAX_CATALOG_MODELS`. Partagé par `parse_model_catalog` et
+/// `parse_routed_models` pour que les deux vues du catalogue ne puissent
+/// jamais diverger.
+fn filtered_catalog_lines(output: &str) -> impl Iterator<Item = &str> {
     let mut seen = HashSet::new();
     output
         .lines()
@@ -49,9 +54,63 @@ fn parse_model_catalog(output: &str) -> Vec<String> {
                 && !line.contains("://")
                 && !line.chars().any(char::is_whitespace)
         })
-        .filter(|line| seen.insert((*line).to_string()))
+        .filter(move |line| seen.insert(*line))
         .take(MAX_CATALOG_MODELS)
-        .map(str::to_string)
+}
+
+fn parse_model_catalog(output: &str) -> Vec<String> {
+    filtered_catalog_lines(output).map(str::to_string).collect()
+}
+
+/// Un identifiant de modèle renvoyé par opencode n'est pas un nom de modèle
+/// plat : c'est une route. Le premier segment est la passerelle
+/// (`opencode`, `openrouter`, `kimi-for-coding`…), un éventuel segment
+/// intermédiaire est l'éditeur (`z-ai`, `deepseek`…), et le reste est le nom
+/// du modèle. `id` reste la chaîne d'origine exacte — c'est elle qu'on
+/// renvoie au CLI — alors que `leaf` sert seulement à l'affichage.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutedModel {
+    pub id: String,
+    pub gateway: String,
+    pub vendor: Option<String>,
+    pub leaf: String,
+    pub free: bool,
+}
+
+/// Découpe un identifiant routé unique. `id` est toujours la ligne complète
+/// et inchangée ; seul `leaf` perd le suffixe `:free`/`-free`. Au-delà de
+/// trois segments, tout le reste (avec ses slashes) atterrit dans `leaf` —
+/// on ne perd jamais d'information, quitte à afficher un nom long.
+fn split_routed_model(id: &str) -> RoutedModel {
+    let (sans_suffixe, free) = if let Some(s) = id.strip_suffix(":free") {
+        (s, true)
+    } else if let Some(s) = id.strip_suffix("-free") {
+        (s, true)
+    } else {
+        (id, false)
+    };
+    let mut segments = sans_suffixe.splitn(3, '/');
+    let gateway = segments.next().unwrap_or_default().to_string();
+    let second = segments.next();
+    let third = segments.next();
+    let (vendor, leaf) = match (second, third) {
+        (Some(v), Some(l)) => (Some(v.to_string()), l.to_string()),
+        (Some(v), None) => (None, v.to_string()),
+        (None, _) => (None, String::new()),
+    };
+    RoutedModel {
+        id: id.to_string(),
+        gateway,
+        vendor,
+        leaf,
+        free,
+    }
+}
+
+pub fn parse_routed_models(output: &str) -> Vec<RoutedModel> {
+    filtered_catalog_lines(output)
+        .map(split_routed_model)
         .collect()
 }
 
@@ -692,6 +751,79 @@ mod tests {
             "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\n\nwarning ignored\nopencode/glm-5.2\n",
         );
         assert_eq!(models, vec!["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"]);
+    }
+
+    #[test]
+    fn decoupe_une_route_a_deux_segments() {
+        let r = parse_routed_models("opencode/glm-5.2\n");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "opencode/glm-5.2");
+        assert_eq!(r[0].gateway, "opencode");
+        assert_eq!(r[0].vendor, None);
+        assert_eq!(r[0].leaf, "glm-5.2");
+        assert!(!r[0].free);
+    }
+
+    #[test]
+    fn decoupe_une_route_a_trois_segments() {
+        let r = parse_routed_models("openrouter/z-ai/glm-5.2\n");
+        assert_eq!(r[0].gateway, "openrouter");
+        assert_eq!(r[0].vendor, Some("z-ai".to_string()));
+        assert_eq!(r[0].leaf, "glm-5.2");
+    }
+
+    #[test]
+    fn detecte_le_suffixe_gratuit() {
+        let r = parse_routed_models("openrouter/deepseek/deepseek-v4:free\n");
+        assert!(r[0].free);
+        assert_eq!(r[0].leaf, "deepseek-v4", "le suffixe ne fait pas partie du nom");
+        assert_eq!(
+            r[0].id, "openrouter/deepseek/deepseek-v4:free",
+            "l'id reste EXACT"
+        );
+    }
+
+    #[test]
+    fn plus_de_trois_segments_le_reste_va_dans_la_feuille() {
+        // Rien n'interdit à une passerelle d'ajouter des niveaux. On ne perd rien.
+        let r = parse_routed_models("openrouter/a/b/c-1.0\n");
+        assert_eq!(r[0].gateway, "openrouter");
+        assert_eq!(r[0].vendor, Some("a".to_string()));
+        assert_eq!(r[0].leaf, "b/c-1.0");
+    }
+
+    #[test]
+    fn applique_les_memes_filtres_que_le_catalogue_existant() {
+        // Mêmes rejets que parse_model_catalog : vide, sans slash, avec espace,
+        // avec ://, trop long, et dédoublonnage.
+        let entree = "\n\
+            sans-slash\n\
+            avec espace/modele\n\
+            https://exemple.dev/modele\n\
+            opencode/glm-5.2\n\
+            opencode/glm-5.2\n";
+        let r = parse_routed_models(entree);
+        assert_eq!(r.len(), 1, "un seul survivant, dédoublonné");
+        assert_eq!(r[0].id, "opencode/glm-5.2");
+    }
+
+    #[test]
+    fn respecte_le_plafond_du_catalogue() {
+        let entree: String = (0..6_000).map(|i| format!("openrouter/v/m{i}\n")).collect();
+        assert_eq!(parse_routed_models(&entree).len(), MAX_CATALOG_MODELS);
+    }
+
+    #[test]
+    fn accord_avec_parse_model_catalog() {
+        // Les deux fonctions doivent voir exactement les mêmes lignes : si elles
+        // divergent, le tableau `models` et les routes décrivent deux mondes.
+        let entree = "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\nsans-slash\n";
+        let plats = parse_model_catalog(entree);
+        let routes = parse_routed_models(entree);
+        assert_eq!(plats.len(), routes.len());
+        for (plat, route) in plats.iter().zip(routes.iter()) {
+            assert_eq!(plat, &route.id);
+        }
     }
 
     #[test]
