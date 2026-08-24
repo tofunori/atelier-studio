@@ -26,15 +26,32 @@ export type Route = {
 
 export type ModelGroup = {
   key: string; // clé stable du groupe (leaf normalisé, ou id de route en repli)
-  label: string; // nom humain du modèle (leaf de la première route rencontrée)
+  label: string; // nom humain du modèle (leaf brut de la première route rencontrée — voir décision ci-dessous)
   vendor: string | null; // éditeur commun à toutes les routes du groupe, sinon null
   routes: Route[];
   pinnedCount: number;
 };
 
 // Normalise un `leaf` pour la clé de regroupement : `trim` + minuscules.
-// Deux routes dont le nom de modèle ne diffère que par la casse ou des
-// espaces superflus (bruit de catalogue) fusionnent quand même.
+//
+// **Décision de conception documentée (revue post-implémentation) :** ceci
+// est une SECONDE décision de fusion, de même nature que celle sur les
+// `vendor` différents ci-dessous, mais sur la casse/les espaces plutôt que
+// sur l'éditeur. `GLM-5.2` et `glm-5.2` fusionnent délibérément dans le même
+// groupe : ce sont, pour l'utilisateur, le même nom de modèle, et un
+// catalogue qui les séparerait à cause d'une incohérence de casse du
+// backend serait moins lisible, pas plus exact. Testé explicitement (voir
+// "fusionne deux routes dont le leaf ne diffère que par la casse/espaces").
+//
+// Conséquence assumée sur `label` : quand deux routes fusionnées ne
+// diffèrent QUE par la casse, le libellé affiché est celui de la PREMIÈRE
+// route rencontrée dans le tableau d'entrée — dépendant de l'ordre
+// d'arrivée, pas d'une règle de tri. Le risque est jugé faible (un backend
+// qui varie la casse du même modèle route par route serait déjà un bug
+// côté catalogue) et le comportement reste déterministe pour un tableau
+// d'entrée donné (voir le test de clés stables entre deux appels) ; aucune
+// règle de préférence (alphabétique, la plus fréquente…) n'a été ajoutée
+// faute de signal qu'elle serait utile.
 function normalizeLeaf(leaf: string): string {
   return leaf.trim().toLowerCase();
 }
@@ -80,6 +97,10 @@ export function groupRoutes(routes: Route[], pinned: string[]): ModelGroup[] {
     // `split_routed_model`), mais si jamais il l'était, fusionner toutes
     // ces routes sous une seule clé "" masquerait des modèles distincts.
     // Chaque route au leaf vide reste donc son propre groupe, sur son id.
+    // Assumé SANS TEST : la branche est sourcée sur l'inatteignabilité
+    // documentée côté Rust (le seul bras qui produirait un leaf vide dans
+    // `split_routed_model` est un `match` marqué « inatteignable » par son
+    // propre commentaire), donc jugée non prioritaire à simuler ici.
     const key = normalized.length > 0 ? normalized : `__empty-leaf__:${route.id}`;
 
     let entry = byKey.get(key);
@@ -117,22 +138,34 @@ export function groupRoutes(routes: Route[], pinned: string[]): ModelGroup[] {
  *   restantes contient la requête (comparaison insensible à la casse).
  *   Ne retire pas de routes individuelles à l'intérieur d'un groupe gardé —
  *   seul le filtre de passerelle réduit les routes.
+ * - `pinned` : mêmes identifiants de route que ceux passés à `groupRoutes`.
+ *
+ * Correction post-revue : la première version de cette fonction ne prenait
+ * pas `pinned` et laissait `pinnedCount` hérité tel quel du groupe complet
+ * après un filtre de passerelle — un groupe à deux routes épinglées, réduit
+ * à une seule route visible, continuait donc d'afficher `pinnedCount: 2`.
+ * Signature corrigée : `pinnedCount` est désormais TOUJOURS recalculé ici à
+ * partir des routes du résultat (post-filtre passerelle) et de `pinned`,
+ * jamais hérité du groupe d'entrée — un compte faux dans le cas d'usage
+ * principal (afficher combien de routes VISIBLES sont épinglées) est pire
+ * qu'un paramètre de plus.
  */
-export function filterGroups(groups: ModelGroup[], gateway: string | null, query: string): ModelGroup[] {
-  // `pinnedCount` n'est PAS recalculé ici : cette fonction ne reçoit pas la
-  // liste `pinned` (signature du brief, confirmée dans l'interface fournie
-  // — seuls `groups`, `gateway` et `query` lui parviennent), donc elle ne
-  // peut pas savoir lesquelles des routes survivantes sont épinglées. Le
-  // recalculer à l'aveugle produirait silencieusement un compte erroné
-  // (souvent 0) plutôt que le compte honnête déjà posé par `groupRoutes`.
-  // Ce compte reste donc celui du groupe complet, avant filtrage.
+export function filterGroups(groups: ModelGroup[], gateway: string | null, query: string, pinned: string[]): ModelGroup[] {
+  const pinnedSet = new Set(pinned);
+  // Toujours recalculé, même quand `gateway` est nul (routes inchangées) :
+  // ainsi `pinnedCount` reste correct même si `pinned` a bougé (pin/unpin)
+  // depuis la dernière construction des groupes par `groupRoutes`, plutôt
+  // que de dépendre d'une hypothèse de cohérence entre les deux appels.
+  const withCount = (g: ModelGroup, routes: Route[]): ModelGroup => ({
+    ...g,
+    routes,
+    pinnedCount: countPinned(routes, pinnedSet),
+  });
+
   const byGateway = gateway === null
-    ? groups
+    ? groups.map((g) => withCount(g, g.routes))
     : groups
-        .map((g) => {
-          const routes = g.routes.filter((r) => r.gateway === gateway);
-          return routes.length === g.routes.length ? g : { ...g, routes };
-        })
+        .map((g) => withCount(g, g.routes.filter((r) => r.gateway === gateway)))
         .filter((g) => g.routes.length > 0);
 
   const q = query.trim().toLowerCase();

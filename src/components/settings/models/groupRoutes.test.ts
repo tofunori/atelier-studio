@@ -46,7 +46,10 @@ describe("groupRoutes", () => {
     // openrouter/a/mixtral et openrouter/b/mixtral : même passerelle, même
     // leaf, vendor différents. Cohérent avec glmOpencode/glmOpenrouter
     // ci-dessus (vendor null vs "z-ai" et pourtant même modèle) : le
-    // regroupement ignore `vendor`, groupe par `leaf` seul.
+    // regroupement ignore `vendor`, groupe par `leaf` seul. Sur OpenRouter,
+    // le second segment d'une route à trois segments désigne en réalité un
+    // fournisseur d'INFRASTRUCTURE hébergeant le même modèle, pas un
+    // éditeur différent — raison d'être du routage, confirmée en revue.
     const a: Route = { id: "openrouter/a/mixtral", gateway: "openrouter", vendor: "a", leaf: "mixtral", free: false };
     const b: Route = { id: "openrouter/b/mixtral", gateway: "openrouter", vendor: "b", leaf: "mixtral", free: false };
     const groups = groupRoutes([a, b], []);
@@ -54,6 +57,17 @@ describe("groupRoutes", () => {
     expect(groups[0].routes).toHaveLength(2);
     // Vendor du groupe : null, puisque les routes membres ne s'accordent pas.
     expect(groups[0].vendor).toBeNull();
+  });
+
+  it("fusionne deux routes dont le leaf ne diffère que par la casse ou les espaces", () => {
+    // Décision documentée dans normalizeLeaf : GLM-5.2 et glm-5.2 sont le
+    // même nom de modèle pour l'utilisateur ; une incohérence de casse du
+    // backend ne doit pas les séparer en deux groupes.
+    const upper: Route = { id: "opencode/GLM-5.2", gateway: "opencode", vendor: null, leaf: "GLM-5.2", free: false };
+    const padded: Route = { id: "openrouter/z-ai/ glm-5.2 ", gateway: "openrouter", vendor: "z-ai", leaf: " glm-5.2 ", free: false };
+    const groups = groupRoutes([upper, padded], []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].routes).toHaveLength(2);
   });
 
   it("le vendor du groupe est reporté quand toutes les routes s'accordent", () => {
@@ -118,11 +132,11 @@ describe("filterGroups", () => {
   const groups = groupRoutes([glmOpencode, glmOpenrouter, kimiForCoding, deepseekFree, kimiK3Openrouter], []);
 
   it("sans filtre (gateway null, query vide) renvoie tous les groupes", () => {
-    expect(filterGroups(groups, null, "")).toHaveLength(groups.length);
+    expect(filterGroups(groups, null, "", [])).toHaveLength(groups.length);
   });
 
   it("le filtre par passerelle ne garde que les routes de cette passerelle", () => {
-    const filtered = filterGroups(groups, "openrouter", "");
+    const filtered = filterGroups(groups, "openrouter", "", []);
     const glm = filtered.find((g) => g.label === "glm-5.2")!;
     // Le groupe glm-5.2 avait 2 routes (opencode + openrouter) ; seule celle
     // d'openrouter doit survivre.
@@ -134,45 +148,70 @@ describe("filterGroups", () => {
     // kimiForCoding est le SEUL membre de son groupe et sa gateway est
     // "kimi-for-coding" : filtrer sur "openrouter" doit faire disparaître ce
     // groupe entièrement, pas le laisser vide dans le résultat.
-    const filtered = filterGroups(groups, "openrouter", "");
+    const filtered = filterGroups(groups, "openrouter", "", []);
     expect(filtered.some((g) => g.label === "k3")).toBe(false);
     expect(filtered.every((g) => g.routes.length > 0)).toBe(true);
   });
 
   it("une passerelle sans aucune correspondance renvoie un tableau vide", () => {
-    expect(filterGroups(groups, "inexistante", "")).toEqual([]);
+    expect(filterGroups(groups, "inexistante", "", [])).toEqual([]);
   });
 
   it("la recherche porte sur le nom du modèle", () => {
-    const filtered = filterGroups(groups, null, "glm");
+    const filtered = filterGroups(groups, null, "glm", []);
     expect(filtered.map((g) => g.label)).toEqual(["glm-5.2"]);
   });
 
   it("la recherche porte aussi sur l'identifiant complet de route", () => {
     // "z-ai" n'apparaît pas dans le label ("glm-5.2") mais dans l'id complet
     // de la route openrouter.
-    const filtered = filterGroups(groups, null, "z-ai");
+    const filtered = filterGroups(groups, null, "z-ai", []);
     expect(filtered.map((g) => g.label)).toEqual(["glm-5.2"]);
   });
 
   it("la recherche est insensible à la casse", () => {
-    const filtered = filterGroups(groups, null, "DEEPSEEK");
+    const filtered = filterGroups(groups, null, "DEEPSEEK", []);
     expect(filtered.map((g) => g.label)).toEqual(["deepseek-v4"]);
   });
 
   it("une recherche sans correspondance renvoie un tableau vide", () => {
-    expect(filterGroups(groups, null, "modèle-inexistant-xyz")).toEqual([]);
+    expect(filterGroups(groups, null, "modèle-inexistant-xyz", [])).toEqual([]);
   });
 
   it("combine passerelle et recherche", () => {
-    const filtered = filterGroups(groups, "openrouter", "glm");
+    const filtered = filterGroups(groups, "openrouter", "glm", []);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].routes.map((r) => r.gateway)).toEqual(["openrouter"]);
   });
 
   it("ne mute pas le tableau de groupes reçu", () => {
     const before = JSON.parse(JSON.stringify(groups));
-    filterGroups(groups, "openrouter", "glm");
+    filterGroups(groups, "openrouter", "glm", []);
     expect(groups).toEqual(before);
+  });
+
+  // --- Test croisé (correction de revue) : épinglées + filtre passerelle ---
+
+  it("pinnedCount reflète les routes VISIBLES après filtre passerelle, pas le groupe complet", () => {
+    // Les deux routes de glm-5.2 sont épinglées, mais le filtre openrouter
+    // n'en laisse qu'une visible : le compte doit tomber à 1, pas rester à 2.
+    const pinned = ["opencode/glm-5.2", "openrouter/z-ai/glm-5.2"];
+    const withPins = groupRoutes([glmOpencode, glmOpenrouter], pinned);
+    expect(withPins[0].pinnedCount).toBe(2); // avant filtre : les deux routes comptent
+
+    const filtered = filterGroups(withPins, "openrouter", "", pinned);
+    const glm = filtered.find((g) => g.label === "glm-5.2")!;
+    expect(glm.routes).toHaveLength(1);
+    expect(glm.pinnedCount).toBe(1); // après filtre : une seule route visible, une seule épinglée
+  });
+
+  it("pinnedCount tombe à 0 si le filtre passerelle exclut la seule route épinglée", () => {
+    const pinned = ["opencode/glm-5.2"];
+    const withPins = groupRoutes([glmOpencode, glmOpenrouter], pinned);
+    const filtered = filterGroups(withPins, "openrouter", "", pinned);
+    const glm = filtered.find((g) => g.label === "glm-5.2")!;
+    expect(glm.routes).toHaveLength(1);
+    expect(glm.routes[0].id).toBe("openrouter/z-ai/glm-5.2");
+    expect(glm.pinnedCount).toBe(0);
   });
 });
