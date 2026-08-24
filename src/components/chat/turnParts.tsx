@@ -10,6 +10,7 @@ import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, IconButton, RowButton, Tooltip } from "../ui";
 import { ChangedFilesCard } from "./ChangedFilesCard";
+import { useSmoothedStream } from "./useSmoothedStream";
 import type { ChangedFile } from "./changedFiles";
 
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
@@ -602,6 +603,11 @@ export function LiveThinking(
   // et le repli en une ligne d'aperçu reste à un clic (préférence
   // thinkingCollapsed pour ceux qui veulent le calme par défaut).
   const texte = (thought ?? "").trim();
+  // Phase 2 du lissage (2026-08-24) : Grok livre ses pensées par blocs de
+  // ~100 caractères d'un coup — même moteur que la réponse streamée. Les
+  // gardes (en-tête, chrono) suivent la CIBLE ; seul le flux affiché est
+  // lissé. LiveThinking n'est monté que pendant le tour → working=true.
+  const lisse = useSmoothedStream(texte, true);
   // Repli contrôlé quand l'appelant le porte (ActiveTurnTail) : sinon l'état
   // mourait à chaque appel d'outil, qui démonte l'indicateur — Thierry
   // dépliait la pensée et elle se refermait toute seule (audit 2026-08-21).
@@ -659,7 +665,7 @@ export function LiveThinking(
       </RowButton>
       {/* Réduit = petite fenêtre de quelques lignes calée sur la fin (demande
           Thierry 2026-08-21) ; déplié = flux complet façon Hermes. */}
-      <ThinkingTail texte={texte} windowed={replie} />
+      <ThinkingTail texte={lisse} windowed={replie} />
     </div>
   );
 }

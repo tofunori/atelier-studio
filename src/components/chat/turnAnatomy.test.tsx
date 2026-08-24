@@ -1,7 +1,7 @@
 // Anatomie du tour : modèle Synara — un seul état actif, journal humain
 // dépliable et, une fois terminé, pli compact « Worked for… ».
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 
@@ -61,7 +61,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(head.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("déroule la pensée en cours dans une fenêtre bornée, calée sur la fin", () => {
+  it("déroule la pensée en cours dans une fenêtre bornée, calée sur la fin", async () => {
     // Sans pensée reçue, on n'affirme RIEN : pas de « Réflexion » gratuite
     // (le pulse et le chrono du tour racontent déjà l'attente).
     const { rerender } = renderUi(<LiveThinking />);
@@ -73,21 +73,29 @@ describe("anatomie du tour — header d'activité", () => {
     // devenant un paragraphe (mise en forme structurée, plus de bloc brut).
     const pensee = "J'ouvre methods_en.tex\n\n  puis je compare les deux sections";
     rerender(<LiveThinking thought={pensee} />);
+    // La pensée se LISSE (phase 2) : les assertions attendent la fin de la
+    // révélation progressive au lieu d'exiger un rendu synchrone complet.
     const flux = document.querySelector(".thinking-live-stream") as HTMLElement;
-    const paras = [...flux.querySelectorAll(".thinking-para")].map((p) => p.textContent?.trim());
-    expect(paras).toEqual(["J'ouvre methods_en.tex", "puis je compare les deux sections"]);
+    await waitFor(() => {
+      const paras = [...flux.querySelectorAll(".thinking-para")].map((p) => p.textContent?.trim());
+      expect(paras).toEqual(["J'ouvre methods_en.tex", "puis je compare les deux sections"]);
+    }, { timeout: 3000 });
     expect(flux.querySelectorAll(".thinking-gap")).toHaveLength(1);
     expect(document.querySelector(".thinking-shimmer")).toBeNull();
 
     // Listes : marqueur en colonne, corps à part (retrait pendu façon Hermes).
     rerender(<LiveThinking thought={"11. Residual scales 0.033\n- Magnus formula"} />);
-    const items = [...document.querySelectorAll(".thinking-item")];
-    expect(items.map((i) => i.querySelector(".thinking-marker")?.textContent)).toEqual(["11.", "-"]);
-    expect(items[0].querySelector(".thinking-item-body")?.textContent).toBe("Residual scales 0.033");
+    await waitFor(() => {
+      const items = [...document.querySelectorAll(".thinking-item")];
+      expect(items.map((i) => i.querySelector(".thinking-marker")?.textContent)).toEqual(["11.", "-"]);
+      expect(items[0].querySelector(".thinking-item-body")?.textContent).toBe("Residual scales 0.033");
+    }, { timeout: 3000 });
 
     // Le gras markdown est rendu, pas affiché en astérisques littéraux.
     rerender(<LiveThinking thought={'12. **"regions 01 and 02"** : à vérifier'} />);
-    expect(document.querySelector(".thinking-item strong")?.textContent).toBe('"regions 01 and 02"');
+    await waitFor(() => {
+      expect(document.querySelector(".thinking-item strong")?.textContent).toBe('"regions 01 and 02"');
+    }, { timeout: 3000 });
     expect(document.querySelector(".thinking-live-stream")?.textContent).not.toContain("**");
 
     // Une pensée longue n'est PAS tronquée : la hauteur est bornée par le CSS,
@@ -95,8 +103,19 @@ describe("anatomie du tour — header d'activité", () => {
     const longue = "x".repeat(400) + " fin de raisonnement";
     rerender(<LiveThinking thought={longue} />);
     const suite = document.querySelector(".thinking-live-stream") as HTMLElement;
-    expect(suite.textContent).toBe(longue);
+    await waitFor(() => expect(suite.textContent).toBe(longue), { timeout: 6000 });
     expect(suite.textContent!.endsWith("fin de raisonnement")).toBe(true);
+  });
+
+  it("la pensée vivante se lisse : une rafale se révèle progressivement (phase 2)", async () => {
+    const { rerender } = renderUi(<LiveThinking thought="Départ." />);
+    const rafale = "Départ. Ensuite une grosse rafale de pensée arrive d'un coup, comme Grok "
+      + "livre ses blocs de cent caractères, et doit se dérouler au lieu de sauter jusqu'au terme.";
+    rerender(<LiveThinking thought={rafale} />);
+    const flux = () => document.querySelector(".thinking-live-stream") as HTMLElement;
+    // pas de saut : juste après la rafale, la fin n'est pas encore affichée
+    expect(flux().textContent).not.toContain("terme.");
+    await waitFor(() => expect(flux().textContent).toContain("terme."), { timeout: 3000 });
   });
 
   // Régression (vécu 2026-08-13) : le tour actif rendait `LiveThinking` sans

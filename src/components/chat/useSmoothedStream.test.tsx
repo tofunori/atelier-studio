@@ -2,7 +2,7 @@
 // révélation progressive du retard, flush immédiat en fin de tour.
 import { describe, expect, it } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { useSmoothedStream } from "./turns";
+import { useSmoothedStream } from "./useSmoothedStream";
 
 describe("useSmoothedStream — typewriter du flux", () => {
   it("au montage, le texte déjà présent s'affiche entièrement (pas de replay)", () => {
@@ -62,7 +62,7 @@ describe("useSmoothedStream — typewriter du flux", () => {
 // Moteur pur du débit (plan lissage 2026-08-24) : débit constant adapté au
 // flux d'arrivée au lieu du drainage proportionnel — testé à horloge simulée,
 // donc sans dépendre du vrai rAF.
-import { newStreamPace, paceGrowth, paceStep } from "./turns";
+import { newStreamPace, paceGrowth, paceStep } from "./useSmoothedStream";
 
 describe("paceStep — débit constant adaptatif", () => {
   const texte = (n: number) => Array.from({ length: Math.ceil(n / 6) }, (_, i) => `mot${String(i).padStart(2, "0")}`).join(" ").slice(0, n);
