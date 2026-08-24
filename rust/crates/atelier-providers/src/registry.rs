@@ -56,6 +56,7 @@ pub fn builtin_catalog(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
             models: vec!["fake-1".into()],
             model_reasoning: serde_json::json!({}),
             model_labels: serde_json::json!({}),
+            routes: serde_json::json!([]),
             default_model: "fake-1".into(),
             efforts: vec!["low".into(), "medium".into(), "high".into()],
             capabilities: ProviderCapabilities {
@@ -99,6 +100,7 @@ pub fn builtin_catalog(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
                 models: cfg.models.clone(),
                 model_reasoning: serde_json::json!({}),
                 model_labels: serde_json::json!({}),
+                routes: serde_json::json!([]),
                 default_model: cfg
                     .default_model
                     .clone()

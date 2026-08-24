@@ -97,6 +97,10 @@ fn split_routed_model(id: &str) -> RoutedModel {
     let (vendor, leaf) = match (second, third) {
         (Some(v), Some(l)) => (Some(v.to_string()), l.to_string()),
         (Some(v), None) => (None, v.to_string()),
+        // Inatteignable : `filtered_catalog_lines` ne laisse passer que des
+        // lignes contenant au moins un `/` (garantie `line.contains('/')`),
+        // donc `segments.next()` après le premier renvoie toujours `Some`.
+        // Ce bras existe seulement pour l'exhaustivité du match.
         (None, _) => (None, String::new()),
     };
     RoutedModel {
@@ -112,6 +116,29 @@ pub fn parse_routed_models(output: &str) -> Vec<RoutedModel> {
     filtered_catalog_lines(output)
         .map(split_routed_model)
         .collect()
+}
+
+/// Construit la charge utile de `dynamic_models` à partir de la sortie brute
+/// d'`opencode models`. Factorisé hors de `dynamic_models` (qui spawn un
+/// process et n'est donc pas testable unitairement) pour que le test exerce
+/// exactement le même chemin de construction.
+///
+/// Additif, jamais substitutif : `models` reste le tableau plat de chaînes
+/// déjà consommé par le picker et `Chat.tsx` — **inchangé**. `routes` est un
+/// champ voisin, nouveau, ignorable par tout frontend qui ne le connaît pas
+/// encore.
+fn build_dynamic_models_payload(output: &str, default_model: &str) -> Option<Value> {
+    let models = parse_model_catalog(output);
+    if models.is_empty() {
+        return None;
+    }
+    let routes = parse_routed_models(output);
+    Some(json!({
+        "models": models,
+        "routes": routes,
+        "defaultModel": default_model,
+        "modelReasoning": {}
+    }))
 }
 
 pub struct OpenCodeProvider {
@@ -526,15 +553,8 @@ impl Provider for OpenCodeProvider {
         if !output.status.success() {
             return None;
         }
-        let models = parse_model_catalog(&String::from_utf8_lossy(&output.stdout));
-        if models.is_empty() {
-            return None;
-        }
-        let value = json!({
-            "models": models,
-            "defaultModel": self.default_model(),
-            "modelReasoning": {}
-        });
+        let raw = String::from_utf8_lossy(&output.stdout);
+        let value = build_dynamic_models_payload(&raw, &self.default_model())?;
         *self.model_catalog.lock().await = Some(CachedModelCatalog {
             fetched_at: Instant::now(),
             value: value.clone(),
@@ -824,6 +844,83 @@ mod tests {
         for (plat, route) in plats.iter().zip(routes.iter()) {
             assert_eq!(plat, &route.id);
         }
+    }
+
+    #[test]
+    fn suffixe_freedom_n_est_pas_un_faux_positif_gratuit() {
+        // "model-freedom" ne se termine PAS par "-free" : ses 5 derniers
+        // caractères sont "eedom". `strip_suffix("-free")` compare la chaîne
+        // exacte, donc aucun déclenchement — ce test verrouille ce
+        // comportement plutôt que de le laisser reposer sur la lecture du
+        // code.
+        let r = parse_routed_models("openrouter/x/model-freedom\n");
+        assert!(
+            !r[0].free,
+            "«-freedom» ne doit pas être confondu avec le suffixe «-free»"
+        );
+        assert_eq!(r[0].leaf, "model-freedom");
+        assert_eq!(r[0].id, "openrouter/x/model-freedom");
+    }
+
+    #[test]
+    fn route_a_deux_segments_avec_suffixe_gratuit() {
+        // Combine les deux axes qu'aucun test existant ne croisait : une
+        // route à DEUX segments (donc `vendor: None`) ET un suffixe gratuit.
+        let r = parse_routed_models("kimi-for-coding/k3:free\n");
+        assert_eq!(r[0].gateway, "kimi-for-coding");
+        assert_eq!(r[0].vendor, None);
+        assert_eq!(r[0].leaf, "k3");
+        assert!(r[0].free);
+    }
+
+    #[test]
+    fn vendor_absent_se_serialise_en_null_jamais_omis() {
+        // Vérifié plutôt que déduit : `vendor: Option<String>` n'a pas de
+        // `skip_serializing_if` sur `RoutedModel`, donc `None` se sérialise
+        // en `null` — le champ reste présent dans le JSON, il n'est jamais
+        // absent. Ça détermine comment TypeScript doit le déclarer
+        // (`vendor: string | null`, pas un champ optionnel).
+        let r = parse_routed_models("opencode/glm-5.2\n");
+        let value = serde_json::to_value(&r[0]).expect("sérialisation");
+        let obj = value.as_object().expect("objet JSON");
+        assert!(
+            obj.contains_key("vendor"),
+            "le champ vendor doit être présent, pas omis"
+        );
+        assert_eq!(obj.get("vendor"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn dynamic_models_expose_models_et_routes_alignes() {
+        // La vérification la plus importante de ce lot : `models` (tableau
+        // plat, inchangé) et `routes` (tableau d'objets, nouveau) doivent
+        // décrire EXACTEMENT les mêmes identifiants, dans le même ordre. Si
+        // models[i] != routes[i].id pour un seul indice, les deux vues
+        // divergent silencieusement.
+        let sortie = "opencode/glm-5.2\nopenrouter/z-ai/glm-5.2\nkimi-for-coding/k3:free\n";
+        let value = build_dynamic_models_payload(sortie, "kimi-for-coding/k3")
+            .expect("catalogue non vide ⇒ Some");
+        let models = value["models"].as_array().expect("models est un tableau");
+        let routes = value["routes"].as_array().expect("routes est un tableau");
+        assert_eq!(models.len(), 3);
+        assert_eq!(models.len(), routes.len());
+        for (i, (m, r)) in models.iter().zip(routes.iter()).enumerate() {
+            assert_eq!(
+                m.as_str(),
+                r["id"].as_str(),
+                "models[{i}] doit correspondre à routes[{i}].id"
+            );
+        }
+        assert_eq!(value["defaultModel"], json!("kimi-for-coding/k3"));
+        // `models` reste un tableau de CHAÎNES — pas d'objets — pour ne pas
+        // casser le picker existant.
+        assert!(models.iter().all(Value::is_string));
+    }
+
+    #[test]
+    fn dynamic_models_payload_absent_si_catalogue_vide() {
+        let value = build_dynamic_models_payload("sans-slash\navec espace/x\n", "peu-importe");
+        assert!(value.is_none());
     }
 
     #[test]

@@ -127,6 +127,12 @@ pub struct ProviderStatus {
     /// libellés intégrés, puis sur l'identifiant brut.
     #[serde(default)]
     pub model_labels: Value,
+    /// Routes opencode décomposées (gateway/vendor/leaf/free — lot B2).
+    /// Additif : `models` reste le tableau plat consommé par le picker et
+    /// Chat.tsx, inchangé. Vide pour tout provider qui n'expose pas de
+    /// routes (tous sauf opencode, pour l'instant).
+    #[serde(default)]
+    pub routes: Value,
     pub default_model: String,
     pub efforts: Vec<String>,
     pub capabilities: ProviderCapabilities,
@@ -252,6 +258,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             ],
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
             default_model: "claude-opus-5[1m]".into(),
             efforts: vec![
                 "low".into(),
@@ -311,6 +318,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             ],
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
             default_model: "gpt-5.6-sol".into(),
             efforts: vec![
                 "low".into(),
@@ -361,6 +369,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             models: vec!["grok-4.6".into()],
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
             default_model: "grok-4.6".into(),
             efforts: vec!["low".into(), "medium".into(), "high".into()],
             capabilities: ProviderCapabilities {
@@ -404,6 +413,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             models: vec![],
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
             default_model: String::new(),
             // Thinking off/on exposé par-modèle via model_reasoning dynamique.
             efforts: vec![],
@@ -459,6 +469,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             ],
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
             default_model: "kimi-for-coding/k3".into(),
             efforts: vec![
                 "minimal".into(),
