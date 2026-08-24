@@ -1451,6 +1451,22 @@ function commitComposerContractTests() {
     && /header\.tight #fileIdentity\{display:none\}/.test(latexCss)
     && /getElementById\(["']fileIdentity["']\)/.test(diffController)
     && /identity\.style\.display = ["']none["']/.test(diffController));
+  // Bouton Compiler de l'onglet PDF (2026-08-24) : l'agent édite le .tex, le
+  // PDF se recharge tout seul (veille mtime) — mais quand l'agent n'a pas
+  // recompilé, il faut pouvoir le faire d'un clic depuis le PDF lui-même.
+  const pdfViewer = fs.readFileSync(path.join(ASSETS, "pdf_viewer.html"), "utf8");
+  contractOk("onglet PDF porte un bouton Compiler branché sur /compile",
+    /id=["']compileBtn["']/.test(pdfViewer)
+    && /fetch\(["']\/compile["'], *\{ *method: *["']POST["']/.test(pdfViewer)
+    && /body: *JSON\.stringify\(\{path: *texPath\}\)/.test(pdfViewer));
+  contractOk("bouton Compiler n'apparaît que pour un PDF issu d'un .tex",
+    /compileBtn\.style\.display = ["']inline-flex["']/.test(pdfViewer)
+    && /const texPath = __passageParams\.get\(["']tex["']\)/.test(pdfViewer));
+  contractOk("compilation en cours verrouille le bouton et rend l'erreur LaTeX",
+    /compileBtn\.disabled = true/.test(pdfViewer)
+    && /j\.error/.test(pdfViewer)
+    && /__reloadPdf/.test(pdfViewer));
+
   contractOk("instrument Git garde une empreinte fixe",
     /#dvNav\{display:inline-flex/.test(src)
     && /commitBtn\.disabled = blocks <= 0/.test(src)

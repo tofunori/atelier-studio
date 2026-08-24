@@ -184,6 +184,21 @@ complet assumé, curseur replié à la tête.
 `editor_cm6.spec.js`), rejoués dans WebKit — moteur du WKWebView — via le
 projet Playwright `webkit-selection`. Chromium seul ne suffit pas.
 
+## 13. `style.display = ""` ne « remontre » pas un élément caché par une règle CSS
+
+Le bouton Compiler de l'onglet PDF (2026-08-24) naissait `display:none` dans
+`#compileBtn{}` puis se révélait par `compileBtn.style.display = ""`. Vider le
+style inline ne fait que **rendre la main à la cascade** — la règle `none`
+reprend, le bouton reste invisible. Relecture de code, contrat de suite et
+`grep` étaient tous verts : seul le banc navigateur l'a vu (`locator resolved
+to hidden`).
+
+**Règle** : révéler un élément dont l'état caché vient d'une règle CSS se fait
+par une valeur EXPLICITE (`inline-flex`, `block`…), jamais par `""`. Corollaire
+plus général — un test de contrat qui grep le source peut **encoder le bug** ;
+toute UI d'éditeur se déroule dans un vrai navigateur avant d'être déclarée
+faite (même leçon que §12).
+
 ---
 
 # Annexe sidecar (hors galerie)

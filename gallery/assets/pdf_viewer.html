@@ -22,6 +22,12 @@
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
   .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
   .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
+  #compileBtn{display:none;align-items:center;gap:5px;margin-left:8px;flex:none;
+    background:transparent;border:1px solid var(--border);border-radius:6px;
+    color:var(--muted,#868d9a);font-size:12px;padding:3px 9px;cursor:pointer;line-height:1.4}
+  #compileBtn:hover:not(:disabled){background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
+  #compileBtn:disabled{opacity:.6;cursor:default}
+  #compileBtn.err{color:#f07d73;border-color:rgba(240,125,115,.5)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
@@ -220,6 +226,10 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="zPct" title="Ajuster à la largeur">100%</button>
     <button id="zIn" title="Zoom avant (⌘+)">+</button>
   </span>
+  <button id="compileBtn" title="Compiler le document LaTeX (⌘B)">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8v8.4M4.8 7l3.2 3.2L11.2 7M2.6 13.4h10.8"/></svg>
+    <span id="compileLabel">Compiler</span>
+  </button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
@@ -1547,6 +1557,67 @@ if(window.self !== window.top){
   `;
   document.head.appendChild(st);
 }
+
+// ---- bouton Compiler (2026-08-24) -----------------------------------------
+// L'agent édite le .tex puis compile lui-même la plupart du temps ; la veille
+// mtime ci-dessus recharge alors le PDF toute seule. Ce bouton couvre le cas
+// inverse — édition sans recompilation — sans jamais compiler AUTOMATIQUEMENT
+// (deux latexmk concurrents sur le même dossier = .aux corrompus).
+(function(){
+  const texPath = __passageParams.get("tex");
+  const compileBtn = document.getElementById("compileBtn");
+  const compileLabel = document.getElementById("compileLabel");
+  if(!compileBtn || !texPath) return;   // PDF sans source .tex : rien à compiler
+  // display explicite : "" retirerait l'inline et laisserait le display:none
+  // de la règle #compileBtn reprendre la main (bouton invisible — attrapé au
+  // banc navigateur, pas à la relecture).
+  compileBtn.style.display = "inline-flex";
+  let busy = false;
+  async function compileNow(){
+    if(busy) return;
+    busy = true;
+    compileBtn.disabled = true;
+    compileBtn.classList.remove("err");
+    compileLabel.textContent = "compilation…";
+    const t0 = Date.now();
+    try{
+      const r = await fetch("/compile", {method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path: texPath})});
+      const j = await r.json();
+      if(j.ok){
+        compileLabel.textContent = "compilé en " + ((Date.now() - t0) / 1000).toFixed(1).replace(".", ",") + " s";
+        if(typeof __reloadPdf === "function") await __reloadPdf();
+      }else{
+        // L'extrait d'erreur du serveur est plus utile qu'un PDF blanc : on le
+        // montre dans le libellé (court) et en entier dans l'infobulle.
+        compileBtn.classList.add("err");
+        const err = String(j.error || "échec de compilation");
+        compileLabel.textContent = err.split("\n")[0].slice(0, 60);
+        compileBtn.title = err.slice(0, 900);
+      }
+    }catch(e){
+      compileBtn.classList.add("err");
+      compileLabel.textContent = "serveur injoignable";
+    }finally{
+      busy = false;
+      compileBtn.disabled = false;
+      setTimeout(() => {
+        if(busy) return;
+        compileBtn.classList.remove("err");
+        compileLabel.textContent = "Compiler";
+        compileBtn.title = "Compiler le document LaTeX (⌘B)";
+      }, 6000);
+    }
+  }
+  compileBtn.onclick = compileNow;
+  window.addEventListener("keydown", (e) => {
+    if((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "b"){
+      e.preventDefault();
+      compileNow();
+    }
+  });
+})();
 
 // ---- mode synctex : onglet PDF d'un studio LaTeX (ouvert via « PDF ↗ ») ----
 // tex/texpdf en query → canal BroadcastChannel partagé avec l'onglet éditeur :
