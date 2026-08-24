@@ -67,6 +67,31 @@ describe("ContextShelf en pilules unifiées", () => {
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
   });
 
+  it("image collée → vignette réelle dans la pilule, nom d'horodatage remplacé", () => {
+    // La dataURL est déjà en main (imageUrl) : la pilule montre l'IMAGE, pas
+    // une icône générique, et « coller-1787605830634 » (horodatage brut) ne
+    // sert de nom à rien — il reste dans l'infobulle.
+    const { container } = shelf([
+      { name: "coller-1787605830634.png", lines: null, text: "img", imageUrl: "data:image/png;base64,x" },
+    ]);
+    const thumb = container.querySelector("img.context-pill-thumb") as HTMLImageElement;
+    expect(thumb).toBeTruthy();
+    expect(thumb.getAttribute("src")).toBe("data:image/png;base64,x");
+    expect(container.querySelector(".chip.context-pill")?.textContent).toContain("Image collée");
+    expect(container.querySelector(".chip.context-pill")?.textContent).not.toContain("1787605830634");
+    expect(container.querySelector(".chip.context-pill")?.getAttribute("title")).toBe("coller-1787605830634.png");
+  });
+
+  it("image nommée (non collée) garde son nom ; sans dataURL, repli sur l'icône", () => {
+    const { container } = shelf([
+      { name: "figure_albedo.png", lines: null, text: "img", imageUrl: "data:image/png;base64,y" },
+    ]);
+    expect(container.querySelector(".chip.context-pill")?.textContent).toContain("figure_albedo");
+    cleanup();
+    const sansUrl = shelf([{ name: "capture.png", lines: null, text: "img", kind: "image" }]);
+    expect(sansUrl.container.querySelector("img.context-pill-thumb")).toBeNull();
+  });
+
   it("plusieurs images → navigation circulaire conservée", () => {
     shelf([
       { name: "one.png", lines: null, text: "one", imageUrl: "data:image/png;base64,one" },

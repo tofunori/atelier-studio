@@ -46,6 +46,13 @@ export type ShelfAttachment = {
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 
+/** Nom d'un fichier collé : « coller-1787605830634.png ». L'horodatage brut
+ * n'apprend rien — un libellé parlant le remplace, le vrai nom restant dans
+ * l'infobulle de la pilule. Une image NOMMÉE (figure du projet) garde le sien. */
+function isPastedName(name: string) {
+  return /^(?:coller|paste[dr]?)[-_]\d{10,}/i.test(name);
+}
+
 function kindGlyph(kind?: string) {
   switch (kind) {
     case "quote": return <QuoteIcon className="context-pill-glyph" />;
@@ -54,6 +61,21 @@ function kindGlyph(kind?: string) {
     case "appsnap": return <CameraIcon className="context-pill-glyph" />;
     default: return <FileTextIcon className="context-pill-glyph" />;
   }
+}
+
+function ThumbOrGlyph({ url }: { url: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <ImageIcon className="context-pill-glyph" />;
+  return (
+    <img
+      className="context-pill-thumb"
+      src={url}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      onError={() => setBroken(true)}
+    />
+  );
 }
 
 export function ContextShelf(p: {
@@ -142,8 +164,13 @@ export function ContextShelf(p: {
               imageAttachments.findIndex((candidate) => candidate.attachmentIndex === index),
             )}
           >
-            <ImageIcon className="context-pill-glyph" />
-            <span className="chip-label">{citeLabel(attachment.name)}</span>
+            {/* La dataURL est déjà en main : montrer l'IMAGE plutôt qu'une
+                icône générique — on reconnaît une capture d'un coup d'œil.
+                Image cassée (dataURL tronquée) → repli sur l'icône. */}
+            <ThumbOrGlyph url={attachment.imageUrl!} />
+            <span className="chip-label">
+              {isPastedName(attachment.name) ? t("context.pasted-image") : citeLabel(attachment.name)}
+            </span>
           </RowButton>
           <IconButton
             size="s"
