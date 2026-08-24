@@ -180,6 +180,9 @@ fn default_gallery_state() -> Value {
         "favs": [], "ratings": {}, "hidden": [], "tags": {},
         "hideRules": [], "collections": {}, "workflow": {}
     })
+    // fileTypes / pinnedTypes / filePresets restent ABSENTS par défaut : leur
+    // absence veut dire « jamais choisi », donc le client garde ses défauts
+    // intégrés. Les poser vides ferait apparaître un projet sans aucun type.
 }
 
 async fn gallery_state(State(state): State<AppState>) -> impl IntoResponse {
@@ -231,6 +234,16 @@ async fn save_gallery_state(
     // Requête sans texAutoRewrap (la galerie POste /state avec ses seules
     // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
     // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
+    // Un POST partiel (ajout de favori) ne doit pas effacer le filtre du projet.
+    for kept_key in ["fileTypes", "pinnedTypes", "filePresets"] {
+        if sanitized.get(kept_key).is_none()
+            && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
+            && let Ok(previous) = serde_json::from_str::<Value>(&raw)
+            && let Some(kept) = previous.get(kept_key)
+        {
+            sanitized[kept_key] = kept.clone();
+        }
+    }
     for editor_pref in ["texAutoRewrap", "texAutoCompile"] {
         if sanitized.get(editor_pref).is_none()
             && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
@@ -239,6 +252,11 @@ async fn save_gallery_state(
         {
             sanitized[editor_pref] = json!(kept);
         }
+    }
+    // Effacements explicites : la clé disparaît du fichier au lieu d'y rester
+    // à null (un état « choisi vide » n'existe pas).
+    if let Some(object) = sanitized.as_object_mut() {
+        object.retain(|_, value| !value.is_null());
     }
     let counts = json!({
         "ok": true,
@@ -371,6 +389,60 @@ fn sanitize_gallery_state(request: &Value) -> Value {
     // liste blanche, le POST du client était accepté puis la clé silencieusement
     // jetée — « Rewrap: auto » retombait à off à chaque relance. Symétrique de
     // la route /state du serveur Node (server/routes/core.mjs).
+    // Filtre de types du PROJET (2026-08-24) : le panneau Filtres ne gardait
+    // son état que dans le localStorage du WebView, perdu à chaque relance de
+    // l'app (piège n°1). Extensions normalisées (minuscules, sans point) —
+    // c'est un filtre d'affichage, pas un chemin : rien à échapper, tout à
+    // borner. Absent = jamais choisi ; liste vide = choix explicite « rien ».
+    fn extension_list(value: Option<&Value>, max: usize) -> Option<Vec<String>> {
+        let list = value?.as_array()?;
+        Some(
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(|ext| ext.trim().trim_start_matches('.').to_lowercase())
+                .filter(|ext| {
+                    !ext.is_empty()
+                        && ext.len() <= 12
+                        && ext.chars().all(|c| c.is_ascii_alphanumeric())
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .take(max)
+                .collect(),
+        )
+    }
+    // null = effacement explicite (« Reset filters ») : distinct d'une clé
+    // absente, qui elle veut dire « ce POST ne parle pas du filtre » et laisse
+    // la valeur du disque intacte. Les nulls sont retirés avant écriture.
+    if let Some(Value::Null) = request.get("fileTypes") {
+        state["fileTypes"] = Value::Null;
+    } else if let Some(types) = extension_list(request.get("fileTypes"), 60) {
+        state["fileTypes"] = json!(types);
+    }
+    if let Some(pinned) = extension_list(request.get("pinnedTypes"), 24) {
+        state["pinnedTypes"] = json!(pinned);
+    }
+    if let Some(list) = request.get("filePresets").and_then(Value::as_array) {
+        let presets: Vec<Value> = list
+            .iter()
+            .filter_map(|preset| {
+                let object = preset.as_object()?;
+                let id: String = object.get("id")?.as_str()?.trim().chars().take(64).collect();
+                let label: String = object
+                    .get("label")?
+                    .as_str()?
+                    .trim()
+                    .chars()
+                    .take(60)
+                    .collect();
+                let extensions = extension_list(object.get("extensions"), 60)?;
+                (!id.is_empty() && !label.is_empty())
+                    .then(|| json!({"id": id, "label": label, "extensions": extensions}))
+            })
+            .take(40)
+            .collect();
+        state["filePresets"] = json!(presets);
+    }
     if let Some(auto_rewrap) = request.get("texAutoRewrap").and_then(Value::as_bool) {
         state["texAutoRewrap"] = json!(auto_rewrap);
     }

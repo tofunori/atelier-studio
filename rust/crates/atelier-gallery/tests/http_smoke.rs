@@ -447,3 +447,58 @@ fn gitcommit_places_a_milestone_when_auto_commits_left_a_clean_tree() {
     let (_, body) = http(srv.port, "POST", "/gitcommit", Some(&payload));
     assert!(body.contains("\"ok\":false"), "doublon refusé — {body}");
 }
+
+/// Filtre de types par PROJET (2026-08-24). Le panneau Filtres ne gardait son
+/// état que dans le localStorage du WebView, qui ne survit pas au redémarrage
+/// de l'app (PIEGES_CONNUS §1) : « pas de PNG dans FRQNT » était perdu à chaque
+/// relance. Le filtre rejoint donc .fig_state.json, comme les favoris.
+#[test]
+fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
+    let srv = start_server();
+
+    let payload = r#"{"favs":[],"ratings":{},"hidden":[],"tags":{},"hideRules":[],
+        "collections":{},"workflow":{},
+        "fileTypes":["tex","pdf"],
+        "pinnedTypes":["pdf","tex"],
+        "filePresets":[{"id":"p1","label":"Sources","extensions":["tex","py"]}]}"#;
+    let (st, body) = http(srv.port, "POST", "/state", Some(payload));
+    assert_eq!(st, 200, "POST /state — {body}");
+
+    // relecture : c'est ce que verra la galerie au prochain démarrage
+    let (st, body) = http(srv.port, "GET", "/state", None);
+    assert_eq!(st, 200);
+    assert!(body.contains("\"fileTypes\""), "types absents — {body}");
+    assert!(body.contains("\"tex\"") && body.contains("\"pdf\""), "{body}");
+    assert!(body.contains("\"pinnedTypes\""), "épinglés absents — {body}");
+    assert!(body.contains("\"filePresets\""), "presets absents — {body}");
+    assert!(body.contains("Sources"), "libellé de preset perdu — {body}");
+
+    // un POST SANS ces clés (vieux client, ou simple ajout de favori) ne doit
+    // pas effacer le filtre du projet — même garde que texAutoRewrap
+    let sans = r#"{"favs":["fig.png"],"ratings":{},"hidden":[],"tags":{},
+        "hideRules":[],"collections":{},"workflow":{}}"#;
+    let (st, _) = http(srv.port, "POST", "/state", Some(sans));
+    assert_eq!(st, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert!(body.contains("\"fileTypes\""), "filtre effacé par un POST partiel — {body}");
+    assert!(body.contains("fig.png"), "favori perdu — {body}");
+
+    // « Reset filters » efface EXPLICITEMENT (null) : distinct d'une clé
+    // absente, sinon le projet resterait prisonnier de son ancien filtre.
+    let reset = r#"{"favs":[],"ratings":{},"hidden":[],"tags":{},"hideRules":[],
+        "collections":{},"workflow":{},"fileTypes":null}"#;
+    let (st, _) = http(srv.port, "POST", "/state", Some(reset));
+    assert_eq!(st, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert!(!body.contains("\"fileTypes\""), "reset n'a pas effacé — {body}");
+
+    // extensions farfelues : bornées, jamais recopiées telles quelles
+    let sale = r#"{"favs":[],"ratings":{},"hidden":[],"tags":{},"hideRules":[],
+        "collections":{},"workflow":{},
+        "fileTypes":[".PNG","tex ","","../etc","toolongextensionvalue","p*g"]}"#;
+    let (st, _) = http(srv.port, "POST", "/state", Some(sale));
+    assert_eq!(st, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert!(body.contains("\"png\"") && body.contains("\"tex\""), "normalisation — {body}");
+    assert!(!body.contains("etc") && !body.contains("p*g"), "entrée non bornée — {body}");
+}
