@@ -407,20 +407,29 @@ describe("Section Modèles", () => {
     }));
   });
 
-  it("verrouille le contrat de découpage de Chat.tsx (toggleFavModel, ~ligne 499) : un id routé contenant un deux-points survit à `${provider}:${modelId}` puis `indexOf(\":\")`", () => {
-    // Chat.tsx construit ses clés de favoris en `${providerId}:${modelId}`
-    // et les redécoupe avec `key.indexOf(":")` (PAS `split(":")`, qui
-    // couperait au mauvais endroit sur un id routé). Ce test réplique
-    // littéralement cette logique — Chat.tsx n'exporte pas `toggleFavModel`
-    // pour la tester directement — afin qu'un remplacement futur de
-    // `indexOf` par `split` fasse rougir CE test plutôt que de casser
-    // silencieusement le sélecteur du chat pour tout modèle gratuit routé
-    // (`openrouter/*/*:free`).
+  it("documente le contrat de découpage que suppose un id routé avec deux-points (NE protège PAS Chat.tsx, voir commentaire)", () => {
+    // Ce test n'exerce PAS Chat.tsx : `toggleFavModel` (Chat.tsx:498-502)
+    // est une fonction locale non exportée, rien ici ne l'importe ni ne la
+    // rend. Ce bloc RÉIMPLÉMENTE son découpage (`indexOf` + `slice`) et
+    // vérifie ses propres variables locales — si Chat.tsx passait un jour à
+    // `key.split(":")`, ce test resterait VERT, aveugle à la régression.
+    //
+    // Sa valeur est ailleurs : c'est un CONTRAT DOCUMENTÉ, figé noir sur
+    // blanc, de la sémantique de découpage que Models.tsx suppose déjà vraie
+    // côté Chat.tsx quand il écrit un id routé contenant un `:` (ex.
+    // `openrouter/deepseek/deepseek-v4:free`) dans `favoriteModels` — à
+    // savoir que la clé `${providerId}:${modelId}` se redécoupe sur le
+    // PREMIER `:` (`indexOf`), jamais via `split(":")` qui tronquerait le
+    // modelId. Un vrai filet supposerait d'extraire ce découpage dans une
+    // fonction pure exportée de Chat.tsx et de la tester directement — hors
+    // périmètre de ce lot de réglages (Chat.tsx est le fichier le plus
+    // utilisé de l'app), consigné comme dette par le coordinateur.
     const providerId = "opencode";
     const modelId = "openrouter/deepseek/deepseek-v4:free";
     const key = `${providerId}:${modelId}`;
 
-    // Réplique exacte de Chat.tsx:498-502.
+    // Réplique du découpage documenté (Chat.tsx:498-502), PAS un appel au
+    // code réel — voir l'avertissement ci-dessus.
     const separator = key.indexOf(":");
     expect(separator).toBeGreaterThan(0);
     const parsedProvider = key.slice(0, separator);
@@ -429,9 +438,10 @@ describe("Section Modèles", () => {
     expect(parsedProvider).toBe(providerId);
     expect(parsedModelId).toBe(modelId);
 
-    // Contre-preuve du piège signalé par le brief : `split(":")` casserait
-    // silencieusement ce même cas (le modelId serait tronqué au premier
-    // `:`), ce que `indexOf` évite.
+    // Illustre POURQUOI le contrat précise `indexOf` et pas `split(":")` :
+    // `split(":")` tronquerait silencieusement ce même cas au premier `:`.
+    // Ceci reste une démonstration sur des valeurs locales, pas une
+    // vérification que Chat.tsx utilise bien `indexOf`.
     expect(key.split(":")[1]).not.toBe(modelId);
   });
 });

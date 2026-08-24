@@ -250,8 +250,18 @@ il ne fait plus office de parseur.
    qui se déplie, au lieu de deux lignes homonymes. C'est ce regroupement,
    plus que n'importe quel filtre, qui rend le catalogue lisible.
 2. **Épingler plutôt que parcourir.** Les épinglés sont l'objet réel de la
-   page : c'est eux, et **eux seuls**, que le sélecteur du chat affiche. Le
-   catalogue n'est qu'un outil pour alimenter cette liste.
+   page : le catalogue n'est qu'un outil pour construire cette liste.
+   Correction du 2026-08-23 (revue tâche 5, lot B2) : le sélecteur du chat
+   (`Chat.tsx`, `sortByFav`) fait remonter les épinglés **en tête** de la
+   liste des modèles du fournisseur — il ne **filtre** pas la liste à eux
+   seuls. La phrase d'origine ci-dessus (« c'est eux, et eux seuls, que le
+   sélecteur du chat affiche ») était fausse : écrite sans avoir vérifié le
+   comportement réel du sélecteur, elle a produit deux chaînes d'interface
+   trompeuses (`settings.opencode-router.pinned-hint` et `.section-desc`),
+   corrigées dans la même revue. Un filtrage réellement exclusif reste
+   souhaitable — retrouver ses 3 routes sans les 5000 autres — mais suppose
+   de changer le comportement du sélecteur du chat lui-même, hors périmètre
+   d'un lot de réglages ; consigné comme dette pour un lot futur.
 3. **On épingle une route précise, pas un modèle** — le prix et la latence
    en dépendent.
 4. **Ne rien afficher tant qu'on n'a pas filtré.** Tant qu'aucune passerelle
