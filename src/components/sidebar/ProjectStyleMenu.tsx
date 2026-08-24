@@ -34,9 +34,13 @@ export function ProjectStyleMenu(props: {
   onClose: () => void;
   /** point d'ancrage (coordonnées viewport du clic ou du bouton déclencheur) */
   anchor: { x: number; y: number };
+  /** retire le projet de la liste — l'action n'apparaît que si fournie
+      (le menu contextuel du rail la donne ; le popover « Personnaliser » du
+      panneau déplié non, son menu ⋯ la porte déjà) */
+  onRemove?: (root: string) => void;
   className?: string;
 }) {
-  const { root, meta, onSetMeta, onClose, anchor, className } = props;
+  const { root, meta, onSetMeta, onClose, anchor, className, onRemove } = props;
 
   return (
     <Popover open onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -117,6 +121,17 @@ export function ProjectStyleMenu(props: {
           ∅
         </RowButton>
       </div>
+      {onRemove && (
+        <RowButton
+          className="rail-menu-remove"
+          onClick={() => {
+            onRemove(root);
+            onClose();
+          }}
+        >
+          {t("project.remove")}
+        </RowButton>
+      )}
     </PopoverContent>
     </Popover>
   );

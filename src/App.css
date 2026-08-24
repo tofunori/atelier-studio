@@ -993,6 +993,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .swatch.none { background: var(--bg-ctl); }
 .rail-menu input { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-s);
   color: inherit; padding: 5px 8px; font-size: var(--fs-m); outline: none; }
+/* action destructive du menu contextuel des projets (rail) : rangée pleine
+   largeur, séparée du bloc couleur/icône par un filet interne */
+.rail-menu-remove { border-top: 1px solid var(--border); margin-top: 2px; padding: 8px 4px 2px;
+  text-align: left; font-size: var(--fs-m); color: var(--status-error);
+  border-radius: var(--r-s); cursor: pointer;
+  transition: background var(--motion-standard) var(--ease-out); }
+.rail-menu-remove:hover { background: color-mix(in srgb, var(--status-error) 14%, transparent); }
 .proj-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
 .compact-btn { background: transparent; border: none; color: var(--text-disabled);
   cursor: pointer; font-size: var(--fs-l); }

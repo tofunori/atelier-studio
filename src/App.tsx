@@ -3764,6 +3764,10 @@ export default function App() {
           // rend `inert` pendant que la feuille est ouverte (clic bloqué).
           onSettings={() => openSettings()}
           onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
+          onRemoveProject={(root) => {
+            setProjects((prev) => prev.filter((r) => r !== root));
+            if (activeProject === root) setActiveProject(null);
+          }}
           onReorder={(from, to) =>
             setProjects((prev) => {
               const list = prev.filter((r) => r !== from);

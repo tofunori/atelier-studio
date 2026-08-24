@@ -45,6 +45,7 @@ function makeProps(over: Partial<React.ComponentProps<typeof Rail>> = {}) {
     onExpand: vi.fn(),
     onSettings: vi.fn(),
     onSetMeta: vi.fn(),
+    onRemoveProject: vi.fn(),
     onReorder: vi.fn(),
     moreOpen: false,
     onToggleMore: vi.fn(),
@@ -129,5 +130,16 @@ describe("Rail — zone d'activité", () => {
     const { container } = renderUi(<Rail {...makeProps()} />);
     expect(container.querySelector(".rail-act.failed")).toBeTruthy();
     expect(screen.getByTitle(/muff.pdf — échec/)).toBeTruthy();
+  });
+});
+
+describe("Rail — menu contextuel d'un projet", () => {
+  it("clic droit sur une puce : « Retirer le projet » remonte la racine visée", async () => {
+    const onRemoveProject = vi.fn();
+    renderUi(<Rail {...makeProps({ onRemoveProject })} />);
+    fireEvent.contextMenu(screen.getByTitle("albedo"));
+    const remove = await screen.findByRole("button", { name: t("project.remove") });
+    fireEvent.click(remove);
+    expect(onRemoveProject).toHaveBeenCalledWith("/Users/t/albedo");
   });
 });

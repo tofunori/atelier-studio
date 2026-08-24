@@ -46,6 +46,7 @@ export default function Rail(p: {
   onExpand: () => void;
   onSettings: () => void;
   onSetMeta: (root: string, meta: ProjMeta) => void;
+  onRemoveProject: (root: string) => void;
   onReorder: (from: string, to: string) => void;
 }) {
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
@@ -173,6 +174,7 @@ export default function Rail(p: {
           root={menu.root}
           meta={p.meta[menu.root]}
           onSetMeta={p.onSetMeta}
+          onRemove={p.onRemoveProject}
           onClose={() => setMenu(null)}
           anchor={{ x: 56, y: menu.y }}
         />
