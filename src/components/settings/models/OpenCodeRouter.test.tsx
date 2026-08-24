@@ -158,18 +158,18 @@ describe("OpenCodeRouter — règle n°4 : les épinglées sont visibles en têt
     expect(screen.getByText(/répartis sur/)).toBeInTheDocument();
     // ...mais la route épinglée est visible, hors catalogue, avec son id complet.
     expect(screen.getByText("opencode/glm-5.2")).toBeInTheDocument();
-    expect(screen.getByText(/seules routes que le sélecteur du chat affichera/i)).toBeInTheDocument();
+    expect(screen.getByText(/remontent en tête du sélecteur du chat/i)).toBeInTheDocument();
   });
 
   it("désépingler depuis la carte « épinglées » retire la route de la tête de liste", () => {
     renderUi(<Fixture initialPinned={["opencode/glm-5.2"]} />);
     fireEvent.click(screen.getByRole("button", { name: /désépingler la route opencode\/glm-5\.2/i }));
-    expect(screen.queryByText(/seules routes que le sélecteur du chat affichera/i)).toBeNull();
+    expect(screen.queryByText(/remontent en tête du sélecteur du chat/i)).toBeNull();
   });
 
   it("sans aucune route épinglée, la carte « épinglées » ne s'affiche pas du tout", () => {
     renderUi(<Fixture />);
-    expect(screen.queryByText(/seules routes que le sélecteur du chat affichera/i)).toBeNull();
+    expect(screen.queryByText(/remontent en tête du sélecteur du chat/i)).toBeNull();
   });
 });
 
