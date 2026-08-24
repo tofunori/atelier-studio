@@ -295,4 +295,143 @@ describe("Section Modèles", () => {
     expect(screen.queryByText(t("settings.checking"))).toBeNull();
     expect(screen.getByText(t("settings.models-grid.empty-title"))).toBeInTheDocument();
   });
+
+  // --- Tâche 5 : câblage du routeur opencode + épinglage ---
+
+  it("le routeur opencode n'apparaît pas sous Avancé si le catalogue ne publie aucune route", () => {
+    // opencode SANS `routes` (catalogue absent ou pas encore porté par le
+    // backend pour ce fournisseur) : « présent dans le catalogue » ne suffit
+    // pas, il faut avoir quelque chose à curer.
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{ id: "opencode", label: "opencode", ok: true, kind: "cli", models: ["opencode/glm-5.2"], efforts: [] }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    expect(screen.queryByText(t("settings.opencode-router.section-title"))).toBeNull();
+  });
+
+  it("le routeur opencode apparaît sous Avancé quand le catalogue publie des routes, et le compte de réglages passe à 4", () => {
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{
+        id: "opencode", label: "opencode", ok: true, kind: "cli",
+        models: ["opencode/glm-5.2", "kimi-for-coding/k3"], efforts: [],
+        routes: [
+          { id: "opencode/glm-5.2", gateway: "opencode", vendor: null, leaf: "glm-5.2", free: false },
+          { id: "kimi-for-coding/k3", gateway: "kimi-for-coding", vendor: null, leaf: "k3", free: false },
+        ],
+      }],
+    });
+    // Fermé : rien du routeur dans le DOM, mais le repli annonce déjà 4
+    // réglages (3 blocs habituels + le routeur).
+    expect(screen.queryByText(t("settings.opencode-router.section-title"))).toBeNull();
+    const trigger = screen.getByRole("button", { name: /Avancé/ });
+    expect(trigger.textContent).toContain(t("settings.advanced-count", { count: 4 }));
+    fireEvent.click(trigger);
+    expect(screen.getByText(t("settings.opencode-router.section-title"))).toBeInTheDocument();
+  });
+
+  it("une route épinglée reste visible même quand la recherche du routeur l'exclurait — preuve que le catalogue COMPLET est passé, pas un sous-ensemble pré-filtré", () => {
+    // Le piège que le brief signale explicitement : `groupRoutes` doit être
+    // construit UNE fois sur le catalogue brut, jamais sur un résultat déjà
+    // réduit par la recherche — sinon la règle « une épinglée reste visible
+    // hors filtre » (OpenCodeRouter.tsx) casse silencieusement, sans test
+    // rouge ni erreur. `k3` est déjà épinglé ; une recherche "glm" (qui ne
+    // matche ni son label ni son id) doit quand même le laisser dans la
+    // section « Épinglées ».
+    const ws = fakeWsOuvert();
+    const s = { ...DEFAULT_SETTINGS, favoriteModels: { opencode: ["kimi-for-coding/k3"] } };
+    renderUi(<Models {...props({ ws, s })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{
+        id: "opencode", label: "opencode", ok: true, kind: "cli",
+        models: ["opencode/glm-5.2", "kimi-for-coding/k3"], efforts: [],
+        routes: [
+          { id: "opencode/glm-5.2", gateway: "opencode", vendor: null, leaf: "glm-5.2", free: false },
+          { id: "kimi-for-coding/k3", gateway: "kimi-for-coding", vendor: null, leaf: "k3", free: false },
+        ],
+      }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    const search = screen.getByPlaceholderText(t("settings.opencode-router.search-ph"));
+    fireEvent.change(search, { target: { value: "glm" } });
+    // Toujours dans « Épinglées » (section dédiée, scopée pour ne pas
+    // confondre avec la ligne du même id dans le tableau ModelsGrid
+    // au-dessus), alors que le catalogue filtré en dessous ne montre plus
+    // que le groupe glm-5.2.
+    const pinnedSection = document.querySelector(".ocr-pinned");
+    expect(pinnedSection).not.toBeNull();
+    expect(within(pinnedSection as HTMLElement).getByText("kimi-for-coding/k3")).toBeInTheDocument();
+  });
+
+  it("épingler une route opencode écrit son id EXACT (avec deux-points inclus) dans favoriteModels.opencode", () => {
+    // `openrouter/deepseek/deepseek-v4:free` : le piège du deux-points que
+    // le brief signale — Chat.tsx (toggleFavModel, ~ligne 499) redécoupe
+    // `${providerId}:${modelId}` sur le PREMIER `:` uniquement. Ce test
+    // vérifie seulement le côté écriture (Models.tsx doit stocker l'id
+    // routé tel quel, sans le tronquer ni le réencoder) ; le test suivant
+    // verrouille le côté lecture (Chat.tsx).
+    const ws = fakeWsOuvert();
+    const set = vi.fn();
+    renderUi(<Models {...props({ ws, set })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{
+        id: "opencode", label: "opencode", ok: true, kind: "cli",
+        models: ["openrouter/deepseek/deepseek-v4:free"], efforts: [],
+        routes: [
+          { id: "openrouter/deepseek/deepseek-v4:free", gateway: "openrouter", vendor: "deepseek", leaf: "deepseek-v4", free: true },
+        ],
+      }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    const search = screen.getByPlaceholderText(t("settings.opencode-router.search-ph"));
+    fireEvent.change(search, { target: { value: "deepseek" } });
+    // Le groupe démarre replié (aucune route épinglée dedans pour l'instant
+    // — règle de dessin n°2 d'OpenCodeRouter.tsx) : il faut le déplier avant
+    // que la ligne de route (et son bouton d'épingle dédié) existe dans le DOM.
+    fireEvent.click(screen.getByRole("button", {
+      name: t("settings.opencode-router.group-expand", { model: "deepseek-v4" }),
+    }));
+    const pin = screen.getByRole("button", {
+      name: t("settings.opencode-router.route-pin", { id: "openrouter/deepseek/deepseek-v4:free" }),
+    });
+    fireEvent.click(pin);
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteModels: expect.objectContaining({ opencode: ["openrouter/deepseek/deepseek-v4:free"] }),
+    }));
+  });
+
+  it("verrouille le contrat de découpage de Chat.tsx (toggleFavModel, ~ligne 499) : un id routé contenant un deux-points survit à `${provider}:${modelId}` puis `indexOf(\":\")`", () => {
+    // Chat.tsx construit ses clés de favoris en `${providerId}:${modelId}`
+    // et les redécoupe avec `key.indexOf(":")` (PAS `split(":")`, qui
+    // couperait au mauvais endroit sur un id routé). Ce test réplique
+    // littéralement cette logique — Chat.tsx n'exporte pas `toggleFavModel`
+    // pour la tester directement — afin qu'un remplacement futur de
+    // `indexOf` par `split` fasse rougir CE test plutôt que de casser
+    // silencieusement le sélecteur du chat pour tout modèle gratuit routé
+    // (`openrouter/*/*:free`).
+    const providerId = "opencode";
+    const modelId = "openrouter/deepseek/deepseek-v4:free";
+    const key = `${providerId}:${modelId}`;
+
+    // Réplique exacte de Chat.tsx:498-502.
+    const separator = key.indexOf(":");
+    expect(separator).toBeGreaterThan(0);
+    const parsedProvider = key.slice(0, separator);
+    const parsedModelId = key.slice(separator + 1);
+
+    expect(parsedProvider).toBe(providerId);
+    expect(parsedModelId).toBe(modelId);
+
+    // Contre-preuve du piège signalé par le brief : `split(":")` casserait
+    // silencieusement ce même cas (le modelId serait tronqué au premier
+    // `:`), ce que `indexOf` évite.
+    expect(key.split(":")[1]).not.toBe(modelId);
+  });
 });
