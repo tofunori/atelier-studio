@@ -510,6 +510,26 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        // Un stop doit être IMMÉDIAT : la voie séquentielle
+                        // ci-dessous peut être occupée plusieurs secondes (la
+                        // branche steer Claude attend la mort du tour jusqu'à
+                        // 5 s) et un interrupt qui fait la file arrive après
+                        // la bataille (stop « inopérant », 2026-08-24). Sa
+                        // réponse est vide → fire-and-forget hors de la file.
+                        let is_interrupt = serde_json::from_str::<serde_json::Value>(&text)
+                            .ok()
+                            .and_then(|m| {
+                                m.get("type").and_then(|v| v.as_str()).map(|t| t == "interrupt")
+                            })
+                            .unwrap_or(false);
+                        if is_interrupt {
+                            let state_i = state.clone();
+                            let text_i = text.to_string();
+                            tokio::spawn(async move {
+                                let _ = crate::ws_router::route_ws(&state_i, &text_i).await;
+                            });
+                            continue;
+                        }
                         let replies = crate::ws_router::route_ws(&state, &text).await;
                         for reply in replies {
                             if sender.send(Message::Text(reply.into())).await.is_err() {

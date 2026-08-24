@@ -33,20 +33,23 @@ pub struct ClaudeProvider {
     bin: PathBuf,
     /// Active child per thread (for interrupt).
     runs: Mutex<HashMap<String, ActiveRun>>,
+    /// Fils tués par interrupt() dont le send() n'a pas encore conclu. Le flag
+    /// is_cancelled passe par un watcher 50 ms : un kill direct fait sortir la
+    /// boucle par EOF AVANT la propagation, et le tour s'affichait « session
+    /// terminée sans résultat » au lieu d'« interrupted » (2026-08-24).
+    interrupted: Mutex<std::collections::HashSet<String>>,
 }
 
 impl ClaudeProvider {
     pub fn new() -> Option<Self> {
-        resolve_claude_bin().map(|bin| Self {
-            bin,
-            runs: Mutex::new(HashMap::new()),
-        })
+        resolve_claude_bin().map(Self::with_bin)
     }
 
     pub fn with_bin(bin: PathBuf) -> Self {
         Self {
             bin,
             runs: Mutex::new(HashMap::new()),
+            interrupted: Mutex::new(std::collections::HashSet::new()),
         }
     }
 }
@@ -171,10 +174,7 @@ fn commit_message_prompts(diff: &str, project_root: &str) -> (String, String) {
 
 impl Default for ClaudeProvider {
     fn default() -> Self {
-        Self::new().unwrap_or_else(|| Self {
-            bin: PathBuf::from("claude"),
-            runs: Mutex::new(HashMap::new()),
-        })
+        Self::new().unwrap_or_else(|| Self::with_bin(PathBuf::from("claude")))
     }
 }
 
@@ -514,6 +514,7 @@ impl Provider for ClaudeProvider {
 
     async fn send(&self, req: SendRequest) -> SendResult {
         // Kill any previous child for this thread
+        self.interrupted.lock().await.remove(&req.thread_id);
         {
             let mut runs = self.runs.lock().await;
             if let Some(mut prev) = runs.remove(&req.thread_id) {
@@ -673,7 +674,8 @@ impl Provider for ClaudeProvider {
             // re-test d'is_cancelled en tête de boucle : sans ce test-ci, une
             // interruption volontaire s'affichait comme un échec « session
             // terminée sans résultat » (Thierry 2026-08-23).
-            let message = if is_cancelled() {
+            let stopped_by_interrupt = self.interrupted.lock().await.remove(&thread_id);
+            let message = if is_cancelled() || stopped_by_interrupt {
                 "interrupted".to_string()
             } else {
                 err_msg
@@ -790,6 +792,12 @@ impl Provider for ClaudeProvider {
     async fn interrupt(&self, thread_id: &str) -> bool {
         let mut runs = self.runs.lock().await;
         if let Some(mut r) = runs.remove(thread_id) {
+            // Marqueur AVANT le kill : l'EOF du process tué peut conclure le
+            // tour avant que le flag asynchrone ne se propage (watcher 50 ms).
+            self.interrupted
+                .lock()
+                .await
+                .insert(thread_id.to_string());
             if let Some(pid) = r.child.id() {
                 kill_process_group(pid);
             }
@@ -1081,5 +1089,60 @@ mod title_tests {
         assert!(first_system.contains("title and description"));
         assert!(first_user.contains("diff --git a/src/a.ts b/src/a.ts"));
         assert_ne!(first_user.lines().next(), second_user.lines().next());
+    }
+}
+
+#[cfg(test)]
+mod interrupt_tests {
+    use super::*;
+    use crate::traits::SendMode;
+
+    /// Un stop direct (interrupt) doit terminer le tour en « interrupted »,
+    /// même quand le flag is_cancelled asynchrone n'a pas encore été propagé
+    /// par le watcher 50 ms — vécu : « session terminée sans résultat » sur
+    /// un stop pourtant volontaire (2026-08-24).
+    #[tokio::test]
+    async fn un_stop_direct_termine_en_interrupted() {
+        let dir = std::env::temp_dir().join(format!("claude-fake-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("fake-claude");
+        // Faux CLI : silence prolongé, comme une phase de réflexion.
+        std::fs::write(&bin, "#!/bin/sh\nsleep 30\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let provider = Arc::new(ClaudeProvider::with_bin(bin));
+        let req = SendRequest {
+            thread_id: "t-stop".into(),
+            turn_id: "u".into(),
+            prompt: "salut".into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("acceptEdits".into()),
+            fork_pending: false,
+            mode: SendMode::Normal,
+            on_event: Arc::new(|_| {}),
+            on_interaction: None,
+            // Le flag asynchrone ne se propage JAMAIS ici : le marqueur posé
+            // par interrupt() doit suffire.
+            is_cancelled: Arc::new(|| false),
+            atelier_mcp: None,
+        };
+        let p2 = Arc::clone(&provider);
+        let handle = tokio::spawn(async move { p2.send(req).await });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(provider.interrupt("t-stop").await, "le run devait être enregistré");
+        let res = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("send doit se terminer après le kill")
+            .unwrap();
+        assert_eq!(res.error.as_deref(), Some("interrupted"));
+        assert!(!res.ok);
     }
 }
