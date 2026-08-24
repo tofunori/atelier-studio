@@ -113,6 +113,21 @@ pub struct ProviderCapabilities {
     pub permission_modes: Vec<String>,
 }
 
+/// Valeur par défaut de désérialisation pour `model_labels` : un champ
+/// absent redevient `{}` (jamais `null`) — sans ce `default = "…"`,
+/// `#[serde(default)]` sur un `Value` produit `Value::Null`, pas
+/// `Value::Object` vide, quoi qu'en dise un commentaire qui ne ferait
+/// qu'affirmer la garantie sans la faire tenir.
+fn empty_model_labels() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+/// Même rôle que `empty_model_labels`, pour `routes` : absent ⇒ `[]`,
+/// jamais `null`.
+fn empty_routes() -> Value {
+    Value::Array(Vec::new())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderStatus {
@@ -124,14 +139,17 @@ pub struct ProviderStatus {
     pub model_reasoning: Value,
     /// Libellés officiels annoncés par le CLI (`{modelId: nom}`). Vide tant
     /// qu'aucun catalogue vivant n'a répondu : l'UI retombe alors sur ses
-    /// libellés intégrés, puis sur l'identifiant brut.
-    #[serde(default)]
+    /// libellés intégrés, puis sur l'identifiant brut. `default =
+    /// "empty_model_labels"` garantit `{}` si le champ est absent à la
+    /// désérialisation — `#[serde(default)]` seul aurait donné `null`.
+    #[serde(default = "empty_model_labels")]
     pub model_labels: Value,
     /// Routes opencode décomposées (gateway/vendor/leaf/free — lot B2).
     /// Additif : `models` reste le tableau plat consommé par le picker et
-    /// Chat.tsx, inchangé. Vide pour tout provider qui n'expose pas de
+    /// Chat.tsx, inchangé. Vide (`[]`, garanti par `default =
+    /// "empty_routes"` — pas `null`) pour tout provider qui n'expose pas de
     /// routes (tous sauf opencode, pour l'instant).
-    #[serde(default)]
+    #[serde(default = "empty_routes")]
     pub routes: Value,
     pub default_model: String,
     pub efforts: Vec<String>,
