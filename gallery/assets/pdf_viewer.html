@@ -252,6 +252,32 @@ document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no
 let selPage = 1;
 let __reloadPdf = null;  // posé par main() — rechargement en place après compile LaTeX
 
+/** mtime du PDF affiché, ou null si le serveur ne répond pas. */
+async function currentMtime(){
+  try{
+    const r = await fetch("/statfile?path=" + encodeURIComponent(rel));
+    if(!r.ok) return null;
+    const j = await r.json();
+    return typeof j.mtime === "number" ? j.mtime : null;
+  }catch(e){ return null; }
+}
+
+/** Source LaTeX de ce PDF. « PDF ↗ » du studio la passe en ?tex= ; ouvert
+ * depuis la GALERIE (chemin principal), l'URL ne porte rien — on cherche donc
+ * un .tex portant le même nom à côté du PDF. Sans source, pas de bouton. */
+async function findTexSource(){
+  const fromQuery = __passageParams.get("tex");
+  if(fromQuery) return fromQuery;
+  if(!rel || !/\.pdf$/i.test(rel)) return null;
+  const sibling = rel.replace(/\.pdf$/i, ".tex");
+  try{
+    const r = await fetch("/statfile?path=" + encodeURIComponent(sibling));
+    if(!r.ok) return null;
+    const j = await r.json();
+    return typeof j.mtime === "number" ? sibling : null;
+  }catch(e){ return null; }
+}
+
 async function main(){
   let pdf;
   try {
@@ -472,18 +498,17 @@ async function main(){
   // Recompilation EXTERNE (agent, script) : le message « compiled » ne sonne
   // que pour la compilation interne du studio. On veille le mtime et on
   // recharge en place — vaut pour tout PDF, figures régénérées comprises.
-  (function(){
-    let watched = null;
+  (async function(){
+    // Référence posée AU CHARGEMENT : le premier tick comparait à rien et se
+    // contentait de mémoriser — une recompilation tombant dans cette fenêtre
+    // (2,5 s) était avalée en silence (2026-08-24).
+    let watched = await currentMtime();
     setInterval(async function(){
       if (document.hidden || typeof __reloadPdf !== "function") return;
-      try{
-        const r = await fetch("/statfile?path=" + encodeURIComponent(rel));
-        if (!r.ok) return;
-        const j = await r.json();
-        if (typeof j.mtime !== "number") return;
-        if (watched !== null && j.mtime > watched) __reloadPdf();
-        watched = j.mtime;
-      }catch(e){}
+      const m = await currentMtime();
+      if (m === null) return;
+      if (watched !== null && m > watched) __reloadPdf();
+      watched = m;
     }, 2500);
   })();
   await renderAll();
@@ -1563,11 +1588,12 @@ if(window.self !== window.top){
 // mtime ci-dessus recharge alors le PDF toute seule. Ce bouton couvre le cas
 // inverse — édition sans recompilation — sans jamais compiler AUTOMATIQUEMENT
 // (deux latexmk concurrents sur le même dossier = .aux corrompus).
-(function(){
-  const texPath = __passageParams.get("tex");
+(async function(){
   const compileBtn = document.getElementById("compileBtn");
   const compileLabel = document.getElementById("compileLabel");
-  if(!compileBtn || !texPath) return;   // PDF sans source .tex : rien à compiler
+  if(!compileBtn) return;
+  const texPath = await findTexSource();
+  if(!texPath) return;   // PDF sans source .tex : rien à compiler
   // display explicite : "" retirerait l'inline et laisserait le display:none
   // de la règle #compileBtn reprendre la main (bouton invisible — attrapé au
   // banc navigateur, pas à la relecture).

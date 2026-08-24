@@ -1459,9 +1459,21 @@ function commitComposerContractTests() {
     /id=["']compileBtn["']/.test(pdfViewer)
     && /fetch\(["']\/compile["'], *\{ *method: *["']POST["']/.test(pdfViewer)
     && /body: *JSON\.stringify\(\{path: *texPath\}\)/.test(pdfViewer));
-  contractOk("bouton Compiler n'apparaît que pour un PDF issu d'un .tex",
-    /compileBtn\.style\.display = ["']inline-flex["']/.test(pdfViewer)
-    && /const texPath = __passageParams\.get\(["']tex["']\)/.test(pdfViewer));
+  contractOk("bouton Compiler apparaît avec une valeur de display explicite",
+    /compileBtn\.style\.display = ["']inline-flex["']/.test(pdfViewer));
+  // Ouvert depuis la GALERIE, l'URL n'a pas de ?tex= (seul « PDF ↗ » du studio
+  // en pose un) : c'est pourtant le chemin principal de Thierry. Le viewer
+  // cherche donc un .tex frère du PDF avant de renoncer au bouton (2026-08-24).
+  contractOk("sans ?tex=, le viewer cherche un .tex frère du PDF",
+    /async function findTexSource\(\)/.test(pdfViewer)
+    && /\.replace\(\/\\\.pdf\$\/i, *["']\.tex["']\)/.test(pdfViewer)
+    && /\/statfile\?path=/.test(pdfViewer));
+  // Un PDF recompilé pendant la fenêtre entre le chargement et le premier
+  // sondage était silencieusement avalé : le premier tick posait la référence
+  // au lieu de comparer à l'état du chargement (2026-08-24).
+  contractOk("la référence mtime est posée AU CHARGEMENT, pas au premier sondage",
+    /watched = await currentMtime\(\)/.test(pdfViewer));
+
   contractOk("compilation en cours verrouille le bouton et rend l'erreur LaTeX",
     /compileBtn\.disabled = true/.test(pdfViewer)
     && /j\.error/.test(pdfViewer)
