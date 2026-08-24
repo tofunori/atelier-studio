@@ -1482,6 +1482,85 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .mg-card-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .mg-card-meta .custom-select { min-width: 120px; }
 
+/* ---- OpenCodeRouter, catalogue de routes opencode (lot B2, tâche 4) ----
+   Même langage visuel que ModelsGrid (.mg-*) : recherche + puces à gauche,
+   compte à droite, surface scrollable pour le catalogue. Particularité :
+   la zone catalogue reste VIDE tant qu'aucun filtre n'est actif (règle de
+   dessin n°1, OpenCodeRouter.tsx) — .ocr-catalog héberge alors un EmptyState
+   plutôt qu'une liste, jamais un état de chargement ou un tableau tronqué. */
+.ocr-root { display: flex; flex-direction: column; gap: 16px; }
+.ocr-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ocr-search { flex: 1; min-width: 160px; max-width: 320px; background: var(--bg-ctl);
+  border: 1px solid var(--border2); border-radius: var(--r-s); padding: 6px 12px;
+  font-size: var(--fs-l); color: inherit; outline: none; }
+.ocr-search::placeholder { color: var(--text-muted); }
+.ocr-search:focus-visible { border-color: var(--accent); }
+
+.ocr-gateways { flex-wrap: wrap; height: auto; }
+.ocr-gateway-pill-label { display: inline-flex; align-items: center; gap: 6px; }
+.ocr-gateway-count { color: var(--text-muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ocr-gateways .on .ocr-gateway-count { color: inherit; }
+
+/* Épinglées : carte à part, AU-DESSUS du catalogue — la règle de dessin n°4
+   veut qu'elles restent visibles hors du filtre courant, avec le rappel de
+   ce qu'elles font (seules routes affichées au sélecteur du chat). */
+.ocr-pinned { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
+  border: 1px solid var(--border2); border-radius: var(--r-m); background: var(--bg-card); }
+.ocr-pinned-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ocr-pinned-title { margin: 0; font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; }
+.ocr-pinned-hint { margin: 0; color: var(--text-muted); font-size: var(--fs-s); }
+.ocr-pinned-list { display: flex; flex-direction: column; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.ocr-pinned-item { display: flex; align-items: center; gap: 12px; padding: 6px 8px;
+  border-radius: var(--r-s); transition: background-color var(--ease); }
+.ocr-pinned-item:hover { background: var(--bg-ctl); }
+@media (prefers-reduced-motion: reduce) { .ocr-pinned-item { transition: none; } }
+.ocr-pinned-model { flex: none; font-size: var(--fs-l); font-weight: 500; }
+.ocr-pinned-gateway { flex: none; color: var(--text-muted); font-size: var(--fs-s); text-transform: uppercase;
+  letter-spacing: 0.04em; }
+.ocr-pinned-id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--code-font); font-size: var(--fs-s); color: var(--text-muted); }
+
+.ocr-catalog { min-height: 0; }
+.ocr-catalog .ui-empty { padding: 28px 16px; }
+
+.ocr-groups { display: flex; flex-direction: column; gap: 4px; list-style: none; margin: 0; padding: 0;
+  max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--bg-card); padding: 4px; }
+
+.ocr-group-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px;
+  border-radius: var(--r-s); text-align: left; transition: background-color var(--ease); }
+.ocr-group-trigger:hover { background: var(--bg-ctl); }
+@media (prefers-reduced-motion: reduce) { .ocr-group-trigger { transition: none; } }
+.ocr-chevron { flex: none; color: var(--text-muted); transition: transform var(--ease); }
+.ocr-chevron--open { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .ocr-chevron { transition: none; } }
+.ocr-group-label { font-size: var(--fs-l); font-weight: 500; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.ocr-group-vendor { flex: none; color: var(--text-muted); font-size: var(--fs-s); }
+.ocr-group-meta { flex: none; margin-left: auto; display: flex; align-items: center; gap: 8px;
+  color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ocr-group-pinned { color: var(--accent); }
+
+.ocr-routes { display: flex; flex-direction: column; gap: 2px; list-style: none;
+  margin: 2px 0 4px; padding: 0 8px 0 30px; }
+.ocr-route { display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  border-radius: var(--r-s); transition: background-color var(--ease); }
+.ocr-route:hover { background: var(--bg-ctl); }
+@media (prefers-reduced-motion: reduce) { .ocr-route { transition: none; } }
+.ocr-route-gateway { flex: none; width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-muted); font-size: var(--fs-s); text-transform: uppercase; letter-spacing: 0.04em; }
+.ocr-route-id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--code-font); font-size: var(--fs-s); }
+.ocr-route-free { flex: none; color: var(--text-muted); font-size: var(--fs-xs); text-transform: uppercase;
+  letter-spacing: 0.04em; border: 1px solid var(--border2); border-radius: var(--r-s); padding: 1px 6px; }
+
+.ocr-pin-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px;
+  height: 24px; border-radius: var(--r-s); color: var(--text-muted); background: transparent;
+  transition: color var(--ease); }
+.ocr-pin-btn:hover { color: var(--text-primary); }
+.ocr-pin-btn[aria-pressed="true"] { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .ocr-pin-btn { transition: none; } }
+
 .appsnap-intro { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px;
   align-items: start; margin: 0 0 28px; padding: 24px 26px; border: 1px solid var(--border2);
   border-radius: var(--r-m); background: color-mix(in srgb, var(--bg-card) 70%, transparent); }
