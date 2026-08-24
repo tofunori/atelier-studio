@@ -99,6 +99,17 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             if let Some(sid) = msg.get("session_id").and_then(|v| v.as_str()) {
                 state.session_id = Some(sid.to_string());
             }
+            // Occupe l'attente : la session (potentiellement volumineuse en
+            // --resume) vient d'être chargée, la requête part ensuite.
+            out.push(json!({"kind":"heartbeat","note":"session chargée"}));
+        }
+        // « requesting » = la requête est partie, on attend le premier jeton.
+        // C'est LE trou visible des gros tours (13-55 s mesurés 2026-08-24) :
+        // sans note, le chrono tourne nu et le fil paraît bloqué.
+        if subtype == "status"
+            && msg.get("status").and_then(|v| v.as_str()) == Some("requesting")
+        {
+            out.push(json!({"kind":"heartbeat","note":"en attente du modèle…"}));
         }
         if subtype == "compact_boundary" {
             out.push(json!({"kind":"tool","name":"__compacted"}));
@@ -171,6 +182,12 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     if ty == "stream_event" {
         if let Some(ev) = msg.get("event") {
             let et = ev.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if et == "message_start" {
+                // Le stream démarre : la note d'attente (« en attente du
+                // modèle… ») ne doit pas survivre au premier jeton. Note
+                // vide → le frontend remet liveNotes à null.
+                out.push(json!({"kind":"heartbeat","note":""}));
+            }
             if et == "content_block_delta" {
                 if let Some(delta) = ev.get("delta") {
                     let dt = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -803,6 +820,45 @@ mod tests {
     }
 
     /// Les hooks tournent invisiblement (69 chez Thierry) : ils occupent
+    /// Le trou visible du tour (13-55 s mesurés, 2026-08-24) est l'attente
+    /// du modèle après `status: requesting` : sans note, le chrono tourne nu
+    /// et le fil paraît bloqué. L'init et le statut occupent l'attente ; le
+    /// début du stream efface la note (sinon « en attente du modèle » resterait
+    /// pendant que le texte coule).
+    #[test]
+    fn linit_et_le_statut_requesting_occupent_lattente() {
+        let mut state = ClaudeStreamState::default();
+        let init = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"init","session_id":"0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000"}),
+        );
+        assert!(init
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["note"] == "session chargée"));
+
+        let req = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"status","status":"requesting"}),
+        );
+        assert!(req
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["note"] == "en attente du modèle…"));
+
+        // Un autre statut ne fabrique PAS de note.
+        let autre = parse_message(&mut state, &json!({"type":"system","subtype":"status","status":"idle"}));
+        assert!(autre.iter().all(|v| v["kind"] != "heartbeat"));
+
+        // Le stream démarre : la note d'attente s'efface (note vide → le
+        // frontend remet liveNotes à null).
+        let start = parse_message(
+            &mut state,
+            &json!({"type":"stream_event","event":{"type":"message_start","message":{}}}),
+        );
+        assert!(start
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["note"] == ""));
+    }
+
     /// l'attente, comme le démarrage MCP de Grok.
     #[test]
     fn les_hooks_occupent_lattente() {
@@ -829,7 +885,9 @@ mod tests {
             &mut st,
             r#"{"type":"system","subtype":"init","session_id":"abc-123"}"#,
         );
-        assert!(e1.is_empty());
+        // L'init émet désormais la note « session chargée » (occupation de
+        // l'attente) — plus d'événement durable pour autant.
+        assert!(e1.iter().all(|v| v["kind"] == "heartbeat"));
         assert_eq!(st.session_id.as_deref(), Some("abc-123"));
 
         let e2 = parse_line(

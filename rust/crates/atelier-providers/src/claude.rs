@@ -559,6 +559,11 @@ impl Provider for ClaudeProvider {
             }
         };
 
+        // Première trace de vie AVANT toute sortie du CLI : le chargement
+        // d'une grosse session (--resume) peut retenir la première ligne
+        // plusieurs secondes, et le chrono tournait nu (2026-08-24).
+        (req.on_event)(json!({"kind":"heartbeat","note":"Claude démarre…"}));
+
         let stdout = match child.stdout.take() {
             Some(s) => s,
             None => {
@@ -1114,6 +1119,8 @@ mod interrupt_tests {
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let provider = Arc::new(ClaudeProvider::with_bin(bin));
+        let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let req = SendRequest {
             thread_id: "t-stop".into(),
             turn_id: "u".into(),
@@ -1127,7 +1134,10 @@ mod interrupt_tests {
             permission_mode: Some("acceptEdits".into()),
             fork_pending: false,
             mode: SendMode::Normal,
-            on_event: Arc::new(|_| {}),
+            on_event: {
+                let seen = Arc::clone(&events_seen);
+                Arc::new(move |ev| seen.lock().unwrap().push(ev))
+            },
             on_interaction: None,
             // Le flag asynchrone ne se propage JAMAIS ici : le marqueur posé
             // par interrupt() doit suffire.
@@ -1144,5 +1154,11 @@ mod interrupt_tests {
             .unwrap();
         assert_eq!(res.error.as_deref(), Some("interrupted"));
         assert!(!res.ok);
+        // Le tour a donné une trace de vie AVANT toute sortie du CLI (le faux
+        // CLI n'écrit rien) : la note de démarrage occupe l'attente.
+        let events = events_seen.lock().unwrap();
+        assert!(events
+            .iter()
+            .any(|v| v["kind"] == "heartbeat" && v["note"] == "Claude démarre…"));
     }
 }
