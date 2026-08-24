@@ -41,6 +41,8 @@ import { t } from "../../../lib/i18n";
 import { modelDisplayLabel } from "../../../lib/modelCatalog";
 import { buildModelRows, type ModelRow } from "../models/buildModelRows";
 import { ModelsGrid } from "../models/ModelsGrid";
+import { groupRoutes, type Route } from "../models/groupRoutes";
+import { OpenCodeRouter } from "../models/OpenCodeRouter";
 import { PlusIcon } from "../../icons";
 import { Select } from "../../Select";
 import { Button, InlineNotice, SegmentedControl } from "../../ui";
@@ -111,6 +113,19 @@ function sortProvidersByOrder(provs: ProviderCatalogRow[], order: string[]): Pro
   });
 }
 
+// Passerelles + décompte de routes pour le SegmentedControl du routeur
+// opencode : dérivé du catalogue BRUT de routes (jamais du résultat déjà
+// filtré par `filterGroups`) — le sélecteur de passerelle doit toujours
+// proposer TOUTES les passerelles connues, y compris celles que le filtre
+// courant (recherche, autre passerelle) a fait disparaître du catalogue
+// affiché en dessous. Ordre = première apparition dans `routes`, comme
+// `groupRoutes` le fait déjà pour ses propres groupes.
+function routeGateways(routes: Route[]): { id: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const route of routes) counts.set(route.gateway, (counts.get(route.gateway) ?? 0) + 1);
+  return [...counts.entries()].map(([id, count]) => ({ id, count }));
+}
+
 export default function Models(p: SectionProps) {
   const save = (patch: Partial<Settings>) => { p.set(patch); p.onSaved(); };
   const s = p.s;
@@ -135,6 +150,12 @@ export default function Models(p: SectionProps) {
   const [slugProv, setSlugProv] = useState<"claude" | "codex">("codex");
   const [slugText, setSlugText] = useState("");
   const [modelFilter, setModelFilter] = useState("");
+  // État du routeur opencode (repli Avancé, tâche 5) : passerelle active et
+  // recherche, LOCAUX à cette page — comme `modelFilter` ci-dessus, jamais
+  // persistés dans Settings (ce ne sont pas des réglages, juste l'état de
+  // navigation d'un outil de curation).
+  const [routerGateway, setRouterGateway] = useState<string | null>(null);
+  const [routerQuery, setRouterQuery] = useState("");
 
   function authLabel(auth: string) {
     const labels: Record<string, string> = {
@@ -276,6 +297,36 @@ export default function Models(p: SectionProps) {
     if (effort) next[key] = effort;
     else delete next[key];
     save({ modelEfforts: next });
+  }
+
+  // Routeur opencode (spec §7.2, tâche 5) : n'existe que si le catalogue
+  // contient une entrée "opencode" avec des routes à montrer — un outil de
+  // curation vide n'a rien à curer. `favoriteModels.opencode` PORTE
+  // l'épinglage : les identifiants routés (ex. `openrouter/deepseek/
+  // deepseek-v4:free`) sont directement les `modelId` de ce fournisseur,
+  // même forme que pour n'importe quel autre (voir handleToggleFavorite
+  // ci-dessus) — aucun champ dédié à inventer.
+  const opencodeProvider = (provs ?? []).find((row) => row.id === "opencode") ?? null;
+  const opencodeRoutes: Route[] = opencodeProvider?.routes ?? [];
+  const showOpenCodeRouter = opencodeRoutes.length > 0;
+  const pinnedRouteIds = favoriteModels.opencode ?? [];
+  // `groupRoutes` prend TOUT le catalogue, jamais un sous-ensemble déjà
+  // filtré : voir le commentaire d'en-tête d'OpenCodeRouter.tsx — le
+  // composant recalcule lui-même `filterGroups` en interne, précisément pour
+  // garder une route épinglée visible même hors du filtre courant. Comme
+  // pour `rows`/`filteredRows` plus haut dans ce fichier, pas de useMemo :
+  // cette page recalcule déjà tout à chaque rendu, une seconde règle de
+  // mémoïsation locale ajouterait une dépendance à garder synchrone sans
+  // bénéfice mesuré.
+  const openCodeGroups = groupRoutes(opencodeRoutes, pinnedRouteIds);
+  const openCodeGateways = routeGateways(opencodeRoutes);
+
+  function handleToggleRoutePin(route: Route) {
+    const current = favoriteModels.opencode ?? [];
+    const next = current.includes(route.id)
+      ? current.filter((id) => id !== route.id)
+      : [...current, route.id];
+    save({ favoriteModels: { ...favoriteModels, opencode: next } });
   }
 
   // Rangée récapitulative « Conversation neuve » (spec §6.1) : ce que
@@ -456,7 +507,7 @@ export default function Models(p: SectionProps) {
           personnalisés (spec §6.1/§6.2). Chaque sous-bloc porte désormais son
           étiquette : le groupe « ordre du sélecteur » n'en avait AUCUNE
           avant cette tâche (revue du lot 1). */}
-      <Advanced count={3}>
+      <Advanced count={showOpenCodeRouter ? 4 : 3}>
         <p className="set-sub">{t("settings.providers-visibility-sub")}</p>
         {provs === null && <p className="set-empty">{t("settings.checking")}</p>}
         {provs && (() => {
@@ -667,6 +718,29 @@ export default function Models(p: SectionProps) {
             <p className="set-empty">{t("settings.no-custom-models")}</p>
           )}
         </Group>
+
+        {/* Routeur opencode (spec §7.2, tâche 5) : outil de curation, pas la
+            vue quotidienne — n'apparaît que si le catalogue expose des
+            routes opencode. `groups` passé NON filtré à dessein (voir le
+            commentaire sur `openCodeGroups` ci-dessus) : le composant filtre
+            lui-même en interne pour garder les épinglées visibles hors
+            filtre. */}
+        {showOpenCodeRouter && (
+          <div className="set-group">
+            <div className="set-group-label">{t("settings.opencode-router.section-title")}</div>
+            <p className="set-sub">{t("settings.opencode-router.section-desc")}</p>
+            <OpenCodeRouter
+              groups={openCodeGroups}
+              gateways={openCodeGateways}
+              activeGateway={routerGateway}
+              query={routerQuery}
+              onGatewayChange={setRouterGateway}
+              onQueryChange={setRouterQuery}
+              onTogglePin={handleToggleRoutePin}
+              pinned={pinnedRouteIds}
+            />
+          </div>
+        )}
       </Advanced>
     </>
   );
