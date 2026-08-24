@@ -1478,6 +1478,29 @@ function commitComposerContractTests() {
     /compileBtn\.disabled = true/.test(pdfViewer)
     && /j\.error/.test(pdfViewer)
     && /__reloadPdf/.test(pdfViewer));
+  // Un PDF SANS source LaTeX (article Zotero, rapport téléchargé, figure
+  // exportée) ne montre rien : findTexSource rend null, le bloc s'arrête.
+  contractOk("PDF sans source LaTeX : aucun bouton",
+    /const texPath = await findTexSource\(\);\s*\n\s*if\(!texPath\) return;/.test(pdfViewer));
+  // Icône seule (2026-08-24) : le libellé texte alourdissait la barre et
+  // l'ancienne icône (flèche vers un plateau) disait « télécharger ».
+  contractOk("bouton Compiler = icône seule, flèche circulaire, sans libellé",
+    !/id=["']compileLabel["']/.test(pdfViewer)
+    && /#compileBtn\{[^}]*width:26px;height:24px/s.test(pdfViewer)
+    && !/<span id=["']compileLabel["']/.test(pdfViewer));
+  contractOk("états du bouton portés par des classes CSS, jamais par du texte",
+    // les trois états sont demandés…
+    /etat\(["']busy["']/.test(pdfViewer)
+    && /etat\(["']done["']/.test(pdfViewer)
+    && /etat\(["']err["']/.test(pdfViewer)
+    // …rendus par des règles CSS…
+    && /#compileBtn\.busy svg\{animation:compileSpin/.test(pdfViewer)
+    && /#compileBtn\.done\{color:var\(--accent/.test(pdfViewer)
+    && /#compileBtn\.err::after\{/.test(pdfViewer)
+    // …et jamais par du texte écrit dans la barre
+    && !/compileBtn\.textContent/.test(pdfViewer));
+  contractOk("l'animation d'attente respecte prefers-reduced-motion",
+    /@media \(prefers-reduced-motion: reduce\)\{ #compileBtn\.busy svg\{animation:none/.test(pdfViewer));
 
   contractOk("instrument Git garde une empreinte fixe",
     /#dvNav\{display:inline-flex/.test(src)

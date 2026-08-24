@@ -22,12 +22,26 @@
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
   .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:12px;padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
   .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
-  #compileBtn{display:none;align-items:center;gap:5px;margin-left:8px;flex:none;
-    background:transparent;border:1px solid var(--border);border-radius:6px;
-    color:var(--muted,#868d9a);font-size:12px;padding:3px 9px;cursor:pointer;line-height:1.4}
+  /* Icône seule : même gabarit que les autres boutons de barre. Aucun texte —
+     l'infobulle porte le nom et, en cas d'échec, le log LaTeX. */
+  #compileBtn{display:none;width:26px;height:24px;align-items:center;justify-content:center;
+    position:relative;margin-left:8px;flex:none;background:transparent;border:none;border-radius:6px;
+    color:var(--muted,#868d9a);cursor:pointer;padding:0;
+    transition:color 140ms ease, background 140ms ease}
   #compileBtn:hover:not(:disabled){background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
-  #compileBtn:disabled{opacity:.6;cursor:default}
-  #compileBtn.err{color:#f07d73;border-color:rgba(240,125,115,.5)}
+  #compileBtn:disabled{cursor:default}
+  #compileBtn.busy{color:var(--txt,#dbdfe5)}
+  #compileBtn.busy svg{animation:compileSpin 1s linear infinite}
+  #compileBtn.done{color:var(--accent,#5b9dff)}
+  #compileBtn.err{color:#f07d73}
+  /* pastille d'échec : le seul signal persistant, sans occuper de largeur */
+  #compileBtn.err::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;
+    border-radius:3px;background:#f07d73}
+  #compileBtn .ci-done{display:none}
+  #compileBtn.done .ci-idle{display:none}
+  #compileBtn.done .ci-done{display:block}
+  @keyframes compileSpin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){ #compileBtn.busy svg{animation:none;opacity:.6} }
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
@@ -226,9 +240,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <button id="zPct" title="Ajuster à la largeur">100%</button>
     <button id="zIn" title="Zoom avant (⌘+)">+</button>
   </span>
-  <button id="compileBtn" title="Compiler le document LaTeX (⌘B)">
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8v8.4M4.8 7l3.2 3.2L11.2 7M2.6 13.4h10.8"/></svg>
-    <span id="compileLabel">Compiler</span>
+  <button id="compileBtn" title="Compiler le document LaTeX (⌘B)" aria-label="Compiler le document LaTeX">
+    <svg class="ci-idle" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 7.2A5.5 5.5 0 1 0 13 10"/><path d="M13.6 3.4v3.6H10"/></svg>
+    <svg class="ci-done" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>
   </button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
@@ -1590,7 +1604,6 @@ if(window.self !== window.top){
 // (deux latexmk concurrents sur le même dossier = .aux corrompus).
 (async function(){
   const compileBtn = document.getElementById("compileBtn");
-  const compileLabel = document.getElementById("compileLabel");
   if(!compileBtn) return;
   const texPath = await findTexSource();
   if(!texPath) return;   // PDF sans source .tex : rien à compiler
@@ -1598,13 +1611,22 @@ if(window.self !== window.top){
   // de la règle #compileBtn reprendre la main (bouton invisible — attrapé au
   // banc navigateur, pas à la relecture).
   compileBtn.style.display = "inline-flex";
+  const TITRE = "Compiler le document LaTeX (\u2318B)";
   let busy = false;
+  let repos = null;
+  // Aucun texte dans la barre : l'état passe par une classe (rotation, coche,
+  // pastille rouge) et le détail vit dans l'infobulle.
+  function etat(classe, titre){
+    compileBtn.classList.remove("busy", "done", "err");
+    if(classe) compileBtn.classList.add(classe);
+    compileBtn.title = titre;
+  }
   async function compileNow(){
     if(busy) return;
     busy = true;
+    clearTimeout(repos);
     compileBtn.disabled = true;
-    compileBtn.classList.remove("err");
-    compileLabel.textContent = "compilation…";
+    etat("busy", "Compilation en cours\u2026");
     const t0 = Date.now();
     try{
       const r = await fetch("/compile", {method: "POST",
@@ -1612,28 +1634,22 @@ if(window.self !== window.top){
         body: JSON.stringify({path: texPath})});
       const j = await r.json();
       if(j.ok){
-        compileLabel.textContent = "compilé en " + ((Date.now() - t0) / 1000).toFixed(1).replace(".", ",") + " s";
         if(typeof __reloadPdf === "function") await __reloadPdf();
+        etat("done", "Compil\u00e9 en " + ((Date.now() - t0) / 1000).toFixed(1).replace(".", ",") + " s");
       }else{
-        // L'extrait d'erreur du serveur est plus utile qu'un PDF blanc : on le
-        // montre dans le libellé (court) et en entier dans l'infobulle.
-        compileBtn.classList.add("err");
-        const err = String(j.error || "échec de compilation");
-        compileLabel.textContent = err.split("\n")[0].slice(0, 60);
-        compileBtn.title = err.slice(0, 900);
+        // Le log LaTeX vaut mieux qu'un PDF blanc : il tient dans l'infobulle,
+        // la pastille rouge signale l'\u00e9chec sans occuper de largeur.
+        etat("err", String(j.error || "\u00e9chec de compilation").slice(0, 900));
       }
     }catch(e){
-      compileBtn.classList.add("err");
-      compileLabel.textContent = "serveur injoignable";
+      etat("err", "Serveur galerie injoignable");
     }finally{
       busy = false;
       compileBtn.disabled = false;
-      setTimeout(() => {
-        if(busy) return;
-        compileBtn.classList.remove("err");
-        compileLabel.textContent = "Compiler";
-        compileBtn.title = "Compiler le document LaTeX (⌘B)";
-      }, 6000);
+      // Le succ\u00e8s s'efface vite (l'information est le PDF lui-m\u00eame) ;
+      // l'\u00e9chec reste plus longtemps sous les yeux.
+      const delai = compileBtn.classList.contains("err") ? 15000 : 2200;
+      repos = setTimeout(() => { if(!busy) etat(null, TITRE); }, delai);
     }
   }
   compileBtn.onclick = compileNow;
