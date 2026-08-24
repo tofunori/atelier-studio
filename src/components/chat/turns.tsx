@@ -269,71 +269,142 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
+/** Moteur pur du typewriter (2026-08-24) : révélation à DÉBIT CONSTANT
+ * ADAPTATIF au lieu du drainage proportionnel. Le 12 %/tick accélérait
+ * brutalement à chaque gros delta du CLI puis décélérait en exponentielle —
+ * un rythme de pompe, chunk après chunk. Ici le débit visible suit le débit
+ * d'arrivée réel (EMA ~2 s), majoré par un rattrapage borné (τ = 600 ms sur
+ * le retard) pour ne jamais diverger, avec un plancher pour ne jamais geler.
+ * Pur et à horloge injectée : testable sans rAF réel. */
+export interface StreamPace {
+  /** Caractères révélés (index dans le texte cible). */
+  revealed: number;
+  /** Reliquat fractionnaire de caractères entre deux ticks. */
+  fractional: number;
+  /** Débit d'arrivée estimé (chars/s, EMA). 0 = pas encore mesuré. */
+  rate: number;
+  /** Horodatage de la dernière croissance RETENUE pour la mesure (-1 = jamais). */
+  lastGrowthAt: number;
+  /** Longueur du texte à cette dernière croissance retenue. */
+  lastLen: number;
+  /** Horodatage du dernier tick de révélation. */
+  lastTickAt: number;
+}
+
+/** Rattrapage : le retard se résorbe avec cette constante de temps (ms). */
+const PACE_CATCHUP_MS = 600;
+/** Plancher (chars/s) : la révélation ne gèle jamais. */
+const PACE_FLOOR_CPS = 90;
+/** Constante de temps de l'EMA du débit d'arrivée (ms). */
+const PACE_RATE_TAU_MS = 2000;
+/** Deux deltas à moins de 50 ms = même rafale : mesurés ensemble au suivant. */
+const PACE_COALESCE_MS = 50;
+
+export function newStreamPace(initialLen: number): StreamPace {
+  return { revealed: initialLen, fractional: 0, rate: 0, lastGrowthAt: -1, lastLen: initialLen, lastTickAt: 0 };
+}
+
+/** Note l'arrivée de texte et met à jour l'estimation de débit. */
+export function paceGrowth(p: StreamPace, len: number, now: number): void {
+  if (len <= p.lastLen) {
+    p.lastLen = len;
+    return;
+  }
+  if (p.lastGrowthAt < 0) {
+    p.lastGrowthAt = now;
+    p.lastLen = len;
+    return;
+  }
+  const dt = now - p.lastGrowthAt;
+  // Rafale coalescée : dt quasi nul donnerait un débit instantané absurde.
+  // On laisse la croissance s'accumuler ; la prochaine mesure la couvrira.
+  if (dt < PACE_COALESCE_MS) return;
+  const inst = ((len - p.lastLen) * 1000) / dt;
+  const alpha = 1 - Math.exp(-dt / PACE_RATE_TAU_MS);
+  p.rate = p.rate === 0 ? inst : p.rate + alpha * (inst - p.rate);
+  p.lastGrowthAt = now;
+  p.lastLen = len;
+}
+
+/** Un tick de révélation. Retourne true si `revealed` a avancé. */
+export function paceStep(p: StreamPace, full: string, now: number): boolean {
+  const dt = Math.min(Math.max(now - p.lastTickAt, 0), 250);
+  p.lastTickAt = now;
+  const total = full.length;
+  if (p.revealed >= total) {
+    p.fractional = 0;
+    return false;
+  }
+  const backlog = total - p.revealed;
+  const cps = Math.max(p.rate, (backlog * 1000) / PACE_CATCHUP_MS, PACE_FLOOR_CPS);
+  p.fractional += (cps * dt) / 1000;
+  const step = Math.floor(p.fractional);
+  if (step <= 0) return false;
+  p.fractional -= step;
+  let next = Math.min(total, p.revealed + step);
+  // Snap à la fin du mot en cours (plan 067) : un mot apparaît entier, son
+  // fade (rehypeWordFade) joue une fois — jamais un mot tronqué qui grandit
+  // sans animation. S'arrêter sur un caractère non blanc (en plein mot OU
+  // juste avant lui) complète le mot. Cap +24 pour les runs sans blanc
+  // (URLs, code) : la progression reste garantie.
+  if (next < total && !/\s/.test(full[next] ?? " ")) {
+    const cap = Math.min(total, next + 24);
+    while (next < cap && !/\s/.test(full[next])) next += 1;
+  }
+  p.revealed = next;
+  return true;
+}
+
 /** Typewriter : le CLI Claude livre le texte par morceaux à l'échelle de la
  * phrase (mesuré : ~6 text_delta pour 5 phrases, même avec
  * --include-partial-messages) — affichés bruts, ils donnent une impression de
  * sauts, pas de streaming. On découple donc le rythme réseau du rythme visuel
  * (même principe que smoothStream du Vercel AI SDK) : le texte cible
- * s'accumule, une boucle rAF (~30 Hz) révèle une fraction du retard à chaque
- * tick — drainage proportionnel (~12 %/tick, min 2 caractères), donc un gros
- * morceau se déroule en ~1 s quelle que soit sa taille, sans jamais traîner
- * loin derrière le flux réel. Fin de tour : flush immédiat. Au montage, le
- * texte déjà présent s'affiche sans replay (reprise de fil). Sous
+ * s'accumule, une boucle rAF révèle le retard au débit d'arrivée estimé
+ * (voir paceStep). Fin de tour : flush immédiat. Au montage, le texte déjà
+ * présent s'affiche sans replay (reprise de fil). Sous
  * prefers-reduced-motion, aucun typewriter : le texte brut passe tel quel. */
 export function useSmoothedStream(text: string, working: boolean): string {
   const reduceMotion = typeof matchMedia === "function"
     && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const revealed = useRef(text.length);
+  const pace = useRef<StreamPace | null>(null);
+  if (pace.current == null) pace.current = newStreamPace(text.length);
   const target = useRef(text);
   const frame = useRef<number | null>(null);
-  const lastTick = useRef(0);
   const [, force] = useState(0);
   target.current = text;
 
   useEffect(() => {
     if (reduceMotion) return;
+    const p = pace.current!;
     const cancel = () => {
       if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
     };
     if (!working) {
       cancel();
-      if (revealed.current !== target.current.length) {
-        revealed.current = target.current.length;
+      p.fractional = 0;
+      if (p.revealed !== target.current.length) {
+        p.revealed = target.current.length;
         force((n) => n + 1);
       }
       return cancel;
     }
+    paceGrowth(p, text.length, performance.now());
     const tick = (time: number) => {
       frame.current = null;
-      const total = target.current.length;
-      if (revealed.current < total && time - lastTick.current >= 33) {
-        lastTick.current = time;
-        const backlog = total - revealed.current;
-        let next = revealed.current + Math.min(backlog, Math.max(2, Math.round(backlog * 0.12)));
-        // Snap à la fin du mot en cours (plan 067) : un mot apparaît entier,
-        // son fade (rehypeWordFade) joue une fois — jamais sur un mot tronqué
-        // qui grandirait sans animation. Cap +24 pour les runs sans blanc
-        // (URLs, code) : la progression reste garantie.
-        const full = target.current;
-        if (next < total && !/\s/.test(full[next - 1] ?? " ") && !/\s/.test(full[next] ?? " ")) {
-          const cap = Math.min(total, next + 24);
-          while (next < cap && !/\s/.test(full[next])) next += 1;
-        }
-        revealed.current = next;
-        force((n) => n + 1);
-      }
-      if (revealed.current < target.current.length) {
+      if (paceStep(p, target.current, time)) force((n) => n + 1);
+      if (p.revealed < target.current.length) {
         frame.current = requestAnimationFrame(tick);
       }
     };
-    if (frame.current == null && revealed.current < target.current.length) {
+    if (frame.current == null && p.revealed < target.current.length) {
       frame.current = requestAnimationFrame(tick);
     }
     return cancel;
   }, [text, working, reduceMotion]);
 
   if (reduceMotion || !working) return text;
-  return text.slice(0, Math.min(revealed.current, text.length));
+  return text.slice(0, Math.min(pace.current.revealed, text.length));
 }
 
 export function StreamingText(p: { text: string; working: boolean }) {

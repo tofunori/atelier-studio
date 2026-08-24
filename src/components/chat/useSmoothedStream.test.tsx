@@ -58,3 +58,79 @@ describe("useSmoothedStream — typewriter du flux", () => {
     expect(result.current).toBe(grown);
   });
 });
+
+// Moteur pur du débit (plan lissage 2026-08-24) : débit constant adapté au
+// flux d'arrivée au lieu du drainage proportionnel — testé à horloge simulée,
+// donc sans dépendre du vrai rAF.
+import { newStreamPace, paceGrowth, paceStep } from "./turns";
+
+describe("paceStep — débit constant adaptatif", () => {
+  const texte = (n: number) => Array.from({ length: Math.ceil(n / 6) }, (_, i) => `mot${String(i).padStart(2, "0")}`).join(" ").slice(0, n);
+
+  it("une rafale ne provoque pas de pointe : la révélation reste proche du débit d'arrivée", () => {
+    const p = newStreamPace(0);
+    // flux régulier à ~100 chars/s : 50 chars toutes les 500 ms
+    let full = "";
+    for (let t = 500; t <= 2000; t += 500) {
+      full = texte((t / 500) * 50);
+      paceGrowth(p, full.length, t);
+    }
+    // grosse rafale : +600 chars d'un coup à t=2000
+    full = texte(full.length + 600);
+    paceGrowth(p, full.length, 2000);
+    // premier tick après la rafale (33 ms) : l'ancien drainage 12 % aurait
+    // révélé ~72 chars ; le débit adaptatif reste borné par arrivée + rattrapage
+    p.revealed = 200; p.lastTickAt = 2000;
+    paceStep(p, full, 2033);
+    const step1 = p.revealed - 200;
+    expect(step1).toBeGreaterThan(0);
+    expect(step1).toBeLessThan(45); // ~(100 cps adapté + rattrapage τ) * 33 ms, marge word-snap
+  });
+
+  it("le retard converge : un gros backlog est résorbé en moins de ~2,5 s", () => {
+    const p = newStreamPace(0);
+    const full = texte(600);
+    paceGrowth(p, full.length, 0);
+    let t = 0;
+    while (p.revealed < full.length && t < 2500) {
+      t += 33;
+      paceStep(p, full, t);
+    }
+    expect(p.revealed).toBe(full.length);
+  });
+
+  it("jamais de gel : un petit retard progresse même sans nouveau flux", () => {
+    const p = newStreamPace(0);
+    const full = texte(30);
+    paceGrowth(p, full.length, 0);
+    paceStep(p, full, 33);
+    expect(p.revealed).toBeGreaterThan(0);
+  });
+
+  it("frontière de mot : chaque état intermédiaire finit un mot entier", () => {
+    const p = newStreamPace(0);
+    const full = texte(300);
+    paceGrowth(p, full.length, 0);
+    let t = 0;
+    while (p.revealed < full.length && t < 5000) {
+      t += 33;
+      paceStep(p, full, t);
+      if (p.revealed < full.length) {
+        expect(/\s/.test(full[p.revealed])).toBe(true);
+      }
+    }
+  });
+
+  it("le débit s'adapte : flux lent → révélation lente (pas de rattrapage brutal)", () => {
+    const p = newStreamPace(0);
+    // flux lent ~40 chars/s pendant 3 s
+    let full = "";
+    for (let t = 1000; t <= 3000; t += 1000) {
+      full = texte((t / 1000) * 40);
+      paceGrowth(p, full.length, t);
+    }
+    // le débit estimé reste dans l'ordre de grandeur du flux réel
+    expect(p.rate).toBeGreaterThan(15);
+    expect(p.rate).toBeLessThan(90);
+  });
+});
