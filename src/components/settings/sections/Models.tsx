@@ -45,7 +45,7 @@ import { groupRoutes, type Route } from "../models/groupRoutes";
 import { OpenCodeRouter } from "../models/OpenCodeRouter";
 import { PlusIcon } from "../../icons";
 import { Select } from "../../Select";
-import { Button, InlineNotice, SegmentedControl } from "../../ui";
+import { Button, InlineNotice } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
@@ -347,9 +347,18 @@ export default function Models(p: SectionProps) {
     default: t("action.ask-default"),
     plan: t("permission.plan"),
   };
-  // Fournisseur de départ : segmenté à 2 options (Claude/Codex), comme
-  // l'ancien Select de General.tsx (Settings.tsx:500-544 avant migration) —
-  // les autres fournisseurs (API, Grok, opencode…) restent sélectionnables
+  // Fournisseur de départ : un Select à 2 options (Claude/Codex). C'ÉTAIT un
+  // SegmentedControl — remplacé le 2026-08-24 pour une raison mesurée, pas
+  // esthétique : sa pastille ACTIVE se peignait en rgb(30,33,36) sur un rail
+  // en rgb(44,47,52), donc le choix sélectionné était PLUS SOMBRE que son
+  // propre fond et se lisait « désactivé » en thème sombre (même défaut que
+  // le toggle de la galerie, cf. décision de l'accent). Le Select aligne
+  // aussi cette rangée sur les autres réglages à choix unique de la page
+  // (Langue, Effort par défaut, Mode de permission) : une seule grammaire.
+  // Le SegmentedControl reste le bon outil ailleurs (filtre de passerelles
+  // du routeur opencode, où voir les options d'un coup d'œil sert à choisir).
+  //
+  // Les autres fournisseurs (API, Grok, opencode…) restent sélectionnables
   // depuis le tableau via leur propre défaut, mais ne sont pas encore des
   // fournisseurs de DÉPART complets (pas de defaultModel/defaultEffort dédié
   // pour tous). Généraliser ce sélecteur est hors périmètre de cette tâche.
@@ -364,8 +373,8 @@ export default function Models(p: SectionProps) {
       <h2>{t("settings.models-startup")}</h2>
       <Group>
         <Row title={t("settings.default-provider")} desc={t("settings.default-provider-desc")}>
-          <SegmentedControl
-            label={t("settings.default-provider")}
+          <Select
+            title={t("settings.default-provider")}
             value={s.defaultProvider}
             onChange={(value) => save({ defaultProvider: value })}
             options={[
