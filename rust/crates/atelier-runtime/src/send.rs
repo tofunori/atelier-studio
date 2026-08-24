@@ -1581,6 +1581,16 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
                         provider.model_labels = labels.clone();
                     }
                 }
+                // Routes opencode décomposées (lot B2) : champ additif voisin
+                // de `models`, même motif de propagation que `modelLabels`
+                // ci-dessus. Absent/vide chez tout provider qui n'en émet
+                // pas encore : `provider.routes` garde alors sa valeur par
+                // défaut (`[]`), inoffensive pour un frontend qui l'ignore.
+                if let Some(routes) = dynamic.get("routes") {
+                    if routes.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                        provider.routes = routes.clone();
+                    }
+                }
             }
         }
     }

@@ -39,6 +39,14 @@ export type ProviderCatalogRow = {
    *  de `ProviderInfo.modelLabels` (src/lib/providers.ts) : déjà présent au
    *  runtime dans le payload providerStatus, seul le typage manquait ici. */
   modelLabels?: Record<string, string>;
+  /** Routes opencode découpées en Rust (lot B2) : `id` reste la chaîne
+   *  exacte envoyée au CLI (identique à l'entrée `models` de même indice),
+   *  `gateway`/`vendor`/`leaf`/`free` sont dérivés pour l'affichage.
+   *  `vendor` est toujours PRÉSENT côté Rust (jamais omis — `None` se
+   *  sérialise en `null`, vérifié par le test
+   *  `vendor_absent_se_serialise_en_null_jamais_omis` côté Rust), d'où
+   *  `string | null` plutôt qu'un `?`. Absent des autres fournisseurs. */
+  routes?: { id: string; gateway: string; vendor: string | null; leaf: string; free: boolean }[];
 };
 
 export type ApiProviderRow = {
