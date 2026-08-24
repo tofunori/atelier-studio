@@ -8,6 +8,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
+import { isStoppedTerminal } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
@@ -981,7 +982,14 @@ export function ChatTimeline(p: {
           // goal : aucune carte dans le transcript — l'état vit dans la barre
           // épinglée au composer (GoalBar), alimentée par le même événement
           if (e.kind === "goal") return null;
-          if (e.kind === "error")
+          if (e.kind === "error") {
+            // Une interruption VOLONTAIRE (stop, steer) n'est pas un échec :
+            // le triangle rouge criait « erreur » à chaque steer (2026-08-24).
+            // Ligne sobre ; le pli « Arrêté après Ns » porte déjà la durée.
+            if (isStoppedTerminal(e))
+              return (
+                <div key={i} className="turn-interrupted">{t("chat.turn-interrupted")}</div>
+              );
             return (
               <div key={i} className="error">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -991,6 +999,7 @@ export function ChatTimeline(p: {
                 {e.message}
               </div>
             );
+          }
           if (e.kind === "done") {
             const isLastDone = !events.slice(i + 1).some((x) => x.kind === "done");
             // « Annuler le tour » = revert au message user du tour (capacité

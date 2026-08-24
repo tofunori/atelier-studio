@@ -1646,6 +1646,15 @@ export default function App() {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
           return;
         }
+        if (msg.event.kind === "user") {
+          // Ack serveur d'un tour qui démarre (steer compris) : re-pose l'état
+          // « au travail » si le terminal du tour PRÉCÉDENT vient de l'effacer.
+          // Au steer Claude, l'« interrupted » du vieux tour arrive APRÈS le
+          // submit et éteignait Esc + le carré stop (garde silencieuse) —
+          // stop « inopérant » vécu 2026-08-24. Pas de return : l'événement
+          // continue vers le fil.
+          setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
+        }
         if (msg.event.kind === "heartbeat") {
           // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
           // cumulée du tour quand le provider la fournit (ticker Working)

@@ -155,7 +155,7 @@ function isPendingInteraction(event: AgentEvent) {
     (event.kind === "permission" && event.answered == null);
 }
 
-function isStoppedTerminal(event: AgentEvent) {
+export function isStoppedTerminal(event: AgentEvent) {
   if (event.kind === "done") {
     const status = (event as Extract<AgentEvent, { kind: "done" }> & { status?: string }).status;
     if (status === "stopped") return true;

@@ -485,6 +485,20 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByText(/provider indisponible/)).toBeTruthy();
   });
 
+  it("steer : l'« interrupted » du vieux tour n'éteint pas le stop du nouveau", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    // Au steer Claude, le terminal du VIEUX tour (« interrupted ») arrive
+    // APRÈS le submit : il effaçait workingSince et Esc/le carré stop
+    // devenaient inertes pendant le démarrage du nouveau tour (2026-08-24).
+    await push(sock, { type: "event", threadId: "thread-A", event: events.error("interrupted") });
+    // …puis l'ack serveur du NOUVEAU tour : son événement user re-pose l'état.
+    await push(sock, { type: "event", threadId: "thread-A", event: events.user("nouvelle consigne") });
+    // le carré stop ET le rappel esc réapparaissent : l'état de travail est re-posé
+    expect(screen.getAllByTitle(t("action.interrupt")).length).toBeGreaterThan(0);
+  });
+
   it("attache l'artefact reçu par atelier-add-to-chat (nonce + origine vérifiés)", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
