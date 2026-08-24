@@ -70,6 +70,32 @@ describe("groupRoutes", () => {
     expect(groups[0].routes).toHaveLength(2);
   });
 
+  it("deux routes au leaf vide ne fusionnent pas", () => {
+    // Logique locale pure, bon marché à vérifier même si l'inatteignabilité
+    // du leaf vide est par ailleurs garantie côté Rust (voir le commentaire
+    // sur `split_routed_model`) : si cette garantie amont changeait un jour,
+    // ce test le remarquerait sans dépendre d'elle.
+    const a: Route = { id: "opencode/a", gateway: "opencode", vendor: null, leaf: "", free: false };
+    const b: Route = { id: "opencode/b", gateway: "opencode", vendor: null, leaf: "", free: false };
+    const groups = groupRoutes([a, b], []);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("le libellé du groupe est stable quel que soit l'ordre d'arrivée des routes", () => {
+    // Règle retenue : le plus petit leaf par ordre alphabétique, jamais « le
+    // premier rencontré » — rien ne garantit que le catalogue renvoie ses
+    // routes dans le même ordre d'un appel à l'autre.
+    const upper: Route = { id: "opencode/GLM-5.2", gateway: "opencode", vendor: null, leaf: "GLM-5.2", free: false };
+    const lower: Route = { id: "openrouter/z-ai/glm-5.2", gateway: "openrouter", vendor: "z-ai", leaf: "glm-5.2", free: false };
+    const forward = groupRoutes([upper, lower], []);
+    const backward = groupRoutes([lower, upper], []);
+    expect(forward[0].label).toBe(backward[0].label);
+    // "GLM-5.2" < "glm-5.2" par point de code (majuscules avant minuscules
+    // en ASCII) : c'est le libellé attendu dans les deux ordres.
+    expect(forward[0].label).toBe("GLM-5.2");
+    expect(backward[0].label).toBe("GLM-5.2");
+  });
+
   it("le vendor du groupe est reporté quand toutes les routes s'accordent", () => {
     const groups = groupRoutes([glmOpenrouter], []);
     expect(groups[0].vendor).toBe("z-ai");
@@ -213,5 +239,23 @@ describe("filterGroups", () => {
     expect(glm.routes).toHaveLength(1);
     expect(glm.routes[0].id).toBe("openrouter/z-ai/glm-5.2");
     expect(glm.pinnedCount).toBe(0);
+  });
+
+  it("sans filtre passerelle (gateway null), pinnedCount reflète le `pinned` de CET appel, pas celui de groupRoutes", () => {
+    // Couvre la branche gateway === null, absente des deux tests croisés
+    // ci-dessus (tous deux sur gateway: "openrouter") : le commentaire de
+    // filterGroups promet que pinnedCount reste correct même si `pinned` a
+    // bougé entre la construction des groupes et l'appel à filterGroups,
+    // y compris quand aucun filtre de passerelle n'est appliqué.
+    const built = groupRoutes([glmOpencode, glmOpenrouter], []); // aucune épinglée à la construction
+    expect(built[0].pinnedCount).toBe(0);
+
+    // `pinned` a bougé depuis (l'utilisateur a épinglé une route) sans
+    // reconstruire les groupes : filterGroups(gateway: null) doit refléter
+    // ce nouvel état, pas le pinnedCount figé à la construction.
+    const filtered = filterGroups(built, null, "", ["opencode/glm-5.2"]);
+    const glm = filtered.find((g) => g.label === "glm-5.2")!;
+    expect(glm.routes).toHaveLength(2); // gateway null : aucune route retirée
+    expect(glm.pinnedCount).toBe(1);
   });
 });

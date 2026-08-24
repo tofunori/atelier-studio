@@ -26,7 +26,7 @@ export type Route = {
 
 export type ModelGroup = {
   key: string; // clé stable du groupe (leaf normalisé, ou id de route en repli)
-  label: string; // nom humain du modèle (leaf brut de la première route rencontrée — voir décision ci-dessous)
+  label: string; // nom humain du modèle (leaf brut, le plus petit par ordre alphabétique — voir décision ci-dessous)
   vendor: string | null; // éditeur commun à toutes les routes du groupe, sinon null
   routes: Route[];
   pinnedCount: number;
@@ -42,18 +42,25 @@ export type ModelGroup = {
 // catalogue qui les séparerait à cause d'une incohérence de casse du
 // backend serait moins lisible, pas plus exact. Testé explicitement (voir
 // "fusionne deux routes dont le leaf ne diffère que par la casse/espaces").
-//
-// Conséquence assumée sur `label` : quand deux routes fusionnées ne
-// diffèrent QUE par la casse, le libellé affiché est celui de la PREMIÈRE
-// route rencontrée dans le tableau d'entrée — dépendant de l'ordre
-// d'arrivée, pas d'une règle de tri. Le risque est jugé faible (un backend
-// qui varie la casse du même modèle route par route serait déjà un bug
-// côté catalogue) et le comportement reste déterministe pour un tableau
-// d'entrée donné (voir le test de clés stables entre deux appels) ; aucune
-// règle de préférence (alphabétique, la plus fréquente…) n'a été ajoutée
-// faute de signal qu'elle serait utile.
 function normalizeLeaf(leaf: string): string {
   return leaf.trim().toLowerCase();
+}
+
+// **Règle retenue pour `label` (revue post-implémentation, remplace le choix
+// initial « premier rencontré ») :** quand deux routes fusionnées ne
+// diffèrent que par la casse ou les espaces, le libellé affiché est le plus
+// petit des `leaf` bruts par ordre alphabétique (comparaison `<` sur les
+// chaînes JS, donc par point de code — déterministe et sans dépendance à la
+// locale). Le choix initial retenait le premier `leaf` rencontré dans le
+// tableau d'entrée : rien ne garantit que le catalogue renvoie ses routes
+// dans le même ordre d'un appel à l'autre, donc deux réponses identiques au
+// fond pouvaient produire deux libellés différents en surface. La règle
+// alphabétique élimine cette dépendance à coût quasi nul (une comparaison
+// de plus par route) : le résultat ne dépend plus que du contenu, jamais de
+// l'ordre d'arrivée. Testée explicitement (voir "le libellé du groupe est
+// stable quel que soit l'ordre d'arrivée des routes").
+function preferredLabel(current: string, candidate: string): string {
+  return candidate < current ? candidate : current;
 }
 
 /** Compte, parmi `routes`, celles dont l'`id` figure dans `pinned`. */
@@ -97,10 +104,9 @@ export function groupRoutes(routes: Route[], pinned: string[]): ModelGroup[] {
     // `split_routed_model`), mais si jamais il l'était, fusionner toutes
     // ces routes sous une seule clé "" masquerait des modèles distincts.
     // Chaque route au leaf vide reste donc son propre groupe, sur son id.
-    // Assumé SANS TEST : la branche est sourcée sur l'inatteignabilité
-    // documentée côté Rust (le seul bras qui produirait un leaf vide dans
-    // `split_routed_model` est un `match` marqué « inatteignable » par son
-    // propre commentaire), donc jugée non prioritaire à simuler ici.
+    // Sourcée sur l'inatteignabilité documentée côté Rust, mais reste de la
+    // logique locale bon marché à vérifier : testée (voir "deux routes au
+    // leaf vide ne fusionnent pas").
     const key = normalized.length > 0 ? normalized : `__empty-leaf__:${route.id}`;
 
     let entry = byKey.get(key);
@@ -108,9 +114,12 @@ export function groupRoutes(routes: Route[], pinned: string[]): ModelGroup[] {
       entry = { label: route.leaf, vendor: route.vendor, vendorHomogene: true, routes: [] };
       byKey.set(key, entry);
       order.push(key);
-    } else if (entry.vendorHomogene && entry.vendor !== route.vendor) {
-      entry.vendorHomogene = false;
-      entry.vendor = null;
+    } else {
+      entry.label = preferredLabel(entry.label, route.leaf);
+      if (entry.vendorHomogene && entry.vendor !== route.vendor) {
+        entry.vendorHomogene = false;
+        entry.vendor = null;
+      }
     }
     entry.routes.push(route);
   }
