@@ -314,6 +314,39 @@ function shellCommand(value: string): string {
   return (wrapped?.[2] ?? command).trim();
 }
 
+/** Clause significative d'une commande shell, pour la LIGNE de statut (la
+ * commande complète vit dans le dépliage). Trois réductions : couper à la
+ * première frontière de premier niveau (`;`, `&&`, `||` — hors quotes et
+ * parenthèses), déballer une assignation `x=$(…)`, retirer les redirections
+ * de plomberie (`2>/dev/null`, `>f`, `2>&1`, `<f`). Retombe sur la commande
+ * entière si la réduction vide tout. */
+function significantCommand(raw: string): string {
+  const command = shellCommand(raw);
+  let depth = 0;
+  let quote: string | null = null;
+  let end = command.length;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (quote) {
+      if (c === quote && command[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === "(") { depth += 1; continue; }
+    if (c === ")") { depth = Math.max(0, depth - 1); continue; }
+    if (depth === 0 && (c === ";"
+      || (c === "&" && command[i + 1] === "&")
+      || (c === "|" && command[i + 1] === "|"))) { end = i; break; }
+  }
+  let clause = command.slice(0, end).trim();
+  const assign = /^[A-Za-z_][A-Za-z0-9_]*=\$\(([\s\S]*)\)$/u.exec(clause);
+  if (assign) clause = assign[1].trim();
+  const tokens = clause.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/gu) ?? [];
+  const kept = tokens.filter((token) => !/^(?:\d*&?>{1,2}(?:&\d+|\S*)|<\S+)$/u.test(token));
+  const reduced = kept.join(" ").trim();
+  return reduced || command;
+}
+
 function shellTool(name: string): boolean {
   const normalized = name.toLowerCase();
   return normalized === "bash" || normalized === "execute" || normalized.includes("shell") ||
@@ -342,6 +375,7 @@ function actionTarget(action: ToolAction): string {
 function conciseActionTarget(name: string, target: string, kind: ToolCat): string {
   if (!shellTool(name)) return target;
   const command = shellCommand(target);
+  if (kind === "command") return significantCommand(target);
   if (kind !== "read" && kind !== "list") return command;
   const firstClause = command.split(/\s*(?:;|&&|\|\|)\s*/u, 1)[0] ?? command;
   const tokens = firstClause.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/gu) ?? [];
@@ -480,7 +514,7 @@ export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "to
       return t(completed ? "chat.activity-formatted" : "chat.activity-formatting");
     }
     if (completed) return target
-      ? t("chat.activity-command-completed-target", { target: shellCommand(target) })
+      ? t("chat.activity-command-completed-target", { target: significantCommand(target) })
       : t("chat.activity-command-completed");
   }
   if (cat === "permission") return t("chat.activity-awaiting");
@@ -616,11 +650,25 @@ export function turnProgressSignature(actions: ToolAction[], thoughtLength: numb
  * qui ferait sauter le bandeau d'un cran à chaque éviction ; le nombre
  * d'actions d'un tour borne naturellement le reel. La dernière ligne est
  * l'action courante ; les précédentes gardent leur libellé au passé. */
-export function tickerRows(actions: ToolAction[]): { key: string; label: string }[] {
-  return distinctToolActions(actions).map((action, offset) => ({
-    key: action.kind === "tool_update" ? `tick:${action.id}` : `tick:${offset}:${action.name}`,
-    label: activeToolLabel(action),
-  }));
+export function tickerRows(
+  actions: ToolAction[],
+): { key: string; label: string; pre?: string; code?: string; post?: string }[] {
+  return distinctToolActions(actions).map((action, offset) => {
+    const key = action.kind === "tool_update" ? `tick:${action.id}` : `tick:${offset}:${action.name}`;
+    const label = activeToolLabel(action);
+    // Segment commande isolé pour le rendu mono : seulement quand le libellé
+    // interpole réellement la commande (les lignes nominales — « Running
+    // tests », lectures — restent en un seul morceau).
+    const activity = semanticActivity(action);
+    if (activity.kind === "command") {
+      const code = significantCommand(activity.target);
+      const idx = code ? label.lastIndexOf(code) : -1;
+      if (idx >= 0) {
+        return { key, label, pre: label.slice(0, idx), code, post: label.slice(idx + code.length) };
+      }
+    }
+    return { key, label };
+  });
 }
 
 export function ToolGlyph({ icon }: { icon: ActivityIcon }) {

@@ -3282,6 +3282,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   transition: transform 140ms ease;
 }
 .tool-ticker-row { height: 1lh; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Segment commande de la rangée d'outil : du code se lit en mono, un ton
+   sous le verbe — pas de fond ni bordure, c'est une ligne de statut. */
+.tool-ticker-code { font-family: var(--code-font); font-size: var(--fs-m);
+  color: var(--text-secondary); background: none; border: none; padding: 0; }
 @media (prefers-reduced-motion: reduce) { .tool-ticker-reel { transition: none; } }
 
 /* ===== motion des dépliages (système : 120-150ms, opacity/transform) =====

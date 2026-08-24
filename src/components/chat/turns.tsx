@@ -536,7 +536,9 @@ export function ActiveTurnHeader(p: {
  * nouvelle action fait glisser la précédente vers le haut, hors du cadre —
  * un tour qui touche trente fichiers tique sur place au lieu de défiler.
  * Adapté de Hermes Desktop (ToolRunTicker, nousresearch/hermes-agent, MIT). */
-export function ToolRunTicker({ rows }: { rows: { key: string; label: string }[] }) {
+export function ToolRunTicker(
+  { rows }: { rows: { key: string; label: string; pre?: string; code?: string; post?: string }[] },
+) {
   const label = rows[rows.length - 1]?.label ?? "";
   return (
     // role="status" + aria-live="polite" : la ligne qui tique est du même
@@ -548,7 +550,13 @@ export function ToolRunTicker({ rows }: { rows: { key: string; label: string }[]
         style={{ "--tick-i": rows.length - 1 } as React.CSSProperties}
       >
         {rows.map((row) => (
-          <span key={row.key} className="tool-ticker-row" aria-hidden={row.label !== label}>{row.label}</span>
+          <span key={row.key} className="tool-ticker-row" aria-hidden={row.label !== label}>
+            {/* Une commande se lit en mono : le verbe reste en police UI,
+                le segment code passe par .tool-ticker-code. */}
+            {row.code != null
+              ? <>{row.pre}<code className="tool-ticker-code">{row.code}</code>{row.post}</>
+              : row.label}
+          </span>
         ))}
       </span>
     </span>

@@ -186,6 +186,34 @@ describe("Codex-style activity presentation", () => {
     ])).toEqual([]);
   });
 
+  it("réduit une commande shell à sa clause significative (rangée d'outil pro)", () => {
+    const cmd = 'f=$(find . -name "panel_bayes_JJA.csv" 2>/dev/null | head -1); echo "FILE: $f"';
+    const running = tool("c-sig", "Bash", cmd, { status: "inProgress", input: { command: cmd } });
+    // assignation déballée, redirection retirée, clauses suivantes coupées —
+    // la commande complète reste dans le dépliage, pas dans la ligne de statut
+    expect(activeToolLabel(running)).toBe('Running find . -name "panel_bayes_JJA.csv" | head -1');
+    const completed = tool("c-sig", "Bash", cmd, { status: "completed", input: { command: cmd } });
+    expect(activeToolLabel(completed)).toBe('Ran find . -name "panel_bayes_JJA.csv" | head -1');
+  });
+
+  it("la réduction ne touche pas une commande simple et retombe sur l'entière si vide", () => {
+    const simple = tool("c-simple", "Bash", "cargo build --release", { status: "inProgress", input: { command: "cargo build --release" } });
+    expect(activeToolLabel(simple)).toBe("Running cargo build --release");
+    const redirOnly = tool("c-redir", "Bash", "2>/dev/null", { status: "inProgress", input: { command: "2>/dev/null" } });
+    expect(activeToolLabel(redirOnly)).toBe("Running 2>/dev/null");
+  });
+
+  it("le ticker sépare le verbe de la commande pour le rendu mono", () => {
+    const cmd = 'f=$(find . -name "panel_bayes_JJA.csv" 2>/dev/null | head -1); echo "FILE: $f"';
+    const rows = tickerRows([tool("c-mono", "Bash", cmd, { status: "inProgress", input: { command: cmd } })]);
+    expect(rows[0].code).toBe('find . -name "panel_bayes_JJA.csv" | head -1');
+    expect(rows[0].pre).toBe("Running ");
+    expect(rows[0].label).toBe('Running find . -name "panel_bayes_JJA.csv" | head -1');
+    // une ligne nominale (tests, lecture) ne porte PAS de segment code
+    const nominal = tickerRows([tool("c-tests", "Bash", "npm test", { status: "inProgress", input: { command: "npm test" } })]);
+    expect(nominal[0].code).toBeUndefined();
+  });
+
   it("présente les wrappers shell et les actions rapides comme Codex", () => {
     const reading = tool("read", "Bash", "/bin/zsh -lc \"sed -n '1,80p' src/components/chat/PromptInput.tsx\"", {
       status: "completed",
