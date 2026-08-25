@@ -1,13 +1,32 @@
-// Typewriter du streaming (useSmoothedStream) : montage sans replay,
-// révélation progressive du retard, flush immédiat en fin de tour.
+// Typewriter du streaming (useSmoothedStream) : montage borné, révélation
+// progressive du retard, FINITION déroulée en fin de tour (décision Thierry
+// 2026-08-25 : « la réponse arrive tout d'un coup » — le flush téléportait
+// tout le reliquat non révélé au done).
 import { describe, expect, it } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { useSmoothedStream } from "./useSmoothedStream";
+import { publishStreamHandoff, takeStreamHandoff, useSmoothedStream } from "./useSmoothedStream";
 
 describe("useSmoothedStream — typewriter du flux", () => {
-  it("au montage, le texte déjà présent s'affiche entièrement (pas de replay)", () => {
-    const { result } = renderHook(() => useSmoothedStream("Texte déjà reçu avant l'ouverture.", true));
-    expect(result.current).toBe("Texte déjà reçu avant l'ouverture.");
+  it("au montage d'un tour frais, la révélation part du début", async () => {
+    // Le premier delta d'un provider rapide (grok) peut faire 800 caractères :
+    // affiché d'un bloc au montage, c'était le début du « tout d'un coup ».
+    const texte = "Premier delta assez court d'un tour qui vient de démarrer.";
+    const { result } = renderHook(() => useSmoothedStream(texte, true, "row-frais"));
+    expect(result.current.length).toBeLessThan(texte.length);
+    await waitFor(() => expect(result.current).toBe(texte), { timeout: 3000 });
+  });
+
+  it("à la reprise d'un fil déjà long, seule une queue bornée se rejoue", () => {
+    const long = "mot ".repeat(800); // 3200 caractères déjà reçus
+    const { result } = renderHook(() => useSmoothedStream(long, true, "row-reprise"));
+    // l'essentiel s'affiche tout de suite : on ne rejoue pas 3000 caractères
+    expect(result.current.length).toBeGreaterThan(long.length - 700);
+  });
+
+  it("sans clé de relais (pensée vivante), le montage n'a pas de replay", () => {
+    const texte = "Bloc de pensée déjà présent quand l'indicateur se remonte.";
+    const { result } = renderHook(() => useSmoothedStream(texte, true));
+    expect(result.current).toBe(texte);
   });
 
   it("un morceau qui arrive se révèle progressivement puis en entier", async () => {
@@ -17,10 +36,9 @@ describe("useSmoothedStream — typewriter du flux", () => {
       ({ text, working }: { text: string; working: boolean }) => useSmoothedStream(text, working),
       { initialProps: { text: initial, working: true } },
     );
-    expect(result.current).toBe(initial);
+    // montage d'un tour frais : la révélation démarre (préfixe, pas un bloc)
+    expect(initial.startsWith(result.current)).toBe(true);
     rerender({ text: grown, working: true });
-    // jamais moins que ce qui était déjà révélé, jamais plus que la cible
-    expect(result.current.length).toBeGreaterThanOrEqual(initial.length);
     expect(grown.startsWith(result.current)).toBe(true);
     // le drainage proportionnel converge en ~1 s
     await waitFor(() => expect(result.current).toBe(grown), { timeout: 3000 });
@@ -47,15 +65,39 @@ describe("useSmoothedStream — typewriter du flux", () => {
     }, { timeout: 3000 });
   });
 
-  it("fin de tour : flush immédiat du texte complet", () => {
-    const grown = "Un long texte encore en cours de révélation au moment du done.";
+  it("fin de tour : le reliquat se déroule vite mais sans téléportation", async () => {
+    const grown = "Un long texte encore en cours de révélation au moment du done. " +
+      "Il reste plusieurs phrases entières à montrer, et elles doivent défiler " +
+      "rapidement plutôt que d'apparaître d'un seul bloc à l'écran.";
     const { result, rerender } = renderHook(
       ({ text, working }: { text: string; working: boolean }) => useSmoothedStream(text, working),
       { initialProps: { text: "Un", working: true } },
     );
     rerender({ text: grown, working: true });
     rerender({ text: grown, working: false });
-    expect(result.current).toBe(grown);
+    // pas de téléportation : l'état juste après le done est encore partiel…
+    expect(result.current.length).toBeLessThan(grown.length);
+    // …mais la finition s'achève vite (< ~1,5 s)
+    await waitFor(() => expect(result.current).toBe(grown), { timeout: 2000 });
+  });
+
+  it("relais bulle → texte final : la révélation continue au même point", async () => {
+    // Au done, le reducer remplace la bulle streaming par le texte final :
+    // l'ancien composant meurt avec son état. Le compte révélé se relaie par
+    // la clé de rangée (stable depuis le fix du flash) pour que le texte
+    // final CONTINUE la frappe au lieu d'apparaître entier.
+    publishStreamHandoff("row-1", 10);
+    const texte = "Un texte final dont seule la première partie était révélée au moment du remplacement.";
+    const { result } = renderHook(() => useSmoothedStream(texte, false, "row-1"));
+    expect(result.current.length).toBeLessThan(texte.length);
+    expect(takeStreamHandoff("row-1")).toBeNull(); // consommé
+    await waitFor(() => expect(result.current).toBe(texte), { timeout: 2000 });
+  });
+
+  it("sans relais, un texte final monté hors tour s'affiche entier", () => {
+    const texte = "Relecture d'un vieux message : aucun typewriter.";
+    const { result } = renderHook(() => useSmoothedStream(texte, false, "row-inconnue"));
+    expect(result.current).toBe(texte);
   });
 });
 

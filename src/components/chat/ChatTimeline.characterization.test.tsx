@@ -71,7 +71,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     const streamBlocks = () =>
       [...document.querySelectorAll(".msg-wrap .msg")].filter((el) =>
         el.textContent?.includes("Je regarde les"));
-    expect(streamBlocks()).toHaveLength(1);
+    // Tour frais : la révélation part du début (anti-« tout d'un coup »,
+    // 2026-08-25) — le texte apparaît en quelques frames, pas au montage.
+    await waitFor(() => expect(streamBlocks()).toHaveLength(1));
     // plan 066 L2 : le bubble content du chat rend désormais via la famille
     // "chat-md" (App.css) plutôt que le moteur shadcn/typeset — inchangé
     // ailleurs (AgentActivity, SourceReader).

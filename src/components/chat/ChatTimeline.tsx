@@ -876,13 +876,14 @@ export function ChatTimeline(p: {
               />
             );
           if (e.kind === "streaming")
-            return <StreamingText key={i} text={e.text} working={workingSince != null} />;
+            return <StreamingText key={i} text={e.text} working={workingSince != null} streamKey={item.key} />;
           if (e.kind === "text")
             return (
               <AssistantText
                 key={i}
                 event={e}
                 index={i}
+                streamKey={item.key}
                 timeFormat={defaults.timeFormat}
                 pinned={pins.some((c) => c.index === i)}
                 onFork={onFork}

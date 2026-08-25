@@ -39,6 +39,32 @@ const PACE_MAX_CPS = 900;
 const PACE_RATE_TAU_MS = 2000;
 /** Deux deltas à moins de 50 ms = même rafale : mesurés ensemble au suivant. */
 const PACE_COALESCE_MS = 50;
+/** Reprise d'un fil en cours : au plus cette queue se rejoue au montage —
+ * l'essentiel s'affiche direct, seule la fin « se tape ». Un tour FRAIS
+ * (texte plus court que la borne) part donc du début : le premier delta d'un
+ * provider rapide peut faire 800 caractères, affiché d'un bloc c'était le
+ * début du « tout d'un coup » (2026-08-25). */
+const MOUNT_TAIL_CHARS = 600;
+/** Finition (fin de tour) : le reliquat se déroule à ce plancher, sans le
+ * plafond de croisière — vite, mais jamais téléporté. */
+const FINISH_FLOOR_CPS = 600;
+const FINISH_CATCHUP_MS = 300;
+
+/** Relais bulle → texte final. Au done, le reducer REMPLACE la bulle
+ * streaming par le texte final : l'ancien composant meurt avec son compte de
+ * révélation, et le texte final apparaissait entier d'un coup. La clé de
+ * rangée (stable au remplacement depuis le fix du flash) porte le compte
+ * d'un composant à l'autre. */
+const handoffs = new Map<string, number>();
+export function publishStreamHandoff(key: string, revealed: number): void {
+  handoffs.set(key, revealed);
+}
+export function takeStreamHandoff(key: string): number | null {
+  const value = handoffs.get(key);
+  if (value == null) return null;
+  handoffs.delete(key);
+  return value;
+}
 
 export function newStreamPace(initialLen: number): StreamPace {
   return { revealed: initialLen, fractional: 0, rate: 0, lastGrowthAt: -1, lastLen: initialLen, lastTickAt: 0 };
@@ -66,8 +92,10 @@ export function paceGrowth(p: StreamPace, len: number, now: number): void {
   p.lastLen = len;
 }
 
-/** Un tick de révélation. Retourne true si `revealed` a avancé. */
-export function paceStep(p: StreamPace, full: string, now: number): boolean {
+/** Un tick de révélation. Retourne true si `revealed` a avancé.
+ * `finishing` : fin de tour — le reliquat se résorbe vite (plancher élevé,
+ * pas de plafond de croisière), mais toujours mot à mot. */
+export function paceStep(p: StreamPace, full: string, now: number, finishing = false): boolean {
   const dt = Math.min(Math.max(now - p.lastTickAt, 0), 250);
   p.lastTickAt = now;
   const total = full.length;
@@ -76,10 +104,12 @@ export function paceStep(p: StreamPace, full: string, now: number): boolean {
     return false;
   }
   const backlog = total - p.revealed;
-  const cps = Math.min(
-    Math.max(p.rate, (backlog * 1000) / PACE_CATCHUP_MS, PACE_FLOOR_CPS),
-    PACE_MAX_CPS,
-  );
+  const cps = finishing
+    ? Math.max(p.rate, (backlog * 1000) / FINISH_CATCHUP_MS, FINISH_FLOOR_CPS)
+    : Math.min(
+        Math.max(p.rate, (backlog * 1000) / PACE_CATCHUP_MS, PACE_FLOOR_CPS),
+        PACE_MAX_CPS,
+      );
   p.fractional += (cps * dt) / 1000;
   const step = Math.floor(p.fractional);
   if (step <= 0) return false;
@@ -107,11 +137,22 @@ export function paceStep(p: StreamPace, full: string, now: number): boolean {
  * (voir paceStep). Fin de tour : flush immédiat. Au montage, le texte déjà
  * présent s'affiche sans replay (reprise de fil). Sous
  * prefers-reduced-motion, aucun typewriter : le texte brut passe tel quel. */
-export function useSmoothedStream(text: string, working: boolean): string {
+export function useSmoothedStream(text: string, working: boolean, handoffKey?: string): string {
   const reduceMotion = typeof matchMedia === "function"
     && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const pace = useRef<StreamPace | null>(null);
-  if (pace.current == null) pace.current = newStreamPace(text.length);
+  if (pace.current == null) {
+    // Bulle de réponse (elle seule porte une clé de relais) : queue bornée
+    // (reprise) ou début (tour frais). La pensée vivante, SANS clé, garde le
+    // montage sans replay — elle se démonte/remonte au passage par les outils
+    // et re-taper tout le bloc à chaque fois serait pire que tout. Texte
+    // final : reprendre le compte relayé par la bulle qui vient de mourir,
+    // sinon tout afficher (relecture d'un vieux message).
+    const initial = working
+      ? (handoffKey != null ? Math.max(0, text.length - MOUNT_TAIL_CHARS) : text.length)
+      : (handoffKey != null ? takeStreamHandoff(handoffKey) : null) ?? text.length;
+    pace.current = newStreamPace(initial);
+  }
   const target = useRef(text);
   const frame = useRef<number | null>(null);
   const [, force] = useState(0);
@@ -123,29 +164,26 @@ export function useSmoothedStream(text: string, working: boolean): string {
     const cancel = () => {
       if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
     };
-    if (!working) {
-      cancel();
-      p.fractional = 0;
-      if (p.revealed !== target.current.length) {
-        p.revealed = target.current.length;
-        force((n) => n + 1);
-      }
-      return cancel;
-    }
-    paceGrowth(p, text.length, performance.now());
+    if (working) paceGrowth(p, text.length, performance.now());
+    const finishing = !working;
     const tick = (time: number) => {
       frame.current = null;
-      if (paceStep(p, target.current, time)) force((n) => n + 1);
+      if (paceStep(p, target.current, time, finishing)) {
+        if (working && handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
+        force((n) => n + 1);
+      }
       if (p.revealed < target.current.length) {
         frame.current = requestAnimationFrame(tick);
+      } else if (finishing && handoffKey != null) {
+        handoffs.delete(handoffKey);
       }
     };
     if (frame.current == null && p.revealed < target.current.length) {
       frame.current = requestAnimationFrame(tick);
     }
     return cancel;
-  }, [text, working, reduceMotion]);
+  }, [text, working, reduceMotion, handoffKey]);
 
-  if (reduceMotion || !working) return text;
+  if (reduceMotion) return text;
   return text.slice(0, Math.min(pace.current.revealed, text.length));
 }

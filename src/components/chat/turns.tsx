@@ -270,9 +270,9 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
-export function StreamingText(p: { text: string; working: boolean }) {
+export function StreamingText(p: { text: string; working: boolean; streamKey?: string }) {
   const plugins = useMdPlugins();
-  const text = useSmoothedStream(p.text, p.working);
+  const text = useSmoothedStream(p.text, p.working, p.streamKey);
   const kbCiteSources = useKbCiteSources(text);
   return (
     <Message align="start" className="chat-message assistant-message">
@@ -306,10 +306,16 @@ export const AssistantText = memo(function AssistantText(p: {
   pinned: boolean;
   onFork: (index: number) => void;
   onTogglePin: (index: number, label: string) => void;
+  /** Clé de rangée : reprend la frappe là où la bulle streaming l'a laissée
+   * quand le done la remplace par ce texte final (relais anti-« tout d'un
+   * coup », 2026-08-25). Absente ou sans relais → texte entier, zéro coût. */
+  streamKey?: string;
 }) {
   const e = p.event;
   const i = p.index;
   const plugins = useMdPlugins();
+  const lisse = useSmoothedStream(e.text, false, p.streamKey);
+  const enFinition = lisse !== e.text;
   const kbCiteSources = useKbCiteSources(e.text);
   return (
     <Message id={`msg-${i}`} align="start" className="chat-message assistant-message">
@@ -317,9 +323,9 @@ export const AssistantText = memo(function AssistantText(p: {
       <Bubble variant="ghost" className="tw:w-full">
       <BubbleContent className="msg chat-md tw:w-full">
         <MdBody
-          text={decorateKbCites(normalizeMathDelimiters(e.text), kbCiteSources)}
-          streaming={false}
-          components={MD_COMPONENTS as any}
+          text={decorateKbCites(normalizeMathDelimiters(lisse), kbCiteSources)}
+          streaming={enFinition}
+          components={(enFinition ? MD_COMPONENTS_STREAMING : MD_COMPONENTS) as any}
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
         />
