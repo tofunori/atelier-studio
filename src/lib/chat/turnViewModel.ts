@@ -91,7 +91,9 @@ function isTerminal(event: AgentEvent) {
   return TERMINAL_KINDS.has(event.kind);
 }
 
-function isAssistantText(event: AgentEvent) {
+function isAssistantText(
+  event: AgentEvent,
+): event is Extract<AgentEvent, { kind: "text" | "streaming" }> {
   return event.kind === "text" || event.kind === "streaming";
 }
 
@@ -320,6 +322,56 @@ function activeSegmentBoundary(
   return Math.max(assistantBoundary, latestStandaloneIndex);
 }
 
+/** Plancher de la réponse finale, en caractères de prose utile.
+ *
+ * La règle du « dernier item visible » ci-dessous déclasse la réponse dès
+ * qu'un outil la suit. C'est juste pour « Je commence. », faux pour un
+ * livrable de mille caractères suivi d'un TodoWrite de fin de tour : la
+ * réponse disparaissait alors derrière « A travaillé pendant Ns ». On
+ * départage par le poids plutôt que par une liste d'exceptions par nom
+ * d'outil — sous ce plancher un texte est une transition et retourne dans le
+ * pli, au-dessus c'est la réponse et elle reste visible. 240 ≈ trois lignes
+ * pleines ; « Je commence. » (12) et « Terminé. » (9) restent loin dessous. */
+const REPONSE_FINALE_MIN_CARS = 240;
+
+/** Début du run narratif le plus lourd du tour.
+ *
+ * Un run est une suite de textes assistants que rien n'interrompt : un outil
+ * coupe, le raisonnement non — Claude intercale ses résumés au milieu d'une
+ * même réponse. À poids égal le plus tardif gagne (une reprise après outil
+ * prolonge le propos, elle ne le répète pas). `null` si aucun run n'atteint
+ * le plancher. */
+function heaviestNarrativeStart(
+  events: AgentEvent[],
+  indexes: number[],
+  before: number,
+): number | null {
+  let bestStart: number | null = null;
+  let bestPoids = 0;
+  let runStart: number | null = null;
+  let runPoids = 0;
+  const clore = () => {
+    if (runStart != null && runPoids >= bestPoids) {
+      bestStart = runStart;
+      bestPoids = runPoids;
+    }
+    runStart = null;
+    runPoids = 0;
+  };
+  for (const index of indexes) {
+    if (index >= before) break;
+    const event = events[index];
+    if (isAssistantText(event)) {
+      if (runStart == null) runStart = index;
+      runPoids += event.text.trim().length;
+    } else if (!isReasoning(event)) {
+      clore();
+    }
+  }
+  clore();
+  return bestPoids >= REPONSE_FINALE_MIN_CARS ? bestStart : null;
+}
+
 function terminalAssistantIndex(
   events: AgentEvent[],
   indexes: number[],
@@ -334,7 +386,10 @@ function terminalAssistantIndex(
     const event = events[index];
     return isAssistantText(event) || isToolAction(event) || event.kind === "activity" || event.kind === "edit";
   }) ?? null;
-  return lastVisible != null && isAssistantText(events[lastVisible]) ? lastVisible : null;
+  if (lastVisible != null && isAssistantText(events[lastVisible])) return lastVisible;
+  // Repli : le dernier item visible est du travail, mais un propos substantiel
+  // peut le précéder. Le pli s'arrête alors à son début au lieu de l'avaler.
+  return heaviestNarrativeStart(events, indexes, terminalIndex);
 }
 
 export function buildChatTurnViewModels(

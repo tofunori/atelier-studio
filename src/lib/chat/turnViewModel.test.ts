@@ -315,6 +315,87 @@ describe("chat turn view model", () => {
     ]);
   });
 
+  // Réponse longue enterrée par un outil traînant (analyse gooey-pi, 2026-08-25).
+  // La règle « dernier item visible » déclasse la réponse dès qu'un outil la
+  // suit : un TodoWrite de fin de tour faisait disparaître un livrable entier
+  // derrière « A travaillé pendant Ns ». Le repli pèse désormais les runs
+  // narratifs au lieu d'entretenir une liste d'exceptions par nom d'outil.
+  const LONGUE = "Voici la réponse complète. ".repeat(40);
+
+  it("une réponse longue survit à un outil traînant", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: LONGUE, ts: T0 + 400 },
+      { kind: "tool", name: "TodoWrite", detail: "3 tâches" },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    expect(turn.finalAssistantIndex).toBe(2);
+    expect(turn.fold).toMatchObject({ start: 1, end: 2 });
+    // pli fermé : la réponse est bien projetée, pas avalée
+    const rows = projectChatTimeline(events, [turn], new Set());
+    expect(rows.some((row) => row.type === "event" && row.event.kind === "text")).toBe(true);
+  });
+
+  it("un commentaire court reste avalé par le pli", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "text", text: "Je regarde.", ts: T0 + 100 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    expect(turn.finalAssistantIndex).toBeNull();
+  });
+
+  it("à poids égal, le run narratif le plus tardif est la réponse", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "text", text: LONGUE, ts: T0 + 100 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: LONGUE, ts: T0 + 200 },
+      { kind: "tool", name: "TodoWrite", detail: "3 tâches" },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    expect(turn.finalAssistantIndex).toBe(3);
+  });
+
+  it("le raisonnement ne coupe pas le run narratif", () => {
+    // Claude intercale des résumés de raisonnement au milieu de sa réponse :
+    // les deux moitiés sont UN propos, commencé avant la pensée — pas deux
+    // runs dont le second enterrerait le premier dans le pli.
+    const moitie = "Voici la moitié de la réponse. ".repeat(8);
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: moitie, ts: T0 + 100 },
+      { kind: "thinking", text: "je réfléchis", ts: T0 + 150 },
+      { kind: "text", text: moitie, ts: T0 + 200 },
+      { kind: "tool", name: "TodoWrite", detail: "3 tâches" },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    expect(turn.finalAssistantIndex).toBe(2);
+  });
+
+  it("un outil au milieu coupe le run narratif au lieu de l'agréger", () => {
+    // deux morceaux sous le plancher ; leur somme le dépasse, mais ce sont deux
+    // runs distincts — aucun ne devient la réponse finale.
+    const morceau = "x".repeat(130);
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Q", ts: T0 },
+      { kind: "text", text: morceau, ts: T0 + 100 },
+      { kind: "tool", name: "Read", detail: "a.ts" },
+      { kind: "text", text: morceau, ts: T0 + 200 },
+      { kind: "tool", name: "TodoWrite", detail: "3 tâches" },
+      { kind: "done", ok: true, result: "", ts: T0 + 500 },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    expect(turn.finalAssistantIndex).toBeNull();
+  });
+
   // Finition checklist (2026-08-22) : le plan `todos` est l'état du travail,
   // pas un détail d'exécution — il doit rester visible sous un pli fermé.
   it("la checklist `todos` survit au pli fermé d'un tour terminé", () => {

@@ -15,6 +15,7 @@ import {
   summarizeActivity,
   tickerRows,
   toolCategory,
+  toolOutcome,
   turnProgressSignature,
   truncateToolOutput,
 } from "./toolPresentation";
@@ -327,5 +328,38 @@ describe("stripAnsi", () => {
 
   it("laisse le texte sans séquences ANSI inchangé", () => {
     expect(stripAnsi("texte normal\nsur deux lignes")).toBe("texte normal\nsur deux lignes");
+  });
+});
+
+// État affiché d'un appel d'outil (2026-08-25). Le mot d'état est le SEUL
+// élément coloré de la rangée : vert au succès, rouge à l'échec, neutre en
+// vol. Une rangée dont l'icône ET le nom ET l'état seraient colorés n'offre
+// plus de point d'entrée à l'œil.
+describe("état affiché d'un appel d'outil", () => {
+  const maj = (over: Partial<Extract<AgentEvent, { kind: "tool_update" }>>) =>
+    tool("t1", "bash", "ls", over) as Extract<AgentEvent, { kind: "tool_update" }>;
+
+  it("un statut de succès donne `done`", () => {
+    // les providers ne s'accordent ni sur le mot ni sur la casse
+    for (const status of ["completed", "complete", "succeeded", "success", "done", "Completed"]) {
+      expect(toolOutcome(maj({ status }))).toBe("done");
+    }
+  });
+
+  it("un code de sortie non nul l'emporte sur un statut de succès", () => {
+    expect(toolOutcome(maj({ status: "completed", exitCode: 2 }))).toBe("failed");
+  });
+
+  it("un code de sortie nul ne vaut pas échec", () => {
+    expect(toolOutcome(maj({ status: "completed", exitCode: 0 }))).toBe("done");
+  });
+
+  it("un statut d'échec donne `failed`", () => {
+    expect(toolOutcome(maj({ status: "failed" }))).toBe("failed");
+  });
+
+  it("un outil encore en vol reste neutre", () => {
+    expect(toolOutcome(maj({ status: "running" }))).toBe("running");
+    expect(toolOutcome(maj({ status: "" }))).toBe("running");
   });
 });

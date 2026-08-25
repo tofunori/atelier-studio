@@ -2,6 +2,7 @@
 // depuis Chat.tsx : résumé de grappes d'outils, ligne de sortie d'outil,
 // icônes de type de fichier. Aucune logique modifiée.
 import { useState } from "react";
+import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
@@ -46,6 +47,25 @@ const READ_CMD = /^\s*!?\s*(cat|bat|head|tail|less|more|sed -n)\b/;
 const VISUALIZATION_CMD = /\b(matplotlib|pyplot|plotly|ggplot|vega|chart|render[_-]?(?:plot|figure)|savefig|\.plot\s*\()\b/iu;
 const INTERRUPTED_STATUS = /^(interrupted|cancelled|canceled|declined|denied|stopped)$/i;
 const COMPLETED_STATUS = /^(completed|complete|succeeded|success|done)$/i;
+
+/** Statut provider normalisé : casse, camelCase et underscores. Les providers
+ * écrivent « completed », « Completed », « in_progress », « inProgress ». */
+function normalizedStatus(status: string | undefined): string {
+  return status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? "";
+}
+
+/** État affiché d'un appel d'outil : c'est le SEUL élément coloré de la
+ * rangée. L'icône de tête et le nom de l'outil restent neutres — trois
+ * accents sur une même ligne et l'œil n'a plus de point d'entrée. */
+export type ToolOutcome = "done" | "failed" | "running";
+
+/** Le code de sortie fait foi sur le statut : un provider peut très bien
+ * annoncer « completed » sur un exit 2. */
+export function toolOutcome(event: Extract<AgentEvent, { kind: "tool_update" }>): ToolOutcome {
+  const status = normalizedStatus(event.status);
+  if ((event.exitCode != null && event.exitCode !== 0) || status === "failed") return "failed";
+  return COMPLETED_STATUS.test(status) ? "done" : "running";
+}
 const SUMMARY_ORDER: SummaryPartKind[] = [
   "integrations", "loaded-tools", "file-changes", "exploration", "visualization",
   "commands", "web-search", "images", "agents", "todo", "permissions", "compaction", "tools",
@@ -152,7 +172,8 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
   const cleanOutput = stripAnsi(event.output);
   const output = truncateToolOutput(cleanOutput);
   const inputView = toolInputView(event.input);
-  const failed = Boolean(event.exitCode && event.exitCode !== 0) || event.status === "failed";
+  const outcome = toolOutcome(event);
+  const failed = outcome === "failed";
   const [open, setOpen] = useState(failed);
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   const trimmedOutput = output.trim();
@@ -160,7 +181,7 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
     && (trimmedOutput.startsWith("{") || trimmedOutput.startsWith("["))
     && isJsonText(trimmedOutput);
   return (
-    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""}`}>
+    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen((v) => !v)}>
         <Tick open={open} />
         <span className="tool-output-name">
@@ -174,7 +195,12 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
         {event.durationMs != null && event.durationMs > 0 && (
           <span className="tool-duration">{fmtToolDur(event.durationMs)}</span>
         )}
-        {event.status && <span className="tool-status">{event.status}</span>}
+        {event.status && (
+          <span className="tool-status">
+            {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
+            {event.status}
+          </span>
+        )}
       </RowButton>
       {open && (inputView || output.trim()) && (
         <div className="tool-output-body">
@@ -431,9 +457,7 @@ function semanticActivity(action: ToolAction): SemanticToolActivity {
   const rawTarget = structuredCommand?.target || actionTarget(action);
   const name = action.name.toLowerCase();
   const source = action.kind === "tool_update" ? action.source?.toLowerCase() ?? "" : "";
-  const status = action.kind === "tool_update"
-    ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
-    : "";
+  const status = action.kind === "tool_update" ? normalizedStatus(action.status) : "";
   let kind = structuredCommand?.kind ?? toolCategory(action.name, shellCommand(rawTarget));
   const target = conciseActionTarget(action.name, rawTarget, kind);
 

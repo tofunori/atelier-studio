@@ -407,7 +407,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-output-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-output-summary { color: var(--text-disabled); white-space: nowrap;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tool-status { color: var(--text-disabled); white-space: nowrap; }
+.tool-status { display: inline-flex; align-items: center; gap: 3px;
+  color: var(--text-disabled); white-space: nowrap; }
+.tool-status-icon { width: 12px; height: 12px; flex: none; stroke-width: 1.35; }
 .tool-duration { color: var(--text-disabled); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
 .timeline-stamp { color: var(--text-disabled); font-size: var(--fs-xs);
@@ -417,6 +419,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-source { margin-left: 6px; color: var(--text-disabled); font: var(--fs-xs)/1 var(--code-font);
   text-transform: uppercase; letter-spacing: 0.04em; }
 .tool-output.failed .tool-status { color: var(--u-hot, #e06c75); }
+/* Le mot d'état est le SEUL élément coloré de la rangée : l'icône de tête et
+   le nom de l'outil restent neutres. Classe `is-done` et non `done` — `.done`
+   est déjà pris plus haut par les lignes de fin de tour. */
+.tool-output.is-done .tool-status { color: var(--status-success); }
 /* min-width:0 sur toute la chaîne grid : sans lui, un item de grille refuse de
    rétrécir sous la largeur de son contenu — un input/output large poussait tout
    le chat en scroll horizontal. */
