@@ -570,7 +570,7 @@ export function Working(
         ) : null}
         {noteShown ? <span className="working-note">{noteShown}</span> : null}
       </span>
-      <div className="working-divider" aria-hidden="true" />
+      <div className="working-thread" aria-hidden="true" />
     </div>
   );
 }

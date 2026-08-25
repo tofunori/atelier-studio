@@ -225,7 +225,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
       <Chat {...chatProps({ workingSince: FIXED_TS, events: [events.user(), events.started()] })} />,
     );
     expect(document.querySelector(".working")).toBeTruthy();
-    expect(document.querySelector(".working-header .working-divider")).toBeTruthy();
+    expect(document.querySelector(".working-header .working-thread")).toBeTruthy();
     expect(document.querySelector(".working-spin")).toBeNull();
     // Début de tour, rien reçu : aucune ligne de pensée inventée — le pulse et
     // le chrono suffisent (« ya réflexion mais ya aucune réflexion là »).

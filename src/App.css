@@ -621,7 +621,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
 .working-note { color: var(--text-disabled); font-variant-numeric: tabular-nums; margin-left: 8px; }
-.working-divider { width: 100%; height: 1px; margin-top: 8px; background: var(--border); }
+/* Fil du tour actif : le trait HORIZONTAL pleine largeur devient un segment
+   VERTICAL qui pend sous la pastille (carré de 9px, centre à 4,5px) — le tour
+   se lit comme un fil qui continue, pas comme un bloc refermé par un trait.
+   Inerte : la pastille pulsée juste au-dessus est la seule boucle de la
+   surface (§9). Hauteur fixe : rien à recalculer pendant le stream. */
+.working-thread { width: 1px; height: 12px; margin: 4px 0 0 4px;
+  background: color-mix(in srgb, var(--accent) 38%, var(--border)); }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 .suggest { list-style: none; padding: 5px; margin: 0 0 4px;
   background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);

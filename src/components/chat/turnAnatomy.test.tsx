@@ -375,7 +375,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(working.textContent).not.toContain("Travaille depuis");
     expect(working.textContent).toMatch(/\d/);
     expect(working.querySelector(".working-spin")).toBeNull();
-    expect(working.querySelector(".working-divider")).toBeTruthy();
+    expect(working.querySelector(".working-thread")).toBeTruthy();
     // Le raisonnement vit à SA place dans le fil (au-dessus de l'activité en
     // cours), plus dans la queue du tour : une ligne, jamais deux.
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(1);
