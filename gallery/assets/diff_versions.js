@@ -61,6 +61,10 @@ window.DiffVersions = function(opts){
   // significatif) ; la base du state v2, elle, est immuable — la faire bouger
   // ferait diverger `serverBaseHash` du serveur → « conflit de base ».
   let journalBase = null;
+  // Jalon de comparaison posé par l'utilisateur : il déplace la base
+  // D'AFFICHAGE (cumul, ruban, compteur) sans jamais toucher `journalBase`,
+  // l'ancre du state persisté (PIEGES_CONNUS §3b). Rien n'est supprimé.
+  let milestone = null;
   let pendingRebase = null; // avancée de base retenue pendant une vue historique
   const KEY = "texDiffV1:" + path;
   const GUTTER = "dv-git";
@@ -181,6 +185,14 @@ window.DiffVersions = function(opts){
       "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
       "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
       "#dvNav .dvNavA:disabled{color:color-mix(in srgb,var(--muted,#8b93a1) 42%,transparent);cursor:default;background:none}" +
+      // Fanion et pastille git : icône seule, l'infobulle porte le sens.
+      "#dvStone,#dvTrack{position:relative;display:inline-flex;align-items:center;justify-content:center;" +
+      "width:22px;height:24px;background:transparent;border:none;border-radius:6px;" +
+      "color:var(--muted,#8b93a1);cursor:pointer;padding:0;transition:color 140ms ease,background 140ms ease}" +
+      "#dvStone:hover:not(:disabled),#dvTrack:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "#dvStone.on{color:var(--accent,#e8823a)}" +
+      "#dvTrack.dot::after{content:\"\";position:absolute;top:3px;right:2px;width:5px;height:5px;" +
+      "border-radius:3px;background:var(--accent,#e8823a)}" +
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
       "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
       "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:10px}" +
@@ -334,8 +346,11 @@ window.DiffVersions = function(opts){
     }
     const last = data.current ? text(data.current.hash) : null;
     const base = data.base ? text(data.base.hash) : null;
+    const stoneText = data.milestone ? text(data.milestone.hash) : null;
     return {v: 2, revision: data.revision || 0, baseHash: data.base?.hash || null,
-      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last};
+      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last,
+      // Jalon « Repartir d'ici » : base d'AFFICHAGE, distincte de l'ancre.
+      milestone: stoneText === null ? null : {before: stoneText, ts: Number(data.milestone.ts) || 0}};
   }
   function mergeConflictState(remote, localBaseHash){
     const decoded = materializeServer(remote);
@@ -412,6 +427,7 @@ window.DiffVersions = function(opts){
     if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
     ensureNavUi();
     ensureCommitUi();
+    ensureStoneUi();
     ensureHistUi();
     updateTag();
     updateNav();
@@ -1231,6 +1247,42 @@ window.DiffVersions = function(opts){
       else setTimeout(restoreViewport, 0);
     }
   }
+  /** Pose le jalon comme base d'affichage : cumul, ruban et compteur repartent
+   * de là. `journalBase` (ancre persistée) n'est PAS touchée. */
+  function applyMilestone(stone){
+    baseVersion = {before: stone.before, ts: stone.ts, head: false, sha: "", stone: true};
+    baseTs = Number(stone.ts) || 0;
+    baseGitLocked = false;
+  }
+  /** « Repartir d'ici » : l'état courant devient la base de comparaison. */
+  async function setMilestone(){
+    const text = liveText();
+    if(typeof text !== "string") return false;
+    const stone = {before: text, ts: Date.now()};
+    const hash = hashText(text);
+    try{
+      const response = await fetch("/versions", {method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path, expectedRevision: serverRevision, ops: [{
+          type: "milestone",
+          milestone: {hash, ts: stone.ts},
+          current: {hash, ts: stone.ts},
+          texts: {[hash]: text},
+        }]})});
+      const body = await response.json();
+      if(!body?.ok || !Number.isInteger(body.revision)) throw new Error(body?.error || "refus du serveur");
+      serverRevision = body.revision;
+    }catch(e){
+      notify("jalon non enregistré — réessaie");
+      return false;
+    }
+    milestone = stone;
+    applyMilestone(stone);
+    updateNav();
+    if(shown) render();
+    return true;
+  }
+
   function normalizeMeta(meta){
     const source = meta && SOURCES.has(meta.source) ? meta.source : "user-save";
     const status = meta && STATUSES.has(meta.status) ? meta.status : "applied";
@@ -1272,6 +1324,65 @@ window.DiffVersions = function(opts){
     if(shown) render();
     // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent
     fetchHead().then(refreshGutter);
+  }
+
+  // ---- fanion « Repartir d'ici » + pastille « suivre dans git » -------------
+  // Deux icônes, aucun texte dans la barre (comme le reste de l'instrument) :
+  // l'infobulle porte le sens. Le fanion existe TOUJOURS ; la pastille git
+  // n'apparaît que pour un fichier non suivi d'un dépôt existant.
+  let gitRepo = false, gitTracked = false;
+  let stoneBtn = null, trackBtn = null;
+  function ensureStoneUi(){
+    if(stoneBtn || !els.group) return;
+    stoneBtn = document.createElement("button");
+    stoneBtn.id = "dvStone";
+    stoneBtn.className = "dvNavA";
+    stoneBtn.type = "button";
+    stoneBtn.title = "Repartir d'ici — poser une nouvelle base de comparaison";
+    stoneBtn.setAttribute("aria-label", "Repartir d'ici");
+    stoneBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.4 2.2v11.6"/><path d="M3.4 3.2h8.2l-1.8 2.4 1.8 2.4H3.4"/></svg>';
+    stoneBtn.onclick = async () => {
+      stoneBtn.disabled = true;
+      const ok = await setMilestone();
+      stoneBtn.disabled = false;
+      if(ok){
+        stoneBtn.classList.add("on");
+        setTimeout(() => stoneBtn && stoneBtn.classList.remove("on"), 1600);
+        notify("base posée — l'historique reste accessible");
+      }
+    };
+    els.group.appendChild(stoneBtn);
+
+    trackBtn = document.createElement("button");
+    trackBtn.id = "dvTrack";
+    trackBtn.className = "dvNavA";
+    trackBtn.type = "button";
+    trackBtn.style.display = "none";
+    trackBtn.title = "Hors dépôt — cliquer pour suivre dans git";
+    trackBtn.setAttribute("aria-label", "Suivre ce fichier dans git");
+    trackBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.4" cy="4" r="1.8"/><circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="8" r="1.8"/><path d="M4.4 5.8v4.4M6.1 4.6h2.2A1.6 1.6 0 0 1 9.9 6.2v.2"/></svg>';
+    trackBtn.onclick = async () => {
+      trackBtn.disabled = true;
+      try{
+        const r = await fetch("/gittrack", {method: "POST",
+          headers: {"Content-Type": "application/json"}, body: JSON.stringify({path})});
+        const j = await r.json();
+        if(j && j.ok){
+          gitTracked = true;
+          updateTrackUi();
+          notify("fichier suivi — la base peut maintenant avancer");
+          fetchHead().then(refreshGutter);
+        } else notify(j?.error || "git add a échoué");
+      }catch(e){ notify("serveur galerie injoignable"); }
+      trackBtn.disabled = false;
+    };
+    els.group.appendChild(trackBtn);
+  }
+  function updateTrackUi(){
+    if(!trackBtn) return;
+    const show = gitRepo && !gitTracked;
+    trackBtn.style.display = show ? "" : "none";
+    trackBtn.classList.toggle("dot", show);
   }
 
   // ---- commit rapide du fichier courant : empreinte permanente, état désactivé
@@ -1361,6 +1472,7 @@ window.DiffVersions = function(opts){
   }
   function updateCommitBtn(blocks){
     ensureCommitUi();
+    ensureStoneUi();
     if(!commitBtn) return;
     commitBtn.style.display = "";
     commitBtn.disabled = blocks <= 0;
@@ -1699,7 +1811,15 @@ window.DiffVersions = function(opts){
       const requested = requestedBase ? "&base=" + encodeURIComponent(requestedBase) : "";
       const r = await fetch("/githead?path=" + encodeURIComponent(path) + requested);
       const j = await r.json();
+      // Un fichier NON SUIVI répond ok:false : le serveur dit maintenant s'il
+      // y a un dépôt, ce qui décide de la pastille « suivre dans git ».
+      if(j && j.ok === false){
+        gitRepo = j.repo === true;
+        gitTracked = j.tracked === true;
+        updateTrackUi();
+      }
       if(!j || !j.ok || typeof j.text !== "string"){ return false; }
+      gitRepo = true; gitTracked = true; updateTrackUi();
       const changed = headText !== j.text;
       const prevSha = baseVersion && baseVersion.head ? (baseVersion.sha || "") : "";
       headSha = j.sha || "";
@@ -1734,6 +1854,7 @@ window.DiffVersions = function(opts){
   // Les états natifs disabled indiquent ce qui est disponible sans déplacer rien.
   ensureNavUi();
   ensureCommitUi();
+  ensureStoneUi();
   ensureHistUi();
   if(els.restore){
     // Fermé au départ : « rétablir » n'apparaît qu'avec la comparaison.
@@ -1976,6 +2097,20 @@ window.DiffVersions = function(opts){
       if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
     }
     else if(!serverData && !hasLocalV2) loadData(localData);
+    // Jalon posé par l'utilisateur : il devient la base d'AFFICHAGE, y compris
+    // sur l'ancre du journal. Il ne gagne pas sur un HEAD git plus récent —
+    // dans ce cas le dépôt a déjà fait avancer la base.
+    const stone = (materializeServer(serverData) || {}).milestone;
+    if(stone && typeof stone.before === "string"){
+      milestone = stone;
+      if(!baseGitLocked || !baseTs || stone.ts > baseTs){
+        applyMilestone(stone);
+        // La barre a déjà été peinte plus haut dans le chargement : sans ce
+        // rafraîchissement, le compteur gardait le total d'avant le jalon.
+        updateNav();
+        if(shown) render();
+      }
+    }
     const unacknowledged = INTERVENTIONS.filter(it => !acknowledgedIds.has(it.id));
     for(const it of unacknowledged) pendingById.set(it.id, it);
     if(unacknowledged.length) persist(lastKnown === null ? liveText() : lastKnown);

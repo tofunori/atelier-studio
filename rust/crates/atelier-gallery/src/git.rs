@@ -299,6 +299,17 @@ fn validate_version_state(state: &Value) -> Result<(), String> {
         }
     }
 
+    match obj.get("milestone") {
+        None | Some(Value::Null) => {}
+        Some(stone) => {
+            if !has_text(stone.get("hash").and_then(Value::as_str))
+                || !stone.get("ts").is_some_and(num_ok)
+            {
+                return Err("invalid milestone".into());
+            }
+        }
+    }
+
     match obj.get("current") {
         None | Some(Value::Null) => {}
         Some(cur) => {
@@ -640,6 +651,28 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
                         .insert("current".into(), cur.clone());
                 }
             }
+            // Jalon de comparaison (« Repartir d'ici », 2026-08-24) : base
+            // d'AFFICHAGE, distincte de l'ancre `base` qui, elle, ne bouge
+            // jamais — la déplacer ferait diverger l'empreinte et couperait la
+            // persistance (PIEGES_CONNUS §3b). Rien n'est supprimé : les
+            // interventions antérieures restent dans le journal.
+            "milestone" => {
+                let stone = map
+                    .get("milestone")
+                    .cloned()
+                    .ok_or_else(|| "invalid op".to_string())?;
+                if stone.is_null() {
+                    state.as_object_mut().unwrap().remove("milestone");
+                } else {
+                    state
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("milestone".into(), stone);
+                }
+                if let Some(cur) = map.get("current") {
+                    state.as_object_mut().unwrap().insert("current".into(), cur.clone());
+                }
+            }
             "set-current" => {
                 let cur = map
                     .get("current")
@@ -688,6 +721,13 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
     if let Some(h) = state
         .get("current")
         .and_then(|c| c.get("hash"))
+        .and_then(Value::as_str)
+    {
+        refs.insert(h.to_string());
+    }
+    if let Some(h) = state
+        .get("milestone")
+        .and_then(|m| m.get("hash"))
         .and_then(Value::as_str)
     {
         refs.insert(h.to_string());
@@ -763,6 +803,23 @@ pub struct GitShowQuery {
     sha: Option<String>,
 }
 
+/// `ok:false` enrichi : la pastille « suivre dans git » ne doit apparaître que
+/// pour un fichier NON SUIVI d'un dépôt EXISTANT — pas pour un dossier hors
+/// versionnage, où il n'y aurait rien à proposer (2026-08-24).
+fn ok_false_git(repo: bool, tracked: bool) -> axum::response::Response {
+    (
+        StatusCode::OK,
+        Json(json!({"ok": false, "repo": repo, "tracked": tracked})),
+    )
+        .into_response()
+}
+
+async fn is_tracked(root: &std::path::Path, rel: &str) -> bool {
+    git_out(&["ls-files", "--error-unmatch", "--", rel], root)
+        .await
+        .is_some()
+}
+
 pub async fn githead(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
@@ -772,8 +829,9 @@ pub async fn githead(
         return ok_false();
     };
     let Some((root, rel)) = git_root_rel(&p).await else {
-        return ok_false();
+        return ok_false_git(false, false);
     };
+    let tracked = is_tracked(&root, &rel).await;
     let base = query
         .base
         .as_deref()
@@ -787,7 +845,7 @@ pub async fn githead(
     };
     let show_arg = format!("{base}:{rel}");
     let Some(text) = git_out(&["show", &show_arg], &root).await else {
-        return ok_false();
+        return ok_false_git(true, tracked);
     };
     let sha = git_out(&["rev-parse", "--short", &base], &root)
         .await
@@ -969,6 +1027,44 @@ fn which(bin: &str) -> Option<PathBuf> {
 pub struct GitCommitBody {
     path: Option<String>,
     message: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct GitTrackBody {
+    path: Option<String>,
+}
+
+/// `git add` du SEUL fichier, sans commit : le fichier entre dans le dépôt, la
+/// base du diff peut alors avancer, et c'est l'utilisateur qui pose le premier
+/// jalon quand il le veut (2026-08-24).
+pub async fn gittrack(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitTrackBody>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = body.path.as_deref().unwrap_or("");
+    let Ok(p) = safe_project_path(&state.root, path) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
+    };
+    let Some((root, rel)) = git_root_rel(&p).await else {
+        return ok_false_error("hors dépôt git");
+    };
+    if is_tracked(&root, &rel).await {
+        return (StatusCode::OK, Json(json!({"ok": true, "tracked": true}))).into_response();
+    }
+    // `--` : un nom de fichier ne peut pas être pris pour une révision.
+    if git_out(&["add", "--", &rel], &root).await.is_none() {
+        return ok_false_error("git add a échoué");
+    }
+    let tracked = is_tracked(&root, &rel).await;
+    (
+        StatusCode::OK,
+        Json(json!({"ok": tracked, "tracked": tracked})),
+    )
+        .into_response()
 }
 
 pub async fn gitcommit(

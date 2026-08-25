@@ -2251,6 +2251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/gitshow", get(git::gitshow))
         .route("/commitmsg", get(git::commitmsg))
         .route("/gitcommit", post(git::gitcommit))
+        .route("/gittrack", post(git::gittrack))
         .route("/versions", get(git::get_versions).post(git::post_versions))
         // Phase 4 — LaTeX / PDF / export PNG
         .route("/latex-suggest", post(suggest::latex_suggest))

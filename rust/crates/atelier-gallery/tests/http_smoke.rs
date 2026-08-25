@@ -16,6 +16,14 @@ use std::{
 };
 
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Empreinte des textes du journal de versions (même fonction que le serveur).
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    hex::encode(hasher.finalize())
+}
 static SERVER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn free_port() -> u16 {
@@ -501,4 +509,89 @@ fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
     let (_, body) = http(srv.port, "GET", "/state", None);
     assert!(body.contains("\"png\"") && body.contains("\"tex\""), "normalisation — {body}");
     assert!(!body.contains("etc") && !body.contains("p*g"), "entrée non bornée — {body}");
+}
+
+/// Jalon de comparaison « Repartir d'ici » (2026-08-24). Un fichier dont la
+/// base ne peut pas avancer (hors dépôt) empilait ses interventions sans fin.
+/// Le jalon est une base D'AFFICHAGE distincte : l'ancre persistée (`base`)
+/// ne bouge JAMAIS — la déplacer ferait diverger l'empreinte et couperait la
+/// persistance (PIEGES_CONNUS §3b).
+#[test]
+fn un_jalon_deplace_la_base_daffichage_sans_toucher_lancre() {
+    let srv = start_server();
+    let file = srv.root.join("notes.tex");
+    fs::write(&file, "version un\n").unwrap();
+    let path = file.display().to_string();
+
+    // état initial : ancre posée à l'init
+    let init = format!(
+        r#"{{"path":"{path}","expectedRevision":0,"ops":[{{"type":"init",
+          "texts":{{"{h1}":"version un\n"}},
+          "base":{{"hash":"{h1}","kind":"session","sha":"","ts":1}},
+          "current":{{"hash":"{h1}","ts":1}}}}]}}"#,
+        path = path,
+        h1 = sha256_hex("version un\n"),
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&init));
+    assert_eq!(st, 200, "init — {body}");
+
+    // le jalon : nouvel état courant posé comme base d'affichage
+    let h2 = sha256_hex("version deux\n");
+    let jalon = format!(
+        r#"{{"path":"{path}","expectedRevision":1,"ops":[{{"type":"milestone",
+          "texts":{{"{h2}":"version deux\n"}},
+          "milestone":{{"hash":"{h2}","ts":2}},
+          "current":{{"hash":"{h2}","ts":2}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&jalon));
+    assert_eq!(st, 200, "jalon — {body}");
+
+    let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+    assert!(body.contains("\"milestone\""), "jalon absent — {body}");
+    assert!(body.contains(&h2), "texte du jalon perdu — {body}");
+    // l'ancre d'origine est intacte : c'est elle qui garantit la persistance
+    assert!(body.contains("\"kind\":\"session\""), "ancre modifiée — {body}");
+    assert!(
+        body.contains(&sha256_hex("version un\n")),
+        "texte de l'ancre collecté par le GC — {body}"
+    );
+}
+
+/// Pastille git : distinguer « pas de dépôt » de « fichier non suivi », et
+/// pouvoir suivre le fichier d'un clic.
+#[test]
+fn githead_distingue_non_suivi_et_hors_depot_puis_gittrack_suit() {
+    let srv = start_server();
+    let repo = srv.root.join("dossier");
+    fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git").args(args).current_dir(&repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "smoke"]);
+    git(&["config", "user.email", "smoke@example.invalid"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("suivi.tex"), "suivi\n").unwrap();
+    git(&["add", "suivi.tex"]);
+    git(&["commit", "-q", "-m", "depart"]);
+
+    // le fichier de brouillon, lui, n'a jamais été ajouté
+    let file = repo.join("brouillon.tex");
+    fs::write(&file, "texte\n").unwrap();
+    let path = file.display().to_string();
+
+    let (st, body) = http(srv.port, "GET", &format!("/githead?path={path}"), None);
+    assert_eq!(st, 200);
+    assert!(body.contains("\"ok\":false"), "{body}");
+    assert!(body.contains("\"repo\":true"), "dépôt non détecté — {body}");
+    assert!(body.contains("\"tracked\":false"), "suivi mal rapporté — {body}");
+
+    let payload = format!(r#"{{"path":"{path}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/gittrack", Some(&payload));
+    assert_eq!(st, 200, "gittrack — {body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+
+    let (_, body) = http(srv.port, "GET", &format!("/githead?path={path}"), None);
+    assert!(body.contains("\"tracked\":true"), "toujours non suivi — {body}");
 }
