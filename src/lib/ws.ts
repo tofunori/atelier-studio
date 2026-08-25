@@ -386,6 +386,12 @@ export type SendOptions = {
   handoffFromThreadId?: string;
 };
 
+/** `WebSocket.OPEN`, en dur. Les tests remplacent le global `WebSocket` par un
+ * faux sans propriétés statiques : `WebSocket.OPEN` y vaut `undefined`, et la
+ * comparaison serait TOUJOURS vraie — plus rien ne partirait. Le reste du code
+ * compare déjà à 1. */
+const SOCKET_OPEN = 1;
+
 /** Envoie un prompt. Retourne `false` si la socket n'est pas ouverte.
  *
  * `ws.send()` LÈVE (InvalidStateError) tant que la socket est en CONNECTING.
@@ -395,7 +401,7 @@ export type SendOptions = {
  * je recommence, ça marche » — indépendant du provider, parce que le début
  * d'un chat est justement le moment où la socket se (re)connecte. */
 export function sendPrompt(ws: WebSocket, t: SendOptions): boolean {
-  if (ws.readyState !== WebSocket.OPEN) return false;
+  if (ws.readyState !== SOCKET_OPEN) return false;
   ws.send(JSON.stringify({ type: "send", ...t }));
   return true;
 }

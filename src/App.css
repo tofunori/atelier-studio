@@ -2758,7 +2758,7 @@ body.dragging iframe { pointer-events: none; }
   .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
   .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open,
   .msg.is-streaming > *, .msg.is-streaming > .stream-caret,
-  .msg.is-streaming .sw { animation: none; }
+  .msg.is-streaming .sw, .thinking-live-stream .sw { animation: none; }
 }
 
 /* focus visible sur les champs qui neutralisaient l'outline sans remplacement */
@@ -3338,6 +3338,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   to { opacity: 1; }
 }
 .no-stream-fade .msg.is-streaming .sw { animation: none; }
+/* Même fade pour la pensée EN DIRECT (ThinkingProse fade) : le typewriter y
+   révèle plusieurs mots par image quand le CLI livre par blocs — sans fondu,
+   ils apparaissaient d'un coup, secs. Un seul jeu par mot, pas de boucle (§9). */
+.thinking-live-stream .sw { animation: word-in 220ms ease-out both; }
+.no-stream-fade .thinking-live-stream .sw { animation: none; }
 /* caret : remonté à chaque lot de texte reçu (key côté React) — il « respire »
    au rythme du flux puis se pose quand le flux s'arrête. Piloté par les
    événements, jamais par une horloge : ce n'est pas une boucle (§9). */

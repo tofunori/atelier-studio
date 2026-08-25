@@ -11,7 +11,7 @@ import {
   AgentEvent,
   Command,
 } from "./lib/ws";
-import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent } from "./lib/harnessEvents";
+import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, threadIsSettled } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin, resolvePins } from "./lib/pins";
@@ -1784,6 +1784,20 @@ export default function App() {
           const u = lastDone.usage;
           setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: u }));
         }
+        // Le serveur a terminé le tour, mais le done a pu être manqué en direct
+        // (socket coupée) : le compteur tournerait alors pour toujours. On ne
+        // touche PAS à un tour démarré après le dernier événement connu — ce
+        // serait effacer un envoi tout frais dont l'historique ne sait rien.
+        if (threadIsSettled(histEvents)) {
+          const dernierTs = histEvents.reduce(
+            (max, event) => ("ts" in event && typeof event.ts === "number" && event.ts > max ? event.ts : max),
+            0,
+          );
+          setWorkingSince((p) => {
+            const depuis = p[msg.threadId];
+            return depuis == null || depuis > dernierTs ? p : { ...p, [msg.threadId]: null };
+          });
+        }
       }
       if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
         const next = materializeHarnessHistory((msg.events ?? []) as AgentEvent[]);
@@ -2289,6 +2303,17 @@ export default function App() {
       requestCatalog(ws.current, activeProject, activeProviderId);
     }
   }, [activeProject, wsReady, activeProviderId]);
+
+  // Rattrapage après désynchronisation (2026-08-25). Les cinq autres appels à
+  // getHistory sont gardés par `!events[threadId]?.length` : un fil coupé en
+  // plein tour garde donc ses événements partiels À VIE, et le rouvrir ne le
+  // recharge pas. À chaque (re)connexion, le fil ACTIF est relu sans condition
+  // — l'historique du serveur fait foi sur ce que le direct a pu manquer.
+  useEffect(() => {
+    if (activeId && wsReady && ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "getHistory", threadId: activeId }));
+    }
+  }, [activeId, wsReady]);
 
   // Preuves (tâche 7) : re-demander les épingles à chaque changement de
   // projet actif — sans ça le store garde le projet précédent (ou reste

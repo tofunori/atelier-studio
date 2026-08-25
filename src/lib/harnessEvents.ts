@@ -440,6 +440,32 @@ function contentHash(s: string): string {
  * harnais existe ; sinon identité synthétique legacy kind+ts+hash de contenu
  * court — JAMAIS un index de tableau (instable à la moindre insertion).
  */
+/** Éphémères : ils peuvent suivre un terminal sans rouvrir le tour. */
+const REGLE_IGNORE = new Set<AgentEvent["kind"]>([
+  "heartbeat",
+  "usage",
+  "started",
+  "drafting",
+  "thinking_progress",
+]);
+
+/** Le dernier tour du fil est-il terminé ?
+ *
+ * `workingSince` est tenu à la main et n'est éteint que par un done/error reçu
+ * EN DIRECT. Quand ce terminal est manqué — socket coupée en plein tour, limite
+ * de transport —, le compteur tourne indéfiniment alors que le serveur a fini
+ * depuis longtemps, et le fil reste tronqué. Cette lecture permet de réparer
+ * l'état après coup, à partir de l'historique autoritaire relu à la
+ * reconnexion. Un fil vide ne prouve rien : il n'est pas réglé. */
+export function threadIsSettled(events: AgentEvent[]): boolean {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const kind = events[index].kind;
+    if (REGLE_IGNORE.has(kind)) continue;
+    return kind === "done" || kind === "error";
+  }
+  return false;
+}
+
 export function eventIdentity(ev: AgentEvent): string {
   const m = harnessMeta(ev);
   if (m) return `${m.turnId}:${m.itemId ?? m.eventId}`;

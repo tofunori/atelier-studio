@@ -1671,6 +1671,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn interrupt_arrete_le_tour_en_cours() {
+        // Régression : « je clique sur stop, rien ne s'arrête », tous providers
+        // confondus. Le chemin complet (handle_send → set_running → watcher
+        // d'annulation → is_cancelled du provider) n'avait AUCUN test.
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        )
+        .with_slow_test_provider("fake", 150);
+        let msg = json!({
+            "type": "send",
+            "threadId": "t-stop",
+            "provider": "fake",
+            "prompt": "hello",
+            "projectRoot": dir.path().to_string_lossy(),
+        });
+        handle_send(&state, &msg).await;
+        // le tour doit être VRAIMENT en cours avant le stop
+        for _ in 0..50 {
+            if state.harness().is_running("t-stop").await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            state.harness().is_running("t-stop").await,
+            "le tour n'a jamais démarré"
+        );
+
+        handle_interrupt(&state, &json!({"type":"interrupt","threadId":"t-stop"})).await;
+
+        // le tour doit se terminer NETTEMENT plus tôt que les 4×150 ms du fake
+        let mut arrete = false;
+        for _ in 0..40 {
+            if !state.harness().is_running("t-stop").await {
+                arrete = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(arrete, "le tour tourne encore 400 ms après l'interrupt");
+
+        let events = state.harness().journal().materialize("t-stop");
+        assert!(
+            events
+                .iter()
+                .any(|e| e["kind"] == "error" && e["message"] == "interrupted"),
+            "aucun événement d'interruption journalisé: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| e["kind"] == "text"),
+            "le tour a produit sa réponse complète malgré le stop: {events:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn send_fake_completes_and_journals() {
         let dir = tempdir().unwrap();
         let state = AppState::new(

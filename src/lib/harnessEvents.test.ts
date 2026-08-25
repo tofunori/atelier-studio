@@ -6,6 +6,7 @@ import type { AgentEvent } from "./ws";
 import {
   collerPensee,
   eventIdentity,
+  threadIsSettled,
   materializeHarnessHistory,
   mergeHarnessHistory,
   reduceHarnessEvent,
@@ -531,5 +532,43 @@ describe("pensée qui continue après la réponse (Grok)", () => {
 
     const thinkings = list.filter((e) => e.kind === "thinking");
     expect(thinkings.map((e) => (e as { text: string }).text)).toEqual(["tour un", "tour deux"]);
+  });
+});
+
+// Rattrapage après désynchronisation (2026-08-25). `workingSince` est un état
+// à part, éteint UNIQUEMENT par un done/error reçu en direct : un tour dont le
+// terminal est manqué (socket coupée, limite de transport) laissait le
+// compteur tourner pour toujours, et le fil tronqué — le rouvrir ne le
+// rechargeait pas, puisqu'il contenait déjà des événements. Vécu 2026-08-25 :
+// journal serveur terminé par `done` (seq 1626), UI figée à 4 m 17 s.
+describe("threadIsSettled", () => {
+  const user: AgentEvent = { kind: "user", text: "Q", ts: 1 };
+  const texte: AgentEvent = { kind: "text", text: "R", ts: 2 };
+
+  it("un fil qui se termine par done est réglé", () => {
+    expect(threadIsSettled([user, texte, { kind: "done", ok: true, result: "" }])).toBe(true);
+  });
+
+  it("un fil qui se termine par error est réglé", () => {
+    expect(threadIsSettled([user, { kind: "error", message: "boum" } as AgentEvent])).toBe(true);
+  });
+
+  it("un fil qui se termine par du texte ou du streaming ne l'est pas", () => {
+    expect(threadIsSettled([user, texte])).toBe(false);
+    expect(threadIsSettled([user, { kind: "streaming", text: "en cours", ts: 3 }])).toBe(false);
+  });
+
+  it("les éphémères qui suivent le terminal ne rouvrent pas le tour", () => {
+    // heartbeat/usage arrivent après le done sans le contredire
+    const events: AgentEvent[] = [
+      user, texte,
+      { kind: "done", ok: true, result: "" },
+      { kind: "heartbeat", elapsedMs: 10 } as AgentEvent,
+    ];
+    expect(threadIsSettled(events)).toBe(true);
+  });
+
+  it("un fil vide n'est pas réglé — rien ne prouve qu'un tour s'est terminé", () => {
+    expect(threadIsSettled([])).toBe(false);
   });
 });

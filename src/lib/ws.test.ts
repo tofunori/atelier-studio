@@ -139,6 +139,21 @@ describe("sendPrompt", () => {
     }
   });
 
+  it("ne dépend pas des statiques du global WebSocket", () => {
+    // Les tests de l'app remplacent le global par un faux sans `OPEN`
+    // (vi.stubGlobal). Comparer à `WebSocket.OPEN` donnait `undefined` : la
+    // garde devenait toujours vraie et PLUS RIEN ne partait — six tests
+    // d'orchestration l'ont attrapé, pas ce fichier.
+    vi.stubGlobal("WebSocket", class Faux {});
+    try {
+      const { socket, envoyes } = fausseSocket(1);
+      expect(sendPrompt(socket, base)).toBe(true);
+      expect(envoyes).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("envoie et le confirme sur une socket ouverte", () => {
     const { socket, envoyes } = fausseSocket(1);
     expect(sendPrompt(socket, base)).toBe(true);

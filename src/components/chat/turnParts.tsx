@@ -365,21 +365,40 @@ const THINKING_MARKER = /^(\s*)([-*•]|\d{1,3}[.)])\s+/;
 /** Gras et code inline SANS parseur markdown : le raisonnement streame par
  * centaines de morceaux, on ne repasse pas un arbre markdown à chaque chunk.
  * Les `**` littéraux traînaient à l'écran, c'est ce que ça règle. */
-function thinkingInline(text: string): ReactNode {
+function thinkingInline(text: string, fade = false): ReactNode {
   const parts: ReactNode[] = [];
   const pattern = /\*\*([^*\n]+)\*\*|`([^`\n]+)`/g;
   let last = 0;
   let key = 0;
   let match: RegExpExecArray | null;
+  const plain = (chunk: string) => {
+    if (!fade) { parts.push(chunk); return; }
+    parts.push(...fadeWords(chunk, () => key++));
+  };
   while ((match = pattern.exec(text)) != null) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
+    if (match.index > last) plain(text.slice(last, match.index));
     if (match[1] != null) parts.push(<strong key={key++}>{match[1]}</strong>);
     else parts.push(<code key={key++}>{match[2]}</code>);
     last = match.index + match[0].length;
   }
-  if (!parts.length) return text;
-  if (last < text.length) parts.push(text.slice(last));
+  if (!parts.length && !fade) return text;
+  if (last < text.length) plain(text.slice(last));
   return parts;
+}
+
+/** Un mot = un <span class="sw"> (même contrat que rehypeWordFade côté
+ * réponse) : le CSS anime son apparition UNE fois, à son montage. Les blancs
+ * restent du texte nu — sélection et copier-coller inchangés. Les spans sont
+ * positionnellement stables (flux append-only), donc React garde les nœuds
+ * déjà montés et l'animation ne rejoue pas sur un mot déjà lu. */
+function fadeWords(chunk: string, nextKey: () => number): ReactNode[] {
+  const out: ReactNode[] = [];
+  for (const part of chunk.split(/(\s+)/)) {
+    if (!part) continue;
+    if (/^\s+$/.test(part)) out.push(part);
+    else out.push(<span key={nextKey()} className="sw">{part}</span>);
+  }
+  return out;
 }
 
 /** Le raisonnement, mis en forme : une ligne = un paragraphe, un marqueur de
@@ -389,7 +408,7 @@ function thinkingInline(text: string): ReactNode {
 /** Une ligne, mémoïsée : le raisonnement streame par centaines de morceaux et
  * seule la DERNIÈRE ligne change — sans ce memo, chaque chunk relançait les
  * regex et le diff React sur les N lignes déjà figées (audit 2026-08-21). */
-const ThinkingLine = memo(function ThinkingLine({ line }: { line: string }) {
+const ThinkingLine = memo(function ThinkingLine({ line, fade = false }: { line: string; fade?: boolean }) {
   if (!line.trim()) return <div className="thinking-gap" />;
   const marker = THINKING_MARKER.exec(line);
   if (marker) {
@@ -399,18 +418,23 @@ const ThinkingLine = memo(function ThinkingLine({ line }: { line: string }) {
     return (
       <p className="thinking-item" style={depth ? { marginLeft: `${depth * 14}px` } : undefined}>
         <span className="thinking-marker">{marker[2]}</span>
-        <span className="thinking-item-body">{thinkingInline(line.slice(marker[0].length))}</span>
+        <span className="thinking-item-body">{thinkingInline(line.slice(marker[0].length), fade)}</span>
       </p>
     );
   }
-  return <p className="thinking-para">{thinkingInline(line)}</p>;
+  return <p className="thinking-para">{thinkingInline(line, fade)}</p>;
 });
 
-export function ThinkingProse({ text, className }: { text: string; className?: string }) {
+export function ThinkingProse(
+  { text, className, fade = false }: { text: string; className?: string;
+    /** pensée EN DIRECT : chaque mot entre en fondu à son apparition (le
+     * typewriter en révèle plusieurs par image, ils sautaient à l'écran) */
+    fade?: boolean },
+) {
   const lines = text.split("\n");
   return (
     <div className={className ? `thinking-prose ${className}` : "thinking-prose"}>
-      {lines.map((line, index) => <ThinkingLine key={index} line={line} />)}
+      {lines.map((line, index) => <ThinkingLine key={index} line={line} fade={fade} />)}
     </div>
   );
 }
@@ -678,7 +702,7 @@ function ThinkingTail({ texte, windowed }: { texte: string; windowed: boolean })
   }, [texte, windowed]);
   return (
     <div ref={flux} className={`thinking-live-stream${windowed ? " windowed" : " plein"}`}>
-      <ThinkingProse text={texte} />
+      <ThinkingProse text={texte} fade />
     </div>
   );
 }

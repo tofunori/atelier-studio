@@ -275,6 +275,20 @@ impl AppState {
         self
     }
 
+    /// Variante lente du provider de test : le tour dure assez longtemps pour
+    /// qu'un `interrupt` arrive PENDANT le stream (le fake par défaut finit en
+    /// ~20 ms, avant même le premier tour du watcher d'annulation à 50 ms).
+    #[cfg(test)]
+    pub(crate) fn with_slow_test_provider(mut self, id: &str, delay_ms: u64) -> Self {
+        let inner = Arc::get_mut(&mut self.inner)
+            .expect("test providers must be installed before AppState is cloned");
+        inner.providers.insert(
+            id.to_string(),
+            Arc::new(atelier_providers::FakeProvider::new(id).with_delay(delay_ms)),
+        );
+        self
+    }
+
     pub fn client_instance_id(&self) -> &Mutex<Option<String>> {
         &self.inner.client_instance_id
     }
