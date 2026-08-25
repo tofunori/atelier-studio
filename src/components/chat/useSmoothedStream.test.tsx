@@ -107,6 +107,33 @@ describe("paceStep — débit constant adaptatif", () => {
     expect(p.revealed).toBeGreaterThan(0);
   });
 
+  it("cadence Claude réelle (95 chars / 310 ms) : révélation continue, jamais par bloc", () => {
+    // Cadence MESURÉE au WS le 2026-08-25 : 11 deltas de ~95 caractères
+    // toutes les ~310 ms (« la réponse arrive tout d'un coup » — ce test fixe
+    // ce que le moteur doit faire de cette cadence : du continu).
+    const p = newStreamPace(0);
+    const mot = "glace ";
+    let full = "";
+    let t = 0;
+    let plusGrandSaut = 0;
+    let precedent = 0;
+    for (let delta = 0; delta < 11; delta += 1) {
+      full += mot.repeat(16); // ~96 chars
+      paceGrowth(p, full.length, t);
+      const fin = t + 310;
+      while (t < fin) {
+        t += 16; // une frame 60 Hz
+        paceStep(p, full, t);
+        plusGrandSaut = Math.max(plusGrandSaut, p.revealed - precedent);
+        precedent = p.revealed;
+      }
+    }
+    // continue : jamais plus d'une dizaine de caractères par frame (un mot),
+    // et le retard ne s'accumule pas au point d'un flush massif en fin de tour
+    expect(plusGrandSaut).toBeLessThanOrEqual(24);
+    expect(p.revealed).toBeGreaterThan(full.length * 0.7);
+  });
+
   it("frontière de mot : chaque état intermédiaire finit un mot entier", () => {
     const p = newStreamPace(0);
     const full = texte(300);
