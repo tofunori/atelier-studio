@@ -698,20 +698,20 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(within(list).getByText("GLM 5.2")).toBeTruthy();
     expect(within(list).getByText("Claude Fable 5")).toBeTruthy();
     expect(within(list).getByText("MiniMax M3")).toBeTruthy();
-    expect(within(list).getByText("Kimi K3")).toBeTruthy();
+    expect(within(list).getByText("Kimi K3 · For Coding")).toBeTruthy();
     expect(list.textContent).not.toContain("Default model");
     expect(list.textContent).not.toContain("CLI default");
     expect(list.textContent).not.toContain("opencode/");
 
     const search = within(list).getByPlaceholderText(t("settings.model-search"));
     fireEvent.change(search, { target: { value: "kimi k3" } });
-    expect(within(list).getByText("Kimi K3")).toBeTruthy();
+    expect(within(list).getByText("Kimi K3 · For Coding")).toBeTruthy();
     expect(within(list).queryByText("GLM 5.2")).toBeNull();
 
-    fireEvent.click(within(list).getByText("Kimi K3"));
+    fireEvent.click(within(list).getByText("Kimi K3 · For Coding"));
     await waitFor(() => expect(
       (document.querySelector(".model-pick .mp-btn") as HTMLButtonElement).textContent,
-    ).toContain("Kimi K3"));
+    ).toContain("Kimi K3 · For Coding"));
 
     fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
     const reopenedList = document.querySelector(".model-menu .model-list") as HTMLElement;

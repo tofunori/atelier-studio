@@ -25,8 +25,12 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "kimi-code/kimi-for-coding": "K2.7 Coding",
     "kimi-code/kimi-for-coding-highspeed": "K2.7 Coding Highspeed",
   },
+  // Deux passerelles servent le MÊME modèle K3 : sans le suffixe de
+  // passerelle, le picker affiche deux rangées « Kimi K3 » indiscernables
+  // alors que c'est précisément la passerelle qu'on vient y choisir.
   opencode: {
-    "kimi-for-coding/k3": "Kimi K3",
+    "kimi-for-coding/k3": "Kimi K3 · For Coding",
+    "opencode-go/kimi-k3": "Kimi K3 · Go",
   },
 };
 

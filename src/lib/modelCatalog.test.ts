@@ -10,7 +10,7 @@ describe("modelDisplayLabel", () => {
   it("retire les préfixes techniques des modèles OpenCode", () => {
     expect(modelDisplayLabel("opencode", "openrouter/z-ai/glm-5.2")).toBe("GLM 5.2");
     expect(modelDisplayLabel("opencode", "opencode/claude-fable-5")).toBe("Claude Fable 5");
-    expect(modelDisplayLabel("opencode", "kimi-for-coding/k3")).toBe("Kimi K3");
+    expect(modelDisplayLabel("opencode", "kimi-for-coding/k3")).toBe("Kimi K3 · For Coding");
     expect(modelDisplayLabel("opencode", "openrouter/cohere/north-mini-code:free"))
       .toBe("North Mini Code · Free");
   });
@@ -50,5 +50,18 @@ describe("codexSupportsFastMode", () => {
     // modèles d'autres providers : jamais de niveau Fast
     expect(codexSupportsFastMode("claude-opus-5")).toBe(false);
     expect(codexSupportsFastMode("")).toBe(false);
+  });
+});
+
+describe("routes Kimi K3 concurrentes", () => {
+  it("distingue les deux passerelles qui servent le même modèle", () => {
+    const forCoding = modelDisplayLabel("opencode", "kimi-for-coding/k3");
+    const go = modelDisplayLabel("opencode", "opencode-go/kimi-k3");
+    // Sans distinction, le picker affiche deux rangées identiques et le choix
+    // de passerelle — le seul qui compte quand l'une des deux est HS —
+    // devient impossible.
+    expect(forCoding).not.toBe(go);
+    expect(forCoding).toContain("Kimi K3");
+    expect(go).toContain("Kimi K3");
   });
 });

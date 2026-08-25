@@ -933,6 +933,28 @@ mod tests {
         assert!(value.is_none());
     }
 
+    /// Sonde réelle (spawn `opencode models`, ~15-30 s) : le catalogue vivant
+    /// doit remonter, sinon le picker retombe sur le repli en dur.
+    #[tokio::test]
+    #[ignore = "spawn le vrai CLI opencode, lent et dépendant du réseau"]
+    async fn sonde_catalogue_vivant_remonte_les_passerelles() {
+        let Some(provider) = OpenCodeProvider::new() else {
+            return;
+        };
+        let value = provider
+            .dynamic_models()
+            .await
+            .expect("le catalogue vivant doit répondre sous MODEL_CATALOG_TIMEOUT");
+        let models: Vec<&str> = value["models"]
+            .as_array()
+            .expect("models")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(models.len() > 100, "catalogue tronqué: {}", models.len());
+        assert!(models.iter().any(|id| id.starts_with("opencode-go/")));
+    }
+
     #[test]
     fn fallback_models_include_authenticated_kimi_k3_route() {
         let Some(provider) = OpenCodeProvider::new() else {
