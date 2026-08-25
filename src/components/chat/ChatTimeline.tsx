@@ -1071,7 +1071,17 @@ export function ChatTimeline(p: {
               title={margeAll ? t("chat.marge-fold") : t("chat.marge-all", { n: promptCount })}
               onClick={() => setMargeAll((v) => !v)}
             >
-              <span className="tl-marge-all-sign" aria-hidden="true" />
+              {/* Chevron : vers le bas pour dérouler, vers le haut pour replier.
+                  Un trait fin de 1 px, comme les encoches au-dessus — trois
+                  barres pleines étaient le seul objet lourd du rail. */}
+              <svg
+                className="tl-marge-all-sign"
+                width="12" height="8" viewBox="0 0 12 8" fill="none"
+                stroke="currentColor" strokeWidth="1"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+              >
+                <path d="M1.5 2.5 6 6l4.5-3.5" />
+              </svg>
               <span className="tl-mark-label">
                 {margeAll ? t("chat.marge-fold") : t("chat.marge-all", { n: promptCount })}
               </span>

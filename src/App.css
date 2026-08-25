@@ -1330,13 +1330,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tl-marge-all .tl-mark-label { color: var(--text-disabled); font-size: var(--fs-xs); }
 .tl-marge-all:hover { background: var(--bg-ctl); }
 .tl-marge-all-sign {
-  flex: none; width: 12px; height: 1px; background: var(--text-disabled); position: relative;
+  flex: none; color: var(--text-disabled);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
-.tl-marge-all-sign::before, .tl-marge-all-sign::after {
-  content: ""; position: absolute; left: 0; width: 12px; height: 1px; background: var(--text-disabled);
-}
-.tl-marge-all-sign::before { top: -3px; }
-.tl-marge-all-sign::after { top: 3px; }
+.tl-marge-all[aria-pressed="true"] .tl-marge-all-sign { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .tl-marge-all-sign { transition: none; } }
 .tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
 .tl-mark[data-mark="hl"] .tl-mark-label { font-style: italic; }
 .tl-mark[data-here] .tl-mark-label { color: var(--text-primary); }
