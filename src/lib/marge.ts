@@ -11,28 +11,22 @@
 
 export type MargeEntry = {
   index: number;
-  kind: "prompt" | "pin" | "hl" | "chapter";
+  kind: "prompt" | "pin" | "hl";
   label: string;
-  /** chapitre seulement : nombre de questions posées dedans. */
-  count?: number;
 };
 
 type MargeEvent = { kind?: string; text?: string; ts?: number };
 type MargePin = { index: number; label: string };
 type MargeMark = { text: string; kind?: string };
 
-/** Mode d'affichage de la marge. « all » = tout (l'origine) ; « marks » = ne
- * garder que ce qui a été MARQUÉ, les chapitres tenant lieu de repères pour
- * les séances où rien ne l'a été. */
+/** Mode d'affichage. « all » = chaque question (l'origine) ; « marks » = ne
+ * garder que ce qui a été MARQUÉ — sur un fil long, la trame d'encoches ne se
+ * lisait plus. Rien n'est perdu : « tout · N » rend la vue complète. */
 export type MargeMode = "all" | "marks";
 
-type MargeOptions = { now?: number; mode?: MargeMode; gapMs?: number };
+type MargeOptions = { mode?: MargeMode };
 
 const LABEL_MAX = 72;
-/** Une coupure de plus de 20 min sépare deux séances de travail (mesuré sur
- * les fils réels : les pauses réelles dépassent largement ce seuil, les
- * enchaînements d'un même raisonnement restent bien en dessous). */
-const CHAPTER_GAP_MS = 20 * 60_000;
 /** En dessous, la marge tient d'un œil : la plier n'apporterait rien. */
 const FOLD_THRESHOLD = 25;
 
@@ -40,24 +34,6 @@ const FOLD_THRESHOLD = 25;
  * exactement le comportement d'avant (aucun réglage à gérer). */
 export function margeMode(promptCount: number): MargeMode {
   return promptCount > FOLD_THRESHOLD ? "marks" : "all";
-}
-
-/** Nom d'un chapitre : le MOMENT, pas la date complète — un rail se lit d'un
- * œil, « 21 août · 16 h » suffit à situer, « 2026-08-21T16:04 » non. */
-export function chapterLabel(ts: number, now: number): string {
-  const date = new Date(ts);
-  // « 0 h » et « 12 h » se disent minuit et midi — un rail se lit comme on parle.
-  const h = date.getHours();
-  const heure = h === 0 ? "minuit" : h === 12 ? "midi" : `${h} h`;
-  if (now - ts < 45 * 60_000) return "Maintenant";
-  const jour = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const today = new Date(now);
-  const aujourdhui = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  if (jour === aujourdhui) return heure;
-  if (aujourdhui - jour === 86_400_000) return `Hier · ${heure}`;
-  const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
-    "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-  return `${date.getDate()} ${MOIS[date.getMonth()]} · ${heure}`;
 }
 
 /** Première ligne utile, espaces compactés, tronquée — un rail se lit d'un œil. */
@@ -73,8 +49,6 @@ export function deriveMargeEntries(
   options: MargeOptions = {},
 ): MargeEntry[] {
   const mode = options.mode ?? "all";
-  const gapMs = options.gapMs ?? CHAPTER_GAP_MS;
-  const now = options.now ?? Date.now();
   const pinByIndex = new Map(pins.map((pin) => [pin.index, pin]));
   // Un passage surligné se rattache au message qui le porte encore : le mark
   // ne connaît que son texte (localStorage), jamais un index.
@@ -86,37 +60,8 @@ export function deriveMargeEntries(
     if (index < 0) continue;
     marksByIndex.set(index, [...(marksByIndex.get(index) ?? []), mark]);
   }
-  // Chapitres : une séance s'ouvre à la première question, puis à chaque
-  // coupure. Sans horodatage (fil rejoué d'un vieux journal), aucun chapitre
-  // n'est inventé — la marge retombe simplement sur son comportement d'avant.
-  const chapterAt = new Map<number, number>();  // index d'ouverture → ts
-  const chapterCount = new Map<number, number>();
-  let ouverture: number | null = null;
-  let precedent: number | null = null;
-  events.forEach((event, index) => {
-    if (event.kind !== "user" || !(event.text ?? "").trim()) return;
-    const ts = typeof event.ts === "number" ? event.ts : null;
-    if (ts == null) return;
-    if (ouverture == null || (precedent != null && ts - precedent > gapMs)) {
-      ouverture = index;
-      chapterAt.set(index, ts);
-      chapterCount.set(index, 0);
-    }
-    chapterCount.set(ouverture, (chapterCount.get(ouverture) ?? 0) + 1);
-    precedent = ts;
-  });
-
   const out: MargeEntry[] = [];
   events.forEach((event, index) => {
-    const chapterTs = chapterAt.get(index);
-    if (chapterTs != null) {
-      out.push({
-        index,
-        kind: "chapter",
-        label: chapterLabel(chapterTs, now),
-        count: chapterCount.get(index) ?? 0,
-      });
-    }
     const pin = pinByIndex.get(index);
     if (pin) {
       out.push({ index, kind: "pin", label: margeLabel(pin.label) });
@@ -139,7 +84,6 @@ export function sameMargeEntries(a: MargeEntry[], b: MargeEntry[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((entry, i) => (
     entry.index === b[i].index && entry.kind === b[i].kind && entry.label === b[i].label
-    && entry.count === b[i].count
   ));
 }
 

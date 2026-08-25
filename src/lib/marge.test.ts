@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeMargeIndex, chapterLabel, deriveMargeEntries, margeLabel, margeMode, sameMargeEntries } from "./marge";
+import { activeMargeIndex, deriveMargeEntries, margeLabel, margeMode, sameMargeEntries } from "./marge";
 
 const FIL = [
   { kind: "user", text: "Vérifie d'où vient le −0,00975" },
@@ -125,77 +125,40 @@ describe("activeMargeIndex — l'entrée où l'on lit", () => {
   });
 });
 
-// ---- Chapitres + marques (plan « marge pliée », 2026-08-25) ----
-// Un fil de travail réel atteint 50+ prompts : la marge devenait une trame
-// pointillée illisible. Deux plis, choisis ensemble (option A+B) : le temps
-// découpe des chapitres, et seules les entrées MARQUÉES restent visibles
-// dedans — sans jamais rien perdre (mode « tout » à un clic).
+// ---- Marge pliée aux MARQUES (2026-08-25) ----
+// Un fil de travail réel atteint 50 à 200 questions : la trame d'encoches ne
+// se lisait plus. Au-delà d'un seuil, seules les entrées MARQUÉES restent —
+// rien n'est perdu, la vue complète est à un clic.
 
 const MIN = 60_000;
-const H = 60 * MIN;
-// jeudi 25 août 2026, 15 h 00 local
 const MAINTENANT = new Date(2026, 7, 25, 15, 0, 0).getTime();
 
-/** Fil : 3 séances séparées par de longues pauses. */
-function filDatee() {
-  const t0 = MAINTENANT - 26 * H;   // la veille, 13 h
-  const t1 = MAINTENANT - 5 * H;    // le matin même, 10 h
-  const t2 = MAINTENANT - 8 * MIN;  // à l'instant
+function filLong() {
   return [
-    { kind: "user", text: "première question", ts: t0 },
-    { kind: "text", text: "réponse", ts: t0 + MIN },
-    { kind: "user", text: "deuxième question", ts: t0 + 4 * MIN },
-    { kind: "user", text: "après une longue pause", ts: t1 },
-    { kind: "user", text: "encore ce matin", ts: t1 + 9 * MIN },
-    { kind: "user", text: "tout dernier prompt", ts: t2 },
+    { kind: "user", text: "première question", ts: MAINTENANT - 300 * MIN },
+    { kind: "text", text: "réponse", ts: MAINTENANT - 299 * MIN },
+    { kind: "user", text: "deuxième question", ts: MAINTENANT - 200 * MIN },
+    { kind: "user", text: "encore ce matin", ts: MAINTENANT - 100 * MIN },
+    { kind: "user", text: "tout dernier prompt", ts: MAINTENANT - 8 * MIN },
   ];
 }
 
-describe("chapitres par pause", () => {
-  it("une pause de plus de 20 min ouvre un chapitre, compté", () => {
-    const entries = deriveMargeEntries(filDatee(), [], [], { now: MAINTENANT, mode: "all" });
-    const chapitres = entries.filter((e) => e.kind === "chapter");
-    expect(chapitres).toHaveLength(3);
-    expect(chapitres.map((c) => c.count)).toEqual([2, 2, 1]);
-    // le chapitre précède les prompts qu'il ouvre
-    expect(entries[0].kind).toBe("chapter");
-    expect(entries[1]).toMatchObject({ kind: "prompt", label: "première question" });
+describe("mode « marques »", () => {
+  it("ne garde que ce qui a été marqué ; les questions nues disparaissent", () => {
+    const pins = [{ index: 3, label: "encore ce matin" }];
+    const entries = deriveMargeEntries(filLong(), pins, [], { mode: "marks" });
+    expect(entries).toEqual([{ index: 3, kind: "pin", label: "encore ce matin" }]);
   });
 
-  it("mode « marques » : les prompts nus disparaissent, épingles et chapitres restent", () => {
-    const pins = [{ index: 4, label: "encore ce matin" }];
-    const entries = deriveMargeEntries(filDatee(), pins, [], { now: MAINTENANT, mode: "marks" });
-    expect(entries.filter((e) => e.kind === "prompt")).toHaveLength(0);
-    expect(entries.filter((e) => e.kind === "pin")).toHaveLength(1);
-    // les trois chapitres restent : sans eux, une séance non marquée serait invisible
-    expect(entries.filter((e) => e.kind === "chapter")).toHaveLength(3);
+  it("les passages surlignés comptent comme des marques", () => {
+    const marks = [{ text: "réponse" }];
+    const entries = deriveMargeEntries(filLong(), [], marks, { mode: "marks" });
+    expect(entries.map((e) => e.kind)).toEqual(["hl"]);
   });
 
-  it("sans horodatage, aucun chapitre inventé", () => {
-    const entries = deriveMargeEntries(FIL, [], [], { now: MAINTENANT, mode: "all" });
-    expect(entries.every((e) => e.kind !== "chapter")).toBe(true);
-  });
-
-  it("un fil court reste tel quel : le pli ne sert à rien sous le seuil", () => {
-    const court = [
-      { kind: "user", text: "une question", ts: MAINTENANT - 3 * MIN },
-      { kind: "user", text: "une autre", ts: MAINTENANT - 2 * MIN },
-    ];
-    const entries = deriveMargeEntries(court, [], [], { now: MAINTENANT, mode: "all" });
-    expect(entries.filter((e) => e.kind === "chapter")).toHaveLength(1);
-    expect(entries.filter((e) => e.kind === "prompt")).toHaveLength(2);
-  });
-});
-
-describe("chapterLabel", () => {
-  it("nomme le moment, pas la date complète", () => {
-    expect(chapterLabel(MAINTENANT - 10 * MIN, MAINTENANT)).toBe("Maintenant");
-    expect(chapterLabel(new Date(2026, 7, 25, 9, 30).getTime(), MAINTENANT)).toBe("9 h");
-    expect(chapterLabel(new Date(2026, 7, 24, 14, 5).getTime(), MAINTENANT)).toBe("Hier · 14 h");
-    expect(chapterLabel(new Date(2026, 7, 21, 16, 0).getTime(), MAINTENANT)).toBe("21 août · 16 h");
-    // minuit et midi se disent, ils ne se comptent pas
-    expect(chapterLabel(new Date(2026, 7, 24, 0, 20).getTime(), MAINTENANT)).toBe("Hier · minuit");
-    expect(chapterLabel(new Date(2026, 7, 25, 12, 10).getTime(), MAINTENANT)).toBe("midi");
+  it("« all » reste le comportement d'origine, question par question", () => {
+    const entries = deriveMargeEntries(filLong(), [], [], { mode: "all" });
+    expect(entries.filter((e) => e.kind === "prompt")).toHaveLength(4);
   });
 });
 

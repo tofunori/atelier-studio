@@ -1059,9 +1059,6 @@ export function ChatTimeline(p: {
             >
               <span className="tl-mark-sign" aria-hidden="true" />
               <span className="tl-mark-label">{entry.label}</span>
-              {entry.kind === "chapter" && entry.count != null && (
-                <span className="tl-mark-count">{entry.count}</span>
-              )}
             </RowButton>
             </span>
           ))}
