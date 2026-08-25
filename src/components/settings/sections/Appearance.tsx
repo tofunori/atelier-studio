@@ -180,7 +180,7 @@ export default function Appearance(p: SectionProps) {
           <span className="set-val">{s.chatFontSize}px</span>
         </Row>
         <Row title={t("settings.reading-width")}>
-          <SettingSlider min={560} max={1100} step={20} value={s.chatWidth} onChange={(v) => save({ chatWidth: v })} />
+          <SettingSlider min={560} max={1600} step={20} value={s.chatWidth} onChange={(v) => save({ chatWidth: v })} />
           <span className="set-val">{s.chatWidth}px</span>
         </Row>
         <Row title={t("settings.interline")}>
