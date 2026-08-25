@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "./ws";
 import {
   collerPensee,
+  motCoupeEntre,
   eventIdentity,
   threadIsSettled,
   materializeHarnessHistory,
