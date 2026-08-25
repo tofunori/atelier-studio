@@ -29,7 +29,7 @@ import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
-import { activeMargeIndex, deriveMargeEntries, sameMargeEntries, type MargeEntry } from "../../lib/marge";
+import { activeMargeIndex, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import { initialJumpState, nextJumpAction } from "../../lib/margeJump";
 import { Input } from "../shadcn/input";
@@ -279,12 +279,21 @@ export function ChatTimeline(p: {
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
   const margeRef = React.useRef<MargeEntry[]>([]);
+  // Pli de la marge (plan « marge pliée », 2026-08-25) : au-delà d'un fil de
+  // travail long, la trame d'encoches devient illisible. Le mode se choisit
+  // tout seul (aucun réglage) et un clic sur ☰ rend la vue complète.
+  const promptCount = useMemo(
+    () => events.filter((e) => e.kind === "user" && (e.text ?? "").trim()).length,
+    [events],
+  );
+  const [margeAll, setMargeAll] = React.useState(false);
+  const mode = margeAll ? "all" : margeMode(promptCount);
   const margeEntries = useMemo(() => {
-    const next = deriveMargeEntries(events, pins, marks);
+    const next = deriveMargeEntries(events, pins, marks, { mode });
     if (sameMargeEntries(margeRef.current, next)) return margeRef.current;
     margeRef.current = next;
     return next;
-  }, [events, pins, marks]);
+  }, [events, pins, marks, mode]);
   // « Où j'en suis » : mesuré au défilement, jamais maintenu à la main. Cadencé
   // par rAF comme le reste du composant, et seules les rangées RÉELLEMENT
   // rendues sont mesurables (liste virtualisée).
@@ -1050,9 +1059,27 @@ export function ChatTimeline(p: {
             >
               <span className="tl-mark-sign" aria-hidden="true" />
               <span className="tl-mark-label">{entry.label}</span>
+              {entry.kind === "chapter" && entry.count != null && (
+                <span className="tl-mark-count">{entry.count}</span>
+              )}
             </RowButton>
             </span>
           ))}
+          {/* Le pli ne cache jamais rien pour de bon : la vue complète est à
+              un clic, et le compte dit ce qui dort derrière. */}
+          {margeMode(promptCount) === "marks" && (
+            <RowButton
+              className="tl-marge-all"
+              aria-pressed={margeAll}
+              title={margeAll ? t("chat.marge-fold") : t("chat.marge-all", { n: promptCount })}
+              onClick={() => setMargeAll((v) => !v)}
+            >
+              <span className="tl-marge-all-sign" aria-hidden="true" />
+              <span className="tl-mark-label">
+                {margeAll ? t("chat.marge-fold") : t("chat.marge-all", { n: promptCount })}
+              </span>
+            </RowButton>
+          )}
         </div>
       )}
       {pinMenu && (

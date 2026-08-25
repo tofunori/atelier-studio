@@ -356,17 +356,44 @@ function liveEventsAt(elapsedMs: number): AgentEvent[] {
 
 // Transcript long : vérifier en vrai navigateur que la liste virtualise
 // (pendant du test jsdom « virtualise un long transcript »).
-const LONG_TRANSCRIPT: AgentEvent[] = Array.from({ length: 400 }, (_, i) => (
-  i % 2 === 0
-    ? { kind: "user", text: `Question ${i}`, ts: ts(400 - i) } as AgentEvent
-    : { kind: "text", text: `Réponse ${i} — un paragraphe de longueur raisonnable pour donner une hauteur réaliste à la ligne.`, ts: ts(400 - i) } as AgentEvent
-));
+// Fil long RÉALISTE : 200 questions réparties sur plusieurs séances, avec de
+// vraies pauses entre elles (2 s d'écart partout ne produisait qu'un chapitre
+// et ne disait rien du pli de la marge — plan « marge pliée », 2026-08-25).
+const LONG_TRANSCRIPT: AgentEvent[] = (() => {
+  const out: AgentEvent[] = [];
+  const SEANCES = [26, 21, 9, 5, 2, 0.4];   // heures avant maintenant
+  let n = 0;
+  SEANCES.forEach((heures, s) => {
+    const depart = ts(heures * 3600);
+    const combien = [40, 30, 46, 28, 42, 14][s];
+    for (let i = 0; i < combien; i++) {
+      const quand = depart + i * 95_000;    // ~1,6 min entre deux questions
+      out.push({ kind: "user", text: `Question ${n}`, ts: quand } as AgentEvent);
+      out.push({
+        kind: "text",
+        text: `Réponse ${n} — un paragraphe de longueur raisonnable pour donner une hauteur réaliste à la ligne.`,
+        ts: quand + 20_000,
+      } as AgentEvent);
+      n += 1;
+    }
+  });
+  return out;
+})();
+
+/** Épingles du fil long : le pli doit montrer les marques EN RELIEF. */
+const LONG_PINS = [
+  { index: 34, label: "structure conforme B2 ?", anchor: "Question 17" },
+  { index: 96, label: "science ouverte + ODD", anchor: "Question 48" },
+  { index: 210, label: "reference isabelle", anchor: "Question 105" },
+  { index: 288, label: "4 pages, compile propre", anchor: "Question 144" },
+];
 
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
   attachments: typeof CONTEXTS_ATTACHMENTS;
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
+  pins?: { index: number; label: string; anchor: string }[];
   queuedTurns?: QueuedTurn[];
   draftText?: string;
 };
@@ -374,7 +401,7 @@ type BenchState = {
 const STATES: Record<string, BenchState> = {
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
   livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
-  long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null },
+  long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null, pins: LONG_PINS },
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
@@ -470,7 +497,7 @@ export function ChatBench() {
         providers={PROVIDERS}
         // une épingle figée : le banc doit montrer les DEUX intensités de la
         // marge (repère de prompt éteint, épingle accentuée et nommée)
-        pins={BENCH_PINS} onStylePin={noop} onTogglePin={noop}
+        pins={activeState.pins ?? BENCH_PINS} onStylePin={noop} onTogglePin={noop}
         disabled={false}
         onSubmit={interactiveFirstMessage ? (prompt) => {
           setFirstMessageEvents([{ kind: "user", text: prompt, ts: Date.now() } as AgentEvent]);

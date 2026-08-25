@@ -1321,6 +1321,38 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   flex: 1 1 auto; width: auto;
 }
 .tl-marge:hover .tl-mark-label, .tl-marge:focus-within .tl-mark-label { opacity: 1; }
+/* Chapitre (plan « marge pliée ») : trait 2px, libellé en capitales fines et
+   compte à droite — un séparateur daté, jamais une entrée de plus. */
+.tl-mark[data-mark="chapter"] .tl-mark-sign {
+  height: 2px; background: var(--text-muted); opacity: .9;
+}
+.tl-mark[data-mark="chapter"] .tl-mark-label {
+  font-size: var(--fs-xs); font-weight: 500; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.tl-mark-count {
+  flex: 0 0 0; width: 0; overflow: hidden; opacity: 0;
+  font-size: var(--fs-xs); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.tl-marge:hover .tl-mark-count, .tl-marge:focus-within .tl-mark-count { flex: none; width: auto; opacity: 1; }
+/* Bascule « tout » : même géométrie qu'une encoche, trois traits pour l'icône. */
+.tl-marge-all {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin-top: 8px; padding: 2px 4px; border-radius: var(--r-s);
+  background: transparent; border: 0; cursor: pointer;
+}
+.tl-marge-all .tl-mark-label { color: var(--text-disabled); font-size: var(--fs-xs); }
+.tl-marge-all:hover { background: var(--bg-ctl); }
+.tl-marge-all-sign {
+  flex: none; width: 12px; height: 1px; background: var(--text-disabled); position: relative;
+}
+.tl-marge-all-sign::before, .tl-marge-all-sign::after {
+  content: ""; position: absolute; left: 0; width: 12px; height: 1px; background: var(--text-disabled);
+}
+.tl-marge-all-sign::before { top: -3px; }
+.tl-marge-all-sign::after { top: 3px; }
 .tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
 .tl-mark[data-mark="hl"] .tl-mark-label { font-style: italic; }
 .tl-mark[data-here] .tl-mark-label { color: var(--text-primary); }
