@@ -63,6 +63,38 @@ function normalizeEditEvent(ev: AgentEvent): AgentEvent {
   return { ...ev, files } as AgentEvent;
 }
 
+/** Deux tranches se touchent-elles EN PLEIN MOT ? Un blanc d'un côté ou une
+ * ponctuation à la jointure signe deux blocs distincts (même lecture de la
+ * jointure que `collerPensee`, côté raisonnement). */
+export function motCoupeEntre(avant: string, apres: string): boolean {
+  if (!avant || !apres) return false;
+  const debut = apres[0];
+  if (!/[\p{L}\p{N}]/u.test(debut)) return false;
+  const fragment = /[\p{L}\p{N}]+$/u.exec(avant)?.[0];
+  if (!fragment) return false;
+  // suite en minuscule ou en chiffre : « cou » + « pé » — un mot, sans doute
+  if (!/\p{Lu}/u.test(debut)) return true;
+  // suite en MAJUSCULE : ce n'est un mot coupé que si le fragment d'avant est
+  // lui aussi tout en majuscules (« À VÉ » + « RIFIER »). Sinon c'est une
+  // nouvelle phrase collée à un bloc qui finissait sans ponctuation.
+  return /^[\p{Lu}\p{N}]+$/u.test(fragment);
+}
+
+/** Bulle de texte du même tour à recoller à `ev`, ou -1. On remonte au-dessus
+ * des events intercalés (outils, raisonnement) mais jamais au-delà du tour
+ * courant, ni au-dessus d'une autre bulle en cours de frappe. */
+function findTextToJoinIdx(list: AgentEvent[], pose: number, ev: AgentEvent): number {
+  const m = harnessMeta(ev);
+  for (let k = pose - 1; k >= 0; k -= 1) {
+    const it = list[k];
+    if (it.kind === "user" || it.kind === "done" || it.kind === "error" || it.kind === "streaming") return -1;
+    if (it.kind !== "text") continue;
+    if (m && turnOf(it) !== m.turnId) return -1;
+    return motCoupeEntre(it.text, ev.kind === "text" ? ev.text : "") ? k : -1;
+  }
+  return -1;
+}
+
 /** Indice de LA bulle streaming à laquelle `ev` peut se rattacher.
  * Avec meta : bulle du même turn seulement (une bulle d'un autre turn est
  * invisible — on en créera une nouvelle). Sans meta : dernière bulle du fil,
@@ -235,8 +267,21 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // le bloc final remplace SA bulle streaming, même si des events outils se
     // sont intercalés depuis les derniers deltas
     const sIdx = findStreamingIdx(next, ev);
+    const pose = sIdx >= 0 ? sIdx : next.length;
     if (sIdx >= 0) next[sIdx] = { ...ev, ts: stamp(ev) };
     else next.push({ ...ev, ts: stamp(ev) });
+    // Recollage d'un MOT coupé : les providers découpent le message assistant
+    // en blocs de contenu (une recherche web insérée au milieu d'une phrase
+    // coupe le texte à la citation, pas à la ponctuation). Deux bulles, deux
+    // horloges, et « À VÉ » / « RIFIER » de part et d'autre de la carte
+    // (capture Thierry 2026-08-25). Seule la coupe EN PLEIN MOT est recollée —
+    // deux vrais blocs (fin de phrase, blanc conservé) restent distincts.
+    const prev = findTextToJoinIdx(next, pose, ev);
+    if (prev >= 0) {
+      const bulle = next[prev] as Extract<AgentEvent, { kind: "text" }>;
+      next[prev] = { ...bulle, text: bulle.text + ev.text, meta: ev.meta ?? bulle.meta };
+      next.splice(pose, 1);
+    }
     return next;
   }
 

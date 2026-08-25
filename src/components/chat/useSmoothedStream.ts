@@ -29,6 +29,12 @@ export interface StreamPace {
 const PACE_CATCHUP_MS = 600;
 /** Plancher (chars/s) : la révélation ne gèle jamais. */
 const PACE_FLOOR_CPS = 90;
+/** Plafond (chars/s) : ~15 caractères par image à 60 Hz. Sans lui, un gros
+ * retard (bloc de pensée livré d'un coup) faisait sortir 40-60 caractères en
+ * une seule image — une phrase entière qui apparaît d'un bloc, sèche. Le
+ * plafond transforme la rafale en déroulé ; la fin de tour flushe de toute
+ * façon, donc rien ne se perd. */
+const PACE_MAX_CPS = 900;
 /** Constante de temps de l'EMA du débit d'arrivée (ms). */
 const PACE_RATE_TAU_MS = 2000;
 /** Deux deltas à moins de 50 ms = même rafale : mesurés ensemble au suivant. */
@@ -70,7 +76,10 @@ export function paceStep(p: StreamPace, full: string, now: number): boolean {
     return false;
   }
   const backlog = total - p.revealed;
-  const cps = Math.max(p.rate, (backlog * 1000) / PACE_CATCHUP_MS, PACE_FLOOR_CPS);
+  const cps = Math.min(
+    Math.max(p.rate, (backlog * 1000) / PACE_CATCHUP_MS, PACE_FLOOR_CPS),
+    PACE_MAX_CPS,
+  );
   p.fractional += (cps * dt) / 1000;
   const step = Math.floor(p.fractional);
   if (step <= 0) return false;

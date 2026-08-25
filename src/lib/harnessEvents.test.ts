@@ -572,3 +572,53 @@ describe("threadIsSettled", () => {
     expect(threadIsSettled([])).toBe(false);
   });
 });
+
+describe("recollage d'un mot coupé entre deux blocs de texte", () => {
+  it("recolle la phrase coupée en plein mot par une carte de recherche web", () => {
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "text", text: "…forme officielle de « Centre RIVE » à l'UQTR (entrée 3, À VÉ" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "tool", id: "t1", name: "WebSearch" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "RIFIER). Je vérifie d'abord." } as AgentEvent);
+    const textes = list.filter((e) => e.kind === "text").map((e) => (e as any).text);
+    expect(textes).toEqual(["…forme officielle de « Centre RIVE » à l'UQTR (entrée 3, À VÉRIFIER). Je vérifie d'abord."]);
+    expect(list.some((e) => e.kind === "tool")).toBe(true);
+  });
+
+  it("deux vrais blocs (phrase terminée) restent deux bulles", () => {
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "text", text: "Je vérifie d'abord." } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "tool", id: "t1", name: "WebSearch" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "Voilà le résultat." } as AgentEvent);
+    expect(list.filter((e) => e.kind === "text")).toHaveLength(2);
+  });
+
+  it("ne recolle jamais par-dessus un tour précédent", () => {
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "text", text: "fin du tour préc" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "done" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "user", text: "suite" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "edent, sans rapport" } as AgentEvent);
+    expect(list.filter((e) => e.kind === "text")).toHaveLength(2);
+  });
+
+  it("le bloc final qui remplace sa bulle streaming se recolle aussi", () => {
+    let list: AgentEvent[] = [];
+    list = reduceHarnessEvent(list, { kind: "text", text: "un mot cou" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "tool", id: "t1", name: "WebSearch" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "delta", text: "pé en" } as AgentEvent);
+    list = reduceHarnessEvent(list, { kind: "text", text: "pé en deux." } as AgentEvent);
+    const textes = list.filter((e) => e.kind === "text").map((e) => (e as any).text);
+    expect(textes).toEqual(["un mot coupé en deux."]);
+    expect(list.some((e) => e.kind === "streaming")).toBe(false);
+  });
+});
+
+describe("motCoupeEntre — lecture de la jointure", () => {
+  it("minuscule qui suit = mot coupé", () => expect(motCoupeEntre("un mot cou", "pé en deux")).toBe(true));
+  it("majuscules des deux côtés = mot coupé", () => expect(motCoupeEntre("À VÉ", "RIFIER)")).toBe(true));
+  it("phrase suivante en majuscule = deux blocs", () => expect(motCoupeEntre("Vieille réponse", "Autre réponse")).toBe(false));
+  it("ponctuation ou blanc à la jointure = deux blocs", () => {
+    expect(motCoupeEntre("Terminé.", "Ensuite")).toBe(false);
+    expect(motCoupeEntre("Terminé ", "ensuite")).toBe(false);
+  });
+});
