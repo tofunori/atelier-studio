@@ -2381,7 +2381,18 @@ export default function App() {
         // on lit l'état courant via la ref pour décider, puis on commit les deux.
         const existing = atelierTabsRef.current.find((t) => t.url === abs);
         if (existing) {
+          // Fichier DÉJÀ ouvert : setActiveTab ne suffit pas. Revenir à la
+          // galerie par le rail (switchToSurface) ne touche pas `activeTab` —
+          // l'app croit encore être sur ce document pendant que la galerie est
+          // à l'écran. Re-poser la même valeur est alors un no-op React :
+          // l'effet de réconciliation ne rejoue pas et RIEN ne se passe
+          // (vécu 2026-08-24). On demande donc l'activation au workspace par
+          // le même canal que la barre d'onglets, qui agit à id inchangé.
           setActiveTab(existing.id);
+          setLayout((l) => (l === "chat" ? "split" : l));
+          window.dispatchEvent(new CustomEvent("workspace-select-tab", {
+            detail: { id: `document:${existing.id}` },   // identifiant WORKSPACE, pas l'id brut
+          }));
         } else {
           const id = crypto.randomUUID();
           setAtelierTabs((tabs) => [...tabs, {

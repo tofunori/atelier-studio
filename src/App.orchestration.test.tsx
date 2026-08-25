@@ -640,6 +640,63 @@ describe("orchestration App — caractérisation", () => {
     window.removeEventListener("switch-surface", onSwitch);
   });
 
+  it("re-cliquer dans la galerie un fichier DÉJÀ ouvert ramène son onglet", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+    fireEvent.load(iframe!);
+    await act(async () => { await flushMicrotasks(2); });
+
+    const url = "http://127.0.0.1:18790/.fig_thumbs/latex_studio.html?path=%2Fp%2Fmethods.tex&v=1";
+    // le nonce d'atelier voyage dans le fragment de l'iframe galerie
+    const nonce = /atelier_nonce=([\w-]+)/.exec(iframe!.getAttribute("src") ?? "")?.[1] ?? "";
+    expect(nonce).not.toBe("");
+    const ouvrir = async () => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", {
+          data: { type: "atelier-open-tab", nonce, url, title: "methods.tex" },
+          origin: "http://127.0.0.1:18790",
+          source: iframe!.contentWindow,
+        }));
+        await flushMicrotasks(4);
+      });
+    };
+    // La couche affichée est le seul signal qui compte : « le fichier est à
+    // l'écran ». Les onglets, eux, vivent dans la barre du haut.
+    const coucheDoc = () => {
+      // withAtelierNonce ajoute un fragment : match par PRÉFIXE, pas exact
+      const frame = document.querySelector<HTMLIFrameElement>(
+        'iframe[src^="http://127.0.0.1:18790/.fig_thumbs/latex_studio.html"]');
+      return frame?.closest<HTMLElement>(".workspace-content-layer") ?? null;
+    };
+    const coucheGalerie = () => document
+      .querySelector<HTMLElement>('[data-workspace-content="surface:atelier"]');
+    const visible = (el: HTMLElement | null) => el?.style.display === "block";
+
+    await ouvrir();
+    expect(coucheDoc()).toBeTruthy();
+    expect(visible(coucheDoc())).toBe(true);
+
+    // Retour à la galerie par le RAIL (switchToSurface) — le chemin réel de
+    // Thierry. Il ne touche PAS à activeTab côté App : l'app croit encore être
+    // sur le document alors que la galerie est à l'écran.
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
+      await flushMicrotasks(3);
+    });
+    expect(visible(coucheGalerie())).toBe(true);
+    expect(visible(coucheDoc())).toBe(false);
+
+    // re-clic sur le MÊME fichier depuis la galerie : son onglet doit revenir
+    // au premier plan (vécu 2026-08-24 : rien ne se passait).
+    await ouvrir();
+    expect(visible(coucheDoc())).toBe(true);
+    // …et jamais de doublon d'onglet
+    expect(document.querySelectorAll(
+      'iframe[src^="http://127.0.0.1:18790/.fig_thumbs/latex_studio.html"]')).toHaveLength(1);
+  });
+
   it("ouvre les liens PNG/PDF dans la Galerie et les SVG dans leur éditeur", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
