@@ -479,6 +479,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 "openrouter/minimax/minimax-m3".into(),
                 "openrouter/tencent/hy3:free".into(),
                 "openrouter/qwen/qwen3-coder".into(),
+                "opencode-go/kimi-k3".into(),
                 "kimi-for-coding/k3".into(),
                 "openrouter/moonshotai/kimi-k3".into(),
                 "openrouter/moonshotai/kimi-k2.7-code".into(),
@@ -488,7 +489,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
             routes: Value::Array(Default::default()),
-            default_model: "kimi-for-coding/k3".into(),
+            default_model: "opencode-go/kimi-k3".into(),
             efforts: vec![
                 "minimal".into(),
                 "low".into(),
@@ -596,6 +597,7 @@ mod tests {
             .find(|p| p.id == "opencode")
             .expect("opencode présent");
         assert!(opencode.models.iter().any(|id| id == "kimi-for-coding/k3"));
-        assert_eq!(opencode.default_model, "kimi-for-coding/k3");
+        assert!(opencode.models.iter().any(|id| id == "opencode-go/kimi-k3"));
+        assert_eq!(opencode.default_model, "opencode-go/kimi-k3");
     }
 }

@@ -34,7 +34,13 @@ struct CachedModelCatalog {
 }
 
 const MODEL_CATALOG_TTL: Duration = Duration::from_secs(5 * 60);
-const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(12);
+// `opencode models` interroge le catalogue distant (models.dev) avant de
+// répondre : mesuré 13,8 s à chaud et jusqu'à 30,6 s à froid sur le Mac de
+// Thierry (2026-08-25). Sous 45 s, le timeout expirait à chaque appel,
+// `dynamic_models` renvoyait None et le picker retombait sur la poignée de
+// routes en dur ci-dessous — d'où l'impossibilité de choisir une passerelle
+// (`opencode-go/…`) pourtant authentifiée.
+const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_CATALOG_MODELS: usize = 5_000;
 
 /// Itère les lignes valides d'une sortie `opencode models` : non vides, avec
@@ -512,12 +518,16 @@ impl Provider for OpenCodeProvider {
         vec![
             "openrouter/z-ai/glm-5.2".into(),
             "openrouter/minimax/minimax-m3".into(),
+            "opencode-go/kimi-k3".into(),
             "kimi-for-coding/k3".into(),
             "openrouter/openrouter/auto".into(),
         ]
     }
+    /// Repli quand le catalogue vivant n'a pas (encore) répondu : la
+    /// passerelle `opencode-go` est celle qui a du crédit, alors que
+    /// `kimi-for-coding` renvoie 500 sur toutes ses routes (2026-08-25).
     fn default_model(&self) -> String {
-        "kimi-for-coding/k3".into()
+        "opencode-go/kimi-k3".into()
     }
     fn efforts(&self) -> Vec<String> {
         vec![
@@ -928,11 +938,11 @@ mod tests {
         let Some(provider) = OpenCodeProvider::new() else {
             return;
         };
-        assert!(provider
-            .models()
-            .iter()
-            .any(|id| id == "kimi-for-coding/k3"));
-        assert_eq!(provider.default_model(), "kimi-for-coding/k3");
+        let models = provider.models();
+        assert!(models.iter().any(|id| id == "opencode-go/kimi-k3"));
+        assert!(models.iter().any(|id| id == "kimi-for-coding/k3"));
+        // Le défaut vise la passerelle qui répond, pas celle qui est HS.
+        assert_eq!(provider.default_model(), "opencode-go/kimi-k3");
     }
     use crate::traits::SendMode;
 
