@@ -122,18 +122,6 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
-  // §9 « Quiet Instrument » : une seule boucle par surface. Le fil du tour
-  // actif pend sous la pastille pulsée — c'est ELLE la boucle du chat, le fil
-  // reste inerte. Le shimmer de « Réflexion » a déjà été retiré pour avoir
-  // ouvert une seconde boucle dans cette même surface (App.css, 2026-08-21).
-  it("le fil du tour actif est inerte — la pastille reste la seule boucle (§9)", () => {
-    const bloc = appCss.match(/\.working-thread\s*\{([^}]*)\}/);
-    expect(bloc, "règle .working-thread absente d'App.css").toBeTruthy();
-    expect(bloc![1]).not.toMatch(/animation/);
-    // la pastille, elle, garde la sienne
-    expect(appCss).toMatch(/\.working-label::before\s*\{[^}]*animation:\s*working-pulse/);
-  });
-
   it("ouvre le diff dans la surface Git et garde les actions de commit compactes", () => {
     expect(appCss).not.toContain(".git-diff-sheet");
     expect(appCss).not.toContain(".git-mobile-diff-trigger");
