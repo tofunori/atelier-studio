@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 
 import Chat from "../Chat";
-import { LiveThinking, ThinkingBlock, ThinkingShimmer } from "./turnParts";
+import { LiveThinking, ThinkingBlock, ThinkingShimmer, Working } from "./turnParts";
 import { renderUi, resetTestState } from "../../test/render";
 import { events, FIXED_TS } from "../../test/fixtures";
 import { setLanguage, t } from "../../lib/i18n";
@@ -222,6 +222,16 @@ describe("anatomie du tour — header d'activité", () => {
       cleanup();
       vi.useRealTimers();
     }
+  });
+
+  // Fil du tour actif (2026-08-25) : le séparateur horizontal devient un
+  // segment VERTICAL qui descend de la pastille — le tour se lit comme un fil
+  // qui continue, pas comme un bloc refermé par un trait.
+  it("le tour actif pend un fil vertical sous la pastille, plus un trait horizontal", () => {
+    renderUi(<Working since={FIXED_TS} />);
+    expect(document.querySelector(".working-thread")).toBeTruthy();
+    expect(document.querySelector(".working-divider")).toBeNull();
+    cleanup();
   });
 
   it("chronomètre le silence d'une pensée muette — seulement après un premier progrès", () => {
