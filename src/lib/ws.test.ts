@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { connectSidecar } from "./ws";
+import { connectSidecar, sendPrompt } from "./ws";
 import { getSidecarInfo, resetSidecarInfo } from "./sidecarInfo";
 import { FakeWS, flushMicrotasks } from "../test/fixtures/sidecar";
 
@@ -107,5 +107,42 @@ describe("connectSidecar", () => {
     expect(FakeWS.instances[0].closed).toBe(true);
     await vi.advanceTimersByTimeAsync(20000);
     expect(FakeWS.instances).toHaveLength(1);
+  });
+});
+
+// Envoi sur socket non ouverte (2026-08-25). `ws.send()` lève InvalidStateError
+// tant que la socket est en CONNECTING : le prompt ne partait jamais, le
+// serveur n'en entendait jamais parler, et le spinner — allumé AVANT l'envoi —
+// tournait dans le vide. Symptôme vécu : « je commence un chat, ça fait rien ;
+// je recommence, ça marche », quel que soit le provider.
+describe("sendPrompt", () => {
+  const base = {
+    threadId: "t1", projectRoot: "/p", provider: "grok", prompt: "allo",
+  };
+  const fausseSocket = (readyState: number) => {
+    const envoyes: string[] = [];
+    const socket = {
+      readyState,
+      send(data: string) {
+        if (readyState !== 1) throw new DOMException("still in CONNECTING state", "InvalidStateError");
+        envoyes.push(data);
+      },
+    } as unknown as WebSocket;
+    return { socket, envoyes };
+  };
+
+  it("refuse d'envoyer tant que la socket n'est pas ouverte", () => {
+    for (const readyState of [0, 2, 3]) {
+      const { socket, envoyes } = fausseSocket(readyState);
+      expect(sendPrompt(socket, base), `readyState=${readyState}`).toBe(false);
+      expect(envoyes).toHaveLength(0);
+    }
+  });
+
+  it("envoie et le confirme sur une socket ouverte", () => {
+    const { socket, envoyes } = fausseSocket(1);
+    expect(sendPrompt(socket, base)).toBe(true);
+    expect(envoyes).toHaveLength(1);
+    expect(JSON.parse(envoyes[0])).toMatchObject({ type: "send", threadId: "t1", prompt: "allo" });
   });
 });

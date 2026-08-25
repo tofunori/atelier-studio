@@ -8,7 +8,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
-import { isStoppedTerminal } from "../../lib/chat/turnViewModel";
+import { isStoppedTerminal, timelineRowKey } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
@@ -242,8 +242,7 @@ export function ChatTimeline(p: {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
     for (const item of renderedEvents) {
-      const key = item.type === "event" ? `event-${item.index}` : item.type === "fold" ? item.fold.key : item.key;
-      rows.push({ type: "rendered", key, item });
+      rows.push({ type: "rendered", key: timelineRowKey(item), item });
     }
     if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });

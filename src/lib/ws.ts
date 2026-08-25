@@ -386,8 +386,18 @@ export type SendOptions = {
   handoffFromThreadId?: string;
 };
 
-export function sendPrompt(ws: WebSocket, t: SendOptions) {
+/** Envoie un prompt. Retourne `false` si la socket n'est pas ouverte.
+ *
+ * `ws.send()` LÈVE (InvalidStateError) tant que la socket est en CONNECTING.
+ * Les appelants allument leur spinner AVANT d'envoyer : sans ce retour, une
+ * exception laissait le compteur tourner sur un message jamais parti, le
+ * serveur n'ayant rien reçu. C'est le « je commence un chat, ça fait rien ;
+ * je recommence, ça marche » — indépendant du provider, parce que le début
+ * d'un chat est justement le moment où la socket se (re)connecte. */
+export function sendPrompt(ws: WebSocket, t: SendOptions): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify({ type: "send", ...t }));
+  return true;
 }
 
 export function requestCatalog(ws: WebSocket, projectRoot: string, provider?: string | null) {

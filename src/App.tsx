@@ -3262,6 +3262,18 @@ export default function App() {
       }, 800);
       return;
     }
+    // Envoi refusé (socket pas encore ouverte) ou absente : le spinner a déjà
+    // été allumé plus haut — il faut l'éteindre, sinon il tourne sur un message
+    // jamais parti. La bulle user reste : le texte n'est pas perdu, il suffit
+    // de renvoyer.
+    const signalerEnvoiImpossible = () => {
+      setWorkingSince((p) => ({ ...p, [id as string]: null }));
+      setAppBanner({ text: t("app.send-not-connected"), closable: true });
+    };
+    if (!ws.current) {
+      signalerEnvoiImpossible();
+      return;
+    }
     if (ws.current) {
       // bulle user archivable : texte tapé + attachments structurés (chemins,
       // lignes) — jamais le handoff, les textes injectés ni une data URL
@@ -3279,7 +3291,7 @@ export default function App() {
           : {}),
         ...(imagePaths.length ? { imagePaths } : {}),
       };
-      sendPrompt(ws.current, {
+      const envoye = sendPrompt(ws.current, {
         autoReview: settingsRef.current.autoReview,
         threadId: id,
         projectRoot: threadRoot,
@@ -3300,6 +3312,12 @@ export default function App() {
         mode,
         ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
       });
+      if (!envoye) {
+        // Rien n'est parti : le brouillon local DOIT survivre, le sidecar n'a
+        // pas pris le relais.
+        signalerEnvoiImpossible();
+        return;
+      }
       // le sidecar prend le relais : retirer le brouillon local homonyme
       setDraftThreads((p) => p.filter((t) => t.id !== id));
     }

@@ -517,6 +517,22 @@ export function buildChatTurnViewModels(
   });
 }
 
+/** Clé de rangée virtuelle, consommée par le `keyExtractor` de LegendList.
+ *
+ * L'IDENTITÉ de la ligne, jamais sa position. `reduceHarnessEvent` retire par
+ * `splice` la bulle streaming vide et le `thinking_live` vide à chaque
+ * done/error : tout ce qui suit se décale. Une clé indexée changerait alors
+ * pour ces rangées — LegendList les remonterait, remesurerait leurs hauteurs
+ * et refermerait les panneaux d'outils dépliés.
+ *
+ * `projectChatTimeline` a déjà posé la bonne clé sur chaque rangée
+ * (`meta.eventId` quand il existe) : il suffit de ne pas la jeter. Les
+ * journaux historiques sans meta retombent sur `legacy-<index>`, indexé faute
+ * de mieux — pas pire qu'avant, pas mieux non plus. */
+export function timelineRowKey(item: { key: string }): string {
+  return item.key;
+}
+
 /** Projette les tours en lignes virtualisables, avec des clés canoniques. */
 export function projectChatTimeline(
   events: AgentEvent[],
