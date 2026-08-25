@@ -551,25 +551,10 @@ async fn action_wait(state: &AppState, caller_id: &str, req: &Value) -> Result<V
     }
 }
 
-async fn would_deadlock(state: &AppState, caller_id: &str, target_id: &str) -> bool {
-    let store = state.threads().lock().await;
-    let Some(caller) = store.get(caller_id) else {
-        return false;
-    };
-    let root = caller.project_root.trim_end_matches('/').to_string();
-    drop(store);
-    if root.is_empty() {
-        return false;
-    }
-    // if caller owns project writer lock and target is same project, wait would block delivery
-    let writers = state.project_writers_snapshot().await;
-    writers.get(&root).map(|o| o == caller_id).unwrap_or(false) && {
-        let store = state.threads().lock().await;
-        store
-            .get(target_id)
-            .map(|t| t.project_root.trim_end_matches('/') == root)
-            .unwrap_or(false)
-    }
+async fn would_deadlock(_state: &AppState, _caller_id: &str, _target_id: &str) -> bool {
+    // Le verrou d'écrivain par projet est retiré (2026-08-25) : attendre un
+    // fil du même projet ne peut plus interbloquer, les tours y coexistent.
+    false
 }
 
 pub async fn authorize_target(

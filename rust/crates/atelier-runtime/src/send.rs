@@ -1019,22 +1019,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
 
-    // Start new turn
-    if let Err(error) = state
-        .acquire_project_writer(
-            &project_root,
-            &thread_id,
-            permission_mode.as_deref() != Some("plan"),
-        )
-        .await
-    {
-        let _ = state
-            .threads()
-            .lock()
-            .await
-            .upsert(json!({"id":thread_id,"status":"idle"}), true);
-        return vec![err_json_for(&thread_id, error)];
-    }
+    // Start new turn. Pas de verrou d'écrivain par projet : plusieurs chats
+    // tournent en même temps sur le même projet, comme Claude Code (décision
+    // Thierry 2026-08-25 — le verrou de juillet refusait le second send,
+    // d'abord en silence, et un tour zombie le tenait à jamais).
     let snapshot_sha = if project_root.is_empty() {
         None
     } else {
@@ -1367,7 +1355,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let _ = store.upsert(patch, false);
         }
         state2.harness().clear_running(&tid).await;
-        state2.release_project_writer(&fallback_root, &tid).await;
         // Plan 057: schedule mailbox drain on a detached task (handle_send is re-entrant).
         let drain_state = state2.clone();
         tokio::spawn(async move {
@@ -1623,14 +1610,6 @@ async fn threads_reply(state: &AppState) -> Vec<String> {
     vec![out]
 }
 
-/// Variante d'`err_json` qui NOMME le fil refusé. Sans threadId, le frontend
-/// ne peut ni éteindre le bon spinner ni afficher le refus au bon endroit :
-/// l'erreur mourait en console pendant que le compteur tournait (2026-08-25).
-fn err_json_for(thread_id: &str, message: impl Into<String>) -> String {
-    serde_json::to_string(&json!({"type":"error","threadId": thread_id,"message": message.into()}))
-        .unwrap_or_else(|_| r#"{"type":"error","message":"error"}"#.into())
-}
-
 fn err_json(message: impl Into<String>) -> String {
     serde_json::to_string(&json!({"type":"error","message": message.into()}))
         .unwrap_or_else(|_| r#"{"type":"error","message":"error"}"#.into())
@@ -1780,13 +1759,14 @@ mod tests {
         );
     }
 
-    /// Un projet verrouillé par un tour zombie refusait le send EN SILENCE :
-    /// l'erreur partait sans threadId, le frontend ne savait pas quel spinner
-    /// éteindre ni quoi afficher — « je commence un chat, rien ne se passe »,
-    /// quel que soit le provider (vécu 2026-08-25, tour opencode suspendu sur
-    /// une passerelle morte qui gardait le writer du projet à jamais).
+    /// Décision Thierry (2026-08-25) : PLUSIEURS chats en même temps sur le
+    /// même projet, comme Claude Code. Le verrou d'écrivain par projet
+    /// (juillet 2026) refusait le second send — d'abord en silence (spinner à
+    /// vide), puis avec une bannière : dans les deux cas, un seul tour actif
+    /// par projet. Le verrou est retiré : deux tours écrivants concurrents
+    /// démarrent tous les deux.
     #[tokio::test]
-    async fn send_refuse_sur_projet_verrouille_porte_le_thread_id() {
+    async fn deux_tours_ecrivants_sur_le_meme_projet_demarrent_tous_les_deux() {
         let dir = tempdir().unwrap();
         let state = AppState::new(
             AppPaths::from_app_dir(dir.path().to_path_buf()),
@@ -1797,22 +1777,34 @@ mod tests {
             "/tmp".into(),
         );
         let root = dir.path().to_string_lossy().to_string();
-        state
-            .acquire_project_writer(&root, "t-zombie", true)
-            .await
-            .unwrap();
-        let msg = json!({
-            "type": "send",
-            "threadId": "t-bloque",
-            "provider": "fake",
-            "prompt": "hello",
-            "projectRoot": root,
-        });
-        let out = handle_send(&state, &msg).await;
-        let parsed: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
-        assert_eq!(parsed["type"], "error");
-        assert_eq!(parsed["threadId"], "t-bloque", "l'erreur doit nommer le fil refusé: {parsed}");
-        assert!(parsed["message"].as_str().unwrap_or("").contains("verrouillé"));
+        for tid in ["t-chat-1", "t-chat-2"] {
+            let msg = json!({
+                "type": "send",
+                "threadId": tid,
+                "provider": "fake",
+                "prompt": "hello",
+                "projectRoot": root,
+            });
+            let out = handle_send(&state, &msg).await;
+            assert!(
+                !out[0].contains("\"error\""),
+                "le tour {tid} doit démarrer, pas être refusé : {}",
+                out[0]
+            );
+        }
+        for tid in ["t-chat-1", "t-chat-2"] {
+            for _ in 0..50 {
+                if !state.harness().is_running(tid).await {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let events = state.harness().journal().materialize(tid);
+            assert!(
+                events.iter().any(|e| e["kind"] == "user"),
+                "user event missing pour {tid}: {events:?}"
+            );
+        }
     }
 
     /// Régression (2026-07-16, vu en réel avec opencode ACP) : le `done`

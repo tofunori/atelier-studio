@@ -385,16 +385,8 @@ pub async fn drain_mailbox(state: &AppState) {
             // wait for next drain trigger
             break;
         }
-        // check writer lock
-        let root = target.project_root.trim_end_matches('/');
-        if !root.is_empty() {
-            let writers = state.project_writers_snapshot().await;
-            if let Some(owner) = writers.get(root) {
-                if owner != &target.id {
-                    break;
-                }
-            }
-        }
+        // Plus de verrou d'écrivain par projet (2026-08-25) : le drain n'attend
+        // personne — plusieurs tours coexistent sur un même projet.
 
         // budget check on child link
         let child_id = if msg.relation == "parent_to_child" {
