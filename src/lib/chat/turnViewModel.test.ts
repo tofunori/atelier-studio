@@ -4,6 +4,7 @@ import { materializeHarnessHistory, reduceHarnessEvent } from "../harnessEvents"
 import {
   buildChatTurnViewModels,
   projectChatTimeline,
+  timelineRowKey,
 } from "./turnViewModel";
 
 const T0 = 1_800_000_000_000;
@@ -524,5 +525,57 @@ describe("chat turn view model", () => {
       "tools:turn-1:call-1",
       "tools:turn-2:call-1",
     ]);
+  });
+});
+
+// Clés de rangées virtuelles (2026-08-25). LegendList consomme `row.key` : si
+// elle dérive de la POSITION, les deux `splice` que `reduceHarnessEvent` fait
+// à chaque done/error (bulle streaming vide, thinking_live vide) décalent tout
+// ce qui suit, remontent les rangées et referment les panneaux d'outils
+// dépliés. Même piège que `partKey` chez gooey-pi.
+describe("clés de rangées de la timeline", () => {
+  const reponse: AgentEvent = { kind: "text", text: "La réponse.", meta: meta("a1", "turn-1", 3) };
+  const question: AgentEvent = { kind: "user", text: "Q", meta: meta("u1", "turn-1", 1) };
+  const fin: AgentEvent = { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 4) };
+
+  const cleDeLaReponse = (events: AgentEvent[]) => {
+    const turns = buildChatTurnViewModels(events, null);
+    const plisOuverts = new Set(turns.flatMap((turn) => (turn.fold ? [turn.fold.key] : [])));
+    const row = projectChatTimeline(events, turns, plisOuverts)
+      .find((candidate) => candidate.type === "event" && candidate.event === reponse);
+    return row ? timelineRowKey(row) : null;
+  };
+
+  it("la clé d'une rangée suit l'identité de l'événement, pas sa position", () => {
+    // le MÊME événement, une fois en position 1, une fois en position 2
+    const court = cleDeLaReponse([question, reponse, fin]);
+    const long = cleDeLaReponse([
+      question,
+      { kind: "thinking", text: "je réfléchis", meta: meta("t1", "turn-1", 2) },
+      reponse,
+      fin,
+    ]);
+    expect(court).toBeTruthy();
+    expect(court).toBe(long);
+  });
+
+  it("aucune collision de clés sur un fil réaliste", () => {
+    const events: AgentEvent[] = [
+      question,
+      { kind: "thinking", text: "je réfléchis", meta: meta("t1", "turn-1", 2) },
+      { kind: "tool_update", id: "r1", name: "Read", detail: "a.ts", input: {}, output: "ok", status: "completed", meta: meta("k1", "turn-1", 3) },
+      { kind: "tool_update", id: "r2", name: "Bash", detail: "ls", input: {}, output: "ok", status: "completed", meta: meta("k2", "turn-1", 4) },
+      { kind: "todos", items: [{ text: "lire", completed: true }], meta: meta("td1", "turn-1", 5) },
+      reponse,
+      fin,
+      { kind: "user", text: "Q2", meta: meta("u2", "turn-2", 6) },
+      { kind: "text", text: "R2", meta: meta("a2", "turn-2", 7) },
+      { kind: "done", ok: true, result: "", meta: meta("d2", "turn-2", 8) },
+    ] as AgentEvent[];
+    const turns = buildChatTurnViewModels(events, null);
+    for (const plis of [new Set<string>(), new Set(turns.flatMap((t) => (t.fold ? [t.fold.key] : [])))]) {
+      const cles = projectChatTimeline(events, turns, plis).map(timelineRowKey);
+      expect(new Set(cles).size, `collision parmi ${cles.length} rangées`).toBe(cles.length);
+    }
   });
 });
