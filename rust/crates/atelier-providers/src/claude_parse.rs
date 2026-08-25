@@ -160,22 +160,38 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         let info = msg.get("rate_limit_info").cloned().unwrap_or(json!({}));
         let statut = info.get("status").and_then(|v| v.as_str()).unwrap_or("");
         // `allowed` est le cas normal : ne rien afficher tant que tout va bien.
-        if statut != "allowed" && !statut.is_empty() {
-            let fenetre = info
-                .get("rateLimitType")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let reprise = info
-                .get("resetsAt")
-                .and_then(|v| v.as_u64())
-                .and_then(delai_jusqua)
-                .map(|delai| format!(" — reprise dans {delai}"))
+        if statut.is_empty() || statut == "allowed" {
+            return out;
+        }
+        let fenetre = info
+            .get("rateLimitType")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let delai = info
+            .get("resetsAt")
+            .and_then(|v| v.as_u64())
+            .and_then(delai_jusqua);
+        // `allowed_warning` (et tout autre `allowed_*`) : la fenêtre approche
+        // MAIS la requête passe. Une note d'avancement, jamais une erreur —
+        // un événement `error` termine le tour (« Échec après 6 s » affiché
+        // le 2026-08-25 alors que la réponse était bien arrivée).
+        if statut.starts_with("allowed") {
+            let remise = delai
+                .map(|d| format!(" — remise à zéro dans {d}"))
                 .unwrap_or_default();
             out.push(json!({
-                "kind": "error",
-                "message": format!("Limite d'usage Claude ({statut}, fenêtre {fenetre}){reprise}"),
+                "kind": "heartbeat",
+                "note": format!("quota Claude bientôt atteint (fenêtre {fenetre}){remise}"),
             }));
+            return out;
         }
+        let reprise = delai
+            .map(|d| format!(" — reprise dans {d}"))
+            .unwrap_or_default();
+        out.push(json!({
+            "kind": "error",
+            "message": format!("Limite d'usage Claude ({statut}, fenêtre {fenetre}){reprise}"),
+        }));
         return out;
     }
 
@@ -739,6 +755,29 @@ mod tests {
         let texte = alerte[0]["message"].as_str().unwrap();
         assert!(texte.contains("five_hour"), "{texte}");
         assert!(texte.contains("30 min"), "{texte}");
+    }
+
+    /// `allowed_warning` = « tu approches de ta fenêtre 7 jours », la requête
+    /// passe quand même. Émis en `error`, il teintait la réponse en rouge ET
+    /// terminait le tour en « Échec après 6 s » (vécu 2026-08-25).
+    #[test]
+    fn un_avertissement_de_quota_nest_pas_un_echec() {
+        let mut state = ClaudeStreamState::default();
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 1_800;
+        let avert = parse_message(
+            &mut state,
+            &json!({"type":"rate_limit_event","rate_limit_info":{
+                "status":"allowed_warning","rateLimitType":"seven_day","resetsAt":epoch}}),
+        );
+        assert_eq!(avert.len(), 1);
+        assert_eq!(avert[0]["kind"], "heartbeat");
+        let note = avert[0]["note"].as_str().unwrap();
+        assert!(note.contains("seven_day"), "{note}");
+        assert!(note.contains("30 min"), "{note}");
     }
 
     /// Claude classe lui-même son tour : « bloqué, en attente de précision ».
