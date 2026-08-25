@@ -122,6 +122,15 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
+  // Stream saccadé (2026-08-25) : `text-wrap: pretty` sur .msg p redistribue
+  // les fins de ligne de TOUT le paragraphe à chaque token — les mots déjà
+  // affichés sautaient de gauche à droite pendant la frappe. La bulle en cours
+  // de stream (rangée .is-live-stream, classe posée par React) repasse en wrap
+  // simple ; pretty ne s'applique qu'au texte terminé, qui ne bouge plus.
+  it("la bulle en cours de stream n'est jamais en text-wrap pretty", () => {
+    expect(appCss).toMatch(/\.timeline-virtual-row\.is-live-stream \.msg p\s*\{[^}]*text-wrap:\s*wrap/);
+  });
+
   it("ouvre le diff dans la surface Git et garde les actions de commit compactes", () => {
     expect(appCss).not.toContain(".git-diff-sheet");
     expect(appCss).not.toContain(".git-mobile-diff-trigger");

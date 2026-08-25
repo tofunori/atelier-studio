@@ -2738,6 +2738,11 @@ body.dragging iframe { pointer-events: none; }
    shorthand text-wrap réinitialise text-wrap-mode à wrap (piège vérifié) */
 .rh-title, .set-body h1, .set-body h2, .pnav-name, .empty-title { text-wrap: balance; }
 .msg p, .rh-question, .set-sub { text-wrap: pretty; }
+/* Bulle EN COURS de stream : jamais pretty. L'algorithme redistribue les fins
+   de ligne de tout le paragraphe à chaque token — les mots déjà affichés
+   sautaient de gauche à droite pendant la frappe (vécu 2026-08-25). Le texte
+   terminé, lui, garde pretty : il ne bouge plus. */
+.timeline-virtual-row.is-live-stream .msg p { text-wrap: wrap; }
 
 /* ===== A11y (plan 021, partie B) ===== */
 /* texte lu par les lecteurs d'écran, invisible à l'écran */
