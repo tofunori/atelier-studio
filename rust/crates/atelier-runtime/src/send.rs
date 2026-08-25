@@ -1033,7 +1033,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             .lock()
             .await
             .upsert(json!({"id":thread_id,"status":"idle"}), true);
-        return vec![err_json(error)];
+        return vec![err_json_for(&thread_id, error)];
     }
     let snapshot_sha = if project_root.is_empty() {
         None
@@ -1623,6 +1623,14 @@ async fn threads_reply(state: &AppState) -> Vec<String> {
     vec![out]
 }
 
+/// Variante d'`err_json` qui NOMME le fil refusé. Sans threadId, le frontend
+/// ne peut ni éteindre le bon spinner ni afficher le refus au bon endroit :
+/// l'erreur mourait en console pendant que le compteur tournait (2026-08-25).
+fn err_json_for(thread_id: &str, message: impl Into<String>) -> String {
+    serde_json::to_string(&json!({"type":"error","threadId": thread_id,"message": message.into()}))
+        .unwrap_or_else(|_| r#"{"type":"error","message":"error"}"#.into())
+}
+
 fn err_json(message: impl Into<String>) -> String {
     serde_json::to_string(&json!({"type":"error","message": message.into()}))
         .unwrap_or_else(|_| r#"{"type":"error","message":"error"}"#.into())
@@ -1770,6 +1778,41 @@ mod tests {
                 .any(|e| e["kind"] == "text" || e["kind"] == "done"),
             "text/done missing: {events:?}"
         );
+    }
+
+    /// Un projet verrouillé par un tour zombie refusait le send EN SILENCE :
+    /// l'erreur partait sans threadId, le frontend ne savait pas quel spinner
+    /// éteindre ni quoi afficher — « je commence un chat, rien ne se passe »,
+    /// quel que soit le provider (vécu 2026-08-25, tour opencode suspendu sur
+    /// une passerelle morte qui gardait le writer du projet à jamais).
+    #[tokio::test]
+    async fn send_refuse_sur_projet_verrouille_porte_le_thread_id() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let root = dir.path().to_string_lossy().to_string();
+        state
+            .acquire_project_writer(&root, "t-zombie", true)
+            .await
+            .unwrap();
+        let msg = json!({
+            "type": "send",
+            "threadId": "t-bloque",
+            "provider": "fake",
+            "prompt": "hello",
+            "projectRoot": root,
+        });
+        let out = handle_send(&state, &msg).await;
+        let parsed: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["threadId"], "t-bloque", "l'erreur doit nommer le fil refusé: {parsed}");
+        assert!(parsed["message"].as_str().unwrap_or("").contains("verrouillé"));
     }
 
     /// Régression (2026-07-16, vu en réel avec opencode ACP) : le `done`

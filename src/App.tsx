@@ -2125,6 +2125,15 @@ export default function App() {
       }
       if (msg.type === "error") {
         console.error("sidecar:", msg.message);
+        // Refus d'un send par le serveur (projet verrouillé par un tour
+        // zombie, 2026-08-25) : l'erreur porte désormais le threadId — il faut
+        // éteindre le spinner de CE fil et montrer le refus, sinon le compteur
+        // tourne à vide sur un tour que le serveur a refusé d'ouvrir.
+        if (typeof msg.threadId === "string" && msg.threadId) {
+          const refusedId = msg.threadId;
+          setWorkingSince((p) => (p[refusedId] == null ? p : { ...p, [refusedId]: null }));
+          setAppBanner({ text: String(msg.message ?? t("app.send-not-connected")), closable: true });
+        }
         const failedLink = [...pendingLinkedCreations.current.entries()].find(
           ([targetId, pending]) => msg.threadId === targetId || msg.threadId === pending.sourceThreadId,
         );

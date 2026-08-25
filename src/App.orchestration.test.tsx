@@ -197,6 +197,32 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
   });
 
+  it("un send refusé par le serveur éteint le spinner et affiche le refus", async () => {
+    // Vécu 2026-08-25 : un tour zombie gardait le writer du projet, le serveur
+    // refusait chaque send suivant ({"type":"error"}) — mais l'erreur mourait
+    // en console.error et le spinner tournait à vide. « Je commence un chat,
+    // rien ne se passe », quel que soit le provider.
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "allo" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(2); });
+    // le tour local est parti : l'indicateur d'interruption est visible
+    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+
+    await push(sock, {
+      type: "error",
+      threadId: "thread-A",
+      message: "projet verrouillé par une autre tâche (t-zombie) — attends sa fin ou arrête-la avant toute écriture",
+    });
+    // le refus est visible et le spinner éteint
+    expect(screen.getByText(/projet verrouillé par une autre tâche/)).toBeTruthy();
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
   it("choisit le provider avant de créer un chat et le conserve au premier envoi", async () => {
     const { sock } = await mountApp();
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
