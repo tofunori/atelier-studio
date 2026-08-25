@@ -2743,6 +2743,11 @@ body.dragging iframe { pointer-events: none; }
    sautaient de gauche à droite pendant la frappe (vécu 2026-08-25). Le texte
    terminé, lui, garde pretty : il ne bouge plus. */
 .timeline-virtual-row.is-live-stream .msg p { text-wrap: wrap; }
+/* Tableau EN COURS de stream : colonnes figées. En layout auto, la largeur des
+   colonnes suit le contenu — chaque token les redimensionnait toutes (mesuré
+   248 px de dérive latérale au banc, 0 en fixed + 100 %). Le tableau terminé
+   reprend le layout auto, recalculé une seule fois au done. */
+.timeline-virtual-row.is-live-stream .chat-md table { table-layout: fixed; width: 100%; }
 
 /* ===== A11y (plan 021, partie B) ===== */
 /* texte lu par les lecteurs d'écran, invisible à l'écran */

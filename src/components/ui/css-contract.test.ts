@@ -127,6 +127,14 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   // affichés sautaient de gauche à droite pendant la frappe. La bulle en cours
   // de stream (rangée .is-live-stream, classe posée par React) repasse en wrap
   // simple ; pretty ne s'applique qu'au texte terminé, qui ne bouge plus.
+  // Même campagne : un tableau GFM en cours de stream recalcule ses colonnes à
+  // chaque token (largeur auto = contenu) — mesuré 248 px de dérive latérale
+  // au banc, 0 px en table-layout fixed + width 100%. Le tableau TERMINÉ garde
+  // son layout auto (largeur au contenu), recalculé une seule fois au done.
+  it("un tableau en cours de stream a des colonnes stables", () => {
+    expect(appCss).toMatch(/\.timeline-virtual-row\.is-live-stream \.chat-md table\s*\{[^}]*table-layout:\s*fixed[^}]*width:\s*100%/);
+  });
+
   it("la bulle en cours de stream n'est jamais en text-wrap pretty", () => {
     expect(appCss).toMatch(/\.timeline-virtual-row\.is-live-stream \.msg p\s*\{[^}]*text-wrap:\s*wrap/);
   });
