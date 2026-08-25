@@ -560,6 +560,12 @@ export function projectChatTimeline(
     }
   }
 
+  // Ordinal des blocs de texte par tour : la bulle streaming est REMPLACÉE en
+  // place par le texte final avec un AUTRE eventId — une clé par identité
+  // démonterait la rangée pile à l'arrivée de la réponse (flash, 2026-08-25).
+  // Le n-ième bloc texte d'un tour garde donc la même clé de la frappe au
+  // final. Les autres kinds gardent l'identité d'événement (stable aux splices).
+  const textOrdinals = new Map<string, number>();
   for (let index = 0; index <= events.length; index += 1) {
     const activeHeader = activeHeaderByInsert.get(index);
     if (activeHeader) {
@@ -620,9 +626,18 @@ export function projectChatTimeline(
     // `started` reçu du provider.
     if (NON_VISUAL_TIMELINE_KINDS.has(event.kind)) continue;
     const turn = turnByIndex.get(index);
+    const turnKey = turn?.key ?? "orphan";
+    let suffix: string;
+    if (event.kind === "text" || event.kind === "streaming") {
+      const ordinal = textOrdinals.get(turnKey) ?? 0;
+      textOrdinals.set(turnKey, ordinal + 1);
+      suffix = `txt:${ordinal}`;
+    } else {
+      suffix = eventKey(event, index);
+    }
     rows.push({
       type: "event",
-      key: `event:${turn?.key ?? "orphan"}:${eventKey(event, index)}`,
+      key: `event:${turnKey}:${suffix}`,
       event,
       index,
     });

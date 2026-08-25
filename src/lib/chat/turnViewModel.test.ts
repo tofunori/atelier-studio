@@ -559,6 +559,33 @@ describe("clés de rangées de la timeline", () => {
     expect(court).toBe(long);
   });
 
+  it("la clé de la bulle survit au remplacement streaming → texte final", () => {
+    // Régression vécue (2026-08-25, « ça flash quand la réponse arrive ») :
+    // le reducer remplace la bulle streaming par le texte final À LA MÊME
+    // POSITION mais avec un autre eventId. Une clé par identité d'événement
+    // change alors à la finalisation → LegendList démonte et remonte toute la
+    // rangée (re-coloration, KaTeX, mermaid) pile à l'arrivée de la réponse.
+    const pendant: AgentEvent[] = [
+      { kind: "user", text: "Q", meta: meta("u1", "turn-1", 1) },
+      { kind: "streaming", text: "La répo", ts: T0 + 100, meta: meta("s1", "turn-1", 2) },
+    ];
+    const apres: AgentEvent[] = [
+      pendant[0],
+      { kind: "text", text: "La réponse entière.", ts: T0 + 200, meta: meta("a9", "turn-1", 3) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 4) },
+    ];
+    const cle = (events: AgentEvent[], kind: string) => {
+      const turns = buildChatTurnViewModels(events, kind === "streaming" ? T0 + 150 : null);
+      const row = projectChatTimeline(events, turns, new Set())
+        .find((r) => r.type === "event" && r.event.kind === kind);
+      return row ? timelineRowKey(row) : null;
+    };
+    const kStream = cle(pendant, "streaming");
+    const kFinal = cle(apres, "text");
+    expect(kStream).toBeTruthy();
+    expect(kFinal).toBe(kStream);
+  });
+
   it("aucune collision de clés sur un fil réaliste", () => {
     const events: AgentEvent[] = [
       question,
