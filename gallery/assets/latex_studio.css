@@ -419,10 +419,10 @@
   #texread [data-line]{position:relative}
 
   /* ---- marge annotée de la Lecture (rail) --------------------------------
-     Transposition de `.tl-marge` du chat, métriques identiques (rangée de
-     8 px, ligne de 12x1 px, inactive en demi-teinte) — RANGÉE PAR SECTION :
-     chaque section ouvre un groupe, ses marques vivent dessous. Le rail vit
-     dans #split, qui ne défile pas : dans #right il partirait avec le texte. */
+     Transposition de `.tl-marge` du chat, métriques identiques : rangée de
+     8 px, ligne de 12x1 px, inactive en demi-teinte. Le rail liste LES
+     SECTIONS du fichier — on les colore, on ne lui ajoute rien. Il vit dans
+     #split, qui ne défile pas : dans #right il partirait avec le texte. */
   .tr-marge{display:none;position:absolute;top:16px;left:4px;z-index:40;
     width:28px;max-height:calc(100% - 32px);
     flex-direction:column;align-items:flex-end;gap:0;
@@ -431,17 +431,9 @@
     transition:width 140ms ease,background 140ms ease,box-shadow 140ms ease}
   .tr-marge::-webkit-scrollbar{display:none}
   html.tex-read-only .tr-marge{display:flex}
-  /* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus).
-     208 px et non 188 comme le chat : les titres de section coûtent une
-     indentation aux libellés de marque. */
-  .tr-marge:hover,.tr-marge:focus-within{width:208px;align-items:stretch;padding:8px 6px;
+  /* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus) */
+  .tr-marge:hover,.tr-marge:focus-within{width:208px;align-items:stretch;gap:2px;padding:8px 6px;
     background:var(--card);box-shadow:0 4px 16px rgba(0,0,0,.25)}
-  /* un groupe = une section et ses marques ; c'est le BLANC qui divise, pas un
-     trait de plus */
-  .tr-grp{display:flex;flex-direction:column;align-items:flex-end;gap:0;width:100%}
-  .tr-grp + .tr-grp{margin-top:7px}
-  .tr-marge:hover .tr-grp,.tr-marge:focus-within .tr-grp{align-items:stretch;gap:1px}
-  .tr-marge:hover .tr-grp + .tr-grp,.tr-marge:focus-within .tr-grp + .tr-grp{margin-top:10px}
   .tr-mark{display:flex;align-items:center;justify-content:flex-end;gap:0;
     width:100%;height:8px;min-height:8px;padding:0 4px 0 0;
     border:none;background:transparent;border-radius:6px;cursor:pointer;text-align:left;
@@ -450,101 +442,71 @@
     height:auto;min-height:20px;justify-content:flex-start;gap:10px;padding:2px 6px}
   .tr-marge:hover .tr-mark:hover,.tr-mark:focus-visible{background:var(--card2)}
   .tr-mark:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-  .tr-marge:hover .tr-sec,.tr-marge:focus-within .tr-sec{min-height:18px}
-  /* la ligne. Section : 12 px, demi-teinte (trame conique de 2 px) — présente
-     sans crier. Marque : 8 px pleine — plus courte, donc enfant du groupe même
-     quand le rail est replié. */
-  .tr-mark-sign{flex:none;width:12px;height:1px;position:relative;color:var(--muted);opacity:.7;
+  /* la ligne : 12x1 px, constante. Sans couleur, c'est une demi-teinte (trame
+     conique de 2 px) — elle disparaît dans le fond sans mentir sur sa
+     position. Colorée, elle devient pleine : la couleur est la seule chose
+     qui distingue une section marquée. */
+  .tr-mark-sign{flex:none;width:12px;height:1px;color:var(--muted);opacity:.7;
     background:repeating-conic-gradient(currentColor 0% 25%,transparent 0% 50%) 0 0/2px 2px;
     transition:opacity 140ms ease}
-  .tr-mk .tr-mark-sign{width:8px;opacity:1;background:currentColor}
-  .tr-mk[data-color="amber"] .tr-mark-sign{color:rgba(224,183,74,.85)}
-  /* rangée « marquer ici » : poser une marque sans rien sélectionner */
-  .tr-mk[data-color="red"] .tr-mark-sign{color:rgba(240,125,115,.85)}
-  .tr-mk[data-color="blue"] .tr-mark-sign{color:rgba(91,157,255,.85)}
-  .tr-mk[data-color="green"] .tr-mark-sign{color:rgba(126,192,120,.85)}
-  .tr-mk[data-color="purple"] .tr-mark-sign{color:rgba(170,140,224,.85)}
+  .tr-mark[data-color="blue"] .tr-mark-sign{background:rgba(91,157,255,.85);opacity:1}
+  .tr-mark[data-color="amber"] .tr-mark-sign{background:rgba(224,183,74,.85);opacity:1}
+  .tr-mark[data-color="red"] .tr-mark-sign{background:rgba(240,125,115,.85);opacity:1}
+  .tr-mark[data-color="green"] .tr-mark-sign{background:rgba(126,192,120,.85);opacity:1}
+  .tr-mark[data-color="purple"] .tr-mark-sign{background:rgba(170,140,224,.85);opacity:1}
   /* l'entrée où l'on lit : ligne pleine en encre vive — désignée par la
-     géométrie du défilement, jamais par un clic. Elle prime sur la couleur. */
-  .tr-mark[data-here] .tr-mark-sign{color:var(--txt);opacity:1;background:currentColor}
+     géométrie du défilement, jamais par un clic */
+  .tr-mark[data-here] .tr-mark-sign{background:var(--txt);opacity:1}
   /* PIÈGE (vécu dans le chat) : replié, le libellé ne doit prendre AUCUNE
      place — invisible mais dans le flux, sa largeur poussait les traits hors
      de l'écran. */
-  .tr-mark-label{flex:0 0 0;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap;font:11px/1.4 var(--ui-font,sans-serif);color:var(--muted);opacity:0;
+  .tr-mark-label{flex:1 1 0;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;font:10px/1.4 var(--ui-font,sans-serif);font-weight:500;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--muted);opacity:0;
     transition:opacity 140ms ease}
   .tr-marge:hover .tr-mark-label,.tr-marge:focus-within .tr-mark-label{
     flex:1 1 auto;width:auto;opacity:1}
-  .tr-sec .tr-mark-label{font-size:10px;font-weight:500;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--muted)}
-  .tr-mk .tr-mark-label{color:var(--txt);padding-left:4px}
   .tr-mark[data-here] .tr-mark-label{color:var(--txt)}
-  /* commandes d'une rangée : couleur et retrait, à même la marque. Elles
-     n'existent que rail déplié, au survol ou au focus de la rangée — un rail
-     replié reste une carte, pas un tableau de bord. */
-  .tr-mk-more,.tr-mk-del{flex:none;display:none;align-items:center;justify-content:center;
+  /* poignée de couleur : le clic droit ne se devine pas. Elle n'existe que
+     rail déplié, au survol ou au focus de la rangée. */
+  .tr-mk-more{flex:none;display:none;align-items:center;justify-content:center;
     width:16px;height:16px;border-radius:6px;cursor:pointer;color:var(--muted);
     font:10px/1 var(--ui-font,sans-serif);letter-spacing:.05em;opacity:0;
     transition:opacity 140ms ease,background 140ms ease,color 140ms ease}
-  .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more,
-  .tr-marge:hover .tr-mk-del,.tr-marge:focus-within .tr-mk-del{display:flex}
-  .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-marge:hover .tr-mark:hover .tr-mk-del,
-  .tr-mk:focus-within .tr-mk-more,.tr-mk:focus-within .tr-mk-del,
-  .tr-mk-more:focus-visible,.tr-mk-del:focus-visible{opacity:1}
-  .tr-mk-more:hover{background:var(--card2);color:var(--txt)}
-  .tr-mk-del:hover{background:color-mix(in srgb,var(--dv-del,#e06c75) 20%,transparent);
-    color:var(--dv-del,#e06c75)}
-  .tr-mk-more:focus-visible,.tr-mk-del:focus-visible{outline:2px solid var(--accent);
-    outline-offset:1px}
-  /* « marquer ici » : la seule commande du rail qui ne dépend d'aucune rangée.
-     Repliée c'est un + de 8 px en tête ; dépliée, elle se nomme. */
-  .tr-add{display:flex;align-items:center;justify-content:flex-end;gap:0;width:100%;
-    height:12px;min-height:12px;padding:0 2px 0 0;margin-bottom:4px;
-    border:0;background:transparent;border-radius:6px;cursor:pointer;color:var(--muted);
-    transition:height 140ms ease,min-height 140ms ease,background 140ms ease,color 140ms ease}
-  .tr-marge:hover .tr-add,.tr-marge:focus-within .tr-add{
-    height:auto;min-height:20px;justify-content:flex-start;gap:10px;padding:2px 6px;
-    margin-bottom:6px}
-  .tr-add:hover{color:var(--txt)}
-  .tr-marge:hover .tr-add:hover{background:var(--card2)}
-  .tr-add:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-  .tr-add-sign{flex:none;display:flex;align-items:center;justify-content:center;
-    width:12px;height:12px}
-  .tr-add .tr-mark-label{color:var(--muted);font-size:10px;letter-spacing:.04em;
-    text-transform:uppercase}
-  @media (prefers-reduced-motion:reduce){
-    .tr-mk-more,.tr-mk-del,.tr-add{transition:none}
-  }
+  .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more{display:flex}
+  .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-mark:focus-within .tr-mk-more,
+  .tr-mk-more:focus-visible{opacity:1}
+  .tr-mk-more:hover{background:var(--bar,var(--card2));color:var(--txt)}
+  .tr-mk-more:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   /* bascule « tout · N » : même géométrie qu'une encoche */
   .tr-marge-all{display:flex;align-items:center;gap:8px;width:100%;
     margin-top:8px;padding:2px 4px;border-radius:6px;
     background:transparent;border:0;cursor:pointer;color:var(--muted)}
-  .tr-marge-all .tr-mark-label{color:var(--muted);font-size:10px}
+  .tr-marge-all .tr-mark-label{color:var(--muted);text-transform:none;letter-spacing:0}
   .tr-marge-all:hover{background:var(--card2)}
   .tr-marge-all-sign{flex:none;transition:transform 140ms ease}
   .tr-marge-all[aria-pressed="true"] .tr-marge-all-sign{transform:rotate(180deg)}
-  /* menu d'une marque : les cinq pastilles de l'éditeur de commentaires */
+  /* palette d'une section : les cinq pastilles de l'éditeur de commentaires,
+     plus une croix qui rend la section à sa demi-teinte */
   .tr-menu{display:none;position:absolute;z-index:60;flex-direction:column;gap:8px;
     padding:10px;border-radius:10px;background:var(--card);
     box-shadow:0 10px 34px rgba(0,0,0,.45)}
   .tr-menu.open{display:flex}
-  .tr-menu-colors{display:flex;gap:6px}
+  .tr-menu-colors{display:flex;gap:6px;align-items:center}
   .tr-menu-colors button{width:14px;height:14px;border-radius:999px;
     border:1px solid transparent;cursor:pointer;padding:0}
   .tr-menu-colors button.on{border-color:var(--txt)}
+  .tr-menu-colors .sw-blue{background:rgba(91,157,255,.85)}
   .tr-menu-colors .sw-amber{background:rgba(224,183,74,.85)}
   .tr-menu-colors .sw-red{background:rgba(240,125,115,.85)}
-  .tr-menu-colors .sw-blue{background:rgba(91,157,255,.85)}
   .tr-menu-colors .sw-green{background:rgba(126,192,120,.85)}
   .tr-menu-colors .sw-purple{background:rgba(170,140,224,.85)}
-  .tr-menu-del{display:flex;align-items:center;gap:8px;border:0;background:transparent;
-    color:var(--muted);font:11px/1.4 var(--ui-font,sans-serif);padding:4px 6px;
-    border-radius:6px;cursor:pointer;transition:background 140ms ease,color 140ms ease}
-  .tr-menu-del:hover{background:var(--card2);color:var(--txt)}
-  .tr-menu-del:focus-visible,.tr-menu-colors button:focus-visible{
-    outline:2px solid var(--accent);outline-offset:2px}
+  .tr-menu-colors .sw-none{display:flex;align-items:center;justify-content:center;
+    background:transparent;border:1px solid var(--border-strong,#3f4652);color:var(--muted)}
+  .tr-menu-colors .sw-none:hover{color:var(--txt)}
+  .tr-menu-colors button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   @media (prefers-reduced-motion:reduce){
-    .tr-marge,.tr-mark,.tr-mark-sign,.tr-mark-label,.tr-marge-all-sign,.tr-menu-del{
+    .tr-marge,.tr-mark,.tr-mark-sign,.tr-mark-label,.tr-mk-more,.tr-marge-all-sign{
       transition:none}
   }
 

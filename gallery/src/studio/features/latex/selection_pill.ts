@@ -25,9 +25,6 @@ export interface LatexSelectionPillOptions {
   getEditor(): SelectionPillEditor | null;
   adapter: SelectionPillAdapter;
   openComment(selection: LatexPillSelection): void;
-  /** Épingler le passage : il gagne son encoche dans la marge de la Lecture.
-   *  Absent = pas de bouton « Épingler » dans la pastille. */
-  onPin?(selection: LatexPillSelection): void;
   clearMarker(): void;
   document?: Document;
   window?: Window;
@@ -104,22 +101,6 @@ export function createLatexSelectionPill(
         api.hide();
       };
       go.insertAdjacentElement("afterend", comment);
-      // « Épingler » : même greffe, même passage, même ancrage — mais rien à
-      // écrire. Le commentaire dit quelque chose du passage, le signet dit
-      // seulement « reviens ici ».
-      if (options.onPin) {
-        const pin = doc.createElement("button");
-        pin.innerHTML = '<svg width="13" height="13" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" style="vertical-align:-2px"><path d="M1.4 1.4h8.2v11.2L5.5 9.4 1.4 12.6V1.4Z"/></svg>&nbsp; Épingler';
-        pin.title = "Épingler ce passage dans la marge de la Lecture";
-        pin.style.cssText = go.style.cssText;
-        pin.onmousedown = (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (lastSelection) options.onPin?.(lastSelection);
-          api.hide();
-        };
-        comment.insertAdjacentElement("afterend", pin);
-      }
     },
   });
   const show = (from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void => {

@@ -327,8 +327,6 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       getEditor: () => editor,
       adapter: dependencies.selectionPill,
       openComment: (selection) => ensureAnnotations().open(selection),
-      // Épingler = le même passage que « Commenter », sans le commentaire.
-      onPin: (selection) => ensureMarge()?.add({text: selection.text, from: selection.from}),
       clearMarker: () => {
         win._clMark?.clear();
         win._clMark = null;
