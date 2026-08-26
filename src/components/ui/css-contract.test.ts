@@ -479,6 +479,26 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.permission-select \.custom-select-trigger-icon\s*\{[^}]*color:\s*var\(--text-muted\)/);
   });
 
+  it("la barre du composer tient sur UNE assise et DEUX gouttières", () => {
+    // une seule hauteur pour tous les contrôles : 24/24/auto/auto/30 ne donnait
+    // aucune ligne d'assise et la barre se lisait comme huit objets isolés
+    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*--composer-ctl-h:\s*26px/);
+    for (const sel of [
+      "\\.composer-bar \\.ghost",
+      "\\.composer-bar \\.send",
+      "\\.composer-bar \\.permission-select\\.compact \\.custom-select-trigger",
+      "\\.composer-bar \\.mp-btn\\.mp-model",
+    ]) {
+      expect(appCss).toMatch(new RegExp(`${sel}[^{]*\\{[^}]*var\\(--composer-ctl-h\\)`));
+    }
+    // 2px dans un groupe (le gap de la barre), l'écart entre groupes est porté
+    // par le ressort central et par la marge de l'envoi
+    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*gap:\s*2px/);
+    expect(appCss).toMatch(/\.composer-bar \.send\s*\{[^}]*margin-left:\s*12px/);
+    // la boîte ne penche plus
+    expect(appCss).toMatch(/\.composer-input-group\s*\{[^}]*padding:\s*10px 12px;/);
+  });
+
   it("Quick Ask réserve les marges du textarea dans sa largeur", () => {
     expect(appCss).toMatch(/\.qa-input\s*\{[^}]*width:\s*calc\(100% - 32px\)/);
     expect(appCss).toMatch(/\.qa-input\s*\{[^}]*box-sizing:\s*border-box/);

@@ -518,7 +518,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* Composer style Synara */
 .composer { margin: 10px auto 14px; width: calc(100% - 32px); max-width: 760px;
   display: block; }
-.composer-input-group { align-items: stretch; gap: 5px; padding: 9px 12px 7px;
+/* Padding symétrique : 9 en haut / 7 en bas faisait pencher la boîte (2026-08-26). */
+.composer-input-group { align-items: stretch; gap: 8px; padding: 10px 12px;
   background: var(--bg-card);
   border: 1px solid color-mix(in srgb, var(--accent) 68%, var(--border));
   box-shadow: var(--elev-soft);
@@ -531,11 +532,24 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .composer textarea { background: transparent; border: none; outline: none; resize: none;
   color: inherit; font: inherit; font-size: var(--fs-l); line-height: 1.45; }
 .composer textarea::placeholder { color: var(--text-disabled); }
-.composer-bar { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+/* Rythme de la barre (2026-08-26). DEUX gouttières, pas une : 2px À L'INTÉRIEUR
+ * d'un groupe (les outils entre eux, les contrôles d'état entre eux), 12px
+ * ENTRE les groupes. Avec un seul gap de 10px, rien ne se groupait — la barre
+ * se lisait comme huit objets isolés. Et UNE hauteur pour tout le monde :
+ * 24/24/auto/auto/30 ne donnait aucune ligne d'assise. */
+.composer-bar { display: flex; align-items: center; gap: 2px; width: 100%; min-width: 0;
+  --composer-ctl-h: 26px; }
 .composer-bar .flex { flex: 1; }
 .composer-bar .ghost { background: transparent; border: none; color: var(--text-muted);
-  font-size: var(--fs-xl); cursor: pointer; padding: 2px 6px; border-radius: var(--r-s); }
+  font-size: var(--fs-xl); cursor: pointer; padding: 0; border-radius: var(--r-s);
+  width: var(--composer-ctl-h); height: var(--composer-ctl-h);
+  display: inline-flex; align-items: center; justify-content: center; }
 .composer-bar .ghost:hover { background: var(--bg-ctl); }
+/* l'anneau de contexte partage l'assise du groupe d'état ; seul l'envoi
+ * (l'action) se détache du reste. */
+.composer-bar .ctx-ring-wrap { height: var(--composer-ctl-h); padding: 0 4px; }
+.composer-bar .send { width: var(--composer-ctl-h); height: var(--composer-ctl-h);
+  margin-left: 12px; border-radius: var(--r-s); }
 .access { color: var(--text-muted) !important; font-size: var(--fs-l); }
 .access.accent { color: var(--accent) !important; }
 .model-pick { display: flex; align-items: center; gap: 4px; }
@@ -614,7 +628,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* Déclencheur sans libellé : une icône et son chevron, à la mesure des autres
  * boutons de la barre. Le nom du mode se lit dans l'infobulle et dans le menu. */
 .composer-bar .permission-select.compact .custom-select-trigger {
-  min-width: 0; height: 24px; padding: 0 6px; gap: 4px; }
+  min-width: 0; height: var(--composer-ctl-h); padding: 0 7px; gap: 4px; }
 .permission-select .custom-select-trigger-icon { display: inline-flex; align-items: center;
   justify-content: center; color: var(--text-muted); }
 .permission-select .custom-select-trigger:hover .custom-select-trigger-icon,
@@ -624,8 +638,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .composer-meta-sep { flex: none; width: 1px; height: 14px; margin: 0 2px;
   background: var(--border2); opacity: .55; }
 /* Modèle : ne plie plus. La route recule, le nom porte la lecture. */
-.composer-bar .mp-btn.mp-model { height: 24px; max-width: 230px; gap: 5px; padding: 0 7px;
-  font-size: var(--fs-m); border-radius: var(--r-s); white-space: nowrap; }
+.composer-bar .mp-btn.mp-model { height: var(--composer-ctl-h); max-width: 230px; gap: 5px;
+  padding: 0 7px; font-size: var(--fs-m); border-radius: var(--r-s); white-space: nowrap; }
+/* effort et niveau de service rejoignent la même assise et le même rayon : ils
+ * arrondissaient à 10px (--r-m de .mp-btn) contre 6px pour leurs voisins. */
+.composer-bar .mp-btn.mp-effort, .composer-bar .mp-btn.tier-toggle {
+  height: var(--composer-ctl-h); padding: 0 8px; border-radius: var(--r-s); }
+/* le filet devient une division INTERNE du groupe d'état, à marges égales —
+ * pas une coupure de la barre. */
+.composer-bar .composer-meta-sep { margin: 0 7px; height: 13px; }
 .mp-model-label { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; }
 .mp-model .mp-route { flex: none; font-size: var(--fs-s); color: var(--text-disabled); }
 .mp-model .mp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis;
