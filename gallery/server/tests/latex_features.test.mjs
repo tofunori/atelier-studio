@@ -329,3 +329,57 @@ test("proseRunRanges skips runs missing from the rendered block without giving u
   // tableau issu du realm VM : comparer la longueur, pas le prototype
   assert.equal(latex.proseRunRanges("rien ici", ["introuvable totalement"]).length, 0);
 });
+
+test("gouttière : seuls les paragraphes sont numérotés, jamais les titres ni les items", () => {
+  // Numéroter un titre ferait croire à une numérotation de section ; les items
+  // de liste et les environnements gardent une marge nue.
+  assert.deepEqual(
+    latex.proseParagraphNumbers(["H2", "P", "P", "LI", "DIV", "P"]),
+    [null, 1, 2, null, null, 3],
+  );
+  assert.equal(latex.paragraphReference("~/these/methodes.tex", 12), "methodes.tex ¶12");
+  assert.equal(latex.paragraphReference("", 1), "document ¶1");
+});
+
+test("libellé d'un signet : coupé au mot, jamais au milieu", () => {
+  const court = "Les priors sont faiblement informatifs.";
+  assert.equal(latex.bookmarkLabel(court), court);
+  const long = "Les lois a priori sont faiblement informatives et ont ete fixees sur l echelle brute";
+  const label = latex.bookmarkLabel(long);
+  assert.ok(label.length <= 61, label);
+  assert.ok(label.endsWith("…"), label);
+  assert.ok(long.startsWith(label.slice(0, -1)), label);
+  assert.equal(latex.bookmarkLabel("  espaces   multiples \n ici "), "espaces multiples ici");
+});
+
+test("ancre d'un signet : une suite de prose SOURCE, sans commandes LaTeX", () => {
+  // Piège : stocker le paragraphe entier condamne l'ancre à la premiere
+  // retouche ; stocker un mot serait ambigu. On garde la premiere suite de
+  // prose, bornee a quelques mots — et jamais un fragment de commande.
+  const src = "Les lois \\emph{a priori} sont faiblement informatives et ont ete fixees ainsi.";
+  const anchor = latex.bookmarkAnchorText(src);
+  assert.ok(anchor.length >= 4, anchor);
+  assert.ok(!anchor.includes("\\"), anchor);
+  assert.ok(!anchor.includes("{"), anchor);
+  assert.ok(src.includes(anchor.split(" ")[0]), anchor);
+  assert.ok(anchor.split(" ").length <= 12, anchor);
+});
+
+test("signet : l'ancre suit son paragraphe quand on ecrit au-dessus, et s'eteint si le texte disparait", () => {
+  const paragraphe = "Les lois a priori sont faiblement informatives et fixees avant l ajustement.";
+  const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
+  const signet = {id: "bk1", text: latex.bookmarkAnchorText(paragraphe), from: {line: 0, ch: 0}, created: 0};
+
+  const avant = "intro\n" + paragraphe + "\n";
+  const suivi = latex.resolveBookmarks(avant, [signet], editor);
+  assert.equal(suivi.length, 1);
+  assert.notEqual(suivi[0].line, null, "l'ancre doit se retrouver dans le source");
+
+  // 200 lignes ajoutees au-dessus : un signet ancre sur un NUMERO aurait derive
+  const decale = "ligne\n".repeat(200) + paragraphe + "\n";
+  assert.notEqual(latex.resolveBookmarks(decale, [signet], editor)[0].line, null);
+
+  // paragraphe reecrit : ancrage perdu, ligne nulle — la rangee s'eteint
+  // plutot que de sauter a un endroit faux
+  assert.equal(latex.resolveBookmarks("un texte entierement different\n", [signet], editor)[0].line, null);
+});
