@@ -43,8 +43,7 @@ export interface LatexReadingOptions {
    *  déclenche sa sauvegarde habituelle. Absent = pas d'édition en Lecture. */
   onBlockEdited?(): void;
   /** Le rendu de la prose vient d'être (re)construit — marques du diff
-   *  comprises. La gouttière de marge s'y raccroche pour repeindre ses
-   *  pistes : numéros, signets, pastilles. */
+   *  comprises. Le rail de marge s'y raccroche pour se repeindre. */
   onRendered?(): void;
   katex: KatexRenderer;
   document?: Document;
@@ -550,6 +549,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       applyAnnotationHighlights();          // vide le registre en quittant
       options.onProseSelectionCleared?.();  // la pastille de prose avec lui
     }
+    if (!next) options.onRendered?.();   // le rail se vide en quittant la Lecture
     win.setTimeout(() => options.getEditor()?.refresh(), 60);
     syncMode();
   };
@@ -579,7 +579,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // partant de la ligne du bloc — l'ancre `data-line` sert de voisinage.
   /** Éléments que le rendu a fabriqués : leur texte n'a pas d'équivalent
    *  littéral dans le source, donc il ne peut pas servir d'ancre. */
-  const RENDERED_ONLY = ".tex-cite, .tex-ref, .tex-fn, .tex-matherr, .katex, .katex-display, .tr-gutter";
+  const RENDERED_ONLY = ".tex-cite, .tex-ref, .tex-fn, .tex-matherr, .katex, .katex-display";
   const literalFragments = (range: Range): string[] => {
     const root = range.commonAncestorContainer;
     const host = (root.nodeType === 1 ? root as Element : root.parentElement) || reading;
@@ -836,10 +836,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
           const anchor = rangeFromOffsets(block, at, at);
           if (anchor) { anchor.insertNode(body); return; }
         }
-        // Repli en tête de bloc. On ne vise PAS `cut.nextSibling` : la
-        // gouttière de marge adopte la coupe, qui n'est alors plus un
-        // enfant du bloc — insertBefore lèverait NotFoundError.
-        block.insertBefore(body, block.firstChild);
+        block.insertBefore(body, cut.nextSibling);
       };
       const toggle = (): void => {
         const open = !body.parentNode;
@@ -879,7 +876,6 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   const setDiffMarks = (marks: ReadonlyArray<{kind: string; line: number; text: string}>): void => {
     diffMarks = marks;
     applyDiffMarks();
-    options.onRendered?.();
   };
 
   // En vue Lecture l'éditeur est masqué (`tex-read-only`) : y déplacer le

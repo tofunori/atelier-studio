@@ -5,7 +5,7 @@ import {
   createLatexPdfControls,
   createLatexPdfSyncController,
   createLatexReadingController,
-  createLatexReadingGutter,
+  createLatexReadingMarge,
   createLatexSelectionPill,
   createRewrapController,
   createStudioStatusBar,
@@ -19,7 +19,7 @@ import {
   type LatexPdfControls,
   type LatexPdfSyncController,
   type LatexReadingController,
-  type LatexReadingGutterController,
+  type LatexReadingMargeController,
   type LatexSelectionPillController,
   type PdfJs,
   type SelectionPillAdapter,
@@ -157,7 +157,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let annotations: LatexAnnotationsController | null = null;
   let outline: LatexOutlineController | null = null;
   let reader: LatexReadingController | null = null;
-  let gutter: LatexReadingGutterController | null = null;
+  let marge: LatexReadingMargeController | null = null;
   let pendingDiffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
   let selectionPill: LatexSelectionPillController | null = null;
   let statusBar: StudioStatusBarController | null = null;
@@ -203,7 +203,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       panel: doc.getElementById("texcPanel") as HTMLElement,
       button: doc.getElementById("texcBtn") as HTMLElement,
       postToHost: dependencies.postToHost,
-      onMutated: () => { reader?.refreshAnnotations(); gutter?.paint(); },
+      onMutated: () => { reader?.refreshAnnotations(); marge?.paint(); },
       document: doc,
       window: win,
     });
@@ -216,9 +216,6 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       element: doc.getElementById("outline") as HTMLElement,
       button: doc.getElementById("outlineBtn") as HTMLElement,
       document: doc,
-      // Les signets de la vue Lecture se rangent en tête du plan : c'est déjà
-      // l'endroit d'où l'on saute dans le fichier.
-      bookmarks: () => gutter?.rows() || [],
       // Le plan doit naviguer dans la vue VISIBLE : en Lecture, l'éditeur est
       // masqué et y bouger le curseur ne montrait rien (vécu 2026-08-16).
       revealLine: (target, line) => {
@@ -286,9 +283,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       // que ⌘S (rewrap auto compris), pour ne pas laisser un buffer dirty
       // invisible derrière une vue qui masque l'éditeur.
       onBlockEdited: () => { void save(); },
-      // La marge est repeinte APRÈS le rendu et après les marques du diff :
-      // elle adopte les coupes et repose ses numéros sur la prose fraîche.
-      onRendered: () => ensureGutter()?.paint(),
+      // Le rail se repeint APRÈS le rendu : il lit les ancres `data-line` de
+      // la prose fraîche pour situer ses encoches à l'écran.
+      onRendered: () => ensureMarge()?.paint(),
       katex: dependencies.katex,
       document: doc,
       window: win,
@@ -298,26 +295,31 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     reader.setDiffMarks(pendingDiffMarks);
     return reader;
   };
-  // Gouttière de marge de la Lecture : numéros de paragraphe, signets,
-  // pastilles d'annotation. Elle naît avec #texread, que le lecteur crée.
-  const ensureGutter = (): LatexReadingGutterController | null => {
-    if (gutter) return gutter;
+  // Marge annotée de la Lecture : le rail vit dans #split, qui ne défile pas —
+  // posé dans #right il partirait avec le texte.
+  const ensureMarge = (): LatexReadingMargeController | null => {
+    if (marge) return marge;
+    const host = doc.getElementById("split");
+    const scroller = doc.getElementById("right");
     const reading = doc.getElementById("texread");
-    if (!reading) return null;
-    gutter = createLatexReadingGutter({
+    if (!host || !scroller || !reading) return null;
+    marge = createLatexReadingMarge({
       path: path || "",
+      host,
+      scroller,
       reading,
       getEditor: () => editor,
       getAnnotations: () => ensureAnnotations().annotations(),
-      openAnnotation: (annotation) => ensureAnnotations()
-        .open({from: annotation.from, to: annotation.to, text: annotation.text}),
-      // le plan affiche les signets : il se reconstruit quand le jeu change
-      onBookmarksChanged: () => ensureOutline().build(),
+      revealSourceLine: (line) => {
+        if (reader?.revealSourceLine(line) || !editor) return;
+        revealLineRange(editor, {fromLine: line, margin: 100, focus: true});
+      },
+      isReading: () => Boolean(reader?.isReading()),
       document: doc,
       window: win,
     });
-    void gutter.load();
-    return gutter;
+    void marge.load();
+    return marge;
   };
   const ensureSelectionPill = (): LatexSelectionPillController => {
     if (selectionPill) return selectionPill;
@@ -326,6 +328,8 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       getEditor: () => editor,
       adapter: dependencies.selectionPill,
       openComment: (selection) => ensureAnnotations().open(selection),
+      // Épingler = le même passage que « Commenter », sans le commentaire.
+      onPin: (selection) => ensureMarge()?.add({text: selection.text, from: selection.from}),
       clearMarker: () => {
         win._clMark?.clear();
         win._clMark = null;

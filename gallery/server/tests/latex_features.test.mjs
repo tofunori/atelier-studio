@@ -330,56 +330,66 @@ test("proseRunRanges skips runs missing from the rendered block without giving u
   assert.equal(latex.proseRunRanges("rien ici", ["introuvable totalement"]).length, 0);
 });
 
-test("gouttière : seuls les paragraphes sont numérotés, jamais les titres ni les items", () => {
-  // Numéroter un titre ferait croire à une numérotation de section ; les items
-  // de liste et les environnements gardent une marge nue.
-  assert.deepEqual(
-    latex.proseParagraphNumbers(["H2", "P", "P", "LI", "DIV", "P"]),
-    [null, 1, 2, null, null, 3],
+test("rail de lecture : les sections du fichier, tous niveaux confondus", () => {
+  const tex = [
+    "\\section{Methodes}",
+    "du texte",
+    "  \\subsection{Priors}",
+    "\\paragraph{Note}",
+    "pas une section",
+  ].join("\n");
+  assert.equal(
+    latex.readingSections(tex).map((s) => `${s.line}:${s.title}`).join(" | "),
+    "0:Methodes | 2:Priors | 3:Note",
   );
-  assert.equal(latex.paragraphReference("~/these/methodes.tex", 12), "methodes.tex ¶12");
-  assert.equal(latex.paragraphReference("", 1), "document ¶1");
 });
 
-test("libellé d'un signet : coupé au mot, jamais au milieu", () => {
-  const court = "Les priors sont faiblement informatifs.";
-  assert.equal(latex.bookmarkLabel(court), court);
-  const long = "Les lois a priori sont faiblement informatives et ont ete fixees sur l echelle brute";
-  const label = latex.bookmarkLabel(long);
-  assert.ok(label.length <= 61, label);
-  assert.ok(label.endsWith("…"), label);
-  assert.ok(long.startsWith(label.slice(0, -1)), label);
-  assert.equal(latex.bookmarkLabel("  espaces   multiples \n ici "), "espaces multiples ici");
+test("rail : entrees dans l ordre du document, signet orphelin exclu", () => {
+  const sections = [{line: 0, title: "Methodes"}, {line: 40, title: "Inference"}];
+  const pins = [
+    {id: "p1", line: 12, text: "les lois a priori sont faiblement informatives"},
+    {id: "p2", line: null, text: "passage reecrit, ancrage perdu"},
+  ];
+  const annots = [{line: 12, text: "moins de 5 % des tirages"}];
+  const entries = latex.deriveReadingMarge(sections, pins, annots);
+  assert.equal(entries.map((e) => e.kind).join(","), "sec,pin,hl,sec");
+  assert.equal(entries.map((e) => e.line).join(","), "0,12,12,40");
+  // un rail ne peut pas montrer une position fausse : l orphelin n a pas d encoche
+  assert.ok(!entries.some((e) => e.id === "p2"));
+  // le libelle d un passage SOURCE est debarrasse des commandes LaTeX
+  const cite = latex.deriveReadingMarge([], [], [{line: 1, text: "albedo \\cite{smith2020} estival"}]);
+  assert.ok(!cite[0].label.includes("cite"), cite[0].label);
 });
 
-test("ancre d'un signet : une suite de prose SOURCE, sans commandes LaTeX", () => {
-  // Piège : stocker le paragraphe entier condamne l'ancre à la premiere
-  // retouche ; stocker un mot serait ambigu. On garde la premiere suite de
-  // prose, bornee a quelques mots — et jamais un fragment de commande.
-  const src = "Les lois \\emph{a priori} sont faiblement informatives et ont ete fixees ainsi.";
-  const anchor = latex.bookmarkAnchorText(src);
-  assert.ok(anchor.length >= 4, anchor);
-  assert.ok(!anchor.includes("\\"), anchor);
-  assert.ok(!anchor.includes("{"), anchor);
-  assert.ok(src.includes(anchor.split(" ")[0]), anchor);
-  assert.ok(anchor.split(" ").length <= 12, anchor);
+test("rail : le pli garde les marques et laisse tomber les sections", () => {
+  const sections = Array.from({length: 30}, (_, i) => ({line: i, title: `S${i}`}));
+  assert.equal(latex.margeMode(sections.length), "marks");
+  assert.equal(latex.margeMode(10), "all");
+  const pins = [{id: "p1", line: 5, text: "un passage epingle"}];
+  const plie = latex.deriveReadingMarge(sections, pins, [], {mode: "marks"});
+  assert.equal(plie.map((e) => e.kind).join(","), "pin");
+  // rien n est perdu : « tout » rend la vue complete
+  assert.equal(latex.deriveReadingMarge(sections, pins, [], {mode: "all"}).length, 31);
 });
 
-test("signet : l'ancre suit son paragraphe quand on ecrit au-dessus, et s'eteint si le texte disparait", () => {
-  const paragraphe = "Les lois a priori sont faiblement informatives et fixees avant l ajustement.";
+test("rail : l encoche « ici » suit le defilement, et le bas du document est designe", () => {
+  const tops = [0, 200, 400, 600];
+  // limite = tiers haut de la fenetre : le dernier point deja passe gagne
+  assert.equal(latex.activeMargeIndex(tops, 150, false), 0);
+  assert.equal(latex.activeMargeIndex(tops, 450, false), 2);
+  // avant la premiere entree : aucune
+  assert.equal(latex.activeMargeIndex(tops, -10, false), -1);
+  // au bas du document, la derniere entree gagne quel que soit le seuil —
+  // sinon la fin n est jamais designee
+  assert.equal(latex.activeMargeIndex(tops, 0, true), 3);
+  assert.equal(latex.activeMargeIndex([], 100, false), -1);
+});
+
+test("signet : ancre par le TEXTE, donc insensible aux lignes ajoutees au-dessus", () => {
+  const passage = "les lois a priori sont faiblement informatives";
   const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
-  const signet = {id: "bk1", text: latex.bookmarkAnchorText(paragraphe), from: {line: 0, ch: 0}, created: 0};
-
-  const avant = "intro\n" + paragraphe + "\n";
-  const suivi = latex.resolveBookmarks(avant, [signet], editor);
-  assert.equal(suivi.length, 1);
-  assert.notEqual(suivi[0].line, null, "l'ancre doit se retrouver dans le source");
-
-  // 200 lignes ajoutees au-dessus : un signet ancre sur un NUMERO aurait derive
-  const decale = "ligne\n".repeat(200) + paragraphe + "\n";
-  assert.notEqual(latex.resolveBookmarks(decale, [signet], editor)[0].line, null);
-
-  // paragraphe reecrit : ancrage perdu, ligne nulle — la rangee s'eteint
-  // plutot que de sauter a un endroit faux
-  assert.equal(latex.resolveBookmarks("un texte entierement different\n", [signet], editor)[0].line, null);
+  const pins = [{id: "p1", text: passage, from: {line: 1, ch: 0}, created: 0}];
+  const decale = "ligne\n".repeat(200) + passage + "\n";
+  assert.notEqual(latex.resolvePins(decale, pins, editor)[0].line, null);
+  assert.equal(latex.resolvePins("un texte entierement different\n", pins, editor)[0].line, null);
 });

@@ -306,14 +306,6 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #outline .oi:hover{background:var(--card2);color:var(--txt)}
   #outline .oi.on{color:var(--accent)}
-  /* signets de la Lecture, en tête du plan : un filet dit le type avant la
-     lecture, dans une liste où tout est du texte tronqué */
-  #outline .om{display:flex;align-items:center;gap:8px;color:var(--txt)}
-  #outline .om::before{content:"";width:3px;align-self:stretch;min-height:14px;border-radius:2px;
-    background:var(--muted);flex:none}
-  #outline .om.dead{color:var(--muted);font-style:italic;cursor:default}
-  #outline .om.dead:hover{background:transparent;color:var(--muted)}
-  #outline .om.dead::before{background:var(--border-strong,#3f4652)}
   #outline .l2{padding-left:20px}
   #outline .l3{padding-left:32px;font-size:12px}
   #texcPanel{display:none;position:absolute;top:6px;right:8px;z-index:70;width:300px;max-height:70%;
@@ -388,7 +380,7 @@
      prose passent par des variables --tr-*, redéfinies par [data-tr-theme] sur
      #right. Défauts = le sombre historique. */
   #right.reading{background:var(--tr-bg,var(--card2))}
-  #texread{display:none;max-width:832px;margin:0 auto;padding:36px 112px 120px 40px;
+  #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
     font-family:Charter,Georgia,"Times New Roman",serif;line-height:1.7;color:var(--tr-fg,#e6e8ec);
     font-size:var(--texread-fs,17px)}
   #right.reading .pdfpage,#right.reading #marker{display:none!important}
@@ -426,60 +418,70 @@
   ::highlight(texc-read-diff-bridge){background:rgba(62,160,107,.11)}
   #texread [data-line]{position:relative}
 
-  /* ---- gouttière de marge (droite) : état, signet, numéro ------------------
-     Trois pistes de 16 px hors flux : poser une marque ne décale jamais la
-     prose. De la prose vers l'extérieur — ce que le document signale, ce qu'on
-     pose, ce qui sert à désigner. */
-  .tr-gutter{position:absolute;left:100%;top:0;height:1.7em;margin-left:12px;
-    display:flex;align-items:flex-start;gap:2px;user-select:none}
-  .tr-trk{width:16px;height:1.7em;flex:none;display:flex;align-items:flex-start;
-    justify-content:center;padding-top:.16em;background:none;border:0;cursor:pointer}
-  .tr-state{cursor:default;padding-top:0}
-  /* numéro de paragraphe : repère de citation, pas de la décoration — il vit
-     éteint et s'allume au survol du bloc. Clic = copie « fichier ¶n ». */
-  .tr-pnum{width:28px;justify-content:flex-start;padding-top:0;
-    font-family:var(--ui-font,sans-serif);font-size:10px;font-weight:500;line-height:1.7;
-    font-variant-numeric:tabular-nums;color:var(--tr-faint,#646d7b);opacity:.4;
-    transition:opacity 140ms ease,color 140ms ease}
-  #texread [data-line]:hover .tr-pnum{opacity:1;color:var(--tr-muted,#868d9a)}
-  .tr-pnum.on{opacity:1;color:var(--tr-fg,#e6e8ec)}
-  /* signet : invisible au repos, fantôme au survol, plein une fois posé.
-     Monochrome — dans une marge, la forme dit l'état, la couleur reste aux
-     repères sémantiques (commentaire, suppression). */
-  .tr-bk{color:var(--tr-faint,#646d7b);opacity:0;
-    transition:opacity 140ms ease,color 140ms ease}
-  #texread [data-line]:hover .tr-bk{opacity:.4}
-  #texread [data-line] .tr-bk:hover{opacity:.7}
-  .tr-bk.on,#texread [data-line]:hover .tr-bk.on{opacity:1;color:var(--tr-fg,#e6e8ec)}
-  .tr-bk svg{width:11px;height:14px;display:block}
-  .tr-bk.on .tr-bk-body{fill:currentColor}
-  .tr-pnum:focus-visible,.tr-bk:focus-visible,.tr-pastille:focus-visible,.tr-cut:focus-visible{
-    outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
-  /* pastille d'annotation : mêmes familles que les marques de l'éditeur */
-  .tr-pastille{width:7px;height:7px;margin-top:.34em;border:0;padding:0;border-radius:999px;
-    cursor:pointer;background:rgba(224,183,74,.85);transition:transform 140ms ease}
-  #texread [data-line]:hover .tr-pastille{transform:scale(1.25)}
-  .tr-pastille.texc-c-amber{background:rgba(224,183,74,.85)}
-  .tr-pastille.texc-c-red{background:rgba(240,125,115,.85)}
-  .tr-pastille.texc-c-blue{background:rgba(91,157,255,.85)}
-  .tr-pastille.texc-c-green{background:rgba(126,192,120,.85)}
-  .tr-pastille.texc-c-purple{background:rgba(170,140,224,.85)}
+  /* ---- marge annotée de la Lecture (rail) --------------------------------
+     Transposition de `.tl-marge` du chat, métriques identiques : rangée de
+     8 px, ligne de 12x1 px, inactive en demi-teinte. Repliée c'est une carte
+     du document ; dépliée, les noms apparaissent. Le rail vit dans #split,
+     qui ne défile pas — dans #right il partirait avec le texte. */
+  .tr-marge{display:none;position:absolute;top:16px;left:4px;z-index:40;
+    width:28px;max-height:calc(100% - 32px);
+    flex-direction:column;align-items:flex-end;gap:0;
+    overflow-x:hidden;overflow-y:auto;scrollbar-width:none;
+    border-radius:10px;padding:4px 0;
+    transition:width 140ms ease,background 140ms ease,box-shadow 140ms ease}
+  .tr-marge::-webkit-scrollbar{display:none}
+  html.tex-read-only .tr-marge{display:flex}
+  /* dépliée : surface élevée (fond + ombre douce, pas une bordure de plus) */
+  .tr-marge:hover,.tr-marge:focus-within{width:188px;align-items:stretch;gap:2px;padding:6px;
+    background:var(--card);box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  .tr-mark-item{display:block;width:100%}
+  .tr-mark{display:flex;align-items:center;justify-content:flex-end;gap:0;
+    width:100%;height:8px;min-height:8px;padding:0 4px 0 0;
+    border:none;background:transparent;border-radius:6px;cursor:pointer;text-align:left;
+    transition:height 140ms ease,min-height 140ms ease,background 140ms ease}
+  .tr-marge:hover .tr-mark,.tr-marge:focus-within .tr-mark{
+    height:auto;min-height:20px;justify-content:flex-start;gap:10px;padding:2px 6px}
+  .tr-marge:hover .tr-mark:hover,.tr-mark:focus-visible{background:var(--card2)}
+  .tr-mark:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  /* la ligne : 12x1 px, constante. L'inactive est une demi-teinte (trame
+     conique de 2 px) — elle disparaît dans le fond sans mentir sur sa
+     position. Seule la COULEUR distingue les types. */
+  .tr-mark-sign{flex:none;width:12px;height:1px;color:var(--muted);opacity:.7;
+    background:repeating-conic-gradient(currentColor 0% 25%,transparent 0% 50%) 0 0/2px 2px;
+    transition:opacity 140ms ease}
+  .tr-mark[data-mark="pin"] .tr-mark-sign{background:var(--accent);opacity:1}
+  .tr-mark[data-mark="hl"] .tr-mark-sign{background:var(--hl-line,#cda44b);opacity:1}
+  /* l'entrée où l'on lit : ligne pleine en encre vive — désignée par la
+     géométrie du défilement, jamais par un clic */
+  .tr-mark[data-here] .tr-mark-sign{background:var(--txt);opacity:1}
+  /* PIÈGE (vécu dans le chat) : repliée, le libellé ne doit prendre AUCUNE
+     place — invisible mais dans le flux, sa largeur poussait les traits hors
+     de l'écran. */
+  .tr-mark-label{flex:0 0 0;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;font:11px/1.4 var(--ui-font,sans-serif);color:var(--muted);opacity:0;
+    transition:opacity 140ms ease}
+  .tr-marge:hover .tr-mark-label,.tr-marge:focus-within .tr-mark-label{
+    flex:1 1 auto;width:auto;opacity:1}
+  .tr-mark[data-mark="pin"] .tr-mark-label{color:var(--txt)}
+  .tr-mark[data-mark="hl"] .tr-mark-label{font-style:italic}
+  .tr-mark[data-here] .tr-mark-label{color:var(--txt)}
+  /* bascule « tout · N » : même géométrie qu'une encoche */
+  .tr-marge-all{display:flex;align-items:center;gap:8px;width:100%;
+    margin-top:8px;padding:2px 4px;border-radius:6px;
+    background:transparent;border:0;cursor:pointer;color:var(--muted)}
+  .tr-marge-all .tr-mark-label{color:var(--muted);font-size:10px}
+  .tr-marge-all:hover{background:var(--card2)}
+  .tr-marge-all-sign{flex:none;transition:transform 140ms ease}
+  .tr-marge-all[aria-pressed="true"] .tr-marge-all-sign{transform:rotate(180deg)}
   @media (prefers-reduced-motion:reduce){
-    .tr-pnum,.tr-bk,.tr-pastille{transition:none}
-  }
-  /* panneau étroit : la marge se réduit aux marques, jamais de chevauchement */
-  @media (max-width:1000px){
-    #texread{padding-right:76px}
-    .tr-pnum{display:none}
+    .tr-marge,.tr-mark,.tr-mark-sign,.tr-mark-label,.tr-marge-all-sign{transition:none}
   }
 
   /* barre de coupe : bouton (zone de clic élargie, barre visible en ::before) —
      un clic déplie le texte supprimé en barré au début du bloc */
-  /* barre de coupe : vit dans la piste d'état de la gouttière (marge DROITE),
-     adoptée par elle après chaque rendu — un seul côté porte les repères */
-  .tr-cut{position:relative;width:16px;height:1.4em;
+  .tr-cut{position:absolute;left:-19px;top:.14em;width:13px;height:1.4em;
     cursor:pointer;opacity:.85;background:none;border:0;padding:0}
-  .tr-cut::before{content:"";position:absolute;left:6px;top:.14em;bottom:.11em;width:3px;
+  .tr-cut::before{content:"";position:absolute;left:5px;top:.14em;bottom:.11em;width:3px;
     border-radius:2px;background:var(--dv-del,#e06c75)}
   .tr-cut:hover,.tr-cut.open{opacity:1}
   .tr-cut:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}

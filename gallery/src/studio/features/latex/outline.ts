@@ -5,11 +5,6 @@ export interface LatexOutlineOptions {
   element: HTMLElement;
   button: HTMLElement;
   revealLine(editor: StudioEditor, line: number): void;
-  /** Signets posés en vue Lecture, dans l'ordre du document. Le plan est déjà
-   *  l'endroit d'où l'on saute dans le fichier : les marques s'y rangent en
-   *  tête plutôt que d'ouvrir un panneau de plus. `line` nulle = ancrage perdu
-   *  après réécriture, la rangée s'affiche éteinte et ne saute nulle part. */
-  bookmarks?(): ReadonlyArray<{id: string; label: string; line: number | null}>;
   document?: Document;
 }
 
@@ -44,13 +39,7 @@ export function createLatexOutlineController(options: LatexOutlineOptions): Late
     const cursorLine = editor.getCursor().line;
     let active = -1;
     items.forEach((item, index) => { if (item.line <= cursorLine) active = index; });
-    const marks = options.bookmarks?.() || [];
-    const marksHtml = marks.length
-      ? '<div class="oh">Signets</div>' + marks.map((mark) => (mark.line === null
-        ? `<div class="oi om dead" title="Ancrage perdu — paragraphe réécrit">${escapeHtml(mark.label)}</div>`
-        : `<button class="oi om" data-l="${mark.line}">${escapeHtml(mark.label)}</button>`)).join("")
-      : "";
-    options.element.innerHTML = marksHtml + '<div class="oh">Plan</div>' + (items.length
+    options.element.innerHTML = '<div class="oh">Plan</div>' + (items.length
       ? items.map((item, index) => `<button class="oi l${item.level}${index === active ? " on" : ""}" data-l="${item.line}">${escapeHtml(item.title)}</button>`).join("")
       : '<div class="oi" style="cursor:default">aucune section</div>');
   };

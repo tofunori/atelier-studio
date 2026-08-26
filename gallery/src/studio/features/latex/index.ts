@@ -6,7 +6,7 @@ export * from "./pdf_controls";
 export * from "./pdf_sync";
 export * from "./preflight";
 export * from "./reading";
-export * from "./reading_gutter";
+export * from "./reading_marge";
 export * from "./rewrap";
 export * from "./selection_pill";
 export * from "./status_bar";
