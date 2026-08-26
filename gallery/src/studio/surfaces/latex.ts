@@ -203,7 +203,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       panel: doc.getElementById("texcPanel") as HTMLElement,
       button: doc.getElementById("texcBtn") as HTMLElement,
       postToHost: dependencies.postToHost,
-      onMutated: () => { reader?.refreshAnnotations(); marge?.paint(); },
+      onMutated: () => reader?.refreshAnnotations(),
       document: doc,
       window: win,
     });
@@ -309,12 +309,6 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       scroller,
       reading,
       getEditor: () => editor,
-      getAnnotations: () => ensureAnnotations().annotations(),
-      // La marge traite ses marques toutes pareilles : un commentaire s'y
-      // recolore comme un signet. Sa suppression, elle, reste dans son
-      // popover — il porte un texte écrit.
-      setAnnotationColor: (id, color) => ensureAnnotations().setColor(id, color),
-      openAnnotation: (id) => ensureAnnotations().focus(id),
       revealSourceLine: (line) => {
         if (reader?.revealSourceLine(line) || !editor) return;
         revealLineRange(editor, {fromLine: line, margin: 100, focus: true});

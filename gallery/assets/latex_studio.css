@@ -459,15 +459,11 @@
     transition:opacity 140ms ease}
   .tr-mk .tr-mark-sign{width:8px;opacity:1;background:currentColor}
   .tr-mk[data-color="amber"] .tr-mark-sign{color:rgba(224,183,74,.85)}
+  /* rangée « marquer ici » : poser une marque sans rien sélectionner */
   .tr-mk[data-color="red"] .tr-mark-sign{color:rgba(240,125,115,.85)}
   .tr-mk[data-color="blue"] .tr-mark-sign{color:rgba(91,157,255,.85)}
   .tr-mk[data-color="green"] .tr-mark-sign{color:rgba(126,192,120,.85)}
   .tr-mk[data-color="purple"] .tr-mark-sign{color:rgba(170,140,224,.85)}
-  /* La couleur étant LIBRE, elle ne peut plus dire le type : c'est la forme.
-     Le commentaire porte un point — il y a un texte à lire ; le signet est une
-     ligne nue — il n'y a que la position. */
-  .tr-mk[data-mark="hl"] .tr-mark-sign::before{content:"";position:absolute;left:-1px;top:-1px;
-    width:3px;height:3px;border-radius:999px;background:currentColor}
   /* l'entrée où l'on lit : ligne pleine en encre vive — désignée par la
      géométrie du défilement, jamais par un clic. Elle prime sur la couleur. */
   .tr-mark[data-here] .tr-mark-sign{color:var(--txt);opacity:1;background:currentColor}
@@ -482,20 +478,43 @@
   .tr-sec .tr-mark-label{font-size:10px;font-weight:500;letter-spacing:.08em;
     text-transform:uppercase;color:var(--muted)}
   .tr-mk .tr-mark-label{color:var(--txt);padding-left:4px}
-  .tr-mk[data-mark="hl"] .tr-mark-label{font-style:italic;color:var(--fg,var(--txt))}
   .tr-mark[data-here] .tr-mark-label{color:var(--txt)}
-  /* poignée d'une marque : le clic droit ne se devine pas. Elle n'existe que
-     rail déplié, au survol ou au focus de la rangée. */
-  .tr-mk-more{flex:none;display:none;align-items:center;justify-content:center;
-    width:16px;height:16px;border-radius:6px;cursor:pointer;
-    color:var(--muted);font:10px/1 var(--ui-font,sans-serif);letter-spacing:.05em;
-    opacity:0;transition:opacity 140ms ease,background 140ms ease,color 140ms ease}
-  .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more{display:flex}
-  .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-mk:focus-within .tr-mk-more,
-  .tr-mk-more:focus-visible{opacity:1}
+  /* commandes d'une rangée : couleur et retrait, à même la marque. Elles
+     n'existent que rail déplié, au survol ou au focus de la rangée — un rail
+     replié reste une carte, pas un tableau de bord. */
+  .tr-mk-more,.tr-mk-del{flex:none;display:none;align-items:center;justify-content:center;
+    width:16px;height:16px;border-radius:6px;cursor:pointer;color:var(--muted);
+    font:10px/1 var(--ui-font,sans-serif);letter-spacing:.05em;opacity:0;
+    transition:opacity 140ms ease,background 140ms ease,color 140ms ease}
+  .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more,
+  .tr-marge:hover .tr-mk-del,.tr-marge:focus-within .tr-mk-del{display:flex}
+  .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-marge:hover .tr-mark:hover .tr-mk-del,
+  .tr-mk:focus-within .tr-mk-more,.tr-mk:focus-within .tr-mk-del,
+  .tr-mk-more:focus-visible,.tr-mk-del:focus-visible{opacity:1}
   .tr-mk-more:hover{background:var(--card2);color:var(--txt)}
-  .tr-mk-more:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  @media (prefers-reduced-motion:reduce){.tr-mk-more{transition:none}}
+  .tr-mk-del:hover{background:color-mix(in srgb,var(--dv-del,#e06c75) 20%,transparent);
+    color:var(--dv-del,#e06c75)}
+  .tr-mk-more:focus-visible,.tr-mk-del:focus-visible{outline:2px solid var(--accent);
+    outline-offset:1px}
+  /* « marquer ici » : la seule commande du rail qui ne dépend d'aucune rangée.
+     Repliée c'est un + de 8 px en tête ; dépliée, elle se nomme. */
+  .tr-add{display:flex;align-items:center;justify-content:flex-end;gap:0;width:100%;
+    height:12px;min-height:12px;padding:0 2px 0 0;margin-bottom:4px;
+    border:0;background:transparent;border-radius:6px;cursor:pointer;color:var(--muted);
+    transition:height 140ms ease,min-height 140ms ease,background 140ms ease,color 140ms ease}
+  .tr-marge:hover .tr-add,.tr-marge:focus-within .tr-add{
+    height:auto;min-height:20px;justify-content:flex-start;gap:10px;padding:2px 6px;
+    margin-bottom:6px}
+  .tr-add:hover{color:var(--txt)}
+  .tr-marge:hover .tr-add:hover{background:var(--card2)}
+  .tr-add:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .tr-add-sign{flex:none;display:flex;align-items:center;justify-content:center;
+    width:12px;height:12px}
+  .tr-add .tr-mark-label{color:var(--muted);font-size:10px;letter-spacing:.04em;
+    text-transform:uppercase}
+  @media (prefers-reduced-motion:reduce){
+    .tr-mk-more,.tr-mk-del,.tr-add{transition:none}
+  }
   /* bascule « tout · N » : même géométrie qu'une encoche */
   .tr-marge-all{display:flex;align-items:center;gap:8px;width:100%;
     margin-top:8px;padding:2px 4px;border-radius:6px;

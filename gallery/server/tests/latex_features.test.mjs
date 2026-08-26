@@ -349,16 +349,18 @@ test("rail : marques dans l ordre, signet orphelin exclu, libelle sans commandes
     {id: "p1", line: 12, text: "les lois a priori sont faiblement informatives", color: "blue"},
     {id: "p2", line: null, text: "passage reecrit, ancrage perdu"},
   ];
-  const annots = [{line: 12, text: "albedo \\cite{smith2020} estival", color: "red"}];
-  const marks = latex.deriveReadingMarks(pins, annots);
-  assert.equal(marks.map((m) => m.kind).join(","), "pin,hl");
+  const marks = latex.deriveReadingMarks(pins);
   // un rail ne peut pas montrer une position fausse : l orphelin n a pas d encoche
+  assert.equal(marks.length, 1);
   assert.ok(!marks.some((m) => m.id === "p2"));
   assert.equal(marks[0].color, "blue");
-  assert.ok(!marks[1].label.includes("cite"), marks[1].label);
-  // couleur inconnue ou absente : la teinte par defaut, jamais une classe morte
-  assert.equal(latex.deriveReadingMarks([{id: "x", line: 1, text: "abc"}], [])[0].color, "amber");
-  assert.equal(latex.margeColor("chartreuse"), "amber");
+  // le libelle d un passage SOURCE est debarrasse des commandes LaTeX
+  const cite = latex.deriveReadingMarks([{id: "c", line: 1, text: "albedo \\cite{smith2020} estival"}]);
+  assert.ok(!cite[0].label.includes("cite"), cite[0].label);
+  // couleur inconnue ou absente : la teinte par defaut (bleu, pas l ambre des
+  // commentaires), jamais une classe morte
+  assert.equal(latex.deriveReadingMarks([{id: "x", line: 1, text: "abc"}])[0].color, "blue");
+  assert.equal(latex.margeColor("chartreuse"), "blue");
 });
 
 test("rail : chaque marque tombe sous la derniere section qui la precede", () => {
@@ -367,14 +369,14 @@ test("rail : chaque marque tombe sous la derniere section qui la precede", () =>
     {id: "a", line: 12, text: "sous Priors"},
     {id: "b", line: 41, text: "sous Inference"},
     {id: "c", line: 3, text: "avant toute section"},
-  ], []);
+  ]);
   const groups = latex.groupReadingMarge(sections, marks);
   assert.equal(groups.map((g) => g.title || "(tete)").join(" | "), "(tete) | Priors | Inference");
   assert.equal(groups.map((g) => g.marks.length).join(","), "1,1,1");
   assert.equal(groups[1].marks[0].label, "sous Priors");
   // rien avant la premiere section : pas de groupe anonyme fantome
   const propre = latex.groupReadingMarge(sections, latex.deriveReadingMarks(
-    [{id: "a", line: 12, text: "sous Priors"}], []));
+    [{id: "a", line: 12, text: "sous Priors"}]));
   assert.equal(propre.map((g) => g.title).join(" | "), "Priors | Inference");
 });
 
@@ -382,7 +384,7 @@ test("rail : le pli garde les sections marquees et laisse tomber les vides", () 
   const sections = Array.from({length: 30}, (_, i) => ({line: i * 10, title: `S${i}`}));
   assert.equal(latex.margeMode(sections.length), "marks");
   assert.equal(latex.margeMode(10), "all");
-  const marks = latex.deriveReadingMarks([{id: "a", line: 55, text: "un passage epingle"}], []);
+  const marks = latex.deriveReadingMarks([{id: "a", line: 55, text: "un passage epingle"}]);
   const plie = latex.groupReadingMarge(sections, marks, {mode: "marks"});
   assert.equal(plie.length, 1);
   assert.equal(plie[0].title, "S5");
@@ -412,11 +414,20 @@ test("signet : ancre par le TEXTE, donc insensible aux lignes ajoutees au-dessus
   assert.equal(latex.resolvePins("un texte entierement different\n", pins, editor)[0].line, null);
 });
 
-test("rail : un commentaire porte son id, donc il a le meme menu qu un signet", () => {
-  // Sans id, une marque de commentaire n avait ni couleur ni menu : clic droit
-  // mort dans un fichier qui ne contient que des commentaires (vecu 2026-08-26).
-  const marks = latex.deriveReadingMarks([], [{id: "c42", line: 3, text: "un passage", color: "green"}]);
-  assert.equal(marks[0].id, "c42");
-  assert.equal(marks[0].color, "green");
-  assert.equal(marks[0].kind, "hl");
+test("rail : il ne montre QUE les marques posees, jamais les commentaires", () => {
+  // Vecu 2026-08-26 : le rail derivait les annotations du fichier, donc un
+  // chapitre commente donnait un rail plein d ambre que personne n avait
+  // demande. Une carte de ce qu on a marque ne se peuple pas toute seule.
+  assert.equal(latex.deriveReadingMarks([]).length, 0);
+  assert.equal(latex.deriveReadingMarks.length, 1, "une seule entree : les marques");
+});
+
+test("ancre d une marque : une suite de prose SOURCE, bornee, sans commandes", () => {
+  const src = "Les lois \\emph{a priori} sont faiblement informatives et fixees ainsi avant tout le reste.";
+  const anchor = latex.margeAnchorText(src);
+  assert.ok(anchor.length >= 4, anchor);
+  assert.ok(!anchor.includes("\\"), anchor);
+  assert.ok(!anchor.includes("{"), anchor);
+  assert.ok(anchor.split(" ").length <= 12, anchor);
+  assert.ok(src.startsWith(anchor.split(" ")[0]), anchor);
 });
