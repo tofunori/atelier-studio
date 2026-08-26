@@ -574,6 +574,40 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .custom-select-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-bar .custom-select.compact { color: var(--text-muted); }
 .composer-bar .custom-select.compact[data-value="plan"] { color: var(--accent); }
+/* Grappe de méta du composer (raffinage 2026-08-26). Le mode de permission et
+ * le nom du modèle décrivent l'ÉTAT du tour à venir, pas son contenu : ils
+ * descendent d'un cran typographique (--fs-m, sous le texte de conversation),
+ * se lisent ensemble à droite, et un id long tronque au lieu de plier la
+ * barre sur deux lignes (vécu : `openrouter/z-ai-glm-5.3-flash`). */
+.composer-bar .custom-select.compact { font-size: var(--fs-m); }
+.composer-bar .custom-select.compact .custom-select-trigger {
+  height: 24px; min-height: 24px; padding: 0 7px; gap: 6px; border-radius: var(--r-s); }
+.composer-bar .custom-select.compact [data-icon="select-chevron"] svg {
+  width: 9px; height: 9px; color: var(--text-disabled); }
+/* Pastille d'état : le mode permissif se voit d'un coup d'oeil, les modes
+ * prudents gardent le gris — la couleur ne se dépense que là où elle informe. */
+.composer-bar .custom-select.compact[data-value="bypassPermissions"] .custom-select-label::before,
+.composer-bar .custom-select.compact[data-value="acceptEdits"] .custom-select-label::before,
+.composer-bar .custom-select.compact[data-value="default"] .custom-select-label::before,
+.composer-bar .custom-select.compact[data-value="plan"] .custom-select-label::before {
+  content: ""; flex: none; width: 5px; height: 5px; border-radius: var(--r-pill);
+  background: var(--text-disabled); }
+.composer-bar .custom-select.compact[data-value="bypassPermissions"] .custom-select-label::before {
+  background: var(--u-warn); }
+.composer-bar .custom-select.compact[data-value="plan"] .custom-select-label::before {
+  background: var(--accent); }
+/* Filet entre permission et modèle : une séparation, pas une bordure de plus. */
+.composer-meta-sep { flex: none; width: 1px; height: 14px; margin: 0 2px;
+  background: var(--border2); opacity: .55; }
+/* Modèle : ne plie plus. La route recule, le nom porte la lecture. */
+.composer-bar .mp-btn.mp-model { height: 24px; max-width: 230px; gap: 5px; padding: 0 7px;
+  font-size: var(--fs-m); border-radius: var(--r-s); white-space: nowrap; }
+.mp-model-label { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; }
+.mp-model .mp-route { flex: none; font-size: var(--fs-s); color: var(--text-disabled); }
+.mp-model .mp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.mp-model:hover .mp-name { color: var(--text-primary); }
+.mp-model-label.mp-dim .mp-name { color: var(--text-muted); }
 .send { width: 30px; height: 30px; border-radius: var(--r-s); border: none;
   background: var(--bg-ctl); color: var(--text-secondary); font-size: var(--fs-xl); cursor: pointer;
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }

@@ -37,6 +37,16 @@ const PERMISSION_MODES = [
 
 type ModelEntry = { id: string; label: string };
 
+/** Scinde un libellé de modèle en route (« openrouter/ ») et nom court.
+ * La route recule d'un cran typographique dans la barre : un fil connaît déjà
+ * son provider, c'est le modèle qui porte la lecture. Sans « / », tout le
+ * libellé est le nom. */
+export function splitModelLabel(label: string): { route: string; name: string } {
+  const cut = label.lastIndexOf("/");
+  if (cut < 0) return { route: "", name: label };
+  return { route: label.slice(0, cut + 1), name: label.slice(cut + 1) };
+}
+
 /** Couleur de l'anneau de contexte. L'anneau vivait en doré dès 61 % — donc
  * presque tout le temps, et la couleur ne voulait plus rien dire. Il reste
  * gris tant que rien n'est à décider, prend un doré éteint quand la
@@ -276,16 +286,19 @@ export function ComposerControls(p: {
                 )}
             </DropdownMenuContent>
           </DropdownMenu>
-          {permissionOptions.length > 0 && (
-            <Select
-              compact
-              title={t("settings.permission-default")}
-              value={permissionMode}
-              onChange={setPermissionMode}
-              options={permissionOptions.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
-            />
-          )}
           <span className="flex" />
+          {permissionOptions.length > 0 && (
+            <>
+              <Select
+                compact
+                title={t("settings.permission-default")}
+                value={permissionMode}
+                onChange={setPermissionMode}
+                options={permissionOptions.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
+              />
+              <span className="composer-meta-sep" aria-hidden="true" />
+            </>
+          )}
           {p.usage && (
             <RowButton className="ctx-ring-wrap"
               aria-label={t("chat.context-window")}>
@@ -341,8 +354,22 @@ export function ComposerControls(p: {
             >
             <PopoverTrigger
               render={
-                <RowButton ref={modelBtnRef} className="mp-btn mp-model" title={t("chat.model-title")}>
-                  <span className={!model ? "mp-dim" : undefined}>{modelButtonLabel}</span>
+                <RowButton
+                  ref={modelBtnRef}
+                  className="mp-btn mp-model"
+                  title={modelButtonLabel
+                    ? `${t("chat.model-title")} · ${modelButtonLabel}`
+                    : t("chat.model-title")}
+                >
+                  {(() => {
+                    const { route, name } = splitModelLabel(modelButtonLabel);
+                    return (
+                      <span className={`mp-model-label ${!model ? "mp-dim" : ""}`}>
+                        {route && <span className="mp-route">{route}</span>}
+                        <span className="mp-name">{name}</span>
+                      </span>
+                    );
+                  })()}
                 </RowButton>
               }
             />

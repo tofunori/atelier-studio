@@ -9,6 +9,7 @@ import Chat from "../Chat";
 import { renderUi, resetTestState } from "../../test/render";
 import { FIXED_TS, makeCapabilities, makeProviderInfo } from "../../test/fixtures";
 import { t } from "../../lib/i18n";
+import { splitModelLabel } from "./ComposerControls";
 
 function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<typeof Chat>[0] {
   return {
@@ -841,5 +842,54 @@ describe("Kimi — modèles dynamiques et thinking par modèle (plan 046)", () =
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("kimi-du-serveur")).toBeInTheDocument();
     expect(within(menu).queryByText("kimi-k3")).toBeNull();
+  });
+});
+
+// Grappe de méta du composer (raffinage 2026-08-26). Permission et modèle
+// décrivent l'état du tour à venir : ils vivent ensemble à droite, et un id
+// long se scinde en route dégradée + nom, au lieu de plier la barre.
+describe("composer — grappe de méta", () => {
+  it("scinde un id de modèle sur le dernier /", () => {
+    expect(splitModelLabel("openrouter/z-ai-glm-5.3-flash"))
+      .toEqual({ route: "openrouter/", name: "z-ai-glm-5.3-flash" });
+    expect(splitModelLabel("anthropic/claude/opus-5"))
+      .toEqual({ route: "anthropic/claude/", name: "opus-5" });
+    expect(splitModelLabel("Sonnet 5")).toEqual({ route: "", name: "Sonnet 5" });
+    expect(splitModelLabel("")).toEqual({ route: "", name: "" });
+  });
+
+  it("le sélecteur de permission suit l'espaceur et précède le modèle", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    const bar = document.querySelector(".composer-bar") as HTMLElement;
+    const kids = [...bar.children];
+    const iSpacer = kids.findIndex((el) => el.classList.contains("flex"));
+    const iSelect = kids.findIndex((el) => el.classList.contains("custom-select"));
+    const iSep = kids.findIndex((el) => el.classList.contains("composer-meta-sep"));
+    const iModel = kids.findIndex((el) => el.classList.contains("model-pick"));
+    expect(iSpacer).toBeGreaterThanOrEqual(0);
+    expect(iSelect).toBeGreaterThan(iSpacer);
+    expect(iSep).toBe(iSelect + 1);
+    expect(iModel).toBeGreaterThan(iSep);
+  });
+
+  it("le libellé du modèle expose route et nom, l'id entier restant en title", () => {
+    // id routé hors catalogue : le libellé EST l'id brut — c'est là que la
+    // route pèse (`openrouter/z-ai-glm-5.3-flash` pliait la barre en deux).
+    renderUi(<Chat {...chatProps({
+      defaults: {
+        defaultProvider: "grok",
+        defaultModel: { grok: "openrouter/z-ai-glm-5.3-flash" },
+        defaultEffort: {}, defaultPermissionMode: "bypassPermissions",
+      },
+      providers: [makeProviderInfo({
+        id: "grok", label: "Grok",
+        models: ["openrouter/z-ai-glm-5.3-flash"],
+        defaultModel: "openrouter/z-ai-glm-5.3-flash",
+      })],
+    })} />);
+    const btn = document.querySelector(".model-pick .mp-model") as HTMLButtonElement;
+    expect(btn.querySelector(".mp-route")?.textContent).toBe("openrouter/");
+    expect(btn.querySelector(".mp-name")?.textContent).toBe("z-ai-glm-5.3-flash");
+    expect(btn.getAttribute("title")).toContain("openrouter/z-ai-glm-5.3-flash");
   });
 });
