@@ -232,6 +232,10 @@ export function createLatexReadingMarge(
   menu.append(swatches, remove);
   options.host.appendChild(menu);
   let target: string | null = null;
+  // Sans ça, un clic droit sur une rangée sans menu (une section) fait
+  // surgir le menu natif de WebKit — « Open Frame in New Window », vécu
+  // 2026-08-26. Le rail répond de tout ce qui s'y passe.
+  rail.addEventListener("contextmenu", (event) => event.preventDefault());
 
   const closeMenu = (): void => {
     menu.classList.remove("open");
@@ -356,11 +360,27 @@ export function createLatexReadingMarge(
         item.dataset.color = mark.color;
         if (mark.kind === "pin" && mark.id) {
           const id = mark.id;
-          item.addEventListener("contextmenu", (event) => {
+          const open = (event: Event): void => {
             event.preventDefault();
             event.stopPropagation();
             openMenu(id, mark.color, item);
+          };
+          item.addEventListener("contextmenu", open);
+          // Le clic droit ne se devine pas : une poignée apparaît au survol
+          // de la rangée, quand le rail est déplié et qu'il y a la place.
+          const handle = doc.createElement("span");
+          handle.className = "tr-mk-more";
+          handle.setAttribute("role", "button");
+          handle.tabIndex = 0;
+          handle.title = "Couleur, retrait";
+          handle.setAttribute("aria-label", "Couleur ou retrait de ce signet");
+          handle.textContent = "···";
+          handle.addEventListener("click", open);
+          handle.addEventListener("keydown", (event) => {
+            const key = event as KeyboardEvent;
+            if (key.key === "Enter" || key.key === " ") open(key);
           });
+          item.appendChild(handle);
         }
         box.appendChild(item);
         rows.push({line: mark.line, button: item});

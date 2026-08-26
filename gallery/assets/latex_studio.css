@@ -484,6 +484,18 @@
   .tr-mk .tr-mark-label{color:var(--txt);padding-left:4px}
   .tr-mk[data-mark="hl"] .tr-mark-label{font-style:italic;color:var(--fg,var(--txt))}
   .tr-mark[data-here] .tr-mark-label{color:var(--txt)}
+  /* poignée d'une marque : le clic droit ne se devine pas. Elle n'existe que
+     rail déplié, au survol ou au focus de la rangée. */
+  .tr-mk-more{flex:none;display:none;align-items:center;justify-content:center;
+    width:16px;height:16px;border-radius:6px;cursor:pointer;
+    color:var(--muted);font:10px/1 var(--ui-font,sans-serif);letter-spacing:.05em;
+    opacity:0;transition:opacity 140ms ease,background 140ms ease,color 140ms ease}
+  .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more{display:flex}
+  .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-mk:focus-within .tr-mk-more,
+  .tr-mk-more:focus-visible{opacity:1}
+  .tr-mk-more:hover{background:var(--card2);color:var(--txt)}
+  .tr-mk-more:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  @media (prefers-reduced-motion:reduce){.tr-mk-more{transition:none}}
   /* bascule « tout · N » : même géométrie qu'une encoche */
   .tr-marge-all{display:flex;align-items:center;gap:8px;width:100%;
     margin-top:8px;padding:2px 4px;border-radius:6px;
