@@ -434,8 +434,10 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     }, ctx);
     await flush();
 
-    // checkpoint sans filesChanged (changedSince → []) : restauration complète
-    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha, null);
+    // checkpoint à filesChanged VIDE (tour sans fichier touché) : périmètre
+    // connu → restauration ciblée (no-op), jamais le mode complet qui
+    // refuserait sur un fichier créé ailleurs depuis le snapshot
+    expect(ctx.gitops.restore).toHaveBeenCalledWith("/p", done.checkpoint.snapshotSha, []);
     expect(await harnessJournal.materialize("t")).toEqual(before);
   });
 
