@@ -584,18 +584,33 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   height: 24px; min-height: 24px; padding: 0 7px; gap: 6px; border-radius: var(--r-s); }
 .composer-bar .custom-select.compact [data-icon="select-chevron"] svg {
   width: 9px; height: 9px; color: var(--text-disabled); }
-/* Pastille d'état : le mode permissif se voit d'un coup d'oeil, les modes
- * prudents gardent le gris — la couleur ne se dépense que là où elle informe. */
-.composer-bar .custom-select.compact[data-value="bypassPermissions"] .custom-select-label::before,
-.composer-bar .custom-select.compact[data-value="acceptEdits"] .custom-select-label::before,
-.composer-bar .custom-select.compact[data-value="default"] .custom-select-label::before,
-.composer-bar .custom-select.compact[data-value="plan"] .custom-select-label::before {
-  content: ""; flex: none; width: 5px; height: 5px; border-radius: var(--r-pill);
+/* Pastille d'état (redesign 2026-08-26) : UNE seule mécanique, la même dans le
+ * déclencheur et dans le menu — la pastille est une icône d'option, plus un
+ * ::before du seul déclencheur. Sans ça, l'ambre du déclencheur ne s'apprenait
+ * nulle part : le menu ne montrait aucune couleur. Le mode permissif se voit
+ * d'un coup d'oeil, les modes prudents gardent le gris — la couleur ne se
+ * dépense que là où elle informe. */
+.perm-dot { flex: none; width: 5px; height: 5px; border-radius: var(--r-pill);
   background: var(--text-disabled); }
-.composer-bar .custom-select.compact[data-value="bypassPermissions"] .custom-select-label::before {
-  background: var(--u-warn); }
-.composer-bar .custom-select.compact[data-value="plan"] .custom-select-label::before {
-  background: var(--accent); }
+.perm-dot[data-mode="bypassPermissions"] { background: var(--u-warn); }
+.perm-dot[data-mode="plan"] { background: var(--accent); }
+/* Menu du mode de permission : il sort d'un contrôle à 11px, il se lit à la
+ * même échelle. La colonne d'icône vaut la pastille (10px) au lieu des 14px
+ * vides du gabarit générique, et le ✓ vit dans sa colonne fixe à droite —
+ * jamais collé à la fin d'un libellé, où il changeait de x à chaque rangée. */
+.permission-select .custom-select-menu { padding: 4px; min-width: 148px; }
+.permission-select .custom-select-option,
+.permission-select .custom-select-option.has-icon {
+  grid-template-columns: 10px minmax(0, 1fr); gap: 8px;
+  font-size: var(--fs-m); padding: 6px 24px 6px 8px; }
+.permission-select .custom-select-option [data-icon="select-check"] {
+  width: 11px; height: 11px; color: var(--text-muted); }
+.permission-select .custom-select-option[data-selected] .custom-select-option-label,
+.permission-select .custom-select-option[aria-selected="true"] .custom-select-option-label {
+  color: var(--text-primary); }
+/* Le mode décrit l'état du tour à venir : il se tient sous le nom du modèle,
+ * en gris de métadonnée. Traitement « discret » retenu le 2026-08-26. */
+.composer-bar .permission-select.compact { font-size: var(--fs-s); letter-spacing: -0.005em; }
 /* Filet entre permission et modèle : une séparation, pas une bordure de plus. */
 .composer-meta-sep { flex: none; width: 1px; height: 14px; margin: 0 2px;
   background: var(--border2); opacity: .55; }

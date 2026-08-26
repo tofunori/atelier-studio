@@ -291,10 +291,17 @@ export function ComposerControls(p: {
             <>
               <Select
                 compact
+                className="permission-select"
                 title={t("settings.permission-default")}
                 value={permissionMode}
                 onChange={setPermissionMode}
-                options={permissionOptions.map((m) => ({ value: m.id, label: t(m.labelKey as any) }))}
+                options={permissionOptions.map((m) => ({
+                  value: m.id,
+                  label: t(m.labelKey as any),
+                  // la pastille est portée par l'option : même signe dans le
+                  // déclencheur et dans le menu (App.css, .perm-dot)
+                  icon: <span className="perm-dot" data-mode={m.id} aria-hidden="true" />,
+                }))}
               />
               <span className="composer-meta-sep" aria-hidden="true" />
             </>
