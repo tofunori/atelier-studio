@@ -306,6 +306,14 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .hljs-meta, .hljs-symbol, .hljs-bullet { color: var(--text-muted); }
 .hljs-addition { color: #98c379; background: rgba(152,195,121,0.12); }
 .hljs-deletion { color: #e06c75; background: rgba(224,108,117,0.12); }
+/* LaTeX : palette alignée sur l'éditeur LaTeX de la galerie
+   (gallery/assets/latex_studio.css). Les classes hljs-tex-* sont posées par
+   decorateLatex (chat/md.tsx) — la grammaire hljs ne distingue ni les
+   accolades ni les noms d'environnements. */
+.language-latex .hljs-keyword { color: var(--accent); font-weight: 500; }
+.language-latex .hljs-built_in { color: color-mix(in srgb, #8fd3a7 78%, var(--text-primary)); }
+.language-latex .hljs-tex-brace { color: color-mix(in srgb, #e0b74a 78%, var(--text-primary)); }
+.language-latex .hljs-tex-env { color: color-mix(in srgb, #7fbcb2 80%, var(--text-primary)); }
 .codeblock code { background: transparent; border: none; padding: 0; font-size: var(--fs-m); }
 /* Mermaid : même chrome que .codeblock (barre + copie du source) ; SVG rendu
    uniquement dans le message final, jamais en streaming (Chat.tsx). */

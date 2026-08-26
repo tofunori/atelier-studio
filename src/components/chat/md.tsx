@@ -278,6 +278,52 @@ export function splitMarkdownBlocks(markdown: string): string[] {
 // longues réponses). Clé = `${lang} ${raw}`.
 const highlightCache = new LruCache<string>(300);
 
+/** Post-passe LaTeX : la grammaire hljs ne balise que les commandes
+ * (hljs-keyword), les délimiteurs math (hljs-built_in) et les commentaires
+ * (hljs-comment). Les accolades et les noms d'environnements sortent en texte
+ * nu — on les balise ici pour retrouver la palette de l'éditeur LaTeX
+ * (accolades or, environnements turquoise ; gallery/assets/latex_studio.css).
+ * On ne touche qu'au texte de profondeur 0 : ce qui est déjà dans un span hljs
+ * garde sa couleur, et aucune balise ne peut atterrir dans un attribut. */
+export function decorateLatex(html: string): string {
+  const parts = html.split(/(<[^>]*>)/);
+  let depth = 0;
+  let spanText = "";
+  let envPending = false;
+  let out = "";
+  for (const part of parts) {
+    if (part === "") continue;
+    if (part.startsWith("<")) {
+      if (/^<span\b/i.test(part)) {
+        if (depth === 0) spanText = "";
+        depth += 1;
+      } else if (/^<\/span>/i.test(part)) {
+        depth = Math.max(0, depth - 1);
+        // \begin / \end : le nom d'environnement est dans le segment suivant
+        if (depth === 0) envPending = /^\\(begin|end)\*?$/.test(spanText.trim());
+      }
+      out += part;
+      continue;
+    }
+    if (depth > 0) {
+      spanText += part;
+      out += part;
+      continue;
+    }
+    let rest = part;
+    if (envPending) {
+      const env = /^\{([A-Za-z][\w*]*)\}/.exec(rest);
+      if (env) {
+        out += `<span class="hljs-tex-brace">{</span><span class="hljs-tex-env">${env[1]}</span><span class="hljs-tex-brace">}</span>`;
+        rest = rest.slice(env[0].length);
+      }
+    }
+    out += rest.replace(/[{}[\]]/g, (c) => `<span class="hljs-tex-brace">${c}</span>`);
+    if (part.trim().length > 0) envPending = false;
+  }
+  return out;
+}
+
 export function highlightCode(raw: string, lang: string): string {
   const key = `${lang} ${raw}`;
   const cached = highlightCache.get(key);
@@ -291,6 +337,7 @@ export function highlightCode(raw: string, lang: string): string {
     } else {
       result = hljs.highlightAuto(raw).value;
     }
+    if (hljs.getLanguage(normalized)?.name === "LaTeX") result = decorateLatex(result);
   } catch {
     result = escapeHtml(raw);
   }

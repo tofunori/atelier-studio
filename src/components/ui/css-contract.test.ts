@@ -139,6 +139,16 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.timeline-virtual-row\.is-live-stream \.msg p\s*\{[^}]*text-wrap:\s*wrap/);
   });
 
+  it("les blocs LaTeX du chat portent la palette de l'éditeur LaTeX", () => {
+    // commandes sur l'accent du thème actif (pas l'orange figé de la galerie),
+    // accolades or et environnements turquoise via les classes posées par
+    // decorateLatex (chat/md.tsx)
+    expect(appCss).toMatch(/\.language-latex \.hljs-keyword\s*\{[^}]*color:\s*var\(--accent\)/);
+    for (const cls of ["hljs-built_in", "hljs-tex-brace", "hljs-tex-env"]) {
+      expect(appCss, cls).toMatch(new RegExp(`\\.language-latex \\.${cls}\\s*\\{[^}]*color:`));
+    }
+  });
+
   it("ouvre le diff dans la surface Git et garde les actions de commit compactes", () => {
     expect(appCss).not.toContain(".git-diff-sheet");
     expect(appCss).not.toContain(".git-mobile-diff-trigger");
