@@ -466,12 +466,13 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
   });
 
-  it("le mode de permission a UNE pastille, portée par l'option (déclencheur + menu)", () => {
-    // la couleur du déclencheur ne s'apprend que si le menu la montre aussi :
-    // le ::before réservé au déclencheur est mort, .perm-dot le remplace
+  it("le mode de permission a UN signe, porté par l'option (déclencheur + menu)", () => {
+    // le signe du déclencheur ne s'apprend que si le menu le montre aussi :
+    // le ::before réservé au déclencheur est mort, .perm-icon le remplace
     expect(appCss).not.toMatch(/\.custom-select-label::before/);
-    expect(appCss).toMatch(/\.perm-dot\[data-mode="bypassPermissions"\]\s*\{[^}]*var\(--u-warn\)/);
-    expect(appCss).toMatch(/\.perm-dot\[data-mode="plan"\]\s*\{[^}]*var\(--accent\)/);
+    // monochrome : un état permanent ne porte pas une couleur d'alerte
+    expect(appCss).toMatch(/\.perm-icon\s*\{[^}]*color:\s*var\(--text-muted\)/);
+    expect(appCss).not.toMatch(/\.perm-icon[^{]*\{[^}]*var\(--u-warn\)/);
     // le menu se lit à l'échelle de la barre dont il sort, pas à celle du fil
     expect(appCss).toMatch(/\.permission-select \.custom-select-option[\s\S]{0,140}font-size:\s*var\(--fs-m\)/);
     expect(appCss).toMatch(/\.composer-bar \.permission-select\.compact\s*\{[^}]*font-size:\s*var\(--fs-s\)/);
