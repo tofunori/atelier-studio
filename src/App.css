@@ -34,6 +34,12 @@
      (1,4:1 sur --bg-ctl — pastilles COMPLETED/CANCELLED délavées, 2026-08-23).
      Contrastes vérifiés sur le fond le plus clair qui les porte (--bg-ctl). */
   --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; --u-run: var(--accent);
+  /* crête du balayage du libellé actif. Le repos de la bande est --fg2 : partir
+     de --fg ne laissait AUCUNE marge de contraste (en clair, #1a1d22 est déjà
+     au plafond — la bande était invisible). Depuis --fg2, la crête pousse dans
+     le sens du thème et le balayage se voit sans jamais descendre sous les
+     libellés terminés (--muted). */
+  --sweep-peak: color-mix(in srgb, var(--fg) 45%, #fff);
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
@@ -66,6 +72,7 @@
   --hl-line: #a3771e;
   /* états assombris : 4,7 / 4,7 / 4,9 / 4,8 sur --bg-ctl (#dadee4) */
   --u-ok: #2f6b41; --u-warn: #7a5a09; --u-hot: #a8322a; --u-run: #98470b;
+  --sweep-peak: color-mix(in srgb, var(--fg) 70%, #000);
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -3374,10 +3381,54 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   display: inline-block; white-space: nowrap;
   color: color-mix(in srgb, var(--text-primary) 58%, transparent); }
 
-/* Codex : l'action réellement en cours reste distinguée — mais par le
-   CONTRASTE du libellé, plus par un balayage (§9, une boucle par surface).
-   La classe garde son nom historique : elle marque le libellé ACTIF. */
+/* Balayage du libellé ACTIF (façon Grok/Codex — décision Thierry 2026-08-26).
+   La lumière court sur l'action en cours : c'est la SECONDE boucle du fil,
+   assumée, à côté du pulse de .working-label — voir la justification amendée
+   du §9 dans css-contract.test.ts. Un seul libellé la porte à la fois :
+   `shimmer` n'est passé que par le groupe LIVE du tour (ActivityGroup).
+
+   Le dégradé est FONCTIONNEL — il encode « ça tourne », il ne décore pas.
+   C'est l'unique exception au « pas de gradients » du système de design.
+
+   OÙ le poser — vécu au banc 2026-08-26 : le libellé d'un groupe LIVE est
+   TOUJOURS un <ToolRunTicker> (turns.tsx), dont le reel porte un `transform`.
+   Poser `background-clip: text` sur le libellé PARENT rend alors le texte
+   entièrement INVISIBLE : les glyphes du sous-arbre transformé sont peints
+   hors du clip, et `color: transparent` fait le reste. Le clip vit donc sur
+   .tool-ticker-row, qui contient réellement le texte. Le parent garde le
+   contraste d'avant — repli intact si un libellé sans ticker passe par là.
+
+   PIÈGE #2 : la position doit rester dans [0%, 100%]. Au-delà, l'image sort
+   de l'élément et le texte redevient TRANSPARENT une partie du cycle. Avec
+   une image de 260 %, ces deux bornes sortent déjà la bande des deux côtés. */
 .ui-activity-label.is-shimmering { color: var(--text-primary); }
+.ui-activity-label.is-shimmering .tool-ticker-row {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(100deg,
+    var(--text-secondary) 0%, var(--text-secondary) 40%,
+    var(--sweep-peak) 50%,
+    var(--text-secondary) 60%, var(--text-secondary) 100%);
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: label-sweep 2.3s linear infinite;
+}
+@keyframes label-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+/* le segment commande pose SA couleur : sans `inherit` il resterait plat
+   pendant que le verbe est balayé (il est dans le clip de la rangée). */
+.ui-activity-label.is-shimmering .tool-ticker-code {
+  color: inherit; -webkit-text-fill-color: inherit; }
+/* sans mouvement : exactement l'état d'AVANT le balayage — le contraste seul */
+@media (prefers-reduced-motion: reduce) {
+  .ui-activity-label.is-shimmering .tool-ticker-row {
+    animation: none; background-image: none;
+    color: var(--text-primary); -webkit-text-fill-color: var(--text-primary); }
+}
 
 .active-activity-transition {
   display: inline;

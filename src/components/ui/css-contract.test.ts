@@ -344,16 +344,31 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(keyframes).toEqual(["@keyframes ui-spin"]);
   });
 
-  // §9 : « Maximum une animation continue (boucle) par surface — un seul
-  // spinner ou indicateur running à la fois ». Le fil de chat en empilait sept,
-  // non harmoniques (1,4 s / 2 s / 4 s, elles battaient les unes contre les
-  // autres). Boucle unique retenue : l'anneau accent de .working-label, présent
-  // tant que le tour tourne et porteur de la durée écoulée. Tout le reste se
-  // différencie par la COULEUR et le TEXTE (--status-running, libellé), pas par
-  // le mouvement. Hors périmètre : le spinner de la barre Reviewer (.rb-spin),
-  // bannière au-dessus du fil, jamais co-visible — une revue ne démarre que sur
-  // un tour terminé.
-  it("chat : une seule boucle continue pendant un tour actif", () => {
+  // §9, AMENDÉ le 2026-08-26 (décision Thierry, « option B ») : le fil porte
+  // au plus DEUX boucles continues, et exactement celles listées ici.
+  //
+  //   .working-label::before   pulse 1,2 s — le TOUR tourne (chrono)
+  //   .ui-activity-label.is-shimmering .tool-ticker-row
+  //                            balayage 2,3 s — l'ACTION en cours
+  //
+  // Le balayage vit sur la RANGÉE du ticker, pas sur le libellé : le reel
+  // porte un `transform`, et un `background-clip: text` posé sur le parent
+  // rendrait le texte entièrement invisible (vécu au banc, cf. App.css).
+  //
+  // La règle d'origine (une seule) venait de sept boucles non harmoniques
+  // (1,4 s / 2 s / 4 s) qui battaient les unes contre les autres : ce qui la
+  // rendait nécessaire, c'était leur NOMBRE et leur désaccord, pas le principe
+  // d'unicité. Les deux retenues portent des sens distincts et n'occupent pas
+  // la même ligne — le chrono ferme le bloc, le balayage vit dans la ligne
+  // d'activité. Un seul libellé balaie à la fois : ActivityGroup ne passe
+  // `shimmer` qu'au groupe LIVE du tour.
+  //
+  // Tout le RESTE continue de se différencier par la COULEUR et le TEXTE
+  // (--status-running, libellé), jamais par le mouvement — la liste interdite
+  // ci-dessous reste fermée, et le total reste plafonné à deux. Hors
+  // périmètre : le spinner de la barre Reviewer (.rb-spin), bannière au-dessus
+  // du fil, jamais co-visible — une revue ne démarre que sur un tour terminé.
+  it("chat : au plus deux boucles continues pendant un tour actif", () => {
     const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
       selector: m[1].trim().replace(/\s+/g, " "),
       body: m[2],
@@ -366,7 +381,6 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       ".thinking.live .thinking-label",
       ".thinking.live .thinking-icon",
       ".activity-step.running .activity-step-dot",
-      ".ui-activity-label.is-shimmering",
       ".review-badge.v-running",
     ]) {
       const animated = rules.filter(
@@ -381,7 +395,35 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .filter((r) => /animation[^;]*infinite/.test(r.body))
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
-    expect(loops).toEqual([".working-label::before"]);
+    expect(loops.sort()).toEqual([
+      ".ui-activity-label.is-shimmering .tool-ticker-row",
+      ".working-label::before",
+    ]);
+  });
+
+  // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien
+  // n'y est peint) et invisibles en relecture : le balayage se voit ou ne se
+  // voit pas, à l'œil, dans l'app. Ce test tient les deux bornes.
+  it("balayage : le clip reste sur la rangée, la bande reste dans l'élément", () => {
+    // 1. Le libellé PARENT ne doit jamais porter le clip : le reel du ticker
+    //    est transformé, et le clip du parent rend alors le texte INVISIBLE.
+    const parent = appCss.match(
+      /\.ui-activity-label\.is-shimmering\s*\{([^}]*)\}/,
+    );
+    expect(parent, "règle .ui-activity-label.is-shimmering introuvable").toBeTruthy();
+    expect(parent![1]).not.toMatch(/background-clip:\s*text/);
+
+    // 2. `background-position` hors de [0%, 100%] sort l'image de l'élément et
+    //    rend le texte transparent une partie du cycle.
+    const sweep = appCss.match(/@keyframes\s+label-sweep\s*\{([\s\S]*?)\n\}/);
+    expect(sweep, "@keyframes label-sweep introuvable").toBeTruthy();
+    const positions = [...sweep![1].matchAll(/background-position:\s*(-?[\d.]+)%/g)]
+      .map((m) => Number(m[1]));
+    expect(positions.length).toBeGreaterThan(0);
+    for (const p of positions) {
+      expect(p, `background-position ${p}% sort de l'élément`).toBeGreaterThanOrEqual(0);
+      expect(p, `background-position ${p}% sort de l'élément`).toBeLessThanOrEqual(100);
+    }
   });
 
   // §7 : « Densité : compact 3 / comfortable 6 / spacious 10 px sur --pad-y ».
