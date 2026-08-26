@@ -344,32 +344,50 @@ test("rail de lecture : les sections du fichier, tous niveaux confondus", () => 
   );
 });
 
-test("rail : entrees dans l ordre du document, signet orphelin exclu", () => {
-  const sections = [{line: 0, title: "Methodes"}, {line: 40, title: "Inference"}];
+test("rail : marques dans l ordre, signet orphelin exclu, libelle sans commandes", () => {
   const pins = [
-    {id: "p1", line: 12, text: "les lois a priori sont faiblement informatives"},
+    {id: "p1", line: 12, text: "les lois a priori sont faiblement informatives", color: "blue"},
     {id: "p2", line: null, text: "passage reecrit, ancrage perdu"},
   ];
-  const annots = [{line: 12, text: "moins de 5 % des tirages"}];
-  const entries = latex.deriveReadingMarge(sections, pins, annots);
-  assert.equal(entries.map((e) => e.kind).join(","), "sec,pin,hl,sec");
-  assert.equal(entries.map((e) => e.line).join(","), "0,12,12,40");
+  const annots = [{line: 12, text: "albedo \\cite{smith2020} estival", color: "red"}];
+  const marks = latex.deriveReadingMarks(pins, annots);
+  assert.equal(marks.map((m) => m.kind).join(","), "pin,hl");
   // un rail ne peut pas montrer une position fausse : l orphelin n a pas d encoche
-  assert.ok(!entries.some((e) => e.id === "p2"));
-  // le libelle d un passage SOURCE est debarrasse des commandes LaTeX
-  const cite = latex.deriveReadingMarge([], [], [{line: 1, text: "albedo \\cite{smith2020} estival"}]);
-  assert.ok(!cite[0].label.includes("cite"), cite[0].label);
+  assert.ok(!marks.some((m) => m.id === "p2"));
+  assert.equal(marks[0].color, "blue");
+  assert.ok(!marks[1].label.includes("cite"), marks[1].label);
+  // couleur inconnue ou absente : la teinte par defaut, jamais une classe morte
+  assert.equal(latex.deriveReadingMarks([{id: "x", line: 1, text: "abc"}], [])[0].color, "amber");
+  assert.equal(latex.margeColor("chartreuse"), "amber");
 });
 
-test("rail : le pli garde les marques et laisse tomber les sections", () => {
-  const sections = Array.from({length: 30}, (_, i) => ({line: i, title: `S${i}`}));
+test("rail : chaque marque tombe sous la derniere section qui la precede", () => {
+  const sections = [{line: 10, title: "Priors"}, {line: 40, title: "Inference"}];
+  const marks = latex.deriveReadingMarks([
+    {id: "a", line: 12, text: "sous Priors"},
+    {id: "b", line: 41, text: "sous Inference"},
+    {id: "c", line: 3, text: "avant toute section"},
+  ], []);
+  const groups = latex.groupReadingMarge(sections, marks);
+  assert.equal(groups.map((g) => g.title || "(tete)").join(" | "), "(tete) | Priors | Inference");
+  assert.equal(groups.map((g) => g.marks.length).join(","), "1,1,1");
+  assert.equal(groups[1].marks[0].label, "sous Priors");
+  // rien avant la premiere section : pas de groupe anonyme fantome
+  const propre = latex.groupReadingMarge(sections, latex.deriveReadingMarks(
+    [{id: "a", line: 12, text: "sous Priors"}], []));
+  assert.equal(propre.map((g) => g.title).join(" | "), "Priors | Inference");
+});
+
+test("rail : le pli garde les sections marquees et laisse tomber les vides", () => {
+  const sections = Array.from({length: 30}, (_, i) => ({line: i * 10, title: `S${i}`}));
   assert.equal(latex.margeMode(sections.length), "marks");
   assert.equal(latex.margeMode(10), "all");
-  const pins = [{id: "p1", line: 5, text: "un passage epingle"}];
-  const plie = latex.deriveReadingMarge(sections, pins, [], {mode: "marks"});
-  assert.equal(plie.map((e) => e.kind).join(","), "pin");
+  const marks = latex.deriveReadingMarks([{id: "a", line: 55, text: "un passage epingle"}], []);
+  const plie = latex.groupReadingMarge(sections, marks, {mode: "marks"});
+  assert.equal(plie.length, 1);
+  assert.equal(plie[0].title, "S5");
   // rien n est perdu : « tout » rend la vue complete
-  assert.equal(latex.deriveReadingMarge(sections, pins, [], {mode: "all"}).length, 31);
+  assert.equal(latex.groupReadingMarge(sections, marks, {mode: "all"}).length, 30);
 });
 
 test("rail : l encoche « ici » suit le defilement, et le bas du document est designe", () => {

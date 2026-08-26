@@ -1,30 +1,43 @@
 // Marge annotée de la vue Lecture — transposition du rail du chat
-// (`src/lib/marge.ts` + `.tl-marge`) au document lu.
+// (`src/lib/marge.ts` + `.tl-marge`) au document lu, rangée par SECTION.
 //
-// Un seul signe décliné, une ligne de 12 × 1 px :
-//   - « sec » : chaque section du fichier, donnée sans qu'on la demande ;
-//   - « pin » : ce qu'on a épinglé depuis la pastille de sélection ;
-//   - « hl »  : un passage commenté ;
-//   - « ici » : où l'on lit — désigné par la géométrie du défilement, jamais
-//     par un clic.
+// Chaque section du fichier ouvre un groupe ; une marque vit sous la dernière
+// section qui la précède. Deux familles de marques, distinguées par la FORME
+// (la couleur est libre, donc elle ne peut plus dire le type) :
+//   - signet : ligne nue — il n'y a que la position ;
+//   - passage commenté : ligne à point — il y a un texte à lire.
+// Et « ici » en encre vive, désigné par la géométrie du défilement.
 //
-// La dérivation est pure : le rail n'est qu'un consommateur de plus des
-// sections du fichier, des annotations chargées et des signets. Aucun état de
-// lecture ne vit dans le rail lui-même.
+// La dérivation est pure : le rail n'est qu'un consommateur des sections, des
+// annotations et des signets. Le groupe n'est jamais stocké — il se recalcule,
+// donc un paragraphe déplacé emporte sa marque dans sa nouvelle section.
 
 import type {StudioEditor, StudioPosition} from "../../core/editor_contract";
 import {findAnnotationRange, type LatexAnnotation} from "./annotations";
 import {proseRuns} from "./reading";
 
-export type ReadingMargeKind = "sec" | "pin" | "hl";
+export type ReadingMargeKind = "pin" | "hl";
 
-export interface ReadingMargeEntry {
+/** Les cinq teintes des commentaires : un signet se range dans les mêmes
+ *  familles, à toi de décider ce qu'elles veulent dire. */
+export const MARGE_COLORS: readonly string[] = ["amber", "red", "blue", "green", "purple"];
+export const MARGE_DEFAULT_COLOR = "amber";
+
+export interface ReadingMargeMark {
   kind: ReadingMargeKind;
-  /** Ligne SOURCE (0-based) où l'entrée se trouve dans le fichier. */
+  /** Ligne SOURCE (0-based) du passage. */
   line: number;
   label: string;
+  color: string;
   /** Identifiant du signet (kind « pin » seulement) : sert au retrait. */
   id?: string;
+}
+
+export interface ReadingMargeGroup {
+  /** Ligne SOURCE de la section (−1 = avant la première section du fichier). */
+  line: number;
+  title: string;
+  marks: ReadingMargeMark[];
 }
 
 /** Un signet. Ancré par son TEXTE source, comme une annotation : un numéro de
@@ -33,13 +46,14 @@ export interface ReadingPin {
   id: string;
   text: string;
   from: StudioPosition;
+  color?: string;
   created: number;
 }
 
-/** Mode d'affichage, repris du chat. « all » = chaque section ; « marks » = ne
- *  garder que ce qui a été marqué — sur un long chapitre, la trame d'encoches
- *  de sections ne se lit plus. Rien n'est perdu : « tout · N » rend la vue
- *  complète. */
+/** Mode d'affichage. « all » = toutes les sections, même vides ; « marks » =
+ *  seulement celles qui portent quelque chose — sur un long chapitre, la trame
+ *  des sections vides ne se lit plus. Rien n'est perdu : « tout · N » rend la
+ *  vue complète. */
 export type ReadingMargeMode = "all" | "marks";
 
 const LABEL_MAX = 72;
@@ -63,6 +77,11 @@ export function passageLabel(text: string): string {
   return margeLabel(runs.length ? runs.join(" ") : String(text ?? ""));
 }
 
+export function margeColor(value: unknown): string {
+  const name = String(value ?? "");
+  return MARGE_COLORS.includes(name) ? name : MARGE_DEFAULT_COLOR;
+}
+
 /** Sections du fichier — tous les niveaux, comme le plan. */
 export function readingSections(source: string): Array<{line: number; title: string}> {
   const pattern = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^{}]*)\}/;
@@ -74,31 +93,48 @@ export function readingSections(source: string): Array<{line: number; title: str
   return out;
 }
 
-const RANK: Readonly<Record<ReadingMargeKind, number>> = {sec: 0, pin: 1, hl: 2};
-
-/** Les entrées du rail, dans l'ordre du document. Fonction pure : ni DOM, ni
- *  requête, ni état. */
-export function deriveReadingMarge(
-  sections: ReadonlyArray<{line: number; title: string}>,
-  pins: ReadonlyArray<{id: string; line: number | null; text: string}>,
-  annotations: ReadonlyArray<{line: number; text: string}>,
-  options: {mode?: ReadingMargeMode} = {},
-): ReadingMargeEntry[] {
-  const mode = options.mode ?? "all";
-  const out: ReadingMargeEntry[] = [];
-  if (mode === "all") {
-    for (const section of sections) out.push({kind: "sec", line: section.line, label: margeLabel(section.title)});
-  }
+/** Les marques du fichier, dans l'ordre du document. Un signet sans ancrage
+ *  (`line` nulle) n'entre pas : un rail ne peut pas montrer une position
+ *  fausse, c'est toute sa fonction. */
+export function deriveReadingMarks(
+  pins: ReadonlyArray<{id: string; line: number | null; text: string; color?: string}>,
+  annotations: ReadonlyArray<{line: number; text: string; color?: string}>,
+): ReadingMargeMark[] {
+  const out: ReadingMargeMark[] = [];
   for (const pin of pins) {
-    // Ancrage perdu : pas d'encoche. Un rail ne peut pas montrer une position
-    // fausse — c'est toute sa fonction.
     if (pin.line === null) continue;
-    out.push({kind: "pin", line: pin.line, label: passageLabel(pin.text), id: pin.id});
+    out.push({kind: "pin", line: pin.line, label: passageLabel(pin.text), color: margeColor(pin.color), id: pin.id});
   }
   for (const annotation of annotations) {
-    out.push({kind: "hl", line: annotation.line, label: passageLabel(annotation.text)});
+    out.push({kind: "hl", line: annotation.line, label: passageLabel(annotation.text), color: margeColor(annotation.color)});
   }
-  return out.sort((left, right) => (left.line - right.line) || (RANK[left.kind] - RANK[right.kind]));
+  return out.sort((left, right) => (left.line - right.line)
+    || ((left.kind === "pin" ? 0 : 1) - (right.kind === "pin" ? 0 : 1)));
+}
+
+/** Le rail rangé : une marque tombe sous la dernière section qui la précède.
+ *  Ce qui précède la première section ouvre un groupe sans titre — mieux vaut
+ *  un groupe anonyme qu'une marque perdue. */
+export function groupReadingMarge(
+  sections: ReadonlyArray<{line: number; title: string}>,
+  marks: readonly ReadingMargeMark[],
+  options: {mode?: ReadingMargeMode} = {},
+): ReadingMargeGroup[] {
+  const groups: ReadingMargeGroup[] = sections
+    .slice()
+    .sort((left, right) => left.line - right.line)
+    .map((section) => ({line: section.line, title: margeLabel(section.title), marks: []}));
+  const head: ReadingMargeGroup = {line: -1, title: "", marks: []};
+  for (const mark of marks) {
+    let host = head;
+    for (const group of groups) {
+      if (group.line <= mark.line) host = group;
+      else break;
+    }
+    host.marks.push(mark);
+  }
+  const all = head.marks.length ? [head, ...groups] : groups;
+  return (options.mode ?? "all") === "marks" ? all.filter((group) => group.marks.length) : all;
 }
 
 /** Index de l'encoche « ici » : le dernier point passé au-dessus de `limit`.
@@ -121,10 +157,10 @@ export function resolvePins(
   source: string,
   pins: readonly ReadingPin[],
   editor: Pick<StudioEditor, "indexFromPos" | "posFromIndex">,
-): Array<{id: string; line: number | null; text: string}> {
+): Array<{id: string; line: number | null; text: string; color?: string}> {
   return pins.map((pin) => {
     const range = findAnnotationRange(source, {text: pin.text, from: pin.from}, editor);
-    return {id: pin.id, line: range ? range.from.line : null, text: pin.text};
+    return {id: pin.id, line: range ? range.from.line : null, text: pin.text, color: pin.color};
   });
 }
 
@@ -163,14 +199,14 @@ export function createLatexReadingMarge(
   const relation = `tex-marks:${options.path}`;
   const rail = doc.createElement("div");
   rail.className = "tr-marge";
-  rail.setAttribute("role", "list");
+  rail.setAttribute("role", "tree");
   rail.setAttribute("aria-label", "Marge du document");
   options.host.appendChild(rail);
 
   let all: ReadingPin[] = [];
   let serial = 0;
   let showAll = false;
-  let rows: Array<{entry: ReadingMargeEntry; button: HTMLElement}> = [];
+  let rows: Array<{line: number; button: HTMLElement}> = [];
 
   const save = (): void => {
     void win.fetch("/pdfannot", {
@@ -179,6 +215,72 @@ export function createLatexReadingMarge(
       body: JSON.stringify({rel: relation, annots: all}),
     }).catch(() => { /* le signet vaut au moins pour la session */ });
   };
+
+  // ---- menu d'une marque : cinq couleurs, un retrait ----------------------
+  const menu = doc.createElement("div");
+  menu.className = "tr-menu";
+  menu.setAttribute("role", "menu");
+  const swatches = doc.createElement("div");
+  swatches.className = "tr-menu-colors";
+  const remove = doc.createElement("button");
+  remove.type = "button";
+  remove.className = "tr-menu-del";
+  remove.innerHTML = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">'
+    + '<path d="M2 3.5h10M5.5 3.5V2.2h3v1.3M3.6 3.5l.6 8.1h5.6l.6-8.1"/></svg>'
+    + '<span>Retirer</span>';
+  menu.append(swatches, remove);
+  options.host.appendChild(menu);
+  let target: string | null = null;
+
+  const closeMenu = (): void => {
+    menu.classList.remove("open");
+    target = null;
+  };
+  const recolor = (color: string): void => {
+    all = all.map((pin) => (pin.id === target ? {...pin, color: margeColor(color)} : pin));
+    closeMenu();
+    save();
+    paint();
+  };
+  for (const color of MARGE_COLORS) {
+    const swatch = doc.createElement("button");
+    swatch.type = "button";
+    swatch.className = `sw-${color}`;
+    swatch.dataset.color = color;
+    swatch.title = color;
+    swatch.setAttribute("aria-label", `Couleur ${color}`);
+    swatch.addEventListener("click", () => recolor(color));
+    swatches.appendChild(swatch);
+  }
+  remove.addEventListener("click", () => {
+    // Sans confirmation : un signet se repose en trois secondes, une boîte de
+    // dialogue coûte plus cher que l'erreur qu'elle prévient.
+    all = all.filter((pin) => pin.id !== target);
+    closeMenu();
+    save();
+    paint();
+  });
+  const openMenu = (id: string, color: string, anchor: HTMLElement): void => {
+    target = id;
+    menu.classList.add("open");
+    for (const swatch of swatches.children) {
+      swatch.classList.toggle("on", (swatch as HTMLElement).dataset.color === color);
+    }
+    const box = anchor.getBoundingClientRect();
+    const frame = options.host.getBoundingClientRect();
+    menu.style.left = `${Math.min(box.right - frame.left + 8, frame.width - menu.offsetWidth - 8)}px`;
+    menu.style.top = `${Math.max(4, Math.min(box.top - frame.top, frame.height - menu.offsetHeight - 8))}px`;
+  };
+  doc.addEventListener("mousedown", (event) => {
+    const node = event.target as Element | null;
+    if (menu.classList.contains("open") && node && !menu.contains(node) && !node.closest(".tr-mk")) {
+      closeMenu();
+    }
+  });
+  doc.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Escape" && menu.classList.contains("open")) closeMenu();
+  });
 
   /** Bloc rendu qui porte une ligne SOURCE : la dernière ancre en amont. */
   const blockForLine = (blocks: readonly HTMLElement[], line: number): HTMLElement | null => {
@@ -195,7 +297,7 @@ export function createLatexReadingMarge(
   const here = (): void => {
     if (!rows.length) return;
     const blocks = [...options.reading.querySelectorAll<HTMLElement>("[data-line]")];
-    const tops = rows.map(({entry}) => blockForLine(blocks, entry.line + 1)?.offsetTop ?? 0);
+    const tops = rows.map(({line}) => blockForLine(blocks, line + 1)?.offsetTop ?? 0);
     const atBottom = options.scroller.scrollTop + options.scroller.clientHeight
       >= options.scroller.scrollHeight - 4;
     // Le tiers haut de la fenêtre : au-dessus, on a lu ; en dessous, on n'y est
@@ -208,55 +310,62 @@ export function createLatexReadingMarge(
     });
   };
 
-  const remove = (id: string): void => {
-    all = all.filter((pin) => pin.id !== id);
-    save();
-    paint();
-  };
-
-  const glyphRow = (entry: ReadingMargeEntry): HTMLElement => {
-    const item = doc.createElement("span");
-    item.setAttribute("role", "listitem");
-    item.className = "tr-mark-item";
+  const rowButton = (line: number, label: string, title: string): HTMLButtonElement => {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "tr-mark";
-    button.dataset.mark = entry.kind;
-    button.title = entry.kind === "pin" ? `${entry.label} — clic droit pour retirer` : entry.label;
+    button.title = title;
     const sign = doc.createElement("span");
     sign.className = "tr-mark-sign";
     sign.setAttribute("aria-hidden", "true");
-    const label = doc.createElement("span");
-    label.className = "tr-mark-label";
-    label.textContent = entry.label;
-    button.append(sign, label);
-    button.addEventListener("click", () => options.revealSourceLine(entry.line));
-    if (entry.kind === "pin" && entry.id) {
-      button.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        remove(entry.id as string);
-      });
-    }
-    item.appendChild(button);
-    return item;
+    const text = doc.createElement("span");
+    text.className = "tr-mark-label";
+    text.textContent = label;
+    button.append(sign, text);
+    button.addEventListener("click", () => {
+      closeMenu();
+      options.revealSourceLine(line);
+    });
+    return button;
   };
 
   const paint = (): void => {
+    closeMenu();
     rail.textContent = "";
     rows = [];
     const editor = options.getEditor();
     if (!editor || !options.isReading()) return;
     const source = editor.getValue();
     const sections = readingSections(source);
-    const mode = showAll ? "all" : margeMode(sections.length);
     const annotations = (options.getAnnotations?.() || [])
-      .map((annotation) => ({line: annotation.from.line, text: annotation.text}));
-    const entries = deriveReadingMarge(sections, resolvePins(source, all, editor), annotations, {mode});
-    for (const entry of entries) {
-      const item = glyphRow(entry);
-      rail.appendChild(item);
-      rows.push({entry, button: item.firstElementChild as HTMLElement});
+      .map((annotation) => ({line: annotation.from.line, text: annotation.text, color: annotation.color}));
+    const marks = deriveReadingMarks(resolvePins(source, all, editor), annotations);
+    const mode = showAll ? "all" : margeMode(sections.length);
+    for (const group of groupReadingMarge(sections, marks, {mode})) {
+      const box = doc.createElement("div");
+      box.className = "tr-grp";
+      const head = rowButton(Math.max(0, group.line), group.title, group.title || "Début du document");
+      head.classList.add("tr-sec");
+      box.appendChild(head);
+      rows.push({line: Math.max(0, group.line), button: head});
+      for (const mark of group.marks) {
+        const item = rowButton(mark.line, mark.label,
+          mark.kind === "pin" ? `${mark.label} — clic droit pour colorer ou retirer` : mark.label);
+        item.classList.add("tr-mk");
+        item.dataset.mark = mark.kind;
+        item.dataset.color = mark.color;
+        if (mark.kind === "pin" && mark.id) {
+          const id = mark.id;
+          item.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openMenu(id, mark.color, item);
+          });
+        }
+        box.appendChild(item);
+        rows.push({line: mark.line, button: item});
+      }
+      rail.appendChild(box);
     }
     // Le pli ne cache jamais rien pour de bon : la vue complète est à un clic,
     // et le compte dit ce qui dort derrière.
@@ -265,7 +374,7 @@ export function createLatexReadingMarge(
       toggle.type = "button";
       toggle.className = "tr-marge-all";
       toggle.setAttribute("aria-pressed", showAll ? "true" : "false");
-      toggle.title = showAll ? "Replier" : `Toutes les sections (${sections.length})`;
+      toggle.title = showAll ? "Ne montrer que les sections marquées" : `Toutes les sections (${sections.length})`;
       toggle.innerHTML = '<svg class="tr-marge-all-sign" width="12" height="8" viewBox="0 0 12 8"'
         + ' fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"'
         + ' stroke-linejoin="round" aria-hidden="true"><path d="M1.5 2.5 6 6l4.5-3.5"/></svg>'
@@ -286,6 +395,7 @@ export function createLatexReadingMarge(
       id: `pin${selection.from.line + 1}-${serial}`,
       text,
       from: {...selection.from},
+      color: MARGE_DEFAULT_COLOR,
       created: Date.now(),
     }];
     save();
@@ -301,7 +411,7 @@ export function createLatexReadingMarge(
     } catch { /* les signets restent optionnels */ }
   };
 
-  options.scroller.addEventListener("scroll", here, {passive: true});
+  options.scroller.addEventListener("scroll", () => { here(); closeMenu(); }, {passive: true});
 
   return {paint, load, add, pins: () => all};
 }
