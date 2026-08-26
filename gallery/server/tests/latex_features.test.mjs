@@ -330,7 +330,7 @@ test("proseRunRanges skips runs missing from the rendered block without giving u
   assert.equal(latex.proseRunRanges("rien ici", ["introuvable totalement"]).length, 0);
 });
 
-test("rail de lecture : les sections du fichier, tous niveaux confondus", () => {
+test("rail : les sections du fichier, tous niveaux confondus", () => {
   const tex = [
     "\\section{Methodes}",
     "du texte",
@@ -344,52 +344,42 @@ test("rail de lecture : les sections du fichier, tous niveaux confondus", () => 
   );
 });
 
-test("rail : marques dans l ordre, signet orphelin exclu, libelle sans commandes", () => {
-  const pins = [
-    {id: "p1", line: 12, text: "les lois a priori sont faiblement informatives", color: "blue"},
-    {id: "p2", line: null, text: "passage reecrit, ancrage perdu"},
-  ];
-  const marks = latex.deriveReadingMarks(pins);
-  // un rail ne peut pas montrer une position fausse : l orphelin n a pas d encoche
-  assert.equal(marks.length, 1);
-  assert.ok(!marks.some((m) => m.id === "p2"));
-  assert.equal(marks[0].color, "blue");
-  // le libelle d un passage SOURCE est debarrasse des commandes LaTeX
-  const cite = latex.deriveReadingMarks([{id: "c", line: 1, text: "albedo \\cite{smith2020} estival"}]);
-  assert.ok(!cite[0].label.includes("cite"), cite[0].label);
-  // couleur inconnue ou absente : la teinte par defaut (bleu, pas l ambre des
-  // commentaires), jamais une classe morte
-  assert.equal(latex.deriveReadingMarks([{id: "x", line: 1, text: "abc"}])[0].color, "blue");
-  assert.equal(latex.margeColor("chartreuse"), "blue");
+test("couleur d une section : ancree par le TITRE, pas par la ligne", () => {
+  // Piege : ancrer sur la ligne repeint la section SUIVANTE des qu on ecrit
+  // au-dessus. Le titre suit la section ou qu elle aille.
+  const marque = [{id: "s1", text: "Priors", line: 10, color: "green"}];
+  const decale = [{line: 0, title: "Methodes"}, {line: 210, title: "Priors"}];
+  assert.deepEqual(
+    latex.resolveSectionColors(decale, marque).join(","),
+    "none,green",
+  );
+  // titre disparu du fichier : la couleur ne se pose sur personne
+  assert.equal(
+    latex.resolveSectionColors([{line: 0, title: "Inference"}], marque).join(","),
+    "none",
+  );
+  // couleur inconnue : « aucune », jamais une classe morte
+  assert.equal(latex.margeColor("chartreuse"), "none");
+  assert.equal(latex.margeColor("green"), "green");
 });
 
-test("rail : chaque marque tombe sous la derniere section qui la precede", () => {
-  const sections = [{line: 10, title: "Priors"}, {line: 40, title: "Inference"}];
-  const marks = latex.deriveReadingMarks([
-    {id: "a", line: 12, text: "sous Priors"},
-    {id: "b", line: 41, text: "sous Inference"},
-    {id: "c", line: 3, text: "avant toute section"},
-  ]);
-  const groups = latex.groupReadingMarge(sections, marks);
-  assert.equal(groups.map((g) => g.title || "(tete)").join(" | "), "(tete) | Priors | Inference");
-  assert.equal(groups.map((g) => g.marks.length).join(","), "1,1,1");
-  assert.equal(groups[1].marks[0].label, "sous Priors");
-  // rien avant la premiere section : pas de groupe anonyme fantome
-  const propre = latex.groupReadingMarge(sections, latex.deriveReadingMarks(
-    [{id: "a", line: 12, text: "sous Priors"}]));
-  assert.equal(propre.map((g) => g.title).join(" | "), "Priors | Inference");
+test("couleur d une section : deux homonymes, la plus proche gagne", () => {
+  const sections = [{line: 5, title: "Priors"}, {line: 300, title: "Priors"}];
+  const marque = [{id: "s", text: "Priors", line: 290, color: "red"}];
+  assert.equal(latex.resolveSectionColors(sections, marque).join(","), "none,red");
 });
 
-test("rail : le pli garde les sections marquees et laisse tomber les vides", () => {
+test("rail : le pli garde les sections colorees et laisse tomber les neutres", () => {
   const sections = Array.from({length: 30}, (_, i) => ({line: i * 10, title: `S${i}`}));
   assert.equal(latex.margeMode(sections.length), "marks");
   assert.equal(latex.margeMode(10), "all");
-  const marks = latex.deriveReadingMarks([{id: "a", line: 55, text: "un passage epingle"}]);
-  const plie = latex.groupReadingMarge(sections, marks, {mode: "marks"});
+  const colors = latex.resolveSectionColors(sections, [{id: "x", text: "S5", line: 50, color: "blue"}]);
+  const plie = latex.visibleSections(sections, colors, {mode: "marks"});
   assert.equal(plie.length, 1);
-  assert.equal(plie[0].title, "S5");
+  assert.equal(plie[0].section.title, "S5");
+  assert.equal(plie[0].color, "blue");
   // rien n est perdu : « tout » rend la vue complete
-  assert.equal(latex.groupReadingMarge(sections, marks, {mode: "all"}).length, 30);
+  assert.equal(latex.visibleSections(sections, colors, {mode: "all"}).length, 30);
 });
 
 test("rail : l encoche « ici » suit le defilement, et le bas du document est designe", () => {
@@ -403,31 +393,4 @@ test("rail : l encoche « ici » suit le defilement, et le bas du document est d
   // sinon la fin n est jamais designee
   assert.equal(latex.activeMargeIndex(tops, 0, true), 3);
   assert.equal(latex.activeMargeIndex([], 100, false), -1);
-});
-
-test("signet : ancre par le TEXTE, donc insensible aux lignes ajoutees au-dessus", () => {
-  const passage = "les lois a priori sont faiblement informatives";
-  const editor = {indexFromPos: (p) => p.ch, posFromIndex: (i) => ({line: 0, ch: i})};
-  const pins = [{id: "p1", text: passage, from: {line: 1, ch: 0}, created: 0}];
-  const decale = "ligne\n".repeat(200) + passage + "\n";
-  assert.notEqual(latex.resolvePins(decale, pins, editor)[0].line, null);
-  assert.equal(latex.resolvePins("un texte entierement different\n", pins, editor)[0].line, null);
-});
-
-test("rail : il ne montre QUE les marques posees, jamais les commentaires", () => {
-  // Vecu 2026-08-26 : le rail derivait les annotations du fichier, donc un
-  // chapitre commente donnait un rail plein d ambre que personne n avait
-  // demande. Une carte de ce qu on a marque ne se peuple pas toute seule.
-  assert.equal(latex.deriveReadingMarks([]).length, 0);
-  assert.equal(latex.deriveReadingMarks.length, 1, "une seule entree : les marques");
-});
-
-test("ancre d une marque : une suite de prose SOURCE, bornee, sans commandes", () => {
-  const src = "Les lois \\emph{a priori} sont faiblement informatives et fixees ainsi avant tout le reste.";
-  const anchor = latex.margeAnchorText(src);
-  assert.ok(anchor.length >= 4, anchor);
-  assert.ok(!anchor.includes("\\"), anchor);
-  assert.ok(!anchor.includes("{"), anchor);
-  assert.ok(anchor.split(" ").length <= 12, anchor);
-  assert.ok(src.startsWith(anchor.split(" ")[0]), anchor);
 });
