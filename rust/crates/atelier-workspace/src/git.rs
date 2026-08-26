@@ -1043,13 +1043,16 @@ pub fn restore(root: &str, sha: &str, paths: Option<&[String]>) -> Result<()> {
     if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.len() < 4 {
         return Err(msg("sha invalide"));
     }
+    // Périmètre CONNU (même vide : un tour qui n'a touché aucun fichier) →
+    // restauration ciblée, jamais le mode complet. `None` = périmètre inconnu
+    // (annulation globale, événements legacy) → mode complet.
     let scoped: Option<Vec<String>> = match paths {
-        Some(list) if !list.is_empty() => Some(
+        Some(list) => Some(
             list.iter()
                 .map(|p| assert_relative(&real, p))
                 .collect::<Result<Vec<_>>>()?,
         ),
-        _ => None,
+        None => None,
     };
     let dir = tempfile::tempdir().map_err(|e| msg(e.to_string()))?;
     let index = dir.path().join("index");
@@ -1284,6 +1287,28 @@ mod tests {
         assert_eq!(
             changed_since(dir.path().to_str().unwrap(), &sha).unwrap(),
             vec!["a.txt".to_string(), "image.bin".to_string(), "nouveau.txt".to_string()],
+        );
+    }
+
+    /// Tour sans fichier touché (relecture, question) : le périmètre est
+    /// VIDE mais CONNU. La restauration doit être un no-op silencieux — pas
+    /// le mode complet, qui refuserait dès qu'une autre session a créé un
+    /// fichier ailleurs dans le dépôt (édition d'un message impossible).
+    #[test]
+    fn restore_scope_vide_est_un_noop_meme_avec_creations_etrangeres() {
+        let dir = init_repo();
+        let root = dir.path().to_str().unwrap();
+        let sha = snapshot(root).unwrap();
+        std::fs::write(dir.path().join("cree-ailleurs.txt"), b"autre session").unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"modifie ailleurs").unwrap();
+        restore(root, &sha, Some(&[])).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("cree-ailleurs.txt")).unwrap(),
+            b"autre session"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("a.txt")).unwrap(),
+            b"modifie ailleurs"
         );
     }
 

@@ -1571,7 +1571,10 @@ export async function route(msg, ctx) {
         try {
           // périmètre du checkpoint : ne restaurer QUE les fichiers du tour —
           // les fichiers créés ailleurs par d'autres sessions ne bloquent plus
-          const scopePaths = Array.isArray(checkpoint.event?.checkpoint?.filesChanged) && checkpoint.event.checkpoint.filesChanged.length
+          // périmètre connu MÊME VIDE (tour sans fichier touché) → restauration
+          // ciblée (no-op), jamais le mode complet qui refuserait sur une
+          // création faite ailleurs entre-temps
+          const scopePaths = Array.isArray(checkpoint.event?.checkpoint?.filesChanged)
             ? checkpoint.event.checkpoint.filesChanged
             : null;
           await ctx.gitops.restore(t.projectRoot, checkpoint.sha, scopePaths);

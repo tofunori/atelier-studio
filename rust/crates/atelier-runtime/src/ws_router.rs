@@ -3141,8 +3141,7 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
                     .filter_map(Value::as_str)
                     .map(str::to_string)
                     .collect::<Vec<_>>()
-            })
-            .filter(|list| !list.is_empty());
+            });
         let root = thread.project_root.clone();
         let sha_owned = sha.to_string();
         match tokio::task::spawn_blocking(move || {
@@ -4490,6 +4489,66 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(path).unwrap(),
             "# Plan\n\n1. Auditer"
+        );
+    }
+
+    /// Éditer un message d'un tour qui n'a touché AUCUN fichier (relecture,
+    /// question) : périmètre vide mais connu → aucune restauration globale,
+    /// donc pas de « restauration refusée » à cause d'un fichier créé
+    /// ailleurs dans le dépôt entre-temps.
+    #[tokio::test]
+    async fn revert_dun_tour_sans_fichier_ne_refuse_pas_sur_creation_etrangere() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("repo");
+        std::fs::create_dir_all(&project).unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&project)
+            .status()
+            .unwrap();
+        std::fs::write(project.join("note.txt"), "avant\n").unwrap();
+        let sha = atelier_workspace::snapshot(project.to_str().unwrap()).unwrap();
+        // une autre session crée un fichier ailleurs pendant le tour
+        std::fs::write(project.join("cree-ailleurs.txt"), "autre\n").unwrap();
+
+        let s = state(dir.path());
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({
+                    "id":"revert-vide",
+                    "provider":"codex",
+                    "projectRoot":project.to_string_lossy(),
+                }),
+                false,
+            )
+            .unwrap();
+        s.journal().append(&json!({
+            "kind":"done",
+            "ok":true,
+            "result":"fait",
+            "checkpoint":{"snapshotSha":sha,"filesChanged":[]},
+            "meta":{
+                "eventId":"done-1","sequence":1,"threadId":"revert-vide",
+                "turnId":"turn-1","durable":true,"provider":"codex"
+            }
+        }));
+
+        let out = route_ws(
+            &s,
+            &json!({
+                "type":"revert","scope":"files","threadId":"revert-vide",
+                "turnId":"turn-1","snapshotSha":sha,
+            })
+            .to_string(),
+        )
+        .await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(value["type"], "reverted", "sortie: {out:?}");
+        assert_eq!(
+            std::fs::read_to_string(project.join("cree-ailleurs.txt")).unwrap(),
+            "autre\n"
         );
     }
 

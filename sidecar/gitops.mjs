@@ -666,7 +666,8 @@ export async function restore(root, sha, paths = null) {
   const realRoot = confinedRoot(root);
   await ensureRepo(realRoot);
   if (!/^[0-9a-fA-F]{4,64}$/.test(String(sha ?? ""))) throw new Error("sha invalide");
-  const scoped = Array.isArray(paths) && paths.length > 0;
+  // périmètre connu même vide → ciblé (no-op) ; null = périmètre inconnu → complet
+  const scoped = Array.isArray(paths);
   const dir = await mkdtemp(join(tmpdir(), "atelier-git-index-"));
   const indexFile = join(dir, "index");
   const env = tempGitEnv(indexFile);
