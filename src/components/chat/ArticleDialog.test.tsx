@@ -272,6 +272,24 @@ describe("mode automatique", () => {
     expect((undo.mock.calls[0] as [string])[0]).toContain("papers/aoki-2011");
   });
 
+  it("montre la page écrite au lieu d'un dialogue vide", async () => {
+    setAutoWrite(true);
+    await toConverting();
+    emit("article-imported", {
+      requestId: lastRequestId(), draftId: "a8023bcc8c7f", path: "/tmp/aoki-2011.pdf",
+      meta: META, slug: "articles/aoki-2011-snow-albedo-model", preview: PREVIEW,
+      chars: 61240, converter: "mineru", metaSource: "crossref", duplicates: [],
+    });
+    const writeId = lastSent().requestId;
+    emit("article-written", {
+      requestId: writeId, slug: "articles/aoki-2011-snow-albedo-model", updated: false,
+    });
+    // PIÈGE (vécu 2026-08-26) : la phase « done » n'avait aucune vue — rouvrir
+    // l'import depuis le rail donnait un dialogue avec un titre et rien d'autre.
+    expect(await screen.findByText(/articles\/aoki-2011-snow-albedo-model/)).toBeTruthy();
+    expect(screen.getByText("Ouvrir la page")).toBeTruthy();
+  });
+
   it("prévient quand les métadonnées ont été devinées", async () => {
     setAutoWrite(true);
     await toConverting();

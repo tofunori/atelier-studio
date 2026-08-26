@@ -10,7 +10,7 @@ import { wsSend } from "../../lib/wsBus";
 import {
   articleImportSnapshot, backgroundArticleDialog, closeArticleDialog,
   dismissArticleImport, fileName, focusedJob, isAutoWrite, openArticleDialog,
-  setAutoWrite, stageLabel, startArticleImport, subscribeArticleImport,
+  openGbrainPage, setAutoWrite, stageLabel, startArticleImport, subscribeArticleImport,
   type ArticleDuplicate, type ArticleJob,
 } from "../../lib/articleImports";
 import { showError, showSuccess } from "../ui/toast";
@@ -328,6 +328,35 @@ export default function ArticleDialog() {
             <div className="kb-page-source">{fileName(job.path)}</div>
             <div className="kb-article-progress"><i /></div>
             <div className="kb-article-hint">{t("article.writing")}</div>
+          </>
+        )}
+
+        {/* Écrit (mode auto) : la fiche reste, sinon rouvrir l'import depuis le
+            rail donnait un dialogue vide — la phase n'avait aucune vue. */}
+        {job?.phase === "done" && (
+          <>
+            <div className="kb-page-source">{fileName(job.path)}</div>
+            <div className="kb-article-hint">
+              {t(job.writtenUpdated ? "article.auto-updated" : "article.auto-written", {
+                slug: job.writtenSlug ?? "",
+              })}
+            </div>
+            <div className="kb-note-actions">
+              <Button
+                type="button" variant="ghost" className="ghost"
+                onClick={() => dismissArticleImport(job.requestId)}
+              >
+                {t("kbs.job-clear")}
+              </Button>
+              {addMore}
+              <Button
+                type="button" variant="ghost" className="ghost kb-page-confirm"
+                disabled={!job.writtenSlug}
+                onClick={() => { void openGbrainPage(String(job.writtenSlug ?? "")); }}
+              >
+                {t("kbs.job-open")}
+              </Button>
+            </div>
           </>
         )}
 
