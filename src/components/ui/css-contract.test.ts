@@ -475,7 +475,8 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).not.toMatch(/\.perm-icon[^{]*\{[^}]*var\(--u-warn\)/);
     // le menu se lit à l'échelle de la barre dont il sort, pas à celle du fil
     expect(appCss).toMatch(/\.permission-select \.custom-select-option[\s\S]{0,140}font-size:\s*var\(--fs-m\)/);
-    expect(appCss).toMatch(/\.composer-bar \.permission-select\.compact\s*\{[^}]*font-size:\s*var\(--fs-s\)/);
+    // déclencheur sans libellé : plus de typo à régler, une icône et un chevron
+    expect(appCss).toMatch(/\.permission-select \.custom-select-trigger-icon\s*\{[^}]*color:\s*var\(--text-muted\)/);
   });
 
   it("Quick Ask réserve les marges du textarea dans sa largeur", () => {

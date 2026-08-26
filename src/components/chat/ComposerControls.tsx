@@ -339,7 +339,13 @@ export function ComposerControls(p: {
               <Select
                 compact
                 className="permission-select"
-                title={t("settings.permission-default")}
+                // déclencheur = l'icône du mode, sans libellé : le mode est un
+                // état permanent de la barre, pas une phrase à relire à chaque
+                // regard. Le nom vit dans l'infobulle et dans le menu.
+                triggerIcon={<PermissionIcon mode={permissionMode} />}
+                title={`${t("settings.permission-default")} — ${t(
+                  (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
+                )}`}
                 value={permissionMode}
                 onChange={setPermissionMode}
                 options={permissionOptions.map((m) => ({

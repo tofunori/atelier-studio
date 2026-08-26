@@ -611,7 +611,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   color: var(--text-secondary); }
 /* Le mode décrit l'état du tour à venir : il se tient sous le nom du modèle,
  * en gris de métadonnée. Traitement « discret » retenu le 2026-08-26. */
-.composer-bar .permission-select.compact { font-size: var(--fs-s); letter-spacing: -0.005em; }
+/* Déclencheur sans libellé : une icône et son chevron, à la mesure des autres
+ * boutons de la barre. Le nom du mode se lit dans l'infobulle et dans le menu. */
+.composer-bar .permission-select.compact .custom-select-trigger {
+  min-width: 0; height: 24px; padding: 0 6px; gap: 4px; }
+.permission-select .custom-select-trigger-icon { display: inline-flex; align-items: center;
+  justify-content: center; color: var(--text-muted); }
+.permission-select .custom-select-trigger:hover .custom-select-trigger-icon,
+.permission-select .custom-select-trigger[aria-expanded="true"] .custom-select-trigger-icon {
+  color: var(--text-primary); }
 /* Filet entre permission et modèle : une séparation, pas une bordure de plus. */
 .composer-meta-sep { flex: none; width: 1px; height: 14px; margin: 0 2px;
   background: var(--border2); opacity: .55; }
