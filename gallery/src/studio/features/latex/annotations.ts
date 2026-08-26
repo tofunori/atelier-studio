@@ -42,6 +42,12 @@ export interface LatexAnnotationsController {
   togglePanel(force?: boolean): void;
   annotations(): readonly LatexAnnotation[];
   marks(): Readonly<Record<string, StudioTextMarker>>;
+  /** Recolorer / retirer un commentaire depuis ailleurs que le popover —
+   *  la marge de la Lecture traite ses marques toutes pareilles. */
+  setColor(id: string, color: string): void;
+  drop(id: string): void;
+  /** Ouvre le popover d'un commentaire EXISTANT (`open` en crée un nouveau). */
+  focus(id: string): void;
 }
 
 const SWATCHES: Readonly<Record<string, string>> = {
@@ -393,13 +399,30 @@ export function createLatexAnnotationsController(
     });
   };
 
+  const setColor = (id: string, color: string): void => {
+    const annotation = all.find((candidate) => candidate.id === id);
+    if (!annotation) return;
+    annotation.color = color;
+    clearMark(id);
+    mark(annotation);
+    save();
+  };
+  const focus = (id: string): void => {
+    const found = all.find((annotation) => annotation.id === id);
+    if (!found) return;
+    current = found;
+    show(found, false);
+  };
   return {
     bind,
     load,
     open,
+    focus,
     anchorAll,
     syncFromMarks,
     togglePanel,
+    setColor,
+    drop: remove,
     annotations: () => all,
     marks: () => marks,
   };

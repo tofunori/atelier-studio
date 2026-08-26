@@ -98,7 +98,7 @@ export function readingSections(source: string): Array<{line: number; title: str
  *  fausse, c'est toute sa fonction. */
 export function deriveReadingMarks(
   pins: ReadonlyArray<{id: string; line: number | null; text: string; color?: string}>,
-  annotations: ReadonlyArray<{line: number; text: string; color?: string}>,
+  annotations: ReadonlyArray<{id?: string; line: number; text: string; color?: string}>,
 ): ReadingMargeMark[] {
   const out: ReadingMargeMark[] = [];
   for (const pin of pins) {
@@ -106,7 +106,8 @@ export function deriveReadingMarks(
     out.push({kind: "pin", line: pin.line, label: passageLabel(pin.text), color: margeColor(pin.color), id: pin.id});
   }
   for (const annotation of annotations) {
-    out.push({kind: "hl", line: annotation.line, label: passageLabel(annotation.text), color: margeColor(annotation.color)});
+    out.push({kind: "hl", line: annotation.line, label: passageLabel(annotation.text),
+      color: margeColor(annotation.color), id: annotation.id});
   }
   return out.sort((left, right) => (left.line - right.line)
     || ((left.kind === "pin" ? 0 : 1) - (right.kind === "pin" ? 0 : 1)));
@@ -175,6 +176,12 @@ export interface LatexReadingMargeOptions {
   reading: HTMLElement;
   getEditor(): StudioEditor | null;
   getAnnotations?(): readonly LatexAnnotation[];
+  /** Recolorer un commentaire depuis la marge : ses marques sont traitées
+   *  comme les signets, sinon la couleur ne veut plus rien dire. */
+  setAnnotationColor?(id: string, color: string): void;
+  /** Ouvrir le commentaire dans son popover — c'est là que vit sa suppression,
+   *  armée : un commentaire porte un texte écrit, on ne le jette pas d'un clic. */
+  openAnnotation?(id: string): void;
   /** Saut vers une ligne SOURCE (0-based) dans la vue visible. */
   revealSourceLine(line: number): void;
   isReading(): boolean;
@@ -229,9 +236,15 @@ export function createLatexReadingMarge(
     + ' stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">'
     + '<path d="M2 3.5h10M5.5 3.5V2.2h3v1.3M3.6 3.5l.6 8.1h5.6l.6-8.1"/></svg>'
     + '<span>Retirer</span>';
-  menu.append(swatches, remove);
+  const openComment = doc.createElement("button");
+  openComment.type = "button";
+  openComment.className = "tr-menu-del";
+  openComment.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.3" aria-hidden="true">'
+    + '<path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg><span>Ouvrir le commentaire</span>';
+  menu.append(swatches, remove, openComment);
   options.host.appendChild(menu);
-  let target: string | null = null;
+  let target: {kind: ReadingMargeKind; id: string} | null = null;
   // Sans ça, un clic droit sur une rangée sans menu (une section) fait
   // surgir le menu natif de WebKit — « Open Frame in New Window », vécu
   // 2026-08-26. Le rail répond de tout ce qui s'y passe.
@@ -242,7 +255,14 @@ export function createLatexReadingMarge(
     target = null;
   };
   const recolor = (color: string): void => {
-    all = all.map((pin) => (pin.id === target ? {...pin, color: margeColor(color)} : pin));
+    if (!target) return;
+    if (target.kind === "hl") {
+      options.setAnnotationColor?.(target.id, margeColor(color));
+      closeMenu();
+      paint();
+      return;
+    }
+    all = all.map((pin) => (pin.id === target?.id ? {...pin, color: margeColor(color)} : pin));
     closeMenu();
     save();
     paint();
@@ -259,15 +279,26 @@ export function createLatexReadingMarge(
   }
   remove.addEventListener("click", () => {
     // Sans confirmation : un signet se repose en trois secondes, une boîte de
-    // dialogue coûte plus cher que l'erreur qu'elle prévient.
-    all = all.filter((pin) => pin.id !== target);
+    // dialogue coûte plus cher que l'erreur qu'elle prévient. Un COMMENTAIRE,
+    // lui, porte un texte écrit : sa suppression reste dans son popover, où
+    // elle est armée.
+    const id = target?.id;
     closeMenu();
+    if (!id) return;
+    all = all.filter((pin) => pin.id !== id);
     save();
     paint();
   });
-  const openMenu = (id: string, color: string, anchor: HTMLElement): void => {
-    target = id;
+  openComment.addEventListener("click", () => {
+    const id = target?.id;
+    closeMenu();
+    if (id) options.openAnnotation?.(id);
+  });
+  const openMenu = (kind: ReadingMargeKind, id: string, color: string, anchor: HTMLElement): void => {
+    target = {kind, id};
     menu.classList.add("open");
+    remove.style.display = kind === "pin" ? "" : "none";
+    openComment.style.display = kind === "hl" ? "" : "none";
     for (const swatch of swatches.children) {
       swatch.classList.toggle("on", (swatch as HTMLElement).dataset.color === color);
     }
@@ -278,7 +309,8 @@ export function createLatexReadingMarge(
   };
   doc.addEventListener("mousedown", (event) => {
     const node = event.target as Element | null;
-    if (menu.classList.contains("open") && node && !menu.contains(node) && !node.closest(".tr-mk")) {
+    if (menu.classList.contains("open") && node && !menu.contains(node)
+      && !node.closest(".tr-mk") && !node.closest(".tr-mk-more")) {
       closeMenu();
     }
   });
@@ -341,8 +373,9 @@ export function createLatexReadingMarge(
     if (!editor || !options.isReading()) return;
     const source = editor.getValue();
     const sections = readingSections(source);
-    const annotations = (options.getAnnotations?.() || [])
-      .map((annotation) => ({line: annotation.from.line, text: annotation.text, color: annotation.color}));
+    const annotations = (options.getAnnotations?.() || []).map((annotation) => ({
+      id: annotation.id, line: annotation.from.line, text: annotation.text, color: annotation.color,
+    }));
     const marks = deriveReadingMarks(resolvePins(source, all, editor), annotations);
     const mode = showAll ? "all" : margeMode(sections.length);
     for (const group of groupReadingMarge(sections, marks, {mode})) {
@@ -353,17 +386,18 @@ export function createLatexReadingMarge(
       box.appendChild(head);
       rows.push({line: Math.max(0, group.line), button: head});
       for (const mark of group.marks) {
-        const item = rowButton(mark.line, mark.label,
-          mark.kind === "pin" ? `${mark.label} — clic droit pour colorer ou retirer` : mark.label);
+        const item = rowButton(mark.line, mark.label, `${mark.label} — clic droit : couleur, ${
+          mark.kind === "pin" ? "retrait" : "commentaire"}`);
         item.classList.add("tr-mk");
         item.dataset.mark = mark.kind;
         item.dataset.color = mark.color;
-        if (mark.kind === "pin" && mark.id) {
+        if (mark.id) {
           const id = mark.id;
+          const kind = mark.kind;
           const open = (event: Event): void => {
             event.preventDefault();
             event.stopPropagation();
-            openMenu(id, mark.color, item);
+            openMenu(kind, id, mark.color, item);
           };
           item.addEventListener("contextmenu", open);
           // Le clic droit ne se devine pas : une poignée apparaît au survol
@@ -372,8 +406,10 @@ export function createLatexReadingMarge(
           handle.className = "tr-mk-more";
           handle.setAttribute("role", "button");
           handle.tabIndex = 0;
-          handle.title = "Couleur, retrait";
-          handle.setAttribute("aria-label", "Couleur ou retrait de ce signet");
+          handle.title = mark.kind === "pin" ? "Couleur, retrait" : "Couleur, commentaire";
+          handle.setAttribute("aria-label", mark.kind === "pin"
+            ? "Couleur ou retrait de ce signet"
+            : "Couleur ou ouverture de ce commentaire");
           handle.textContent = "···";
           handle.addEventListener("click", open);
           handle.addEventListener("keydown", (event) => {

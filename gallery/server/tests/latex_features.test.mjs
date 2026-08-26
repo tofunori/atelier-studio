@@ -411,3 +411,12 @@ test("signet : ancre par le TEXTE, donc insensible aux lignes ajoutees au-dessus
   assert.notEqual(latex.resolvePins(decale, pins, editor)[0].line, null);
   assert.equal(latex.resolvePins("un texte entierement different\n", pins, editor)[0].line, null);
 });
+
+test("rail : un commentaire porte son id, donc il a le meme menu qu un signet", () => {
+  // Sans id, une marque de commentaire n avait ni couleur ni menu : clic droit
+  // mort dans un fichier qui ne contient que des commentaires (vecu 2026-08-26).
+  const marks = latex.deriveReadingMarks([], [{id: "c42", line: 3, text: "un passage", color: "green"}]);
+  assert.equal(marks[0].id, "c42");
+  assert.equal(marks[0].color, "green");
+  assert.equal(marks[0].kind, "hl");
+});
