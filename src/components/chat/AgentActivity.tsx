@@ -12,10 +12,17 @@ import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
 import { RowButton } from "../ui";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
+import { ToolGlyph, activityIconForAction } from "./toolPresentation";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
   agentActivity: NonNullable<Extract<AgentEvent, { kind: "tool_update" }>["agentActivity"]>;
 };
+
+/** Événements montrés dans le transcript d'un sous-agent : prose + outils. */
+type TranscriptEvent = Extract<
+  AgentEvent,
+  { kind: "text" | "streaming" | "thinking" | "thinking_live" | "error" | "tool" | "tool_update" }
+>;
 
 export type AgentDisplay = {
   threadId: string;
@@ -203,13 +210,18 @@ export function AgentDetailPanel({
   /** Transcript du rollout enfant, demandé séparément du thread parent. */
   events?: AgentEvent[];
 }) {
-  const transcript = events.filter((event) =>
-    event.kind === "text"
-    || event.kind === "streaming"
-    || event.kind === "thinking"
-    || event.kind === "thinking_live"
-    || event.kind === "error",
-  );
+  const transcript = events.filter((event): event is TranscriptEvent => {
+    // Outils de l'enfant : on les montre, sauf ses propres appels collab
+    // (préfixe `agent:`) — pas de chips imbriquées dans le panneau.
+    if (event.kind === "tool" || event.kind === "tool_update") {
+      return !event.name?.startsWith("agent:");
+    }
+    return event.kind === "text"
+      || event.kind === "streaming"
+      || event.kind === "thinking"
+      || event.kind === "thinking_live"
+      || event.kind === "error";
+  });
   const plugins = useMdPlugins();
   return (
     <aside className={cn("agent-detail-panel", embedded && "agent-detail-embedded")} aria-label={agent.displayName}>
@@ -232,6 +244,19 @@ export function AgentDetailPanel({
           {transcript.length > 0 ? (
             <MessageGroup className="agent-transcript" data-testid="agent-transcript">
               {transcript.map((event, index) => {
+                if (event.kind === "tool" || event.kind === "tool_update") {
+                  const failed = event.kind === "tool_update" && event.status === "failed";
+                  return (
+                    <div
+                      key={`tool-${("id" in event ? event.id : null) ?? index}-${index}`}
+                      className={cn("agent-tool-line", failed && "is-failed")}
+                      data-testid="agent-tool-line"
+                    >
+                      <ToolGlyph icon={activityIconForAction(event)} />
+                      <span className="agent-tool-line-text">{event.detail || event.name}</span>
+                    </div>
+                  );
+                }
                 const isError = event.kind === "error";
                 const isThinking = event.kind === "thinking" || event.kind === "thinking_live";
                 const isStreaming = event.kind === "streaming";

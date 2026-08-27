@@ -8,6 +8,7 @@ import {
   agentsFromActions,
   type AgentToolAction,
 } from "./AgentActivity";
+import type { AgentEvent } from "../../lib/ws";
 
 function action(over: Partial<AgentToolAction> = {}): AgentToolAction {
   return {
@@ -89,5 +90,20 @@ describe("Codex subagent activity", () => {
 
     expect(screen.getByTestId("agent-transcript")).toHaveTextContent("The child has produced this update.");
     expect(screen.queryByTestId("agent-transcript-empty")).not.toBeInTheDocument();
+  });
+
+  it("le panneau montre les outils de l'enfant, pas seulement sa prose", () => {
+    renderUi(<AgentDetailPanel
+      agent={{ threadId: "child-1", displayName: "Chercheur", status: "working",
+        statusMessage: null, prompt: null, model: null, reasoningEffort: null, agentPath: null }}
+      onClose={() => {}}
+      events={[
+        { kind: "tool_update", id: "c1", name: "exec", detail: "wc -l a.py", output: "42 a.py", status: "completed" } as AgentEvent,
+        { kind: "text", text: "Fini." } as AgentEvent,
+      ]}
+    />);
+    const ligne = screen.getByTestId("agent-tool-line");
+    expect(ligne.textContent).toContain("wc -l a.py");
+    expect(screen.getByText("Fini.")).toBeTruthy();
   });
 });

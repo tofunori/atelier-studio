@@ -260,6 +260,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font-size: var(--fs-m); line-height: 1.45; }
 .agent-transcript { margin-top: 20px; gap: 10px; }
 .agent-transcript-thinking { color: var(--text-muted); font-style: italic; }
+.agent-tool-line { display: flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--text-muted); font-size: var(--fs-m); line-height: 1.5; }
+.agent-tool-line.is-failed { color: var(--status-error); }
+.agent-tool-line-text { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
 .agent-detail-empty { margin: 20px 0 0; color: var(--text-muted); font-size: var(--fs-m); }
 @media (max-width: 900px) {
   .agent-detail-panel:not(.agent-detail-embedded) { position: absolute; inset: 0 0 0 auto; z-index: 70; width: min(420px, 86%);
