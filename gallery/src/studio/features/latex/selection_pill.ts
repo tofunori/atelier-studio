@@ -26,6 +26,8 @@ export interface LatexSelectionPillOptions {
   adapter: SelectionPillAdapter;
   openComment(selection: LatexPillSelection): void;
   clearMarker(): void;
+  /** Canal vers la fenêtre hôte — sert au Quick Ask. */
+  postToHost?(payload: Record<string, unknown>): void;
   document?: Document;
   window?: Window;
 }
@@ -60,6 +62,22 @@ export function selectionPillPosition(
   if (top > bottomLimit) top = caret.top - pill.height - 10;
   top = Math.min(Math.max(topLimit, top), Math.max(topLimit, bottomLimit));
   return {left: Math.max(6, left), top};
+}
+
+/** Les lignes autour de la sélection, contexte minimum pour que le passage
+ *  veuille dire quelque chose. Un mot arraché à un .tex est aussi muet qu'un
+ *  mot arraché à un fil de conversation. */
+export function surroundingLines(
+  editor: Pick<SelectionPillEditor, "getLine" | "lineCount">,
+  from: StudioPosition,
+  to: StudioPosition,
+  margin = 6,
+): string {
+  const first = Math.max(0, from.line - margin);
+  const last = Math.min(editor.lineCount() - 1, to.line + margin);
+  const out: string[] = [];
+  for (let n = first; n <= last; n += 1) out.push(editor.getLine(n));
+  return out.join("\n").trim();
 }
 
 export function createLatexSelectionPill(
@@ -101,6 +119,30 @@ export function createLatexSelectionPill(
         api.hide();
       };
       go.insertAdjacentElement("afterend", comment);
+
+      // Quick Ask : même moule, en tête de pilule — le chat place déjà
+      // l'éclair avant « Annoter » et « Ajouter au chat ».
+      if (!options.postToHost) return;
+      const ask = doc.createElement("button");
+      ask.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M8.8 1.8L3.6 9h3.6l-.9 5.2L11.5 7H7.9l.9-5.2z"/></svg>&nbsp; Quick Ask';
+      ask.style.cssText = go.style.cssText;
+      ask.onmousedown = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!lastSelection) return;
+        const editor = options.getEditor();
+        options.postToHost?.({
+          type: "atelier-quick-ask",
+          text: lastSelection.text,
+          around: editor
+            ? surroundingLines(editor, lastSelection.from, lastSelection.to)
+            : undefined,
+          path: options.path,
+          page: lastSelection.page,
+        });
+        api.hide();
+      };
+      go.insertAdjacentElement("beforebegin", ask);
     },
   });
   const show = (from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void => {

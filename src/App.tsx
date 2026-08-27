@@ -2439,6 +2439,22 @@ export default function App() {
           setActiveTab(id);
         }
       }
+      if (data.type === "atelier-quick-ask") {
+        // La sélection d'un éditeur galerie emprunte l'événement déjà posé
+        // pour le chat : seul le « d'où ça vient » change (fichier + lignes
+        // au lieu d'un titre de fil).
+        window.dispatchEvent(new CustomEvent("quick-ask-open", {
+          detail: {
+            context: {
+              selection: data.text,
+              message: data.around,
+              source: data.path
+                ? { file: data.path.split("/").pop() || data.path, lines: data.page }
+                : undefined,
+            } satisfies QaContext,
+          },
+        }));
+      }
       if (data.type === "atelier-add-to-chat") {
         attachContextToChat(data.text, data);
         if (data.requestId && e.source) {

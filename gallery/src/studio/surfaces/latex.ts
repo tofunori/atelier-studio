@@ -327,6 +327,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       getEditor: () => editor,
       adapter: dependencies.selectionPill,
       openComment: (selection) => ensureAnnotations().open(selection),
+      postToHost: dependencies.postToHost,
       clearMarker: () => {
         win._clMark?.clear();
         win._clMark = null;

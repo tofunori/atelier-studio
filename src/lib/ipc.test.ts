@@ -62,6 +62,28 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
   });
 
+  it("accepte une sélection Quick Ask venue d'un éditeur", () => {
+    const e = msg("http://127.0.0.1:19000", {
+      type: "atelier-quick-ask",
+      nonce,
+      text: "zone-specific",
+      around: "Cell intercepts and slopes follow zone-specific distributions:",
+      path: "manuscript/methods_en.tex",
+      page: "L120-124",
+    });
+    expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
+  });
+
+  it("refuse une sélection Quick Ask portant une clé inconnue", () => {
+    const e = msg("http://127.0.0.1:19000", {
+      type: "atelier-quick-ask",
+      nonce,
+      text: "zone-specific",
+      commande: "rm -rf /",
+    });
+    expect(isTrustedAtelierMessage(e, nonce)).toBe(false);
+  });
+
   it("accepte un résultat show borné et refuse les clés ou chemins invalides", () => {
     const valid = {
       type: "atelier-gallery-result",

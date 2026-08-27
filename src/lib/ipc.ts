@@ -37,6 +37,18 @@ export type AtelierAddToChatMessage = {
   requestId?: string;
 };
 
+/** Sélection envoyée au Quick Ask depuis un éditeur galerie (studio
+ *  LaTeX/code). `around` porte les lignes voisines : un mot seul arraché à un
+ *  .tex ne dit rien de plus qu'un mot seul arraché à un fil. */
+export type AtelierQuickAskMessage = {
+  type: "atelier-quick-ask";
+  nonce: string;
+  text: string;
+  around?: string;
+  path?: string;
+  page?: string;
+};
+
 export type AtelierAddToChatAckMessage = {
   type: "atelier-add-to-chat-ack";
   nonce: string;
@@ -82,6 +94,7 @@ export type AtelierInboundMessage =
   | AtelierOpenTabMessage
   | AtelierOpenPdfMessage
   | AtelierAddToChatMessage
+  | AtelierQuickAskMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
 
@@ -161,6 +174,14 @@ export function isTrustedAtelierMessage(
         isBoundedString(data.tex, MAX_URL_LENGTH) &&
         isBoundedString(data.pdf, MAX_URL_LENGTH) &&
         isOptionalBoundedString(data.title, MAX_TITLE_LENGTH)
+      );
+    case "atelier-quick-ask":
+      return (
+        hasOnlyKeys(data, ["type", "nonce", "text", "around", "path", "page"]) &&
+        isBoundedString(data.text, MAX_TEXT_LENGTH) &&
+        isOptionalBoundedString(data.around, MAX_TEXT_LENGTH) &&
+        isOptionalBoundedString(data.path, MAX_URL_LENGTH) &&
+        isOptionalBoundedString(data.page, MAX_TITLE_LENGTH)
       );
     case "atelier-add-to-chat":
       return (
