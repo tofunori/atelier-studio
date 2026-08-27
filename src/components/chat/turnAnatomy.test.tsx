@@ -157,6 +157,11 @@ describe("anatomie du tour — header d'activité", () => {
     const actif = document.querySelector(".ui-activity.is-running .ui-activity-label");
     expect(actif, "aucun groupe d'activité actif rendu").toBeTruthy();
     expect(actif!.classList.contains("is-shimmering")).toBe(true);
+    // Maillon avec App.css : le balayage est posé sur `.tool-ticker-row`, pas
+    // sur le libellé (le reel du ticker porte un `transform`, et un
+    // `background-clip: text` sur le parent rend le texte INVISIBLE). Si le
+    // libellé actif cessait d'être un ticker, la règle ne viserait plus rien.
+    expect(actif!.querySelector(".tool-ticker-row"), "libellé actif sans rangée de ticker : App.css ne viserait plus rien").toBeTruthy();
   });
 
   it("la préférence replie la pensée vivante par défaut, le clic la déplie", () => {

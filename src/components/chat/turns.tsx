@@ -652,12 +652,15 @@ export function ActivityGroup(p: {
   const summary = summarizeActivity(distinctActions, p.plugins);
   const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
   const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
-  const running = updates.some((a) => /^(running|pending|in[-_]?progress)$/i.test(a.status ?? ""));
   const status = failed ? "failed" : p.live ? "running" : "completed";
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
   return (
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={p.live && running}
+    // Balayé tant que le TOUR tourne, pas seulement pendant qu'un outil tourne :
+    // la condition `running` excluait mécaniquement les attentes, puisque
+    // « en attente · Ns » ne s'affiche QUE lorsque plus rien ne tourne. Le
+    // balayage disparaissait donc au moment précis où il sert le plus.
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={p.live}
       icon={p.live ? activityIconForAction(distinctActions[distinctActions.length - 1], p.plugins) : summary.icon}
       label={p.live ? <ToolRunTicker rows={tickerRows(distinctActions)} /> : summary.label}
       meta={p.stamp}>
