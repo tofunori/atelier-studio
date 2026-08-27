@@ -968,4 +968,79 @@ mod tests {
             "Thierry",
         );
     }
+
+    /// Résumé de raisonnement STREAMÉ (plan « pensée en direct », 2026-08-26).
+    /// Forme réelle relevée sur codex app-server 0.149.0 :
+    /// `{threadId, turnId, itemId, delta, summaryIndex}`. Le contrat frontend
+    /// veut un INCRÉMENT (harnessEvents accumule `lv.text + ev.text`), jamais
+    /// le cumul — sinon la pensée se répète en escalier.
+    #[test]
+    fn resume_de_raisonnement_streame_en_thinking_delta() {
+        let mut st = TurnMapState::default();
+        let e = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"Je pèse "}),
+            &mut st,
+        );
+        assert_eq!(e[0]["kind"], "thinking_delta");
+        assert_eq!(e[0]["text"], "Je pèse ");
+
+        let e2 = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"le pour."}),
+            &mut st,
+        );
+        assert_eq!(e2[0]["text"], "le pour.", "incrément, jamais le cumul");
+    }
+
+    /// Plusieurs parties de résumé (`summaryIndex` qui avance) : sans séparateur
+    /// les paragraphes se collent en un pavé illisible.
+    #[test]
+    fn changement_de_partie_insere_un_saut_de_paragraphe() {
+        let mut st = TurnMapState::default();
+        map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"Premier point."}),
+            &mut st,
+        );
+        let e = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":1,"delta":"Second point."}),
+            &mut st,
+        );
+        assert_eq!(e[0]["text"], "\n\nSecond point.");
+    }
+
+    /// `summaryPartAdded` seul n'écrit rien : c'est le delta qui porte le texte.
+    /// Émettre un événement vide ferait clignoter un bloc « Réflexion » sans
+    /// contenu (cas GLM Flash, qui envoie l'item sans jamais de résumé).
+    #[test]
+    fn part_added_seul_n_emet_rien() {
+        let mut st = TurnMapState::default();
+        let e = map_turn_notification(
+            "item/reasoning/summaryPartAdded",
+            &json!({"itemId":"rs_1","summaryIndex":0}),
+            &mut st,
+        );
+        assert!(e.is_empty(), "aucun événement attendu, reçu {e:?}");
+    }
+
+    /// Un nouveau tour repart d'une ardoise vide : sinon le premier delta du
+    /// tour suivant hérite du dernier index et gagne un saut de paragraphe.
+    #[test]
+    fn turn_started_remet_a_zero_l_index_de_resume() {
+        let mut st = TurnMapState::default();
+        map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":3,"delta":"vieux"}),
+            &mut st,
+        );
+        map_turn_notification("turn/started", &json!({"turn":{"id":"t2"}}), &mut st);
+        let e = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_9","summaryIndex":0,"delta":"neuf"}),
+            &mut st,
+        );
+        assert_eq!(e[0]["text"], "neuf");
+    }
 }
