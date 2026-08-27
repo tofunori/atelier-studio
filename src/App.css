@@ -420,6 +420,23 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-output-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-output-summary { color: var(--text-disabled); white-space: nowrap;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* carte Sources (maquette « Narration du tour ») : chips domaine, SVG monochrome */
+.sources-card { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px; }
+.sources-card-label { font-size: var(--fs-s); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-disabled); font-weight: 500; }
+.sources-card-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.sources-card-more { font-size: var(--fs-s); color: var(--text-disabled);
+  align-self: center; font-variant-numeric: tabular-nums; }
+.source-chip { display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-m); color: var(--text-muted); background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px 3px 8px;
+  max-width: 34ch; text-decoration: none;
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease; }
+.source-chip:hover { color: var(--fg); border-color: var(--border2); }
+.source-chip svg { width: 12px; height: 12px; flex: none; color: var(--text-disabled); }
+.source-chip-domain { font-weight: 500; color: var(--fg); }
+.source-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* pilules de requêtes d'une recherche web (maquette « Narration du tour ») */
 .tool-query-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 2px 24px; }
 .tool-query-chip { font-size: var(--fs-s); color: var(--text-muted);

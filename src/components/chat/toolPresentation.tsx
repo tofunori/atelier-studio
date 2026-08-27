@@ -294,6 +294,15 @@ export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { ki
     || e.name.startsWith("__edits:") || !e.name.startsWith("__");
 }
 
+/** Sémantique « recherche/consultation web », tous providers confondus.
+ * Source unique : la catégorie `web` de toolCategory ET la carte Sources s'y
+ * réfèrent — pas deux listes de noms qui divergent. */
+export function isWebSearchName(name: string): boolean {
+  const n = name.toLowerCase();
+  return n === "webfetch" || n === "websearch" || n.includes("web_search")
+    || n.includes("web-search") || n.includes("browser") || n.includes("recherche web");
+}
+
 // catégorise un outil tous providers confondus (Claude: Bash/Read/Edit/Grep ;
 // Codex: Bash/apply_patch ; Grok: Execute/read_file/edit_file/permission…)
 export function toolCategory(name: string, detail?: string): ToolCat {
@@ -308,7 +317,7 @@ export function toolCategory(name: string, detail?: string): ToolCat {
   if (n.startsWith("agent:") || n.includes("spawn_agent") || n.includes("subagent") || n.includes("multi_agent") || n.includes("multi-agent")) return "agent";
   if (n.includes("image_generation") || n.includes("image-generation") || n.includes("generate_image") || n.includes("generate-image")) return "visualization";
   if (n.includes("view_image") || n.includes("image_view") || n.includes("open_image") || n === "image" || n.startsWith("image ")) return "image";
-  if (n === "webfetch" || n === "websearch" || n.includes("web_search") || n.includes("web-search") || n.includes("browser") || n.includes("recherche web")) return "web";
+  if (isWebSearchName(name)) return "web";
   // exécution shell (Bash, Execute, run_terminal…) : affiner via la commande
   if (n === "bash" || n === "execute" || n.includes("shell") || n.includes("terminal") || n.includes("command")) {
     if (LIST_CMD.test(d)) return "list";

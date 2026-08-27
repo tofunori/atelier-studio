@@ -5,7 +5,8 @@
 // noms locaux d'origine pour garantir l'équivalence pixel.
 import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { Tick } from "./toolPresentation";
+import { isWebSearchName, Tick } from "./toolPresentation";
+import { SourcesCard } from "./SourcesCard";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
 import { isStoppedTerminal, timelineRowKey } from "../../lib/chat/turnViewModel";
@@ -129,6 +130,18 @@ export type TimelineEmpty = {
   /** Research Home (plan 017) — remplace l'empty-card générique si fourni */
   home?: ResearchHomeBundle | null;
 };
+
+/** La carte Sources n'apparaît QUE si le tour a réellement cherché sur le web :
+ * on remonte du texte jusqu'au message user qui a ouvert le tour, à la
+ * recherche d'un outil de sémantique web (même prédicat que toolCategory). */
+function tourACherche(events: AgentEvent[], index: number): boolean {
+  for (let k = index - 1; k >= 0; k -= 1) {
+    const e = events[k];
+    if (e.kind === "user") return false;
+    if ((e.kind === "tool" || e.kind === "tool_update") && isWebSearchName(e.name)) return true;
+  }
+  return false;
+}
 
 export function ChatTimeline(p: {
   thread: TimelineThread;
@@ -896,16 +909,18 @@ export function ChatTimeline(p: {
             return <StreamingText key={i} text={e.text} working={workingSince != null} streamKey={item.key} />;
           if (e.kind === "text")
             return (
-              <AssistantText
-                key={i}
-                event={e}
-                index={i}
-                streamKey={item.key}
-                timeFormat={defaults.timeFormat}
-                pinned={pins.some((c) => c.index === i)}
-                onFork={onFork}
-                onTogglePin={onTogglePin}
-              />
+              <React.Fragment key={i}>
+                <AssistantText
+                  event={e}
+                  index={i}
+                  streamKey={item.key}
+                  timeFormat={defaults.timeFormat}
+                  pinned={pins.some((c) => c.index === i)}
+                  onFork={onFork}
+                  onTogglePin={onTogglePin}
+                />
+                {tourACherche(events, i) ? <SourcesCard markdown={e.text} /> : null}
+              </React.Fragment>
             );
           if ((e.kind === "thinking_live" || e.kind === "thinking") && (doublonsPensee.has(i) || penseeMasquee))
             return null;
