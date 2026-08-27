@@ -1288,6 +1288,22 @@ export default function App() {
     return () => window.removeEventListener("kb-open-gbrain-passage", openGbrainPassage);
   }, []);
 
+  // Chips Sources cliquées (2026-08-27) : navigateur d'ATELIER, même canal
+  // que la branche web des citations kb ci-dessous — bascule de surface puis
+  // « browser-open-url » différé, le temps que le listener du panneau monte.
+  useEffect(() => {
+    const onOpenWebUrl = (e: Event) => {
+      const url = (e as CustomEvent).detail?.url;
+      if (typeof url !== "string" || !url) return;
+      switchToSurface("browser");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("browser-open-url", { detail: { url } }));
+      }, 250);
+    };
+    window.addEventListener("chat-open-web-url", onOpenWebUrl);
+    return () => window.removeEventListener("chat-open-web-url", onOpenWebUrl);
+  }, []);
+
   // Citations kb cliquées (plan 052) : ouvrir la source À L'ENDROIT cité
   // quand on le connaît — reader Zotero à la page, browser (web / YouTube à
   // t=), éditeur pour fichiers/dossiers — sinon la surface Connaissances.

@@ -2,7 +2,7 @@
 // QUE du markdown du message — jamais du réseau — et la carte n'apparaît que
 // sous la réponse d'un tour qui a réellement fait une recherche web.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 
@@ -70,5 +70,39 @@ describe("carte Sources dans le fil", () => {
     ];
     renderUi(<Chat {...chatProps({ events: fil })} />);
     expect(screen.queryByTestId("sources-card")).toBeNull();
+  });
+
+  // Clic = navigateur d'ATELIER (demande Thierry 2026-08-27) : la chip
+  // dispatche l'événement global qu'App route vers la surface browser —
+  // même canal que les citations kb. ⌘clic garde le navigateur système
+  // (le <a target="_blank"> fait alors son travail normal).
+  it("clic simple : ouvre dans Atelier (événement global), défaut annulé", () => {
+    const reçus: string[] = [];
+    const écoute = (e: Event) => reçus.push((e as CustomEvent).detail?.url);
+    window.addEventListener("chat-open-web-url", écoute);
+    try {
+      renderUi(<SourcesCard markdown={"Voir [G](https://grammalecte.net/doc)"} />);
+      const chip = screen.getByTestId("sources-card").querySelector("a.source-chip")!;
+      const clic = fireEvent.click(chip);
+      expect(reçus).toEqual(["https://grammalecte.net/doc"]);
+      expect(clic).toBe(false); // preventDefault posé — pas de navigateur système
+    } finally {
+      window.removeEventListener("chat-open-web-url", écoute);
+    }
+  });
+
+  it("⌘clic : aucun événement — le navigateur système garde la main", () => {
+    const reçus: string[] = [];
+    const écoute = (e: Event) => reçus.push((e as CustomEvent).detail?.url);
+    window.addEventListener("chat-open-web-url", écoute);
+    try {
+      renderUi(<SourcesCard markdown={"Voir [G](https://grammalecte.net/doc)"} />);
+      const chip = screen.getByTestId("sources-card").querySelector("a.source-chip")!;
+      const clic = fireEvent.click(chip, { metaKey: true });
+      expect(reçus).toEqual([]);
+      expect(clic).toBe(true); // défaut intact → target=_blank
+    } finally {
+      window.removeEventListener("chat-open-web-url", écoute);
+    }
   });
 });
