@@ -177,6 +177,13 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
   const [open, setOpen] = useState(failed);
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   const trimmedOutput = output.trim();
+  // Requêtes d'une recherche web (Rust web_search_update → input.queries) :
+  // une seule requête tient déjà dans le résumé de la ligne, donc pas de pilule.
+  const queries = Array.isArray((event.input as { queries?: unknown } | undefined)?.queries)
+    ? ((event.input as { queries: unknown[] }).queries.filter(
+        (q): q is string => typeof q === "string" && q.trim() !== "",
+      ))
+    : [];
   const isJsonOutput = cleanOutput.length <= 6000
     && (trimmedOutput.startsWith("{") || trimmedOutput.startsWith("["))
     && isJsonText(trimmedOutput);
@@ -202,6 +209,13 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
           </span>
         )}
       </RowButton>
+      {queries.length > 1 && (
+        <div className="tool-query-chips" data-testid="tool-query-chips">
+          {queries.map((q, i) => (
+            <span className="tool-query-chip" key={`${i}-${q}`} title={q}>{q}</span>
+          ))}
+        </div>
+      )}
       {open && (inputView || output.trim()) && (
         <div className="tool-output-body">
           {inputView && (

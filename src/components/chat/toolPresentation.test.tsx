@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "../../lib/ws";
 import type { PluginCatalogEntry } from "../../lib/plugins";
+import { cleanup, screen } from "@testing-library/react";
+import { renderUi } from "../../test/render";
 import { setLanguage, t } from "../../lib/i18n";
 import {
   activeToolLabel,
@@ -14,6 +16,7 @@ import {
   stripAnsi,
   summarizeActivity,
   tickerRows,
+  ToolOutputLine,
   toolCategory,
   toolOutcome,
   turnProgressSignature,
@@ -385,5 +388,31 @@ describe("état affiché d'un appel d'outil", () => {
   it("un outil encore en vol reste neutre", () => {
     expect(toolOutcome(maj({ status: "running" }))).toBe("running");
     expect(toolOutcome(maj({ status: "" }))).toBe("running");
+  });
+});
+
+// Les requêtes d'une recherche web multi-requêtes (input.queries, cf. Rust
+// web_search_update) se lisent en pilules sous la ligne d'outil ; une requête
+// unique reste dans le résumé de la ligne, sans pilule redondante.
+describe("pilules de requêtes de recherche web", () => {
+  afterEach(cleanup);
+
+  it("une recherche multi-requêtes déplie ses requêtes en pilules", () => {
+    renderUi(<ToolOutputLine event={{
+      kind: "tool_update", id: "ws1", name: "web_search", status: "completed",
+      detail: "a · b", output: "",
+      input: { queries: ["grammalecte CLI", "antidote alternative"] },
+    } as AgentEvent as Extract<AgentEvent, { kind: "tool_update" }>} />);
+    const chips = screen.getByTestId("tool-query-chips");
+    expect(chips.textContent).toContain("grammalecte CLI");
+    expect(chips.textContent).toContain("antidote alternative");
+  });
+
+  it("une requête unique ne produit aucune pilule", () => {
+    renderUi(<ToolOutputLine event={{
+      kind: "tool_update", id: "ws2", name: "web_search", status: "completed",
+      detail: "albedo", output: "", input: { queries: ["albedo"] },
+    } as AgentEvent as Extract<AgentEvent, { kind: "tool_update" }>} />);
+    expect(screen.queryByTestId("tool-query-chips")).toBeNull();
   });
 });

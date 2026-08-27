@@ -420,6 +420,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .tool-output-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-output-summary { color: var(--text-disabled); white-space: nowrap;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* pilules de requêtes d'une recherche web (maquette « Narration du tour ») */
+.tool-query-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 2px 24px; }
+.tool-query-chip { font-size: var(--fs-s); color: var(--text-muted);
+  background: var(--surface-inset); border-radius: 999px; padding: 2px 10px;
+  max-width: 38ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-status { display: inline-flex; align-items: center; gap: 3px;
   color: var(--text-disabled); white-space: nowrap; }
 .tool-status-icon { width: 12px; height: 12px; flex: none; stroke-width: 1.35; }
