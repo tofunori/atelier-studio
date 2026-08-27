@@ -3488,7 +3488,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Ticker une-ligne du tour actif (adapté de Hermes Desktop, MIT) : le reel
    empile toutes les actions, la fenêtre n'en montre qu'une ; chaque nouvelle
    action translate le reel d'une ligne — le travail tique sur place. */
-.tool-ticker { display: inline-block; height: 1lh; overflow: hidden; vertical-align: bottom; min-width: 0; }
+/* `block`, jamais `inline-block` : rétréci à son contenu, la rangée avait la
+   largeur du texte et le fondu de bord fanait la FIN de chaque libellé, même
+   court (« methods_en.tex » → « methods_en.te… », vécu 2026-08-27). Étiré sur
+   la colonne du trigger, la zone fanée reste au bord droit, loin d'un texte
+   qui ne déborde pas. */
+.tool-ticker { display: block; height: 1lh; overflow: hidden; min-width: 0; }
 .tool-ticker-reel {
   display: flex; flex-direction: column;
   transform: translateY(calc(var(--tick-i, 0) * -1lh));

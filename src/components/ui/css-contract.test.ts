@@ -448,11 +448,16 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       [primitives, ".ui-activity-label"],
       [appCss, ".tool-ticker-row"],
     ] as const) {
-      const corps = source.match(new RegExp(`\\${sel} \\{([^}]*)\\}`))?.[1] ?? "";
+      // ancrée en début de ligne : sinon elle matche d'abord la variante
+      // `.is-summary .ui-activity-label`, qui retire volontairement le masque
+      const corps = source.match(new RegExp(`(?:^|\\n)\\${sel} \\{([^}]*)\\}`))?.[1] ?? "";
       expect(corps, `règle ${sel} introuvable`).not.toBe("");
       expect(corps, `${sel} : masque de fondu absent`).toMatch(/mask-image:\s*linear-gradient\(90deg/);
       expect(corps, `${sel} : ellipsis en double du fondu`).not.toMatch(/text-overflow:\s*ellipsis/);
     }
+    // et l'exception : un trigger résumé se rétrécit à son contenu, rien n'y
+    // déborde — le masque y fanerait la fin de chaque libellé court
+    expect(primitives).toMatch(/\.is-summary \.ui-activity-label \{[^}]*mask-image:\s*none/);
   });
 
   // Le fondu par mots tournait à 220 ms « ease-out » écrit en dur à DEUX
