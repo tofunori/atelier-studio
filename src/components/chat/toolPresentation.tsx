@@ -12,7 +12,7 @@ import { RowButton } from "../ui";
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
   | "permission" | "image" | "visualization" | "integration" | "skill"
-  | "agent" | "compaction" | "interrupted" | "tool";
+  | "agent" | "compaction" | "interrupted" | "thinking" | "tool";
 
 export type ActivityIcon = {
   cat: ToolCat;
@@ -24,7 +24,7 @@ type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 type SummaryPartKind =
   | "integrations" | "loaded-tools" | "file-changes" | "exploration"
   | "visualization" | "commands" | "web-search" | "images" | "agents"
-  | "todo" | "permissions" | "compaction" | "tools";
+  | "todo" | "permissions" | "compaction" | "thinking" | "tools";
 
 type SemanticToolActivity = {
   action: ToolAction;
@@ -276,13 +276,17 @@ export function FileTypeIcon({ ext }: { ext: string }) {
 export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {
   if (e.kind === "tool_update") return true;
   if (e.kind !== "tool") return false;
-  return e.name === "__compacted" || e.name.startsWith("__edits:") || !e.name.startsWith("__");
+  return e.name === "__compacted" || e.name === "__thinking-step"
+    || e.name.startsWith("__edits:") || !e.name.startsWith("__");
 }
 
 // catégorise un outil tous providers confondus (Claude: Bash/Read/Edit/Grep ;
 // Codex: Bash/apply_patch ; Grok: Execute/read_file/edit_file/permission…)
 export function toolCategory(name: string, detail?: string): ToolCat {
   if (name.startsWith("__edits:")) return "edit";
+  // Titre de résumé de raisonnement (étape façon Codex) : ligne d'étape du
+  // ticker, jamais résumée — voir partKind et SUMMARY_ORDER.
+  if (name === "__thinking-step") return "thinking";
   const n = name.toLowerCase();
   const d = shellCommand(detail ?? "");
   if (n === "__compacted" || n.includes("context_compact") || n.includes("context-compaction")) return "compaction";
@@ -485,6 +489,9 @@ function partKind(kind: ToolCat): SummaryPartKind {
   if (kind === "todo") return "todo";
   if (kind === "permission") return "permissions";
   if (kind === "compaction") return "compaction";
+  // Étapes de raisonnement : HORS de SUMMARY_ORDER à dessein — le bloc
+  // Réflexion porte déjà ce contenu après le tour, le résumer serait du bruit.
+  if (kind === "thinking") return "thinking";
   return "tools";
 }
 
@@ -523,6 +530,8 @@ export function activityIconForPhase(phase?: string): ActivityIcon | undefined {
 
 /** Libellé présent et orienté intention pour l'unique activité du tour actif. */
 export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
+  // Étape de raisonnement : le titre EST le libellé — aucune conjugaison.
+  if (action.name === "__thinking-step") return action.detail || t("event.thinking");
   const activity = semanticActivity(action);
   const target = activity.target;
   const cat = activity.kind;
@@ -704,6 +713,7 @@ export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
     strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (cat) {
     case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
+    case "thinking": return <svg {...c}><path d="M5.6 11.2a4.6 4.6 0 1 1 4.8 0v1.4H5.6z" /><path d="M6.4 14.6h3.2" /></svg>;
     case "edit": return <svg {...c}><path d="M12.2 1.6 14.4 3.8 5.5 12.7l-3 .8.8-3z" /><path d="M10.6 3.2 12.8 5.4" /></svg>;
     case "search": return <svg {...c}><circle cx="7" cy="7" r="4.3" /><path d="M10.4 10.4 14 14" /></svg>;
     case "read": return <svg {...c}><path d="M2.2 3.1c2.1-.5 4-.1 5.8 1.2v9c-1.8-1.3-3.7-1.7-5.8-1.2zM13.8 3.1c-2.1-.5-4-.1-5.8 1.2v9c1.8-1.3 3.7-1.7 5.8-1.2z" /></svg>;

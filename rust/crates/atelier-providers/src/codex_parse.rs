@@ -21,6 +21,30 @@ pub struct TurnMapState {
     /// uniquement à savoir quand insérer le saut de paragraphe entre deux
     /// parties ; remis à zéro à chaque `turn/started`.
     reasoning_summary_index: Option<u64>,
+    /// Flux de résumé accumulé pour l'extraction des titres `**gras**`
+    /// (étapes façon Codex desktop) + nombre de titres déjà émis. Fermé à
+    /// chaque fin d'item de raisonnement : deux items ne s'apparient jamais.
+    reasoning_stream: String,
+    reasoning_steps_emitted: usize,
+}
+
+/// Les spans `**…**` COMPLETS d'un flux markdown, dans l'ordre. Appariement
+/// séquentiel ouvrant/fermant — même sémantique que le gras CommonMark pour
+/// les résumés de raisonnement, qui n'imbriquent pas l'emphase. Un titre vide
+/// ou déraisonnablement long (>120 ch) est ignoré.
+fn bold_spans(text: &str) -> Vec<String> {
+    let mut spans = Vec::new();
+    let mut reste = text;
+    while let Some(ouvre) = reste.find("**") {
+        let apres = &reste[ouvre + 2..];
+        let Some(ferme) = apres.find("**") else { break };
+        let titre = apres[..ferme].trim();
+        if !titre.is_empty() && titre.chars().count() <= 120 {
+            spans.push(titre.to_string());
+        }
+        reste = &apres[ferme + 2..];
+    }
+    spans
 }
 
 pub fn bound_tool_output(value: &str) -> Value {
@@ -88,6 +112,8 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
         "turn/started" => {
             state.stream_text.clear();
             state.reasoning_summary_index = None;
+            state.reasoning_stream.clear();
+            state.reasoning_steps_emitted = 0;
             state.command_items.clear();
             state.command_outputs.clear();
             state.native_turn_id = params
@@ -226,6 +252,20 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
                     delta.to_string()
                 };
                 events.push(json!({"kind":"thinking_delta","text": text}));
+                // Étapes : chaque titre `**gras**` qui vient de SE FERMER
+                // devient une action __thinking-step — la rangée d'étape que
+                // le ticker empile (façon Codex desktop). Jamais de fragment :
+                // un titre coupé entre deux deltas attend son étoile fermante.
+                state.reasoning_stream.push_str(delta);
+                let titres = bold_spans(&state.reasoning_stream);
+                for titre in titres.iter().skip(state.reasoning_steps_emitted) {
+                    events.push(json!({
+                        "kind": "tool",
+                        "name": "__thinking-step",
+                        "detail": titre,
+                    }));
+                }
+                state.reasoning_steps_emitted = titres.len();
             }
         }
         "item/commandExecution/outputDelta" => {
@@ -259,6 +299,10 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
                     }));
                 }
                 "reasoning" => {
+                    // ferme le flux de titres : une `**` orpheline de cet item
+                    // ne doit jamais s'apparier avec celle de l'item suivant
+                    state.reasoning_stream.clear();
+                    state.reasoning_steps_emitted = 0;
                     let mut parts = Vec::new();
                     if let Some(arr) = item.get("content").and_then(|v| v.as_array()) {
                         for p in arr {
@@ -1041,6 +1085,85 @@ mod tests {
             &mut st,
         );
         assert_eq!(e[0]["text"], "\n\nSecond point.");
+    }
+
+    /// Titres d'étapes (façon Codex desktop, décision Thierry 2026-08-27) :
+    /// les résumés de raisonnement GPT structurent leurs étapes en titres
+    /// `**gras**`. Chaque titre COMPLET devient une action `__thinking-step`,
+    /// que le ticker empile comme une ligne d'étape. Un titre coupé entre deux
+    /// deltas n'est émis qu'une fois fermé — jamais de fragment.
+    #[test]
+    fn titre_gras_coupe_entre_deux_deltas_emis_une_seule_fois() {
+        let mut st = TurnMapState::default();
+        let e1 = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"**Identifie le fourni"}),
+            &mut st,
+        );
+        assert!(
+            !e1.iter().any(|e| e["name"] == "__thinking-step"),
+            "titre incomplet émis : {e1:?}",
+        );
+        let e2 = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"sseur le plus rapide** Je compare"}),
+            &mut st,
+        );
+        let steps: Vec<_> = e2.iter().filter(|e| e["name"] == "__thinking-step").collect();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["kind"], "tool");
+        assert_eq!(steps[0]["detail"], "Identifie le fournisseur le plus rapide");
+        // le texte continue d'arriver : pas de ré-émission
+        let e3 = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":" les latences."}),
+            &mut st,
+        );
+        assert!(!e3.iter().any(|e| e["name"] == "__thinking-step"));
+    }
+
+    #[test]
+    fn chaque_nouveau_titre_devient_une_etape_de_plus() {
+        let mut st = TurnMapState::default();
+        map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"**Premier pas** corps "}),
+            &mut st,
+        );
+        let e = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":1,"delta":"**Second pas** suite"}),
+            &mut st,
+        );
+        let steps: Vec<_> = e.iter().filter(|e| e["name"] == "__thinking-step").collect();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["detail"], "Second pas");
+    }
+
+    /// Un item de raisonnement TERMINÉ ferme son flux : une étoile `**`
+    /// laissée ouverte ne doit jamais s'apparier avec celle de l'item suivant.
+    #[test]
+    fn item_termine_ferme_le_flux_de_titres() {
+        let mut st = TurnMapState::default();
+        map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_1","summaryIndex":0,"delta":"corps avec ** orphelin"}),
+            &mut st,
+        );
+        map_turn_notification(
+            "item/completed",
+            &json!({"item":{"type":"reasoning","summary":["corps"]}}),
+            &mut st,
+        );
+        let e = map_turn_notification(
+            "item/reasoning/summaryTextDelta",
+            &json!({"itemId":"rs_2","summaryIndex":0,"delta":"** pas un titre"}),
+            &mut st,
+        );
+        assert!(
+            !e.iter().any(|e| e["name"] == "__thinking-step"),
+            "appariement à travers deux items : {e:?}",
+        );
     }
 
     /// `summaryPartAdded` seul n'écrit rien : c'est le delta qui porte le texte.

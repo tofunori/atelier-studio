@@ -134,6 +134,30 @@ describe("Codex-style activity presentation", () => {
     expect(fmtToolDur(120_000)).toBe("2 min");
   });
 
+  // Étapes de raisonnement (façon Codex desktop) : les titres **gras** du
+  // résumé arrivent en actions `__thinking-step` (émises par codex_parse.rs).
+  // Elles vivent dans le TICKER comme lignes d'étape — mais jamais dans le
+  // résumé replié : après le tour, le bloc Réflexion porte déjà ce contenu,
+  // le résumer une seconde fois serait du bruit.
+  it("une étape de raisonnement tique dans le ticker, hors du résumé", () => {
+    const step: ToolAction = {
+      kind: "tool",
+      name: "__thinking-step",
+      detail: "Identifie le fournisseur le plus rapide",
+      ts: 1,
+    } as ToolAction;
+    expect(isSummarizableTool(step)).toBe(true);
+    expect(toolCategory("__thinking-step")).toBe("thinking");
+    const rows = tickerRows([step, tool("cmd-1", "Bash", "echo ok", { status: "inProgress" })]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].label).toBe("Identifie le fournisseur le plus rapide");
+    // le résumé du groupe TERMINÉ ignore les étapes : seules les vraies
+    // actions comptent
+    const summary = summarizeActivity([step, tool("cmd-1", "Bash", "echo ok")]);
+    expect(summary.label.toLowerCase()).not.toContain("identifie");
+    expect(summary.parts.map((part) => part.kind)).not.toContain("thinking");
+  });
+
   it("le ticker garde une clé stable par appel, sans fenêtre glissante", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       tool(`cmd-${i}`, "Bash", `echo ${i}`, { status: i === 19 ? "inProgress" : "completed" }));

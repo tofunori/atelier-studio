@@ -1304,6 +1304,10 @@ const fr = {
   "tools.summary.permissions-n": "autorisations traitées",
   "tools.summary.compaction-1": "contexte compacté",
   "tools.summary.compaction-n": "contextes compactés",
+  /* jamais affichées (partKind "thinking" est hors SUMMARY_ORDER) — exigées
+     par le typage des clés de résumé, construites par gabarit */
+  "tools.summary.thinking-1": "étape de réflexion",
+  "tools.summary.thinking-n": "étapes de réflexion",
   "tools.summary.tools-1": "outil utilisé",
   "tools.summary.tools-n": "outils utilisés",
   "chat.activity": "Activité",
@@ -2830,6 +2834,8 @@ const en: Record<keyof typeof fr, string> = {
   "tools.summary.permissions-n": "handled approvals",
   "tools.summary.compaction-1": "compacted context",
   "tools.summary.compaction-n": "compacted contexts",
+  "tools.summary.thinking-1": "reasoning step",
+  "tools.summary.thinking-n": "reasoning steps",
   "tools.summary.tools-1": "used a tool",
   "tools.summary.tools-n": "used tools",
   "chat.activity": "Activity",
@@ -3118,6 +3124,7 @@ export function t(key: I18nKey, vars?: Record<string, string | number | null | u
 
 export function eventLabel(name: string): string {
   if (name === "__thinking") return t("event.thinking");
+  if (name === "__thinking-step") return t("event.thinking");
   if (name === "__compacted") return t("event.compacted");
   if (name === "__queued") return t("event.queued");
   if (name === "__steered") return t("event.steered");
