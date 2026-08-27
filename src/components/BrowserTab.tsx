@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
+import { composeBrowserBounds } from "../lib/browserBounds";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, IconButton, RowButton } from "./ui";
@@ -194,27 +195,25 @@ export default function BrowserTab(p: {
     const el = areaRef.current;
     const r = el?.getBoundingClientRect();
     if (!el || !r || r.width < 10) return null;
-    const pane = el.closest(".pane-slot")?.getBoundingClientRect();
-    const surfaces = el.closest(".pane-surfaces")?.getBoundingClientRect();
-    const chrome = barRef.current?.getBoundingClientRect();
-    const viewport = {
-      left: 0,
-      top: 0,
-      right: window.innerWidth,
-      bottom: window.innerHeight,
-    };
-    const bounds = [r, pane, surfaces, viewport].filter(Boolean) as DOMRect[];
-    const left = Math.max(...bounds.map((b) => b.left));
-    const top = Math.max(...bounds.map((b) => b.top), chrome?.bottom ?? 0);
-    const right = Math.min(...bounds.map((b) => b.right));
-    const bottom = Math.min(...bounds.map((b) => b.bottom));
-    const nativeYOffset = controlsRef.current?.getBoundingClientRect().height ?? 0;
-    if (right - left < 10 || bottom - top - nativeYOffset < 10) return null;
+    // Composition PURE (contrat + historique : src/lib/browserBounds.ts).
+    // Fenêtre en titleBarStyle Overlay → origine native == origine DOM : le
+    // rect de .browser-body est la cible telle quelle. L'ancien ajout de la
+    // hauteur de .browser-bar la comptait DEUX fois (elle est déjà au-dessus
+    // de .browser-body dans le flux) : bande de fond sombre de ~36 px entre
+    // la barre et la page, jamais rattrapée — la calibration ne corrige que X.
+    const composed = composeBrowserBounds({
+      area: r,
+      pane: el.closest(".pane-slot")?.getBoundingClientRect(),
+      surfaces: el.closest(".pane-surfaces")?.getBoundingClientRect(),
+      chromeBottom: barRef.current?.getBoundingClientRect().bottom,
+      viewport: { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight },
+    });
+    if (!composed) return null;
     return {
-      x: left + corrRef.current.x,
-      y: top + nativeYOffset + corrRef.current.y,
-      w: right - left,
-      h: bottom - top - nativeYOffset,
+      x: composed.x + corrRef.current.x,
+      y: composed.y + corrRef.current.y,
+      w: composed.w,
+      h: composed.h,
     };
   }
 
