@@ -972,14 +972,14 @@ describe("bulle user restaurée — pastes archivés sans texte", () => {
     expect(chip.textContent).toContain(t("chat.lines", { lines: "12" }));
   });
 
-  // L'aperçu s'ouvrait DANS .chat-primary, qui porte `container-type:
-  // inline-size` (App.css:199). Or `container-type` applique le confinement de
-  // mise en page, et un élément confiné devient le BLOC CONTENEUR de ses
-  // descendants `position: fixed` : l'overlay « plein écran » se centrait donc
-  // dans le panneau de chat et débordait à droite, coupé (vécu 2026-08-27).
-  // Le portail vers <body> est la seule parade robuste — un futur ancêtre avec
-  // transform/filter/contain rejouerait le même tour.
-  it("l'aperçu d'un collage est porté par <body>, hors de tout conteneur confiné", () => {
+  // L'aperçu vit DANS le panneau de chat, délibérément : la webview NATIVE du
+  // navigateur peint au-dessus de tout le DOM, donc un overlay pleine fenêtre
+  // (portail body, essayé puis annulé le 2026-08-27) passait SOUS elle et se
+  // faisait couper. Le `container-type` de .chat-primary fait du panneau le
+  // bloc conteneur du `position: fixed` — inset 0 y couvre exactement le seul
+  // espace garanti visible. Le débordement d'origine venait de la LARGEUR
+  // (640px fixes dans un panneau rétréci), corrigée en % dans App.css.
+  it("l'aperçu d'un collage reste confiné au panneau de chat (webview native au-dessus du DOM)", () => {
     const local: AgentEvent = {
       kind: "user", text: "Voici le fichier.", ts: FIXED_TS,
       pastes: [{ name: "extrait.txt", text: "a\nb\nc" }],
@@ -988,8 +988,7 @@ describe("bulle user restaurée — pastes archivés sans texte", () => {
     fireEvent.click(document.querySelector(".paste-chip") as HTMLElement);
     const overlay = document.querySelector(".paste-overlay") as HTMLElement;
     expect(overlay, "aperçu non ouvert au clic").toBeTruthy();
-    expect(overlay.parentElement).toBe(document.body);
-    expect(document.querySelector(".chat-primary")?.contains(overlay)).toBe(false);
+    expect(document.querySelector(".chat-primary")?.contains(overlay)).toBe(true);
   });
 
   it("pastes locaux {name, text} : méta lignes calculée depuis le texte", () => {

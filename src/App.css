@@ -809,7 +809,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 /* modale texte collé — au-dessus de tout, aucun clipping possible */
 .paste-overlay { position: fixed; inset: 0; z-index: 260; background: rgba(0,0,0,0.34);
   display: flex; align-items: center; justify-content: center; }
-.paste-modal { display: flex; flex-direction: column; width: 640px; max-width: 84vw;
+/* largeur en % du PANNEAU (l'overlay est confiné au chat — voir Chat.tsx) :
+   640px fixes débordaient d'un panneau rétréci par le navigateur natif. */
+.paste-modal { display: flex; flex-direction: column; width: min(640px, 94%);
   max-height: 72vh; background: var(--bg-pop); border: 1px solid var(--border);
   border-radius: var(--r-m); box-shadow: 0 16px 36px rgba(0,0,0,0.45); overflow: hidden; }
 .paste-modal-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px;

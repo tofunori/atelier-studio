@@ -1,5 +1,4 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -1046,11 +1045,13 @@ export default function Chat(p: {
           defaults: p.defaults,
         }}
       />
-      {/* PORTAIL vers <body> : .chat-primary porte `container-type: inline-size`
-          (App.css:199), donc le confinement de mise en page en fait le bloc
-          conteneur des descendants `position: fixed`. Rendu ici, l'overlay
-          « plein écran » se centrait dans le panneau et débordait, coupé. */}
-      {pasteView && createPortal(
+      {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint
+          au-dessus de tout le DOM — un overlay pleine fenêtre (portail body,
+          essayé le 2026-08-27) passait SOUS elle et se faisait couper. Le
+          `container-type` de .chat-primary fait du panneau le bloc conteneur
+          du `position: fixed` : inset 0 = le panneau, seul espace garanti
+          visible. La largeur de la modale est en % pour la même raison. */}
+      {pasteView && (
         <div className="paste-overlay" onClick={() => setPasteView(null)}>
           <div className="paste-modal" onClick={(e) => e.stopPropagation()}>
             <div className="paste-modal-head">
@@ -1069,8 +1070,7 @@ export default function Chat(p: {
             </div>
             <div className="paste-modal-body">{pasteView.text}</div>
           </div>
-        </div>,
-        document.body,
+        </div>
       )}
       </div>
       {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent} onClose={() => setLocalSelectedAgent(null)} /> : null}
