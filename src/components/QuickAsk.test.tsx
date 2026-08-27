@@ -185,3 +185,50 @@ describe("contexte visible", () => {
     expect(container.textContent).toContain("partial pooling");
   });
 });
+
+describe("historique", () => {
+  const RECENTS = "atelier-studio.qaRecents";
+  function recents() { return JSON.parse(localStorage.getItem(RECENTS) ?? "[]"); }
+
+  function conversation(container: HTMLElement) {
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "pourquoi ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]?.qaId as string;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "text", text: "parce que." } },
+      }));
+    });
+  }
+
+  // Le balai promettait « l'ancienne reste dans les récents » (commit
+  // fcdb52af) sans jamais l'archiver.
+  it("le balai archive la conversation avant d'en ouvrir une neuve", () => {
+    const { container } = renderQuickAsk();
+    conversation(container);
+    fireEvent.click(container.querySelector(".qa-clear-btn") as HTMLElement);
+    expect(recents()).toHaveLength(1);
+    expect(recents()[0].msgs[0].text).toBe("pourquoi ?");
+  });
+
+  // Thierry minimise ou ferme la fenêtre sans jamais passer par close() :
+  // sans archivage au démontage, l'historique restait vide À VIE (ui.json du
+  // 2026-08-26 : qaSelection et qaBox présents, qaRecents absent).
+  it("archive la conversation quand la fenêtre disparaît", () => {
+    const { container, unmount } = renderQuickAsk();
+    conversation(container);
+    expect(recents()).toHaveLength(0);
+    unmount();
+    expect(recents()).toHaveLength(1);
+  });
+
+  it("n'archive rien tant qu'aucune réponse n'est arrivée", () => {
+    const { container, unmount } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "sans réponse" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    unmount();
+    expect(recents()).toHaveLength(0);
+  });
+});

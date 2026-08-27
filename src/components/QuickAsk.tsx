@@ -176,6 +176,7 @@ export default function QuickAsk({
   useEffect(() => {
     if (!open) { wasMin.current = minimized; return; }
     if (wasMin.current) { wasMin.current = false; inputRef.current?.focus(); return; }
+    archive();
     setQaId(crypto.randomUUID());
     // Le modèle du chat prime sur le dernier choix manuel : poser une
     // question de côté sur une réponse ne doit pas changer de cerveau en
@@ -192,8 +193,21 @@ export default function QuickAsk({
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
 
+  // L'historique ne se remplissait que dans close() — un chemin que la
+  // fenêtre n'offre même pas (aucun bouton fermer : le ✕ du bandeau est
+  // l'icône du provider). Minimiser, vider ou quitter perdait le tour sans
+  // trace (ui.json du 2026-08-26 : qaRecents jamais écrit). On archive donc
+  // à chaque fois que la conversation est remplacée ou disparaît, via une
+  // ref — le nettoyage de démontage ne voit pas l'état du dernier rendu.
+  const latest = useRef({ qaId, msgs });
+  latest.current = { qaId, msgs };
+  function archive() {
+    saveRecent(latest.current.qaId, latest.current.msgs);
+  }
+  useEffect(() => () => archive(), []);
+
   function close() {
-    saveRecent(qaId, msgs);
+    archive();
     onClose();
   }
 
@@ -322,10 +336,11 @@ export default function QuickAsk({
             </svg>
           </IconButton>
           <IconButton
-            className="qa-recents-btn"
+            className="qa-recents-btn qa-clear-btn"
             label={t("qa.clear")}
             title={t("qa.clear")}
             onClick={() => {
+              archive();
               setQaId(crypto.randomUUID());
               setMsgs([]);
               setCtx(null);
