@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.5.0"
+version = "1.5.5"
 description = "Atelier Studio — agentic research environment (Tauri 2 desktop shell)"
 authors = ["Thierry St-Pierre"]
 edition = "2021"
