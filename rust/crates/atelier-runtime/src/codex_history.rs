@@ -171,7 +171,78 @@ fn mcp_result_text(result: &Value) -> (String, &'static str) {
     (bound_output(&text), "completed")
 }
 
+/// Outils de collaboration multi-agents : leurs appels portent les chips.
+const COLLAB_TOOLS: [&str; 5] = [
+    "spawn_agent",
+    "wait",
+    "send_input",
+    "resume_agent",
+    "close_agent",
+];
+
+/// Ids d'agents cités par un blob JSON (`agent_thread_ids` ou `agent_thread_id`).
+fn agent_ids_from_json(raw: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return Vec::new();
+    };
+    if let Some(list) = value.get("agent_thread_ids").and_then(Value::as_array) {
+        return list
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+    }
+    value
+        .get("agent_thread_id")
+        .and_then(Value::as_str)
+        .map(|id| vec![id.to_string()])
+        .unwrap_or_default()
+}
+
+/// Repli sans JSON : première séquence en forme d'UUID trouvée dans le texte.
+fn uuid_like_in(text: &str) -> Vec<String> {
+    let bytes: Vec<char> = text.chars().collect();
+    for start in 0..bytes.len().saturating_sub(35) {
+        let window: String = bytes[start..start + 36].iter().collect();
+        if session_id_from_path(Path::new(&format!("{window}.jsonl"))).is_some() {
+            return vec![window];
+        }
+    }
+    Vec::new()
+}
+
+fn agent_activity(name: &str, arguments: &str, output: &str) -> Value {
+    let mut ids = agent_ids_from_json(arguments);
+    if ids.is_empty() {
+        ids = agent_ids_from_json(output);
+    }
+    if ids.is_empty() {
+        ids = uuid_like_in(output);
+    }
+    let mut states = serde_json::Map::new();
+    for id in &ids {
+        states.insert(id.clone(), json!({"status": "running", "message": Value::Null}));
+    }
+    json!({
+        "tool": name,
+        "receiverThreadIds": ids,
+        "agentsStates": Value::Object(states),
+    })
+}
+
 fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, status: &str) -> Value {
+    if COLLAB_TOOLS.contains(&name) {
+        return json!({
+            "kind": "tool_update",
+            "id": call_id,
+            "name": format!("agent:{name}"),
+            "detail": tool_detail(input),
+            "input": {"raw": input},
+            "output": bound_output(output),
+            "status": status,
+            "agentActivity": agent_activity(name, input, output),
+        });
+    }
     json!({
         "kind": "tool_update",
         "id": call_id,
@@ -407,6 +478,28 @@ mod tests {
         assert_eq!(events[2]["output"], "3 articles");
         assert_eq!(events[3]["name"], "apply_patch");
         assert_eq!(events[3]["status"], "completed");
+    }
+
+    /// Après un reload où l'historique natif gagne sur le journal, les chips
+    /// de sous-agents doivent repeupler : les appels collab du rollout
+    /// produisent des tool_update porteurs d'agentActivity.
+    #[test]
+    fn maps_collab_calls_with_agent_activity() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683acd";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "{}", json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"spawn_agent","call_id":"s1","arguments":"{\"prompt\":\"cherche X\"}"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call_output","call_id":"s1","output":"{\"agent_thread_id\":\"child-42\"}"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"wait","call_id":"w1","arguments":"{\"agent_thread_ids\":[\"child-42\"]}"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call_output","call_id":"w1","output":"done"}})).unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(events[0]["name"], "agent:spawn_agent");
+        assert_eq!(events[0]["agentActivity"]["receiverThreadIds"][0], "child-42");
+        assert_eq!(events[1]["name"], "agent:wait");
+        assert_eq!(events[1]["agentActivity"]["agentsStates"]["child-42"]["status"], "running");
     }
 
     #[test]
