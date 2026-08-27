@@ -129,6 +129,60 @@ fn find_session_file(base: &Path, session_id: &str) -> Option<PathBuf> {
         .find(|path| session_id_from_path(path).as_deref() == Some(session_id))
 }
 
+/// Borne des sorties d'outils rejouées depuis un rollout, en CARACTÈRES
+/// (jamais en octets : couper un point de code casserait l'UTF-8).
+const NATIVE_TOOL_OUTPUT_MAX: usize = 8_000;
+
+fn bound_output(text: &str) -> String {
+    text.chars().take(NATIVE_TOOL_OUTPUT_MAX).collect()
+}
+
+/// Résumé une-ligne d'un appel d'outil : première ligne non vide de l'entrée.
+fn tool_detail(input: &str) -> Value {
+    match input
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.chars().take(120).collect::<String>())
+    {
+        Some(detail) => Value::String(detail),
+        None => Value::Null,
+    }
+}
+
+/// Texte lisible d'un résultat MCP (`result.Ok.content[].text`).
+fn mcp_result_text(result: &Value) -> (String, &'static str) {
+    if let Some(err) = result.get("Err") {
+        let text = err
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| err.to_string());
+        return (bound_output(&text), "failed");
+    }
+    let ok = result.get("Ok").unwrap_or(result);
+    let text = match ok.get("content").and_then(Value::as_array) {
+        Some(items) => items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        None => ok.as_str().map(str::to_string).unwrap_or_default(),
+    };
+    (bound_output(&text), "completed")
+}
+
+fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, status: &str) -> Value {
+    json!({
+        "kind": "tool_update",
+        "id": call_id,
+        "name": name,
+        "detail": tool_detail(input),
+        "input": {"raw": input},
+        "output": bound_output(output),
+        "status": status,
+    })
+}
+
 pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec<Value> {
     let Some(path) = find_session_file(base, session_id) else {
         return Vec::new();
@@ -137,14 +191,112 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         return Vec::new();
     };
     let mut events = Vec::new();
+    // call_id -> (name, input) ; Vec plutôt que HashMap pour garder l'ordre
+    // d'insertion des appels restés sans sortie (< 10³ appels par rollout).
+    let mut pending_calls: Vec<(String, String, String)> = Vec::new();
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         let Ok(row) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         let payload = row.get("payload").unwrap_or(&row);
-        let kind = match payload.get("type").and_then(Value::as_str) {
-            Some("user_message") => "user",
-            Some("agent_message") => "text",
+        let item_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+        let call_id = || {
+            payload
+                .get("call_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        match item_type {
+            "custom_tool_call" | "function_call" => {
+                let name = payload
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let input = payload
+                    .get("input")
+                    .or_else(|| payload.get("arguments"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                pending_calls.push((call_id(), name, input));
+                continue;
+            }
+            "custom_tool_call_output" | "function_call_output" => {
+                let id = call_id();
+                let Some(index) = pending_calls.iter().position(|(key, _, _)| *key == id) else {
+                    continue;
+                };
+                let (_, name, input) = pending_calls.remove(index);
+                let output = payload
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                events.push(tool_update_event(&id, &name, &input, output, "completed"));
+                continue;
+            }
+            "mcp_tool_call_end" => {
+                let invocation = payload.get("invocation").cloned().unwrap_or(Value::Null);
+                let server = invocation
+                    .get("server")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let tool = invocation
+                    .get("tool")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let (output, status) =
+                    mcp_result_text(payload.get("result").unwrap_or(&Value::Null));
+                events.push(json!({
+                    "kind": "tool_update",
+                    "id": call_id(),
+                    "name": format!("{server}/{tool}"),
+                    "input": invocation.get("arguments").cloned().unwrap_or(Value::Null),
+                    "output": output,
+                    "status": status,
+                }));
+                continue;
+            }
+            "patch_apply_end" => {
+                let success = payload
+                    .get("success")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let raw = if success {
+                    payload.get("stdout").and_then(Value::as_str)
+                } else {
+                    payload
+                        .get("stderr")
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .or_else(|| payload.get("stdout").and_then(Value::as_str))
+                };
+                events.push(json!({
+                    "kind": "tool_update",
+                    "id": call_id(),
+                    "name": "apply_patch",
+                    "output": bound_output(raw.unwrap_or_default()),
+                    "status": if success { "completed" } else { "failed" },
+                }));
+                continue;
+            }
+            "agent_reasoning" => {
+                let text = payload
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim();
+                if !text.is_empty() {
+                    events.push(json!({"kind": "thinking", "text": text}));
+                }
+                continue;
+            }
+            _ => {}
+        }
+        let kind = match item_type {
+            "user_message" => "user",
+            "agent_message" => "text",
             _ => continue,
         };
         let Some(raw) = payload
@@ -169,6 +321,10 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         }
         events.push(json!({"kind": kind, "text": text}));
     }
+    // appels restés sans sortie (rollout coupé) : les rendre quand même
+    for (id, name, input) in pending_calls {
+        events.push(tool_update_event(&id, &name, &input, "", "completed"));
+    }
     events
 }
 
@@ -184,10 +340,14 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn write_rollout(base: &Path, id: &str) -> PathBuf {
+    fn rollout_path(base: &Path, id: &str) -> PathBuf {
         let dir = base.join("2026/07/14");
         fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!("rollout-2026-07-14T10-00-00-{id}.jsonl"));
+        dir.join(format!("rollout-2026-07-14T10-00-00-{id}.jsonl"))
+    }
+
+    fn write_rollout(base: &Path, id: &str) -> PathBuf {
+        let path = rollout_path(base, id);
         let mut file = File::create(&path).unwrap();
         writeln!(
             file,
@@ -217,6 +377,36 @@ mod tests {
                 json!({"kind":"text","text":"Voici l’analyse."}),
             ]
         );
+    }
+
+    /// Le panneau d'un sous-agent doit montrer ce que l'agent FAIT : le
+    /// parseur mappe les items d'outils du rollout, pas seulement la prose.
+    #[test]
+    fn maps_tool_items_from_rollout() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683acd";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "{}", json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp/projet"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"custom_tool_call","status":"completed","call_id":"c1","name":"exec","input":"const r = await tools.exec_command({cmd: \"wc -l a.py\"})"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"custom_tool_call_output","call_id":"c1","output":"42 a.py\n"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_reasoning","text":"Je compte les lignes."}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"m1","invocation":{"server":"scholar","tool":"search_papers","arguments":{"query":"albedo"}},"result":{"Ok":{"content":[{"type":"text","text":"3 articles"}]}}}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"patch_apply_end","call_id":"p1","stdout":"Success. Updated a.py\n","stderr":"","success":true}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"Fini."}})).unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        let kinds: Vec<&str> = events.iter().map(|e| e["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["tool_update", "thinking", "tool_update", "tool_update", "text"]);
+        assert_eq!(events[0]["id"], "c1");
+        assert_eq!(events[0]["name"], "exec");
+        assert_eq!(events[0]["output"], "42 a.py\n");
+        assert_eq!(events[0]["status"], "completed");
+        assert_eq!(events[1]["text"], "Je compte les lignes.");
+        assert_eq!(events[2]["name"], "scholar/search_papers");
+        assert_eq!(events[2]["output"], "3 articles");
+        assert_eq!(events[3]["name"], "apply_patch");
+        assert_eq!(events[3]["status"], "completed");
     }
 
     #[test]
