@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -1045,7 +1046,11 @@ export default function Chat(p: {
           defaults: p.defaults,
         }}
       />
-      {pasteView && (
+      {/* PORTAIL vers <body> : .chat-primary porte `container-type: inline-size`
+          (App.css:199), donc le confinement de mise en page en fait le bloc
+          conteneur des descendants `position: fixed`. Rendu ici, l'overlay
+          « plein écran » se centrait dans le panneau et débordait, coupé. */}
+      {pasteView && createPortal(
         <div className="paste-overlay" onClick={() => setPasteView(null)}>
           <div className="paste-modal" onClick={(e) => e.stopPropagation()}>
             <div className="paste-modal-head">
@@ -1064,7 +1069,8 @@ export default function Chat(p: {
             </div>
             <div className="paste-modal-body">{pasteView.text}</div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
       </div>
       {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent} onClose={() => setLocalSelectedAgent(null)} /> : null}
