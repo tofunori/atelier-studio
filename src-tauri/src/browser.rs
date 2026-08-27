@@ -18,7 +18,17 @@ const CAPTURE_SELECTION_JS: &str = r#"
 (() => {
   try {
     const previousTitle = String(document.title || "");
-    const selection = String(window.getSelection?.() || "").trim();
+    let selection = String(window.getSelection?.() || "").trim();
+    if (!selection) {
+      // sélection dans un iframe same-origin (lecteurs d'articles) :
+      // invisible du document racine — parcourir les cadres accessibles
+      for (const frame of document.querySelectorAll("iframe")) {
+        try {
+          const inner = String(frame.contentWindow.getSelection?.() || "").trim();
+          if (inner) { selection = inner; break; }
+        } catch {}
+      }
+    }
     const payload = {
       text: selection.slice(0, 100000),
       title: previousTitle.slice(0, 500),

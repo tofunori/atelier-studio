@@ -149,6 +149,9 @@ export default function BrowserTab(p: {
   // l'affordance vit dans la barre, seul endroit au-dessus de la page
   // (rien ne peut flotter par-dessus une child-webview native).
   const [hasSelection, setHasSelection] = useState(false);
+  // dernier échantillon NON VIDE de la sonde : c'est LUI que la pilule envoie
+  // (jamais de re-capture au clic — voir browserSelectionPoll.ts)
+  const lastSelectionRef = useRef("");
 
   useEffect(() => {
     const onKbAdded = (e: Event) => {
@@ -527,9 +530,22 @@ export default function BrowserTab(p: {
         const c = await invoke<BrowserCapture>("browser_capture_selection", { label });
         return c.text ?? "";
       },
-      setHasSelection,
+      (text) => {
+        if (text) lastSelectionRef.current = text;
+        setHasSelection(Boolean(text));
+      },
     );
   }, [p.visible, activeTabId]);
+
+  function addSampledSelectionToChat() {
+    const text = lastSelectionRef.current.trim();
+    if (!text || !activeTab) return;
+    setHasSelection(false);
+    lastSelectionRef.current = "";
+    window.dispatchEvent(new CustomEvent("browser-add-to-chat", {
+      detail: { text, url: activeTab.url ?? "", mode: "selection" satisfies BrowserAddMode },
+    }));
+  }
 
   return (
     <div className="browser-tab" style={{ display: p.visible ? "flex" : "none" }}>
@@ -572,7 +588,7 @@ export default function BrowserTab(p: {
               className="browser-selection-pill"
               data-testid="browser-selection-pill"
               title={t("browser.add-selection")}
-              onClick={() => { setHasSelection(false); void addCurrentPageToChat(); }}
+              onClick={addSampledSelectionToChat}
             >
               {t("browser.add-selection")}
             </RowButton>
