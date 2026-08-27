@@ -2666,6 +2666,12 @@ body.dragging iframe { pointer-events: none; }
   padding: 0.5px 6px; font-size: var(--fs-l); font-family: var(--code-font); }
 .qa-msg.user { align-self: flex-end; background: var(--bg-ctl); border-radius: var(--r-m);
   padding: 7px 14px; color: var(--text-primary); max-width: 82%; white-space: pre-wrap; }
+/* Ce sur quoi porte la question : la sélection reste sous les yeux dans le
+   tour, une fois la puce d'édition partie avec l'envoi. */
+.qa-msg-quote { display: block; margin-bottom: 4px; padding-left: 8px;
+  border-left: 2px solid var(--border2); color: var(--text-muted);
+  font-size: var(--fs-s); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-msg.assistant { position: relative; padding-right: 28px; }
 .qa-inject-one { position: absolute; right: 0; top: 2px; width: 22px; height: 22px;
   border: none; border-radius: var(--r-s); background: transparent;

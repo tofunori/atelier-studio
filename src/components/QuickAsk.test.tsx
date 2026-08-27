@@ -7,6 +7,7 @@ vi.mock("../lib/wsBus", () => ({ wsSend: wsSendMock }));
 import QuickAsk from "./QuickAsk";
 import { renderUi, resetTestState } from "../test/render";
 import { makeProviderInfo } from "../test/fixtures";
+import type { QaContext } from "../lib/quickAskContext";
 
 const providers = [
   makeProviderInfo({ id: "claude", label: "Claude", models: ["claude-fable-5", "claude-sonnet-5"], defaultModel: "claude-fable-5" }),
@@ -16,13 +17,14 @@ const providers = [
   makeProviderInfo({ id: "grok", label: "Grok", models: ["grok-4.6", "grok-4.5"], defaultModel: "grok-4.6", modelLabels: { "grok-4.6": "Grok 4.6", "grok-4.5": "Grok 4.5" }, efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] }),
 ];
 
-function renderQuickAsk(activeThreadId?: string) {
+function renderQuickAsk(activeThreadId?: string, context?: QaContext) {
   return renderUi(
     <QuickAsk
       open
       minimized={false}
       draft=""
       activeThreadId={activeThreadId ?? null}
+      context={context ?? null}
       providers={providers}
       defaultModels={{ grok: "grok-4.6" }}
       defaultEfforts={{ grok: "high" }}
@@ -161,5 +163,25 @@ describe("fenêtre redimensionnable", () => {
     const style = pop.getAttribute("style") ?? "";
     expect(style).toContain("left: 40px");
     expect(style).toContain("width: 700px");
+  });
+});
+
+describe("contexte visible", () => {
+  const ctx: QaContext = {
+    selection: "partial pooling",
+    message: "C'est ça le partial pooling : chaque zone emprunte à la moyenne.",
+    role: "assistant",
+    threadTitle: "Modèle hiérarchique",
+  };
+
+  it("garde la sélection sous les yeux une fois la question envoyée", () => {
+    const { container } = renderQuickAsk(undefined, ctx);
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "explique" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // la puce d'édition a disparu (le contexte est parti avec la question)…
+    expect(container.querySelector(".qa-ctx")).toBeNull();
+    // …mais le tour garde la trace de ce sur quoi il porte
+    expect(container.textContent).toContain("partial pooling");
   });
 });

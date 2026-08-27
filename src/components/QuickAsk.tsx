@@ -19,7 +19,7 @@ import {
   Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger,
 } from "./shadcn/popover";
 
-type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean };
+type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean; context?: QaContext };
 type QaRecent = { qaId: string; ts: number; msgs: QaMsg[] };
 const RECENTS_KEY = "atelier-studio.qaRecents";
 
@@ -28,7 +28,7 @@ function loadRecents(): QaRecent[] {
 }
 function saveRecent(qaId: string, msgs: QaMsg[]) {
   if (!msgs.some((m) => m.role === "assistant")) return;
-  const clean = msgs.map((m) => ({ role: m.role, text: m.text }));
+  const clean = msgs.map((m) => ({ role: m.role, text: m.text, context: m.context }));
   const rest = loadRecents().filter((r) => r.qaId !== qaId);
   localStorage.setItem(RECENTS_KEY, JSON.stringify([{ qaId, ts: Date.now(), msgs: clean }, ...rest].slice(0, 20)));
 }
@@ -294,7 +294,7 @@ export default function QuickAsk({
   function ask() {
     const q = text.trim();
     if (!q || busy) return;
-    setMsgs((prev) => [...prev, { role: "user", text: q }]);
+    setMsgs((prev) => [...prev, { role: "user", text: q, context: ctx ?? undefined }]);
     setText("");
     setBusy(true);
     const prompt = buildQuickAskPrompt(ctx, q);
@@ -457,7 +457,14 @@ export default function QuickAsk({
                   )}
                 </>
               ) : (
-                <span>{msg.text}</span>
+                <>
+                  {msg.context && (
+                    <span className="qa-msg-quote" title={msg.context.message ?? msg.context.selection}>
+                      {msg.context.selection}
+                    </span>
+                  )}
+                  <span>{msg.text}</span>
+                </>
               )}
             </div>
           ))}

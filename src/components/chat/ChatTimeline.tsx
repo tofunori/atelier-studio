@@ -3,7 +3,7 @@
 // indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
-import React, { useMemo, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Tick } from "./toolPresentation";
 import { AgentEvent } from "../../lib/ws";
@@ -32,6 +32,7 @@ import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import type { QaContext } from "../../lib/quickAskContext";
+import { clampToolbarLeft } from "../../lib/selectionToolbar";
 import { initialJumpState, nextJumpAction } from "../../lib/margeJump";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverContent } from "../shadcn/popover";
@@ -231,6 +232,19 @@ export function ChatTimeline(p: {
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
   const { quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, removeAnnotation, marks } = p.selection;
+  // La barre de sélection est centrée sur le passage : près du bord gauche
+  // elle passait sous le rail. On la borne à la colonne de lecture, une fois
+  // sa largeur connue (mesure avant peinture, pas de saut visible).
+  const selToolbarRef = useRef<HTMLDivElement>(null);
+  const [selToolbarLeft, setSelToolbarLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!quote) { setSelToolbarLeft(null); return; }
+    const bar = selToolbarRef.current;
+    const host = messagesRef.current;
+    if (!bar || !host) return;
+    const zone = host.getBoundingClientRect();
+    setSelToolbarLeft(clampToolbarLeft(quote.x, bar.offsetWidth, { left: zone.left, right: zone.right }));
+  }, [quote?.x, quote?.y, quote?.text, messagesRef]);
   // éditeur de commentaire : ouvert par « Annoter » ou par un clic sur une pastille
   const [noteDraft, setNoteDraft] = React.useState<{ x: number; y: number; text: string; note: string } | null>(null);
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
@@ -1137,7 +1151,7 @@ export function ChatTimeline(p: {
         </Popover>
       )}
       {quote && !noteDraft && (
-        <div className="sel-toolbar" style={{ left: quote.x, top: quote.y - 44 }}>
+        <div className="sel-toolbar" ref={selToolbarRef} style={{ left: selToolbarLeft ?? quote.x, top: quote.y - 44 }}>
           <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
