@@ -193,3 +193,7 @@ The script updates both `docs/media/` and `website/public/`. Replace a baseline 
 - Codex steering depends on the capabilities exposed by the locally installed CLI.
 - PDF annotations are stored beside project files rather than burned into the PDF.
 - Captures and animations are generated from versioned baselines; audit those captures before publishing whenever project content changes.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Portions adapted from Hermes Desktop (MIT).
