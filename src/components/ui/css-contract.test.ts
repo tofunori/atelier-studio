@@ -414,17 +414,26 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(parent, "règle .ui-activity-label.is-shimmering introuvable").toBeTruthy();
     expect(parent![1]).not.toMatch(/background-clip:\s*text/);
 
-    // 2. `background-position` hors de [0%, 100%] sort l'image de l'élément et
-    //    rend le texte transparent une partie du cycle.
+    // 2. Le texte doit TOUJOURS être couvert par l'image de fond : sous
+    //    `background-clip: text`, la moindre zone non couverte rend le libellé
+    //    TRANSPARENT, donc invisible. Deux façons de le garantir — l'ancienne
+    //    bornait la position dans [0%, 100%], l'actuelle fait carreler l'image
+    //    (`repeat-x`), ce qui la rend inépuisable. Au moins une doit tenir.
+    const regle = appCss.match(
+      /\.ui-activity-label\.is-shimmering \.tool-ticker-row,[\s\S]*?\{([\s\S]*?)\}/,
+    );
+    expect(regle, "règle de balayage introuvable").toBeTruthy();
+    expect(regle![1]).toMatch(/background-repeat:\s*repeat-x/);
+
+    // 3. Le déplacement vaut EXACTEMENT une tuile. Sinon la boucle saute à
+    //    chaque tour, et la vitesse cesse d'être celle qu'on croit.
+    const tuile = regle![1].match(/background-size:\s*([\d.]+)ch/);
+    expect(tuile, "background-size doit être en ch (vitesse indépendante de la longueur)").toBeTruthy();
     const sweep = appCss.match(/@keyframes\s+label-sweep\s*\{([\s\S]*?)\n\}/);
     expect(sweep, "@keyframes label-sweep introuvable").toBeTruthy();
-    const positions = [...sweep![1].matchAll(/background-position:\s*(-?[\d.]+)%/g)]
-      .map((m) => Number(m[1]));
-    expect(positions.length).toBeGreaterThan(0);
-    for (const p of positions) {
-      expect(p, `background-position ${p}% sort de l'élément`).toBeGreaterThanOrEqual(0);
-      expect(p, `background-position ${p}% sort de l'élément`).toBeLessThanOrEqual(100);
-    }
+    const bornes = [...sweep![1].matchAll(/background-position:\s*([\d.]+)ch/g)].map((m) => Number(m[1]));
+    expect(bornes.length, "les bornes doivent être en ch, pas en %").toBe(2);
+    expect(Math.abs(bornes[0] - bornes[1])).toBe(Number(tuile![1]));
   });
 
   // §7 : « Densité : compact 3 / comfortable 6 / spacious 10 px sur --pad-y ».

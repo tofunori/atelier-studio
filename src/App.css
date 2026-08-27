@@ -3429,25 +3429,44 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
   color: transparent;
   -webkit-text-fill-color: transparent;
-  /* Géométrie de la bande — deux contraintes liées :
-       largeur allumée = (écart des bornes) x (background-size) ;
-       ici 5 % x 240 % = 0,12 du libellé, soit deux ou trois lettres.
-     Et la taille doit rester > 200 % : en dessous, la bande n'entre ni ne sort
-     jamais du libellé (elle apparaît à 10 % et s'éteint à 90 %) au lieu de le
-     traverser. Voir le calcul dans le journal du 2026-08-26. */
+  /* Géométrie reprise de Codex (`codex-rs/tui/src/shimmer.rs`), transposée en
+     CSS. Tout est raisonné en CARACTÈRES, jamais en pourcentage du libellé —
+     c'était le défaut de la version d'avant : `background-size: 240%` étant
+     relatif à la largeur, un libellé long était balayé vite et un court
+     lentement, et la bande faisait deux lettres ici, huit là.
+
+       demi-largeur de bande  5 ch   (band_half_width dans shimmer.rs)
+       période                44 ch  (34 ch de repos entre deux passages)
+       vitesse                44 ch / 2,4 s = 18,3 ch/s, quelle que soit
+                              la longueur du texte
+
+     Les arrêts échantillonnent le COSINUS SURÉLEVÉ de Codex,
+     t = 0,5·(1 + cos(π·d/5)), à d = 5 / 3,75 / 2,5 / 1,25 / 0 ch — c'est lui
+     qui donne la douceur : une rampe linéaire fait un liseré dur. Comme dans
+     shimmer.rs, la crête plafonne à 90 % du mélange, pas 100 %. */
   background-image: linear-gradient(100deg,
-    var(--text-disabled) 0%, var(--text-disabled) 47.5%,
-    var(--sweep-peak) 50%,
-    var(--text-disabled) 52.5%, var(--text-disabled) 100%);
-  background-size: 240% 100%;
-  background-repeat: no-repeat;
+    var(--text-disabled) 0%,
+    color-mix(in srgb, var(--sweep-peak) 0%, var(--text-disabled)) 38.64%,
+    color-mix(in srgb, var(--sweep-peak) 13%, var(--text-disabled)) 41.48%,
+    color-mix(in srgb, var(--sweep-peak) 45%, var(--text-disabled)) 44.32%,
+    color-mix(in srgb, var(--sweep-peak) 77%, var(--text-disabled)) 47.16%,
+    color-mix(in srgb, var(--sweep-peak) 90%, var(--text-disabled)) 50.00%,
+    color-mix(in srgb, var(--sweep-peak) 77%, var(--text-disabled)) 52.84%,
+    color-mix(in srgb, var(--sweep-peak) 45%, var(--text-disabled)) 55.68%,
+    color-mix(in srgb, var(--sweep-peak) 13%, var(--text-disabled)) 58.52%,
+    color-mix(in srgb, var(--sweep-peak) 0%, var(--text-disabled)) 61.36%,
+    var(--text-disabled) 100%);
+  background-size: 44ch 100%;
+  background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 1.2s linear infinite;
+  animation: label-sweep 2.4s linear infinite;
 }
+/* Une tuile exactement : la boucle est sans couture et la distance parcourue
+   ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
 @keyframes label-sweep {
-  from { background-position: 100% 0; }
-  to { background-position: 0% 0; }
+  from { background-position: 44ch 0; }
+  to { background-position: 0ch 0; }
 }
 /* le segment commande pose SA couleur : sans `inherit` il resterait plat
    pendant que le verbe est balayé (il est dans le clip de la rangée). */
