@@ -5,6 +5,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { composeBrowserBounds } from "../lib/browserBounds";
 import { startSelectionPoll } from "../lib/browserSelectionPoll";
+import { chatButtonState } from "../lib/browserSelectionAffordance";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, IconButton, RowButton } from "./ui";
@@ -583,24 +584,25 @@ export default function BrowserTab(p: {
           <IconButton size="s" className="ghost" label={t("action.reload")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "location.reload()" })} title={t("action.reload")}>
             <RefreshIcon />
           </IconButton>
-          {hasSelection ? (
-            <RowButton
-              className="browser-selection-pill"
-              data-testid="browser-selection-pill"
-              title={t("browser.add-selection")}
-              onClick={addSampledSelectionToChat}
-            >
-              {t("browser.add-selection")}
-            </RowButton>
-          ) : null}
+          {/* Option A : AUCUN élément n'apparaît — ce bouton change d'état.
+              Sélection = accent + bulle PLEINE + envoi de la sélection ;
+              sans sélection = gris, contour, envoi de la page. La pilule
+              orange précédente décalait la barre de 180 px en surgissant. */}
           <IconButton
             size="s"
-            label={t("action.search-web-add")}
-            className="ghost"
-            title={t("action.search-web-add")}
-            onClick={() => { void addCurrentPageToChat(); }}
+            data-testid="browser-add-to-chat"
+            data-has-selection={hasSelection ? "true" : "false"}
+            label={t(chatButtonState(hasSelection).titleKey)}
+            className={chatButtonState(hasSelection).className}
+            title={t(chatButtonState(hasSelection).titleKey)}
+            onClick={() => {
+              if (hasSelection) addSampledSelectionToChat();
+              else void addCurrentPageToChat();
+            }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <svg width="13" height="13" viewBox="0 0 16 16"
+              fill={chatButtonState(hasSelection).filled ? "currentColor" : "none"}
+              stroke="currentColor" strokeWidth="1.3">
               <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
             </svg>
           </IconButton>
