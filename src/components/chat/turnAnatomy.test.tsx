@@ -135,6 +135,30 @@ describe("anatomie du tour — header d'activité", () => {
     expect(indicator.querySelector(".thinking-shimmer")).toBeNull();
   });
 
+  // Balayage du libellé actif (2026-08-26). `shimmer` était conditionné à
+  // `running`, or « en attente · Ns » n'apparaît QUE lorsque `running` est
+  // faux : les deux états s'excluaient, et le balayage ne pouvait jamais se
+  // voir pendant une attente — exactement le moment où il sert le plus.
+  // Le groupe LIVE du tour est balayé tant que le tour tourne, outil en cours
+  // ou pas.
+  it("le libellé du groupe actif est balayé même quand aucun outil ne tourne", () => {
+    const evs: AgentEvent[] = [
+      events.user("Lis le script.", FIXED_TS),
+      {
+        kind: "tool_update",
+        id: "t-1",
+        name: "Read",
+        status: "completed",
+        detail: "bayes_REGION_c.py",
+        ts: FIXED_TS + 10,
+      } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    const actif = document.querySelector(".ui-activity.is-running .ui-activity-label");
+    expect(actif, "aucun groupe d'activité actif rendu").toBeTruthy();
+    expect(actif!.classList.contains("is-shimmering")).toBe(true);
+  });
+
   it("la préférence replie la pensée vivante par défaut, le clic la déplie", () => {
     const evs: AgentEvent[] = [
       events.user("Réfléchis.", FIXED_TS),
