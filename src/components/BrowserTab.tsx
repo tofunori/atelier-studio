@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { composeBrowserBounds } from "../lib/browserBounds";
+import { startSelectionPoll } from "../lib/browserSelectionPoll";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, IconButton, RowButton } from "./ui";
@@ -142,6 +143,12 @@ export default function BrowserTab(p: {
   const [servers, setServers] = useState<LocalServer[] | null>(null);
   // épinglage base de connaissances (plan 049 T2) : retour visuel bref
   const [kbFlash, setKbFlash] = useState<"ok" | "err" | null>(null);
+  // Sélection dans la webview NATIVE : invisible du DOM hôte — sondée à
+  // intervalle court (browserSelectionPoll) tant que la surface est visible.
+  // La pilule « Ajouter la sélection » n'existe que pendant une sélection :
+  // l'affordance vit dans la barre, seul endroit au-dessus de la page
+  // (rien ne peut flotter par-dessus une child-webview native).
+  const [hasSelection, setHasSelection] = useState(false);
 
   useEffect(() => {
     const onKbAdded = (e: Event) => {
@@ -508,6 +515,22 @@ export default function BrowserTab(p: {
     }
   }, []);
 
+  useEffect(() => {
+    const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!p.visible || !active?.url) {
+      setHasSelection(false);
+      return;
+    }
+    const label = active.label;
+    return startSelectionPoll(
+      async () => {
+        const c = await invoke<BrowserCapture>("browser_capture_selection", { label });
+        return c.text ?? "";
+      },
+      setHasSelection,
+    );
+  }, [p.visible, activeTabId]);
+
   return (
     <div className="browser-tab" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="browser-chrome" ref={barRef}>
@@ -544,6 +567,16 @@ export default function BrowserTab(p: {
           <IconButton size="s" className="ghost" label={t("action.reload")} onClick={() => invoke("browser_eval", { label: activeTab?.label, js: "location.reload()" })} title={t("action.reload")}>
             <RefreshIcon />
           </IconButton>
+          {hasSelection ? (
+            <RowButton
+              className="browser-selection-pill"
+              data-testid="browser-selection-pill"
+              title={t("browser.add-selection")}
+              onClick={() => { setHasSelection(false); void addCurrentPageToChat(); }}
+            >
+              {t("browser.add-selection")}
+            </RowButton>
+          ) : null}
           <IconButton
             size="s"
             label={t("action.search-web-add")}
