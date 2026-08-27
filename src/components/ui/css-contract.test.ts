@@ -440,6 +440,21 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(Math.abs(bornes[0] - bornes[1])).toBe(Number(tuile![1]));
   });
 
+  // Débordement du fil actif : FONDU de bord (masque), jamais « … » — une
+  // ellipsis dessinée dans la zone fanée ferait double troncature. Les deux
+  // porteurs (libellé d'activité, rangée du ticker) doivent rester alignés.
+  it("fil actif : débordement en fondu de bord, sans ellipsis", () => {
+    for (const [source, sel] of [
+      [primitives, ".ui-activity-label"],
+      [appCss, ".tool-ticker-row"],
+    ] as const) {
+      const corps = source.match(new RegExp(`\\${sel} \\{([^}]*)\\}`))?.[1] ?? "";
+      expect(corps, `règle ${sel} introuvable`).not.toBe("");
+      expect(corps, `${sel} : masque de fondu absent`).toMatch(/mask-image:\s*linear-gradient\(90deg/);
+      expect(corps, `${sel} : ellipsis en double du fondu`).not.toMatch(/text-overflow:\s*ellipsis/);
+    }
+  });
+
   // Le fondu par mots tournait à 220 ms « ease-out » écrit en dur à DEUX
   // endroits (réponse et pensée) : ils pouvaient diverger sans que rien ne le
   // dise, et 220 ms dépassait le plafond que --motion-panel déclare absolu.

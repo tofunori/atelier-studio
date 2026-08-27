@@ -3492,7 +3492,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   transform: translateY(calc(var(--tick-i, 0) * -1lh));
   transition: transform 140ms ease;
 }
-.tool-ticker-row { height: 1lh; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* même fondu de bord que .ui-activity-label (le masque du parent ne suffit
+   pas : chaque rangée porte son propre clip de texte pour le balayage) */
+.tool-ticker-row { height: 1lh; overflow: hidden; text-overflow: clip; white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, black calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(90deg, black calc(100% - 1rem), transparent); }
 /* Segment commande de la rangée d'outil : du code se lit en mono, un ton
    sous le verbe — pas de fond ni bordure, c'est une ligne de statut. */
 .tool-ticker-code { font-family: var(--code-font); font-size: var(--fs-m);

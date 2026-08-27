@@ -210,7 +210,13 @@
   padding: 3px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .ui-activity-trigger.has-icon { grid-template-columns: 15px minmax(0,1fr) auto 10px; }
 .ui-activity.is-summary .ui-activity-trigger { width: auto; display: inline-flex; }
-.ui-activity-label { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Débordement en FONDU, pas en « … » (repris de l'app ChatGPT) : le dernier
+   rem s'évanouit. Le masque est relatif à l'élément — un texte court ne touche
+   pas la zone fanée, seul un texte qui déborde fond au bord. `clip` remplace
+   l'ellipsis, qui dessinerait « … » en pleine zone fanée. */
+.ui-activity-label { color: var(--text-secondary); overflow: hidden; text-overflow: clip; white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, black calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(90deg, black calc(100% - 1rem), transparent); }
 .ui-activity-icon { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .ui-activity-source-icon { width: 13px; height: 13px; display: block; object-fit: contain; border-radius: 3px; }
 .ui-activity-meta { color: var(--text-disabled); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
