@@ -34,12 +34,12 @@
      (1,4:1 sur --bg-ctl — pastilles COMPLETED/CANCELLED délavées, 2026-08-23).
      Contrastes vérifiés sur le fond le plus clair qui les porte (--bg-ctl). */
   --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; --u-run: var(--accent);
-  /* crête du balayage du libellé actif. Le repos de la bande est --fg2 : partir
-     de --fg ne laissait AUCUNE marge de contraste (en clair, #1a1d22 est déjà
-     au plafond — la bande était invisible). Depuis --fg2, la crête pousse dans
-     le sens du thème et le balayage se voit sans jamais descendre sous les
-     libellés terminés (--muted). */
-  --sweep-peak: color-mix(in srgb, var(--fg) 45%, #fff);
+  /* crête du balayage du libellé actif. L'écart repos↔crête EST l'effet : trop
+     serré, la ligne paraît uniformément claire et le balayage passe inaperçu
+     (vécu 2026-08-26 — 53 niveaux, invisible ; demande explicite de Thierry
+     « plus intense »). Le repos descend donc à --muted2 et la crête monte au
+     quasi-extrême du thème : ~145 niveaux d'écart en sombre. */
+  --sweep-peak: color-mix(in srgb, var(--fg) 20%, #fff);
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
@@ -72,7 +72,7 @@
   --hl-line: #a3771e;
   /* états assombris : 4,7 / 4,7 / 4,9 / 4,8 sur --bg-ctl (#dadee4) */
   --u-ok: #2f6b41; --u-warn: #7a5a09; --u-hot: #a8322a; --u-run: #98470b;
-  --sweep-peak: color-mix(in srgb, var(--fg) 70%, #000);
+  --sweep-peak: color-mix(in srgb, var(--fg) 55%, #000);
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -3418,18 +3418,26 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    de l'élément et le texte redevient TRANSPARENT une partie du cycle. Avec
    une image de 260 %, ces deux bornes sortent déjà la bande des deux côtés. */
 .ui-activity-label.is-shimmering { color: var(--text-primary); }
-.ui-activity-label.is-shimmering .tool-ticker-row {
+/* Deux porteurs possibles, jamais les deux à la fois :
+     - la rangée du ticker quand le libellé en est un (cas du groupe LIVE) ;
+     - le libellé lui-même sinon — `:not(:has(.tool-ticker))` garantit qu'on
+       ne pose JAMAIS le clip sur un parent qui contient le reel transformé,
+       ce qui rendrait le texte invisible.
+   Sans le second, un libellé sans ticker ne recevait aucun balayage et rien
+   ne le signalait : le texte restait simplement plat (vécu 2026-08-26). */
+.ui-activity-label.is-shimmering .tool-ticker-row,
+.ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
   color: transparent;
   -webkit-text-fill-color: transparent;
   background-image: linear-gradient(100deg,
-    var(--text-secondary) 0%, var(--text-secondary) 40%,
+    var(--text-disabled) 0%, var(--text-disabled) 38%,
     var(--sweep-peak) 50%,
-    var(--text-secondary) 60%, var(--text-secondary) 100%);
-  background-size: 260% 100%;
+    var(--text-disabled) 62%, var(--text-disabled) 100%);
+  background-size: 180% 100%;
   background-repeat: no-repeat;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.3s linear infinite;
+  animation: label-sweep 2s linear infinite;
 }
 @keyframes label-sweep {
   from { background-position: 100% 0; }
@@ -3441,7 +3449,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   color: inherit; -webkit-text-fill-color: inherit; }
 /* sans mouvement : exactement l'état d'AVANT le balayage — le contraste seul */
 @media (prefers-reduced-motion: reduce) {
-  .ui-activity-label.is-shimmering .tool-ticker-row {
+  .ui-activity-label.is-shimmering .tool-ticker-row,
+  .ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
     animation: none; background-image: none;
     color: var(--text-primary); -webkit-text-fill-color: var(--text-primary); }
 }

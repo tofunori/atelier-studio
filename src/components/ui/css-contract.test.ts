@@ -348,8 +348,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   // au plus DEUX boucles continues, et exactement celles listées ici.
   //
   //   .working-label::before   pulse 1,2 s — le TOUR tourne (chrono)
-  //   .ui-activity-label.is-shimmering .tool-ticker-row
-  //                            balayage 2,3 s — l'ACTION en cours
+  //   .ui-activity-label.is-shimmering .tool-ticker-row (ou le libellé
+  //   lui-même s'il n'a pas de ticker)
+  //                            balayage 2 s — l'ACTION en cours
   //
   // Le balayage vit sur la RANGÉE du ticker, pas sur le libellé : le reel
   // porte un `transform`, et un `background-clip: text` posé sur le parent
@@ -396,7 +397,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
     expect(loops.sort()).toEqual([
-      ".ui-activity-label.is-shimmering .tool-ticker-row",
+      ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
       ".working-label::before",
     ]);
   });
