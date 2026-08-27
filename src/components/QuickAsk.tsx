@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
 import { buildQuickAskPrompt, type QaContext } from "../lib/quickAskContext";
+import { normalizeMathDelimiters } from "../lib/markdown";
+import { chatSelection, threadModelKey } from "../lib/quickAskModel";
+import { useMdPlugins } from "./chat/md";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { Textarea } from "./shadcn/textarea";
@@ -59,6 +61,7 @@ export default function QuickAsk({
   minimized,
   draft,
   context,
+  activeThreadId,
   providers,
   customModels = [],
   defaultModels = {},
@@ -73,6 +76,8 @@ export default function QuickAsk({
   minimized: boolean;
   draft: string;
   context?: QaContext | null;
+  /** fil affiché dans le chat — le Quick Ask emprunte son modèle */
+  activeThreadId?: string | null;
   providers: ProviderInfo[];
   customModels?: { provider: string; id: string }[];
   defaultModels?: Record<string, string>;
@@ -83,6 +88,7 @@ export default function QuickAsk({
   onInject: (text: string) => void;
   onPromote: (qaId: string, title: string) => void;
 }) {
+  const mdPlugins = useMdPlugins();
   const [qaId, setQaId] = useState<string>(() => crypto.randomUUID());
   const [msgs, setMsgs] = useState<QaMsg[]>([]);
   const [text, setText] = useState("");
@@ -160,6 +166,12 @@ export default function QuickAsk({
     if (!open) { wasMin.current = minimized; return; }
     if (wasMin.current) { wasMin.current = false; inputRef.current?.focus(); return; }
     setQaId(crypto.randomUUID());
+    // Le modèle du chat prime sur le dernier choix manuel : poser une
+    // question de côté sur une réponse ne doit pas changer de cerveau en
+    // route (capture Thierry 2026-08-26 : chat sous GLM, Quick Ask sous Grok).
+    const key = threadModelKey(activeThreadId ?? null);
+    const suivi = key ? chatSelection(localStorage.getItem(key)) : null;
+    if (suivi) setSelectionState(suivi);
     setMsgs([]);
     setText(draft);
     setCtx(context ?? null);
@@ -423,7 +435,9 @@ export default function QuickAsk({
             <div key={i} className={`qa-msg ${msg.role}`}>
               {msg.role === "assistant" ? (
                 <>
-                  <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>{msg.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={mdPlugins.remark} rehypePlugins={mdPlugins.rehype}>
+                    {normalizeMathDelimiters(msg.text)}
+                  </ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
                     <IconButton className="qa-inject-one" label={t("qa.inject")} title={t("qa.inject")}
                       onClick={() => { onInject(msg.text); close(); }}>

@@ -4028,6 +4028,7 @@ export default function App() {
             minimized={qaMode === "min"}
             draft={qaDraft}
             context={qaContext}
+            activeThreadId={activeId}
             providers={providerList}
             customModels={settings.customModels}
             defaultModels={settings.defaultModel}

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
-const { wsSendMock } = vi.hoisted(() => ({ wsSendMock: vi.fn(() => true) }));
+const { wsSendMock } = vi.hoisted(() => ({ wsSendMock: vi.fn((_msg: Record<string, unknown>) => true) }));
 vi.mock("../lib/wsBus", () => ({ wsSend: wsSendMock }));
 
 import QuickAsk from "./QuickAsk";
@@ -16,12 +16,13 @@ const providers = [
   makeProviderInfo({ id: "grok", label: "Grok", models: ["grok-4.6", "grok-4.5"], defaultModel: "grok-4.6", modelLabels: { "grok-4.6": "Grok 4.6", "grok-4.5": "Grok 4.5" }, efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] }),
 ];
 
-function renderQuickAsk() {
+function renderQuickAsk(activeThreadId?: string) {
   return renderUi(
     <QuickAsk
       open
       minimized={false}
       draft=""
+      activeThreadId={activeThreadId ?? null}
       providers={providers}
       defaultModels={{ grok: "grok-4.6" }}
       defaultEfforts={{ grok: "high" }}
@@ -70,5 +71,51 @@ describe("Quick Ask", () => {
     expect(await screen.findByRole("option", { name: "Claude" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Codex" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Grok" })).toBeTruthy();
+  });
+});
+
+describe("rendu des réponses", () => {
+  function repondre(qaId: string, text: string) {
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "text", text } },
+      }));
+    });
+  }
+
+  it("rend les maths que le modèle écrit en \\[...\\], comme le chat", async () => {
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "et la formule ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]?.qaId as string;
+    repondre(qaId, "Le modèle :\n\n\\[ \\beta_{\\text{feu}} \\times x_{\\text{feu}} \\]");
+    // la formule est composée — plus aucun délimiteur brut à l'écran
+    await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull(), { timeout: 4000 });
+    expect(container.textContent).not.toContain("\\[");
+  });
+});
+
+describe("modèle suivi", () => {
+  it("part avec le modèle du fil actif, pas avec son propre défaut", () => {
+    localStorage.setItem("atelier-studio.modelSel.thread:fil-1", JSON.stringify({
+      activeProvider: "codex",
+      byProvider: { codex: { model: "gpt-5.5", effort: "xhigh", permissionMode: "ask", fastMode: false } },
+    }));
+    const { container } = renderQuickAsk("fil-1");
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "et ça ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]).toMatchObject({
+      provider: "codex", model: "gpt-5.5", effort: "xhigh",
+    });
+  });
+
+  it("garde son propre choix quand aucun fil n'est actif", () => {
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "et ça ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]).toMatchObject({ provider: "grok", model: "grok-4.6" });
   });
 });
