@@ -123,6 +123,11 @@
   --motion-panel: 150ms;     /* inspecteur — PLAFOND absolu            */
   --motion-spin: 0.9s;       /* indicateur continu, partagé             */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* fondu du texte streamé : monte plus régulièrement que `ease-out`, qui se
+     jette sur l'opacité puis traîne. À 50 % du temps : 58 % d'opacité contre
+     68 %, et une fin plus franche — le mot ARRIVE au lieu de flotter.
+     Courbe relevée dans l'app ChatGPT (`--fade-easing`), 2026-08-26. */
+  --ease-stream: cubic-bezier(0.37, 0.55, 0.86, 0.88);
   --tooltip-delay: 420ms;    /* délai d'apparition (400–450), puis fade 120 */
 
   /* -- focus ---------------------------------------------------------------- */

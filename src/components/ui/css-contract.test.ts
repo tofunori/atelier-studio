@@ -440,6 +440,21 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(Math.abs(bornes[0] - bornes[1])).toBe(Number(tuile![1]));
   });
 
+  // Le fondu par mots tournait à 220 ms « ease-out » écrit en dur à DEUX
+  // endroits (réponse et pensée) : ils pouvaient diverger sans que rien ne le
+  // dise, et 220 ms dépassait le plafond que --motion-panel déclare absolu.
+  it("fondu par mots : durée et courbe par token, jamais en dur", () => {
+    const regles = [...appCss.matchAll(/\.sw \{([^}]*animation:[^}]*)\}/g)].map((m) => m[1]);
+    expect(regles.length, "aucune règle de fondu par mots trouvée").toBeGreaterThanOrEqual(2);
+    for (const corps of regles) {
+      if (/animation:\s*none/.test(corps)) continue;
+      expect(corps, `durée en dur dans « ${corps.trim()} »`).not.toMatch(/\d+ms/);
+      expect(corps).toContain("var(--motion-panel)");
+      expect(corps).toContain("var(--ease-stream)");
+    }
+    expect(tokens).toContain("--ease-stream:");
+  });
+
   // §7 : « Densité : compact 3 / comfortable 6 / spacious 10 px sur --pad-y ».
   // Le token n'avait que trois consommateurs (.sidebar li, un `.sidebar button`
   // trop large, .set-row) : le réglage était quasi placebo. Il pilote désormais

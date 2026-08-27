@@ -3523,7 +3523,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* fade par mots (plan 067) : chaque mot du bloc de queue (span .sw posé par
    rehypeWordFade) entre en fondu une seule fois à son montage — opacity
    seule, `both` fige l'état final. One-shot par mot, pas de boucle (§9). */
-.msg.is-streaming .sw { animation: word-in 220ms ease-out both; }
+/* Durée et courbe par TOKEN, jamais en dur : les deux usages (réponse et
+   pensée) divergeaient sans que rien ne le signale, et 220 ms dépassait le
+   plafond de 150 ms que --motion-panel désigne comme absolu. */
+.msg.is-streaming .sw { animation: word-in var(--motion-panel) var(--ease-stream) both; }
 @keyframes word-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -3532,7 +3535,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Même fade pour la pensée EN DIRECT (ThinkingProse fade) : le typewriter y
    révèle plusieurs mots par image quand le CLI livre par blocs — sans fondu,
    ils apparaissaient d'un coup, secs. Un seul jeu par mot, pas de boucle (§9). */
-.thinking-live-stream .sw { animation: word-in 220ms ease-out both; }
+.thinking-live-stream .sw { animation: word-in var(--motion-panel) var(--ease-stream) both; }
 .no-stream-fade .thinking-live-stream .sw { animation: none; }
 /* caret : remonté à chaque lot de texte reçu (key côté React) — il « respire »
    au rythme du flux puis se pose quand le flux s'arrête. Piloté par les
