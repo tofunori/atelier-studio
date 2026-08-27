@@ -511,15 +511,35 @@ fn command_update(item: &Value, status: &str, output_override: Option<&str>) -> 
 
 fn web_search_update(item: &Value, status: &str) -> Value {
     let query = item.get("query").and_then(Value::as_str).unwrap_or("");
+    // Les items réels portent `action.queries` (liste) et souvent aucun `query`
+    // racine : sans ce repli, le détail restait vide en multi-requêtes.
+    let mut queries: Vec<String> = item
+        .get("action")
+        .and_then(|a| a.get("queries"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|q| !q.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if queries.is_empty() && !query.is_empty() {
+        queries.push(query.to_string());
+    }
+    let detail = queries.join(" · ");
     json!({
         "kind": "tool_update",
         "id": item_id(item, "web-search"),
         "name": "web_search",
         "output": "",
         "status": status,
-        "detail": query,
+        "detail": detail,
         "input": {
             "query": query,
+            "queries": queries,
             "action": item.get("action").cloned().unwrap_or(Value::Null),
         },
         "source": "codex",
