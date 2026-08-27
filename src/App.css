@@ -34,12 +34,6 @@
      (1,4:1 sur --bg-ctl — pastilles COMPLETED/CANCELLED délavées, 2026-08-23).
      Contrastes vérifiés sur le fond le plus clair qui les porte (--bg-ctl). */
   --u-ok: #98c379; --u-warn: #e0b74a; --u-hot: #e06c75; --u-run: var(--accent);
-  /* crête du balayage du libellé actif. L'écart repos↔crête EST l'effet : trop
-     serré, la ligne paraît uniformément claire et le balayage passe inaperçu
-     (vécu 2026-08-26 — 53 niveaux, invisible ; demande explicite de Thierry
-     « plus intense »). Le repos descend donc à --muted2 et la crête monte au
-     quasi-extrême du thème : ~145 niveaux d'écart en sombre. */
-  --sweep-peak: color-mix(in srgb, var(--fg) 20%, #fff);
   --info: #7aa2f7; /* bleu informationnel — références, liens, états actifs */
   --hl-line: #cda44b; /* ambre sobre — barrette des fiches "Surlignés" (hl) */
   --ui-font: -apple-system, 'SF Pro Text', 'Inter Variable', sans-serif;
@@ -72,7 +66,6 @@
   --hl-line: #a3771e;
   /* états assombris : 4,7 / 4,7 / 4,9 / 4,8 sur --bg-ctl (#dadee4) */
   --u-ok: #2f6b41; --u-warn: #7a5a09; --u-hot: #a8322a; --u-run: #98470b;
-  --sweep-peak: color-mix(in srgb, var(--fg) 55%, #000);
 }
 :root[data-density="compact"] { --pad-y: 3px; }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
@@ -3427,45 +3420,45 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    ne le signalait : le texte restait simplement plat (vécu 2026-08-26). */
 .ui-activity-label.is-shimmering .tool-ticker-row,
 .ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
+  /* Une OMBRE qui passe sur un texte lisible — parti pris de l'app ChatGPT
+     (`_activity-shimmer_`), retenu par Thierry contre la lumière qui passe sur
+     un texte éteint : le libellé reste pleinement lisible en permanence, la
+     bande ne fait que le nuancer au passage.
+
+     Trois emprunts à ChatGPT :
+       - PLATEAU plutôt que pic : la bande a un cœur plat de 6 ch encadré de
+         deux rampes de 3 ch, au lieu d'un sommet unique (plus doux) ;
+       - FOND PLEIN sous le dégradé (`background-color` ci-dessous) : sous
+         `background-clip: text`, la moindre zone non peinte rendrait le
+         libellé TRANSPARENT. La couleur pleine est le filet de sécurité ;
+       - RYTHME passe-puis-repos : la tuile de 90 ch est bien plus large que
+         la bande, donc l'ombre traverse puis le texte respire. Sur un libellé
+         de 30 ch : ~1,2 s de passage, ~1,4 s de calme.
+
+     Ce que ChatGPT fait MOINS bien et qu'on ne reprend pas : leur
+     `background-size: 35%` est relatif à la largeur, donc leur vitesse dépend
+     de la longueur du texte. Tout est en `ch` ici — 90 ch / 2,6 s = 34,6 ch/s,
+     quel que soit le libellé. */
   color: transparent;
   -webkit-text-fill-color: transparent;
-  /* Géométrie reprise de Codex (`codex-rs/tui/src/shimmer.rs`), transposée en
-     CSS. Tout est raisonné en CARACTÈRES, jamais en pourcentage du libellé —
-     c'était le défaut de la version d'avant : `background-size: 240%` étant
-     relatif à la largeur, un libellé long était balayé vite et un court
-     lentement, et la bande faisait deux lettres ici, huit là.
-
-       demi-largeur de bande  5 ch   (band_half_width dans shimmer.rs)
-       période                44 ch  (34 ch de repos entre deux passages)
-       vitesse                44 ch / 2,4 s = 18,3 ch/s, quelle que soit
-                              la longueur du texte
-
-     Les arrêts échantillonnent le COSINUS SURÉLEVÉ de Codex,
-     t = 0,5·(1 + cos(π·d/5)), à d = 5 / 3,75 / 2,5 / 1,25 / 0 ch — c'est lui
-     qui donne la douceur : une rampe linéaire fait un liseré dur. Comme dans
-     shimmer.rs, la crête plafonne à 90 % du mélange, pas 100 %. */
+  background-color: var(--text-primary);
   background-image: linear-gradient(100deg,
-    var(--text-disabled) 0%,
-    color-mix(in srgb, var(--sweep-peak) 0%, var(--text-disabled)) 38.64%,
-    color-mix(in srgb, var(--sweep-peak) 13%, var(--text-disabled)) 41.48%,
-    color-mix(in srgb, var(--sweep-peak) 45%, var(--text-disabled)) 44.32%,
-    color-mix(in srgb, var(--sweep-peak) 77%, var(--text-disabled)) 47.16%,
-    color-mix(in srgb, var(--sweep-peak) 90%, var(--text-disabled)) 50.00%,
-    color-mix(in srgb, var(--sweep-peak) 77%, var(--text-disabled)) 52.84%,
-    color-mix(in srgb, var(--sweep-peak) 45%, var(--text-disabled)) 55.68%,
-    color-mix(in srgb, var(--sweep-peak) 13%, var(--text-disabled)) 58.52%,
-    color-mix(in srgb, var(--sweep-peak) 0%, var(--text-disabled)) 61.36%,
-    var(--text-disabled) 100%);
-  background-size: 44ch 100%;
+    var(--text-primary) 0%,
+    var(--text-primary) 43.33%,
+    var(--text-disabled) 46.67%,
+    var(--text-disabled) 53.33%,
+    var(--text-primary) 56.67%,
+    var(--text-primary) 100%);
+  background-size: 90ch 100%;
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.4s linear infinite;
+  animation: label-sweep 2.6s linear infinite;
 }
 /* Une tuile exactement : la boucle est sans couture et la distance parcourue
    ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
 @keyframes label-sweep {
-  from { background-position: 44ch 0; }
+  from { background-position: 90ch 0; }
   to { background-position: 0ch 0; }
 }
 /* le segment commande pose SA couleur : sans `inherit` il resterait plat
