@@ -112,6 +112,43 @@ fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     }
 }
 
+/// Faut-il transmettre `model_reasoning_effort` ? `efforts_catalogue` vaut
+/// `None` quand le modèle est inconnu du catalogue (ou le catalogue absent) :
+/// dans ce cas on conserve l'effort — repli ouvert, on ne prive jamais un
+/// modèle d'un réglage faute d'information. On ne le tait que lorsque le
+/// catalogue affirme explicitement qu'aucun niveau n'existe.
+fn effort_a_envoyer(effort: &str, efforts_catalogue: Option<&[String]>) -> Option<String> {
+    match efforts_catalogue {
+        Some(niveaux) if niveaux.is_empty() => None,
+        _ => Some(effort.to_string()),
+    }
+}
+
+/// Efforts déclarés par le catalogue pour ce modèle. Mémorisé et invalidé sur
+/// la date de modification du fichier : le catalogue fait 750 Ko, le relire à
+/// chaque tour serait gratuit en bêtise.
+fn catalogue_efforts(model: &str) -> Option<Vec<String>> {
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    static MEMO: Mutex<Option<(Option<SystemTime>, Vec<(String, Vec<String>)>)>> = Mutex::new(None);
+
+    let path = codex_catalog_path()?;
+    let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    let mut memo = MEMO.lock().ok()?;
+    if memo.as_ref().map(|(m, _)| *m != mtime).unwrap_or(true) {
+        let entrees = parse_codex_catalog(&path)
+            .into_iter()
+            .map(|m| (m.id, m.efforts))
+            .collect();
+        *memo = Some((mtime, entrees));
+    }
+    memo.as_ref()?
+        .1
+        .iter()
+        .find(|(id, _)| id == model)
+        .map(|(_, efforts)| efforts.clone())
+}
+
 fn thread_opts(req: &SendRequest) -> Value {
     let (sandbox, approval_policy) = codex_safety(req.permission_mode.as_deref());
     let mut opts = json!({
@@ -126,7 +163,14 @@ fn thread_opts(req: &SendRequest) -> Value {
     }
     let mut config = serde_json::Map::new();
     if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
-        config.insert("model_reasoning_effort".into(), json!(effort));
+        let declares = req
+            .model
+            .as_ref()
+            .filter(|m| !m.is_empty())
+            .and_then(|m| catalogue_efforts(m));
+        if let Some(retenu) = effort_a_envoyer(effort, declares.as_deref()) {
+            config.insert("model_reasoning_effort".into(), json!(retenu));
+        }
     }
     // Mode Fast : niveau de SERVICE, pas de raisonnement. `model_reasoning_effort`
     // reste intact — Fast + High envoie bien les deux. Standard n'écrit rien et
@@ -994,6 +1038,27 @@ mod service_tier_tests {
     fn fast_transmet_le_niveau_priority() {
         let opts = thread_opts(&request("medium", true));
         assert_eq!(opts["config"]["service_tier"], json!("priority"));
+    }
+
+    /// Un modèle qui déclare `supported_reasoning_levels: []` (toutes les
+    /// variantes « Flash » d'OpenCodex) ne sait rien faire d'un effort. Lui
+    /// envoyer « max » n'ajoutait pas de raisonnement : Codex se mettait à
+    /// émettre des items `reasoning` VIDES, donc un marqueur « Réflexion »
+    /// sans contenu dans le fil (mesuré 2026-08-26 sur GLM 5.3 Flash).
+    #[test]
+    fn effort_tu_quand_le_catalogue_ne_declare_aucun_niveau() {
+        assert_eq!(effort_a_envoyer("max", Some(&[])), None);
+    }
+
+    /// Repli OUVERT : un modèle absent du catalogue, ou un catalogue illisible,
+    /// garde l'effort. On ne prive jamais un modèle d'un réglage faute d'info.
+    #[test]
+    fn effort_conserve_quand_le_catalogue_ne_dit_rien() {
+        assert_eq!(effort_a_envoyer("max", None), Some("max".to_string()));
+        assert_eq!(
+            effort_a_envoyer("high", Some(&["low".into(), "high".into()])),
+            Some("high".to_string()),
+        );
     }
 
     #[test]

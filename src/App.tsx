@@ -15,6 +15,7 @@ import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, thr
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin, resolvePins } from "./lib/pins";
+import type { QaContext } from "./lib/quickAskContext";
 import {
   mergeReorderedTabs,
   pickActiveTabForProject,
@@ -732,7 +733,7 @@ export default function App() {
     return () => window.removeEventListener("focus", clearActive);
   }, []);
   const [qaDraft, setQaDraft] = useState("");
-  const [qaContext, setQaContext] = useState(""); // threadId -> condition
+  const [qaContext, setQaContext] = useState<QaContext | null>(null);
   const [favorites, setFavorites] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
     catch { return []; }
@@ -2197,12 +2198,12 @@ export default function App() {
       // un Quick Ask vit déjà (ouvert ou minimisé) : y ajouter le contexte
       // au lieu d'écraser la conversation
       if (qaModeRef.current !== "closed" && d.context) {
-        window.dispatchEvent(new CustomEvent("qa-add-context", { detail: { text: d.context } }));
+        window.dispatchEvent(new CustomEvent("qa-add-context", { detail: { context: d.context } }));
         setQaMode("open");
         return;
       }
       setQaDraft((d.draft as string) ?? "");
-      setQaContext((d.context as string) ?? "");
+      setQaContext((d.context as QaContext | undefined) ?? null);
       setQaMode("open");
     };
     const onAutoReviewToggle = () => {
@@ -2276,7 +2277,7 @@ export default function App() {
       if (mode === "open") { setQaMode("min"); return; }
       if (mode === "min") { setQaMode("open"); return; }
       setQaDraft("");
-      setQaContext("");
+      setQaContext(null);
       setQaMode("open");
     };
     const onOpenPalette = () => setPaletteOpen(true);
@@ -2766,7 +2767,7 @@ export default function App() {
         const m = qaModeRef.current;
         if (m === "open") setQaMode("min");
         else if (m === "min") setQaMode("open");
-        else { setQaDraft(""); setQaContext(""); setQaMode("open"); }
+        else { setQaDraft(""); setQaContext(null); setQaMode("open"); }
         return;
       }
       if (e.metaKey && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {

@@ -7,6 +7,7 @@ import type { Pin } from "../lib/pins";
 import { buildHighlightContext } from "../lib/highlightContext";
 import { buildAnnotationBlock, migrateMarks, type Mark } from "../lib/annotations";
 import { findTextRanges } from "../lib/markRanges";
+import { messageIndexFromNode, quoteContext } from "../lib/quickAskContext";
 import type { HighlightEntry } from "./Rail";
 import { CloseIcon } from "./icons";
 import { Button, IconButton } from "./ui";
@@ -380,7 +381,7 @@ export default function Chat(p: {
     } catch {}
   }, [selectionKey, provider, model, effort, fastMode, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
-  const [quote, setQuote] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [quote, setQuote] = useState<{ x: number; y: number; text: string; messageIndex: number | null } | null>(null);
   const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
@@ -562,8 +563,17 @@ export default function Chat(p: {
         setQuote(null);
         return;
       }
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
-      setQuote({ x: rect.left + rect.width / 2, y: rect.top, text });
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      // le message qui porte la sélection part avec elle vers le Quick Ask :
+      // un mot seul ne se comprend que dans son paragraphe (voir
+      // lib/quickAskContext.ts)
+      setQuote({
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+        text,
+        messageIndex: messageIndexFromNode(range.startContainer),
+      });
     }, 0);
   }
 
@@ -903,6 +913,7 @@ export default function Chat(p: {
   // de suppression silencieuse en re-cliquant le même bouton, spec §2)
   const quoteText = quote?.text.trim() ?? "";
   const quoteAnnotated = !!quoteText && marks.some((m) => m.text === quoteText);
+  const quoteCtx = quoteContext(quote, p.events, p.threadTitle);
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
@@ -967,7 +978,7 @@ export default function Chat(p: {
         working={{ onStop: p.onStop }}
         chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
-        selection={{ quote, setQuote, quoteAnnotated, addAnnotation, removeAnnotation, marks }}
+        selection={{ quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, removeAnnotation, marks }}
       />
       <QueuedTurns
         turns={p.queuedTurns ?? []}

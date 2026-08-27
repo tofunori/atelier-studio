@@ -17,6 +17,10 @@ pub struct TurnMapState {
     pub native_turn_id: Option<String>,
     command_items: HashMap<String, Value>,
     command_outputs: HashMap<String, String>,
+    /// Partie de résumé de raisonnement en cours (`summaryIndex`). Sert
+    /// uniquement à savoir quand insérer le saut de paragraphe entre deux
+    /// parties ; remis à zéro à chaque `turn/started`.
+    reasoning_summary_index: Option<u64>,
 }
 
 pub fn bound_tool_output(value: &str) -> Value {
@@ -83,6 +87,7 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
     match method {
         "turn/started" => {
             state.stream_text.clear();
+            state.reasoning_summary_index = None;
             state.command_items.clear();
             state.command_outputs.clear();
             state.native_turn_id = params
@@ -195,6 +200,33 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
                 .stream_text
                 .push_str(params.get("delta").and_then(|v| v.as_str()).unwrap_or(""));
             events.push(json!({"kind":"stream_set","text": state.stream_text}));
+        }
+        // Résumé de raisonnement STREAMÉ (2026-08-26). Sans ce bras, la pensée
+        // n'arrivait qu'à `item/completed` : le bloc « Réflexion » apparaissait
+        // d'un coup, à la fin, alors que Codex la diffuse mot à mot (138 deltas
+        // relevés sur un tour GLM 5.3 non-Flash). Le contrat frontend attend un
+        // INCRÉMENT — harnessEvents fait `lv.text + ev.text`.
+        //
+        // Nota : les modèles « Flash » d'OpenCodex déclarent
+        // `supports_reasoning_summaries: false` et n'envoient JAMAIS ces
+        // notifications, seulement un item `reasoning` vide. Rien à afficher
+        // pour eux : ce n'est pas un défaut d'Atelier.
+        "item/reasoning/summaryTextDelta" => {
+            let delta = params.get("delta").and_then(Value::as_str).unwrap_or("");
+            if !delta.is_empty() {
+                let index = params.get("summaryIndex").and_then(Value::as_u64);
+                // changement de partie = nouveau paragraphe. Coller les parties
+                // bout à bout donnait un pavé illisible.
+                let saut = matches!((state.reasoning_summary_index, index),
+                    (Some(precedent), Some(courant)) if precedent != courant);
+                state.reasoning_summary_index = index.or(state.reasoning_summary_index);
+                let text = if saut {
+                    format!("\n\n{delta}")
+                } else {
+                    delta.to_string()
+                };
+                events.push(json!({"kind":"thinking_delta","text": text}));
+            }
         }
         "item/commandExecution/outputDelta" => {
             let id = params.get("itemId").and_then(Value::as_str).unwrap_or("");

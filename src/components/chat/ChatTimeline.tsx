@@ -31,6 +31,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
+import type { QaContext } from "../../lib/quickAskContext";
 import { initialJumpState, nextJumpAction } from "../../lib/margeJump";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverContent } from "../shadcn/popover";
@@ -138,8 +139,10 @@ export function ChatTimeline(p: {
   chapters: TimelineChapters;
   empty: TimelineEmpty;
   selection: {
-    quote: { x: number; y: number; text: string } | null;
-    setQuote: React.Dispatch<React.SetStateAction<{ x: number; y: number; text: string } | null>>;
+    quote: { x: number; y: number; text: string; messageIndex: number | null } | null;
+    setQuote: React.Dispatch<React.SetStateAction<{ x: number; y: number; text: string; messageIndex: number | null } | null>>;
+    /** la sélection avec le message qui la porte — ce que reçoit le Quick Ask */
+    quoteCtx: QaContext | null;
     /** le passage sélectionné porte déjà une annotation */
     quoteAnnotated: boolean;
     addAnnotation: (text: string, note: string) => void;
@@ -227,7 +230,7 @@ export function ChatTimeline(p: {
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
-  const { quote, setQuote, quoteAnnotated, addAnnotation, removeAnnotation, marks } = p.selection;
+  const { quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, removeAnnotation, marks } = p.selection;
   // éditeur de commentaire : ouvert par « Annoter » ou par un clic sur une pastille
   const [noteDraft, setNoteDraft] = React.useState<{ x: number; y: number; text: string; note: string } | null>(null);
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
@@ -1138,7 +1141,7 @@ export function ChatTimeline(p: {
           <RowButton
             onMouseDown={(e) => {
               e.preventDefault();
-              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { context: quote.text } }));
+              window.dispatchEvent(new CustomEvent("quick-ask-open", { detail: { context: quoteCtx } }));
               setQuote(null);
               window.getSelection()?.removeAllRanges();
             }}

@@ -73,7 +73,12 @@ impl CodexAppServer {
         cmd.arg("app-server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            // stderr CAPTURÉ, pas jeté (2026-08-26). En `null`, tout ce que Codex
+            // signale sur sa config partait au néant : « Invalid configuration;
+            // using defaults » (catalogue de modèles refusé, hooks de plugin
+            // illisibles) restait invisible pendant que l'app tournait en mode
+            // dégradé sans que rien ne le dise.
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         #[cfg(unix)]
         {
@@ -84,6 +89,19 @@ impl CodexAppServer {
             .map_err(|e| format!("spawn codex app-server: {e}"))?;
         let stdin = child.stdin.take().ok_or("pas de stdin")?;
         let stdout = child.stdout.take().ok_or("pas de stdout")?;
+        // Relais de stderr : préfixé comme les autres providers ([opencode] …),
+        // il atterrit dans la sortie de l'app. L'app-server est silencieux en
+        // fonctionnement normal — une ligne ici signale un vrai problème.
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if !line.trim().is_empty() {
+                        eprintln!("[codex] {line}");
+                    }
+                }
+            });
+        }
 
         let inner_slot = Arc::clone(&self.inner);
         let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
