@@ -84,6 +84,26 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     expect(pill.vraimentVisible).toBe(true);
     expect(pill.boutons).toContain('Commenter');
     expect(pill.boutons).toContain('Add to chat');
+    // Le §13 des pièges connus : une UI d'éditeur ne se déclare faite qu'ici,
+    // dans un vrai navigateur — un contrat qui grep le source encoderait le
+    // bug au lieu de l'attraper.
+    expect(pill.boutons).toContain('Quick Ask');
+    // Quick Ask parle à l'hôte, pas au serveur : le message porte la
+    // sélection, les lignes voisines et la plage source.
+    const quickAsk = await fr().evaluate(() => new Promise((resolve) => {
+      const vu = [];
+      const post = window.__atelierPost;
+      window.__atelierPost = (payload) => { vu.push(payload); if (post) post(payload); };
+      [...document.querySelectorAll('#selPill button')]
+        .find((b) => (b.textContent || '').includes('Quick Ask'))
+        .dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+      setTimeout(() => resolve(vu.find((m) => m && m.type === 'atelier-quick-ask') || null), 150);
+    }));
+    console.log('QUICKASK ' + JSON.stringify(quickAsk));
+    expect(quickAsk).not.toBeNull();
+    expect(quickAsk.text).toContain('melt');
+    expect(quickAsk.page).toMatch(/^L\d+-\d+$/);
+    expect((quickAsk.around || '').length).toBeGreaterThan(quickAsk.text.length);
     expect(vue.pleinCadre).toBe(true);
     expect(vue.preambule).toBe(false);
     expect(vue.survol).toBe('rgba(0, 0, 0, 0)');
