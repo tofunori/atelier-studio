@@ -4425,6 +4425,35 @@ mod tests {
         assert_eq!(v["events"][0]["text"], "hello");
     }
 
+    /// Verrou anti-régression : quand l'historique natif Codex gagne le score
+    /// de `prefer_richer_dialogue`, l'activité des sous-agents (chips) doit
+    /// survivre au reload — elle disparaissait avant le mapping des outils.
+    #[test]
+    fn codex_history_preserves_subagent_activity() {
+        use std::io::Write;
+        let dir = tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683acd";
+        let sessions = dir.path().join("2026/08/27");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let path = sessions.join(format!("rollout-2026-08-27T10-00-00-{id}.jsonl"));
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, "{}", json!({"type":"session_meta","payload":{"cwd":"/tmp"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"Je délègue."}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"spawn_agent","call_id":"s1","arguments":"{\"prompt\":\"cherche X\"}"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call_output","call_id":"s1","output":"{\"agent_thread_id\":\"child-42\"}"}})).unwrap();
+        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"L'enfant a fini."}})).unwrap();
+
+        let native = crate::codex_history::load_codex_history_from_base(dir.path(), id);
+        let journal = vec![json!({"kind":"text","text":"Je délègue."})];
+        let events = prefer_richer_dialogue(journal, native);
+        let spawn = events
+            .iter()
+            .find(|event| event["name"] == "agent:spawn_agent")
+            .expect("l'appel collab doit survivre au choix du natif");
+        assert_eq!(spawn["kind"], "tool_update");
+        assert_eq!(spawn["agentActivity"]["receiverThreadIds"][0], "child-42");
+    }
+
     #[tokio::test]
     async fn interaction_response_requires_the_matching_thread_and_client() {
         let dir = tempdir().unwrap();
