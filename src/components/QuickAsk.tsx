@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
+import { buildQuickAskPrompt, type QaContext } from "../lib/quickAskContext";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { Textarea } from "./shadcn/textarea";
@@ -71,7 +72,7 @@ export default function QuickAsk({
   open: boolean;
   minimized: boolean;
   draft: string;
-  context?: string;
+  context?: QaContext | null;
   providers: ProviderInfo[];
   customModels?: { provider: string; id: string }[];
   defaultModels?: Record<string, string>;
@@ -86,7 +87,7 @@ export default function QuickAsk({
   const [msgs, setMsgs] = useState<QaMsg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [ctx, setCtx] = useState("");
+  const [ctx, setCtx] = useState<QaContext | null>(null);
   const [selection, setSelectionState] = useState<QaSelection>(loadSelection);
   const [recentsOpen, setRecentsOpen] = useState(false);
   const [promoteErr, setPromoteErr] = useState<string | null>(null);
@@ -161,7 +162,7 @@ export default function QuickAsk({
     setQaId(crypto.randomUUID());
     setMsgs([]);
     setText(draft);
-    setCtx(context ?? "");
+    setCtx(context ?? null);
     setBusy(false);
     setRecentsOpen(false);
     setPromoteErr(null);
@@ -186,8 +187,8 @@ export default function QuickAsk({
   // contexte ajouté depuis le chat principal pendant qu'une conversation vit
   useEffect(() => {
     const onAdd = (e: Event) => {
-      const txt = ((e as CustomEvent).detail?.text as string) ?? "";
-      if (txt) setCtx(txt);
+      const next = ((e as CustomEvent).detail?.context as QaContext | undefined) ?? null;
+      if (next) setCtx(next);
       window.setTimeout(() => inputRef.current?.focus(), 0);
     };
     window.addEventListener("qa-add-context", onAdd);
@@ -273,10 +274,8 @@ export default function QuickAsk({
     setMsgs((prev) => [...prev, { role: "user", text: q }]);
     setText("");
     setBusy(true);
-    const prompt = ctx
-      ? `Contexte (extrait d'une autre conversation) :\n"""\n${ctx}\n"""\n\n${q}`
-      : q;
-    if (ctx) setCtx("");
+    const prompt = buildQuickAskPrompt(ctx, q);
+    if (ctx) setCtx(null);
     wsSend({ type: "quickAsk", qaId, prompt, ...activeSelection });
   }
 
@@ -306,7 +305,7 @@ export default function QuickAsk({
             onClick={() => {
               setQaId(crypto.randomUUID());
               setMsgs([]);
-              setCtx("");
+              setCtx(null);
               setText("");
               setBusy(false);
               window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -444,9 +443,9 @@ export default function QuickAsk({
           )}
         </div>
         {ctx && (
-          <div className="qa-ctx" title={ctx}>
-            <span className="qa-ctx-txt">{ctx.slice(0, 90)}{ctx.length > 90 ? "…" : ""}</span>
-            <IconButton size="s" label={t("action.close")} onClick={() => setCtx("")}>✕</IconButton>
+          <div className="qa-ctx" title={ctx.message ?? ctx.selection}>
+            <span className="qa-ctx-txt">{ctx.selection.slice(0, 90)}{ctx.selection.length > 90 ? "…" : ""}</span>
+            <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}>✕</IconButton>
           </div>
         )}
         <Textarea

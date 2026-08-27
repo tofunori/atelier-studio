@@ -913,7 +913,7 @@ export default function Chat(p: {
   // de suppression silencieuse en re-cliquant le même bouton, spec §2)
   const quoteText = quote?.text.trim() ?? "";
   const quoteAnnotated = !!quoteText && marks.some((m) => m.text === quoteText);
-  const quoteCtx = quoteContext(quote, p.events, p.threadTitle);
+  const quoteCtx = quoteContext(quote, p.events, p.threadTitle ?? "");
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
