@@ -54,10 +54,10 @@ export function selectionPillPosition(
   if (editorBox.height < 40 || editorBox.width < 40) return null;
   const topLimit = editorBox.top + 6;
   const bottomLimit = editorBox.bottom - pill.height - 6;
-  const left = Math.min(
-    Math.max(editorBox.left + 6, caret.left - pill.width / 2),
-    editorBox.right - pill.width - 6,
-  );
+  // Centrée dans la colonne, pas sur le caret. Suspendues au point d'arrivée
+  // de la sélection, trois capsules partaient de travers — et une sélection
+  // multi-lignes n'a de toute façon pas de « milieu » que le caret désigne.
+  const left = Math.max(6, editorBox.left + (editorBox.width - pill.width) / 2);
   let top = caret.bottom + 10;
   if (top > bottomLimit) top = caret.top - pill.height - 10;
   top = Math.min(Math.max(topLimit, top), Math.max(topLimit, bottomLimit));

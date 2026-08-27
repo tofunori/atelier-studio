@@ -295,12 +295,20 @@ test("window rewrap column uses the real text rectangle with a safety margin", (
   assert.equal(latex.rewrapColumn(editor, "80"), 80);
 });
 
-test("LaTeX selection pill stays inside the actual editor rectangle", () => {
-  assert.deepEqual({...latex.selectionPillPosition(
-    {left: 100, right: 500, top: 40, bottom: 340, width: 400, height: 300},
-    {left: 480, top: 300, bottom: 320},
-    {width: 180, height: 42},
-  )}, {left: 314, top: 248});
+test("LaTeX selection pill is centred on the panel, not on the caret", () => {
+  const box = {left: 100, right: 500, top: 40, bottom: 340, width: 400, height: 300};
+  const pill = {width: 180, height: 42};
+  // Centrée dans la colonne : 100 + (400 - 180) / 2.
+  assert.deepEqual({...latex.selectionPillPosition(box, {left: 480, top: 300, bottom: 320}, pill)},
+    {left: 210, top: 248});
+  // Un caret à l'autre bout ne la déplace pas d'un pixel — trois capsules
+  // suspendues au point d'arrivée de la sélection partaient de travers.
+  assert.equal(latex.selectionPillPosition(box, {left: 110, top: 60, bottom: 80}, pill).left, 210);
+  // La verticale, elle, suit toujours le caret.
+  assert.equal(latex.selectionPillPosition(box, {left: 300, top: 60, bottom: 80}, pill).top, 90);
+  // Plus large que la colonne : bornée à gauche plutôt que débordante.
+  assert.equal(latex.selectionPillPosition(box, {left: 300, top: 60, bottom: 80},
+    {width: 900, height: 42}).left, 6);
   assert.equal(latex.selectionPillPosition(
     {left: 0, right: 10, top: 0, bottom: 10, width: 10, height: 10},
     {left: 0, top: 0, bottom: 0},
