@@ -3458,8 +3458,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Une tuile exactement : la boucle est sans couture et la distance parcourue
    ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
 @keyframes label-sweep {
-  from { background-position: 90ch 0; }
-  to { background-position: 0ch 0; }
+  /* position CROISSANTE = tuile qui avance vers la droite : l'ombre lit dans
+     le sens du texte (le 90ch → 0 initial la faisait remonter la ligne). */
+  from { background-position: 0ch 0; }
+  to { background-position: 90ch 0; }
 }
 /* le segment commande pose SA couleur : sans `inherit` il resterait plat
    pendant que le verbe est balayé (il est dans le clip de la rangée). */
