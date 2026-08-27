@@ -119,3 +119,47 @@ describe("modèle suivi", () => {
     expect(wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]).toMatchObject({ provider: "grok", model: "grok-4.6" });
   });
 });
+
+describe("fenêtre redimensionnable", () => {
+  it("offre les huit prises d'une fenêtre — quatre bords, quatre coins", () => {
+    const { container } = renderQuickAsk();
+    for (const edge of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
+      expect(container.querySelector(`.qa-resize-${edge}`)).not.toBeNull();
+    }
+  });
+
+  // Au-dessus de la galerie (une iframe), le pointeur quitte le document
+  // parent dès qu'il la survole et le glissement se fige. La convention du
+  // repo — body.dragging → iframe { pointer-events: none } — neutralise les
+  // iframes le temps du geste. Le splitter et la biblio la posent déjà.
+  it("neutralise les iframes pendant le geste, puis les rend", () => {
+    const { container } = renderQuickAsk();
+    fireEvent.mouseDown(container.querySelector(".qa-resize-se") as HTMLElement);
+    expect(document.body.classList.contains("dragging")).toBe(true);
+    fireEvent.mouseUp(window);
+    expect(document.body.classList.contains("dragging")).toBe(false);
+  });
+
+  it("neutralise aussi les iframes pendant le déplacement de la fenêtre", () => {
+    const { container } = renderQuickAsk();
+    fireEvent.mouseDown(container.querySelector(".qa-head") as HTMLElement);
+    expect(document.body.classList.contains("dragging")).toBe(true);
+    fireEvent.mouseUp(window);
+    expect(document.body.classList.contains("dragging")).toBe(false);
+  });
+
+  it("tirer le bord gauche recule l'origine et élargit", () => {
+    const { container } = renderQuickAsk();
+    const pop = container.querySelector(".qa-pop") as HTMLElement;
+    pop.getBoundingClientRect = () => ({
+      left: 100, top: 50, width: 640, height: 400, right: 740, bottom: 450, x: 100, y: 50,
+      toJSON: () => ({}),
+    }) as DOMRect;
+    fireEvent.mouseDown(container.querySelector(".qa-resize-w") as HTMLElement);
+    fireEvent.mouseMove(window, { clientX: 40, clientY: 300 });
+    fireEvent.mouseUp(window);
+    const style = pop.getAttribute("style") ?? "";
+    expect(style).toContain("left: 40px");
+    expect(style).toContain("width: 700px");
+  });
+});

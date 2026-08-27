@@ -6,6 +6,7 @@ import { wsSend } from "../lib/wsBus";
 import { buildQuickAskPrompt, type QaContext } from "../lib/quickAskContext";
 import { normalizeMathDelimiters } from "../lib/markdown";
 import { chatSelection, threadModelKey } from "../lib/quickAskModel";
+import { resizeBox, type ResizeEdge } from "../lib/quickAskBox";
 import { useMdPlugins } from "./chat/md";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
@@ -32,6 +33,9 @@ function saveRecent(qaId: string, msgs: QaMsg[]) {
   localStorage.setItem(RECENTS_KEY, JSON.stringify([{ qaId, ts: Date.now(), msgs: clean }, ...rest].slice(0, 20)));
 }
 type QaSelection = { provider: string; model: string; effort: string };
+// Une fenêtre se prend par ses huit côtés, pas seulement par un coin.
+const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+const MIN_BOX = { w: 380, h: 240 };
 const QA_SELECTION_KEY = "atelier-studio.qaSelection";
 const DEFAULT_QA_SELECTION: QaSelection = { provider: "grok", model: "grok-4.6", effort: "high" };
 
@@ -130,24 +134,31 @@ export default function QuickAsk({
         w: r.width, h: r.height,
       });
     };
-    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    const up = () => {
+      document.body.classList.remove("dragging");
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+    };
+    document.body.classList.add("dragging");
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   }
-  function startResize(e: React.MouseEvent) {
+  function startResize(e: React.MouseEvent, edge: ResizeEdge) {
     e.preventDefault();
     e.stopPropagation();
     const el = popRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const move = (ev: MouseEvent) => {
-      saveBox({
-        x: r.left, y: r.top,
-        w: Math.max(380, ev.clientX - r.left),
-        h: Math.max(240, ev.clientY - r.top),
-      });
+      saveBox(resizeBox(r, edge, { x: ev.clientX, y: ev.clientY }, MIN_BOX));
     };
-    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    const up = () => {
+      document.body.classList.remove("dragging");
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+    };
+    // Au-dessus d'une iframe (galerie, PDF, biblio) le pointeur quitte le
+    // document parent et le geste se fige : `body.dragging` les neutralise
+    // le temps du glissement (App.css, convention du splitter).
+    document.body.classList.add("dragging");
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   }
@@ -488,7 +499,13 @@ export default function QuickAsk({
           {promoteErr && <span className="qa-promote-err">{promoteErr}</span>}
           <span className="qa-esc">esc</span>
         </div>
-        <div className="qa-resize" onMouseDown={startResize} />
+        {RESIZE_EDGES.map((edge) => (
+          <div
+            key={edge}
+            className={`qa-resize qa-resize-${edge}`}
+            onMouseDown={(e) => startResize(e, edge)}
+          />
+        ))}
       </div>
     </div>
   );

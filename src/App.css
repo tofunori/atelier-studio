@@ -2770,9 +2770,19 @@ body.dragging iframe { pointer-events: none; }
 /* Quick Ask déplaçable/redimensionnable */
 .qa-pop { position: relative; }
 .qa-pop.free { margin: 0; }
-.qa-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
-  cursor: nwse-resize; }
-.qa-resize::after { content: ""; position: absolute; right: 4px; bottom: 4px;
+/* huit prises, comme une fenêtre native : quatre bords, quatre coins.
+   Les bords s'arrêtent à 12px des angles pour laisser la place aux coins. */
+.qa-resize { position: absolute; }
+.qa-resize-n { top: 0; left: 12px; right: 12px; height: 4px; cursor: ns-resize; }
+.qa-resize-s { bottom: 0; left: 12px; right: 12px; height: 4px; cursor: ns-resize; }
+.qa-resize-w { left: 0; top: 12px; bottom: 12px; width: 4px; cursor: ew-resize; }
+.qa-resize-e { right: 0; top: 12px; bottom: 12px; width: 4px; cursor: ew-resize; }
+.qa-resize-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.qa-resize-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.qa-resize-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.qa-resize-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+/* le chevron reste au coin bas-droit : une seule affordance visible suffit */
+.qa-resize-se::after { content: ""; position: absolute; right: 4px; bottom: 4px;
   width: 7px; height: 7px; border-right: 2px solid var(--border2);
   border-bottom: 2px solid var(--border2); border-radius: var(--r-s); }
 .qa-overlay { pointer-events: auto; }
