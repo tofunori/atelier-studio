@@ -3429,15 +3429,21 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
   color: transparent;
   -webkit-text-fill-color: transparent;
+  /* Géométrie de la bande — deux contraintes liées :
+       largeur allumée = (écart des bornes) x (background-size) ;
+       ici 5 % x 240 % = 0,12 du libellé, soit deux ou trois lettres.
+     Et la taille doit rester > 200 % : en dessous, la bande n'entre ni ne sort
+     jamais du libellé (elle apparaît à 10 % et s'éteint à 90 %) au lieu de le
+     traverser. Voir le calcul dans le journal du 2026-08-26. */
   background-image: linear-gradient(100deg,
-    var(--text-disabled) 0%, var(--text-disabled) 38%,
+    var(--text-disabled) 0%, var(--text-disabled) 47.5%,
     var(--sweep-peak) 50%,
-    var(--text-disabled) 62%, var(--text-disabled) 100%);
-  background-size: 180% 100%;
+    var(--text-disabled) 52.5%, var(--text-disabled) 100%);
+  background-size: 240% 100%;
   background-repeat: no-repeat;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2s linear infinite;
+  animation: label-sweep 1.2s linear infinite;
 }
 @keyframes label-sweep {
   from { background-position: 100% 0; }
