@@ -1198,4 +1198,20 @@ mod tests {
         );
         assert_eq!(e[0]["text"], "neuf");
     }
+
+    /// L'item webSearch réel porte `action.queries` (liste) et souvent AUCUN
+    /// `query` racine : le détail restait vide en multi-requêtes.
+    #[test]
+    fn web_search_multi_requetes_remplit_le_detail() {
+        let item = json!({"id":"ws1","action":{"type":"search",
+            "queries":["grammalecte CLI","antidote alternative"]}});
+        let e = web_search_update(&item, "completed");
+        assert_eq!(e["detail"], "grammalecte CLI · antidote alternative");
+        assert_eq!(e["input"]["queries"][1], "antidote alternative");
+
+        let seul = json!({"id":"ws2","query":"albedo MODIS","action":{"type":"search"}});
+        let e2 = web_search_update(&seul, "inProgress");
+        assert_eq!(e2["detail"], "albedo MODIS");
+        assert_eq!(e2["input"]["queries"][0], "albedo MODIS");
+    }
 }
