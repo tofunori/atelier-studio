@@ -295,3 +295,30 @@ Les marques visibles viennent de l'extension merge native, pas de la boucle.
 - Le serveur galerie sert `.fig_thumbs` depuis un cache provisionné AU BOOT et
   le navigateur cache par origine : instrumenter = redémarrer le serveur ET
   changer de port.
+
+## 14. Extraire un bloc CSS vers un chunk lazy exige de greper tous les consommateurs non-lazy
+
+Symptôme (revue finale lot 2, 2026-08-28) : le bloc `.settings-page.narrow`,
+`.set-nav-compact`, `.set-headline-actions`, `.set-notice` (focus-visible
+compris) déplacé d'`App.css` vers `src/styles/settings-sheet.css`, chargé
+seulement quand `SettingsSheet` (lazy) est monté — sélecteurs vérifiés
+uniques dans `App.css` avant le déplacement, aucune règle écrasée plus bas.
+Et pourtant `SetBench.tsx` (banc de captures de la page Réglages, monté hors
+`SettingsSheet`) régressait sur le golden `settings-setup-1280-dark` :
+`.set-headline-actions` retombait à `display:inline`.
+
+Cause : vérifier l'unicité des sélecteurs dans `App.css` ne dit rien sur QUI
+importe ces règles. `SetBench` rend `SettingsPage` directement et n'importait
+que `tokens.css`/`primitives.css`/`App.css` — jamais le chunk lazy, donc
+jamais le CSS extrait.
+
+**Règles** :
+- Avant tout déplacement de bloc CSS vers un chunk lazy, `grep -rl` le nom du
+  composant stylé (ici `SettingsPage`) pour lister TOUS ses points de montage,
+  bancs de test compris — pas seulement chercher où les sélecteurs
+  apparaissent dans le CSS.
+- Un banc n'a pas de budget de boot à préserver : il peut importer le chunk
+  extrait directement en tête de fichier, sans lazy-loading.
+- Faire tourner les goldens visuels concernés (`npx playwright test -c
+  tests/visual -g "<nom>"`) après tout déplacement de CSS, même quand le
+  diff semble purement organisationnel.
