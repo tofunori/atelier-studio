@@ -2,6 +2,8 @@
 //! Voir docs/superpowers/specs/2026-08-28-widgets-chat-design.md §B et §D.
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub const HTML_MAX: usize = 128 * 1024;
@@ -115,6 +117,71 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
     )
 }
 
+pub const FILES_PER_THREAD_MAX: usize = 200;
+
+/// Même convention que `harness-history/` (atelier-store/journal.rs) : le
+/// threadId est haché, jamais posé tel quel dans un chemin.
+pub fn widget_dir(app_dir: &Path, thread_id: &str) -> PathBuf {
+    let mut h = Sha256::new();
+    h.update(thread_id.as_bytes());
+    app_dir.join("widgets").join(hex::encode(h.finalize()))
+}
+
+pub fn widget_path(app_dir: &Path, thread_id: &str, id: &str) -> Option<PathBuf> {
+    if !is_valid_widget_id(id) {
+        return None;
+    }
+    Some(widget_dir(app_dir, thread_id).join(format!("{id}.html")))
+}
+
+pub fn write_widget(
+    app_dir: &Path,
+    thread_id: &str,
+    id: &str,
+    shell: &str,
+) -> std::io::Result<PathBuf> {
+    let path = widget_path(app_dir, thread_id, id).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "identifiant de widget invalide")
+    })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, shell)?;
+    Ok(path)
+}
+
+pub fn read_widget(app_dir: &Path, thread_id: &str, id: &str) -> Option<String> {
+    let path = widget_path(app_dir, thread_id, id)?;
+    std::fs::read_to_string(path).ok()
+}
+
+/// Garde les `keep` fichiers les plus récents du dossier, supprime le reste.
+pub fn purge_oldest(dir: &Path, keep: usize) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "html"))
+        .filter_map(|e| {
+            let modified = e.metadata().ok()?.modified().ok()?;
+            Some((modified, e.path()))
+        })
+        .collect();
+    if files.len() <= keep {
+        return 0;
+    }
+    files.sort_by_key(|(t, _)| *t); // plus ancien d'abord
+    let doomed = files.len() - keep;
+    let mut removed = 0;
+    for (_, path) in files.into_iter().take(doomed) {
+        if std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +275,55 @@ mod tests {
         // default-src n'est pas un repli pour ces deux-là (spec CSP)
         assert!(shell.contains("form-action 'none'"));
         assert!(shell.contains("base-uri 'none'"));
+    }
+
+    use tempfile::tempdir;
+
+    #[test]
+    fn path_is_scoped_by_thread_hash_and_refuses_bad_ids() {
+        let base = Path::new("/tmp/appdir");
+        let good = widget_path(base, "thread-a", "w_0123456789abcdef").unwrap();
+        assert!(good.starts_with("/tmp/appdir/widgets/"));
+        assert!(good.to_string_lossy().ends_with("/w_0123456789abcdef.html"));
+
+        // deux threads ne partagent jamais un dossier
+        let other = widget_path(base, "thread-b", "w_0123456789abcdef").unwrap();
+        assert_ne!(good.parent(), other.parent());
+
+        // un id hostile ne construit AUCUN chemin
+        assert!(widget_path(base, "thread-a", "../../etc/passwd").is_none());
+        assert!(widget_path(base, "thread-a", "w_../../etc").is_none());
+    }
+
+    #[test]
+    fn write_then_read_round_trips() {
+        let dir = tempdir().unwrap();
+        let id = new_widget_id();
+        let written = write_widget(dir.path(), "t1", &id, "<html>coquille</html>").unwrap();
+        assert!(written.exists());
+        assert_eq!(
+            read_widget(dir.path(), "t1", &id).as_deref(),
+            Some("<html>coquille</html>")
+        );
+        assert_eq!(read_widget(dir.path(), "t1", &new_widget_id()), None);
+        assert_eq!(read_widget(dir.path(), "t1", "../../etc/passwd"), None);
+    }
+
+    #[test]
+    fn purge_keeps_the_newest_and_reports_what_it_removed() {
+        let dir = tempdir().unwrap();
+        let mut ids = Vec::new();
+        for _ in 0..5 {
+            let id = new_widget_id();
+            write_widget(dir.path(), "t1", &id, "x").unwrap();
+            // mtime distinct : le test doit pouvoir ordonner
+            std::thread::sleep(std::time::Duration::from_millis(12));
+            ids.push(id);
+        }
+        let target = widget_dir(dir.path(), "t1");
+        assert_eq!(purge_oldest(&target, 2), 3);
+        assert!(read_widget(dir.path(), "t1", ids.last().unwrap()).is_some());
+        assert!(read_widget(dir.path(), "t1", ids.first().unwrap()).is_none());
+        assert_eq!(purge_oldest(&target, 2), 0, "purge idempotente");
     }
 }
