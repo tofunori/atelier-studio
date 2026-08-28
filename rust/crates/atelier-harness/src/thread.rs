@@ -24,8 +24,14 @@ pub struct HarnessThread {
     thread_id: String,
     provider: String,
     emit: EmitFn,
-    journal: Option<HarnessJournal>,
-    sequence: u64,
+    // Non optionnel : le journal est le septième écrivain de séquences
+    // (avec send.rs, agent_mailbox.rs×2, agent_links.rs, ws_router.rs×2) —
+    // `decorate()` route désormais TOUJOURS l'allocation par
+    // `Journal::next_sequence`, il n'y a donc plus de mode « sans journal »
+    // à fallback (inventaire + fix, revue finale 2026-08-28). Le seul
+    // constructeur (HarnessManager::harness_for) fournissait déjà `Some(_)`
+    // dans 100 % des cas.
+    journal: HarnessJournal,
     active: Option<String>,
     turns: HashMap<String, Turn>,
     /// Dedup seen eventIds (reconnection safety within process).
@@ -37,15 +43,13 @@ impl HarnessThread {
         thread_id: impl Into<String>,
         provider: impl Into<String>,
         emit: EmitFn,
-        journal: Option<HarnessJournal>,
-        initial_sequence: u64,
+        journal: HarnessJournal,
     ) -> Self {
         Self {
             thread_id: thread_id.into(),
             provider: provider.into(),
             emit,
             journal,
-            sequence: initial_sequence,
             active: None,
             turns: HashMap::new(),
             seen_event_ids: std::collections::HashSet::new(),
@@ -88,7 +92,14 @@ impl HarnessThread {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        self.sequence += 1;
+        // Allocateur atomique partagé : ce compteur était local
+        // (`self.sequence += 1`) et pouvait obtenir la même valeur qu'un des
+        // six autres écrivains (send.rs, agent_mailbox.rs×2, agent_links.rs,
+        // ws_router.rs×2) sur le même thread_id — septième écrivain
+        // découvert par la revue finale 2026-08-28 (chemin vivant :
+        // handle_send → decorate() → journal.append). `next_sequence`
+        // coordonne désormais les sept.
+        let sequence = self.journal.next_sequence(&self.thread_id);
         let event_id = Uuid::new_v4().to_string();
         let native = self
             .turns
@@ -101,7 +112,7 @@ impl HarnessThread {
             "provider": self.provider,
             "threadId": self.thread_id,
             "turnId": turn_id,
-            "sequence": self.sequence,
+            "sequence": sequence,
             "ts": now_ms(),
             "durable": durable,
             "origin": origin,
@@ -140,9 +151,7 @@ impl HarnessThread {
             .unwrap_or(false);
         // Journal BEFORE UI acknowledgement (plan 033 Porte 5).
         if durable {
-            if let Some(j) = &self.journal {
-                let _ = j.append(&out);
-            }
+            let _ = self.journal.append(&out);
         }
         (self.emit)(out);
     }
@@ -280,7 +289,7 @@ mod tests {
         let emit: EmitFn = Arc::new(move |e| {
             cap.lock().unwrap().push(e);
         });
-        let mut h = HarnessThread::new("t1", "fake", emit, Some(journal.clone()), 0);
+        let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
         let turn = h.start_turn(None, Some("m1"), Some(json!({"kind":"user","text":"hi"})));
         h.emit(&turn, json!({"kind":"text","text":"hello"}), None);
         assert!(h.terminal(&turn, json!({"kind":"done"})));
@@ -302,7 +311,7 @@ mod tests {
         let emit: EmitFn = Arc::new(move |e| {
             cap.lock().unwrap().push(e);
         });
-        let mut h = HarnessThread::new("t1", "fake", emit, Some(journal.clone()), 0);
+        let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
         let turn = h.start_turn(None, None, None);
         h.emit(&turn, json!({"kind":"delta","text":"x"}), None);
         h.terminal(&turn, json!({"kind":"done"}));
@@ -325,7 +334,7 @@ mod tests {
         let emit: EmitFn = Arc::new(move |e| {
             cap.lock().unwrap().push(e);
         });
-        let mut h = HarnessThread::new("t1", "fake", emit, Some(journal.clone()), 0);
+        let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
         let turn = h.start_turn(None, None, None);
         h.emit(&turn, json!({"kind":"thinking_progress","count":1}), None);
         h.terminal(&turn, json!({"kind":"done"}));
