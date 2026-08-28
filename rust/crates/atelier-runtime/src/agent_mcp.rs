@@ -30,6 +30,8 @@ pub struct AgentCapabilityGrant {
     pub issued_at: Instant,
     pub expires_at: Instant,
     pub generation: u64,
+    /// Widgets déjà affichés sous CE grant. Un grant neuf = un tour neuf.
+    pub widgets_this_turn: u32,
 }
 
 #[derive(Debug, Default)]
@@ -68,6 +70,7 @@ impl CapabilityRegistry {
             issued_at: now,
             expires_at: now + GRANT_TTL,
             generation,
+            widgets_this_turn: 0,
         };
         self.hash_index.insert(token_hash, thread_id.to_string());
         self.grants.insert(thread_id.to_string(), grant);
@@ -99,6 +102,19 @@ impl CapabilityRegistry {
 
     pub fn active_count(&self) -> usize {
         self.grants.len()
+    }
+
+    /// Consomme un emplacement de widget pour le tour courant. Le compteur vit
+    /// dans le grant : un nouveau grant repart à zéro sans réinitialisation
+    /// explicite. Un fil sans grant ne consomme rien.
+    pub fn try_consume_widget_slot(&mut self, thread_id: &str, max: u32) -> bool {
+        match self.grants.get_mut(thread_id) {
+            Some(g) if g.widgets_this_turn < max => {
+                g.widgets_this_turn += 1;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -653,4 +669,27 @@ pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
     let now = atelier_store::iso_now();
     let mut store = state.threads().lock().await;
     let _ = store.upsert(json!({"id": thread_id, "agentContextSeededAt": now}), true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn widget_slots_are_bounded_per_turn_and_reset_on_the_next_one() {
+        let mut reg = CapabilityRegistry::new();
+        reg.issue("t1", "/tmp/proj", "claude", None);
+
+        for i in 0..8 {
+            assert!(reg.try_consume_widget_slot("t1", 8), "le slot {i} devait passer");
+        }
+        assert!(!reg.try_consume_widget_slot("t1", 8), "le 9e doit être refusé");
+
+        // tour suivant : nouveau grant, compteur remis à zéro
+        reg.issue("t1", "/tmp/proj", "claude", None);
+        assert!(reg.try_consume_widget_slot("t1", 8), "le tour suivant repart à zéro");
+
+        // un fil sans grant ne consomme rien
+        assert!(!reg.try_consume_widget_slot("inconnu", 8));
+    }
 }

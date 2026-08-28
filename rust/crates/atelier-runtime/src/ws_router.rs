@@ -269,6 +269,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             crate::agent_links::on_delete_thread(state, id).await;
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
+            crate::widgets::purge_thread_widgets(state.app_dir(), id);
             broadcast_threads(state).await
         }
         "getHistory" => {

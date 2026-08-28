@@ -119,6 +119,7 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
 }
 
 pub const FILES_PER_THREAD_MAX: usize = 200;
+pub const WIDGETS_PER_TURN_MAX: u32 = 8;
 
 /// Même convention que `harness-history/` (atelier-store/journal.rs) : le
 /// threadId est haché, jamais posé tel quel dans un chemin.
@@ -208,6 +209,13 @@ pub fn widget_event(
     })
 }
 
+/// Retire tout le dossier de widgets d'un fil. Rend `true` si quelque chose a
+/// été supprimé. Idempotent : purger un fil déjà purgé n'est pas une erreur.
+pub fn purge_thread_widgets(app_dir: &Path, thread_id: &str) -> bool {
+    let dir = widget_dir(app_dir, thread_id);
+    dir.exists() && std::fs::remove_dir_all(&dir).is_ok()
+}
+
 /// Cœur pur du handler : ce qui est servi, ou rien.
 pub fn serve_body(app_dir: &Path, thread_id: &str, id: &str) -> Option<String> {
     read_widget(app_dir, thread_id, id)
@@ -240,6 +248,13 @@ pub async fn action_show_widget(
     caller_id: &str,
     req: &Value,
 ) -> Result<Value, String> {
+    {
+        let mut reg = state.capabilities().lock().await;
+        if !reg.try_consume_widget_slot(caller_id, WIDGETS_PER_TURN_MAX) {
+            return Err("widget_turn_limit".into());
+        }
+    }
+
     let input = parse_widget_input(req)?;
     let id = new_widget_id();
     let shell = wrap_shell(&input);
@@ -456,5 +471,21 @@ mod tests {
         assert_eq!(serve_body(dir.path(), "t1", &new_widget_id()), None);
         // id hostile → rien à servir, aucun chemin construit
         assert_eq!(serve_body(dir.path(), "t1", "../../etc/passwd"), None);
+    }
+
+    #[test]
+    fn deleting_a_thread_takes_its_widgets_with_it() {
+        let dir = tempdir().unwrap();
+        let id = new_widget_id();
+        write_widget(dir.path(), "t1", &id, "<html>coquille</html>").unwrap();
+        write_widget(dir.path(), "t2", &new_widget_id(), "<html>autre</html>").unwrap();
+
+        assert!(purge_thread_widgets(dir.path(), "t1"));
+        assert_eq!(read_widget(dir.path(), "t1", &id), None);
+        assert!(!widget_dir(dir.path(), "t1").exists());
+        // le fil voisin n'est pas touché
+        assert!(widget_dir(dir.path(), "t2").exists());
+        // idempotent : purger deux fois ne casse rien
+        assert!(!purge_thread_widgets(dir.path(), "t1"));
     }
 }
