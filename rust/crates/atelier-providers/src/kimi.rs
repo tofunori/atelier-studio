@@ -18,7 +18,8 @@ use crate::acp_rpc::{
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 
 use crate::traits::{
-    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendRequest, SendResult,
+    atelier_mcp_fingerprint, atelier_mcp_servers, InteractionFn, Provider, ProviderCaps,
+    SendRequest, SendResult,
 };
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -46,8 +47,10 @@ fn turn_timeout_secs() -> u64 {
 #[derive(Default)]
 struct KimiState {
     generation: u64,
-    /// Sessions ouvertes (new/resume/load) dans CETTE génération.
-    opened_sessions: HashSet<String>,
+    /// Sessions ouvertes (new/resume/load) dans CETTE génération, avec
+    /// l'empreinte des `mcpServers` déclarés à l'ouverture : la session n'a
+    /// besoin d'être rouverte que si cette déclaration a changé.
+    opened_sessions: HashMap<String, u64>,
     /// Sessions refusées `-32602` au resume : le tour suivant repart sur
     /// `session/new` (jamais de création silencieuse dans le MÊME tour).
     invalid_sessions: HashSet<String>,
@@ -730,6 +733,8 @@ impl KimiProvider {
     /// jamais de replay ici). `-32602` ⇒ erreur actionnable et le PROCHAIN
     /// tour créera une session neuve.
     async fn open_session(&self, req: &SendRequest, cwd: &str) -> Result<String, String> {
+        let servers = atelier_mcp_servers(req.atelier_mcp.as_ref());
+        let empreinte = atelier_mcp_fingerprint(&servers);
         let requested = req
             .session_id
             .as_ref()
@@ -738,16 +743,19 @@ impl KimiProvider {
             .filter(|sid| !self.state.lock().unwrap().invalid_sessions.contains(sid));
 
         if let Some(sid) = requested {
-            if self.state.lock().unwrap().opened_sessions.contains(&sid)
-                && req.atelier_mcp.is_none()
-            {
+            // Voie rapide : session déjà ouverte AVEC la même déclaration MCP.
+            // La condition portait sur `req.atelier_mcp.is_none()`, morte
+            // depuis que le serveur atelier part sur tout fil — un
+            // `session/resume` par envoi, dont l'échec FAIT ÉCHOUER le tour là
+            // où le cache répondait.
+            if self.state.lock().unwrap().opened_sessions.get(&sid) == Some(&empreinte) {
                 return Ok(sid);
             }
             match self
                 .acp
                 .request(
                     "session/resume",
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers}),
                     Some(30_000),
                 )
                 .await
@@ -757,7 +765,7 @@ impl KimiProvider {
                         .lock()
                         .unwrap()
                         .opened_sessions
-                        .insert(sid.clone());
+                        .insert(sid.clone(), empreinte);
                     self.remember_snapshot(&sid, &result);
                     return Ok(sid);
                 }
@@ -780,7 +788,7 @@ impl KimiProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
+                json!({"cwd": cwd, "mcpServers": servers}),
                 Some(30_000),
             )
             .await
@@ -794,7 +802,7 @@ impl KimiProvider {
             .lock()
             .unwrap()
             .opened_sessions
-            .insert(sid.clone());
+            .insert(sid.clone(), empreinte);
         self.remember_snapshot(&sid, &result);
         Ok(sid)
     }
@@ -1350,7 +1358,7 @@ impl Provider for KimiProvider {
             .lock()
             .unwrap()
             .opened_sessions
-            .contains(session_id)
+            .contains_key(session_id)
         {
             return None; // déjà importée dans cette génération — pas de doublon
         }
@@ -1379,7 +1387,12 @@ impl Provider for KimiProvider {
                     .lock()
                     .unwrap()
                     .opened_sessions
-                    .insert(session_id.to_string());
+                    .insert(
+                        session_id.to_string(),
+                        // l'import natif n'annonce AUCUN serveur MCP : le
+                        // premier vrai tour devra donc rouvrir la session.
+                        atelier_mcp_fingerprint(&serde_json::json!([])),
+                    );
                 self.remember_snapshot(session_id, &result);
                 // La réponse n'est traitée qu'ici — tous les updates de replay
                 // sont déjà arrivés (contrat load vérifié).

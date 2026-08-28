@@ -83,6 +83,21 @@ pub(crate) fn atelier_mcp_servers(launch: Option<&AtelierMcpLaunch>) -> Value {
     }])
 }
 
+/// Empreinte des serveurs MCP déclarés à une session ACP.
+///
+/// Les voies rapides d'opencode/kimi/grok sautaient `session/load|resume` tant
+/// que `req.atelier_mcp` était `None`. Depuis que le serveur atelier part sur
+/// tout fil compatible (2026-08-28), cette condition n'est plus jamais vraie
+/// et la voie rapide est morte. Ce qui compte réellement n'est pas l'ABSENCE
+/// de serveur mais le fait que la déclaration soit INCHANGÉE depuis
+/// l'ouverture de la session : c'est ce que cette empreinte permet de tester.
+pub(crate) fn atelier_mcp_fingerprint(servers: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    servers.to_string().hash(&mut hasher);
+    hasher.finish()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendMode {
     Normal,
@@ -238,5 +253,34 @@ mod tests {
             }])
         );
         assert_eq!(atelier_mcp_servers(None), json!([]));
+    }
+
+    /// L'empreinte doit distinguer deux déclarations différentes (un jeton qui
+    /// change, par exemple) et confondre deux déclarations identiques — c'est
+    /// tout ce que les voies rapides ACP ont besoin de savoir.
+    #[test]
+    fn lempreinte_ne_bouge_que_si_la_declaration_bouge() {
+        let mk = |jeton: &str| {
+            atelier_mcp_servers(Some(&AtelierMcpLaunch {
+                command: PathBuf::from("/bin/atelier-agent-mcp"),
+                server_name: "atelier-sessions".into(),
+                env: HashMap::from([("ATELIER_MCP_CAPABILITY".into(), jeton.to_string())]),
+                linked: false,
+            }))
+        };
+        assert_eq!(
+            atelier_mcp_fingerprint(&mk("stable")),
+            atelier_mcp_fingerprint(&mk("stable")),
+            "jeton stable ⇒ pas de réouverture de session"
+        );
+        assert_ne!(
+            atelier_mcp_fingerprint(&mk("a")),
+            atelier_mcp_fingerprint(&mk("b")),
+            "jeton changé ⇒ la session doit être rouverte"
+        );
+        assert_ne!(
+            atelier_mcp_fingerprint(&mk("a")),
+            atelier_mcp_fingerprint(&atelier_mcp_servers(None))
+        );
     }
 }

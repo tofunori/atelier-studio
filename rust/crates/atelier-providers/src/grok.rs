@@ -12,7 +12,8 @@ use crate::acp_rpc::{
 use crate::grok_parse::{map_prompt_result_for_model, map_session_update};
 
 use crate::traits::{
-    atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendMode, SendRequest,
+    atelier_mcp_fingerprint, atelier_mcp_servers, InteractionFn, Provider, ProviderCaps, SendMode,
+    SendRequest,
     SendResult,
 };
 use async_trait::async_trait;
@@ -58,7 +59,10 @@ struct GrokSelection {
 struct GrokRuntimeState {
     generation: u64,
     authenticated: bool,
-    opened_sessions: HashSet<String>,
+    /// sessionId → empreinte des `mcpServers` déclarés à son ouverture. Grok
+    /// rejoue TOUT l'historique pendant `session/load` : ne rouvrir que si la
+    /// déclaration a réellement changé.
+    opened_sessions: HashMap<String, u64>,
     selection: HashMap<String, GrokSelection>,
 }
 
@@ -285,10 +289,15 @@ impl GrokProvider {
         runtime: &GrokThreadRuntime,
         requested: Option<&str>,
         mcp_servers: Value,
-        refresh_mcp: bool,
     ) -> Result<String, String> {
+        let empreinte = atelier_mcp_fingerprint(&mcp_servers);
         if let Some(sid) = requested.filter(|sid| !sid.is_empty()) {
-            if runtime.state.lock().unwrap().opened_sessions.contains(sid) && !refresh_mcp {
+            // Voie rapide : session déjà ouverte AVEC la même déclaration MCP.
+            // Le drapeau `refresh_mcp` valait `atelier_mcp.is_some()`, donc
+            // toujours vrai depuis que le serveur atelier part sur tout fil —
+            // un `session/load` par envoi, avec rejeu complet de l'historique
+            // et 150 ms à 1 s d'attente calme.
+            if runtime.state.lock().unwrap().opened_sessions.get(sid) == Some(&empreinte) {
                 return Ok(sid.to_string());
             }
 
@@ -319,7 +328,7 @@ impl GrokProvider {
             runtime.acp.clear_session_handler(sid).await;
             match loaded {
                 Ok(result) => {
-                    remember_session_result(runtime, sid, &result, &self.catalog);
+                    remember_session_result(runtime, sid, &result, &self.catalog, empreinte);
                     return Ok(sid.to_string());
                 }
                 Err(error) if !error.transport => {
@@ -345,7 +354,7 @@ impl GrokProvider {
             .filter(|sid| !sid.is_empty())
             .ok_or("session/new Grok sans sessionId")?
             .to_string();
-        remember_session_result(runtime, &sid, &result, &self.catalog);
+        remember_session_result(runtime, &sid, &result, &self.catalog, empreinte);
         Ok(sid)
     }
 
@@ -521,7 +530,6 @@ impl GrokProvider {
                 &runtime,
                 req.session_id.as_deref(),
                 atelier_mcp_servers(req.atelier_mcp.as_ref()),
-                req.atelier_mcp.is_some(),
             )
             .await?;
         let selection = self
@@ -947,7 +955,6 @@ impl Provider for GrokProvider {
                 &runtime,
                 params.get("sessionId").and_then(Value::as_str),
                 json!([]),
-                false,
             )
             .await?;
         *runtime.active_session.lock().unwrap() = Some(sid.clone());
@@ -1120,6 +1127,7 @@ fn remember_session_result(
     sid: &str,
     result: &Value,
     catalog: &StdMutex<GrokCatalog>,
+    mcp_empreinte: u64,
 ) {
     let mut selection = GrokSelection::default();
     if let Some(options) = result
@@ -1147,7 +1155,7 @@ fn remember_session_result(
     absorb_model_state(catalog, result.pointer("/models"));
     *runtime.last_session.lock().unwrap() = Some(sid.to_string());
     let mut state = runtime.state.lock().unwrap();
-    state.opened_sessions.insert(sid.to_string());
+    state.opened_sessions.insert(sid.to_string(), mcp_empreinte);
     state.selection.insert(sid.to_string(), selection);
 }
 
@@ -1898,7 +1906,7 @@ mod tests {
     fn le_catalogue_suit_lordre_et_le_modele_courant_du_cli() {
         let runtime = GrokThreadRuntime::new("/tmp/projet".into());
         let catalog = StdMutex::new(GrokCatalog::default());
-        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &catalog);
+        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &catalog, 0);
 
         let catalog = catalog.lock().unwrap();
         assert_eq!(
@@ -1939,7 +1947,7 @@ mod tests {
         // seul l'apport ACP est mesuré ici.
         let provider = GrokProvider::with_command(PathBuf::from("/bin/false"), vec!["fixture".into()]);
         let runtime = GrokThreadRuntime::new("/tmp/projet".into());
-        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &provider.catalog);
+        remember_session_result(&runtime, "sid-1", &session_new_fixture(), &provider.catalog, 0);
 
         assert_eq!(provider.default_model(), "grok-4.6");
         assert_eq!(provider.efforts(), vec!["xhigh", "high", "medium", "low"]);
@@ -2054,6 +2062,7 @@ mod tests {
             "sid-1",
             &session_new_fixture(),
             &catalog,
+            0,
         );
 
         absorb_model_state(&catalog, json!({"grokShell": true}).pointer("/modelState"));

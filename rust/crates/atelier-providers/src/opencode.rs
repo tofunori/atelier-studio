@@ -5,7 +5,9 @@ use crate::acp_map::{map_prompt_result, map_session_update, TurnCtx, TurnEmitter
 use crate::acp_rpc::{AcpServer, ServerRequestHandler, SessionUpdateHandler};
 use crate::opencode_parse::parse_opencode_jsonl;
 
-use crate::traits::{atelier_mcp_servers, Provider, ProviderCaps, SendRequest, SendResult};
+use crate::traits::{
+    atelier_mcp_fingerprint, atelier_mcp_servers, Provider, ProviderCaps, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -23,7 +25,9 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 struct AcpState {
     generation: u64,
-    loaded_sessions: HashSet<String>,
+    /// sessionId → empreinte des `mcpServers` déclarés à son ouverture. Une
+    /// session n'a besoin d'être rechargée que si cette déclaration a changé.
+    loaded_sessions: HashMap<String, u64>,
     /// sessionId → dernier modelId aligné/connu (currentValue de session/new).
     session_model: HashMap<String, String>,
 }
@@ -348,28 +352,36 @@ impl OpenCodeProvider {
     /// process vivant — thread déplacé/cwd différent, même règle que
     /// openGrokSession grok.mjs:719-748), sinon session/new.
     async fn open_session(&self, req: &SendRequest, cwd: &str) -> Result<String, String> {
+        let servers = atelier_mcp_servers(req.atelier_mcp.as_ref());
+        let empreinte = atelier_mcp_fingerprint(&servers);
         if let Some(sid) = req.session_id.as_ref().filter(|s| !s.is_empty()) {
+            // Voie rapide : session déjà chargée AVEC la même déclaration MCP.
+            // La condition portait sur `req.atelier_mcp.is_none()`, morte
+            // depuis que le serveur atelier part sur tout fil — un
+            // `session/load` par envoi, avec échec dur au moindre problème de
+            // transport.
             let already = self
                 .acp_state
                 .lock()
                 .await
                 .loaded_sessions
-                .contains(sid.as_str());
-            if already && req.atelier_mcp.is_none() {
+                .get(sid.as_str())
+                == Some(&empreinte);
+            if already {
                 return Ok(sid.clone());
             }
             match self
                 .acp
                 .request(
                     "session/load",
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers}),
                     Some(30_000),
                 )
                 .await
             {
                 Ok(result) => {
                     let mut st = self.acp_state.lock().await;
-                    st.loaded_sessions.insert(sid.clone());
+                    st.loaded_sessions.insert(sid.clone(), empreinte);
                     if let Some(m) = current_model_of(&result) {
                         st.session_model.insert(sid.clone(), m);
                     }
@@ -391,7 +403,7 @@ impl OpenCodeProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": atelier_mcp_servers(req.atelier_mcp.as_ref())}),
+                json!({"cwd": cwd, "mcpServers": servers}),
                 Some(30_000),
             )
             .await?;
@@ -401,7 +413,7 @@ impl OpenCodeProvider {
             .ok_or("session/new sans sessionId")?
             .to_string();
         let mut st = self.acp_state.lock().await;
-        st.loaded_sessions.insert(sid.clone());
+        st.loaded_sessions.insert(sid.clone(), empreinte);
         if let Some(m) = current_model_of(&result) {
             st.session_model.insert(sid.clone(), m);
         }
