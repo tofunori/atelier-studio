@@ -650,8 +650,8 @@ mod tests {
         let (parent_bearer, child_bearer) = {
             let mut capabilities = s.capabilities().lock().await;
             (
-                capabilities.issue("parent", "/tmp/proj", "claude", None),
-                capabilities.issue("child", "/tmp/proj", "codex", None),
+                capabilities.issue("parent", "/tmp/proj", "claude", None, None),
+                capabilities.issue("child", "/tmp/proj", "codex", None, None),
             )
         };
         let _ = handle_unlink_thread(&s, &json!({"threadId": "child"})).await;

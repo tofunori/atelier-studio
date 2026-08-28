@@ -187,6 +187,7 @@ pub fn purge_oldest(dir: &Path, keep: usize) -> usize {
 /// L'event durable poussé au fil : jamais le HTML (il gonflerait le JSONL et
 /// repasserait dans le contexte du modèle au rejeu), seulement de quoi
 /// afficher le panneau.
+#[allow(clippy::too_many_arguments)]
 pub fn widget_event(
     thread_id: &str,
     id: &str,
@@ -194,6 +195,7 @@ pub fn widget_event(
     sequence: u64,
     event_id: &str,
     ts: i64,
+    turn_id: Option<&str>,
 ) -> Value {
     json!({
         "kind": "widget",
@@ -205,6 +207,11 @@ pub fn widget_event(
             "sequence": sequence,
             "eventId": event_id,
             "ts": ts,
+            // `groupTurns` (src/lib/chat/turnViewModel.ts) groupe par turnId.
+            // Absent, l'event ouvre un tour fantôme APRÈS le tour en cours :
+            // le vrai tour cesse d'être le dernier (spinner, jetons et pensée
+            // live se détachent) et le panneau disparaît au repli.
+            "turnId": turn_id,
         }
     })
 }
@@ -248,14 +255,19 @@ pub async fn action_show_widget(
     caller_id: &str,
     req: &Value,
 ) -> Result<Value, String> {
-    {
+    // Valider AVANT de consommer : sinon huit appels malformés épuisent le
+    // budget du tour sans qu'un seul panneau n'ait été affiché. Le slot est
+    // pris juste après, et TOUJOURS avant la moindre écriture disque.
+    let input = parse_widget_input(req)?;
+
+    let turn_id = {
         let mut reg = state.capabilities().lock().await;
         if !reg.try_consume_widget_slot(caller_id, WIDGETS_PER_TURN_MAX) {
             return Err("widget_turn_limit".into());
         }
-    }
+        reg.turn_id_of(caller_id)
+    };
 
-    let input = parse_widget_input(req)?;
     let id = new_widget_id();
     let shell = wrap_shell(&input);
 
@@ -277,6 +289,7 @@ pub async fn action_show_widget(
         sequence,
         &Uuid::new_v4().to_string(),
         ts,
+        turn_id.as_deref(),
     );
     let _ = state.journal().append(&durable);
     state.publish(crate::ws_router::json_msg(json!({
@@ -422,7 +435,15 @@ mod tests {
     #[test]
     fn event_carries_only_what_the_timeline_needs() {
         let input = parse_widget_input(&req("<p>lourd</p>", "loi de Student", 420)).unwrap();
-        let ev = widget_event("t1", "w_0123456789abcdef", &input, 7, "evt-1", 1_700_000_000_000);
+        let ev = widget_event(
+            "t1",
+            "w_0123456789abcdef",
+            &input,
+            7,
+            "evt-1",
+            1_700_000_000_000,
+            Some("turn-42"),
+        );
 
         assert_eq!(ev["kind"], "widget");
         assert_eq!(ev["id"], "w_0123456789abcdef");
@@ -431,6 +452,9 @@ mod tests {
         assert_eq!(ev["meta"]["threadId"], "t1");
         assert_eq!(ev["meta"]["sequence"], 7);
         assert_eq!(ev["meta"]["eventId"], "evt-1");
+        // Sans turnId le frontend fabrique un tour fantôme : le tour en cours
+        // cesse d'être le dernier, et le panneau s'évapore au repli.
+        assert_eq!(ev["meta"]["turnId"], "turn-42");
 
         // le HTML ne DOIT PAS voyager dans l'event : il gonflerait le JSONL
         // et repasserait dans le contexte du modèle au rejeu.
@@ -487,5 +511,109 @@ mod tests {
         assert!(widget_dir(dir.path(), "t2").exists());
         // idempotent : purger deux fois ne casse rien
         assert!(!purge_thread_widgets(dir.path(), "t1"));
+    }
+
+    // ---- intégration : l'action complète, telle que le pont MCP l'appelle ----
+
+    async fn test_state() -> (AppState, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let paths = crate::paths::AppPaths::from_app_dir(dir.path().to_path_buf());
+        let state = AppState::new(
+            paths,
+            None,
+            "2026-01-01T00:00:00.000Z".into(),
+            "0.1.0".into(),
+            "testhash".into(),
+            "/tmp/server".into(),
+        );
+        state.set_port(9).await;
+        (state, dir)
+    }
+
+    /// Contrat de forme avec le frontend : `src/lib/ws.ts` (`kind: "widget"`)
+    /// et `src/lib/chat/turnViewModel.ts` (`groupTurns` lit `meta.turnId`).
+    #[tokio::test]
+    async fn show_widget_emits_the_shape_the_frontend_consumes() {
+        let (state, _dir) = test_state().await;
+        {
+            let mut reg = state.capabilities().lock().await;
+            reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-7".into()));
+        }
+        let mut bus = state.subscribe_bus();
+
+        let out = action_show_widget(&state, "t1", &req("<p>salut</p>", "titre", 420))
+            .await
+            .unwrap();
+        assert_eq!(out["ok"], true);
+        let widget_id = out["widgetId"].as_str().unwrap().to_string();
+        assert!(is_valid_widget_id(&widget_id));
+
+        // publié sur le bus, sous la forme attendue par le frontend
+        let raw = bus.try_recv().expect("aucun event publié");
+        let msg: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(msg["type"], "event");
+        assert_eq!(msg["threadId"], "t1");
+        let ev = &msg["event"];
+        assert_eq!(ev["kind"], "widget");
+        assert_eq!(ev["id"], widget_id);
+        assert_eq!(ev["title"], "titre");
+        assert_eq!(ev["height"], 420);
+        assert_eq!(ev["meta"]["threadId"], "t1");
+        assert_eq!(ev["meta"]["turnId"], "turn-7");
+        assert!(ev["meta"]["sequence"].is_u64());
+        assert!(ev["meta"]["eventId"].as_str().is_some_and(|s| !s.is_empty()));
+        assert!(ev["meta"]["ts"].as_i64().is_some_and(|t| t > 0));
+        assert!(ev.get("html").is_none(), "le HTML ne doit pas voyager");
+
+        // journalisé à l'identique : le rejeu de session voit la même chose
+        let replayed = state.journal().materialize("t1");
+        let last = replayed.last().expect("journal vide");
+        assert_eq!(last["kind"], "widget");
+        assert_eq!(last["meta"]["turnId"], "turn-7");
+
+        // et la coquille est bien sur disque, servable par la route
+        let served = serve_body(state.app_dir(), "t1", &widget_id).unwrap();
+        assert!(served.starts_with("<!doctype html>"));
+        assert!(served.contains("<p>salut</p>"));
+    }
+
+    #[tokio::test]
+    async fn a_malformed_call_never_burns_a_turn_slot() {
+        let (state, _dir) = test_state().await;
+        {
+            let mut reg = state.capabilities().lock().await;
+            reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-7".into()));
+        }
+        // 8 appels malformés d'affilée : aucun ne doit consommer le budget
+        for _ in 0..(WIDGETS_PER_TURN_MAX + 4) {
+            let err = action_show_widget(&state, "t1", &json!({"title": "t", "height": 200}))
+                .await
+                .unwrap_err();
+            assert_eq!(err, "widget_missing_html");
+        }
+        // le tour a encore ses 8 emplacements
+        for i in 0..WIDGETS_PER_TURN_MAX {
+            action_show_widget(&state, "t1", &req("<p>a</p>", "t", 200))
+                .await
+                .unwrap_or_else(|e| panic!("le widget {i} devait passer : {e}"));
+        }
+        assert_eq!(
+            action_show_widget(&state, "t1", &req("<p>a</p>", "t", 200))
+                .await
+                .unwrap_err(),
+            "widget_turn_limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_grant_means_no_widget_and_no_file_written() {
+        let (state, _dir) = test_state().await;
+        assert_eq!(
+            action_show_widget(&state, "orphelin", &req("<p>a</p>", "t", 200))
+                .await
+                .unwrap_err(),
+            "widget_turn_limit"
+        );
+        assert!(!widget_dir(state.app_dir(), "orphelin").exists());
     }
 }

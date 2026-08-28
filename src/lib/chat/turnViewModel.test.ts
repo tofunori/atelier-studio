@@ -606,3 +606,84 @@ describe("clés de rangées de la timeline", () => {
     }
   });
 });
+
+describe("widget dans la projection de timeline", () => {
+  // Le panneau d'un widget est un LIVRABLE du tour, pas un détail
+  // d'exécution : comme la checklist `todos`, il doit rester visible quand
+  // le tour se replie, et ne jamais fabriquer de tour fantôme pendant qu'il
+  // est en cours (relecture finale 2026-08-28, trouvaille C1).
+  const widget = (eventId: string, turnId: string, sequence: number): AgentEvent => ({
+    kind: "widget",
+    id: "w_0123456789abcdef",
+    title: "loi de Student",
+    height: 420,
+    meta: meta(eventId, turnId, sequence),
+  });
+
+  it("survit au repli d'un tour terminé", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Montre-moi la loi", meta: meta("u1", "turn-1", 1) },
+      {
+        kind: "tool_update", id: "r1", name: "Read", detail: "a.ts", input: {},
+        output: "ok", status: "completed", meta: meta("k1", "turn-1", 2),
+      },
+      widget("w1", "turn-1", 3),
+      { kind: "text", text: "Voilà le panneau.", meta: meta("a1", "turn-1", 4) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 5) },
+    ];
+    const turns = buildChatTurnViewModels(events, null);
+    expect(turns).toHaveLength(1);
+    const fold = turns[0].fold;
+    expect(fold, "le tour doit produire un pli").toBeTruthy();
+
+    // plis FERMÉS : c'est l'état par défaut d'un tour terminé
+    const rows = projectChatTimeline(events, turns, new Set());
+    const widgetRows = rows.filter((r) => r.type === "event" && r.event.kind === "widget");
+    expect(widgetRows, "le panneau s'évapore quand le tour se replie").toHaveLength(1);
+
+    // et il ne doit pas être émis DEUX fois quand le pli est ouvert
+    const ouvert = projectChatTimeline(events, turns, new Set([fold!.key]));
+    expect(ouvert.filter((r) => r.type === "event" && r.event.kind === "widget")).toHaveLength(1);
+  });
+
+  it("ne fabrique aucun tour fantôme pendant le tour en cours", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Montre-moi la loi", meta: meta("u1", "turn-1", 1) },
+      {
+        kind: "tool_update", id: "r1", name: "Read", detail: "a.ts", input: {},
+        output: "ok", status: "completed", meta: meta("k1", "turn-1", 2),
+      },
+      widget("w1", "turn-1", 3),
+    ];
+    const turns = buildChatTurnViewModels(events, T0 + 50);
+    expect(turns.map((turn) => turn.key), "un tour fantôme a été créé").toEqual(["turn:turn-1"]);
+    // le VRAI tour reste le dernier : spinner, jetons et pensée live y restent
+    expect(turns[0].activeState, "l'en-tête actif s'est détaché du tour").not.toBeNull();
+    expect(turns[0].activeHeaderIndex).toBe(1);
+
+    const rows = projectChatTimeline(events, turns, new Set());
+    expect(rows.filter((r) => r.type === "event" && r.event.kind === "widget")).toHaveLength(1);
+    // la clé de la rangée est dérivée de l'IDENTITÉ, jamais de l'index :
+    // un splice en amont ne doit pas remonter l'iframe.
+    const widgetRow = rows.find((r) => r.type === "event" && r.event.kind === "widget")!;
+    expect(timelineRowKey(widgetRow)).toBe("event:turn:turn-1:w1");
+    // l'en-tête actif précède le widget, la queue active le suit
+    const types = rows.map((r) => r.type);
+    expect(types.indexOf("active-turn-header")).toBeLessThan(
+      rows.findIndex((r) => r.type === "event" && r.event.kind === "widget"),
+    );
+    expect(types[types.length - 1]).toBe("active-turn-tail");
+  });
+
+  it("un widget SANS turnId ne détache pas l'en-tête actif du vrai tour", () => {
+    // Filet de rejeu : les events journalisés avant que le grant ne porte le
+    // turnId n'en ont pas. Ils adoptent celui de l'event précédent du fil.
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Montre-moi la loi", meta: meta("u1", "turn-1", 1) },
+      { kind: "widget", id: "w_0123456789abcdef", title: "t", height: 420, ts: T0 + 300 },
+    ];
+    const turns = buildChatTurnViewModels(events, T0 + 50);
+    expect(turns.map((turn) => turn.key)).toEqual(["turn:turn-1"]);
+    expect(turns[0].activeState).not.toBeNull();
+  });
+});

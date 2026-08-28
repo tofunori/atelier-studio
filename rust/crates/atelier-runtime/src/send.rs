@@ -1254,6 +1254,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 &provider,
                 session_id.clone(),
                 crate::agent_mcp::provider_label(&provider),
+                Some(turn_id.clone()),
             )
             .await
             {

@@ -32,6 +32,10 @@ pub struct AgentCapabilityGrant {
     pub generation: u64,
     /// Widgets déjà affichés sous CE grant. Un grant neuf = un tour neuf.
     pub widgets_this_turn: u32,
+    /// Tour du harness qui a émis ce grant. Porté jusqu'à `meta.turnId` des
+    /// events produits par l'outil MCP : sans lui, le frontend ouvre un tour
+    /// fantôme et le panneau s'évapore au repli (relecture 2026-08-28).
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -52,6 +56,7 @@ impl CapabilityRegistry {
         project_root: &str,
         provider: &str,
         session_id: Option<String>,
+        turn_id: Option<String>,
     ) -> String {
         // revoke previous
         if let Some(prev) = self.grants.remove(thread_id) {
@@ -71,6 +76,7 @@ impl CapabilityRegistry {
             expires_at: now + GRANT_TTL,
             generation,
             widgets_this_turn: 0,
+            turn_id,
         };
         self.hash_index.insert(token_hash, thread_id.to_string());
         self.grants.insert(thread_id.to_string(), grant);
@@ -102,6 +108,12 @@ impl CapabilityRegistry {
 
     pub fn active_count(&self) -> usize {
         self.grants.len()
+    }
+
+    /// Tour courant du fil, tel que porté par son grant. `None` si le fil n'a
+    /// pas de grant ou si l'appelant n'a pas su fournir le turnId.
+    pub fn turn_id_of(&self, thread_id: &str) -> Option<String> {
+        self.grants.get(thread_id).and_then(|g| g.turn_id.clone())
     }
 
     /// Consomme un emplacement de widget pour le tour courant. Le compteur vit
@@ -175,6 +187,7 @@ pub async fn issue_mcp_launch(
     provider: &str,
     session_id: Option<String>,
     caller_label: &str,
+    turn_id: Option<String>,
 ) -> Result<AtelierMcpLaunch, String> {
     let port = state
         .port()
@@ -182,7 +195,7 @@ pub async fn issue_mcp_launch(
         .ok_or_else(|| err::BACKEND_UNAVAILABLE.to_string())?;
     let bearer = {
         let mut reg = state.capabilities().lock().await;
-        reg.issue(thread_id, project_root, provider, session_id)
+        reg.issue(thread_id, project_root, provider, session_id, turn_id)
     };
     let command = resolve_mcp_binary(state.server_dir());
     let mut env = HashMap::new();
@@ -678,7 +691,7 @@ mod tests {
     #[test]
     fn widget_slots_are_bounded_per_turn_and_reset_on_the_next_one() {
         let mut reg = CapabilityRegistry::new();
-        reg.issue("t1", "/tmp/proj", "claude", None);
+        reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
 
         for i in 0..8 {
             assert!(reg.try_consume_widget_slot("t1", 8), "le slot {i} devait passer");
@@ -686,7 +699,7 @@ mod tests {
         assert!(!reg.try_consume_widget_slot("t1", 8), "le 9e doit être refusé");
 
         // tour suivant : nouveau grant, compteur remis à zéro
-        reg.issue("t1", "/tmp/proj", "claude", None);
+        reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
         assert!(reg.try_consume_widget_slot("t1", 8), "le tour suivant repart à zéro");
 
         // un fil sans grant ne consomme rien

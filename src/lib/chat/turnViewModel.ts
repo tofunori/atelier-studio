@@ -186,10 +186,21 @@ function groupTurns(events: AgentEvent[]): TurnBuilder[] {
   const turns: TurnBuilder[] = [];
   const canonical = new Map<string, TurnBuilder>();
   let legacy: TurnBuilder | null = null;
+  let lastCanonical: TurnBuilder | null = null;
 
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
     const meta = metaOf(event);
+    // Filet de rejeu : un `widget` journalisé avant que le grant de capacité
+    // ne porte le turnId (branche feat/widgets-chat, avant 2026-08-28) n'en a
+    // pas. Le laisser tomber dans la branche « legacy » ouvrait un tour
+    // fantôme APRÈS le vrai — le tour en cours cessait d'être le dernier, et
+    // spinner, compteur de jetons et pensée live se ré-ancraient sous le
+    // panneau. Il adopte donc le tour de l'event qui le précède.
+    if (!meta?.turnId && event.kind === "widget" && lastCanonical) {
+      lastCanonical.indexes.push(index);
+      continue;
+    }
     if (meta?.turnId) {
       let turn = canonical.get(meta.turnId);
       if (!turn) {
@@ -203,6 +214,7 @@ function groupTurns(events: AgentEvent[]): TurnBuilder[] {
         turns.push(turn);
       }
       turn.indexes.push(index);
+      lastCanonical = turn;
       continue;
     }
 
@@ -586,8 +598,14 @@ export function projectChatTimeline(
         // VISIBLE même quand le tour est replié : c'est l'état du travail, pas
         // un détail d'exécution — l'avaler dans le pli la faisait disparaître
         // dès la fin du tour (finition checklist, 2026-08-22).
+        //
+        // Même raison pour `widget` : le panneau est un LIVRABLE du tour, pas
+        // une trace d'exécution. Avalé par le pli, il s'évaporait dès que le
+        // tour se terminait — et au rechargement de session aussi
+        // (relecture finale 2026-08-28).
         for (let inner = index; inner < fold.end; inner += 1) {
-          if (events[inner]?.kind !== "todos") continue;
+          const innerKind = events[inner]?.kind;
+          if (innerKind !== "todos" && innerKind !== "widget") continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",
