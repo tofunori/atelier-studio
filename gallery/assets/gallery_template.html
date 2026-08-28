@@ -1701,7 +1701,7 @@ function updateInspector(){
   // le navigateur peut réutiliser la vignette de la grille après une
   // suppression externe et masquer à tort l'erreur de fichier manquant.
   // Cache-bust au mtime (f.mtime change quand la figure change), pas à chaque render (Date.now()).
-  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime+'&inspect='+f.mtime):(f.thumb||null);
+  const tsrc=(isImg||isHtml)?('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime+'&inspect='+(f.mtime||0)):(f.thumb||null);
   const wf=workflow[f.rel]||'';
   const colls=allCollections();
   body.innerHTML=
