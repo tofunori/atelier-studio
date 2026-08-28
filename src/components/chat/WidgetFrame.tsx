@@ -10,11 +10,23 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { getSidecarInfo, sidecarHeaders } from "../../lib/sidecarInfo";
+import { recallWidgetState, rememberWidgetState } from "./widgetState";
 
 export type WidgetEvent = Extract<AgentEvent, { kind: "widget" }>;
 export const WIDGET_READY_TIMEOUT_MS = 3000;
 
 type Phase = "loading" | "live" | "mute" | "missing";
+
+// tokens poussés au widget : la seule palette qu'il aura
+const THEME_TOKENS = ["--fg", "--fg2", "--muted", "--border", "--accent", "--bg-card"] as const;
+
+function currentThemeMessage() {
+  const styles = getComputedStyle(document.documentElement);
+  const tokens: Record<string, string> = {};
+  for (const name of THEME_TOKENS) tokens[name] = styles.getPropertyValue(name).trim();
+  tokens["--ui-font"] = styles.getPropertyValue("font-family").trim();
+  return { source: "atelier-host", type: "theme", tokens };
+}
 
 export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null }) {
   const { event, threadId } = props;
@@ -53,14 +65,29 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   }, [shell, phase]);
 
   useEffect(() => {
+    function post(msg: unknown) {
+      frameRef.current?.contentWindow?.postMessage(msg, "*");
+    }
     function onMessage(e: MessageEvent) {
       if (e.source !== frameRef.current?.contentWindow) return;
       if (e.data?.source !== "atelier-widget") return;
-      if (e.data.type === "ready") setPhase("live");
+      if (e.data.type === "ready") {
+        post(currentThemeMessage());
+        const frozen = recallWidgetState(event.id);
+        post({ source: "atelier-host", type: "restore", state: frozen });
+        setPhase("live");
+      }
+      if (e.data.type === "state") rememberWidgetState(event.id, e.data.state);
     }
+    function onTheme() { post(currentThemeMessage()); }
+
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+    window.addEventListener("app-theme-changed", onTheme);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("app-theme-changed", onTheme);
+    };
+  }, [event.id]);
 
   const chrome = (
     <div className="codeblock-bar">

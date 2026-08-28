@@ -4,7 +4,7 @@ import { WidgetFrame } from "./WidgetFrame";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { resetSidecarInfo, setSidecarInfo } from "../../lib/sidecarInfo";
-import { rememberWidgetState, clearWidgetStates } from "./widgetState";
+import { rememberWidgetState, recallWidgetState, clearWidgetStates } from "./widgetState";
 
 afterEach(() => cleanup());
 
@@ -95,6 +95,38 @@ describe("WidgetFrame — chargement", () => {
     vi.useRealTimers();
   });
 
+  it("passe à « live » et annule le minuteur muet quand ready arrive avant l'échéance", async () => {
+    vi.useFakeTimers();
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    expect(frame).toBeTruthy();
+    Object.defineProperty(frame, "contentWindow", {
+      value: { postMessage: () => {} },
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "ready" },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    expect(container.querySelector("iframe.live")).toBeTruthy();
+
+    // le minuteur "muet" (3s) doit avoir été annulé par l'arrivée de ready :
+    // le dépasser ne doit plus faire régresser la phase.
+    await act(async () => { vi.advanceTimersByTime(3100); });
+
+    expect(container.querySelector("iframe.live")).toBeTruthy();
+    expect(screen.queryByText(t("chat.widget-mute"))).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("va directement à « expiré » sans requête réseau quand threadId est absent", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -105,5 +137,66 @@ describe("WidgetFrame — chargement", () => {
     });
     expect(container.querySelector(".widget-body")).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("WidgetFrame — thème et état", () => {
+  beforeEach(() => {
+    resetSidecarInfo();
+    setSidecarInfo({ port: 4123 });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("rejoue le thème sans remonter l'iframe", async () => {
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const first = container.querySelector("iframe");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: "nuit" }));
+    });
+
+    expect(container.querySelector("iframe")).toBe(first);
+  });
+
+  it("renvoie l'état gelé au remontage, avant de révéler la frame", async () => {
+    clearWidgetStates();
+    rememberWidgetState(EVENT.id, { nu: 7 });
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+
+    const posted: unknown[] = [];
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentWindow", {
+      value: { postMessage: (m: unknown) => posted.push(m) },
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "ready" },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    expect(posted).toContainEqual(
+      expect.objectContaining({ source: "atelier-host", type: "restore", state: { nu: 7 } }),
+    );
+  });
+
+  it("ignore un message venu d'une autre fenêtre", async () => {
+    clearWidgetStates();
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    render(<WidgetFrame event={EVENT} threadId="t1" />);
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "state", state: { pirate: true } },
+        source: window,
+      }));
+    });
+
+    expect(recallWidgetState(EVENT.id)).toBeUndefined();
   });
 });
