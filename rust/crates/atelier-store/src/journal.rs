@@ -62,6 +62,13 @@ impl HarnessJournal {
     }
 
     pub fn delete_thread(&self, thread_id: &str) -> bool {
+        // Hygiène mémoire : sequence_counters grossit sans borne sinon
+        // (un fil supprimé n'écrit plus jamais, mais son entrée restait) —
+        // revue finale 2026-08-28.
+        self.sequence_counters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(thread_id);
         let p = self.path_of(thread_id);
         match std::fs::remove_file(&p) {
             Ok(()) => true,
@@ -169,11 +176,38 @@ impl HarnessJournal {
     /// finale 2026-08-28). Le compteur est initialisé paresseusement depuis
     /// le fichier (UNE seule lecture disque par thread_id), puis incrémenté
     /// sous verrou — section critique courte, aucun await sous le lock.
+    ///
+    /// `decorate()` (atelier-harness/src/thread.rs) appelle désormais cette
+    /// fonction à CHAQUE delta de streaming, pas seulement au démarrage d'un
+    /// fil : la première version faisait le parse paresseux du fichier
+    /// (`last_sequence`, coûteux) SOUS le verrou global, ce qui bloquait les
+    /// écrivains de TOUS les autres thread_id pendant la lecture disque d'un
+    /// seul fil (revue finale 2026-08-28). Ici, le fast path (compteur déjà
+    /// connu) reste sous verrou court sans I/O ; seule la première allocation
+    /// d'un thread_id lit le disque, et ce hors verrou. Deux racers peuvent
+    /// alors calculer `computed` en même temps avant qu'aucun n'ait pris le
+    /// verrou : le max()+incrément sous verrou reste correct dans tous les
+    /// cas — que la course vienne de deux lectures disque concurrentes ou
+    /// d'un fast path croisant une init tardive, chaque entrée dans la
+    /// section critique repart du dernier compteur connu, jamais d'une
+    /// valeur périmée, donc les séquences restent denses et uniques.
     pub fn next_sequence(&self, thread_id: &str) -> u64 {
+        // Fast path : compteur déjà initialisé pour ce fil, aucune lecture
+        // disque — c'est le chemin emprunté à chaque delta après la
+        // première allocation.
+        {
+            let mut counters = self.sequence_counters.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(seq) = counters.get_mut(thread_id) {
+                *seq += 1;
+                return *seq;
+            }
+        }
+        // Lent, une seule fois par thread_id : le parse du journal se fait
+        // HORS verrou pour ne pas bloquer les écrivains des autres fils.
+        let computed = self.last_sequence(thread_id);
         let mut counters = self.sequence_counters.lock().unwrap_or_else(|e| e.into_inner());
-        let seq = counters
-            .entry(thread_id.to_string())
-            .or_insert_with(|| self.last_sequence(thread_id));
+        let seq = counters.entry(thread_id.to_string()).or_insert(0);
+        *seq = (*seq).max(computed);
         *seq += 1;
         *seq
     }
