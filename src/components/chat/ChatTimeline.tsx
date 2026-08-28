@@ -15,7 +15,7 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
 import { findTextRanges } from "../../lib/markRanges";
-import type { Mark } from "../../lib/annotations";
+import { parseAnnotationBlock, type Mark, type ParsedAnnotations } from "../../lib/annotations";
 import { isValidSkill } from "./mentions";
 import { CloseIcon, MinusIcon, ZapIcon } from "../icons";
 import {
@@ -143,6 +143,29 @@ function tourACherche(events: AgentEvent[], index: number): boolean {
   }
   return false;
 }
+
+/** Bulle d'un tour annoté (direction A, 2026-08-28). Le numéro n'apparaît
+ *  qu'à partir de deux : « [1] » seul ne numérote rien. */
+function AnnotatedBubble({ parsed }: { parsed: ParsedAnnotations }) {
+  const numbered = parsed.items.length > 1;
+  return (
+    <div className="anno-said">
+      <div className="anno-said-block">
+        {parsed.items.map((item, i) => (
+          <div className="anno-said-item" key={i}>
+            {numbered && <span className="anno-said-idx">{i + 1}</span>}
+            <div className="anno-said-quote">{item.text}</div>
+            {item.note
+              ? <div className="anno-said-note">{item.note}</div>
+              : <div className="anno-said-note is-empty">{t("chat.annotation-mute")}</div>}
+          </div>
+        ))}
+      </div>
+      {parsed.tail && <div className="anno-said-tail">{parsed.tail}</div>}
+    </div>
+  );
+}
+
 
 export function ChatTimeline(p: {
   thread: TimelineThread;
@@ -282,7 +305,17 @@ export function ChatTimeline(p: {
       rows.push({ type: "working", key: "message-working" });
     }
     const stable = stabilizeVirtualRows(prevRowsRef.current, rows);
-    prevRowsRef.current = new Map(stable.map((r) => [r.key, r]));
+    // Seules les rangées "rendered" portent un `item` : sameVirtualRow
+    // compare alors les DEUX à undefined pour "empty"/"working" et les
+    // déclare toujours identiques — or leur rendu dépend de props externes
+    // (home bundle, liveTokens/liveNote/liveThought) qui ne vivent pas dans
+    // l'objet rangée. Ne jamais les stocker ici : la prochaine passe les
+    // traite comme neuves (`prev.get(key)` manque), et LegendList les
+    // rerend — sinon le bundle Recherche ou le tick de Working se figent
+    // dès la première rangée stabilisée.
+    prevRowsRef.current = new Map(
+      stable.filter((r) => r.type === "rendered").map((r) => [r.key, r]),
+    );
     return stable;
   }, [events.length, renderedEvents, threadId, workingSince]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
@@ -894,6 +927,12 @@ export function ChatTimeline(p: {
                 timeFormat={defaults.timeFormat}
                 pinned={pins.some((c) => c.index === i)}
                 renderBubbleText={(text) => {
+                  // Un tour qui commence par des annotations se relit dans la
+                  // langue du popover : le passage emprunté en serif sur son
+                  // filet ambre, le commentaire en pleine encre. Le texte
+                  // ENVOYÉ ne change pas — seule la lecture change.
+                  const anno = parseAnnotationBlock(text);
+                  if (anno) return <AnnotatedBubble parsed={anno} />;
                   const m = /^(\/[\w:-]+)([\s\S]*)$/.exec(text);
                   if (m && isValidSkill(m[1], commands)) {
                     return (

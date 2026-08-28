@@ -2305,6 +2305,27 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--border2); }
 /* l'action de confirmation porte l'encre pleine, les autres restent éteintes */
 .anno-editor-confirm { color: var(--text-primary); }
+/* Bulle d'un tour annoté (direction A, 2026-08-28). La marque disparaît de la
+   réponse au moment de l'envoi (Chat.tsx, saveMarks([])) : cette bulle est la
+   seule trace qui reste du passage dans la conversation, elle doit donc le
+   PORTER, pas seulement y renvoyer. Même langue que le popover : serif muet sur
+   filet ambre pour ce qui est emprunté, pleine encre pour ce qui est de toi. */
+.anno-said { white-space: normal; }
+.anno-said-block { display: flex; flex-direction: column; gap: 11px; }
+.anno-said-item { display: grid; grid-template-columns: auto 1fr; gap: 0 9px; }
+/* colonne forcée : sans numéro, la citation et le commentaire se poseraient
+   côte à côte au lieu de s'empiler */
+.anno-said-quote, .anno-said-note { grid-column: 2; }
+.anno-said-idx { grid-column: 1; grid-row: 1 / span 2; padding-top: 5px;
+  font-size: var(--fs-s); color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; }
+.anno-said-quote { font-family: var(--quote-font); font-size: var(--fs-l);
+  line-height: 1.5; color: var(--text-muted); padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--hl-line) 55%, var(--secondary)); }
+.anno-said-note { padding-left: 11px; margin-top: 3px; white-space: pre-wrap; }
+.anno-said-note.is-empty { color: var(--text-disabled); }
+/* ce qui a été tapé sous le bloc reste de la prose ordinaire */
+.anno-said-tail { margin-top: 13px; white-space: pre-wrap; }
 /* pilule agrégée du composer + sa liste dépliée */
 .anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
 .anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
