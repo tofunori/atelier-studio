@@ -26,6 +26,13 @@ pub const EXCLUDED_DIRECTORIES: &[&str] = &[
     "annotations",
     "_gallery_exports",
     ".prism",
+    // répertoires de BUILD : jamais des artefacts de science, et target/ seul
+    // pèse 12 Go / 52k fichiers sur atelier-studio — le watcher et le scan
+    // doivent les ignorer (audit perf 2026-08-28)
+    "target",
+    "dist",
+    "build",
+    ".next",
 ];
 
 #[derive(Debug, Error)]
@@ -519,5 +526,20 @@ mod tests {
         let resolved = safe_project_path(&root, "").unwrap();
         assert_eq!(resolved, fs::canonicalize(&root).unwrap());
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod exclusions_tests {
+    use super::EXCLUDED_DIRECTORIES;
+
+    #[test]
+    fn build_directories_are_excluded() {
+        for dir in ["target", "dist", "build", ".next"] {
+            assert!(
+                EXCLUDED_DIRECTORIES.contains(&dir),
+                "{dir} doit être exclu du scan galerie (12 Go / 52k fichiers de target sur ce dépôt)"
+            );
+        }
     }
 }

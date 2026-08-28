@@ -1979,13 +1979,18 @@ async fn start_watcher(state: AppState) -> Result<(), String> {
             Some(event) = rx.recv() => {
                 match event {
                     Ok(event) if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)) => {
+                        // ne prendre le lock watcher que si l'événement survit au filtre
+                        // (répertoires exclus type target/) — sinon un `cargo build` fait
+                        // des milliers de prises de lock pour rien (audit perf 2026-08-28)
                         let changed: Vec<String> = event.paths.iter().filter_map(|path| relevant_change(&root, path)).collect();
-                        pending.extend(changed);
-                        pending.sort();
-                        pending.dedup();
-                        let mut status = state.watcher.write().await;
-                        status.last_event_at = Some(now());
-                        status.last_changed = pending.iter().take(50).cloned().collect();
+                        if !changed.is_empty() {
+                            pending.extend(changed);
+                            pending.sort();
+                            pending.dedup();
+                            let mut status = state.watcher.write().await;
+                            status.last_event_at = Some(now());
+                            status.last_changed = pending.iter().take(50).cloned().collect();
+                        }
                     }
                     Err(error) => state.watcher.write().await.error = Some(error.to_string()),
                     _ => {}
