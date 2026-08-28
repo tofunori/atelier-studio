@@ -136,4 +136,14 @@ mod tests {
     fn unknown_tool_routes_nowhere() {
         assert!(bridge_call_for("rm_rf", &json!({})).is_none());
     }
+
+    #[test]
+    fn sessions_call_with_empty_action_routes_nowhere() {
+        assert!(bridge_call_for(TOOL_NAME, &json!({"action": ""})).is_none());
+    }
+
+    #[test]
+    fn sessions_call_with_missing_action_routes_nowhere() {
+        assert!(bridge_call_for(TOOL_NAME, &json!({})).is_none());
+    }
 }
