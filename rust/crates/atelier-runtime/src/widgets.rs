@@ -1,7 +1,8 @@
 //! Widgets du fil : validation, identifiant, coquille sandboxée.
 //! Voir docs/superpowers/specs/2026-08-28-widgets-chat-design.md §B et §D.
 
-use serde_json::Value;
+use crate::state::AppState;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -182,6 +183,76 @@ pub fn purge_oldest(dir: &Path, keep: usize) -> usize {
     removed
 }
 
+/// L'event durable poussé au fil : jamais le HTML (il gonflerait le JSONL et
+/// repasserait dans le contexte du modèle au rejeu), seulement de quoi
+/// afficher le panneau.
+pub fn widget_event(
+    thread_id: &str,
+    id: &str,
+    input: &WidgetInput,
+    sequence: u64,
+    event_id: &str,
+    ts: i64,
+) -> Value {
+    json!({
+        "kind": "widget",
+        "id": id,
+        "title": input.title,
+        "height": input.height,
+        "meta": {
+            "threadId": thread_id,
+            "sequence": sequence,
+            "eventId": event_id,
+            "ts": ts,
+        }
+    })
+}
+
+/// Action MCP `show_widget` : valide, écrit la coquille sur disque, purge le
+/// surplus, puis journalise et publie l'event durable. Le patron d'émission
+/// est copié de `agent_mailbox.rs::emit_agent_message_events`.
+pub async fn action_show_widget(
+    state: &AppState,
+    caller_id: &str,
+    req: &Value,
+) -> Result<Value, String> {
+    let input = parse_widget_input(req)?;
+    let id = new_widget_id();
+    let shell = wrap_shell(&input);
+
+    write_widget(state.app_dir(), caller_id, &id, &shell).map_err(|e| {
+        tracing::warn!("widget non écrit : {e}");
+        "widget_write_failed".to_string()
+    })?;
+    purge_oldest(&widget_dir(state.app_dir(), caller_id), FILES_PER_THREAD_MAX);
+
+    let sequence = state.journal().last_sequence(caller_id) + 1;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let durable = widget_event(
+        caller_id,
+        &id,
+        &input,
+        sequence,
+        &Uuid::new_v4().to_string(),
+        ts,
+    );
+    let _ = state.journal().append(&durable);
+    state.publish(crate::ws_router::json_msg(json!({
+        "type": "event",
+        "threadId": caller_id,
+        "event": durable,
+    })));
+
+    Ok(json!({
+        "ok": true,
+        "widgetId": id,
+        "note": "Le panneau est affiché dans le fil. Ne recopie pas le HTML dans ta réponse."
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,6 +378,25 @@ mod tests {
         );
         assert_eq!(read_widget(dir.path(), "t1", &new_widget_id()), None);
         assert_eq!(read_widget(dir.path(), "t1", "../../etc/passwd"), None);
+    }
+
+    #[test]
+    fn event_carries_only_what_the_timeline_needs() {
+        let input = parse_widget_input(&req("<p>lourd</p>", "loi de Student", 420)).unwrap();
+        let ev = widget_event("t1", "w_0123456789abcdef", &input, 7, "evt-1", 1_700_000_000_000);
+
+        assert_eq!(ev["kind"], "widget");
+        assert_eq!(ev["id"], "w_0123456789abcdef");
+        assert_eq!(ev["title"], "loi de Student");
+        assert_eq!(ev["height"], 420);
+        assert_eq!(ev["meta"]["threadId"], "t1");
+        assert_eq!(ev["meta"]["sequence"], 7);
+        assert_eq!(ev["meta"]["eventId"], "evt-1");
+
+        // le HTML ne DOIT PAS voyager dans l'event : il gonflerait le JSONL
+        // et repasserait dans le contexte du modèle au rejeu.
+        let serialized = serde_json::to_string(&ev).unwrap();
+        assert!(!serialized.contains("lourd"), "le HTML a fuité dans l'event");
     }
 
     #[test]

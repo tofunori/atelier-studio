@@ -343,6 +343,7 @@ async fn handle_action(
         "report_to_parent" => {
             crate::agent_mailbox::action_report_to_parent(state, caller_id, req).await
         }
+        "show_widget" => crate::widgets::action_show_widget(state, caller_id, req).await,
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }
