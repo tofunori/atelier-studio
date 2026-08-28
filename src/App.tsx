@@ -641,10 +641,13 @@ export default function App() {
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState("general");
-  const openSettings = (section = "general") => {
+  // Task 25 (fix) : useCallback — passé nommé (`onSettings`) à RailMemo via
+  // handleOpenSettings, sa propre identité doit rester stable pour que le
+  // memo tienne. Ne lit que des setters useState (stables) : deps [].
+  const openSettings = useCallback((section = "general") => {
     setSettingsInitialSection(section);
     setShowSettings(true);
-  };
+  }, []);
   const settingsRef = useRef(settings);
   useEffect(() => {
     const onLanguage = () => setLanguageRev((n) => n + 1);
@@ -767,8 +770,13 @@ export default function App() {
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
   // vue active du panneau latéral (barre d'activité) — persistée dans settings
   const activeView = settings.activeView;
-  const setActiveView = (v: Settings["activeView"]) =>
-    setSettings((s) => (s.activeView === v ? s : { ...s, activeView: v }));
+  // Task 25 (fix) : useCallback — dep de selectProject et de handleSelectView
+  // (Rail). Ne lit que setSettings (setter useState, stable) : deps [].
+  const setActiveView = useCallback(
+    (v: Settings["activeView"]) =>
+      setSettings((s) => (s.activeView === v ? s : { ...s, activeView: v })),
+    [],
+  );
   // Session par projet : dernier fil et dernier onglet d'atelier visités.
   // Sans cette mémoire, un aller-retour entre deux projets ramenait sur
   // l'accueil et sur la galerie — la conversation en cours et le fichier
@@ -796,7 +804,16 @@ export default function App() {
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
-  const selectProject = (root: string) => {
+  // Task 25 (fix) : useCallback — passé nommé (`onSelectProject`) à
+  // TopBarMemo/RailMemo, sa propre identité doit rester stable même pendant
+  // le stream. `events[threadId]` → `eventsRef.current[threadId]` (le ref
+  // tenu à jour ligne 540, à chaque render) : lit l'état COURANT sans faire
+  // de `events` une dep — sinon selectProject changerait d'identité à
+  // chaque delta de stream (au plus 1×/frame après Task 1, mais évitable).
+  // Deps exactes restantes : activeView, activeProject, lastThreadByProject
+  // (lus dans le corps) + setActiveView (déjà stabilisé plus haut) ; refs et
+  // setters useState omis (stables garantis par React).
+  const selectProject = useCallback((root: string) => {
     if (activeView === "highlights") {
       setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
@@ -824,12 +841,12 @@ export default function App() {
         return n;
       });
       // fil pas encore en mémoire → recharger son historique, comme selectThread
-      if (!events[threadId]?.length && ws.current?.readyState === 1) {
+      if (!eventsRef.current[threadId]?.length && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
       }
     }
     setActiveView("chats");
-  };
+  }, [activeView, activeProject, lastThreadByProject, setActiveView]);
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
@@ -1275,11 +1292,14 @@ export default function App() {
   // « chat ». Un dispatch synchrone ici serait perdu pendant ce remontage.
   const [activeSurface, setActiveSurface] = useState<Surface>("atelier");
   const [surfaceRequest, setSurfaceRequest] = useState<{ surface: Surface; sequence: number } | null>(null);
-  function switchToSurface(surface: Surface) {
+  // Task 25 (fix) : useCallback — passé nommé (`onSelectSurface`) à
+  // TopBarMemo et lu comme dep par goToIde ; ne lit que des setters useState
+  // (stables) : deps [].
+  const switchToSurface = useCallback((surface: Surface) => {
     setLayout((l) => (l === "chat" ? "split" : l));
     setActiveSurface(surface);
     setSurfaceRequest((request) => ({ surface, sequence: (request?.sequence ?? 0) + 1 }));
-  }
+  }, []);
   useEffect(() => {
     if (!showAtelier || !surfaceRequest) return;
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: surfaceRequest.surface } }));
@@ -1451,7 +1471,10 @@ export default function App() {
   // bouton IDE du rail : revient direct à la vue éditeur/PDF (dernier fichier
   // ouvert) sans passer par la Galerie ; sans fichier ouvert, montre l'écran
   // d'accueil IDE (onglet sentinelle "ide" : fichiers récents + explorateur).
-  function goToIde() {
+  // Task 25 (fix) : useCallback — passé nommé (`onSelectIde`) à TopBarMemo.
+  // Deps exactes : switchToSurface (déjà stabilisé) + activeTab (lu dans le
+  // corps) ; visibleAtelierTabsRef (ref) et setters useState omis (stables).
+  const goToIde = useCallback(() => {
     switchToSurface("atelier");
     const fileTabs = visibleAtelierTabsRef.current.filter((tb) => tb.kind !== "term");
     if (fileTabs.length) {
@@ -1462,7 +1485,7 @@ export default function App() {
       setActiveTab("ide");
       setShowExplorer(true);
     }
-  }
+  }, [switchToSurface, activeTab]);
   // explorateur de fichiers : togglé depuis la TopBar (l'état vit ici pour que
   // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
   // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
@@ -2832,14 +2855,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function addProject() {
+  // Task 25 (fix) : useCallback — passé nommé (`onAddProject`/`onOpenProject`)
+  // à TopBarMemo/RailMemo et à ResearchHome/CommandPalette. Ne lit que `open`
+  // (import statique, stable) et des setters useState : deps [].
+  const addProject = useCallback(async () => {
     const root = await open({ directory: true });
     if (typeof root !== "string") return;
     setProjects((p) => (p.includes(root) ? p : [...p, root]));
     setActiveProject(root);
-  }
+  }, []);
 
-  function newChat() {
+  // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à
+  // ResearchHome/CommandPalette. Dep exacte : activeProject (lu dans le
+  // corps) ; setNewChatRequest (setter useState) omis, stable.
+  const newChat = useCallback(() => {
     // Un nouveau chat créé pendant qu'un projet est ouvert APPARTIENT à ce
     // projet : les entrées « + » (rail compact, état vide de la timeline)
     // passaient projectRoot:"" et le fil, visible pendant la session (règle
@@ -2847,7 +2876,7 @@ export default function App() {
     // au redémarrage — le filtre strict (règle 1) l'excluait (Thierry
     // 2026-08-23, threads.json alternait "" et le projet actif).
     setNewChatRequest({ projectRoot: activeProject ?? "" });
-  }
+  }, [activeProject]);
 
   function createChat(projectRoot: string, provider: string) {
     const id = crypto.randomUUID();
@@ -3876,12 +3905,11 @@ export default function App() {
     />
   );
   // Task 25 : idem TopBar — chaque handler inline de railNode devient un
-  // useCallback nommé. `setActiveView` et `openSettings` (déclarés plus haut
-  // en dehors de ce fragment) ne sont PAS des setters useState : ce sont des
-  // fonctions du corps du composant, recréées à chaque render de App — elles
-  // restent donc des deps exactes (sinon fermeture périmée), mais leur
-  // propre instabilité limite ce que RailMemo peut réellement sauter (cf.
-  // rapport Task 25, concerns).
+  // useCallback nommé. `setActiveView` et `openSettings` (déclarés plus haut,
+  // hors de ce fragment) sont eux-mêmes des useCallback à deps [] depuis le
+  // fix Task 25 : ils restent listés ici comme deps exactes (le corps les
+  // lit), mais leur propre stabilité fait que handleSelectView/
+  // handleOpenSettings ne changent plus d'identité entre deux renders.
   const handleSelectView = useCallback((view: ViewId) => {
     setActiveView(view);
     setCompact(false);
