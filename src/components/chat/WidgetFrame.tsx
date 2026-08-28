@@ -38,7 +38,11 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   const { event, threadId } = props;
   const [shell, setShell] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
+  const [showSource, setShowSource] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // Chargement au montage : un widget jamais scrollé n'est jamais lu.
   // threadId absent (fil pas encore créé) : aucune requête possible, on va
@@ -100,19 +104,19 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     };
   }, [event.id]);
 
-  const chrome = (
-    <div className="codeblock-bar">
-      <span className="widget-bar-left">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-             strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-          <path d="M2 4.5h5M11 4.5h3M2 11.5h3M9 11.5h5" />
-          <circle cx="9" cy="4.5" r="1.9" />
-          <circle cx="7" cy="11.5" r="1.9" />
-        </svg>
-        <span className="widget-title">{event.title}</span>
-      </span>
-    </div>
+  const widgetLabel = (
+    <span className="widget-bar-left">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+        <path d="M2 4.5h5M11 4.5h3M2 11.5h3M9 11.5h5" />
+        <circle cx="9" cy="4.5" r="1.9" />
+        <circle cx="7" cy="11.5" r="1.9" />
+      </svg>
+      <span className="widget-title">{event.title}</span>
+    </span>
   );
+
+  const chrome = <div className="codeblock-bar">{widgetLabel}</div>;
 
   // États dégradés : la hauteur est RENDUE au fil, jamais 400 px de vide.
   if (phase === "missing" || phase === "mute") {
@@ -127,21 +131,113 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   }
 
   return (
-    <div className="codeblock widget-block not-typeset">
-      {chrome}
-      {/* la hauteur est posée ICI, dès le premier rendu : LegendList mesure
-          la bonne taille avant même que le HTML ne soit chargé */}
-      <div className="widget-body" style={{ height: `${event.height}px` }}>
-        {shell != null && (
-          <iframe
-            ref={frameRef}
-            className={phase === "live" ? "widget-frame live" : "widget-frame"}
-            title={event.title}
-            sandbox="allow-scripts"
-            srcDoc={shell}
-          />
-        )}
+    <div
+      ref={cardRef}
+      className="codeblock widget-block not-typeset"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          // sinon l'iframe est un piège à clavier — Tab y entre, rien n'en sort.
+          (document.activeElement as HTMLElement | null)?.blur();
+          cardRef.current?.focus();
+        }
+      }}
+      tabIndex={-1}
+    >
+      <div className="codeblock-bar">
+        {widgetLabel}
+        <div className="codeblock-bar-actions">
+          <Button
+            variant="ghost"
+            className="mermaid-toggle"
+            onClick={() => setShowSource((v) => !v)}
+          >
+            {showSource ? t("chat.widget-view-panel") : t("chat.widget-view-source")}
+          </Button>
+          {!showSource && (
+            <IconButton
+              className="codeblock-copy"
+              label={t("chat.widget-expand")}
+              title={t("chat.widget-expand")}
+              onClick={() => setExpanded(true)}
+            >
+              <Maximize2Icon size={12} />
+            </IconButton>
+          )}
+          <IconButton
+            className={`codeblock-copy${copied ? " copied" : ""}`}
+            label={copied ? t("chat.output-copied") : t("chat.output-copy")}
+            title={copied ? t("chat.output-copied") : t("chat.output-copy")}
+            onClick={() => {
+              void navigator.clipboard.writeText(shell ?? "").then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              });
+            }}
+          >
+            <CopyIcon size={12} />
+          </IconButton>
+        </div>
       </div>
+      {showSource ? (
+        <pre>
+          <code
+            className="hljs language-html"
+            dangerouslySetInnerHTML={{ __html: highlightCode(shell ?? "", "html") }}
+          />
+        </pre>
+      ) : (
+        // la hauteur est posée ICI, dès le premier rendu : LegendList mesure
+        // la bonne taille avant même que le HTML ne soit chargé
+        <div className="widget-body" style={{ height: `${event.height}px` }}>
+          {shell != null && (
+            <iframe
+              ref={frameRef}
+              className={phase === "live" ? "widget-frame live" : "widget-frame"}
+              title={event.title}
+              sandbox="allow-scripts"
+              srcDoc={shell}
+            />
+          )}
+        </div>
+      )}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        {shell != null ? (
+          <DialogContent
+            showCloseButton={false}
+            closeLabel={t("chat.mermaid-close-fullscreen")}
+            overlayClassName="tw:bg-black/70 tw:backdrop-blur-sm"
+            className="mermaid-fullscreen-dialog tw:fixed tw:flex tw:max-w-none tw:translate-x-0 tw:translate-y-0 tw:flex-col tw:gap-0 tw:p-0 tw:ring-0"
+            style={{
+              inset: 12,
+              top: 12,
+              left: 12,
+              width: "calc(100dvw - 24px)",
+              height: "calc(100dvh - 24px)",
+              maxWidth: "none",
+              transform: "none",
+              translate: "none",
+            }}
+          >
+            <DialogTitle className="tw:sr-only">{t("chat.widget-fullscreen-title")}</DialogTitle>
+            <div className="mermaid-fullscreen-toolbar">
+              <span className="widget-title">{event.title}</span>
+              <DialogClose
+                className="mermaid-fullscreen-close"
+                aria-label={t("chat.mermaid-close-fullscreen")}
+              >
+                <XIcon aria-hidden="true" />
+                <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
+              </DialogClose>
+            </div>
+            <iframe
+              className="widget-fullscreen-frame"
+              title={event.title}
+              sandbox="allow-scripts"
+              srcDoc={shell}
+            />
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </div>
   );
 }
