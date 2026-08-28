@@ -111,8 +111,15 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("type:'atelier-open-tab'", gallery)
 
     def test_embedded_gallery_header_uses_the_shared_canvas(self):
+        # L'INTENTION est le fond partagé, pas une chaîne littérale : la règle
+        # unique a été scindée en trois le 2026-08-23 (« réserver la bande des
+        # contrôles de panneau », qui a ajouté height/padding-right), ce que
+        # l'assertion concaténée ne pouvait pas voir. On vérifie donc le fond
+        # et la hauteur réservée séparément — chacun peut évoluer sans casser
+        # l'autre.
         gallery = gallery_template()
-        self.assertIn("html.emb header{padding:8px 12px;background:var(--bg)}", gallery)
+        self.assertIn("html.emb header{background:var(--bg)}", gallery)
+        self.assertIn("html.emb header{padding:4px 12px;height:44px;box-sizing:border-box}", gallery)
 
     def test_gallery_controls_and_cards_follow_the_quiet_instrument_geometry(self):
         gallery = gallery_template()
@@ -196,7 +203,11 @@ class FullscreenRegressionTests(unittest.TestCase):
         # push/hydration : workflow rejoint le payload /state, la valeur serveur
         # validee remplace le cache localStorage au chargement, et le listener
         # <select> mort (.wfsel) ne doit jamais revenir.
-        self.assertIn("hideRules,collections,workflow}", gallery)
+        # Sans l'accolade fermante : le payload /state a gagné des champs APRÈS
+        # `workflow` (filtre de types du projet), ce qui cassait une assertion
+        # qui épinglait la POSITION plutôt que la présence. Ce qui compte est
+        # que workflow parte bien dans le POST, et que l'hydratation le relise.
+        self.assertIn("hideRules,collections,workflow", gallery)
         self.assertIn("if(st.workflow", gallery)
         self.assertNotIn(".wfsel", gallery)
         self.assertIn("let recents = JSON.parse(localStorage.getItem('figRecent')", gallery)
