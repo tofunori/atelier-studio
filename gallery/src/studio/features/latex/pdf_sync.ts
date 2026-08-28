@@ -72,9 +72,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   const win = options.window || window;
   const now = options.now || (() => win.performance ? win.performance.now() : Date.now());
   const wallNow = options.wallNow || Date.now;
+  // Gabarits d'abord : un div dimensionné par page (viewport connu sans
+  // rendu), le canvas n'existe que pour les pages proches du viewport et est
+  // évincé au-delà de MAX_LIVE_PAGES — un article de 40 pages ne garde plus
+  // des centaines de Mo de canvas résidents (audit perf 2026-08-28).
+  const MAX_LIVE_PAGES = 6;
   let pdfDocument: PdfDocument | null = null;
   let pages: Array<HTMLElement | undefined> = [];
   let viewports: Array<{scale: number; height: number} | undefined> = [];
+  const liveCanvases = new Map<number, HTMLCanvasElement>();
+  let pageObserver: IntersectionObserver | null = null;
   let loadToken = 0;
   let lastWidth = 0;
   let lastEditAt = 0;
@@ -158,11 +165,58 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       if (token !== loadToken) return;
       pdfDocument = loaded;
       const scroll = options.right.scrollTop;
+      // Rechargement (compilation) : plus d'observer résident sur les gabarits
+      // détruits, plus de canvas vivant pointant vers du DOM disparu.
+      pageObserver?.disconnect();
+      pageObserver = null;
       options.right.querySelectorAll(".pdfpage").forEach((element) => element.remove());
       pages = [];
       viewports = [];
+      liveCanvases.clear();
       lastWidth = options.right.clientWidth;
       const width = (options.right.clientWidth - 24) * options.getZoom();
+
+      const evictFarthest = (anchor: number): void => {
+        let victim = -1;
+        let distance = -1;
+        for (const pageNumber of liveCanvases.keys()) {
+          const d = Math.abs(pageNumber - anchor);
+          if (d > distance) { distance = d; victim = pageNumber; }
+        }
+        if (victim < 0) return;
+        const victimCanvas = liveCanvases.get(victim);
+        liveCanvases.delete(victim);
+        // Retire seulement le canvas (le gabarit garde sa taille) — pas
+        // replaceChildren() : le marqueur synctex partagé peut être un autre
+        // enfant du même gabarit et ne doit pas disparaître avec le canvas.
+        victimCanvas?.remove();
+      };
+
+      const renderPage = async (pageNumber: number): Promise<void> => {
+        if (token !== loadToken || liveCanvases.has(pageNumber)) return;
+        const element = pages[pageNumber];
+        const info = viewports[pageNumber];
+        if (!element || !info) return;
+        const page = await loaded.getPage(pageNumber);
+        const viewport = page.getViewport({scale: info.scale});
+        const canvas = doc.createElement("canvas");
+        canvas.width = viewport.width * win.devicePixelRatio;
+        canvas.height = viewport.height * win.devicePixelRatio;
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.scale(win.devicePixelRatio, win.devicePixelRatio);
+        await page.render({canvasContext: context, viewport, intent: "print"}).promise;
+        if (token !== loadToken) return;
+        // prepend, jamais replaceChildren : le gabarit peut déjà porter le
+        // marqueur synctex partagé (options.marker) posé par showMarker()
+        // avant que cette page n'ait fini de se rendre — ne pas l'effacer.
+        element.prepend(canvas);
+        liveCanvases.set(pageNumber, canvas);
+        if (liveCanvases.size > MAX_LIVE_PAGES) evictFarthest(pageNumber);
+      };
+
       for (let pageNumber = 1; pageNumber <= loaded.numPages; pageNumber += 1) {
         if (token !== loadToken) return;
         const page = await loaded.getPage(pageNumber);
@@ -174,27 +228,47 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         element.dataset.page = String(pageNumber);
         element.style.width = `${viewport.width}px`;
         element.style.height = `${viewport.height}px`;
-        const canvas = doc.createElement("canvas");
-        canvas.width = viewport.width * win.devicePixelRatio;
-        canvas.height = viewport.height * win.devicePixelRatio;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        element.appendChild(canvas);
         options.right.appendChild(element);
         pages[pageNumber] = element;
         viewports[pageNumber] = {scale, height: base.height};
-        const context = canvas.getContext("2d");
-        if (context) {
-          context.scale(win.devicePixelRatio, win.devicePixelRatio);
-          await page.render({canvasContext: context, viewport, intent: "print"}).promise;
-        }
+        // Coordonnées lues sur le gabarit (toujours présent), jamais sur le
+        // canvas — la page peut ne pas encore être rendue au moment du clic.
         element.onclick = (event) => {
           const rect = element.getBoundingClientRect();
+          const info = viewports[pageNumber];
+          if (!info) return;
           void synctexEdit(pageNumber,
-            (event.clientX - rect.left) / scale,
-            (event.clientY - rect.top) / scale);
+            (event.clientX - rect.left) / info.scale,
+            (event.clientY - rect.top) / info.scale);
         };
       }
+
+      // `IntersectionObserver` vit sur le global, pas sur l'interface DOM
+      // `Window` des types TS — lu via `win` (jamais le global nu) pour
+      // respecter la fenêtre injectée par les harnais de test.
+      const IObserver = (win as unknown as {IntersectionObserver?: typeof IntersectionObserver}).IntersectionObserver;
+      if (typeof IObserver === "function") {
+        const observer = new IObserver((entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const pageNumber = Number((entry.target as HTMLElement).dataset.page);
+            if (pageNumber) void renderPage(pageNumber);
+          }
+        }, {root: options.right, rootMargin: "150% 0%"});
+        pageObserver = observer;
+        for (const element of pages) {
+          if (element) observer.observe(element);
+        }
+      } else {
+        // Repli (environnement sans IntersectionObserver, ex. harnais de
+        // test) : rendu immédiat de toutes les pages ; l'éviction au-delà de
+        // MAX_LIVE_PAGES reste active.
+        for (let pageNumber = 1; pageNumber <= loaded.numPages; pageNumber += 1) {
+          if (token !== loadToken) return;
+          await renderPage(pageNumber);
+        }
+      }
+
       options.right.scrollTop = scroll;
     } catch (error) {
       console.warn("loadPdf:", error);
@@ -245,7 +319,18 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   });
   win.addEventListener("message", (event) => {
     const message = event.data as {type?: string} | null;
-    if (event.source === win.parent && message?.type === "atelier-tab-activated" && options.isPdfMode) requestView();
+    if (event.source !== win.parent || message?.type !== "atelier-tab-activated" || !options.isPdfMode) return;
+    requestView();
+    // PIEGES_CONNUS.md §4 : un iframe display:none→block ne redéclenche NI
+    // visibilitychange NI IntersectionObserver dans ce WebView — si loadPdf()
+    // a tourné pendant que l'onglet PDF était masqué, les entrées de l'IO
+    // peuvent être figées à "non visible" même une fois l'onglet affiché.
+    // Ré-observer chaque gabarit force une intersection fraîche.
+    if (pageObserver) {
+      const observer = pageObserver;
+      observer.disconnect();
+      for (const element of pages) { if (element) observer.observe(element); }
+    }
   });
   if (options.channel) options.channel.onmessage = (event: MessageEvent) => {
     const message = (event.data || {}) as {t?: string; page?: number; y?: number; line?: number};
