@@ -836,14 +836,42 @@ fn dirs_log() -> PathBuf {
     home.join("Library/Logs/atelier-studio")
 }
 
+// Handle ouvert une fois (3 syscalls/ligne sinon) ; rotation à 10 Mo vers
+// `claude-cli.log.old` — le log n'était borné par rien (audit 2026-08-28).
+static LOG_SINK: std::sync::Mutex<Option<(std::path::PathBuf, std::fs::File)>> =
+    std::sync::Mutex::new(None);
+const LOG_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
+
 fn append_log(dir: &std::path::Path, line: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("claude-cli.log"))?;
-    writeln!(f, "{line}")
+    let path = dir.join("claude-cli.log");
+    let mut guard = LOG_SINK.lock().unwrap();
+    let reopen = match guard.as_ref() {
+        Some((cached, file)) => {
+            cached != &path
+                || file
+                    .metadata()
+                    .map(|m| m.len() >= LOG_ROTATE_BYTES)
+                    .unwrap_or(true)
+        }
+        None => true,
+    };
+    if reopen {
+        std::fs::create_dir_all(dir)?;
+        if std::fs::metadata(&path)
+            .map(|m| m.len() >= LOG_ROTATE_BYTES)
+            .unwrap_or(false)
+        {
+            let _ = std::fs::rename(&path, dir.join("claude-cli.log.old"));
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        *guard = Some((path, file));
+    }
+    let (_, file) = guard.as_mut().expect("sink initialisé ci-dessus");
+    writeln!(file, "{line}")
 }
 
 #[cfg(test)]
@@ -1160,5 +1188,31 @@ mod interrupt_tests {
         assert!(events
             .iter()
             .any(|v| v["kind"] == "heartbeat" && v["note"] == "Claude démarre…"));
+    }
+}
+
+#[cfg(test)]
+mod append_log_tests {
+    use super::append_log;
+
+    /// Le sink statique est partagé entre tests du même process ; l'isolation
+    /// vient du garde `cached != &path` (un tempdir par test), pas de l'ordre
+    /// d'exécution.
+    #[test]
+    fn append_log_rotates_at_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        append_log(dir.path(), "a").unwrap();
+        // Gonfler artificiellement le fichier courant puis forcer la
+        // relecture du handle mis en cache pour déclencher la rotation.
+        let path = dir.path().join("claude-cli.log");
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            f.write_all(&vec![b'x'; (super::LOG_ROTATE_BYTES as usize) + 1])
+                .unwrap();
+        }
+        append_log(dir.path(), "b").unwrap();
+        assert!(dir.path().join("claude-cli.log.old").exists());
+        assert!(std::fs::metadata(&path).unwrap().len() < 1024);
     }
 }
