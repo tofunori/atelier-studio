@@ -104,6 +104,44 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     };
   }, [event.id]);
 
+  // Une SEULE iframe est jamais montée à la fois — le protocole postMessage
+  // n'a qu'un interlocuteur (`frameRef`, filtré dans onMessage). Basculer
+  // entre le fil et le plein écran REMONTE l'iframe (au lieu d'en dupliquer
+  // une seconde, sans ref, dont le "ready" serait silencieusement rejeté) :
+  // c'est voulu, c'est le rôle du gel d'état (tâche 8) de la faire
+  // réapparaître à l'identique après avoir rejoué thème + restore.
+  function renderIframe(className: string) {
+    if (shell == null) return null;
+    return (
+      <iframe
+        ref={frameRef}
+        className={className}
+        title={event.title}
+        sandbox="allow-scripts"
+        srcDoc={shell}
+      />
+    );
+  }
+
+  // Un remontage d'iframe doit repartir de "loading" AVANT le prochain
+  // rendu : sinon la classe .live (ou, plus grave, un ready jamais
+  // reperdu) s'appliquerait à une iframe qui n'a pas encore redit "ready" —
+  // on révélerait le widget avant de lui avoir renvoyé son état.
+  function toggleSource() {
+    setShowSource((v) => {
+      const next = !v;
+      if (!next && !expanded) setPhase("loading");
+      return next;
+    });
+  }
+
+  function setExpandedAndReload(next: boolean) {
+    setExpanded(next);
+    // en fermant, l'iframe ne remonte dans le fil que si la vue source
+    // n'est pas affichée (sinon .widget-body ne rend aucune iframe).
+    if (next || !showSource) setPhase("loading");
+  }
+
   const widgetLabel = (
     <span className="widget-bar-left">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
