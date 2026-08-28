@@ -21,6 +21,6 @@ sha2 = "0.10"
 hex = "0.4"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 tempfile = { workspace = true }
 atelier-store = { workspace = true }

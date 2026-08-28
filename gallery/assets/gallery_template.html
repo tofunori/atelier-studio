@@ -391,18 +391,43 @@
   #lbProv:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 7%,transparent)}
   #lb.prov #lbProv{color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent)}
   #lb.fs #lbProv,#lb.vw #lbProv{display:none!important}
-  #provPanel{position:fixed;top:10px;right:14px;bottom:10px;z-index:102;display:none;
-      width:min(320px,calc(100vw - 28px));box-sizing:border-box;flex-direction:column;overflow-y:auto;
-      cursor:default;text-align:left;background:var(--card);border-radius:10px;padding:16px;
+  /* La figure d'abord : le panneau ne RECOUVRE jamais l'image, il lui prend
+     de la place — et la place se prend à TOUTES les largeurs. La réservation
+     vivait derrière un `min-width:900px` : sous ce seuil (fenêtre courante
+     ~730px, vécu 2026-08-28) le panneau se posait par-dessus la figure, qui
+     était rognée au lieu de rétrécir. Deux dispositions, aucune fenêtre sans
+     réservation. La hauteur épouse le contenu : « aucune provenance » tient
+     en deux lignes et ne doit pas se payer toute la colonne. */
+  #provPanel{position:fixed;z-index:102;display:none;box-sizing:border-box;
+      flex-direction:column;overflow-y:auto;cursor:default;text-align:left;
+      background:var(--card);border-radius:10px;padding:16px;
       box-shadow:0 4px 16px rgba(0,0,0,.25);color:var(--txt);font-size:12px;line-height:1.5}
   #lb.prov:not(.fs):not(.vw):not(.annot) #provPanel{display:flex}
-  @media (min-width:900px){
+  /* Assez large pour que figure ET panneau coexistent côte à côte. */
+  @media (min-width:860px){
+    #provPanel{top:10px;right:14px;width:320px;max-height:calc(100vh - 20px)}
     #lb.prov:not(.fs):not(.vw):not(.annot){padding-right:348px}
     #lb.prov:not(.fs):not(.vw):not(.annot) #lbImg{max-width:calc(94vw - 348px)}
     #lb.prov:not(.fs):not(.vw):not(.annot) #lbCap{max-width:calc(94vw - 348px)}
     /* le chevron « suivant » vit à droite : sans ce décalage il passe SOUS le
        panneau (z-index 101 < 102) et la navigation à la souris disparaît */
     #lb.prov:not(.fs):not(.vw):not(.annot) #lbNext{right:348px}
+  }
+  /* Fenêtre étroite : feuille basse. Une colonne de 320px y mangerait la
+     moitié de l'image ; en bas, la figure garde toute sa largeur. */
+  @media (max-width:859px){
+    #provPanel{left:14px;right:14px;bottom:10px;width:auto;max-height:38vh}
+    #lb.prov:not(.fs):not(.vw):not(.annot){padding-bottom:calc(38vh + 20px)}
+    #lb.prov:not(.fs):not(.vw):not(.annot) #lbImg{max-height:calc(86vh - 38vh - 20px)}
+    /* La feuille est plus courte que son contenu : elle défile. Les actions
+       remontent donc au-dessus du détail — « Régénérer » sous la ligne de
+       flottaison serait une action invisible. Le `order` s'applique au
+       CONTENEUR RÉEL des rangées (le panneau n'a qu'un seul enfant, le
+       wrapper peint par provPaint) : posé sur #provPanel il ne pouvait rien
+       réordonner. */
+    #provPanel > *{display:flex;flex-direction:column}
+    #provPanel .pvHead{order:-2}
+    #provPanel .pvAct{order:-1;margin-top:0;margin-bottom:12px}
   }
   #provPanel .pvHead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
   #provPanel h3{margin:0;font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--txt);line-height:1.3}
@@ -1811,8 +1836,13 @@ async function lbShow(i){
 // webview ne touche jamais au disque. Les deux actions repassent par le canal
 // annotation→agent déjà en place — atelier-add-to-chat quand la galerie est
 // embarquée dans Atelier, POST /quote (push vers la session Claude) sinon.
+// Le panneau ne s'ouvre JAMAIS de lui-même : ouvrir une figure montre la
+// figure, un point c'est tout. L'état a été persisté (`figProvOpen`) — un seul
+// clic revenait alors hanter toutes les figures, y compris les centaines qui
+// n'ont aucune provenance. Il vit maintenant le temps d'une lightbox, remis à
+// zéro par lbClose.
 let provRel='', provSeq=0, provState=null, provHistOpen=false, provOpen=false;
-try{ provOpen=localStorage.getItem('figProvOpen')==='1'; }catch(e){}
+try{ localStorage.removeItem('figProvOpen'); }catch(e){}
 function provFmtDate(ts){
   if(!ts) return '';
   const d=new Date(ts);
@@ -1917,7 +1947,11 @@ function provSync(){
 }
 function provToggle(){
   provOpen=!provOpen;
-  try{ localStorage.setItem('figProvOpen',provOpen?'1':'0'); }catch(e){}
+  // Relire à chaque ouverture : un agent vient peut-être d'écrire le sidecar
+  // (« Reconstruire »/« Régénérer ») pendant que le panneau était replié. Un
+  // état mémoïsé affichait alors « aucune provenance » sur une figure qui en
+  // avait une — bug vu le 2026-08-28, juste après une reconstruction réussie.
+  if(provOpen){ provState=null; provRel=''; }
   provSync();
 }
 function provOpenScript(rel){
@@ -1973,7 +2007,8 @@ async function lbClose(){
   if(lb().classList.contains('fs')||fsActiveEl()) await lbFsLeave();
   const v=document.getElementById('lbVid');if(v){v.pause();v.removeAttribute('src');v.load();}
   lb().classList.remove('show');lb().classList.remove('annot');lb().classList.remove('prov');lbIdx=-1;
-  provRel='';provState=null;provSeq++;
+  // provOpen meurt avec la lightbox : la prochaine figure s'ouvre nue.
+  provRel='';provState=null;provSeq++;provOpen=false;provHistOpen=false;
 }
 let lbFsUiTimer=0, fsLeaving=false, nativeFsOk=null, lbFsEnterGen=0, lbNativeReq=false;
 function fsActiveEl(){

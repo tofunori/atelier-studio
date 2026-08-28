@@ -20,6 +20,7 @@ mod opencode;
 mod opencode_parse;
 mod registry;
 mod traits;
+mod turn_idle;
 
 pub use api::{
     load_api_configs, parse_sse_chunk, write_api_configs, ApiChatProvider, ApiProviderConfig,

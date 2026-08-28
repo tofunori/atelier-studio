@@ -107,6 +107,19 @@ impl Default for CodexProvider {
 /// catalogue app-server : `{id: "priority", name: "Fast"}`).
 pub const CODEX_PRIORITY_TIER: &str = "priority";
 
+/// Fenêtre de SILENCE tolérée avant d'interrompre un tour (le filet ne vise
+/// que le CLI figé — vivant mais muet ; un tour long reste légitime, quelle
+/// que soit sa durée). Même valeur et même variable d'environnement que grok
+/// et kimi.
+const TURN_IDLE_SECS_DEFAULT: u64 = 600;
+
+fn turn_idle_secs() -> u64 {
+    std::env::var("ATELIER_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(TURN_IDLE_SECS_DEFAULT)
+}
+
 fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     match permission_mode {
         Some("bypassPermissions") => ("danger-full-access", "never"),
@@ -811,8 +824,13 @@ impl Provider for CodexProvider {
         let codex_for_h = codex_id.clone();
         let finished2 = Arc::clone(&finished);
         let done_slot2 = Arc::clone(&done_slot);
+        // Signe de vie du CLI : toute notification, y compris les deltas de
+        // sortie et de raisonnement, repousse le filet anti-figé (turn_idle).
+        let activity = crate::turn_idle::TurnActivity::new();
+        let activity_handler = activity.clone();
 
         let handler: Arc<dyn Fn(&str, &Value) + Send + Sync> = Arc::new(move |method, params| {
+            activity_handler.bump();
             if method == "turn/started" {
                 if let Some(tid) = params.pointer("/turn/id").and_then(|v| v.as_str()) {
                     if let Ok(mut a) = active.lock() {
@@ -924,12 +942,19 @@ impl Provider for CodexProvider {
             }
         });
 
-        let result = match tokio::time::timeout(std::time::Duration::from_secs(600), done_rx).await
-        {
+        // Filet anti-CLI-figé, pas une durée maximale de tour : le compte à
+        // rebours repart à chaque notification. Une échéance sèche tuait des
+        // tours EN PLEIN TRAVAIL (2026-08-28 : reconstruction de provenance
+        // coupée à 600 s après 39 commandes exécutées).
+        let idle = std::time::Duration::from_secs(turn_idle_secs());
+        let result = match crate::turn_idle::with_idle_timeout(done_rx, idle, &activity).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => (false, Some("rpc cancelled".into())),
-            Err(_) => {
-                (req.on_event)(json!({"kind":"error","message":"timeout Codex (600s)"}));
+            Err(()) => {
+                (req.on_event)(json!({
+                    "kind":"error",
+                    "message": format!("Codex muet depuis {} min — tour interrompu", idle.as_secs() / 60),
+                }));
                 (false, Some("timeout".into()))
             }
         };
