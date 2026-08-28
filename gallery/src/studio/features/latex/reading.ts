@@ -783,8 +783,16 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     const editor = options.getEditor();
     if (bound || !editor) return;
     bound = true;
+    // un rendu par frappe = 8 passes regex + KaTeX + innerHTML sur tout le
+    // document ; 250 ms d'accalmie suffisent au confort de lecture (le mode
+    // Lecture n'est pas la frappe : l'utilisateur lit pendant qu'il n'édite pas)
+    let renderTimer = 0;
     editor.on("change", () => {
-      if (enabled && !frame && !editing) frame = win.requestAnimationFrame(render);
+      if (!enabled || editing) return;
+      win.clearTimeout(renderTimer);
+      renderTimer = win.setTimeout(() => {
+        if (enabled && !frame && !editing) frame = win.requestAnimationFrame(render);
+      }, 250);
     });
     if (storage.getItem("texReadMode") === "1") setRead(true);
   };
