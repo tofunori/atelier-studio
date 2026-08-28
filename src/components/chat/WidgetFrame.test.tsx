@@ -200,3 +200,47 @@ describe("WidgetFrame — thème et état", () => {
     expect(recallWidgetState(EVENT.id)).toBeUndefined();
   });
 });
+
+describe("WidgetFrame — sendPrompt", () => {
+  it("relaie un prompt du widget vers le composeur", async () => {
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const recu: string[] = [];
+    const ecoute = (e: Event) => recu.push((e as CustomEvent).detail.text);
+    window.addEventListener("chat-compose-append", ecoute);
+
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "prompt", text: "refais avec ν = 8" },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    window.removeEventListener("chat-compose-append", ecoute);
+    expect(recu).toEqual(["refais avec ν = 8"]);
+  });
+
+  it("rejette un prompt hors gabarit au lieu de le tronquer", async () => {
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const recu: string[] = [];
+    const ecoute = (e: Event) => recu.push((e as CustomEvent).detail.text);
+    window.addEventListener("chat-compose-append", ecoute);
+
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "prompt", text: "x".repeat(2001) },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    window.removeEventListener("chat-compose-append", ecoute);
+    expect(recu).toEqual([]);
+  });
+});

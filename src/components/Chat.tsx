@@ -601,6 +601,20 @@ export default function Chat(p: {
     }
   }, [p.injectText]);
 
+  // Un widget du fil propose un message : on PRÉ-REMPLIT le composeur et on
+  // rend la main. Un widget ne déclenche jamais un tour tout seul, et il
+  // n'écrase pas ce qui est déjà tapé.
+  useEffect(() => {
+    function onAppend(e: Event) {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text !== "string" || !text) return;
+      setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, "")}\n${text}` : text));
+      taRef.current?.focus();
+    }
+    window.addEventListener("chat-compose-append", onAppend);
+    return () => window.removeEventListener("chat-compose-append", onAppend);
+  }, [setText]);
+
   // autocomplétion : "/xxx" en début de message → skills ; "@xxx" (dernier mot) → fichiers/références
   let suggestions: Suggestion[] = [];
   // "/" accepté aussi en plein milieu du message (après un espace), comme "@"

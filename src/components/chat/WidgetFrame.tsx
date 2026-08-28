@@ -14,6 +14,7 @@ import { recallWidgetState, rememberWidgetState } from "./widgetState";
 
 export type WidgetEvent = Extract<AgentEvent, { kind: "widget" }>;
 export const WIDGET_READY_TIMEOUT_MS = 3000;
+export const WIDGET_PROMPT_MAX = 2000;
 
 type Phase = "loading" | "live" | "mute" | "missing";
 
@@ -78,6 +79,11 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
         setPhase("live");
       }
       if (e.data.type === "state") rememberWidgetState(event.id, e.data.state);
+      if (e.data.type === "prompt") {
+        const text = typeof e.data.text === "string" ? e.data.text.trim() : "";
+        if (!text || text.length > WIDGET_PROMPT_MAX) return;
+        window.dispatchEvent(new CustomEvent("chat-compose-append", { detail: { text } }));
+      }
     }
     function onTheme() { post(currentThemeMessage()); }
 
