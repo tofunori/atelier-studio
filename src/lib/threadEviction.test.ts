@@ -57,6 +57,17 @@ describe("selectEvictableThreads", () => {
     expect(evicted).toEqual([]);
   });
 
+  it("l'agent ouvert est conservé", () => {
+    const evicted = selectEvictableThreads({
+      events: { a: [1], "agent-thread": [1] },
+      activeId: "a",
+      mru: ["a"],
+      running: new Set(),
+      openedAgentThreadId: "agent-thread",
+    });
+    expect(evicted).toEqual([]);
+  });
+
   it("accepte activeId=null (aucun fil actif) sans planter", () => {
     const evicted = selectEvictableThreads({
       events: { stale: [1] },

@@ -2989,7 +2989,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    src/styles/settings-sheet.css (perf lot 2, tâche 6) : chargé seulement
    quand SettingsSheet (lazy, src/App.tsx) est monté, plutôt que parsé pour
    chaque premier paint. Sélecteurs vérifiés uniques dans App.css avant le
-   déplacement (aucune règle écrasée plus bas, aucune ancre css-contract). */
+   déplacement (aucune règle écrasée plus bas, aucune ancre css-contract).
+   Aussi importé directement par src/components/SetBench.tsx (banc de
+   captures) qui rend SettingsPage hors du lazy SettingsSheet — sans cet
+   import le banc régresse (golden settings-setup-1280-dark, revue finale
+   lot 2 2026-08-28). */
 
 /* ===== Research Navigator (plan 024) — Precision Native =====
    Panneau du projet actif : header d'identité, action primaire, chronologie
