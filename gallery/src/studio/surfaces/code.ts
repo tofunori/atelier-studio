@@ -97,6 +97,12 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
         if (result.error || typeof result.text !== "string") throw new Error(result.error || "Invalid code response");
         return {text: result.text, mtime: Number(result.mtime)};
       },
+      stat: async () => {
+        const response = await win.fetch(`/statfile?path=${encodeURIComponent(path)}`);
+        const result = await response.json() as {mtime?: number};
+        const mtime = Number(result.mtime);
+        return Number.isFinite(mtime) ? mtime : null;
+      },
       write: async (text, mtime) => {
         const response = await win.fetch("/codesave", {
           method: "POST",
@@ -223,6 +229,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     storage: win.localStorage,
   });
   win.setInterval(() => {
+    if (win.document.hidden) return; // onglet masqué : aucune sonde
     if (editor && !diff.isBusy()) void ensureSession().pollOnce();
   }, 2000);
   const load = (): Promise<unknown> => path ? ensureSession().load() : Promise.resolve(null);

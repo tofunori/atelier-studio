@@ -413,6 +413,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
         if (result.error || typeof result.text !== "string") throw new Error(result.error || `HTTP ${response.status}`);
         return {text: result.text, mtime: Number(result.mtime)};
       },
+      stat: async () => {
+        const response = await win.fetch(`/statfile?path=${encodeURIComponent(path)}`);
+        const result = await response.json() as {mtime?: number};
+        const mtime = Number(result.mtime);
+        return Number.isFinite(mtime) ? mtime : null;
+      },
       write: async (text, mtime) => {
         const response = await win.fetch("/codesave", {
           method: "POST",
@@ -806,6 +812,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
 
   if (!isTex) configureNonTexCompatibility();
   win.setInterval(() => {
+    if (win.document.hidden) return; // onglet masqué : aucune sonde
     if (editor && !diff.isBusy()) void ensureSession().pollOnce();
   }, 2000);
   if (path && isPdfMode) {

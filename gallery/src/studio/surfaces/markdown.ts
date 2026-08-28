@@ -85,6 +85,12 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
         if (result.error || typeof result.text !== "string") throw new Error(result.error || "Invalid Markdown response");
         return {text: result.text, mtime: Number(result.mtime)};
       },
+      stat: async () => {
+        const response = await win.fetch(`/statfile?path=${encodeURIComponent(path)}`);
+        const result = await response.json() as {mtime?: number};
+        const mtime = Number(result.mtime);
+        return Number.isFinite(mtime) ? mtime : null;
+      },
       write: async (text, mtime) => {
         const response = await win.fetch("/codesave", {
           method: "POST",
@@ -154,7 +160,10 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
     toggleMode: () => preview.setMode(preview.mode() === "prev" ? "split" : "prev"),
     escape: () => preview.clearSelection(),
   });
-  win.setInterval(() => { if (path) void ensureSession().pollOnce(); }, 2000);
+  win.setInterval(() => {
+    if (win.document.hidden) return; // onglet masqué : aucune sonde
+    if (path) void ensureSession().pollOnce();
+  }, 2000);
   const load = async (): Promise<void> => {
     if (!path) {
       try {

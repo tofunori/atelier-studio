@@ -113,6 +113,63 @@ test("reload conflict policy replaces local text without a conflict event", asyn
   assert.deepEqual(events, ["loaded", "external-reload"]);
 });
 
+test("stat short-circuit skips read when the mtime has not moved", async () => {
+  let text = "base";
+  let disk = {text: "base", mtime: 1};
+  let reads = 0;
+  let stats = 0;
+  const session = createDocumentSession({
+    read: async () => { reads += 1; return disk; },
+    stat: async () => { stats += 1; return disk.mtime; },
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "always",
+  });
+  await session.load();
+  assert.equal(reads, 1);
+  assert.equal(await session.pollOnce(), false);
+  assert.equal(stats, 1);
+  assert.equal(reads, 1, "read must not run when stat reports the same mtime");
+  assert.equal(text, "base");
+});
+
+test("stat short-circuit falls through to read when the mtime has moved", async () => {
+  let text = "base";
+  let disk = {text: "base", mtime: 1};
+  let reads = 0;
+  const session = createDocumentSession({
+    read: async () => { reads += 1; return disk; },
+    stat: async () => disk.mtime,
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "always",
+  });
+  await session.load();
+  disk = {text: "agent", mtime: 2};
+  assert.equal(await session.pollOnce(), true);
+  assert.equal(reads, 2, "read must run once stat reports a moved mtime");
+  assert.equal(text, "agent");
+});
+
+test("stat failure retries next tick and never falls through to a full read", async () => {
+  let text = "base";
+  let reads = 0;
+  const session = createDocumentSession({
+    read: async () => { reads += 1; return {text: "base", mtime: 1}; },
+    stat: async () => { throw new Error("network down"); },
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "always",
+  });
+  await session.load();
+  assert.equal(reads, 1);
+  assert.equal(await session.pollOnce(), false);
+  assert.equal(reads, 1, "a failed stat must not fall through to read");
+});
+
 test("acceptSaved adopts a restored snapshot without a network roundtrip", async () => {
   let text = "base";
   const session = createDocumentSession({

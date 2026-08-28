@@ -20,6 +20,9 @@ export type DocumentSessionEvent =
 
 export interface DocumentSessionOptions {
   read(): Promise<DocumentSnapshot>;
+  /** Sonde légère : mtime seul (route /statfile). Quand fournie, pollOnce ne
+   * télécharge le texte complet que si le mtime a réellement bougé. */
+  stat?: () => Promise<number | null>;
   write(text: string, mtime: number): Promise<DocumentWriteResult>;
   getText(): string;
   applyText(text: string, reason: DocumentApplyReason): void;
@@ -109,6 +112,12 @@ export function createDocumentSession(options: DocumentSessionOptions) {
 
   async function pollOnce(): Promise<boolean> {
     if (polling || (externalReload === "when-clean" && state.dirty)) return false;
+    if (options.stat) {
+      const mtime = await options.stat().catch(() => null);
+      // sonde en échec : ne rien conclure, retenter au prochain tick
+      if (mtime == null) return false;
+      if (Math.abs(mtime - state.mtime) <= epsilon) return false;
+    }
     polling = true;
     try {
       const snapshot = validSnapshot(await options.read());
