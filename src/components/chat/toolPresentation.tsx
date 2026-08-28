@@ -1,7 +1,7 @@
 // Présentation des outils du chat (plan 015, slice 4) — déplacée verbatim
 // depuis Chat.tsx : résumé de grappes d'outils, ligne de sortie d'outil,
 // icônes de type de fichier. Aucune logique modifiée.
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
@@ -168,9 +168,14 @@ export function fmtToolDur(ms: number): string {
   return rs ? `${m} min ${rs} s` : `${m} min`;
 }
 
-export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "tool_update" }> }) {
-  const cleanOutput = stripAnsi(event.output);
-  const output = truncateToolOutput(cleanOutput);
+export const ToolOutputLine = memo(function ToolOutputLine(
+  { event }: { event: Extract<AgentEvent, { kind: "tool_update" }> },
+) {
+  // event est réutilisé tel quel par le réducteur tant que l'outil n'émet
+  // rien : memo + useMemo évitent stripAnsi (regex sur ≤64 Ko) et JSON.parse
+  // à chaque frame de streaming
+  const cleanOutput = useMemo(() => stripAnsi(event.output), [event.output]);
+  const output = useMemo(() => truncateToolOutput(cleanOutput), [cleanOutput]);
   const inputView = toolInputView(event.input);
   const outcome = toolOutcome(event);
   const failed = outcome === "failed";
@@ -184,9 +189,12 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
         (q): q is string => typeof q === "string" && q.trim() !== "",
       ))
     : [];
-  const isJsonOutput = cleanOutput.length <= 6000
-    && (trimmedOutput.startsWith("{") || trimmedOutput.startsWith("["))
-    && isJsonText(trimmedOutput);
+  const isJsonOutput = useMemo(
+    () => cleanOutput.length <= 6000
+      && (trimmedOutput.startsWith("{") || trimmedOutput.startsWith("["))
+      && isJsonText(trimmedOutput),
+    [cleanOutput.length, trimmedOutput],
+  );
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen((v) => !v)}>
@@ -248,7 +256,7 @@ export function ToolOutputLine({ event }: { event: Extract<AgentEvent, { kind: "
       )}
     </div>
   );
-}
+});
 
 // Indexé par NOM DE BASE : les clés d'import.meta.glob reprennent le motif tel
 // qu'écrit (« ../../assets/… »), et la lecture cherchait « ../assets/… » — un
