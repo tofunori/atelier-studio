@@ -13,7 +13,7 @@ export function rememberWidgetState(id: string, state: unknown): boolean {
   } catch {
     return false;
   }
-  if (serialized.length > WIDGET_STATE_MAX_BYTES) return false;
+  if (new TextEncoder().encode(serialized).length > WIDGET_STATE_MAX_BYTES) return false;
   states.delete(id); // réinsertion = plus récent (LRU d'insertion)
   states.set(id, state);
   if (states.size > MAX_ENTRIES) {
