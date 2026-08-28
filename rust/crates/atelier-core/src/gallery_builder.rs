@@ -226,6 +226,16 @@ fn image_thumb_key(path: &Path, mtime: u64) -> String {
     hex::encode(hash.finalize())
 }
 
+/// Clé `imgthumb_*` telle que produite par la route HTTP `/thumb` pour un
+/// svg à w=480 (`gallery.rs:436-443` : suffixe `:svg-rsvg`, jamais présent
+/// dans `image_thumb_key`). Le builder ne génère pas ces vignettes — cette
+/// clé sert uniquement à les marquer `live` pour le GC.
+fn image_thumb_key_svg(path: &Path, mtime: u64) -> String {
+    let mut hash = Md5::new();
+    hash.update(format!("{}:{mtime}:480:svg-rsvg", path.to_string_lossy()));
+    hex::encode(hash.finalize())
+}
+
 fn safe_cache_dir(root: &Path) -> Option<PathBuf> {
     let root = fs::canonicalize(root).ok()?;
     let cache = root.join(".fig_thumbs");
@@ -322,6 +332,15 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
                 }
                 let _ = fs::remove_dir_all(temporary);
             }
+        } else if row.ext == "svg" {
+            // le builder ne génère pas les vignettes svg (rsvg-convert reste
+            // à la demande dans la route /thumb) : on enregistre seulement la
+            // clé de la route pour que le GC ne supprime pas une vignette
+            // svg activement affichée par la grille (w=480, suffixe
+            // `:svg-rsvg` — cf. gallery.rs:436-443)
+            let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
+            let key = image_thumb_key_svg(&canonical, row.mtime);
+            live.insert(format!("imgthumb_{key}"));
         }
     }
     if let Ok(entries) = fs::read_dir(&thumbs) {
@@ -737,6 +756,38 @@ mod thumbs_gc_tests {
         assert!(
             live.exists(),
             "la vignette de la figure vivante doit survivre au GC"
+        );
+    }
+
+    #[test]
+    fn gc_keeps_live_svg_thumbs_from_the_route() {
+        // Le builder ne génère jamais de vignette svg (rsvg-convert reste
+        // dans la route /thumb à la demande) mais doit quand même marquer
+        // `live` la clé que la route produit (w=480, suffixe `:svg-rsvg`)
+        // sinon le GC supprime, à chaque rescan, la vignette d'un svg
+        // activement affiché par la grille.
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+        let source = dir.path().join("fig.svg");
+        std::fs::write(&source, b"<svg/>").unwrap();
+        let mtime = std::fs::metadata(&source)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let canonical = std::fs::canonicalize(&source).unwrap();
+        let key = image_thumb_key_svg(&canonical, mtime);
+        let live = thumbs.join(format!("imgthumb_{key}.png"));
+        std::fs::write(&live, b"png").unwrap();
+        // construire la row comme le scan le ferait
+        let mut rows = vec![gallery_row_for_test("fig.svg", "svg", mtime)];
+        build_thumbnails(dir.path(), &mut rows);
+        assert!(
+            live.exists(),
+            "la vignette svg produite par la route /thumb doit survivre au GC"
         );
     }
 }
