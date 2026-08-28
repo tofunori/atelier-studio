@@ -416,6 +416,7 @@ export default function Chat(p: {
   // sans commentaire fait le même travail (migrateMarks relit les deux).
   const [marks, setMarks] = useState<Mark[]>([]);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!p.threadId) { setMarks([]); return; }
     try {
@@ -458,6 +459,21 @@ export default function Chat(p: {
         provider: p.threadProvider ?? "",
       },
     });
+  }
+  // « Annoter et envoyer » : le ✓ range le commentaire et attend le prochain
+  // message ; ce geste-ci le pose à l'agent tout de suite. On ne rejoue PAS
+  // l'envoi ici — le composer est le seul à savoir résoudre le mode de suivi
+  // (steer/queue selon les capacités du provider) et le niveau de service
+  // Fast. On lui demande donc de se soumettre lui-même.
+  //
+  // Le rAF n'est pas cosmétique : `addAnnotation` passe par setMarks, donc
+  // `marks` — la liste que buildAnnotationBlock relit dans onSubmit — n'est à
+  // jour qu'APRÈS le rendu. Envoyer dans le même tour ferait partir le message
+  // avec l'annotation précédente et sans celle qu'on vient d'écrire.
+  function annotateAndSend(text: string, note: string) {
+    if (!text.trim()) return;
+    addAnnotation(text, note);
+    requestAnimationFrame(() => composerRef.current?.requestSubmit());
   }
   // retrait EXPLICITE (action nommée dans le popover, jamais silencieux) :
   // retire le mark local ET la fiche correspondante (match threadId+text+kind)
@@ -978,7 +994,7 @@ export default function Chat(p: {
         working={{ onStop: p.onStop }}
         chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
-        selection={{ quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, removeAnnotation, marks }}
+        selection={{ quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, annotateAndSend, removeAnnotation, marks }}
       />
       <QueuedTurns
         turns={p.queuedTurns ?? []}
@@ -991,7 +1007,8 @@ export default function Chat(p: {
       />
       <ChatComposer
         input={{
-          text, setText, taRef, suggestions, selIdx, setSelIdx, applySuggestion,
+          text, setText, taRef, formRef: composerRef,
+          suggestions, selIdx, setSelIdx, applySuggestion,
           commands: p.commands, onPasteImage: p.onPasteImage, onPasteText: p.onPasteText,
         }}
         model={{

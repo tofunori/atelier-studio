@@ -2276,21 +2276,34 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   font-variant-numeric: tabular-nums; cursor: pointer;
   transition: transform var(--ease); }
 .anno-badge:hover { transform: translate(2px, -2px) scale(1.12); }
-.anno-editor { position: fixed; z-index: var(--z-popover); width: 268px; transform: translateX(-50%);
-  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+/* Refonte « Filet » (2026-08-28). Le popover ne creuse plus de seconde
+   surface : le champ est transparent, comme .composer textarea et
+   .ta-wrap textarea — l'idiome de TOUTES les saisies de l'app. `outline: none`
+   n'est pas cosmétique : sans lui WebKit peint son anneau de focus bleu, la
+   seule couleur du composant qui ne venait d'aucun jeton (vécu 2026-08-28).
+   L'état de focus se lit sur le filet ambre, qui passe d'atténué à plein —
+   même mécanique que --quote-rule. */
+.anno-editor { position: fixed; z-index: var(--z-popover); width: 264px; transform: translateX(-50%);
+  display: flex; flex-direction: column; padding: 10px 10px 8px;
   background: var(--surface-overlay); border-radius: var(--r-m);
   box-shadow: var(--elevation-overlay); }
 .anno-editor-src { font-family: var(--quote-font); font-size: var(--fs-m);
-  color: var(--text-muted); line-height: 1.5; padding-left: 8px;
-  border-left: 2px solid var(--hl-line);
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.anno-editor-note { min-height: 52px; resize: none; padding: 7px 8px;
-  background: var(--surface-inset); border: none; border-radius: var(--r-s);
+  color: var(--text-muted); line-height: 1.5; padding: 0 0 9px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--hl-line) 55%, var(--surface-overlay));
+  border-bottom: 1px solid var(--border);
+  transition: border-left-color var(--ease);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.anno-editor:focus-within .anno-editor-src { border-left-color: var(--hl-line); }
+@media (prefers-reduced-motion: reduce) { .anno-editor-src { transition: none; } }
+.anno-editor-note { min-height: 46px; resize: none; padding: 9px 0 0;
+  background: transparent; border: none; outline: none;
   color: var(--text-primary); font-family: var(--ui-font); font-size: var(--fs-m); line-height: 1.5; }
-.anno-editor-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.anno-editor-hint { font-size: var(--fs-xs); color: var(--text-disabled); line-height: 1.5; }
+.anno-editor-row { display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-height: 22px; }
 .anno-editor-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-/* l'action de confirmation porte l'encre pleine, la suppression reste éteinte */
+/* le retrait est destructif : un filet le sépare des deux verbes positifs */
+.anno-editor-sep { width: 1px; height: 14px; margin: 0 3px; flex: none;
+  background: var(--border2); }
+/* l'action de confirmation porte l'encre pleine, les autres restent éteintes */
 .anno-editor-confirm { color: var(--text-primary); }
 /* pilule agrégée du composer + sa liste dépliée */
 .anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }

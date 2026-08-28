@@ -28,6 +28,9 @@ export type ComposerInput = {
   text: string;
   setText: Dispatch<string>;
   taRef: MutableRefObject<HTMLTextAreaElement | null>;
+  /** Le popover d'annotation demande l'envoi via requestSubmit() : la
+   *  résolution du mode de suivi et du niveau de service reste ici. */
+  formRef?: MutableRefObject<HTMLFormElement | null>;
   suggestions: Suggestion[];
   selIdx: number;
   setSelIdx: Dispatch<number>;
@@ -206,6 +209,7 @@ export function ChatComposer(props: {
   return (
       <form
         className="composer"
+        ref={input.formRef}
         onSubmit={(ev) => {
           ev.preventDefault();
           submit(host.workingSince != null ? resolvedFollowUpMode() : "steer");

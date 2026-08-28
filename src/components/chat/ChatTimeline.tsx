@@ -160,6 +160,8 @@ export function ChatTimeline(p: {
     /** le passage sélectionné porte déjà une annotation */
     quoteAnnotated: boolean;
     addAnnotation: (text: string, note: string) => void;
+    /** Annote PUIS envoie le tour : le bloc d'annotations devient le message. */
+    annotateAndSend: (text: string, note: string) => void;
     removeAnnotation: (text: string) => void;
     /** passages annotés du fil — l'encoche ambre de la marge */
     marks: Mark[];
@@ -244,7 +246,7 @@ export function ChatTimeline(p: {
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
-  const { quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, removeAnnotation, marks } = p.selection;
+  const { quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, annotateAndSend, removeAnnotation, marks } = p.selection;
   // La barre de sélection est centrée sur le passage : près du bord gauche
   // elle passait sous le rail. On la borne à la colonne de lecture, une fois
   // sa largeur connue (mesure avant peinture, pas de saut visible).
@@ -1234,32 +1236,47 @@ export function ChatTimeline(p: {
               if (e.key === "Escape") { setNoteDraft(null); setQuote(null); }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                addAnnotation(noteDraft.text, noteDraft.note);
+                // ⌘⏎ / Ctrl+⏎ : ne pas seulement ranger le commentaire, le
+                // poser à l'agent tout de suite (le ⏎ nu le met en file).
+                if (e.metaKey || e.ctrlKey) annotateAndSend(noteDraft.text, noteDraft.note);
+                else addAnnotation(noteDraft.text, noteDraft.note);
                 setNoteDraft(null);
                 setQuote(null);
               }
             }}
           />
           <div className="anno-editor-row">
-            <span className="anno-editor-hint">{t("chat.annotation-hint")}</span>
             <span className="anno-editor-actions">
               {marks.some((m) => m.text === noteDraft.text.trim()) && (
-                <IconButton
-                  size="s"
-                  label={t("chat.annotation-remove")}
-                  title={t("chat.annotation-remove")}
-                  onClick={() => { removeAnnotation(noteDraft.text); setNoteDraft(null); setQuote(null); }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                    <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" />
-                  </svg>
-                </IconButton>
+                <>
+                  <IconButton
+                    size="s"
+                    label={t("chat.annotation-remove")}
+                    title={t("chat.annotation-remove")}
+                    onClick={() => { removeAnnotation(noteDraft.text); setNoteDraft(null); setQuote(null); }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                      <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" />
+                    </svg>
+                  </IconButton>
+                  <span className="anno-editor-sep" aria-hidden="true" />
+                </>
               )}
+              <IconButton
+                size="s"
+                label={t("chat.annotation-send")}
+                title={t("chat.annotation-send")}
+                onClick={() => { annotateAndSend(noteDraft.text, noteDraft.note); setNoteDraft(null); setQuote(null); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                  <path d="M8 13V3.5M4.5 7L8 3.5l3.5 3.5" />
+                </svg>
+              </IconButton>
               <IconButton
                 size="s"
                 className="anno-editor-confirm"
                 label={t("chat.annotate")}
-                title={t("chat.annotate")}
+                title={t("chat.annotate-hint")}
                 onClick={() => { addAnnotation(noteDraft.text, noteDraft.note); setNoteDraft(null); setQuote(null); }}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
