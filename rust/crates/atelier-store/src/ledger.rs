@@ -84,7 +84,15 @@ pub fn get_all_ledgers(base_dir: &Path, limit: usize) -> Vec<serde_json::Value> 
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
-        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        // seules les `max` dernières lignes d'un fichier peuvent survivre à la
+        // troncature globale : ne parser qu'elles (les ledgers sont en append
+        // pur, sans rotation — des mois d'historique sinon re-désérialisés à
+        // chaque getUsage)
+        let mut lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() > max {
+            lines = lines.split_off(lines.len() - max);
+        }
+        for line in lines {
             if let Ok(v) = serde_json::from_str(line) {
                 all.push(v);
             }
@@ -110,5 +118,17 @@ mod tests {
         let entries = get_ledger(dir.path(), root, 10);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0]["n"], 2); // newest first
+    }
+
+    #[test]
+    fn get_all_ledgers_keeps_only_the_tail() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("proj.jsonl");
+        let lines: Vec<String> = (0..1000).map(|i| format!("{{\"i\":{i}}}")).collect();
+        std::fs::write(&file, lines.join("\n")).unwrap();
+        let all = get_all_ledgers(dir.path(), 500);
+        assert_eq!(all.len(), 500);
+        assert_eq!(all.first().unwrap()["i"], 500); // la queue, pas la tête
+        assert_eq!(all.last().unwrap()["i"], 999);
     }
 }
