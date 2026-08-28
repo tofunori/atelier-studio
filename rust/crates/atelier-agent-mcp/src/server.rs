@@ -1,7 +1,7 @@
 //! Minimal MCP stdio server — single tool `atelier_sessions`.
 
 use crate::bridge::Bridge;
-use crate::schema::{help_text, tool_definition, TOOL_NAME};
+use crate::schema::{bridge_call_for, help_text, tool_definition, widget_tool_definition, TOOL_NAME};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -56,35 +56,29 @@ pub async fn run() -> Result<(), String> {
                 }
             }),
             "ping" => json!({}),
-            "tools/list" => json!({ "tools": [tool_definition()] }),
+            "tools/list" => json!({ "tools": [tool_definition(), widget_tool_definition()] }),
             "tools/call" => {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if name != TOOL_NAME {
-                    error_result(&id, -32602, &format!("unknown tool: {name}")).await?;
-                    write_frame(
-                        &mut stdout,
-                        &error_result_value(&id, -32602, &format!("unknown tool: {name}")),
-                    )
-                    .await?;
-                    continue;
-                }
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                let action = args
-                    .get("action")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                if action.is_empty() {
-                    tool_text_result(&mut stdout, &id, json!({"error":"missing_action"}), true)
-                        .await?;
-                    continue;
-                }
-                if action == "help" {
+
+                // `help` reste servi localement : aucun aller-retour vers le pont.
+                if name == TOOL_NAME && args.get("action").and_then(|v| v.as_str()) == Some("help")
+                {
                     tool_text_result(&mut stdout, &id, help_text(), false).await?;
                     continue;
                 }
-                // Reject unknown fields silently? Plan: refuse unknown fields for action.
-                match bridge.call(&action, &args).await {
+
+                let Some((action, forwarded)) = bridge_call_for(name, &args) else {
+                    let msg = if name == TOOL_NAME {
+                        "missing_action".to_string()
+                    } else {
+                        format!("unknown tool: {name}")
+                    };
+                    tool_text_result(&mut stdout, &id, json!({ "error": msg }), true).await?;
+                    continue;
+                };
+
+                match bridge.call(&action, &forwarded).await {
                     Ok(val) => {
                         let is_err = val.get("error").is_some();
                         tool_text_result(&mut stdout, &id, val, is_err).await?;
@@ -145,10 +139,6 @@ fn error_result_value(id: &Value, code: i64, message: &str) -> Value {
         "id": id,
         "error": { "code": code, "message": message }
     })
-}
-
-async fn error_result(_id: &Value, _code: i64, _message: &str) -> Result<(), String> {
-    Ok(())
 }
 
 async fn write_frame(stdout: &mut tokio::io::Stdout, val: &Value) -> Result<(), String> {
