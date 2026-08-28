@@ -62,7 +62,13 @@ test.describe("golden — chat et composer (#chatbench)", () => {
         .map((node) => (node as HTMLElement).className || node.nodeName),
     }));
     expect(result.pageOverflows).toBe(false);
-    expect(result.scrollContainers).toEqual([]);
+    // `.md-table` est EXEMPTÉ : depuis le 2026-08-21 (« tableaux markdown
+    // lisibles »), un tableau trop large défile DANS son conteneur au lieu
+    // d'écraser ses cellules — c'est justement ce qui empêche la page de
+    // défiler, l'objet de ce test. L'interdiction totale héritée du 2026-07-10
+    // condamnait le remède avec le mal. Tout AUTRE conteneur défilant reste
+    // une régression.
+    expect(result.scrollContainers.filter((c) => !String(c).includes("md-table"))).toEqual([]);
   });
 });
 
