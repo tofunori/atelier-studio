@@ -1799,7 +1799,159 @@ async function lbShow(i){
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
     (isSvg?` <span style="margin-left:8px;color:#5b9dff;font-size:12px">&#9672; click elements in the plot to select them</span>`:'');
   document.getElementById('lbAnnot').style.display=(imgExt(f.ext)&&!isSvg)?'flex':'none';
+  provSync();
   lb().classList.add('show');
+}
+// ─── Panneau Provenance ───────────────────────────────────────────────────
+// Spec docs/superpowers/specs/2026-08-27-provenance-figures-design.md (C + D).
+// Le sidecar <figure>.prov.json est lu par le SERVEUR (GET /prov?file=…) : la
+// webview ne touche jamais au disque. Les deux actions repassent par le canal
+// annotation→agent déjà en place — atelier-add-to-chat quand la galerie est
+// embarquée dans Atelier, POST /quote (push vers la session Claude) sinon.
+let provRel='', provSeq=0, provState=null, provHistOpen=false, provOpen=false;
+try{ provOpen=localStorage.getItem('figProvOpen')==='1'; }catch(e){}
+function provFmtDate(ts){
+  if(!ts) return '';
+  const d=new Date(ts);
+  if(isNaN(d.getTime())) return String(ts).slice(0,10);
+  try{ return d.toLocaleDateString('fr-CA',{day:'numeric',month:'short',year:'numeric'}); }
+  catch(e){ return d.toISOString().slice(0,10); }
+}
+function provHead(pill,off){
+  return '<div class="pvHead"><h3>Provenance</h3><span class="pvPill'+(off?' off':'')+'">'+esc(pill)+'</span></div>';
+}
+function provFirst(list){ return (Array.isArray(list)?list.filter(Boolean):[])[0]||''; }
+function provAbs(){ return '__ROOT__/'+provRel; }
+function provSidecar(){ return (provState&&provState.path)||(provAbs()+'.prov.json'); }
+function provRenderRich(){
+  const e=provState.entry||{}, prov=provState.prov||{}, env=e.env||{};
+  const hist=Array.isArray(prov.history)?prov.history:[];
+  const script=provFirst(e.scripts), cmd=provFirst(e.commands);
+  const meta=[];
+  if(env.python) meta.push('py '+env.python);
+  if(env.conda) meta.push('conda '+env.conda);
+  if(e.head) meta.push(String(e.head).slice(0,7));
+  if(e.ts) meta.push(provFmtDate(e.ts));
+  let h=provHead('tracée');
+  if(script) h+='<div class="pvRow"><span class="pvL">Script</span>'
+    +'<button type="button" class="pvLink" data-pvscript="'+escA(script)+'">'+esc(script)+'</button></div>';
+  if(cmd) h+='<div class="pvRow"><span class="pvL">Commande</span><div class="pvCmd">'+esc(cmd)+'</div></div>';
+  if(e.prompt) h+='<div class="pvRow"><span class="pvL">Contexte</span><div class="pvQuote">'+esc(e.prompt)+'</div></div>';
+  if(e.threadTitle) h+='<div class="pvRow"><span class="pvL">Conversation</span><span class="pvV">'+esc(e.threadTitle)+'</span></div>';
+  if(meta.length) h+='<div class="pvMeta">'+esc(meta.join(' · '))+'</div>';
+  h+='<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="regen">Régénérer</button>'
+    +(script?'<button type="button" class="pvBtn" data-pvscript="'+escA(script)+'">Ouvrir le script</button>':'')
+    +'</div>';
+  if(hist.length>1){
+    h+='<button type="button" class="pvHistTog" aria-expanded="'+(provHistOpen?'true':'false')+'">'
+      +'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>'
+      +esc(hist.length+' générations')+'</button>';
+    if(provHistOpen) h+='<div class="pvHistList">'+hist.map((g,i)=>{
+      const label=String(g.prompt||provFirst(g.commands)||provFirst(g.scripts)||'génération');
+      return '<div class="pvGen'+(i===0?' now':'')+'"><span class="pvDot"></span>'
+        +'<span class="pvGenD">'+esc(provFmtDate(g.ts))+'</span>'
+        +'<span class="pvGenT" title="'+escA(label)+'">'+esc(label)+'</span></div>';
+    }).join('')+'</div>';
+  }
+  return h;
+}
+function provRenderEmpty(){
+  return provHead('aucune',true)
+    +'<div class="pvEmpty"><b>Figure antérieure au système</b>'
+    +'Aucune exécution d’agent n’a laissé de trace à côté de cette figure.</div>'
+    +'<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="rebuild">Reconstruire</button></div>';
+}
+function provRenderError(){
+  return provHead('illisible',true)
+    +'<div class="pvEmpty"><b>Provenance illisible</b>'
+    +'Le fichier existe mais n’a pas pu être lu. Une reconstruction le réécrira proprement.</div>'
+    +'<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="rebuild">Reconstruire</button></div>';
+}
+function provPaint(){
+  const el=document.getElementById('provBody'); if(!el) return;
+  const st=provState;
+  el.innerHTML = !st ? ''
+    : st.kind==='rich' ? provRenderRich()
+    : st.kind==='error' ? provRenderError()
+    : st.kind==='empty' ? provRenderEmpty()
+    : provHead('…',true)+'<div class="pvNote">Lecture de la provenance…</div>';
+  el.querySelectorAll('[data-pvscript]').forEach(b=>b.onclick=()=>provOpenScript(b.dataset.pvscript));
+  el.querySelectorAll('[data-pvact]').forEach(b=>b.onclick=()=>provAction(b.dataset.pvact,b));
+  const tog=el.querySelector('.pvHistTog');
+  if(tog) tog.onclick=()=>{ provHistOpen=!provHistOpen; provPaint(); };
+}
+function provLoad(rel){
+  // anti-course par séquence : la navigation ← → enchaîne les figures plus vite
+  // que les réponses du serveur (même garde que la recherche de script)
+  provRel=rel; provHistOpen=false; provState={kind:'loading'};
+  const seq=++provSeq;
+  provPaint();
+  if(!rel){ provState=null; provPaint(); return; }
+  fetch('/prov?file='+encodeURIComponent(rel)).then(async r=>{
+    let j=null; try{ j=await r.json(); }catch(_){}
+    if(seq!==provSeq) return;
+    const entry=(j&&j.prov&&Array.isArray(j.prov.history)?j.prov.history:[])[0]||null;
+    if(r.status===404) provState={kind:'empty'};          // pas de sidecar
+    else if(!r.ok||!j||!j.ok) provState={kind:'error'};    // 422 : JSON illisible
+    else if(!entry) provState={kind:'empty'};              // sidecar valide mais vide
+    else provState={kind:'rich',prov:j.prov,path:j.path,entry};
+    provPaint();
+  }).catch(()=>{ if(seq===provSeq){ provState={kind:'error'}; provPaint(); } });
+}
+// Rejoué à chaque figure ouverte : le bouton n'existe que pour les images, et
+// le panneau ne se charge que s'il est réellement déplié.
+function provSync(){
+  const f=(lbIdx>=0?lbList[lbIdx]:null)||null;
+  const eligible=!!(f&&imgExt(f.ext));
+  const btn=document.getElementById('lbProv');
+  // valeur EXPLICITE des deux côtés (piège n°13 : ne jamais « remontrer » par '')
+  if(btn) btn.style.display=eligible?'flex':'none';
+  const on=eligible&&provOpen;
+  lb().classList.toggle('prov',on);
+  if(btn) btn.setAttribute('aria-pressed',on?'true':'false');
+  if(!on) return;
+  if(f.rel!==provRel||!provState) provLoad(f.rel);
+}
+function provToggle(){
+  provOpen=!provOpen;
+  try{ localStorage.setItem('figProvOpen',provOpen?'1':'0'); }catch(e){}
+  provSync();
+}
+function provOpenScript(rel){
+  if(!rel) return;
+  // Script présent au catalogue : même chemin que l'inspecteur. Sinon (script
+  // hors périmètre de la galerie), ouverture directe de l'éditeur de code.
+  if(lbOpenAny(rel)){ if(EMB) lbClose(); return; }
+  const u='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('__ROOT__/'+rel)+'&v=__VER__';
+  if(EMB){ __atelierPost({type:'atelier-open-tab',url:u,title:rel.split('/').pop()}); lbClose(); }
+  else window.open(u,'_blank');
+}
+function provClaudeTarget(){
+  try{ return JSON.parse(localStorage.getItem('claudeTargetV1')||'null'); }catch(e){ return null; }
+}
+function provAction(kind,btn){
+  if(!provRel||btn.disabled) return;
+  const abs=provAbs(), name=provRel.split('/').pop();
+  // Pas de rejeu aveugle de la commande : l'agent lit la provenance et décide
+  // (spec D — comme pour une annotation, c'est lui qui rééedite son script).
+  const text = kind==='regen'
+    ? abs+'\nProvenance : '+provSidecar()
+      +'\nRégénère cette figure : lis d’abord ce prov.json (script générateur, commande et environnement y sont), applique la correction demandée dans le script, puis relance la génération.'
+    : abs+'\nAucune provenance enregistrée pour cette figure (pas de '+abs+'.prov.json).'
+      +'\nRetrouve le script qui la génère, puis écris à côté d’elle un '+name+'.prov.json rétroactif (format v1, entrée d’historique marquée "reconstructed": true).';
+  const label=btn.textContent;
+  btn.disabled=true; btn.textContent='Envoi…';
+  const done=ok=>{
+    btn.textContent=ok?'Envoyé ✓':'Échec';
+    setTimeout(()=>{ btn.disabled=false; btn.textContent=label; },1800);
+  };
+  if(EMB){
+    postChatPayload({text,path:abs,name}).then(()=>done(true)).catch(()=>done(false));
+    return;
+  }
+  fetch('/quote',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({rel:provRel,text,direct:true,target:provClaudeTarget()})})
+    .then(r=>done(r.ok)).catch(()=>done(false));
 }
 function lbNav(dir){
   // Navigation flèches/chevrons : sauter les types qui ouvrent un viewer iframe
@@ -1817,7 +1969,8 @@ async function lbClose(){
   if(!(await annotGuard()))return;
   if(lb().classList.contains('fs')||fsActiveEl()) await lbFsLeave();
   const v=document.getElementById('lbVid');if(v){v.pause();v.removeAttribute('src');v.load();}
-  lb().classList.remove('show');lb().classList.remove('annot');lbIdx=-1;
+  lb().classList.remove('show');lb().classList.remove('annot');lb().classList.remove('prov');lbIdx=-1;
+  provRel='';provState=null;provSeq++;
 }
 let lbFsUiTimer=0, fsLeaving=false, nativeFsOk=null, lbFsEnterGen=0, lbNativeReq=false;
 function fsActiveEl(){
@@ -2680,6 +2833,7 @@ function annotInit(){
 annotInit();
 function lbOpen(rel){const i=lbList.findIndex(f=>f.rel===rel);if(i>=0)lbShow(i);}
 document.getElementById('lbClose').onclick=lbClose;
+document.getElementById('lbProv').onclick=e=>{e.stopPropagation();provToggle();};
 document.getElementById('lbAnnot').onclick=e=>{e.stopPropagation();annotToggle();};
 document.getElementById('lbPrev').onclick=e=>{e.stopPropagation();lbNav(-1);};
 document.getElementById('lbNext').onclick=e=>{e.stopPropagation();lbNav(1);};
