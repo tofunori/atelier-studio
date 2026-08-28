@@ -26,6 +26,16 @@ pub struct QaSession {
     pub session_id: String,
 }
 
+/// Une réplique de la conversation éphémère Quick Ask. La fenêtre garde ses
+/// messages en mémoire côté React ; le runtime en garde le texte utile pour
+/// pouvoir le recopier dans le journal du fil au moment d'une promotion —
+/// sans quoi le chat promu naît vide (le provider se souvient, pas l'app).
+#[derive(Debug, Clone)]
+pub struct QaLine {
+    pub role: String,
+    pub text: String,
+}
+
 pub struct InteractionWaiter {
     pub thread_id: String,
     pub client_instance_id: Option<String>,
@@ -59,6 +69,9 @@ struct Inner {
     interaction_waiters: Mutex<HashMap<String, InteractionWaiter>>,
     approval_sessions: Mutex<HashSet<String>>,
     qa_sessions: Mutex<HashMap<String, QaSession>>,
+    /// Transcript éphémère par qaId. Mutex std : il est alimenté depuis le
+    /// callback synchrone `on_event` du provider, qui ne peut pas `.await`.
+    qa_transcripts: std::sync::Mutex<HashMap<String, Vec<QaLine>>>,
     retitle_running: AtomicBool,
     /// Capability grants for atelier-agent-mcp (plan 057) — ephemeral, hashed.
     capabilities: Mutex<CapabilityRegistry>,
@@ -134,6 +147,7 @@ impl AppState {
                 interaction_waiters: Mutex::new(HashMap::new()),
                 approval_sessions: Mutex::new(HashSet::new()),
                 qa_sessions: Mutex::new(HashMap::new()),
+                qa_transcripts: std::sync::Mutex::new(HashMap::new()),
                 retitle_running: AtomicBool::new(false),
                 capabilities: Mutex::new(CapabilityRegistry::new()),
                 mailbox: Mutex::new(mailbox),
@@ -300,6 +314,10 @@ impl AppState {
 
     pub fn qa_sessions(&self) -> &Mutex<HashMap<String, QaSession>> {
         &self.inner.qa_sessions
+    }
+
+    pub fn qa_transcripts(&self) -> &std::sync::Mutex<HashMap<String, Vec<QaLine>>> {
+        &self.inner.qa_transcripts
     }
 
     pub fn try_begin_retitle(&self) -> bool {

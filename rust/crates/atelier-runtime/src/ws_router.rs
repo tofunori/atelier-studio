@@ -3,7 +3,7 @@
 use crate::codex_history::{list_codex_sessions, load_codex_history};
 use crate::evidence;
 use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
-use crate::state::{AppState, QaSession};
+use crate::state::{AppState, QaLine, QaSession};
 use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
@@ -3353,6 +3353,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
         }))];
     };
     let prev = state.qa_sessions().lock().await.get(&qa_id).cloned();
+    push_qa_line(state, &qa_id, "user", &prompt);
     let state_bg = state.clone();
     let qa_id_bg = qa_id.clone();
     let model = msg
@@ -3368,6 +3369,26 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
         let qid = qa_id_bg.clone();
         let on_event: std::sync::Arc<dyn Fn(Value) + Send + Sync> =
             std::sync::Arc::new(move |event: Value| {
+                // Mêmes règles que le réducteur de la fenêtre (QuickAsk.tsx) :
+                // seul le texte final compte, les deltas sont éphémères.
+                match event.get("kind").and_then(|v| v.as_str()) {
+                    Some("text") => push_qa_line(
+                        &emit_state,
+                        &qid,
+                        "assistant",
+                        event.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+                    ),
+                    Some("error") => push_qa_line(
+                        &emit_state,
+                        &qid,
+                        "assistant",
+                        &format!(
+                            "⚠ {}",
+                            event.get("message").and_then(|v| v.as_str()).unwrap_or("")
+                        ),
+                    ),
+                    _ => {}
+                }
                 if let Ok(s) = serde_json::to_string(&json!({
                     "type": "qaEvent",
                     "qaId": qid,
