@@ -31,9 +31,11 @@ pub fn parse_widget_input(req: &Value) -> Result<WidgetInput, String> {
     if html.len() > HTML_MAX {
         return Err("widget_html_too_large".into());
     }
+    // Les LLM écrivent souvent `420.0`. Refuser le panneau pour ça serait
+    // absurde : les deux formes sont acceptées, puis clampées comme le reste.
     let height = req
         .get("height")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f.round() as i64)))
         .ok_or("widget_missing_height")?;
     let title: String = req
         .get("title")
@@ -366,6 +368,42 @@ mod tests {
         assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 10)).unwrap().height, HEIGHT_MIN);
         assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 5000)).unwrap().height, HEIGHT_MAX);
         assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 300)).unwrap().height, 300);
+    }
+
+    #[test]
+    fn a_floating_height_is_clamped_not_refused() {
+        // `{"height": 420.0}` est ce que produisent souvent les modèles :
+        // `as_i64()` rendait None et le panneau était perdu pour un point.
+        let parsed = parse_widget_input(&json!({
+            "html": "<p>a</p>", "title": "t", "height": 420.0
+        }))
+        .unwrap();
+        assert_eq!(parsed.height, 420);
+        assert_eq!(
+            parse_widget_input(&json!({"html": "<p>a</p>", "title": "t", "height": 419.6}))
+                .unwrap()
+                .height,
+            420
+        );
+        // et les bornes s'appliquent aux deux formes
+        assert_eq!(
+            parse_widget_input(&json!({"html": "<p>a</p>", "title": "t", "height": 5000.0}))
+                .unwrap()
+                .height,
+            HEIGHT_MAX
+        );
+        assert_eq!(
+            parse_widget_input(&json!({"html": "<p>a</p>", "title": "t", "height": 10.0}))
+                .unwrap()
+                .height,
+            HEIGHT_MIN
+        );
+        // ce qui n'est pas un nombre reste refusé, avec le code lisible
+        assert_eq!(
+            parse_widget_input(&json!({"html": "<p>a</p>", "title": "t", "height": "420"}))
+                .unwrap_err(),
+            "widget_missing_height"
+        );
     }
 
     #[test]
