@@ -299,6 +299,10 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
         } else if matches!(row.ext.as_str(), "png" | "jpg" | "jpeg") {
             let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
             let key = image_thumb_key(&canonical, row.mtime);
+            // le GC ne connaît que `live` : sans cette insertion, TOUTE
+            // vignette d'image serait orpheline de naissance (652 Mo mesurés
+            // le 2026-08-28 sur le projet Albedo)
+            live.insert(format!("imgthumb_{key}"));
             let target = thumbs.join(format!("imgthumb_{key}.png"));
             if !regular_file(&target)
                 && let Some((temporary, output)) = temporary_output("png")
@@ -328,8 +332,11 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
                 .or_else(|| name.strip_suffix(".fail"));
             if regular_file(&entry.path())
                 && key.is_some_and(|key| {
-                    key.len() == 32
-                        && key.chars().all(|c| c.is_ascii_hexdigit())
+                    // accepte les deux formes de stem : les vignettes pdf/vidéo
+                    // (32 hex nus) et les vignettes d'image (`imgthumb_` + 32 hex)
+                    let hash = key.strip_prefix("imgthumb_").unwrap_or(key);
+                    hash.len() == 32
+                        && hash.chars().all(|c| c.is_ascii_hexdigit())
                         && !live.contains(key)
                 })
             {
@@ -660,5 +667,76 @@ mod tests {
                 .is_none()
         );
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod thumbs_gc_tests {
+    use super::*;
+
+    fn hex32(c: char) -> String {
+        std::iter::repeat(c).take(32).collect()
+    }
+
+    /// Construit une `GalleryRow` minimale pour les tests de GC — seuls
+    /// `rel`/`name`/`ext`/`mtime` importent pour `build_thumbnails`.
+    fn gallery_row_for_test(name: &str, ext: &str, mtime: u64) -> GalleryRow {
+        GalleryRow {
+            thumb: None,
+            code: false,
+            name: name.into(),
+            rel: name.into(),
+            folder: ".".into(),
+            ext: ext.into(),
+            mtime,
+            btime: mtime,
+            mdate: String::new(),
+            bdate: String::new(),
+            size: 0,
+            archive: false,
+            provenance: None,
+        }
+    }
+
+    #[test]
+    fn gc_reclaims_orphan_image_thumbs() {
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+        let orphan = thumbs.join(format!("imgthumb_{}.png", hex32('a')));
+        std::fs::write(&orphan, b"png").unwrap();
+        let mut rows: Vec<GalleryRow> = Vec::new();
+        build_thumbnails(dir.path(), &mut rows);
+        assert!(
+            !orphan.exists(),
+            "une vignette d'image sans figure vivante doit être collectée"
+        );
+    }
+
+    #[test]
+    fn gc_keeps_live_image_thumbs() {
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+        let source = dir.path().join("fig.png");
+        std::fs::write(&source, b"png").unwrap();
+        let mtime = std::fs::metadata(&source)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let canonical = std::fs::canonicalize(&source).unwrap();
+        let key = image_thumb_key(&canonical, mtime);
+        let live = thumbs.join(format!("imgthumb_{key}.png"));
+        std::fs::write(&live, b"png").unwrap();
+        // construire la row comme le scan le ferait
+        let mut rows = vec![gallery_row_for_test("fig.png", "png", mtime)];
+        build_thumbnails(dir.path(), &mut rows);
+        assert!(
+            live.exists(),
+            "la vignette de la figure vivante doit survivre au GC"
+        );
     }
 }
