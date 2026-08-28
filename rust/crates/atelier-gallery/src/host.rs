@@ -92,8 +92,15 @@ pub async fn orca_native_fullscreen(
     match cmd.spawn() {
         Ok(child) => {
             let pid = child.id().unwrap_or(0);
-            // Detach: drop child without waiting (viewer runs independently).
-            std::mem::forget(child);
+            // `open` se termine aussitôt : le moissonner dans une tâche tokio
+            // jetable au lieu de le forget (un zombie par ouverture sinon,
+            // accumulés pour la vie du serveur galerie). `child` est un
+            // tokio::process::Child — son wait() est async, d'où la tâche
+            // tokio::spawn plutôt qu'un std::thread::spawn.
+            tokio::spawn(async move {
+                let mut child = child;
+                let _ = child.wait().await;
+            });
             json_ok(json!({"ok": true, "pid": pid, "via": "open"}))
         }
         Err(error) => json_status(

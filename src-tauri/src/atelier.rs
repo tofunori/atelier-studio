@@ -140,8 +140,28 @@ fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn file_fingerprint(path: &Path) -> Result<String, String> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    // le binaire ne change qu'à un redéploiement : re-hasher plusieurs Mo à
+    // chaque ouverture de galerie est du pur gaspillage (clé = chemin+mtime+taille)
+    static CACHE: Mutex<Option<HashMap<(PathBuf, u64, u64), String>>> = Mutex::new(None);
+    let meta = std::fs::metadata(path).map_err(|e| format!("stat {}: {e}", path.display()))?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let key = (path.to_path_buf(), mtime, meta.len());
+    let mut guard = CACHE.lock().unwrap();
+    let cache = guard.get_or_insert_with(HashMap::new);
+    if let Some(hash) = cache.get(&key) {
+        return Ok(hash.clone());
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("hash {}: {e}", path.display()))?;
-    Ok(format!("{:x}", md5::compute(bytes)))
+    let hash = format!("{:x}", md5::compute(bytes));
+    cache.insert(key, hash.clone());
+    Ok(hash)
 }
 
 fn resolve_assets_dir(gallery_dir: &Path) -> PathBuf {
