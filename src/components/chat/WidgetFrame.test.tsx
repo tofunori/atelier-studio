@@ -4,6 +4,7 @@ import { WidgetFrame } from "./WidgetFrame";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { resetSidecarInfo, setSidecarInfo } from "../../lib/sidecarInfo";
+import { rememberWidgetState, clearWidgetStates } from "./widgetState";
 
 afterEach(() => cleanup());
 
