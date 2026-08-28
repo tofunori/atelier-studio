@@ -378,6 +378,71 @@
   #tgMenu .hd{font-size:11px;color:#9aa3b2;text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
   #lb.annot #annotCv{display:block;cursor:crosshair}
   #lbClose{position:fixed;top:10px;right:14px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--muted);cursor:pointer;z-index:101}
+  /* ── Panneau Provenance du viewer (spec 2026-08-27-provenance-figures-design,
+     section C). Posé APRÈS les règles #lb.fs / #lb.vw / #lb.annot pour ne rien
+     leur reprendre par la cascade, et neutralisé dans ces trois modes par des
+     gardes :not() explicites plutôt que par un ordre de déclaration fragile.
+     Le panneau flotte au-dessus du voile : la géométrie de #lbWrap/#annotCv
+     n'est jamais touchée, seule l'image se décale par le padding de #lb. */
+  #lbProv{position:fixed;top:10px;right:146px;width:34px;height:34px;display:none;align-items:center;justify-content:center;
+      color:var(--muted);cursor:pointer;z-index:101;border:0;border-radius:9px;background:transparent;padding:0;
+      transition:color 140ms ease,background 140ms ease}
+  #lbProv svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+  #lbProv:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 7%,transparent)}
+  #lb.prov #lbProv{color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent)}
+  #lb.fs #lbProv,#lb.vw #lbProv{display:none!important}
+  #provPanel{position:fixed;top:10px;right:14px;bottom:10px;z-index:102;display:none;
+      width:min(320px,calc(100vw - 28px));box-sizing:border-box;flex-direction:column;overflow-y:auto;
+      cursor:default;text-align:left;background:var(--card);border-radius:10px;padding:16px;
+      box-shadow:0 4px 16px rgba(0,0,0,.25);color:var(--txt);font-size:12px;line-height:1.5}
+  #lb.prov:not(.fs):not(.vw):not(.annot) #provPanel{display:flex}
+  @media (min-width:900px){
+    #lb.prov:not(.fs):not(.vw):not(.annot){padding-right:348px}
+    #lb.prov:not(.fs):not(.vw):not(.annot) #lbImg{max-width:calc(94vw - 348px)}
+    #lb.prov:not(.fs):not(.vw):not(.annot) #lbCap{max-width:calc(94vw - 348px)}
+  }
+  #provPanel .pvHead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  #provPanel h3{margin:0;font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--txt);line-height:1.3}
+  #provPanel .pvPill{margin-left:auto;flex:none;font-size:10px;font-weight:500;border-radius:999px;padding:2px 8px;
+      color:var(--primary);background:color-mix(in srgb,var(--primary) 14%,transparent)}
+  #provPanel .pvPill.off{color:var(--muted);background:color-mix(in srgb,var(--txt) 8%,transparent)}
+  #provPanel .pvRow{display:flex;flex-direction:column;gap:4px;min-width:0;margin-bottom:12px}
+  #provPanel .pvL{font-size:11px;color:var(--muted)}
+  #provPanel .pvV{font-size:12px;color:var(--txt);word-break:break-word}
+  #provPanel .pvLink{font-size:12px;color:var(--primary);background:none;border:0;padding:0;font-family:inherit;
+      text-align:left;cursor:pointer;word-break:break-all;transition:opacity 140ms ease}
+  #provPanel .pvLink:hover{opacity:.72}
+  #provPanel .pvCmd{font-family:var(--code-font);font-size:11px;color:var(--txt);background:var(--card2);
+      border-radius:6px;padding:8px 10px;overflow-x:auto;white-space:pre}
+  #provPanel .pvQuote{font-size:12px;color:var(--txt);border-left:1px solid var(--border-strong);padding-left:10px}
+  #provPanel .pvMeta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:16px}
+  #provPanel .pvAct{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  #provPanel .pvBtn{height:28px;padding:0 12px;border-radius:6px;font-size:12px;font-weight:500;font-family:inherit;
+      cursor:pointer;border:1px solid var(--border-strong);background:transparent;color:var(--txt);
+      transition:background 140ms ease,border-color 140ms ease,opacity 140ms ease}
+  #provPanel .pvBtn:hover{background:color-mix(in srgb,var(--txt) 7%,transparent)}
+  #provPanel .pvBtn.on{background:var(--primary);border-color:var(--primary);color:var(--bg)}
+  #provPanel .pvBtn.on:hover{background:var(--primary);opacity:.88}
+  #provPanel .pvBtn:disabled{opacity:.5;cursor:default}
+  #provPanel .pvEmpty{font-size:12px;color:var(--muted);background:var(--card2);border-radius:10px;padding:12px;margin-bottom:16px}
+  #provPanel .pvEmpty b{display:block;font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--txt);margin-bottom:4px}
+  #provPanel .pvHistTog{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;font-family:inherit;
+      color:var(--muted);background:none;border:0;padding:0;cursor:pointer;transition:color 140ms ease}
+  #provPanel .pvHistTog:hover{color:var(--txt)}
+  #provPanel .pvHistTog svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.3;
+      stroke-linecap:round;stroke-linejoin:round;transition:transform 140ms ease}
+  #provPanel .pvHistTog[aria-expanded="true"] svg{transform:rotate(90deg)}
+  #provPanel .pvHistList{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  #provPanel .pvGen{display:flex;align-items:baseline;gap:8px;min-width:0}
+  #provPanel .pvDot{flex:none;width:6px;height:6px;border-radius:999px;background:var(--faint)}
+  #provPanel .pvGen.now .pvDot{background:var(--primary)}
+  #provPanel .pvGenD{flex:none;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  #provPanel .pvGenT{font-size:11px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #provPanel .pvNote{font-size:11px;color:var(--muted)}
+  @media (prefers-reduced-motion:reduce){
+    #lbProv,#provPanel .pvBtn,#provPanel .pvLink,#provPanel .pvHistTog,#provPanel .pvHistTog svg{transition:none}
+  }
   #cmp{position:fixed;inset:0;z-index:120;background:#0b0b0d;display:none;flex-direction:column}
   #cmp.show{display:flex}
   #cmpBar{display:flex;gap:8px;align-items:center;padding:7px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:13px;color:var(--muted);flex-shrink:0}
@@ -600,6 +665,7 @@
   <span id="lbClose">&#10005;</span>
   <span id="lbFs" title="Plein écran (f ou double-clic)">&#9974;</span>
   <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
+  <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
   <span class="lbBtn" id="lbPrev">&#8249;</span>
   <span class="lbBtn" id="lbNext">&#8250;</span>
   <div id="annotBar">
@@ -619,6 +685,7 @@
   <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px"></div>
   <iframe id="lbPdf" style="display:none;width:94vw;height:86vh;border:none;border-radius:6px;background:#fff"></iframe>
   <video id="lbVid" controls playsinline style="display:none;max-width:94vw;max-height:86vh;border-radius:6px;background:#000"></video>
+  <aside id="provPanel" aria-label="Provenance de la figure"><div id="provBody"></div></aside>
   <div id="lbCap"></div>
 </div>
 <div id="cmp">
@@ -819,9 +886,14 @@ window.addEventListener('message',e=>{
   const pending=pendingChatAcks.get(data.requestId); if(!pending) return;
   clearTimeout(pending.timer); pendingChatAcks.delete(data.requestId); pending.resolve();
 });
-function postChatAttachment(rel){
+function postChatAttachment(rel){ return postChatPayload(chatAttachment(rel)); }
+// Même canal que « Add to chat » et que l'annotation d'image : postMessage
+// atelier-add-to-chat + ACK borné. Généralisé pour que le panneau Provenance
+// puisse envoyer SON message (Régénérer / Reconstruire) sans dupliquer la
+// mécanique de relance.
+function postChatPayload(base){
   const requestId=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(16).slice(2)));
-  const payload=Object.assign(chatAttachment(rel),{requestId});
+  const payload=Object.assign({type:'atelier-add-to-chat'},base,{requestId});
   return new Promise((resolve,reject)=>{
     const pending={resolve,reject,timer:0,attempt:0};
     pendingChatAcks.set(requestId,pending);
