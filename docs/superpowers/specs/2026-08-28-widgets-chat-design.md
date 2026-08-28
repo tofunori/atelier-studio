@@ -92,7 +92,9 @@ L'iframe est montée en `srcdoc` avec le contenu de `GET /widgets/:id`, attribut
       content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none';">
 ```
 
-Aucun `connect-src`, aucun `font-src` : pas de réseau, pas de police externe, pas de CDN. `form-action` et `base-uri` sont déclarés explicitement parce que `default-src` **n'est pas** un repli pour ces deux directives (relecture tâche 2) — sans eux, un `<form>` posté par le widget partirait vraiment sur le réseau. Les images en `data:` restent permises (un widget peut dessiner puis exporter en canvas).
+Aucun `connect-src`, aucun `font-src` : aucune requête `fetch`/XHR/WebSocket, aucune police externe, aucune ressource distante, aucun CDN. `form-action` et `base-uri` sont déclarés explicitement parce que `default-src` **n'est pas** un repli pour ces deux directives (relecture tâche 2) — sans eux, un `<form>` posté par le widget partirait vraiment sur le réseau. Les images en `data:` restent permises (un widget peut dessiner puis exporter en canvas).
+
+**Ce que ça ne couvre PAS.** `sandbox="allow-scripts"` seul interdit la navigation *top-level* — un widget ne peut pas emmener l'app ailleurs. Il peut en revanche naviguer **sa propre frame** (`location.href = "https://exemple/?d=…"`), et aucune directive CSP ne l'en empêche : `navigate-to` a été retiré de la spec CSP et n'a jamais été implémenté. C'est donc un canal de sortie unidirectionnel, limité aux données que le widget détient déjà : ce que l'agent a écrit en dur dans son HTML, les tokens de thème, l'état restauré. Le widget n'a aucun accès en lecture au fil, au disque ni à l'app — il ne peut exfiltrer que ce qu'on lui a donné. Tranché le 2026-08-28 : accepté en v1, ce n'est pas un bloquant de fusion. Le jour où une fermeture est voulue, la voie est un `iframe csp=` ou un `beforeunload`/`onbeforeunload` côté hôte, pas une directive CSP.
 
 ### Protocole `postMessage` — cinq messages, rien d'autre
 

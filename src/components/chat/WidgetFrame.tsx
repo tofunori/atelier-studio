@@ -43,6 +43,10 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   const [copied, setCopied] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  // miroir de `expanded` lisible depuis l'écouteur `message`, dont la clôture
+  // est figée au premier rendu (deps = [event.id], pour ne pas ré-abonner à
+  // chaque frappe et perdre un `ready` en vol).
+  const expandedRef = useRef(false);
 
   // Chargement au montage : un widget jamais scrollé n'est jamais lu.
   // threadId absent (fil pas encore créé) : aucune requête possible, on va
@@ -88,6 +92,22 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
         setPhase("live");
       }
       if (e.data.type === "state") rememberWidgetState(event.id, e.data.state);
+      // Échap relayé par la coquille : un keydown produit DANS une frame
+      // d'origine opaque ne remonte pas au document parent, donc le
+      // `onKeyDown` de la carte ne voyait rien tant que le focus était dans
+      // l'iframe — le piège à clavier exact que la spec §F interdit. Le bras
+      // passe par la MÊME garde de provenance que les autres.
+      if (e.data.type === "escape") {
+        // en plein écran, Échap ferme d'abord la modale : Radix ne voit pas
+        // non plus la touche frappée dans la frame. L'iframe redescend alors
+        // dans le fil, donc elle remonte — d'où le retour à "loading".
+        if (expandedRef.current) {
+          expandedRef.current = false;
+          setExpanded(false);
+          setPhase("loading");
+        }
+        cardRef.current?.focus();
+      }
       if (e.data.type === "prompt") {
         const text = typeof e.data.text === "string" ? e.data.text.trim() : "";
         if (!text || text.length > WIDGET_PROMPT_MAX) return;
@@ -136,6 +156,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   }
 
   function setExpandedAndReload(next: boolean) {
+    expandedRef.current = next;
     setExpanded(next);
     // en fermant, l'iframe ne remonte dans le fil que si la vue source
     // n'est pas affichée (sinon .widget-body ne rend aucune iframe).

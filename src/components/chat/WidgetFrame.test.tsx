@@ -265,7 +265,7 @@ describe("WidgetFrame — actions de barre", () => {
     expect(container.querySelector("iframe")).toBeTruthy();
   });
 
-  it("rend le focus à la timeline sur Échap", async () => {
+  it("rend le focus à la timeline sur Échap (focus déjà sur la carte)", async () => {
     mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
     const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
     await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
@@ -276,6 +276,47 @@ describe("WidgetFrame — actions de barre", () => {
     fireEvent.keyDown(card, { key: "Escape" });
 
     expect(document.activeElement).not.toBe(frame);
+  });
+
+  it("rend le focus quand Échap est frappé DANS l'iframe", async () => {
+    // Le scénario réel : un keydown produit dans une frame d'origine opaque
+    // ne remonte PAS au document parent — le onKeyDown de la carte ne se
+    // déclenchait que si le focus était déjà sur la carte. La coquille relaie
+    // donc Échap par postMessage (relecture finale 2026-08-28, I7).
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+
+    const card = container.querySelector(".widget-block") as HTMLElement;
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    frame.focus();
+    expect(document.activeElement).toBe(frame);
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "escape" },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    expect(document.activeElement).toBe(card);
+  });
+
+  it("ignore un « escape » venu d'une autre fenêtre", async () => {
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    frame.focus();
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "escape" },
+        source: window,
+      }));
+    });
+
+    expect(document.activeElement).toBe(frame);
   });
 
   it("plein écran : une seule iframe montée, qui reçoit thème et état restaurés", async () => {

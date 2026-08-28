@@ -93,8 +93,33 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
   window.sendPrompt = function (text) {{
     post({{ source: "atelier-widget", type: "prompt", text: String(text == null ? "" : text) }});
   }};
+  // Débounce 200 ms (spec §D). Un widget qui appelle saveState dans une
+  // boucle requestAnimationFrame poussait sinon 60 JSON.stringify +
+  // TextEncoder().encode() de 4 Ko par seconde sur le thread principal de
+  // l'app hôte. Front montant immédiat (le premier état part tout de suite),
+  // puis au plus un envoi par fenêtre — et jamais de perte : la dernière
+  // valeur reçue pendant la fenêtre est envoyée à sa fermeture.
+  var STATE_MIN_MS = 200;
+  var stateTimer = null;
+  var pendingState = null;
+  var hasPending = false;
+  var lastSentAt = 0;
+  function flushState() {{
+    stateTimer = null;
+    if (!hasPending) return;
+    hasPending = false;
+    lastSentAt = Date.now();
+    var payload = pendingState;
+    pendingState = null;
+    post({{ source: "atelier-widget", type: "state", state: payload }});
+  }}
   window.saveState = function (state) {{
-    post({{ source: "atelier-widget", type: "state", state: state }});
+    pendingState = state;
+    hasPending = true;
+    if (stateTimer !== null) return;
+    var wait = STATE_MIN_MS - (Date.now() - lastSentAt);
+    if (wait <= 0) {{ flushState(); return; }}
+    stateTimer = setTimeout(flushState, wait);
   }};
   window.addEventListener("message", function (e) {{
     var d = e.data;
@@ -105,6 +130,14 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
     if (d.type === "restore" && typeof window.onRestore === "function") {{
       try {{ window.onRestore(d.state); }} catch (err) {{ }}
     }}
+  }});
+  // Sortie clavier. Un keydown produit DANS une frame d'origine opaque ne
+  // remonte jamais au document parent : sans ce relais, l'iframe est un
+  // piège à clavier (Tab y entre, rien n'en sort) — le handler de la carte
+  // ne se déclenchait que si le focus était déjà SUR la carte.
+  window.addEventListener("keydown", function (e) {{
+    if (e.key !== "Escape") return;
+    post({{ source: "atelier-widget", type: "escape" }});
   }});
   window.addEventListener("load", function () {{
     post({{ source: "atelier-widget", type: "ready" }});
@@ -377,10 +410,28 @@ mod tests {
         let input = parse_widget_input(&req("<p>salut</p>", "titre", 240)).unwrap();
         let shell = wrap_shell(&input);
         assert!(shell.contains("default-src 'none'"));
-        assert!(!shell.contains("connect-src"), "aucun réseau autorisé");
+        assert!(!shell.contains("connect-src"), "aucune requête réseau autorisée");
         assert!(!shell.contains("font-src"), "aucune police distante");
         assert!(shell.contains("<p>salut</p>"), "le contenu de l'agent est présent");
         assert!(shell.contains("sendPrompt"), "le pont est injecté");
+    }
+
+    #[test]
+    fn shell_debounces_state_and_relays_escape() {
+        let input = parse_widget_input(&req("<p>a</p>", "t", 200)).unwrap();
+        let shell = wrap_shell(&input);
+        // spec §D : `state` est débouncé à 200 ms DANS la coquille — c'est là
+        // que ça coûte le moins et que ça protège le thread de l'hôte.
+        assert!(shell.contains("STATE_MIN_MS = 200"), "débounce de 200 ms absent");
+        assert!(shell.contains("setTimeout(flushState"), "pas de report d'envoi");
+        assert!(
+            shell.contains("hasPending = true"),
+            "la dernière valeur de la fenêtre doit être conservée"
+        );
+        // spec §F : Échap doit SORTIR de l'iframe. Le keydown d'une frame
+        // d'origine opaque ne remonte pas au parent : il faut le relayer.
+        assert!(shell.contains(r#"e.key !== "Escape""#), "pas d'écouteur Échap");
+        assert!(shell.contains(r#"type: "escape""#), "Échap n'est pas relayé à l'hôte");
     }
 
     #[test]
