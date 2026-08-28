@@ -4,10 +4,11 @@ use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     env, fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::Mutex,
     thread,
     time::{Duration, UNIX_EPOCH},
 };
@@ -267,44 +268,105 @@ fn temporary_output(suffix: &str) -> Option<(PathBuf, PathBuf)> {
     Some((directory, output))
 }
 
+/// Travail de génération d'une vignette manquante, collecté par la passe
+/// séquentielle de registration et consommé par le pool de travailleurs.
+/// Un job par CLÉ (dédupliqué avant l'enfilage) : deux rows qui partagent le
+/// même fichier canonique ne doivent jamais écrire concurremment la même
+/// cible.
+enum ThumbJob {
+    Pdf {
+        source: PathBuf,
+        target: PathBuf,
+        failed: PathBuf,
+        name: String,
+    },
+    Image {
+        source: PathBuf,
+        target: PathBuf,
+    },
+}
+
+/// Exécute un job de vignette (spawn qlmanage/sips, danse du dossier
+/// temporaire, marqueur `.fail`) — identique branche par branche à l'ancien
+/// code séquentiel, seulement extrait pour être appelable depuis un
+/// travailleur du pool.
+fn run_thumb_job(job: &ThumbJob) {
+    match job {
+        ThumbJob::Pdf {
+            source,
+            target,
+            failed,
+            name,
+        } => {
+            if let Some((temporary, _)) = temporary_output("png") {
+                let ok = command_success_with_timeout(
+                    Command::new("qlmanage")
+                        .args(["-t", "-s", "480", "-o"])
+                        .arg(&temporary)
+                        .arg(source)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null()),
+                    Duration::from_secs(15),
+                );
+                let produced = temporary.join(format!("{name}.png"));
+                if ok && produced.is_file() {
+                    let _ = fs::rename(produced, target);
+                } else {
+                    let marker = temporary.join("failed");
+                    if fs::write(&marker, []).is_ok() {
+                        let _ = fs::rename(marker, failed);
+                    }
+                }
+                let _ = fs::remove_dir_all(temporary);
+            }
+        }
+        ThumbJob::Image { source, target } => {
+            if let Some((temporary, output)) = temporary_output("png") {
+                let ok = command_success_with_timeout(
+                    Command::new("sips")
+                        .args(["-Z", "480", "-s", "format", "png"])
+                        .arg(source)
+                        .arg("--out")
+                        .arg(&output)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null()),
+                    Duration::from_secs(20),
+                );
+                if ok && regular_file(&output) {
+                    let _ = fs::rename(&output, target);
+                }
+                let _ = fs::remove_dir_all(temporary);
+            }
+        }
+    }
+}
+
 fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
     let Some(thumbs) = safe_cache_dir(root) else {
         return;
     };
+
+    // (a) Passe séquentielle de registration : calcule les clés, marque
+    // `live` pour TOUTES les extensions (svg/html compris — le GC ne
+    // connaît que cet ensemble) et collecte les jobs de génération
+    // manquants, dédupliqués par cible (= par clé).
     let mut live = BTreeSet::new();
-    for row in rows.iter_mut() {
+    let mut jobs: Vec<ThumbJob> = Vec::new();
+    let mut queued_targets: BTreeSet<PathBuf> = BTreeSet::new();
+    for row in rows.iter() {
         let source = root.join(&row.rel);
         if matches!(row.ext.as_str(), "pdf" | "mp4" | "m4v" | "mov" | "webm") {
             let key = stable_thumb_key(&row.rel, row.mtime);
             live.insert(key.clone());
             let target = thumbs.join(format!("{key}.png"));
             let failed = thumbs.join(format!("{key}.fail"));
-            if !regular_file(&target)
-                && !regular_file(&failed)
-                && let Some((temporary, _)) = temporary_output("png")
-            {
-                let ok = command_success_with_timeout(
-                    Command::new("qlmanage")
-                        .args(["-t", "-s", "480", "-o"])
-                        .arg(&temporary)
-                        .arg(&source)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null()),
-                    Duration::from_secs(15),
-                );
-                let produced = temporary.join(format!("{}.png", row.name));
-                if ok && produced.is_file() {
-                    let _ = fs::rename(produced, &target);
-                } else {
-                    let marker = temporary.join("failed");
-                    if fs::write(&marker, []).is_ok() {
-                        let _ = fs::rename(marker, &failed);
-                    }
-                }
-                let _ = fs::remove_dir_all(temporary);
-            }
-            if regular_file(&target) {
-                row.thumb = Some(format!(".fig_thumbs/{key}.png"));
+            if !regular_file(&target) && !regular_file(&failed) && queued_targets.insert(target.clone()) {
+                jobs.push(ThumbJob::Pdf {
+                    source,
+                    target,
+                    failed,
+                    name: row.name.clone(),
+                });
             }
         } else if matches!(row.ext.as_str(), "png" | "jpg" | "jpeg") {
             let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
@@ -314,23 +376,8 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
             // le 2026-08-28 sur le projet Albedo)
             live.insert(format!("imgthumb_{key}"));
             let target = thumbs.join(format!("imgthumb_{key}.png"));
-            if !regular_file(&target)
-                && let Some((temporary, output)) = temporary_output("png")
-            {
-                let ok = command_success_with_timeout(
-                    Command::new("sips")
-                        .args(["-Z", "480", "-s", "format", "png"])
-                        .arg(&source)
-                        .arg("--out")
-                        .arg(&output)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null()),
-                    Duration::from_secs(20),
-                );
-                if ok && regular_file(&output) {
-                    let _ = fs::rename(&output, &target);
-                }
-                let _ = fs::remove_dir_all(temporary);
+            if !regular_file(&target) && queued_targets.insert(target.clone()) {
+                jobs.push(ThumbJob::Image { source, target });
             }
         } else if row.ext == "svg" {
             // le builder ne génère pas les vignettes svg (rsvg-convert reste
@@ -349,6 +396,44 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
             live.insert(format!("imgthumb_{}", image_thumb_key(&canonical, row.mtime)));
         }
     }
+
+    // (b) Passe parallèle d'exécution : pool borné à 2-4 travailleurs qui
+    // consomment la file de jobs. Chaque job écrit son résultat directement
+    // sur son fichier cible (dédupliqué à l'étape (a), donc jamais deux
+    // travailleurs sur la même cible) — la passe (c) relit ces fichiers.
+    if !jobs.is_empty() {
+        let queue: Mutex<VecDeque<ThumbJob>> = Mutex::new(jobs.into_iter().collect());
+        let workers = thread::available_parallelism()
+            .map(|n| n.get().clamp(2, 4))
+            .unwrap_or(2);
+        thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let job = queue.lock().unwrap().pop_front();
+                        let Some(job) = job else { break };
+                        run_thumb_job(&job);
+                    }
+                });
+            }
+        });
+    }
+
+    // (c) Passe séquentielle de réapplication : relit les cibles (écrites
+    // par (b), ou déjà présentes avant même la registration) pour poser
+    // `row.thumb` — identique à l'ancien comportement où chaque row
+    // consultait sa propre cible après tentative de génération.
+    for row in rows.iter_mut() {
+        if matches!(row.ext.as_str(), "pdf" | "mp4" | "m4v" | "mov" | "webm") {
+            let key = stable_thumb_key(&row.rel, row.mtime);
+            let target = thumbs.join(format!("{key}.png"));
+            if regular_file(&target) {
+                row.thumb = Some(format!(".fig_thumbs/{key}.png"));
+            }
+        }
+    }
+
+    // GC final : inchangé, exécuté après la jointure du pool.
     if let Ok(entries) = fs::read_dir(&thumbs) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -826,6 +911,55 @@ mod thumbs_gc_tests {
         assert!(
             live.exists(),
             "la vignette html produite par la route /thumb doit survivre au GC"
+        );
+    }
+
+    #[test]
+    fn gc_respects_existing_fail_markers_and_skips_generation() {
+        // Trois rows pdf avec un marqueur `.fail` déjà présent : le
+        // découpage en passes (registration séquentielle / exécution
+        // parallèle / réapplication séquentielle) ne doit ni tenter de
+        // génération (aucune commande qlmanage lancée — le test n'a même
+        // pas besoin d'un vrai pdf), ni casser le GC : les marqueurs `.fail`
+        // doivent survivre (leur clé est vivante) et un orphelin sans row
+        // correspondante doit toujours être collecté — exactement comme
+        // avant le découpage.
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+
+        let mut rows = Vec::new();
+        let mut fail_markers = Vec::new();
+        for (index, name) in ["a.pdf", "b.pdf", "c.pdf"].iter().enumerate() {
+            let mtime = 1_000 + index as u64;
+            let row = gallery_row_for_test(name, "pdf", mtime);
+            let key = stable_thumb_key(&row.rel, row.mtime);
+            let failed = thumbs.join(format!("{key}.fail"));
+            std::fs::write(&failed, []).unwrap();
+            fail_markers.push(failed);
+            rows.push(row);
+        }
+
+        let orphan = thumbs.join(format!("{}.png", hex32('f')));
+        std::fs::write(&orphan, b"png").unwrap();
+
+        build_thumbnails(dir.path(), &mut rows);
+
+        for marker in &fail_markers {
+            assert!(
+                marker.exists(),
+                "un marqueur .fail existant ne doit pas être touché par le GC"
+            );
+        }
+        for row in &rows {
+            assert!(
+                row.thumb.is_none(),
+                "aucune génération ne doit être tentée quand un .fail existe déjà"
+            );
+        }
+        assert!(
+            !orphan.exists(),
+            "l'orphelin sans row vivante doit toujours être collecté par le GC"
         );
     }
 }
