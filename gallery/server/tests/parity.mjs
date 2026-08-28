@@ -245,6 +245,8 @@ async function main() {
   );
   assert.match(galleryTemplate, /data-slot="dialog-content"/, "gallery dialogs have semantic slots");
   assert.match(galleryTemplate, /aria-label="Ajouter une annotation"/, "image annotation exposes one accessible launcher");
+  assert.match(galleryTemplate, /aria-label="Provenance"/, "le viewer expose un lanceur de panneau Provenance");
+  assert.match(galleryTemplate, /fetch\('\/prov\?file='/, "le panneau Provenance lit le sidecar par le serveur, jamais le disque");
   assert.match(galleryTemplate, /annotTool='rect'/, "image annotation defaults to rectangular selection");
   assert.match(sharedSource, /\.fig_thumbs.*annotation-previews/, "annotation previews stay outside the gallery catalog");
   assert.match(galleryTemplate, /btn\.dataset\.slot='select-trigger'/, "custom selects expose the shadcn trigger contract");
