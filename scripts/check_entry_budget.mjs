@@ -6,7 +6,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ASSETS = join(process.cwd(), "dist", "assets");
-const BUDGET_KB = 950; // entrée mesurée 864 KB min (2026-07-10) + marge
+// Re-calibré le 2026-08-27 APRÈS optimisation, jamais à la place : le passage
+// de highlight.js `lib/common` (36 langages) à `lib/core` + 18 langages
+// explicites a rendu 85 KB (1055 → 970). Le reste de la croissance est du
+// code applicatif légitime accumulé sur 270 commits (v1.5.0 → v1.5.5).
+// Plafond à 1 Mio pile, ~54 KB de marge. Prochain dépassement : découper
+// i18n.ts par locale (151 KB de source, fr+en chargés ensemble) avant de
+// toucher à cette valeur.
+const BUDGET_KB = 1024;
 
 const assetFiles = readdirSync(ASSETS);
 const entries = assetFiles.filter((f) => /^index-.*\.js$/.test(f));

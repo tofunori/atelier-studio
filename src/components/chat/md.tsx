@@ -4,9 +4,30 @@
 // le streaming (MdBody/MdBlock).
 import { memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import hljs from "highlight.js/lib/common";
+// `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
+// 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
+// réellement écrite ici — l'entrée crevait son budget de 950 Ko. La liste
+// est verrouillée par md.languages.test.ts ; y ajouter un langage est un
+// choix conscient, pas un effet de bord d'import.
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
+import ini from "highlight.js/lib/languages/ini";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
 import julia from "highlight.js/lib/languages/julia";
 import latex from "highlight.js/lib/languages/latex";
+import markdown from "highlight.js/lib/languages/markdown";
+import plaintext from "highlight.js/lib/languages/plaintext";
+import python from "highlight.js/lib/languages/python";
+import pythonRepl from "highlight.js/lib/languages/python-repl";
+import r from "highlight.js/lib/languages/r";
+import rust from "highlight.js/lib/languages/rust";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 import remarkGfm from "remark-gfm";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
@@ -19,8 +40,13 @@ import { IconButton, RowButton } from "../ui";
 import { PassageCard } from "./PassageCard";
 import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
-hljs.registerLanguage("julia", julia);
-hljs.registerLanguage("latex", latex);
+for (const [nom, def] of [
+  ["bash", bash], ["css", css], ["diff", diff], ["ini", ini],
+  ["javascript", javascript], ["json", json], ["julia", julia], ["latex", latex],
+  ["markdown", markdown], ["plaintext", plaintext], ["python", python],
+  ["python-repl", pythonRepl], ["r", r], ["rust", rust], ["sql", sql],
+  ["typescript", typescript], ["xml", xml], ["yaml", yaml],
+] as const) hljs.registerLanguage(nom, def);
 
 export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb|png|pdf|svg)(:\d+(?:-\d+)?)?$/i;
 
