@@ -9,48 +9,47 @@ type Segment = { code: boolean; value: string };
  * l'inline code ` ` (backtick simple). Les segments `code: true` ne doivent
  * jamais être transformés par les fonctions de prose ci-dessous.
  */
-function splitCodeSegments(text: string): Segment[] {
+export function splitCodeSegments(text: string): Segment[] {
   const segments: Segment[] = [];
-  let buf = "";
-  let i = 0;
+  const n = text.length;
+  // `start` : début du segment de prose pas encore poussé dans `segments`.
+  // `scan` : position à partir de laquelle chercher le prochain backtick —
+  // distinct de `start` uniquement quand un backtick isolé (jamais refermé)
+  // reste littéral en prose : on avance `scan` sans flusher `start`.
+  let start = 0;
+  let scan = 0;
 
-  const flush = () => {
-    if (buf) {
-      segments.push({ code: false, value: buf });
-      buf = "";
-    }
-  };
+  while (scan < n) {
+    const tick = text.indexOf("`", scan);
+    if (tick === -1) break;
 
-  while (i < text.length) {
-    if (text.startsWith("```", i)) {
-      const end = text.indexOf("```", i + 3);
-      flush();
+    if (text.startsWith("```", tick)) {
+      const end = text.indexOf("```", tick + 3);
+      if (start < tick) segments.push({ code: false, value: text.slice(start, tick) });
       if (end === -1) {
         // fence jamais refermée : le reste du texte est du code, jamais touché
-        segments.push({ code: true, value: text.slice(i) });
-        break;
+        segments.push({ code: true, value: text.slice(tick) });
+        return segments;
       }
-      segments.push({ code: true, value: text.slice(i, end + 3) });
-      i = end + 3;
+      segments.push({ code: true, value: text.slice(tick, end + 3) });
+      start = end + 3;
+      scan = start;
       continue;
     }
-    if (text[i] === "`") {
-      const end = text.indexOf("`", i + 1);
-      if (end === -1) {
-        // backtick isolé, jamais refermé : caractère littéral, on reste en prose
-        buf += text[i];
-        i += 1;
-        continue;
-      }
-      flush();
-      segments.push({ code: true, value: text.slice(i, end + 1) });
-      i = end + 1;
+
+    const end = text.indexOf("`", tick + 1);
+    if (end === -1) {
+      // backtick isolé, jamais refermé : caractère littéral, on reste en prose
+      scan = tick + 1;
       continue;
     }
-    buf += text[i];
-    i += 1;
+    if (start < tick) segments.push({ code: false, value: text.slice(start, tick) });
+    segments.push({ code: true, value: text.slice(tick, end + 1) });
+    start = end + 1;
+    scan = start;
   }
-  flush();
+
+  if (start < n) segments.push({ code: false, value: text.slice(start, n) });
   return segments;
 }
 
