@@ -528,11 +528,18 @@
     opacity:0;pointer-events:none;transition:opacity .15s}
   .tr-navpill.show{opacity:1}
   @media (prefers-reduced-motion: reduce){.tr-navpill{transition:none}}
-  ::highlight(texc-read-amber){background:rgba(224,183,74,.26)}
-  ::highlight(texc-read-red){background:rgba(240,125,115,.26)}
-  ::highlight(texc-read-blue){background:rgba(91,157,255,.24)}
-  ::highlight(texc-read-green){background:rgba(126,192,120,.24)}
-  ::highlight(texc-read-purple){background:rgba(170,140,224,.26)}
+  /* Le pseudo ::highlight n'accepte pas border-bottom : le trait plein du mode
+     Review (.texc-hl) se rend donc en text-decoration, seul soulignement admis
+     ici. Fond seul, la teinte se noyait dans le sombre — fond + trait franc. */
+  ::highlight(texc-read-amber),::highlight(texc-read-red),::highlight(texc-read-blue),
+  ::highlight(texc-read-green),::highlight(texc-read-purple){
+    text-decoration:underline;text-decoration-thickness:2px;
+    text-underline-offset:3px;text-decoration-skip-ink:none}
+  ::highlight(texc-read-amber){background:rgba(230,186,74,.34);text-decoration-color:rgba(240,196,90,.95)}
+  ::highlight(texc-read-red){background:rgba(240,125,115,.32);text-decoration-color:rgba(245,140,130,.95)}
+  ::highlight(texc-read-blue){background:rgba(91,157,255,.32);text-decoration-color:rgba(120,175,255,.95)}
+  ::highlight(texc-read-green){background:rgba(126,192,120,.32);text-decoration-color:rgba(145,205,140,.95)}
+  ::highlight(texc-read-purple){background:rgba(170,140,224,.34);text-decoration-color:rgba(185,158,235,.95)}
   /* Édition sur place d'un paragraphe (double-clic) : le bloc rendu cède sa
      place à son source. Monospace — c'est du LaTeX, pas de la prose. */
   #texread p.editing{padding:0}
