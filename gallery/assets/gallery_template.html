@@ -2564,7 +2564,14 @@ window.__gallerySelection={
   delete(){ document.getElementById('delSel').click(); },
   clear(){ clearSel(); },
 };
-document.getElementById('q').oninput=render;
+// debounce : render() reconstruit jusqu'à 600 cartes — une frappe rapide ne
+// doit payer qu'un rendu, pas un par lettre (audit perf 2026-08-28)
+{ let qTimer = 0;
+  document.getElementById('q').oninput = () => {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(render, 120);
+  };
+}
 document.getElementById('sort').onchange=render;
 fsel.onchange=render;
 // collapsible search: a 🔍 chip expands the field; Esc / blur-when-empty collapses it; "/" opens it
