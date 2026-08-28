@@ -560,6 +560,11 @@ export function ChatTimeline(p: {
   // (autoFollow est déjà coupé dès qu'il remonte).
   React.useEffect(() => {
     if (!autoFollow) return;
+    // le filet rattrape les tassements de layout PENDANT qu'un tour écrit ;
+    // au repos, rien ne bouge — 3 reflows forcés × 3,3/s pour rien (audit
+    // 2026-08-28). workingSince couvre aussi la fin de tour : l'effect se
+    // rejoue à sa disparition et fait une dernière passe avant de s'arrêter.
+    if (workingSince == null) return;
     let lastScrollHeight = -1;
     const id = window.setInterval(() => {
       const native = messagesRef.current;
@@ -572,7 +577,7 @@ export function ChatTimeline(p: {
       }
     }, 300);
     return () => window.clearInterval(id);
-  }, [autoFollow, messagesRef]);
+  }, [autoFollow, messagesRef, workingSince]);
 
   // Pastilles numérotées : calculées depuis les Range des passages annotés et
   // rendues dans un calque `position: fixed` — jamais insérées dans le DOM du
