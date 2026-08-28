@@ -1236,17 +1236,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     });
 
-    // Plan 057: issue scoped MCP capability for linked threads on compatible providers.
+    // Plan 057 : capacité MCP scopée. Jusqu'au 2026-08-28 elle n'était émise
+    // que pour les fils LIÉS ; `atelier_widget` (spec widgets-chat) a changé
+    // la donne — le cas d'usage moteur est un fil NORMAL à qui on demande un
+    // panneau. Voir `agent_mcp::should_launch_mcp`.
     let atelier_mcp = {
-        let linked = previous
-            .as_ref()
-            .and_then(|t| t.agent_link.as_ref())
-            .is_some()
-            || {
-                let store = state.threads().lock().await;
-                !store.children_of(&thread_id).is_empty()
-            };
-        if linked && crate::agent_mcp::is_mcp_compatible_provider(&provider) {
+        if crate::agent_mcp::should_launch_mcp(&provider) {
             match crate::agent_mcp::issue_mcp_launch(
                 state,
                 &thread_id,

@@ -677,6 +677,21 @@ pub fn is_mcp_compatible_provider(id: &str) -> bool {
     matches!(id, "claude" | "codex" | "kimi" | "grok" | "opencode")
 }
 
+/// Faut-il équiper ce fil du serveur MCP Atelier ?
+///
+/// Jusqu'au 2026-08-28 la réponse exigeait AUSSI que le fil soit lié (parent
+/// ou enfants) : `atelier_sessions` ne sert qu'à la coordination, un fil seul
+/// n'avait rien à coordonner. `atelier_widget` vit dans le même serveur, et
+/// son cas d'usage moteur est un fil NORMAL à qui Thierry demande un panneau
+/// — la condition de lien privait donc l'outil de sa raison d'être : l'agent
+/// ne le voyait pas et répondait en prose.
+///
+/// Il ne reste que la compatibilité du provider. Les fils liés ne perdent
+/// rien : ils remplissaient déjà cette condition.
+pub fn should_launch_mcp(provider: &str) -> bool {
+    is_mcp_compatible_provider(provider)
+}
+
 /// Mark envelope as seeded after successful provider open.
 pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
     let now = atelier_store::iso_now();
@@ -687,6 +702,25 @@ pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_serveur_mcp_part_meme_sur_un_fil_sans_lien() {
+        // Régression de conception (relecture finale 2026-08-28, I1) : la
+        // condition « fil lié » rendait `atelier_widget` invisible dans un
+        // fil normal — le cas d'usage moteur de la spec.
+        for provider in ["claude", "codex", "kimi", "grok", "opencode"] {
+            assert!(
+                should_launch_mcp(provider),
+                "{provider} : un fil sans lien doit tout de même avoir l'outil"
+            );
+            // ce que faisait l'ancienne condition, gardé explicite : les fils
+            // liés remplissaient déjà cette condition, ils ne perdent rien.
+            assert!(is_mcp_compatible_provider(provider));
+        }
+        for provider in ["fake", "", "inconnu"] {
+            assert!(!should_launch_mcp(provider), "{provider} ne porte pas de MCP");
+        }
+    }
 
     #[test]
     fn widget_slots_are_bounded_per_turn_and_reset_on_the_next_one() {
