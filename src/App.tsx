@@ -46,11 +46,15 @@ const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette")
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
 const PluginPanel = lazyWithRetry(() => import("./components/PluginPanel"));
-// SettingsSheet n'a pas d'export par défaut (export nommé) : import statique,
-// pas de lazyWithRetry. Elle importe elle-même SettingsPage directement
-// (task 2) — le découpage en chunk séparé de l'ancien SettingsPage lazy
-// n'a plus lieu d'être ici.
-import { SettingsSheet } from "./components/settings/SettingsSheet";
+// SettingsSheet n'a pas d'export par défaut (export nommé) : on adapte le
+// module avec .then() pour fournir le `default` qu'attend lazyWithRetry
+// (perf lot 2, tâche 6 — la feuille de réglages ne pèse plus sur l'entrée).
+type SettingsSheetProps = Parameters<
+  (typeof import("./components/settings/SettingsSheet"))["SettingsSheet"]
+>[0];
+const SettingsSheet = lazyWithRetry<SettingsSheetProps>(() =>
+  import("./components/settings/SettingsSheet").then((m) => ({ default: m.SettingsSheet })),
+);
 import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";

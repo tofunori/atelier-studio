@@ -124,13 +124,14 @@ describe("SettingsSheet", () => {
   });
 
   // jsdom ne résout jamais var(--x) : `expect(html).not.toMatch(/rgba\(/)`
-  // passerait même avec une valeur inventée. On scanne la SOURCE App.css à
-  // la manière de css-contract.test.ts.
-  it("App.css : .settings-sheet pose le voile et l'élévation par leurs jetons, pas en dur", () => {
-    const appCss = readFileSync(join(__dirname, "..", "..", "App.css"), "utf8")
+  // passerait même avec une valeur inventée. On scanne la SOURCE CSS à la
+  // manière de css-contract.test.ts. Perf lot 2, tâche 6 : ce bloc a quitté
+  // App.css pour styles/settings-sheet.css (chargé avec le chunk lazy).
+  it("settings-sheet.css : .settings-sheet pose le voile et l'élévation par leurs jetons, pas en dur", () => {
+    const appCss = readFileSync(join(__dirname, "..", "..", "styles", "settings-sheet.css"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "");
     const rule = appCss.match(/\.settings-sheet\s*\{([^}]*)\}/);
-    expect(rule, ".settings-sheet doit exister dans App.css").not.toBeNull();
+    expect(rule, ".settings-sheet doit exister dans styles/settings-sheet.css").not.toBeNull();
     const body = rule![1];
     expect(body).toContain("var(--elevation-overlay)");
     expect(body).not.toMatch(/rgba\(/);
@@ -197,15 +198,16 @@ describe("SettingsSheet", () => {
   // coupe simplement ce qui dépasse : contenu inaccessible, aucun
   // ascenseur. Mesuré : sans cette ligne, popup 400/2032 (client/scroll) et
   // pas de défilement ; avec, popup 400/400 et .set-body 400/2032, le
-  // défilement s'active. On scanne donc la SOURCE App.css comme pour
+  // défilement s'active. On scanne donc la SOURCE CSS comme pour
   // `.settings-sheet` ci-dessus — un test « vivant » (rendu jsdom) ne peut
   // pas détecter la régression, quelqu'un pourrait retirer la ligne sans
-  // qu'aucun test ne le remarque.
-  it("App.css : .settings-page.embedded garde min-height:0 — sinon la feuille de réglages ne défile plus", () => {
-    const appCss = readFileSync(join(__dirname, "..", "..", "App.css"), "utf8")
+  // qu'aucun test ne le remarque. Perf lot 2, tâche 6 : ce bloc a quitté
+  // App.css pour styles/settings-sheet.css (chargé avec le chunk lazy).
+  it("settings-sheet.css : .settings-page.embedded garde min-height:0 — sinon la feuille de réglages ne défile plus", () => {
+    const appCss = readFileSync(join(__dirname, "..", "..", "styles", "settings-sheet.css"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "");
     const rule = appCss.match(/\.settings-page\.embedded\s*\{([^}]*)\}/);
-    expect(rule, ".settings-page.embedded doit exister dans App.css").not.toBeNull();
+    expect(rule, ".settings-page.embedded doit exister dans styles/settings-sheet.css").not.toBeNull();
     const body = rule![1];
     expect(
       body.replace(/\s+/g, " "),

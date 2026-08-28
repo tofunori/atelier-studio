@@ -88,6 +88,20 @@ describe("Réglages en feuille modale", () => {
     // réel côté testing-library) ne progresse pas tout seul. Les timers déjà
     // avancés dans le `act()` ci-dessus suffisent à faire apparaître le
     // dialogue Base UI (pas d'animation d'entrée asynchrone bloquante ici).
+    //
+    // Perf lot 2, tâche 6 : SettingsSheet est désormais `React.lazy` — son
+    // chunk se résout via un VRAI import() dynamique, pas seulement des
+    // microtasks. Sous timers truqués, la résolution peut retomber sur un
+    // setTimeout(0) interne, d'où cette boucle qui alterne avance de
+    // timers et flush microtasks jusqu'à ce que le module soit rendu (ou
+    // que le budget d'itérations soit épuisé, laissant l'assertion finale
+    // échouer avec un message clair plutôt qu'une boucle infinie muette).
+    await act(async () => {
+      for (let i = 0; i < 20 && !document.querySelector(".settings-page"); i++) {
+        await vi.advanceTimersByTimeAsync(50);
+        await flushMicrotasks(10);
+      }
+    });
     expect(document.querySelector(".settings-page")).not.toBeNull();
     // Le cœur du test : le rail n'a PAS été démonté par l'ouverture des
     // réglages — c'est ce que l'ancien `if (showSettings) return` cassait.
