@@ -285,7 +285,11 @@ async fn emit_agent_message_events(state: &AppState, msg: &MailboxMessage) {
             from_title.as_str(),
         ),
     ] {
-        let seq = state.journal().last_sequence(thread_id) + 1;
+        // Allocateur atomique : cette boîte aux lettres agent est l'un de
+        // trois écrivains concurrents (avec send.rs et agent_links.rs) qui
+        // pouvaient obtenir la même séquence via `last_sequence + 1` (course
+        // vécue, revue finale 2026-08-28).
+        let seq = state.journal().next_sequence(thread_id);
         let durable = json!({
             "kind": "agent_message",
             "messageId": msg.id,
