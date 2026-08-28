@@ -69,6 +69,7 @@ import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
 import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
+import { selectEvictableThreads } from "./lib/threadEviction";
 import { openFileRef } from "./components/chat/md";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
@@ -561,6 +562,14 @@ export default function App() {
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
+  // Éviction mémoire (perf, session ouverte plusieurs jours, cf. lib/threadEviction) :
+  // `mruThreadsRef` retient les 3 derniers fils actifs (nouveau inclus) —
+  // simple ref, jamais un state, pour ne provoquer aucun rendu de plus.
+  // `evictedThreadsRef` retient les fils dont `events[id]` a été vidé : leur
+  // prochaine activation contourne la garde `!events[threadId]?.length` des
+  // envois getHistory (rejeu complet et sans danger via mergeHarnessHistory).
+  const mruThreadsRef = useRef<string[]>([]);
+  const evictedThreadsRef = useRef<Set<string>>(new Set());
   // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
   const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
   // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
@@ -848,8 +857,11 @@ export default function App() {
         return n;
       });
       // fil pas encore en mémoire → recharger son historique, comme selectThread
-      if (!eventsRef.current[threadId]?.length && ws.current?.readyState === 1) {
+      // (ou fil ÉVINCÉ — cf. evictedThreadsRef : la garde `!length` serait
+      // trompeuse si un event live l'a re-peuplé partiellement entre-temps)
+      if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+        evictedThreadsRef.current.delete(threadId);
       }
     }
     setActiveView("chats");
@@ -2380,8 +2392,48 @@ export default function App() {
   useEffect(() => {
     if (activeId && wsReady && ws.current?.readyState === 1) {
       ws.current.send(JSON.stringify({ type: "getHistory", threadId: activeId }));
+      // le fil vient d'être relu en entier : la garde des autres sites
+      // getHistory (cf. plus bas) n'a plus besoin d'être contournée pour lui.
+      evictedThreadsRef.current.delete(activeId);
     }
   }, [activeId, wsReady]);
+
+  // Éviction des fils inactifs (perf, session ouverte plusieurs jours) : à
+  // chaque changement de fil actif, les fils SANS tour en cours (`workingSince`
+  // à null), hors nouveau actif et hors MRU (3 derniers visités), perdent leur
+  // `events[id]` — libéré de la RAM, rechargé par getHistory + rejeu à la
+  // prochaine visite (cf. commentaire ci-dessus et lib/threadEviction.ts).
+  // Purement déclenché par le changement de fil actif : `events` et
+  // `workingSince` sont lus via leurs refs (tenues à jour à chaque rendu),
+  // jamais en dépendance, pour ne pas réévaluer l'éviction à chaque delta.
+  useEffect(() => {
+    if (!activeId) return;
+    const mru = mruThreadsRef.current;
+    if (mru[0] !== activeId) {
+      mruThreadsRef.current = [activeId, ...mru.filter((id) => id !== activeId)].slice(0, 3);
+    }
+    const running = new Set(
+      Object.entries(workingSinceRef.current)
+        .filter(([, since]) => since != null)
+        .map(([id]) => id),
+    );
+    const toEvict = selectEvictableThreads({
+      events: eventsRef.current,
+      activeId,
+      mru: mruThreadsRef.current,
+      running,
+    });
+    if (!toEvict.length) return;
+    // flush avant suppression : aucun delta coalescé en attente ne doit être
+    // perdu pour un fil qu'on s'apprête à vider.
+    for (const id of toEvict) streamCoalescer.flush(id);
+    for (const id of toEvict) evictedThreadsRef.current.add(id);
+    setEvents((prev) => {
+      const next = { ...prev };
+      for (const id of toEvict) delete next[id];
+      return next;
+    });
+  }, [activeId]);
 
   // Preuves (tâche 7) : re-demander les épingles à chaque changement de
   // projet actif — sans ça le store garde le projet précédent (ou reste
@@ -2930,8 +2982,10 @@ export default function App() {
     activeIdRef.current = threadId;
     if (!projectRoot) {
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
-      if (!events[threadId]?.length && ws.current?.readyState === 1) {
+      // (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde `!length`)
+      if ((!events[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+        evictedThreadsRef.current.delete(threadId);
       }
       return;
     }
@@ -2942,9 +2996,12 @@ export default function App() {
       return n;
     });
     setActiveProject(projectRoot);
-    // conversation pas encore en mémoire → recharger l'historique de la session
-    if (!events[threadId]?.length && ws.current?.readyState === 1) {
+    // conversation pas encore en mémoire → recharger l'historique de la
+    // session (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde
+    // `!length`, sans danger : mergeHarnessHistory fusionne sans écraser)
+    if ((!events[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
       ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+      evictedThreadsRef.current.delete(threadId);
     }
   }
 
