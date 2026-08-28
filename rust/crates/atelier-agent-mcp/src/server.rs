@@ -1,7 +1,9 @@
 //! Minimal MCP stdio server — single tool `atelier_sessions`.
 
 use crate::bridge::Bridge;
-use crate::schema::{bridge_call_for, help_text, tool_definition, widget_tool_definition, TOOL_NAME};
+use crate::schema::{
+    bridge_call_for, help_text, tool_definition, widget_tool_definition, TOOL_NAME,
+};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 

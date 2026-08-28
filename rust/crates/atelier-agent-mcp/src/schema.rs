@@ -48,10 +48,10 @@ pub fn widget_tool_definition() -> Value {
     json!({
         "name": WIDGET_TOOL_NAME,
         "description": "Afficher un panneau interactif dans le fil de la conversation. \
-HTML autonome : aucun réseau, aucune bibliothèque externe, aucune police distante — \
-tout le calcul se fait en JS local. Les couleurs viennent des variables CSS injectées \
-(--fg, --muted, --border, --accent) ; n'invente pas de palette. Écris le contenu de la \
-page seulement, sans <html>, <head> ni <body>.",
+    HTML autonome : aucun réseau, aucune bibliothèque externe, aucune police distante — \
+    tout le calcul se fait en JS local. Les couleurs viennent des variables CSS injectées \
+    (--fg, --muted, --border, --accent) ; n'invente pas de palette. Écris le contenu de la \
+    page seulement, sans <html>, <head> ni <body>.",
         "inputSchema": {
             "type": "object",
             "required": ["html", "title", "height"],
