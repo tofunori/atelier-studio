@@ -2519,8 +2519,8 @@ rateFilter.querySelectorAll('.rf').forEach(c=>{
 favChip.onclick=()=>{onlyFavs=!onlyFavs;favChip.classList.toggle('off',!onlyFavs);favChip.classList.toggle('on',onlyFavs);rateFilter.style.display=onlyFavs?'inline-flex':'none';if(!onlyFavs){rateMin=0;rateFilter.querySelectorAll('.rf').forEach(x=>{x.classList.remove('on');x.classList.add('off');});}render();};
 const quoteBtn=document.getElementById('quoteClear');
 function quoteCheck(){fetch('/quote').then(r=>r.json()).then(j=>{quotePending=!!j.pending;quoteBtn.style.display=j.pending?'':'none';}).catch(()=>{});}
-quoteCheck(); setInterval(quoteCheck, 30000);
-checkHealth(); setInterval(checkHealth, 60000);
+quoteCheck(); setInterval(() => { if (!document.hidden) quoteCheck(); }, 30000);
+checkHealth(); setInterval(() => { if (!document.hidden) checkHealth(); }, 60000);
 quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=>{}); quoteBtn.style.display='none';};
 document.getElementById('rescan').onclick=async function(){
   if(this.classList.contains('spinning')) return;
@@ -2935,7 +2935,7 @@ render();
   let boot = null;
   const getRev = () => fetch('/rev').then(r => r.json()).then(j => j.rev).catch(() => null);
   getRev().then(r => { boot = r; });
-  setInterval(async () => {
+  async function checkRev(){
     if(boot == null){ boot = await getRev(); return; }
     const lb = document.getElementById('lb');
     if(lb && lb.classList.contains('show')) return;        // a viewer/lightbox is open
@@ -2946,7 +2946,11 @@ render();
       const data=await fetch('/data',{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
       if(data){ applyGalleryData(data); boot=r; }
     }
-  }, 2500);
+  }
+  // onglet masqué : aucune requête ; au retour, un rattrapage immédiat pour ne
+  // pas afficher une galerie périmée pendant jusqu'à 2,5 s
+  setInterval(() => { if (!document.hidden) checkRev(); }, 2500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkRev(); });
 })();
 const galleryUiAsset=path=>{
   const raw='/' + '.fig_thumbs/shadcn-ui/'+path+'?v=__VER__';
