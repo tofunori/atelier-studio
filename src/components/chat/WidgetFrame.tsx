@@ -7,10 +7,15 @@
 // combiné à allow-scripts, le contenu (écrit par un modèle) pourrait retirer
 // lui-même son propre bac à sable.
 import { useEffect, useRef, useState } from "react";
+import { Maximize2Icon, XIcon } from "lucide-react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { getSidecarInfo, sidecarHeaders } from "../../lib/sidecarInfo";
 import { recallWidgetState, rememberWidgetState } from "./widgetState";
+import { Button, IconButton } from "../ui";
+import { CopyIcon } from "../icons";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "../shadcn/dialog";
+import { highlightCode } from "./md";
 
 export type WidgetEvent = Extract<AgentEvent, { kind: "widget" }>;
 export const WIDGET_READY_TIMEOUT_MS = 3000;

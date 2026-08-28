@@ -1,4 +1,4 @@
-import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, act, waitFor, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WidgetFrame } from "./WidgetFrame";
 import type { AgentEvent } from "../../lib/ws";
@@ -242,5 +242,39 @@ describe("WidgetFrame — sendPrompt", () => {
 
     window.removeEventListener("chat-compose-append", ecoute);
     expect(recu).toEqual([]);
+  });
+});
+
+describe("WidgetFrame — actions de barre", () => {
+  beforeEach(() => {
+    resetSidecarInfo();
+    setSidecarInfo({ port: 4123 });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("bascule vers la source lisible et revient au panneau", async () => {
+    mockFetch(async () => new Response("<html>coquille lisible</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-view-source") }));
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("pre code")?.textContent).toContain("coquille lisible");
+
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-view-panel") }));
+    expect(container.querySelector("iframe")).toBeTruthy();
+  });
+
+  it("rend le focus à la timeline sur Échap", async () => {
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+
+    const card = container.querySelector(".widget-block") as HTMLElement;
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    frame.focus();
+    fireEvent.keyDown(card, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(frame);
   });
 });
