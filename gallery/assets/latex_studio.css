@@ -550,3 +550,13 @@
   #texread .tex-matherr{color:#e0726a;font-family:monospace;font-size:.9em}
   #texread .katex{font-size:1.02em}
   #texread .katex-display{margin:14px 0;overflow-x:auto;overflow-y:hidden}
+
+  /* Vue tableau CSV (styles communs dans csv_table.css). Ici : la place que
+     prend le tableau dans la colonne du studio, et ce que le mode tableau
+     retire — les commandes propres à la prose, dont le rewrap qui écraserait
+     les lignes de données. */
+  #csvTools{margin-left:6px;flex:none}
+  body.csvtable #split{display:none}
+  body.csvtable #statusbar{display:none}
+  body.csvtable #toolbarActions{display:none}
+  body.csvtable #state{display:none}

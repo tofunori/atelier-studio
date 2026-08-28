@@ -16,8 +16,16 @@ export interface CsvToolkit {
 export interface CsvViewOptions {
   enabled: boolean;
   getEditor(): StudioEditor | null;
-  wrap: EditorWrapController;
   toolkit: CsvToolkit;
+  // Le contrôle de wrap n'existe que sur les surfaces qui en exposent un dans
+  // l'en-tête ; le studio LaTeX le pilote depuis sa barre d'état et le laisse
+  // vide, sinon le passage en tableau ferait réapparaître un `<select>` que
+  // cette surface garde masqué.
+  wrap?: EditorWrapController | null;
+  // Élément qui porte l'éditeur, masqué en mode tableau. Défaut `#ed`
+  // (éditeur de code) ; le studio LaTeX passe `#split`.
+  editorHost?: HTMLElement | null;
+  onModeChange?(mode: "table" | "source"): void;
   document?: Document;
   window?: Window;
   storage?: Pick<Storage, "getItem" | "setItem">;
@@ -73,7 +81,7 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
   const search = doc.getElementById("csvSearch") as HTMLInputElement;
   const metadata = doc.getElementById("csvMeta") as HTMLElement;
   const more = doc.getElementById("csvMore") as HTMLButtonElement;
-  const editorHost = doc.getElementById("ed") as HTMLElement;
+  const editorHost = options.editorHost || (doc.getElementById("ed") as HTMLElement);
   let currentMode: "table" | "source" = options.enabled
     && storage.getItem("csvViewMode") !== "source" ? "table" : "source";
   let parsed: ParsedCsv | null = null;
@@ -178,7 +186,8 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
     metadata.style.display = tableMode ? "" : "none";
     editorHost.style.display = tableMode ? "none" : "flex";
     view.classList.toggle("show", tableMode);
-    options.wrap.setControlVisible(!tableMode);
+    options.wrap?.setControlVisible(!tableMode);
+    options.onModeChange?.(currentMode);
     if (tableMode) render(true);
     else win.setTimeout(() => options.getEditor()?.refresh(), 0);
   };

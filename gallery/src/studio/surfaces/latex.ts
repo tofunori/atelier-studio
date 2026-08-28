@@ -25,6 +25,7 @@ import {
   type SelectionPillAdapter,
   type StudioStatusBarController,
 } from "../features/latex";
+import {createCsvViewController, type CsvToolkit, type CsvViewController} from "../features/code";
 import type {HtmlSanitizer, MarkdownParser} from "../features/markdown";
 import {
   addRecentStudioFile,
@@ -102,6 +103,7 @@ interface LatexSurfaceWindow extends Window {
 export interface LatexSurfaceDependencies {
   editorFactory: StudioEditorFactory;
   diffFactory(options: StudioDiffFactoryOptions): StudioDiffJournal;
+  csvToolkit: CsvToolkit;
   pdfjs: PdfJs & {GlobalWorkerOptions?: {workerSrc: string}};
   selectionPill: SelectionPillAdapter;
   parser: MarkdownParser;
@@ -144,6 +146,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const isPdfMode = parameters.get("mode") === "pdf";
   const extension = (path || "").split(".").pop()?.toLowerCase() || "";
   const isTex = extension === "tex";
+  const isCsv = extension === "csv";
   const cmMode = MODE_BY_EXTENSION[extension] ?? null;
   const filename = path?.split("/").pop() || "(no file)";
   const channel = "BroadcastChannel" in win && path
@@ -193,6 +196,20 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     storage: win.localStorage,
   });
   const wrapValue = (): string => wrap.current();
+
+  // Un CSV ouvert ici est une table de données avant d'être du texte : même
+  // contrôleur que l'éditeur de code, branché sur `#split` (le wrap se pilote
+  // depuis la barre d'état, pas depuis le `<select>` masqué de l'en-tête).
+  const csv: CsvViewController = createCsvViewController({
+    enabled: isCsv,
+    getEditor: () => editor,
+    toolkit: dependencies.csvToolkit,
+    editorHost: doc.getElementById("split"),
+    onModeChange: (mode) => doc.body.classList.toggle("csvtable", mode === "table"),
+    document: doc,
+    window: win,
+    storage: win.localStorage,
+  });
 
   const ensureAnnotations = (): LatexAnnotationsController => {
     if (annotations) return annotations;
@@ -375,6 +392,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
         if (event.kind === "loaded") {
           addRecentStudioFile(path, win.localStorage);
           dirtyDot.style.display = "none";
+          csv.activate();
           setState("ok", "loaded");
         } else if (event.kind === "saved") {
           dirtyDot.style.display = "none";
@@ -391,6 +409,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
           applyAgentRewrap();
+          csv.onDocumentChanged();
           scheduleAutoCompile();
         } else if (event.kind === "conflict" || event.kind === "error") setState("err", event.message);
       },

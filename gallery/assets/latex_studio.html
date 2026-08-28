@@ -44,11 +44,13 @@
 <script src="/.fig_thumbs/purify.min.js"></script>
 <script src="/.fig_thumbs/diff.min.js"></script>
 <script src="/.fig_thumbs/diff_versions.js"></script>
+<script src="/.fig_thumbs/csv_table.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/katex/katex.min.css">
 <script src="/.fig_thumbs/katex/katex.min.js"></script>
 <script src="/.fig_thumbs/cm6/studio_cm6.bundle.js"></script>
 <script src="/.fig_thumbs/editor_factory.js"></script>
 <script src="/.fig_thumbs/studio_surfaces.bundle.js"></script>
+<link rel="stylesheet" href="/.fig_thumbs/csv_table.css">
 <link rel="stylesheet" href="/.fig_thumbs/latex_studio.css">
 </head>
 <body>
@@ -93,6 +95,14 @@
     <button id="rewrapAllBtn" aria-label="Rewrap tout le document" title="Rewrap tout le document (&#8679;&#8997;Q)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.2h12M2 7.2h9.2M2 11.2h6"/><path d="M11.2 7.2h.8a2.6 2.6 0 0 1 0 5.2H9.5"/><path d="m11 10.6-1.8 1.8 1.8 1.8"/></svg><span id="rewrapAutoDot"></span></button>
     <button id="texcBtn" aria-label="Commentaires" title="Commentaires"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 2.5h9.6A1.7 1.7 0 0 1 14.5 4v6a1.7 1.7 0 0 1-1.7 1.5H8L3.5 15v-3.5h-.3A1.7 1.7 0 0 1 1.5 10V4a1.7 1.7 0 0 1 1.7-1.5Z"/><path d="M4.7 6h6.6M4.7 8.5h4.5" opacity=".7"/></svg></button>
     <button id="moreBtn" aria-label="Plus d’actions" title="Plus&hellip;"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="13" cy="8" r="1.1"/></svg></button>
+  </span>
+  <span id="csvTools">
+    <span class="csvMode" aria-label="CSV view mode">
+      <button id="csvTableBtn" type="button" aria-pressed="true">Tableau</button>
+      <button id="csvSourceBtn" type="button" aria-pressed="false">Source</button>
+    </span>
+    <input id="csvSearch" type="search" aria-label="Rechercher dans le CSV" placeholder="Rechercher dans les lignes">
+    <span id="csvMeta" aria-live="polite"></span>
   </span>
   <span id="state"></span>
   <button id="helpBtn" title="Raccourcis clavier" style="display:none">?</button>
@@ -163,6 +173,11 @@
   <div id="left"></div>
   <div id="right"><div id="marker"></div></div>
 </div>
+<div id="csvView" aria-label="CSV data table" tabindex="0">
+  <div id="csvEmpty">Aucune donnée tabulaire à afficher.</div>
+  <table id="csvTable"><thead></thead><tbody></tbody></table>
+  <button id="csvMore" type="button">Afficher plus de lignes</button>
+</div>
 <div id="picker"><div id="pickerBox">
   <div id="pickerPath"></div>
   <div id="pickerList"></div>
@@ -173,6 +188,7 @@
 AtelierStudioSurfaces.bootstrapLatexSurface({
   editorFactory: AtelierEditorFactory,
   diffFactory: DiffVersions,
+  csvToolkit: AtelierCsv,
   pdfjs: pdfjsLib,
   selectionPill: SelPill,
   parser: marked,

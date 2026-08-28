@@ -10,6 +10,9 @@ const editorFactory = await readFile(new URL("../../assets/editor_factory.js", i
 const editorFactorySource = await readFile(new URL("../../src/studio/core/editor_factory.ts", import.meta.url), "utf8");
 const codeHtml = await readFile(new URL("../../assets/code_editor.html", import.meta.url), "utf8");
 const csvTable = await readFile(new URL("../../assets/csv_table.js", import.meta.url), "utf8");
+const csvCss = await readFile(new URL("../../assets/csv_table.css", import.meta.url), "utf8");
+const codeCss = await readFile(new URL("../../assets/code_editor.css", import.meta.url), "utf8");
+const latexCss = await readFile(new URL("../../assets/latex_studio.css", import.meta.url), "utf8");
 const markdownHtml = await readFile(new URL("../../assets/md_viewer.html", import.meta.url), "utf8");
 const themeBridge = await readFile(new URL("../../assets/atelier_theme.js", import.meta.url), "utf8");
 const diffViewer = await readFile(new URL("../../assets/diff_viewer.html", import.meta.url), "utf8");
@@ -371,6 +374,36 @@ test("CSV files default to a semantic data table while preserving the source edi
   assert.match(csvTable, /detectDelimiter/);
   assert.match(csvTable, /classify/);
   assert.doesNotMatch(codeHtml, /function renderCsv\(|function csvCell\(/);
+});
+
+test("the LaTeX studio shows the same CSV table — a file opened from the chat lands here", () => {
+  // Un clic sur un `.csv` dans le chat ouvre `latex_studio.html`, pas
+  // `code_editor.html` : sans ce câblage, la table ne s'affichait jamais.
+  assert.match(studioHtml, /csv_table\.js/);
+  assert.match(studioHtml, /csv_table\.css/);
+  assert.match(studioHtml, /csvToolkit: AtelierCsv/);
+  assert.match(studioHtml, /id="csvView"/);
+  assert.match(studioHtml, /id="csvTableBtn"[^>]+aria-pressed="true"/);
+  assert.match(studioHtml, /id="csvSourceBtn"[^>]+aria-pressed="false"/);
+  assert.match(latexSurfaceSource, /createCsvViewController/);
+  assert.match(latexSurfaceSource, /extension === "csv"/);
+  assert.match(latexSurfaceSource, /editorHost: doc\.getElementById\("split"\)/);
+  // La barre d'état et les commandes de prose (rewrap compris) disparaissent
+  // en mode tableau : un rewrap collerait les lignes de données entre elles.
+  assert.match(latexCss, /body\.csvtable #split\{display:none\}/);
+  assert.match(latexCss, /body\.csvtable #toolbarActions\{display:none\}/);
+  // Le studio LaTeX pilote son wrap depuis la barre d'état : le contrôleur
+  // CSV ne doit pas révéler le `<select>` que l'en-tête garde masqué.
+  assert.doesNotMatch(latexSurfaceSource, /createCsvViewController\([\s\S]{0,400}?\bwrap,/);
+});
+
+test("both editor surfaces share one CSV stylesheet instead of duplicating it", () => {
+  assert.match(csvCss, /#csvTable thead th\{position:sticky/);
+  assert.doesNotMatch(codeCss, /#csvTable/);
+  assert.doesNotMatch(latexCss, /#csvTable/);
+  for (const [name, html] of [["latex", studioHtml], ["code", codeHtml]]) {
+    assert.match(html, /csv_table\.css/, `${name} ne charge pas la feuille CSV partagée`);
+  }
 });
 
 test("every embedded HTML surface loads the shared Atelier theme bridge", async () => {

@@ -400,6 +400,9 @@
     #lb.prov:not(.fs):not(.vw):not(.annot){padding-right:348px}
     #lb.prov:not(.fs):not(.vw):not(.annot) #lbImg{max-width:calc(94vw - 348px)}
     #lb.prov:not(.fs):not(.vw):not(.annot) #lbCap{max-width:calc(94vw - 348px)}
+    /* le chevron « suivant » vit à droite : sans ce décalage il passe SOUS le
+       panneau (z-index 101 < 102) et la navigation à la souris disparaît */
+    #lb.prov:not(.fs):not(.vw):not(.annot) #lbNext{right:348px}
   }
   #provPanel .pvHead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
   #provPanel h3{margin:0;font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--txt);line-height:1.3}
