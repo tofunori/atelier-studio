@@ -59,11 +59,30 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     window: win,
     storage: win.localStorage,
   });
+  // « selection visible to Claude » (l'en-tête le promet) doit valoir aussi en
+  // mode tableau : sans ça, sélectionner des lignes du CSV ne renseigne plus
+  // ~/.claude/fig-selection.json.
+  const postSelectionInfo = (payload: Record<string, unknown>): void => {
+    void win.fetch("/selinfo", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    }).catch(() => undefined);
+  };
   const csv = createCsvViewController({
     enabled: isCsv,
     getEditor: () => editor,
     wrap,
     toolkit: dependencies.csvToolkit,
+    onSelection: (selection) => postSelectionInfo({
+      lines: selection.lines,
+      words: selection.words,
+      text: selection.text,
+      rel: path,
+      name: filename,
+      page: `L${selection.from.line + 1}-${selection.to.line + 1}`,
+    }),
+    onSelectionCleared: () => postSelectionInfo({lines: 0, words: 0}),
     document: doc,
     window: win,
     storage: win.localStorage,

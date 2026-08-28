@@ -25,12 +25,37 @@ const CSV = [
 ].join("\n");
 
 function fakeEditor(text) {
+  const lines = text.split("\n");
   return {
     getValue: () => text,
+    getLine: (line) => lines[line] ?? "",
+    lineCount: () => lines.length,
     refresh: () => {},
     getWrapperElement: () => ({style: {}}),
     setOption: () => {},
   };
+}
+
+/** jsdom ne fait pas de mise en page : sans rectangle, le contrôleur refuse
+ *  d'ancrer la pastille. On lui en donne un, comme le ferait un navigateur. */
+function stubRectangles(win) {
+  const rect = {left: 10, right: 210, top: 40, bottom: 60, width: 200, height: 20};
+  win.Range.prototype.getBoundingClientRect = () => rect;
+  win.Element.prototype.getBoundingClientRect = () => (
+    {left: 0, right: 900, top: 0, bottom: 600, width: 900, height: 600});
+  return rect;
+}
+
+/** Sélectionne le contenu des cellules `first` → `last` (indices d'affichage). */
+function selectRows(dom, doc, first, last) {
+  const rows = doc.querySelectorAll("#csvTable tbody tr");
+  const range = doc.createRange();
+  range.setStart(rows[first].children[1], 0);
+  range.setEnd(rows[last].children[2], rows[last].children[2].childNodes.length);
+  const selection = dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return rows;
 }
 
 function memoryStorage() {
@@ -117,4 +142,98 @@ test("the code editor surface keeps its own default host and wrap control", asyn
   controller.setMode("source");
   assert.equal(doc.getElementById("ed").style.display, "flex");
   assert.deepEqual(wrapCalls, [false, true]);
+});
+
+test("selecting rows in the table sends the source lines, not the rendered cells", async () => {
+  const seen = [];
+  const {dom, doc, controller} = await mountSurface("latex_studio.html", (document) => ({
+    editorHost: document.getElementById("split"),
+    onSelection: (selection) => seen.push(selection),
+  }));
+  stubRectangles(dom.window);
+  controller.activate();
+  selectRows(dom, doc, 0, 1);
+  controller.readSelection();
+
+  assert.equal(seen.length, 1);
+  const [selection] = seen;
+  // Lignes 2 et 3 du fichier (l'en-tête est la ligne 1) — le passage est le
+  // SOURCE, pas les cellules rendues, sinon un agent reçoit du texte qu'il ne
+  // retrouve pas dans le fichier.
+  assert.equal(selection.from.line, 1);
+  assert.equal(selection.from.ch, 0);
+  assert.equal(selection.to.line, 2);
+  assert.equal(selection.text, [
+    "Alaska,2000,45.88379869548132",
+    "Alaska,2001,-27.10431231414758",
+  ].join("\n"));
+  assert.equal(selection.lines, 2);
+  assert.equal(selection.anchor.caret.bottom, 60);
+});
+
+test("a sorted table still reports the file order, not the screen order", async () => {
+  const seen = [];
+  const {dom, doc, controller} = await mountSurface("latex_studio.html", (document) => ({
+    editorHost: document.getElementById("split"),
+    onSelection: (selection) => seen.push(selection),
+  }));
+  stubRectangles(dom.window);
+  controller.activate();
+  // Tri décroissant sur la 1re colonne : « Global » (ligne 4) passe en tête,
+  // au-dessus des lignes 2-3.
+  const header = doc.querySelectorAll("#csvTable thead th")[1];
+  header.onclick();
+  header.onclick();
+  const rows = selectRows(dom, doc, 0, 1);
+  assert.deepEqual([rows[0].dataset.line, rows[1].dataset.line], ["4", "3"]);
+  controller.readSelection();
+
+  // À l'écran la sélection descend de la ligne 4 vers la ligne 3 ; le passage
+  // publié, lui, suit le fichier : lignes 3 puis 4.
+  const [selection] = seen;
+  assert.deepEqual([selection.from.line, selection.to.line], [2, 3]);
+  assert.equal(selection.text, [
+    "Alaska,2001,-27.10431231414758",
+    "Global,2000,-78.04414729402814",
+  ].join("\n"));
+});
+
+test("collapsing or leaving the table clears the published selection", async () => {
+  const events = [];
+  const {dom, doc, controller} = await mountSurface("latex_studio.html", (document) => ({
+    editorHost: document.getElementById("split"),
+    onSelection: () => events.push("selection"),
+    onSelectionCleared: () => events.push("cleared"),
+  }));
+  stubRectangles(dom.window);
+  controller.activate();
+  selectRows(dom, doc, 0, 0);
+  controller.readSelection();
+  dom.window.getSelection().removeAllRanges();
+  controller.readSelection();
+  assert.deepEqual(events, ["selection", "cleared"]);
+
+  // Une sélection hors du tableau (l'en-tête de la page) n'est pas la nôtre :
+  // on la laisse à qui de droit plutôt que d'effacer la sienne.
+  const outside = doc.createRange();
+  outside.selectNodeContents(doc.getElementById("csvTableBtn"));
+  const selection = dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(outside);
+  controller.readSelection();
+  assert.deepEqual(events, ["selection", "cleared"]);
+});
+
+test("the source mode leaves the selection to the editor bridge", async () => {
+  const events = [];
+  const {dom, doc, controller} = await mountSurface("latex_studio.html", (document) => ({
+    editorHost: document.getElementById("split"),
+    onSelection: () => events.push("selection"),
+  }));
+  stubRectangles(dom.window);
+  controller.activate();
+  selectRows(dom, doc, 0, 0);
+  controller.setMode("source");
+  controller.readSelection();
+  assert.deepEqual(events, []);
 });

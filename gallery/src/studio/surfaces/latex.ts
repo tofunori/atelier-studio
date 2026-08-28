@@ -25,7 +25,12 @@ import {
   type SelectionPillAdapter,
   type StudioStatusBarController,
 } from "../features/latex";
-import {createCsvViewController, type CsvToolkit, type CsvViewController} from "../features/code";
+import {
+  createCsvViewController,
+  type CsvSelection,
+  type CsvToolkit,
+  type CsvViewController,
+} from "../features/code";
 import type {HtmlSanitizer, MarkdownParser} from "../features/markdown";
 import {
   addRecentStudioFile,
@@ -205,11 +210,43 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     getEditor: () => editor,
     toolkit: dependencies.csvToolkit,
     editorHost: doc.getElementById("split"),
-    onModeChange: (mode) => doc.body.classList.toggle("csvtable", mode === "table"),
+    onModeChange: (mode) => {
+      doc.body.classList.toggle("csvtable", mode === "table");
+      if (mode === "source") selectionPill?.hide();
+    },
+    onSelection: (selection) => publishCsvSelection(selection),
+    onSelectionCleared: () => {
+      selectionPill?.hide();
+      void postSelectionInfo({lines: 0, words: 0});
+    },
     document: doc,
     window: win,
     storage: win.localStorage,
   });
+
+  // « ma sélection » (~/.claude/fig-selection.json) passe par /selinfo : le
+  // tableau doit l'alimenter comme le fait le pont d'édition, sinon
+  // sélectionner des lignes ne dit plus rien à l'agent.
+  const postSelectionInfo = (payload: Record<string, unknown>): Promise<unknown> =>
+    win.fetch("/selinfo", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    }).catch(() => undefined);
+
+  const publishCsvSelection = (selection: CsvSelection): void => {
+    void postSelectionInfo({
+      lines: selection.lines,
+      words: selection.words,
+      text: selection.text,
+      rel: path,
+      name: filename,
+      page: `L${selection.from.line + 1}-${selection.to.line + 1}`,
+    });
+    ensureSelectionPill().show(selection.from, selection.to, selection.text, selection.anchor);
+  };
+
+  const ownsSelection = (): boolean => Boolean(reader?.isReading()) || csv.mode() === "table";
 
   const ensureAnnotations = (): LatexAnnotationsController => {
     if (annotations) return annotations;
@@ -501,8 +538,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       // En Lecture, la pastille appartient à la sélection de PROSE ; l'éditeur
       // est masqué et sa sélection vide ne veut rien dire. Sans cette garde,
       // le pont l'escamotait ~200 ms après son affichage (délai de publish).
-      onSkipped: () => { if (!reader?.isReading()) ensureSelectionPill().hide(); },
-      onEmpty: () => { if (!reader?.isReading()) ensureSelectionPill().hide(); },
+      // En Lecture comme en mode tableau, la sélection appartient à la vue
+      // affichée ; l'éditeur masqué et sa sélection vide n'ont pas voix au
+      // chapitre — sans cette garde, la pastille s'escamotait ~200 ms après
+      // son affichage (délai de publish).
+      onSkipped: () => { if (!ownsSelection()) ensureSelectionPill().hide(); },
+      onEmpty: () => { if (!ownsSelection()) ensureSelectionPill().hide(); },
       buildPayload: (selection) => ({
         lines: selection.lines,
         words: selection.words,

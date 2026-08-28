@@ -1,4 +1,4 @@
-import type {StudioEditor} from "../../core/editor_contract";
+import type {StudioEditor, StudioPosition} from "../../core/editor_contract";
 import type {EditorWrapController} from "../../core/editor_wrap";
 
 interface ParsedCsv {
@@ -11,6 +11,21 @@ export interface CsvToolkit {
   parse(source: string): ParsedCsv;
   classify(value: string): string;
   compare(left: string, right: string): number;
+}
+
+/** Sélection faite dans le TABLEAU, exprimée en positions du fichier source :
+ *  la pastille et `/selinfo` parlent la même langue que l'éditeur, qu'on
+ *  passe par CodeMirror ou par les cellules. */
+export interface CsvSelection {
+  text: string;
+  from: StudioPosition;
+  to: StudioPosition;
+  words: number;
+  lines: number;
+  anchor: {
+    box: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">;
+    caret: {left: number; top: number; bottom: number};
+  };
 }
 
 export interface CsvViewOptions {
@@ -26,6 +41,8 @@ export interface CsvViewOptions {
   // (éditeur de code) ; le studio LaTeX passe `#split`.
   editorHost?: HTMLElement | null;
   onModeChange?(mode: "table" | "source"): void;
+  onSelection?(selection: CsvSelection): void;
+  onSelectionCleared?(): void;
   document?: Document;
   window?: Window;
   storage?: Pick<Storage, "getItem" | "setItem">;
@@ -34,6 +51,8 @@ export interface CsvViewOptions {
 
 export interface CsvViewController {
   mode(): "table" | "source";
+  /** La sélection courante du tableau, relue à la demande (mouseup/keyup). */
+  readSelection(): void;
   activate(): void;
   setMode(mode: "table" | "source"): void;
   render(resetLimit?: boolean): void;
@@ -128,6 +147,7 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
     table.style.display = headers.length ? "table" : "none";
     if (headers.length) {
       const row = doc.createElement("tr");
+      row.dataset.line = "1";
       const corner = doc.createElement("th");
       corner.className = "csvIndex";
       corner.textContent = "#";
@@ -157,6 +177,9 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
     const fragment = doc.createDocumentFragment();
     shown.forEach((item) => {
       const row = doc.createElement("tr");
+      // La ligne source portée par le DOM : le tri et la recherche réordonnent
+      // l'affichage, seule cette marque relie une cellule à son fichier.
+      row.dataset.line = String(item.index + 2);
       const index = doc.createElement("td");
       index.className = "csvIndex";
       index.textContent = String(item.index + 2);
@@ -173,6 +196,58 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
     metadata.textContent = `${allRows.length.toLocaleString()} lignes × ${parsed.width} colonnes · séparateur ${delimiter}`;
     more.style.display = allRows.length > shown.length ? "block" : "none";
     more.textContent = `Afficher ${Math.min(pageSize, allRows.length - shown.length).toLocaleString()} lignes de plus`;
+  };
+
+  // Sélectionner dans le tableau doit valoir ce que vaut une sélection dans
+  // l'éditeur : « ma sélection » et la pastille « Add to chat ». On remonte
+  // des cellules vers les LIGNES DU SOURCE (comme la vue Lecture renvoie le
+  // passage source, jamais le rendu) — un agent reçoit ainsi des lignes CSV
+  // exploitables, pas des cellules déracinées.
+  const rowLine = (node: Node | null): number | null => {
+    const element = node?.nodeType === 1 ? node as Element : node?.parentElement || null;
+    const row = element?.closest?.<HTMLTableRowElement>("tr[data-line]") || null;
+    const line = Number.parseInt(row?.dataset.line || "", 10);
+    return Number.isFinite(line) && line > 0 ? line - 1 : null;
+  };
+
+  const readSelection = (): void => {
+    if (!options.enabled || currentMode !== "table" || !options.onSelection) return;
+    const editor = options.getEditor();
+    const selection = win.getSelection();
+    if (!editor || !selection) return;
+    const text = String(selection.toString() || "").trim();
+    if (!text || selection.isCollapsed || selection.rangeCount === 0) {
+      options.onSelectionCleared?.();
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!view.contains(range.commonAncestorContainer)) return;
+    const first = rowLine(range.startContainer);
+    const last = rowLine(range.endContainer);
+    if (first === null || last === null) {
+      options.onSelectionCleared?.();
+      return;
+    }
+    // Le tri peut placer la ligne 40 au-dessus de la ligne 12 : c'est l'ordre
+    // du FICHIER qui fait le passage, pas l'ordre à l'écran.
+    const from = Math.min(first, last);
+    const to = Math.max(first, last);
+    const lines: string[] = [];
+    for (let line = from; line <= to; line += 1) lines.push(editor.getLine(line));
+    const passage = lines.join("\n");
+    const rect = range.getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    options.onSelection({
+      text: passage,
+      from: {line: from, ch: 0},
+      to: {line: to, ch: (lines[lines.length - 1] || "").length},
+      words: passage.trim().split(/\s+/).filter(Boolean).length,
+      lines: lines.length,
+      anchor: {
+        box: view.getBoundingClientRect(),
+        caret: {left: rect.right, top: rect.top, bottom: rect.bottom},
+      },
+    });
   };
 
   const setMode = (mode: "table" | "source"): void => {
@@ -204,9 +279,14 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
       visibleRows += pageSize;
       render(false);
     };
+    view.addEventListener("mouseup", () => win.setTimeout(readSelection, 0));
+    view.addEventListener("keyup", (event) => {
+      if ((event as KeyboardEvent).shiftKey) win.setTimeout(readSelection, 0);
+    });
   }
   return {
     mode: () => currentMode,
+    readSelection,
     activate: () => setMode(currentMode),
     setMode,
     render,
