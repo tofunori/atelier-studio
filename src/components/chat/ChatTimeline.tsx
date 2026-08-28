@@ -5,6 +5,7 @@
 // noms locaux d'origine pour garantir l'équivalence pixel.
 import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { stabilizeVirtualRows } from "./virtualRows";
 import { isWebSearchName, Tick } from "./toolPresentation";
 import { SourcesCard } from "./SourcesCard";
 import { AgentEvent } from "../../lib/ws";
@@ -65,7 +66,7 @@ type RenderedItem =
   | { type: "actions"; actions: ToolAction[]; index: number; key: string }
   | { type: "agents"; actions: AgentToolAction[]; index: number; key: string };
 
-type TimelineVirtualItem =
+export type TimelineVirtualItem =
   | { type: "empty"; key: "timeline-empty" }
   | { type: "rendered"; key: string; item: RenderedItem }
   | { type: "working"; key: "message-working" };
@@ -270,6 +271,7 @@ export function ChatTimeline(p: {
   const [isFirstTurnSettling, setIsFirstTurnSettling] = React.useState(false);
   const hadTimelineEventsRef = React.useRef(events.length > 0);
   const phaseRef = React.useRef<TurnPhase>(phase);
+  const prevRowsRef = React.useRef(new Map<string, TimelineVirtualItem>());
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
@@ -279,7 +281,9 @@ export function ChatTimeline(p: {
     if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });
     }
-    return rows;
+    const stable = stabilizeVirtualRows(prevRowsRef.current, rows);
+    prevRowsRef.current = new Map(stable.map((r) => [r.key, r]));
+    return stable;
   }, [events.length, renderedEvents, threadId, workingSince]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
@@ -685,6 +689,8 @@ export function ChatTimeline(p: {
         ref={timelineListRef}
         data={virtualItems}
         extraData={listExtraData}
+        // sans itemsAreEqual, LegendList updateData() même à identité égale
+        itemsAreEqual={(a, b) => a === b}
         keyExtractor={(row) => row.key}
         estimatedItemSize={90}
         estimatedListSize={{ height: 800, width: 760 }}
