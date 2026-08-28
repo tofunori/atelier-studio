@@ -1704,6 +1704,156 @@ git commit -m "feat(chat): actions de barre du widget et sortie clavier"
 
 ---
 
+### Task 11: Plafond par tour et ménage à la suppression d'un fil
+
+> Ajoutée après coup. La vérification indépendante (Fable 5) a montré que deux
+> exigences de la spec — §B.1 « plafond de 8 widgets par tour » et §B.6 « les
+> fichiers d'un thread supprimé partent avec lui » — n'étaient assignées à
+> AUCUNE tâche. L'auto-revue du plan prétendait le contraire ; elle avait tort.
+
+**Files:**
+- Modify: `rust/crates/atelier-runtime/src/agent_mcp.rs` (struct `AgentCapabilityGrant`, `CapabilityRegistry::issue`, nouvelle méthode)
+- Modify: `rust/crates/atelier-runtime/src/widgets.rs` (`action_show_widget`, `purge_thread_widgets`)
+- Modify: `rust/crates/atelier-runtime/src/ws_router.rs:269-271` (le chemin de suppression d'un fil)
+- Test: les modules `#[cfg(test)]` de `agent_mcp.rs` et `widgets.rs`
+
+**Interfaces:**
+- Consumes: `widget_dir` (tâche 3), `action_show_widget` (tâche 4), `CapabilityRegistry` (existant).
+- Produces:
+  - `pub const WIDGETS_PER_TURN_MAX: u32 = 8;` (dans `widgets.rs`)
+  - `CapabilityRegistry::try_consume_widget_slot(&mut self, thread_id: &str, max: u32) -> bool`
+  - `pub fn purge_thread_widgets(app_dir: &Path, thread_id: &str) -> bool`
+
+**Pourquoi le compteur vit dans le grant de capacité :** `issue_mcp_launch`
+(`agent_mcp.rs:155`) est appelé depuis `send.rs:1250`, donc un grant neuf est
+émis à chaque envoi. Le grant EST le marqueur de tour — un compteur posé dessus
+repart à zéro tout seul, sans plomberie de tour à inventer.
+
+- [ ] **Step 1: Write the failing tests**
+
+Dans le module `#[cfg(test)]` de `agent_mcp.rs` :
+
+```rust
+    #[test]
+    fn widget_slots_are_bounded_per_turn_and_reset_on_the_next_one() {
+        let mut reg = CapabilityRegistry::new();
+        reg.issue("t1", "/tmp/proj", "claude", None);
+
+        for i in 0..8 {
+            assert!(reg.try_consume_widget_slot("t1", 8), "le slot {i} devait passer");
+        }
+        assert!(!reg.try_consume_widget_slot("t1", 8), "le 9e doit être refusé");
+
+        // tour suivant : nouveau grant, compteur remis à zéro
+        reg.issue("t1", "/tmp/proj", "claude", None);
+        assert!(reg.try_consume_widget_slot("t1", 8), "le tour suivant repart à zéro");
+
+        // un fil sans grant ne consomme rien
+        assert!(!reg.try_consume_widget_slot("inconnu", 8));
+    }
+```
+
+Dans le module `#[cfg(test)]` de `widgets.rs` :
+
+```rust
+    #[test]
+    fn deleting_a_thread_takes_its_widgets_with_it() {
+        let dir = tempdir().unwrap();
+        let id = new_widget_id();
+        write_widget(dir.path(), "t1", &id, "<html>coquille</html>").unwrap();
+        write_widget(dir.path(), "t2", &new_widget_id(), "<html>autre</html>").unwrap();
+
+        assert!(purge_thread_widgets(dir.path(), "t1"));
+        assert_eq!(read_widget(dir.path(), "t1", &id), None);
+        assert!(!widget_dir(dir.path(), "t1").exists());
+        // le fil voisin n'est pas touché
+        assert!(widget_dir(dir.path(), "t2").exists());
+        // idempotent : purger deux fois ne casse rien
+        assert!(!purge_thread_widgets(dir.path(), "t1"));
+    }
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cargo test -p atelier-runtime`
+Expected: FAIL — `cannot find function 'try_consume_widget_slot'`, `cannot find function 'purge_thread_widgets'`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Dans `agent_mcp.rs`, ajouter le champ au grant et l'initialiser à zéro dans `issue` :
+
+```rust
+pub struct AgentCapabilityGrant {
+    // … champs existants …
+    /// Widgets déjà affichés sous CE grant. Un grant neuf = un tour neuf.
+    pub widgets_this_turn: u32,
+}
+```
+
+(dans `issue`, ajouter `widgets_this_turn: 0,` à la construction du grant), puis :
+
+```rust
+impl CapabilityRegistry {
+    /// Consomme un emplacement de widget pour le tour courant. Le compteur vit
+    /// dans le grant : un nouveau grant repart à zéro sans réinitialisation
+    /// explicite. Un fil sans grant ne consomme rien.
+    pub fn try_consume_widget_slot(&mut self, thread_id: &str, max: u32) -> bool {
+        match self.grants.get_mut(thread_id) {
+            Some(g) if g.widgets_this_turn < max => {
+                g.widgets_this_turn += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+```
+
+Dans `widgets.rs`, la constante, la purge, et le branchement en TÊTE de `action_show_widget` (avant toute écriture — un appel refusé ne doit rien laisser sur disque) :
+
+```rust
+pub const WIDGETS_PER_TURN_MAX: u32 = 8;
+
+/// Retire tout le dossier de widgets d'un fil. Rend `true` si quelque chose a
+/// été supprimé. Idempotent : purger un fil déjà purgé n'est pas une erreur.
+pub fn purge_thread_widgets(app_dir: &Path, thread_id: &str) -> bool {
+    let dir = widget_dir(app_dir, thread_id);
+    dir.exists() && std::fs::remove_dir_all(&dir).is_ok()
+}
+```
+
+et, première instruction de `action_show_widget` :
+
+```rust
+    {
+        let mut reg = state.capabilities().lock().await;
+        if !reg.try_consume_widget_slot(caller_id, WIDGETS_PER_TURN_MAX) {
+            return Err("widget_turn_limit".into());
+        }
+    }
+```
+
+Dans `ws_router.rs`, à la suppression d'un fil (vers la ligne 269, juste après
+`let _ = state.journal().delete_thread(id);`) :
+
+```rust
+            crate::widgets::purge_thread_widgets(state.app_dir(), id);
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cargo test -p atelier-runtime`
+Expected: PASS, suite complète verte.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rust/crates/atelier-runtime/src/agent_mcp.rs rust/crates/atelier-runtime/src/widgets.rs rust/crates/atelier-runtime/src/ws_router.rs
+git commit -m "feat(widgets): plafond de 8 par tour et purge des fichiers a la suppression du fil"
+```
+
+---
+
 ## Vérification manuelle finale (Thierry, hors harness)
 
 Le plan ne peut pas lancer l'app (`npm run tauri dev` ne survit pas à un harness d'agent). À la fin des 10 tâches, la boucle complète se vérifie ainsi :
