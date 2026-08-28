@@ -4401,6 +4401,41 @@ mod tests {
         assert!(v["threads"].as_array().unwrap().is_empty());
     }
 
+    /// Le branchement, pas seulement la fonction pure : supprimer un fil
+    /// doit emporter ses widgets sur disque (relecture finale 2026-08-28).
+    #[tokio::test]
+    async fn delete_thread_takes_its_widgets_off_disk() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        route_ws(
+            &s,
+            r#"{"type":"upsertThread","thread":{"id":"t1","title":"A","provider":"codex"}}"#,
+        )
+        .await;
+        route_ws(
+            &s,
+            r#"{"type":"upsertThread","thread":{"id":"t2","title":"B","provider":"codex"}}"#,
+        )
+        .await;
+
+        let id1 = crate::widgets::new_widget_id();
+        let id2 = crate::widgets::new_widget_id();
+        crate::widgets::write_widget(s.app_dir(), "t1", &id1, "<html>un</html>").unwrap();
+        crate::widgets::write_widget(s.app_dir(), "t2", &id2, "<html>deux</html>").unwrap();
+        assert!(crate::widgets::read_widget(s.app_dir(), "t1", &id1).is_some());
+
+        route_ws(&s, r#"{"type":"deleteThread","threadId":"t1"}"#).await;
+
+        assert_eq!(
+            crate::widgets::read_widget(s.app_dir(), "t1", &id1),
+            None,
+            "les widgets du fil supprimé sont restés sur disque"
+        );
+        assert!(!crate::widgets::widget_dir(s.app_dir(), "t1").exists());
+        // le fil voisin n'est pas touché
+        assert!(crate::widgets::read_widget(s.app_dir(), "t2", &id2).is_some());
+    }
+
     #[tokio::test]
     async fn evidence_pin_roundtrip_over_ws() {
         let dir = tempdir().unwrap();

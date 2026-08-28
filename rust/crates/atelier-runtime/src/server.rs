@@ -793,18 +793,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn widget_route_serves_existing_widget_and_returns_404_for_missing() {
-        use crate::widgets::{new_widget_id, write_widget};
+    async fn widget_route_serves_a_real_shell_and_returns_404_for_missing() {
+        use crate::widgets::{new_widget_id, parse_widget_input, wrap_shell, write_widget};
 
         let (state, _dir) = test_state(None).await;
         let thread_id = "test-thread-1";
         let widget_id = new_widget_id();
-        let widget_html = "<html><p>widget content</p></html>";
+        // une VRAIE coquille, pas une chaîne brute : c'est ce que le
+        // frontend injecte en `srcdoc`, CSP et pont postMessage compris.
+        let input = parse_widget_input(
+            &serde_json::json!({"html": "<p>salut</p>", "title": "titre", "height": 420}),
+        )
+        .unwrap();
+        let shell = wrap_shell(&input);
+        write_widget(state.app_dir(), thread_id, &widget_id, &shell).unwrap();
 
-        // Write a widget to disk
-        write_widget(state.app_dir(), thread_id, &widget_id, widget_html).unwrap();
-
-        // Build app router and request the widget
         let app = app_router(state.clone());
         let res = app
             .oneshot(
@@ -816,7 +819,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Verify 200 OK with correct Content-Type and body
         assert_eq!(res.status(), Sc::OK);
         let content_type = res
             .headers()
@@ -826,7 +828,11 @@ mod tests {
             .unwrap();
         assert_eq!(content_type, "text/html; charset=utf-8");
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&bytes[..], widget_html.as_bytes());
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert_eq!(body, shell, "le corps servi est la coquille, octet pour octet");
+        assert!(body.starts_with("<!doctype html>"));
+        assert!(body.contains("default-src 'none'"));
+        assert!(body.contains("<p>salut</p>"));
 
         // Verify 404 for missing widget
         let app = app_router(state);
@@ -841,5 +847,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), Sc::NOT_FOUND);
+    }
+
+    /// C'était la SEULE route sans jeton, avec un `CorsLayer` en
+    /// `allow_origin(Any)` (relecture finale 2026-08-28, I4).
+    #[tokio::test]
+    async fn widget_route_requires_the_token_like_every_other_route() {
+        use crate::widgets::{new_widget_id, write_widget};
+
+        let (state, _dir) = test_state(Some("secret")).await;
+        let widget_id = new_widget_id();
+        write_widget(state.app_dir(), "t1", &widget_id, "<html>coquille</html>").unwrap();
+        let uri = format!("/widgets/t1/{widget_id}");
+
+        let res = app_router(state.clone())
+            .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::UNAUTHORIZED);
+
+        let res = app_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .header("x-atelier-token", "pas-le-bon")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::UNAUTHORIZED);
+
+        let res = app_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .header("x-atelier-token", "secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::OK);
     }
 }

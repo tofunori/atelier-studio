@@ -262,12 +262,26 @@ pub fn serve_body(app_dir: &Path, thread_id: &str, id: &str) -> Option<String> {
 }
 
 /// Handler HTTP pour servir le HTML du widget.
+///
+/// Comme `/health`, `/providers`, `/setup` et `/uistate` : le jeton est
+/// EXIGÉ. C'était la seule route qui ne le demandait pas, alors que le
+/// `CorsLayer` est `allow_origin(Any)` — n'importe quelle page ouverte dans
+/// un navigateur pouvait lire la coquille d'un widget en devinant son id. Le
+/// frontend envoie déjà `sidecarHeaders(info)` (`WidgetFrame.tsx`).
 pub async fn widget_html_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
     axum::extract::Path((thread_id, id)): axum::extract::Path<(String, String)>,
 ) -> axum::response::Response {
     use axum::http::{header, StatusCode};
     use axum::response::IntoResponse;
+
+    let token = headers
+        .get("x-atelier-token")
+        .and_then(|v| v.to_str().ok());
+    if !state.authorized(token) {
+        return (StatusCode::UNAUTHORIZED, "jeton requis").into_response();
+    }
 
     match serve_body(state.app_dir(), &thread_id, &id) {
         Some(body) => (
