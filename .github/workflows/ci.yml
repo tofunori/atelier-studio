@@ -31,6 +31,13 @@ jobs:
         with: { workspaces: src-tauri }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      # poppler fournit `pdftotext`, que le crate atelier-kb spawn pour extraire
+      # un PDF (règle Rust-first : les outils externes sont appelés depuis Rust).
+      # Sans lui, deux tests d'extraction échouaient EN CI seulement — verts sur
+      # le poste de Thierry, qui l'a installé (2026-08-27). On fournit l'outil
+      # plutôt que de neutraliser les tests : ils couvrent une extraction réelle.
+      - name: Install external tools (pdftotext)
+        run: brew install poppler
       - name: Install root deps
         run: npm ci
       - name: Install sidecar deps

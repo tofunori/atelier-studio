@@ -22,6 +22,10 @@ jobs:
         with: { workspaces: src-tauri }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      # même besoin que ci.yml : `npm run verify` (ligne suivante) exécute les
+      # tests d'extraction PDF du crate atelier-kb, qui spawnent pdftotext.
+      - name: Install external tools (pdftotext)
+        run: brew install poppler
       - name: Install frontend deps
         run: npm ci
       - name: Install sidecar deps (pour le staging)
