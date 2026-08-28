@@ -473,7 +473,7 @@ export default function Chat(p: {
   function annotateAndSend(text: string, note: string) {
     if (!text.trim()) return;
     addAnnotation(text, note);
-    requestAnimationFrame(() => composerRef.current?.requestSubmit());
+    composerRef.current?.requestSubmit();
   }
   // retrait EXPLICITE (action nommée dans le popover, jamais silencieux) :
   // retire le mark local ET la fiche correspondante (match threadId+text+kind)
