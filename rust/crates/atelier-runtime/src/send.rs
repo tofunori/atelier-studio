@@ -269,17 +269,23 @@ async fn maybe_title_new_thread(
 
 fn make_emit(state: AppState, thread_id: String) -> EmitFn {
     Arc::new(move |event: Value| {
-        let automation_state = state.clone();
-        let automation_thread_id = thread_id.clone();
-        let automation_event = event.clone();
-        tokio::spawn(async move {
-            crate::automations::record_thread_event(
-                &automation_state,
-                &automation_thread_id,
-                &automation_event,
-            )
-            .await;
-        });
+        // record_thread_event ne consomme que done/error (automations.rs) :
+        // tester ICI évite un clone profond du Value (deltas, tool_result
+        // jusqu'à 64 Ko) et un spawn tokio par événement de streaming.
+        let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
+        if matches!(kind, "done" | "error") {
+            let automation_state = state.clone();
+            let automation_thread_id = thread_id.clone();
+            let automation_event = event.clone();
+            tokio::spawn(async move {
+                crate::automations::record_thread_event(
+                    &automation_state,
+                    &automation_thread_id,
+                    &automation_event,
+                )
+                .await;
+            });
+        }
         let payload = json!({
             "type": "event",
             "threadId": thread_id,

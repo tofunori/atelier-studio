@@ -84,6 +84,8 @@ pub async fn run_now(state: &AppState, msg: &Value) -> Vec<String> {
 }
 
 pub async fn record_thread_event(state: &AppState, thread_id: &str, event: &Value) {
+    // CONTRAT : make_emit (send.rs) filtre sur done/error AVANT de cloner —
+    // si cette liste s'allonge, étendre le filtre là-bas aussi.
     let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
     if !matches!(kind, "done" | "error") {
         return;
