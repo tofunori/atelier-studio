@@ -27,7 +27,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use serde_json::{Value, json};
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -483,8 +483,88 @@ struct ProvenanceQuery {
 }
 
 #[derive(serde::Deserialize)]
+struct ProvQuery {
+    file: String,
+}
+
+#[derive(serde::Deserialize)]
 struct RegenerateRequest {
     rel: String,
+}
+
+/// Résout le sidecar `<figure>.prov.json` d'une figure du projet.
+///
+/// Le sidecar peut ne pas exister : on ne peut donc pas canonicaliser la cible
+/// elle-même. Confinement en deux temps — refus lexical de tout composant
+/// `..`/racine absolue, puis canonicalisation du DOSSIER parent (qui, lui,
+/// existe dès que la figure existe) vérifié sous la racine du projet.
+fn resolve_prov_sidecar(root: &Path, rel: &str) -> Result<PathBuf, (StatusCode, &'static str)> {
+    let rel = rel.trim();
+    if rel.is_empty() || rel.len() > 1024 {
+        return Err((StatusCode::BAD_REQUEST, "invalid path"));
+    }
+    let candidate = Path::new(rel);
+    if candidate.is_absolute()
+        || candidate
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err((StatusCode::BAD_REQUEST, "invalid path"));
+    }
+    // Le client passe le chemin de la FIGURE ; tolérer aussi le sidecar déjà
+    // suffixé pour que « ouvrir le prov.json » reste un aller-retour idempotent.
+    let sidecar = if rel.ends_with(".prov.json") {
+        root.join(rel)
+    } else {
+        root.join(format!("{rel}.prov.json"))
+    };
+    let parent = sidecar
+        .parent()
+        .ok_or((StatusCode::BAD_REQUEST, "invalid path"))?;
+    let real_parent =
+        fs::canonicalize(parent).map_err(|_| (StatusCode::NOT_FOUND, "no provenance"))?;
+    if !real_parent.starts_with(root) {
+        return Err((StatusCode::BAD_REQUEST, "invalid path"));
+    }
+    Ok(real_parent.join(sidecar.file_name().unwrap_or_default()))
+}
+
+/// `GET /prov?file=<rel>` — sert le sidecar de provenance d'une figure
+/// (spec `docs/superpowers/specs/2026-08-27-provenance-figures-design.md`, C).
+/// La webview ne lit jamais le disque : le panneau Provenance du viewer passe
+/// par ici. Absent = 404 propre, JSON illisible = 422 (le panneau le distingue
+/// d'une figure sans provenance), hors projet = 400.
+async fn prov(State(state): State<AppState>, Query(query): Query<ProvQuery>) -> impl IntoResponse {
+    let sidecar = match resolve_prov_sidecar(&state.root, &query.file) {
+        Ok(path) => path,
+        Err((status, error)) => {
+            return (status, Json(json!({"ok":false,"error":error}))).into_response();
+        }
+    };
+    let Ok(raw) = tokio::fs::read_to_string(&sidecar).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"ok":false,"error":"no provenance"})),
+        )
+            .into_response();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"ok":false,"error":"invalid prov.json","path":sidecar.to_string_lossy()})),
+        )
+            .into_response();
+    };
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "file": query.file,
+            "path": sidecar.to_string_lossy(),
+            "prov": parsed,
+        })),
+    )
+        .into_response()
 }
 
 async fn provenance(
@@ -2292,6 +2372,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Phase 8 — agent bridge remaining endpoints
         .route("/agent-status", get(agent_status))
         .route("/provenance", get(provenance))
+        // Provenance sidecar `<figure>.prov.json` (panneau Provenance du viewer).
+        // Enregistrée DANS la même chaîne : elle hérite du garde d'origine et
+        // du middleware CORS (l'écho ACAO), sans quoi la webview la bloquerait.
+        .route("/prov", get(prov))
         .route("/regenerate", post(regenerate))
         .route("/rescan", post(rescan))
         .route("/save", post(save_annotation))

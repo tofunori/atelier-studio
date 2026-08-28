@@ -595,3 +595,62 @@ fn githead_distingue_non_suivi_et_hors_depot_puis_gittrack_suit() {
     let (_, body) = http(srv.port, "GET", &format!("/githead?path={path}"), None);
     assert!(body.contains("\"tracked\":true"), "toujours non suivi — {body}");
 }
+
+/// Panneau Provenance du viewer (spec provenance-figures, sections C/F) :
+/// le sidecar `<figure>.prov.json` se lit par `GET /prov?file=…`. Trois états
+/// distincts — présent, absent, illisible — parce que le panneau les affiche
+/// différemment (fiche riche, encart « antérieure au système », erreur douce).
+#[test]
+fn prov_sert_le_sidecar_absent_present_et_malforme() {
+    let srv = start_server();
+    // absent : 404 propre, jamais une 500
+    let (st, body) = http(srv.port, "GET", "/prov?file=tiny.png", None);
+    assert_eq!(st, 404, "{body}");
+    assert!(body.contains("no provenance"), "{body}");
+
+    // présent : le JSON du sidecar ressort tel quel, avec son chemin absolu
+    fs::write(
+        srv.root.join("tiny.png.prov.json"),
+        br#"{"version":1,"figure":"tiny.png","history":[{"ts":"2026-08-27T20:43:26Z","scripts":["plot.py"]}]}"#,
+    )
+    .unwrap();
+    let (st, body) = http(srv.port, "GET", "/prov?file=tiny.png", None);
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"ok\":true"), "{body}");
+    assert!(body.contains("plot.py"), "{body}");
+    assert!(body.contains("tiny.png.prov.json"), "{body}");
+
+    // le chemin du sidecar lui-même est accepté : aller-retour idempotent
+    let (st, _) = http(srv.port, "GET", "/prov?file=tiny.png.prov.json", None);
+    assert_eq!(st, 200);
+
+    // malformé : erreur douce distincte du 404 (le panneau dit « illisible »)
+    fs::write(srv.root.join("tiny.png.prov.json"), b"{ pas du json").unwrap();
+    let (st, body) = http(srv.port, "GET", "/prov?file=tiny.png", None);
+    assert_eq!(st, 422, "{body}");
+    assert!(body.contains("invalid prov.json"), "{body}");
+}
+
+/// Confinement : `/prov` ne sort jamais du projet, et reste derrière le garde
+/// d'origine comme toute autre route (mémoire projet : CORS/ACAO commun).
+#[test]
+fn prov_reste_confine_au_projet_et_derriere_le_garde_dorigine() {
+    let srv = start_server();
+    for escape in [
+        "/prov?file=../outside.png",
+        "/prov?file=%2Fetc%2Fpasswd",
+        "/prov?file=a/../../outside.png",
+        "/prov?file=",
+    ] {
+        let (st, body) = http(srv.port, "GET", escape, None);
+        assert_eq!(st, 400, "{escape} devrait être refusé — {body}");
+    }
+    let (st, _) = http_with_origin(
+        srv.port,
+        "GET",
+        "/prov?file=tiny.png",
+        None,
+        Some("https://evil.example"),
+    );
+    assert_eq!(st, 403, "/prov inter-origines doit être refusé");
+}

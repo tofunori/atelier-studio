@@ -860,8 +860,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
 
-    // Upsert thread
-    {
+    // Upsert thread — le titre retenu ressort du bloc : la provenance des
+    // figures le recopie tel quel (spec 2026-08-27 B, `threadTitle`), et c'est
+    // le seul endroit qui l'arbitre entre auto-titrage, titre client et titre
+    // déjà en base.
+    let thread_title = {
         let mut store = state.threads().lock().await;
         let prev = store.get(&thread_id).cloned();
         let mut patch = json!({
@@ -879,9 +882,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         patch
             .as_object_mut()
             .unwrap()
-            .insert("title".into(), json!(upsert_title));
+            .insert("title".into(), json!(upsert_title.clone()));
         let _ = store.upsert(patch, false);
-    }
+        upsert_title
+    };
 
     let emit = make_emit(state.clone(), thread_id.clone());
     let h = state
@@ -1101,6 +1105,22 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let project_root_events = project_root.clone();
     let permission_mode_events = permission_mode.clone();
     let snapshot_events = snapshot_sha.clone();
+    // Provenance des figures : le contexte du tour est figé ICI (avant que
+    // `prompt`/`model` ne partent dans la SendRequest), et la pompe y accumule
+    // les commandes shell au passage. Les commandes vivent derrière un Arc :
+    // le `done` peut sortir par la pompe (cas normal) OU par le terminal
+    // synthétique de repli, et les deux doivent voir la même matière.
+    let prov_turn = crate::prov::TurnProvenance::new(
+        thread_id.clone(),
+        Some(thread_title),
+        provider.clone(),
+        model.clone(),
+        // Prompt tel qu'envoyé par l'utilisateur (après expansion `/ref`,
+        // avant les blocs d'instructions ambiantes) : c'est la phrase de
+        // contexte que le panneau Provenance affichera.
+        prompt.clone(),
+    );
+    let prov_pump = prov_turn.clone();
     let linked_reply = if origin_agent {
         let from = msg
             .get("agentFromThreadId")
@@ -1129,11 +1149,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let pump = tokio::spawn(async move {
         let mut linked_reply_text = String::new();
         while let Some(ev) = ev_rx.recv().await {
+            // Avant normalisation : l'événement outil brut porte encore
+            // `input.command`, la seule forme exploitable de la commande.
+            prov_pump.note_event(&ev);
             let ev = normalize_provider_event(
                 ev,
                 &project_root_events,
                 permission_mode_events.as_deref(),
                 snapshot_events.as_deref(),
+                Some(&prov_pump),
             );
             if let Some((source_thread_id, peer_thread_id, peer_provider, message_id)) =
                 linked_reply.as_ref()
@@ -1249,6 +1273,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
+        // Même contexte de provenance que la pompe (commandes partagées) : un
+        // provider sans `done` natif doit produire les mêmes sidecars. Les
+        // deux chemins s'excluent (`turn_status != Done`), donc jamais deux
+        // entrées d'historique pour un seul tour.
+        let prov_fallback = prov_turn;
         let interaction = make_interaction_relay(state2.clone(), tid.clone(), ev_tx.clone());
         let req = SendRequest {
             thread_id: tid.clone(),
@@ -1319,6 +1348,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                             &fallback_root,
                             None,
                             fallback_snapshot.as_deref(),
+                            Some(&prov_fallback),
                         ),
                     );
                 } else {
@@ -1401,6 +1431,9 @@ fn normalize_provider_event(
     project_root: &str,
     permission_mode: Option<&str>,
     snapshot_sha: Option<&str>,
+    // Contexte du tour (fil, provider, modèle, prompt, commandes accumulées) —
+    // `None` hors tour réel (tests unitaires, chemins sans provenance).
+    prov: Option<&crate::prov::TurnProvenance>,
 ) -> Value {
     if permission_mode == Some("plan") && event.get("kind").and_then(Value::as_str) == Some("text")
     {
@@ -1420,6 +1453,15 @@ fn normalize_provider_event(
             .unwrap_or_default();
         let files_changed: Vec<String> =
             file_stats.iter().map(|entry| entry.path.clone()).collect();
+        // Provenance des figures (spec 2026-08-27 A) : le même diff de tour
+        // sert deux fois — la carte « N fichiers modifiés » du frontend ET les
+        // sidecars `<figure>.prov.json`. Greffé ICI parce que c'est le SEUL
+        // endroit qui connaît à la fois les fichiers du tour et son contexte,
+        // sans un spawn git de plus. Ne peut jamais faire échouer le `done` :
+        // `record_done` avale tout et log en cas de pépin.
+        if let Some(prov) = prov {
+            prov.record_done(project_root, snapshot_sha, &files_changed);
+        }
         if let Some(obj) = event.as_object_mut() {
             obj.insert("projectRoot".into(), json!(project_root));
             obj.insert("filesChanged".into(), json!(files_changed));
@@ -1971,6 +2013,7 @@ mod tests {
             "/repo",
             None,
             Some(&snapshot),
+            None,
         );
         assert_eq!(
             event["files"],
@@ -1992,6 +2035,7 @@ mod tests {
                 "snippets":{"/repo/src/a.py":{"oldText":"x = 1","newText":"x = 2"}}
             }),
             "/repo",
+            None,
             None,
             None,
         );
@@ -2028,17 +2072,104 @@ mod tests {
         let sha = atelier_workspace::snapshot(root).unwrap();
         std::fs::write(dir.path().join("a.txt"), b"un\ndeux\n").unwrap();
 
-        let event = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha));
+        let event = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), None);
         assert_eq!(event["filesChanged"], json!(["a.txt"]));
         assert_eq!(event["fileStats"], json!([{"path":"a.txt","add":1,"del":0}]));
         assert_eq!(event["checkpoint"]["filesChanged"], json!(["a.txt"]));
+    }
+
+    /// Provenance des figures (spec 2026-08-27 A) : le `done` d'un tour qui a
+    /// créé une figure ET touché son script dépose le sidecar, avec la
+    /// commande vue passer dans la pompe. Un échec d'écriture (sidecar
+    /// occupé par un dossier) laisse l'événement `done` intact.
+    #[test]
+    fn done_ecrit_la_provenance_des_figures_du_tour() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.email", "t@test"],
+            vec!["config", "user.name", "t"],
+        ] {
+            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+        }
+        std::fs::write(dir.path().join("README.md"), b"x\n").unwrap();
+        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        let sha = atelier_workspace::snapshot(root).unwrap();
+        // Le tour : un script modifié, une figure créée (untracked), et une
+        // capture de viewer qui ne doit surtout pas être prise pour une figure.
+        std::fs::create_dir_all(dir.path().join("figures")).unwrap();
+        std::fs::write(dir.path().join("plot.py"), b"import matplotlib\n").unwrap();
+        std::fs::write(dir.path().join("figures/trend.png"), b"\x89PNG\r\n").unwrap();
+        std::fs::write(dir.path().join("figures/_view_trend.png"), b"\x89PNG\r\n").unwrap();
+        // Sidecar impossible à écrire pour cette figure-là : un dossier occupe
+        // déjà le chemin. Le `done` doit rester complet malgré tout.
+        std::fs::create_dir_all(dir.path().join("figures/bloquee.png.prov.json")).unwrap();
+        std::fs::write(dir.path().join("figures/bloquee.png"), b"\x89PNG\r\n").unwrap();
+
+        let prov = crate::prov::TurnProvenance::new(
+            "th-9".into(),
+            Some("Tendance".into()),
+            "codex".into(),
+            Some("gpt-5.4".into()),
+            "trace la tendance".into(),
+        );
+        prov.note_event(&json!({
+            "kind":"tool_update","name":"Bash","status":"completed",
+            "input":{"command":"python3 plot.py"}
+        }));
+        let event =
+            normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), Some(&prov));
+
+        // L'événement garde son contrat intact (l'échec d'écriture ne fuit pas).
+        assert!(event["filesChanged"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("figures/trend.png")));
+        assert_eq!(event["checkpoint"]["snapshotSha"], sha);
+
+        let sidecar = dir.path().join("figures/trend.png.prov.json");
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(doc["version"], 1);
+        assert_eq!(doc["figure"], "figures/trend.png");
+        let entry = &doc["history"][0];
+        assert_eq!(entry["threadId"], "th-9");
+        assert_eq!(entry["provider"], "codex");
+        assert_eq!(entry["scripts"], json!(["plot.py"]));
+        assert_eq!(entry["commands"], json!(["python3 plot.py"]));
+        assert_eq!(entry["snapshotSha"], sha);
+        assert!(entry["head"].as_str().is_some_and(|h| h.len() >= 7));
+        assert!(!dir.path().join("figures/_view_trend.png.prov.json").exists());
+    }
+
+    /// Sans contexte de provenance (`None`), le `done` ne dépose rien : les
+    /// chemins sans tour réel restent inchangés.
+    #[test]
+    fn done_sans_contexte_de_provenance_n_ecrit_aucun_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.email", "t@test"],
+            vec!["config", "user.name", "t"],
+        ] {
+            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+        }
+        std::fs::write(dir.path().join("README.md"), b"x\n").unwrap();
+        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        let sha = atelier_workspace::snapshot(root).unwrap();
+        std::fs::write(dir.path().join("fig.png"), b"\x89PNG\r\n").unwrap();
+        let _ = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), None);
+        assert!(!dir.path().join("fig.png.prov.json").exists());
     }
 
     /// Sans snapshot (projectRoot vide, pas un repo…) : listes vides, pas de
     /// panique — même contrat dégradé qu'avant.
     #[test]
     fn done_without_snapshot_keeps_empty_stats() {
-        let event = normalize_provider_event(json!({"kind":"done"}), "", None, None);
+        let event = normalize_provider_event(json!({"kind":"done"}), "", None, None, None);
         assert_eq!(event["filesChanged"], json!([]));
         assert_eq!(event["fileStats"], json!([]));
         assert!(event.get("checkpoint").is_none());
@@ -2050,6 +2181,7 @@ mod tests {
             json!({"kind":"text","text":"# Plan\n\n1. Auditer"}),
             "/repo",
             Some("plan"),
+            None,
             None,
         );
         assert_eq!(event["kind"], "proposed_plan");

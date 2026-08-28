@@ -12,6 +12,7 @@ pub mod instance;
 pub mod kb_block;
 pub mod parity;
 pub mod paths;
+pub mod prov;
 pub mod send;
 pub mod server;
 pub mod state;
