@@ -2199,6 +2199,10 @@ fn iso_now() -> String {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let root = resolve_root(&args)?;
+    // Balaie au boot les .tmp d'atomic_write abandonnés par un process tué
+    // entre write et rename (9 × 160 Ko constatés à la racine le 2026-08-28).
+    // 1h de marge pour ne jamais toucher une écriture en cours.
+    atelier_core::clean_stale_tmp(&root, std::time::Duration::from_secs(3600));
     let port = resolve_port(&args);
     let remote = !matches!(
         args.host.as_str(),

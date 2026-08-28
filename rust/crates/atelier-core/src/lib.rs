@@ -358,6 +358,43 @@ pub fn atomic_write_text(path: &Path, text: &str) -> Result<(), CoreError> {
     atomic_write(path, text.as_bytes())
 }
 
+/// Balaye les résidus d'`atomic_write` interrompus (`.<nom>.<pid>.<nonce>.tmp`) :
+/// un process tué entre write et rename les abandonne définitivement (9 × 160 Ko
+/// constatés le 2026-08-28). `max_age` protège une écriture en cours.
+///
+/// Ne touche que les enfants directs de `dir` (pas de récursion), et seulement
+/// des fichiers réguliers dont le nom commence par "." et finit par ".tmp" —
+/// un répertoire qui porterait ce nom par coïncidence n'est jamais suivi ni
+/// supprimé. Si le mtime est illisible, on choisit de CONSERVER le fichier
+/// (doute → on ne supprime pas) plutôt que de le supprimer par défaut.
+pub fn clean_stale_tmp(dir: &Path, max_age: std::time::Duration) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !(name.starts_with('.') && name.ends_with(".tmp")) {
+            continue;
+        }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= max_age);
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), CoreError> {
     let payload = serde_json::to_vec_pretty(value)?;
     atomic_write(path, &payload)
@@ -526,6 +563,42 @@ mod tests {
         let resolved = safe_project_path(&root, "").unwrap();
         assert_eq!(resolved, fs::canonicalize(&root).unwrap());
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod stale_tmp_tests {
+    use super::clean_stale_tmp;
+    use std::time::Duration;
+
+    #[test]
+    fn stale_tmp_files_are_removed_and_content_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let stale = dir.path().join(".figures_index.html.1234.9999.tmp");
+        let keep = dir.path().join("figures_index.html");
+        std::fs::write(&stale, b"x").unwrap();
+        std::fs::write(&keep, b"x").unwrap();
+        clean_stale_tmp(dir.path(), Duration::ZERO);
+        assert!(!stale.exists());
+        assert!(keep.exists());
+    }
+
+    #[test]
+    fn fresh_tmp_file_survives_under_max_age() {
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = dir.path().join(".figures_index.html.4321.1111.tmp");
+        std::fs::write(&fresh, b"x").unwrap();
+        clean_stale_tmp(dir.path(), Duration::from_secs(3600));
+        assert!(fresh.exists());
+    }
+
+    #[test]
+    fn directory_named_like_a_tmp_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp_dir = dir.path().join(".looks-like.1234.9999.tmp");
+        std::fs::create_dir(&tmp_dir).unwrap();
+        clean_stale_tmp(dir.path(), Duration::ZERO);
+        assert!(tmp_dir.exists());
     }
 }
 
