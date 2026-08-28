@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,7 +63,7 @@ import { linkedConversationForProvider, linkedConversations } from "./lib/thread
 import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
-import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS } from "./lib/settings";
+import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
@@ -113,6 +113,12 @@ import "./styles/shadcn.css";
 import "./styles/typeset.css";
 import "./styles/primitives.css";
 import "./App.css";
+
+// Task 25 (perf) : TopBar/Rail sont la coquille de l'appli — figée pour
+// qu'un delta de stream (App re-rend au plus 1×/frame, Task 1) ne les
+// re-rende plus tant que leurs props restent référentiellement stables.
+const TopBarMemo = memo(TopBar);
+const RailMemo = memo(Rail);
 
 const PROJECTS_KEY = "atelier-studio.projects";
 // Le localStorage WKWebView peut perdre ses toutes dernières écritures si le
@@ -3614,8 +3620,11 @@ export default function App() {
   }, [wsReady]);
 
 
-  const runningProjects = new Set(
-    allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot),
+  // Task 25 : memo — sinon `new Set(...)` change d'identité à chaque render
+  // de App et casse RailMemo même quand aucun thread ne (dé)marre.
+  const runningProjects = useMemo(
+    () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
+    [allThreads],
   );
 
   // ContextInspector (plan 018, étapes 4–5) : sélection explicite depuis le
@@ -3812,8 +3821,36 @@ export default function App() {
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
     && (activeTab === "ide" || visibleAtelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"));
   // tauri.conf.json) repositionnés dans la TopBar — plus de feux custom
+  // Task 25 : chaque handler inline de topBarNode devient un useCallback
+  // nommé — TopBarMemo (React.memo) ne peut sauter un re-render que si
+  // toutes ses props gardent leur identité entre deux renders de App.
+  const handleOpenPalette = useCallback(() => setPaletteOpen(true), []);
+  const handleQuickAsk = useCallback(
+    () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
+    [],
+  );
+  const handleToggleAnnots = useCallback(() => {
+    setLayout((l) => (l === "chat" ? "split" : l));
+    setShowAnnots((v) => !v);
+  }, []);
+  const handleToggleExplorer = useCallback(() => {
+    // toggle seul : ne change PAS la surface active (sinon fermer
+    // l'explorateur depuis browser/terminal te ramènerait à la galerie).
+    // On sort juste du layout « chat » pour que l'atelier soit visible.
+    setLayout((l) => (l === "chat" ? "split" : l));
+    setShowExplorer((v) => !v);
+  }, []);
+  const handleSelectPaneTab = useCallback((id: string) => {
+    // la barre ne fait que demander ; le workspace choisit lui-même —
+    // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
+    window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
+    setLayout((l) => (l === "chat" ? "split" : l));
+  }, []);
+  const handleClosePaneTab = useCallback((id: string) => {
+    window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
+  }, []);
   const topBarNode = (
-    <TopBar
+    <TopBarMemo
       projects={projects}
       projMeta={projMeta}
       activeProject={activeProject}
@@ -3821,74 +3858,74 @@ export default function App() {
       onAddProject={addProject}
       layout={layout}
       onSetLayout={setLayout}
-      onOpenPalette={() => setPaletteOpen(true)}
-      onQuickAsk={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
+      onOpenPalette={handleOpenPalette}
+      onQuickAsk={handleQuickAsk}
       activeSurface={activeSurface}
       showAtelier={showAtelier}
       showExplorer={showExplorer}
       showAnnots={showAnnots}
-      onToggleAnnots={() => {
-        setLayout((l) => (l === "chat" ? "split" : l));
-        setShowAnnots((v) => !v);
-      }}
-      onToggleExplorer={() => {
-        // toggle seul : ne change PAS la surface active (sinon fermer
-        // l'explorateur depuis browser/terminal te ramènerait à la galerie).
-        // On sort juste du layout « chat » pour que l'atelier soit visible.
-        setLayout((l) => (l === "chat" ? "split" : l));
-        setShowExplorer((v) => !v);
-      }}
+      onToggleAnnots={handleToggleAnnots}
+      onToggleExplorer={handleToggleExplorer}
       onSelectSurface={switchToSurface}
       onSelectIde={goToIde}
       ideActive={ideActive}
       tabs={paneTabs}
       activeTab={paneActiveTab}
-      onSelectTab={(id) => {
-        // la barre ne fait que demander ; le workspace choisit lui-même —
-        // et l'atelier revient à l'écran, sinon la sélection ne se voit pas
-        window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
-        setLayout((l) => (l === "chat" ? "split" : l));
-      }}
-      onCloseTab={(id) => {
-        window.dispatchEvent(new CustomEvent("workspace-close-tab", { detail: { id } }));
-      }}
+      onSelectTab={handleSelectPaneTab}
+      onCloseTab={handleClosePaneTab}
     />
   );
+  // Task 25 : idem TopBar — chaque handler inline de railNode devient un
+  // useCallback nommé. `setActiveView` et `openSettings` (déclarés plus haut
+  // en dehors de ce fragment) ne sont PAS des setters useState : ce sont des
+  // fonctions du corps du composant, recréées à chaque render de App — elles
+  // restent donc des deps exactes (sinon fermeture périmée), mais leur
+  // propre instabilité limite ce que RailMemo peut réellement sauter (cf.
+  // rapport Task 25, concerns).
+  const handleSelectView = useCallback((view: ViewId) => {
+    setActiveView(view);
+    setCompact(false);
+  }, [setActiveView]);
+  const handleExpand = useCallback(() => setCompact((c) => !c), []);
+  const handleOpenSettings = useCallback(() => openSettings(), [openSettings]);
+  const handleSetProjMeta = useCallback(
+    (root: string, m: ProjMeta) => setProjMeta((p) => ({ ...p, [root]: m })),
+    [],
+  );
+  const handleRemoveProject = useCallback((root: string) => {
+    setProjects((prev) => prev.filter((r) => r !== root));
+    if (activeProject === root) setActiveProject(null);
+  }, [activeProject]);
+  const handleReorderProjects = useCallback((from: string, to: string) => {
+    setProjects((prev) => {
+      const list = prev.filter((r) => r !== from);
+      const at = list.indexOf(to);
+      if (at < 0) return prev;
+      list.splice(at + (prev.indexOf(from) < prev.indexOf(to) ? 1 : 0), 0, from);
+      return list;
+    });
+  }, []);
   const railNode = (
-        <Rail
+        <RailMemo
           projects={projects}
           activeProject={activeProject}
           meta={projMeta}
           running={runningProjects}
           activeView={activeView}
           onNewChat={newChat}
-          onSelectView={(view) => {
-            setActiveView(view);
-            setCompact(false);
-          }}
+          onSelectView={handleSelectView}
           onSelectProject={selectProject}
           onAddProject={addProject}
           compact={compact}
-          onExpand={() => setCompact((c) => !c)}
+          onExpand={handleExpand}
           // Correction de revue lot A #6 : la branche « re-clic ferme »
           // n'est plus atteignable — depuis que les réglages sont une
           // feuille modale, le Rail vit sous le voile et Base UI Dialog le
           // rend `inert` pendant que la feuille est ouverte (clic bloqué).
-          onSettings={() => openSettings()}
-          onSetMeta={(root, m) => setProjMeta((p) => ({ ...p, [root]: m }))}
-          onRemoveProject={(root) => {
-            setProjects((prev) => prev.filter((r) => r !== root));
-            if (activeProject === root) setActiveProject(null);
-          }}
-          onReorder={(from, to) =>
-            setProjects((prev) => {
-              const list = prev.filter((r) => r !== from);
-              const at = list.indexOf(to);
-              if (at < 0) return prev;
-              list.splice(at + (prev.indexOf(from) < prev.indexOf(to) ? 1 : 0), 0, from);
-              return list;
-            })
-          }
+          onSettings={handleOpenSettings}
+          onSetMeta={handleSetProjMeta}
+          onRemoveProject={handleRemoveProject}
+          onReorder={handleReorderProjects}
         />
   );
   const viewPanelNode = compact ? null : activeView === "highlights" ? (
