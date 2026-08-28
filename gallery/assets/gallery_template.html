@@ -799,14 +799,32 @@ function applyShadcnGalleryContract(root){
   set('.skel','skeleton');
 }
 applyShadcnGalleryContract(document);
-new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{
-  if(node.nodeType!==1) return;
+function applyShadcnGalleryContractNode(node){
   applyShadcnGalleryContract(node);
   if(node.matches?.('button')&&!node.dataset.slot) node.dataset.slot='button';
   if(node.matches?.('.menu')) node.dataset.slot='dropdown-menu-content';
   if(node.matches?.('.card')) node.dataset.slot='card';
   if(node.matches?.('.skel')) node.dataset.slot='skeleton';
-}))).observe(document.body,{childList:true,subtree:true});
+}
+// coalescence : un re-render de grille ajoute ~600 cartes d'un coup — appliquer
+// le contrat UNE fois par lot de mutations, et sur document.body dès que le lot
+// est gros (600 querySelectorAll ciblés coûteraient plus cher qu'un global)
+let contractQueued=false;
+const contractRoots=new Set();
+new MutationObserver(mutations=>{
+  for(const mutation of mutations)
+    for(const node of mutation.addedNodes)
+      if(node.nodeType===1) contractRoots.add(node);
+  if(contractQueued||!contractRoots.size) return;
+  contractQueued=true;
+  queueMicrotask(()=>{
+    contractQueued=false;
+    const roots=[...contractRoots];
+    contractRoots.clear();
+    if(roots.length>20){ applyShadcnGalleryContract(document.body); return; }
+    for(const node of roots) if(node.isConnected) applyShadcnGalleryContractNode(node);
+  });
+}).observe(document.body,{childList:true,subtree:true});
 function foldersFromFiles(files){
   return [...new Set((files||[]).map(f=>f.folder||'.'))].sort();
 }
