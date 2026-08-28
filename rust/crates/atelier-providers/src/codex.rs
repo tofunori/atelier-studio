@@ -202,6 +202,34 @@ fn thread_opts(req: &SendRequest) -> Value {
     opts
 }
 
+/// Overrides modèle/effort à répéter sur CHAQUE `turn/start`.
+///
+/// `thread/resume` ignore l'override de modèle d'un thread existant (sonde
+/// app-server 0.149.0, 2026-08-27 : un fil de 260 tours est resté verrouillé
+/// sur son modèle de création alors que chaque resume passait le nouveau) —
+/// changer de modèle en cours de fil était donc un no-op silencieux pendant
+/// que l'UI affichait le nouveau choix. `turn/start.model` est honoré et
+/// persiste sur le thread ; l'effort emprunte le même canal (`turn/start.
+/// effort`, contrat déjà éprouvé par le sidecar Node) avec la MÊME décision
+/// que `thread_opts` (`effort_a_envoyer`).
+fn turn_start_overrides(req: &SendRequest) -> serde_json::Map<String, Value> {
+    let mut overrides = serde_json::Map::new();
+    if let Some(model) = req.model.as_ref().filter(|m| !m.is_empty()) {
+        overrides.insert("model".into(), json!(model));
+    }
+    if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
+        let declares = req
+            .model
+            .as_ref()
+            .filter(|m| !m.is_empty())
+            .and_then(|m| catalogue_efforts(m));
+        if let Some(retenu) = effort_a_envoyer(effort, declares.as_deref()) {
+            overrides.insert("effort".into(), json!(retenu));
+        }
+    }
+    overrides
+}
+
 async fn resolve_plan_mode(server: &CodexAppServer) -> Option<Value> {
     let response = server
         .request("collaborationMode/list", json!({}))
@@ -802,6 +830,10 @@ impl Provider for CodexProvider {
             "threadId": codex_id,
             "input": build_input(&req.prompt, req.inputs.as_deref()),
         });
+        turn_params
+            .as_object_mut()
+            .unwrap()
+            .extend(turn_start_overrides(&req));
         if req.permission_mode.as_deref() == Some("plan") {
             if let Some(plan_mode) = resolve_plan_mode(&self.server).await {
                 turn_params
@@ -1073,6 +1105,43 @@ mod service_tier_tests {
             );
             // le modèle non plus
             assert_eq!(standard["model"], fast["model"]);
+        }
+    }
+
+    /// `thread/resume` ignore l'override de modèle d'un thread existant
+    /// (sonde app-server 0.149.0, 2026-08-27) : seuls les params de
+    /// `turn/start` garantissent que le choix du picker est celui qui tourne.
+    #[test]
+    fn turn_start_repete_modele_et_effort() {
+        let overrides = turn_start_overrides(&request("medium", false));
+        assert_eq!(overrides.get("model"), Some(&json!("gpt-5.6-sol")));
+        assert_eq!(overrides.get("effort"), Some(&json!("medium")));
+    }
+
+    #[test]
+    fn turn_start_sans_selection_ne_force_rien() {
+        let mut req = request("", false);
+        req.model = None;
+        assert!(turn_start_overrides(&req).is_empty());
+    }
+
+    /// Même décision que `thread_opts` : l'effort transmis par
+    /// `config.model_reasoning_effort` et par `turn/start.effort` est
+    /// identique — jamais l'un sans l'autre.
+    #[test]
+    fn turn_start_et_thread_opts_partagent_la_decision_deffort() {
+        for effort in ["", "low", "medium", "max"] {
+            let req = request(effort, false);
+            let par_config = thread_opts(&req)
+                .get("config")
+                .and_then(|c| c.get("model_reasoning_effort"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let par_turn = turn_start_overrides(&req)
+                .get("effort")
+                .cloned()
+                .unwrap_or(Value::Null);
+            assert_eq!(par_config, par_turn, "effort «{effort}»");
         }
     }
 
