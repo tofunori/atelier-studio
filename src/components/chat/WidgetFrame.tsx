@@ -187,7 +187,8 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
           <Button
             variant="ghost"
             className="mermaid-toggle"
-            onClick={() => setShowSource((v) => !v)}
+            disabled={shell == null}
+            onClick={toggleSource}
           >
             {showSource ? t("chat.widget-view-panel") : t("chat.widget-view-source")}
           </Button>
@@ -196,7 +197,8 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
               className="codeblock-copy"
               label={t("chat.widget-expand")}
               title={t("chat.widget-expand")}
-              onClick={() => setExpanded(true)}
+              disabled={shell == null}
+              onClick={() => setExpandedAndReload(true)}
             >
               <Maximize2Icon size={12} />
             </IconButton>
@@ -205,6 +207,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
             className={`codeblock-copy${copied ? " copied" : ""}`}
             label={copied ? t("chat.output-copied") : t("chat.output-copy")}
             title={copied ? t("chat.output-copied") : t("chat.output-copy")}
+            disabled={shell == null}
             onClick={() => {
               void navigator.clipboard.writeText(shell ?? "").then(() => {
                 setCopied(true);
@@ -227,18 +230,12 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
         // la hauteur est posée ICI, dès le premier rendu : LegendList mesure
         // la bonne taille avant même que le HTML ne soit chargé
         <div className="widget-body" style={{ height: `${event.height}px` }}>
-          {shell != null && (
-            <iframe
-              ref={frameRef}
-              className={phase === "live" ? "widget-frame live" : "widget-frame"}
-              title={event.title}
-              sandbox="allow-scripts"
-              srcDoc={shell}
-            />
-          )}
+          {/* le plein écran porte SEUL l'iframe pendant qu'il est ouvert —
+              jamais deux à la fois (voir renderIframe). */}
+          {!expanded && renderIframe(phase === "live" ? "widget-frame live" : "widget-frame")}
         </div>
       )}
-      <Dialog open={expanded} onOpenChange={setExpanded}>
+      <Dialog open={expanded} onOpenChange={setExpandedAndReload}>
         {shell != null ? (
           <DialogContent
             showCloseButton={false}
@@ -267,12 +264,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
                 <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
               </DialogClose>
             </div>
-            <iframe
-              className="widget-fullscreen-frame"
-              title={event.title}
-              sandbox="allow-scripts"
-              srcDoc={shell}
-            />
+            {expanded && renderIframe("widget-fullscreen-frame")}
           </DialogContent>
         ) : null}
       </Dialog>

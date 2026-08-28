@@ -277,4 +277,46 @@ describe("WidgetFrame — actions de barre", () => {
 
     expect(document.activeElement).not.toBe(frame);
   });
+
+  it("plein écran : une seule iframe montée, qui reçoit thème et état restaurés", async () => {
+    clearWidgetStates();
+    rememberWidgetState(EVENT.id, { nu: 7 });
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+    const posted: unknown[] = [];
+
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: t("chat.widget-expand") }));
+    });
+
+    // le Dialog se porte hors du container RTL (portail) : la recherche se
+    // fait sur TOUT le document — c'est là qu'il faut n'en trouver qu'une.
+    expect(document.querySelectorAll("iframe").length).toBe(1);
+    const frame = document.querySelector("iframe") as HTMLIFrameElement;
+    expect(frame.className).toContain("widget-fullscreen-frame");
+    Object.defineProperty(frame, "contentWindow", {
+      value: { postMessage: (m: unknown) => posted.push(m) },
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { source: "atelier-widget", type: "ready" },
+        source: frame.contentWindow as Window,
+      }));
+    });
+
+    expect(document.querySelectorAll("iframe").length).toBe(1);
+    expect(posted.some((m) => (m as { type?: unknown }).type === "theme")).toBe(true);
+    expect(posted).toContainEqual(
+      expect.objectContaining({ source: "atelier-host", type: "restore", state: { nu: 7 } }),
+    );
+  });
+
+  it("désactive le bouton copier tant que la coquille n'est pas chargée", () => {
+    pendingFetch();
+    render(<WidgetFrame event={EVENT} threadId="t1" />);
+    expect(screen.getByRole("button", { name: t("chat.output-copy") })).toBeDisabled();
+  });
 });
