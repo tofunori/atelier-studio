@@ -35,3 +35,10 @@ objc2-user-notifications = "0.3.2"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+# binaires livrés dans le bundle : LTO thin + strip ≈ -30 à -50 % de taille,
+# quelques points de CPU ; le coût est du temps de build release uniquement
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

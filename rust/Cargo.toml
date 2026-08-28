@@ -42,3 +42,10 @@ thiserror = "2"
 tempfile = "3"
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+# binaires livrés dans le bundle : LTO thin + strip ≈ -30 à -50 % de taille,
+# quelques points de CPU ; le coût est du temps de build release uniquement
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
