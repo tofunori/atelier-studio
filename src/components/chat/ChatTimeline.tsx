@@ -334,15 +334,19 @@ export function ChatTimeline(p: {
   // dès que l'IDENTITÉ de extraData change (Object.is). On ne reconstruit donc
   // l'objet que si une de ses valeurs a réellement bougé — les deltas du
   // stream, qui ne touchent ni editing ni pins ni openToolGroups, ne coûtent
-  // alors plus un re-render complet de la liste. `derniereLigneTravail` est
-  // inclus volontairement : c'est lui qui fait tiquer la ligne du run en cours.
+  // alors plus un re-render complet de la liste. `derniereLigneTravail` et
+  // `lastThinkingIndex` sont inclus volontairement sans être des champs de
+  // l'objet : ce sont eux qui font tiquer la ligne du run en cours et la
+  // ligne LiveThinking en cours — n'importe quelle valeur lue par renderItem
+  // depuis cette fermeture doit être une dépendance ici, sinon LegendList
+  // réutilise l'identité de la rangée et fige la lecture (thought périmé).
   const listExtraData = React.useMemo(() => ({
     editing,
     openToolGroups,
     pins,
     reviewOpen,
     workingSince,
-  }), [editing, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail]);
+  }), [editing, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail, lastThinkingIndex]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -558,13 +562,21 @@ export function ChatTimeline(p: {
   // fil est stable depuis un battement et pas exactement au bas, on re-vise la
   // fin — une seule fois par stabilisation, jamais contre l'utilisateur
   // (autoFollow est déjà coupé dès qu'il remonte).
+  const settleUntilRef = React.useRef(0);
+  const prevWorkingSinceRef = React.useRef(workingSince);
   React.useEffect(() => {
     if (!autoFollow) return;
     // le filet rattrape les tassements de layout PENDANT qu'un tour écrit ;
     // au repos, rien ne bouge — 3 reflows forcés × 3,3/s pour rien (audit
-    // 2026-08-28). workingSince couvre aussi la fin de tour : l'effect se
-    // rejoue à sa disparition et fait une dernière passe avant de s'arrêter.
-    if (workingSince == null) return;
+    // 2026-08-28). Il reste aussi actif une brève fenêtre de grâce APRÈS la
+    // fin du tour (5 s) : du contenu async (KaTeX, mermaid, images) peut
+    // encore arriver juste après `done` et tasser le layout — sans cette
+    // fenêtre le filet s'éteignait pile au moment où il aurait servi.
+    if (workingSince == null && prevWorkingSinceRef.current != null) {
+      settleUntilRef.current = Date.now() + 5000;
+    }
+    prevWorkingSinceRef.current = workingSince;
+    if (workingSince == null && Date.now() >= settleUntilRef.current) return;
     let lastScrollHeight = -1;
     const id = window.setInterval(() => {
       const native = messagesRef.current;
@@ -574,6 +586,9 @@ export function ChatTimeline(p: {
       const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
       if (stable && distance > 2) {
         timelineListRef.current?.scrollToEnd({ animated: true });
+      }
+      if (workingSince == null && Date.now() >= settleUntilRef.current) {
+        window.clearInterval(id);
       }
     }, 300);
     return () => window.clearInterval(id);

@@ -341,6 +341,12 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
             let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
             let key = image_thumb_key_svg(&canonical, row.mtime);
             live.insert(format!("imgthumb_{key}"));
+        } else if matches!(row.ext.as_str(), "html" | "htm") {
+            // la route /thumb rend les HTML via Chrome headless (gallery.rs)
+            // avec la clé image standard (pas de suffixe, comme png/jpg) —
+            // les enregistrer vivantes, sinon le GC les churn à chaque rescan
+            let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
+            live.insert(format!("imgthumb_{}", image_thumb_key(&canonical, row.mtime)));
         }
     }
     if let Ok(entries) = fs::read_dir(&thumbs) {
@@ -788,6 +794,38 @@ mod thumbs_gc_tests {
         assert!(
             live.exists(),
             "la vignette svg produite par la route /thumb doit survivre au GC"
+        );
+    }
+
+    #[test]
+    fn gc_keeps_live_html_thumbs_from_the_route() {
+        // La route /thumb rend les HTML via Chrome headless avec la clé
+        // image standard (pas de suffixe — gallery.rs, branche "html" | "htm"
+        // partage le même format que png/jpg). Le builder ne génère pas ces
+        // vignettes lui-même mais doit marquer `live` la clé de la route,
+        // sinon chaque rescan supprime la vignette et force un respawn Chrome.
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+        let source = dir.path().join("fig.html");
+        std::fs::write(&source, b"<html></html>").unwrap();
+        let mtime = std::fs::metadata(&source)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let canonical = std::fs::canonicalize(&source).unwrap();
+        let key = image_thumb_key(&canonical, mtime);
+        let live = thumbs.join(format!("imgthumb_{key}.png"));
+        std::fs::write(&live, b"png").unwrap();
+        // construire la row comme le scan le ferait
+        let mut rows = vec![gallery_row_for_test("fig.html", "html", mtime)];
+        build_thumbnails(dir.path(), &mut rows);
+        assert!(
+            live.exists(),
+            "la vignette html produite par la route /thumb doit survivre au GC"
         );
     }
 }

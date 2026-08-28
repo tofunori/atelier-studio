@@ -550,7 +550,14 @@ export default function App() {
   // réordonnancement thinking/texte). `applyThreadEvent` est une fonction
   // hissée (déclarée plus bas dans ce composant) — utilisable ici grâce au
   // hoisting des function declarations.
-  const streamCoalescer = useRef(createStreamCoalescer((id, ev) => applyThreadEvent(id, ev))).current;
+  // Init paresseuse : useRef(createStreamCoalescer(...)) évalue quand même
+  // l'appel à chaque rendu (seul le RÉSULTAT stocké dans le ref est figé au
+  // premier) — un coalesceur jetable créé puis abandonné par rendu pour rien.
+  const streamCoalescerRef = useRef<ReturnType<typeof createStreamCoalescer> | null>(null);
+  if (!streamCoalescerRef.current) {
+    streamCoalescerRef.current = createStreamCoalescer((id, ev) => applyThreadEvent(id, ev));
+  }
+  const streamCoalescer = streamCoalescerRef.current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;

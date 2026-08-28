@@ -91,6 +91,12 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   // compris une page dont le rendu était déjà en vol quand l'onglet a été
   // masqué — plus un défilement rapide qui redéclenche la même page.
   const pagesEnCours = new Set<number>();
+  // Pages actuellement intersectantes (rootMargin "150% 0%" en garde
+  // typiquement 5-7 à zoom ≤1) — evictFarthest() ne doit JAMAIS en évincer
+  // une : le callback IO ne se redéclenche pas pour une page qui reste
+  // intersectante, donc un canvas évincé pendant qu'il est encore visible
+  // ne serait plus jamais reproposé et resterait blanc à l'écran.
+  const pagesVisibles = new Set<number>();
   let pageObserver: IntersectionObserver | null = null;
   let loadToken = 0;
   let lastWidth = 0;
@@ -184,6 +190,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       viewports = [];
       liveCanvases.clear();
       pagesEnCours.clear();
+      pagesVisibles.clear();
       lastWidth = options.right.clientWidth;
       const width = (options.right.clientWidth - 24) * options.getZoom();
 
@@ -191,6 +198,11 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         let victim = -1;
         let distance = -1;
         for (const pageNumber of liveCanvases.keys()) {
+          // jamais une page encore intersectante : le callback IO ne se
+          // redéclenche pas tant qu'elle le reste, donc l'évincer la
+          // laisserait blanche sans espoir de re-rendu (dépasser
+          // MAX_LIVE_PAGES ici est acceptable, borné par la bande IO).
+          if (pagesVisibles.has(pageNumber)) continue;
           const d = Math.abs(pageNumber - anchor);
           if (d > distance) { distance = d; victim = pageNumber; }
         }
@@ -273,9 +285,11 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       if (typeof IObserver === "function") {
         const observer = new IObserver((entries) => {
           for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
             const pageNumber = Number((entry.target as HTMLElement).dataset.page);
-            if (pageNumber) void renderPage(pageNumber);
+            if (!pageNumber) continue;
+            if (!entry.isIntersecting) { pagesVisibles.delete(pageNumber); continue; }
+            pagesVisibles.add(pageNumber);
+            void renderPage(pageNumber);
           }
         }, {root: options.right, rootMargin: "150% 0%"});
         pageObserver = observer;
