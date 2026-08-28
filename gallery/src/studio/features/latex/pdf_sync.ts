@@ -81,6 +81,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   let pages: Array<HTMLElement | undefined> = [];
   let viewports: Array<{scale: number; height: number} | undefined> = [];
   const liveCanvases = new Map<number, HTMLCanvasElement>();
+  // Garde de course : `liveCanvases.has()` seul ne protège rien avant le
+  // premier `await` de renderPage() — deux appels concurrents pour la même
+  // page passeraient tous les deux la garde et prépendraient chacun un
+  // canvas, le perdant n'étant jamais suivi dans liveCanvases (canvas
+  // orphelin, jamais évincé). Scénario réel : le clic §4 (disconnect() +
+  // re-observe() de tous les gabarits à la réactivation d'onglet) met en
+  // file une entrée IO fraîche pour toute cible déjà intersectante — y
+  // compris une page dont le rendu était déjà en vol quand l'onglet a été
+  // masqué — plus un défilement rapide qui redéclenche la même page.
+  const pagesEnCours = new Set<number>();
   let pageObserver: IntersectionObserver | null = null;
   let loadToken = 0;
   let lastWidth = 0;
@@ -173,6 +183,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       pages = [];
       viewports = [];
       liveCanvases.clear();
+      pagesEnCours.clear();
       lastWidth = options.right.clientWidth;
       const width = (options.right.clientWidth - 24) * options.getZoom();
 
@@ -193,28 +204,40 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       };
 
       const renderPage = async (pageNumber: number): Promise<void> => {
-        if (token !== loadToken || liveCanvases.has(pageNumber)) return;
-        const element = pages[pageNumber];
-        const info = viewports[pageNumber];
-        if (!element || !info) return;
-        const page = await loaded.getPage(pageNumber);
-        const viewport = page.getViewport({scale: info.scale});
-        const canvas = doc.createElement("canvas");
-        canvas.width = viewport.width * win.devicePixelRatio;
-        canvas.height = viewport.height * win.devicePixelRatio;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        const context = canvas.getContext("2d");
-        if (!context) return;
-        context.scale(win.devicePixelRatio, win.devicePixelRatio);
-        await page.render({canvasContext: context, viewport, intent: "print"}).promise;
-        if (token !== loadToken) return;
-        // prepend, jamais replaceChildren : le gabarit peut déjà porter le
-        // marqueur synctex partagé (options.marker) posé par showMarker()
-        // avant que cette page n'ait fini de se rendre — ne pas l'effacer.
-        element.prepend(canvas);
-        liveCanvases.set(pageNumber, canvas);
-        if (liveCanvases.size > MAX_LIVE_PAGES) evictFarthest(pageNumber);
+        if (token !== loadToken || liveCanvases.has(pageNumber) || pagesEnCours.has(pageNumber)) return;
+        // Marqueur synchrone posé AVANT le premier await : liveCanvases.has()
+        // seul ne protège rien tant que l'entrée n'existe pas encore (elle
+        // n'est écrite qu'après le rendu) — deux appels concurrents pour la
+        // même page passeraient tous les deux la garde du dessus.
+        pagesEnCours.add(pageNumber);
+        try {
+          const element = pages[pageNumber];
+          const info = viewports[pageNumber];
+          if (!element || !info) return;
+          const page = await loaded.getPage(pageNumber);
+          const viewport = page.getViewport({scale: info.scale});
+          const canvas = doc.createElement("canvas");
+          canvas.width = viewport.width * win.devicePixelRatio;
+          canvas.height = viewport.height * win.devicePixelRatio;
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+          const context = canvas.getContext("2d");
+          if (!context) return;
+          context.scale(win.devicePixelRatio, win.devicePixelRatio);
+          await page.render({canvasContext: context, viewport, intent: "print"}).promise;
+          if (token !== loadToken) return;
+          // prepend, jamais replaceChildren : le gabarit peut déjà porter le
+          // marqueur synctex partagé (options.marker) posé par showMarker()
+          // avant que cette page n'ait fini de se rendre — ne pas l'effacer.
+          element.prepend(canvas);
+          liveCanvases.set(pageNumber, canvas);
+          if (liveCanvases.size > MAX_LIVE_PAGES) evictFarthest(pageNumber);
+        } finally {
+          // Toujours libérer — y compris sur l'abandon `token !== loadToken` —
+          // sinon une page reste marquée "en cours" à vie après un rechargement
+          // et ne sera plus jamais reproposée par renderPage().
+          pagesEnCours.delete(pageNumber);
+        }
       };
 
       for (let pageNumber = 1; pageNumber <= loaded.numPages; pageNumber += 1) {
