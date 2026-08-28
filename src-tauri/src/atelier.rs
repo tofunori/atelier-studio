@@ -235,7 +235,7 @@ pub fn start_atelier(
     }
 
     let assets = resolve_assets_dir(&dir);
-    Command::new(&rust_bin)
+    let child = Command::new(&rust_bin)
         .env("ATELIER_STUDIO", "1")
         .env("GALLERY_ROOT", &root)
         .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
@@ -251,6 +251,7 @@ pub fn start_atelier(
         .arg("127.0.0.1")
         .spawn()
         .map_err(|e| format!("spawn atelier-gallery-server: {e}"))?;
+    crate::process_registry::register(child.id());
 
     // le serveur se détache ; attendre qu'il réponde (build de la galerie inclus)
     // build initial peut être long → budget large.

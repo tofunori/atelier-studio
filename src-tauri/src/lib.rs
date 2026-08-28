@@ -5,6 +5,7 @@ mod browser;
 mod identity;
 mod local_image;
 mod macos_badge_permission;
+mod process_registry;
 mod remote_gateway;
 mod sidecar;
 mod ui_state;
@@ -86,8 +87,16 @@ pub fn run() {
             boot_metrics::record_boot_metrics,
             ui_state::ui_state_snapshot
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // Les serveurs galerie sont détachés (un par projet visité) ;
+            // sans ce hook ils survivent à la fermeture de l'app. Seule la
+            // sortie ACTÉE (Exit, pas ExitRequested) déclenche le SIGTERM.
+            if let tauri::RunEvent::Exit = event {
+                process_registry::kill_all();
+            }
+        });
 }
 
 #[cfg(test)]

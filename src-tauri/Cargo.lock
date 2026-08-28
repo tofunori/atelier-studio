@@ -3497,6 +3497,7 @@ dependencies = [
  "block2",
  "dirs 5.0.1",
  "fix-path-env",
+ "libc",
  "md5",
  "objc2",
  "objc2-app-kit",
