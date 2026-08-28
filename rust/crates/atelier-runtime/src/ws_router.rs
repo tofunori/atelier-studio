@@ -3429,6 +3429,73 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
     vec![]
 }
 
+/// Plafond du transcript gardé par conversation éphémère : au-delà, la
+/// promotion garde les répliques les plus récentes (la mémoire du provider,
+/// elle, reste complète via `sessionId`).
+const QA_TRANSCRIPT_MAX: usize = 200;
+
+/// Ajoute une réplique au transcript éphémère d'un Quick Ask.
+fn push_qa_line(state: &AppState, qa_id: &str, role: &str, text: &str) {
+    if qa_id.is_empty() || text.trim().is_empty() {
+        return;
+    }
+    let Ok(mut map) = state.qa_transcripts().lock() else {
+        return;
+    };
+    let lines = map.entry(qa_id.to_string()).or_default();
+    lines.push(QaLine {
+        role: role.to_string(),
+        text: text.to_string(),
+    });
+    if lines.len() > QA_TRANSCRIPT_MAX {
+        let excess = lines.len() - QA_TRANSCRIPT_MAX;
+        lines.drain(0..excess);
+    }
+}
+
+/// Recopie la conversation éphémère dans le journal du fil promu. Sans ça le
+/// chat naît vide : le provider reprend bien la session, mais l'app n'a
+/// jamais rien écrit pour les tours joués dans la fenêtre Quick Ask.
+fn seed_journal_from_qa(state: &AppState, thread_id: &str, provider: &str, lines: &[QaLine]) {
+    let mut sequence = state.journal().last_sequence(thread_id);
+    let mut turn_id = uuid_v4();
+    for line in lines {
+        let user = line.role == "user";
+        if user {
+            turn_id = uuid_v4();
+        }
+        sequence += 1;
+        let mut meta = json!({
+            "threadId": thread_id,
+            "sequence": sequence,
+            "eventId": uuid_v4(),
+            "turnId": turn_id,
+            "provider": provider,
+            "origin": if user { "atelier" } else { "provider" },
+            "durable": true,
+            "schemaVersion": 1,
+            "ts": now_ms(),
+        });
+        if user {
+            if let Some(obj) = meta.as_object_mut() {
+                obj.insert("messageId".into(), json!(uuid_v4()));
+            }
+        }
+        let _ = state.journal().append(&json!({
+            "kind": if user { "user" } else { "text" },
+            "text": line.text,
+            "meta": meta,
+        }));
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 async fn handle_qa_promote(state: &AppState, msg: &Value) -> Vec<String> {
     let qa_id = msg.get("qaId").and_then(|v| v.as_str()).unwrap_or("");
     let new_id = msg
@@ -3458,6 +3525,13 @@ async fn handle_qa_promote(state: &AppState, msg: &Value) -> Vec<String> {
             return vec![err(e)];
         }
     }
+    let lines = state
+        .qa_transcripts()
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(qa_id))
+        .unwrap_or_default();
+    seed_journal_from_qa(state, new_id, &s.provider, &lines);
     state.qa_sessions().lock().await.remove(qa_id);
     broadcast_threads(state).await
 }
@@ -4239,6 +4313,70 @@ mod tests {
         assert_eq!(v["requestId"], "narval-1");
         assert_eq!(v["error"]["code"], "invalid_profile");
         assert!(v.get("data").is_none());
+    }
+
+    #[tokio::test]
+    async fn qa_promote_seede_le_journal_et_garde_le_projet() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        s.qa_sessions().lock().await.insert(
+            "qa-1".into(),
+            QaSession {
+                provider: "codex".into(),
+                session_id: "sess-1".into(),
+            },
+        );
+        push_qa_line(&s, "qa-1", "user", "va veut dire quoi");
+        push_qa_line(&s, "qa-1", "assistant", "« va » = aller, 3e personne.");
+        push_qa_line(&s, "qa-1", "user", "et « vas » ?");
+        push_qa_line(&s, "qa-1", "assistant", "2e personne de l'impératif.");
+
+        let out = route_ws(
+            &s,
+            r#"{"type":"qaPromote","qaId":"qa-1","newThreadId":"t-qa","title":"va veut dire quoi","projectRoot":"/proj/a"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "threads");
+        assert_eq!(v["threads"][0]["id"], "t-qa");
+        // le fil promu reste rattaché au projet ouvert, sinon il sort de la
+        // liste latérale dès qu'on change de chat
+        assert_eq!(v["threads"][0]["projectRoot"], "/proj/a");
+        assert_eq!(v["threads"][0]["sessionId"], "sess-1");
+
+        let events = s.journal().materialize("t-qa");
+        assert_eq!(events.len(), 4, "la conversation Quick Ask est recopiée");
+        assert_eq!(events[0]["kind"], "user");
+        assert_eq!(events[0]["text"], "va veut dire quoi");
+        assert_eq!(events[1]["kind"], "text");
+        assert_eq!(events[1]["text"], "« va » = aller, 3e personne.");
+        assert_eq!(events[3]["text"], "2e personne de l'impératif.");
+        // un turnId par question, partagé avec sa réponse
+        assert_eq!(events[0]["meta"]["turnId"], events[1]["meta"]["turnId"]);
+        assert_ne!(events[0]["meta"]["turnId"], events[2]["meta"]["turnId"]);
+        // séquences strictement croissantes (materialize s'appuie dessus)
+        let seqs: Vec<i64> = events
+            .iter()
+            .map(|e| e["meta"]["sequence"].as_i64().unwrap())
+            .collect();
+        assert_eq!(seqs, vec![1, 2, 3, 4]);
+        // transcript purgé : une promotion ne se rejoue pas
+        assert!(s.qa_transcripts().lock().unwrap().get("qa-1").is_none());
+    }
+
+    #[tokio::test]
+    async fn qa_promote_sans_session_ne_journalise_rien() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        push_qa_line(&s, "qa-2", "user", "question orpheline");
+        let out = route_ws(
+            &s,
+            r#"{"type":"qaPromote","qaId":"qa-2","newThreadId":"t-orphelin","title":"x"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "qaPromoteError");
+        assert!(!s.journal().has_journal("t-orphelin"));
     }
 
     #[tokio::test]

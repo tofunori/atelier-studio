@@ -33,3 +33,24 @@ export function chatSelection(raw: string | null): QaSelection | null {
   if (!flat.provider || !flat.model) return null;
   return { provider: flat.provider, model: flat.model, effort: flat.effort ?? "" };
 }
+
+/** Message `qaPromote` envoyé au runtime lorsqu'on promeut une conversation.
+ *
+ * `projectRoot` n'est pas cosmétique : le navigateur latéral ne liste que les
+ * fils du projet ouvert, et l'exception « fil actif » gardait un fil promu à
+ * la racine vide visible jusqu'au premier changement de chat — après quoi il
+ * disparaissait de la liste tout en restant sur disque. */
+export function qaPromotePayload(input: {
+  qaId: string;
+  newThreadId: string;
+  title: string;
+  activeProject: string | null;
+}) {
+  return {
+    type: "qaPromote" as const,
+    qaId: input.qaId,
+    newThreadId: input.newThreadId,
+    title: input.title,
+    projectRoot: input.activeProject ?? "",
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatSelection, threadModelKey } from "./quickAskModel";
+import { chatSelection, qaPromotePayload, threadModelKey } from "./quickAskModel";
 
 describe("threadModelKey", () => {
   it("vise la clé que le chat écrit pour un fil", () => {
@@ -49,5 +49,25 @@ describe("chatSelection", () => {
   it("renvoie null quand le modèle est vide — rien à suivre", () => {
     const raw = JSON.stringify({ activeProvider: "grok", byProvider: { grok: { model: "" } } });
     expect(chatSelection(raw)).toBeNull();
+  });
+});
+
+describe("qaPromotePayload", () => {
+  it("rattache le fil promu au projet ouvert", () => {
+    expect(
+      qaPromotePayload({ qaId: "qa-1", newThreadId: "t-1", title: "va veut dire quoi", activeProject: "/proj/a" }),
+    ).toEqual({
+      type: "qaPromote",
+      qaId: "qa-1",
+      newThreadId: "t-1",
+      title: "va veut dire quoi",
+      projectRoot: "/proj/a",
+    });
+  });
+
+  it("hors projet, la racine reste vide", () => {
+    expect(
+      qaPromotePayload({ qaId: "qa-1", newThreadId: "t-1", title: "x", activeProject: null }).projectRoot,
+    ).toBe("");
   });
 });

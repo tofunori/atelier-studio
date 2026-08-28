@@ -16,6 +16,7 @@ import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin, resolvePins } from "./lib/pins";
 import type { QaContext } from "./lib/quickAskContext";
+import { qaPromotePayload } from "./lib/quickAskModel";
 import {
   mergeReorderedTabs,
   pickActiveTabForProject,
@@ -4080,10 +4081,10 @@ export default function App() {
             onPromote={(qaId, title) => {
               const newId = crypto.randomUUID();
               if (ws.current?.readyState === 1) {
-                ws.current.send(JSON.stringify({
-                  type: "qaPromote", qaId, newThreadId: newId, title,
-                  projectRoot: "",
-                }));
+                ws.current.send(JSON.stringify(qaPromotePayload({
+                  qaId, newThreadId: newId, title,
+                  activeProject: activeProjectRef.current,
+                })));
                 setTimeout(() => {
                   setActiveId(newId);
                   activeIdRef.current = newId;
