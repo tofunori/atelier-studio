@@ -188,6 +188,7 @@ pub async fn issue_mcp_launch(
     session_id: Option<String>,
     caller_label: &str,
     turn_id: Option<String>,
+    linked: bool,
 ) -> Result<AtelierMcpLaunch, String> {
     let port = state
         .port()
@@ -209,6 +210,7 @@ pub async fn issue_mcp_launch(
         command: command.display().to_string(),
         server_name: SERVER_NAME.into(),
         env,
+        linked,
     })
 }
 

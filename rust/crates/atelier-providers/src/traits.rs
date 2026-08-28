@@ -56,6 +56,10 @@ pub struct AtelierMcpLaunch {
     pub command: std::path::PathBuf,
     pub server_name: String,
     pub env: std::collections::HashMap<String, String>,
+    /// Fil LIÉ (parent ou enfants). Seul ce cas justifie d'isoler la session
+    /// MCP du CLI ; un fil ordinaire doit continuer de charger la config MCP
+    /// personnelle de l'utilisateur.
+    pub linked: bool,
 }
 
 /// ACP représente les variables d'environnement d'un serveur MCP comme une
@@ -218,6 +222,7 @@ mod tests {
                 ("ATELIER_THREAD_ID".into(), "thread-1".into()),
                 ("ATELIER_AGENT_CAPABILITY".into(), "secret".into()),
             ]),
+            linked: false,
         };
 
         assert_eq!(

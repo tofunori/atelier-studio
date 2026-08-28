@@ -322,9 +322,16 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     if std::env::var("ATELIER_CLAUDE_HOOK_EVENTS").is_ok() {
         args.push("--include-hook-events".into());
     }
-    // Plan 057: session-scoped MCP (never global ~/.claude config).
+    // Plan 057 : MCP scopé au fil. `--strict-mcp-config` fait ignorer au CLI
+    // TOUTE autre configuration MCP — c'est l'isolation voulue pour un
+    // sous-agent LIÉ (« never global ~/.claude config »), et une amputation
+    // pour un fil ordinaire, qui perdrait gbrain, ragdoc, context7… Depuis que
+    // le serveur atelier part sur tout fil compatible (2026-08-28), le mode
+    // strict doit donc suivre le lien, pas la simple présence du serveur.
     if let Some(path) = mcp_config_path {
-        args.push("--strict-mcp-config".into());
+        if req.atelier_mcp.as_ref().is_some_and(|l| l.linked) {
+            args.push("--strict-mcp-config".into());
+        }
         args.push("--mcp-config".into());
         args.push(path.display().to_string());
     }
@@ -343,6 +350,18 @@ fn write_thread_mcp_config(req: &SendRequest) -> Option<std::path::PathBuf> {
             })
         })
         .ok()?;
+    write_mcp_config_in(&app_dir, &req.thread_id, launch)
+}
+
+/// Écrit le fichier `--mcp-config` du fil. Le document ne déclare QUE le
+/// serveur atelier, lié ou non : c'est `--strict-mcp-config` (voir
+/// `build_args`) qui décide si la configuration MCP personnelle de
+/// l'utilisateur s'ajoute à celle-ci ou disparaît.
+fn write_mcp_config_in(
+    app_dir: &std::path::Path,
+    thread_id: &str,
+    launch: &crate::traits::AtelierMcpLaunch,
+) -> Option<std::path::PathBuf> {
     let dir = app_dir.join("mcp-configs");
     let _ = std::fs::create_dir_all(&dir);
     #[cfg(unix)]
@@ -352,7 +371,7 @@ fn write_thread_mcp_config(req: &SendRequest) -> Option<std::path::PathBuf> {
     }
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    h.update(req.thread_id.as_bytes());
+    h.update(thread_id.as_bytes());
     let name = format!("{}.json", hex::encode(&h.finalize()[..16]));
     let path = dir.join(name);
     let cfg = serde_json::json!({
@@ -901,6 +920,89 @@ mod drapeaux_tests {
     }
 
     const SESSION: &str = "0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000";
+
+    fn req_mcp(linked: bool) -> SendRequest {
+        let mut r = req(None, false);
+        r.atelier_mcp = Some(crate::traits::AtelierMcpLaunch {
+            command: std::path::PathBuf::from("/tmp/atelier-agent-mcp"),
+            server_name: "atelier-sessions".into(),
+            env: std::collections::HashMap::new(),
+            linked,
+        });
+        r
+    }
+
+    /// Régression 2026-08-28 : depuis que le serveur MCP Atelier part sur
+    /// TOUT fil compatible, `--strict-mcp-config` amputait les fils ordinaires
+    /// de la config MCP personnelle (gbrain, ragdoc, context7…). Le mode
+    /// strict reste réservé aux fils LIÉS, où l'isolation est un choix.
+    #[test]
+    fn un_fil_ordinaire_garde_la_config_mcp_personnelle() {
+        let path = std::path::PathBuf::from("/tmp/mcp.json");
+        let args = build_args(&req_mcp(false), Some(&path));
+        assert!(
+            !args.iter().any(|a| a == "--strict-mcp-config"),
+            "fil ordinaire : pas de mode strict, sinon la config utilisateur saute — {args:?}"
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--mcp-config" && w[1] == "/tmp/mcp.json"),
+            "le serveur atelier doit tout de même être déclaré — {args:?}"
+        );
+    }
+
+    /// Le fichier `--mcp-config` reste le même dans les deux cas : il ne
+    /// déclare que le serveur atelier. Un fil ordinaire l'obtient donc bien,
+    /// et c'est l'absence de `--strict-mcp-config` qui lui laisse en plus sa
+    /// configuration MCP personnelle.
+    #[test]
+    fn le_fichier_de_config_declare_le_serveur_atelier_lie_ou_non() {
+        let base = std::env::temp_dir().join(format!(
+            "atelier-mcp-cfg-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for (linked, thread) in [(false, "fil-ordinaire"), (true, "fil-lie")] {
+            let launch = req_mcp(linked).atelier_mcp.unwrap();
+            let path = write_mcp_config_in(&base, thread, &launch)
+                .expect("le fichier de config doit être écrit");
+            let doc: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(
+                doc["mcpServers"]["atelier-sessions"]["command"],
+                serde_json::json!("/tmp/atelier-agent-mcp"),
+                "linked={linked} : {doc}"
+            );
+            assert_eq!(
+                doc["mcpServers"].as_object().unwrap().len(),
+                1,
+                "le document ne déclare que le serveur atelier — {doc}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// L'isolation stricte des sous-agents liés est délibérée (plan 057 :
+    /// « never global ~/.claude config ») et ne doit pas être perdue.
+    #[test]
+    fn un_fil_lie_reste_isole_en_mode_strict() {
+        let path = std::path::PathBuf::from("/tmp/mcp.json");
+        let args = build_args(&req_mcp(true), Some(&path));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--strict-mcp-config" || w[0] == "--mcp-config"),
+            "{args:?}"
+        );
+        assert!(args.iter().any(|a| a == "--strict-mcp-config"), "{args:?}");
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--mcp-config" && w[1] == "/tmp/mcp.json"),
+            "{args:?}"
+        );
+    }
 
     /// Claude Code n'a pas d'appel de fork : la branche se crée en reprenant
     /// la session source avec `--fork-session`. Sans ce drapeau, la reprise

@@ -117,6 +117,12 @@ pub struct AtelierMcpLaunch {
     pub command: String,
     pub server_name: String,
     pub env: std::collections::HashMap<String, String>,
+    /// Le fil est LIÉ (parent ou enfants) — la coordination inter-agents veut
+    /// alors une session MCP isolée du reste. Un fil ordinaire, lui, garde la
+    /// configuration MCP personnelle de l'utilisateur en plus du serveur
+    /// atelier : voir `claude.rs::build_args` (`--strict-mcp-config`).
+    #[serde(default)]
+    pub linked: bool,
 }
 
 /// Codes d'erreur stables exposés au MCP et à l'UI.

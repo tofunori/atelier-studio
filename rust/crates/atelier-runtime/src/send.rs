@@ -1240,7 +1240,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // que pour les fils LIÉS ; `atelier_widget` (spec widgets-chat) a changé
     // la donne — le cas d'usage moteur est un fil NORMAL à qui on demande un
     // panneau. Voir `agent_mcp::should_launch_mcp`.
+    //
+    // Le lien reste calculé : il ne décide plus du LANCEMENT du serveur, mais
+    // toujours de l'ISOLATION de la session MCP côté provider (un fil ordinaire
+    // doit garder la config MCP personnelle de l'utilisateur).
     let atelier_mcp = {
+        let linked = previous
+            .as_ref()
+            .and_then(|t| t.agent_link.as_ref())
+            .is_some()
+            || {
+                let store = state.threads().lock().await;
+                !store.children_of(&thread_id).is_empty()
+            };
         if crate::agent_mcp::should_launch_mcp(&provider) {
             match crate::agent_mcp::issue_mcp_launch(
                 state,
@@ -1250,6 +1262,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 session_id.clone(),
                 crate::agent_mcp::provider_label(&provider),
                 Some(turn_id.clone()),
+                linked,
             )
             .await
             {
@@ -1257,6 +1270,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     command: std::path::PathBuf::from(launch.command),
                     server_name: launch.server_name,
                     env: launch.env,
+                    linked: launch.linked,
                 }),
                 Err(e) => {
                     tracing::warn!(error = %e, "atelier MCP launch unavailable");
