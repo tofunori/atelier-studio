@@ -3457,14 +3457,17 @@ fn push_qa_line(state: &AppState, qa_id: &str, role: &str, text: &str) {
 /// chat naît vide : le provider reprend bien la session, mais l'app n'a
 /// jamais rien écrit pour les tours joués dans la fenêtre Quick Ask.
 fn seed_journal_from_qa(state: &AppState, thread_id: &str, provider: &str, lines: &[QaLine]) {
-    let mut sequence = state.journal().last_sequence(thread_id);
     let mut turn_id = uuid_v4();
     for line in lines {
         let user = line.role == "user";
         if user {
             turn_id = uuid_v4();
         }
-        sequence += 1;
+        // Allocateur atomique : la lecture unique + incrément local
+        // collisionnait avec les autres écrivains de séquences pour le même
+        // fil (inventaire complété suite au ruling contrôleur du
+        // 2026-08-28 — le brief initial n'en listait que trois, incomplet).
+        let sequence = state.journal().next_sequence(thread_id);
         let mut meta = json!({
             "threadId": thread_id,
             "sequence": sequence,
@@ -3548,6 +3551,10 @@ async fn handle_codex_clear(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
     // Journal frontier marker (best-effort).
+    // Allocateur atomique : ce site collisionnait aussi avec les autres
+    // écrivains de séquences pour le même fil (inventaire complété suite au
+    // ruling contrôleur du 2026-08-28 — le brief initial n'en listait que
+    // trois, incomplet).
     let _ = state.journal().append(&json!({
         "kind": "tool",
         "name": "__session-cleared",
@@ -3555,7 +3562,7 @@ async fn handle_codex_clear(state: &AppState, msg: &Value) -> Vec<String> {
             "threadId": thread_id,
             "provider": "codex",
             "eventId": uuid_v4(),
-            "sequence": state.journal().last_sequence(thread_id) + 1,
+            "sequence": state.journal().next_sequence(thread_id),
             "durable": true,
             "origin": "atelier",
         }
