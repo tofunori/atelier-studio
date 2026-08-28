@@ -817,6 +817,43 @@ describe("orchestration App — caractérisation", () => {
     expect(url.searchParams.get("base")).toBe(baseSha);
   });
 
+  it("recliquer un fichier déjà ouvert le ramène à l'écran, pas la galerie", async () => {
+    // Ouvrir un fichier n'est pas « montrer la galerie ». Quand l'onglet
+    // existe déjà et qu'il est déjà l'onglet actif, aucun état ne change :
+    // seule une demande numérotée peut encore ramener le fichier devant.
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "files", projectRoot: PROJECT_ROOT, files: ["scripts/plot.py"] });
+
+    const shown = () => Array.from(document.querySelectorAll<HTMLElement>(".workspace-content-layer"))
+      .filter((layer) => layer.style.display !== "none")
+      .map((layer) => layer.dataset.workspaceContent ?? "");
+    const openFromChat = async () => {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("chat-open-file", {
+          detail: { rel: "scripts/plot.py", line: null },
+        }));
+        await flushMicrotasks(6);
+      });
+    };
+
+    await openFromChat();
+    expect(shown().some((key) => key.startsWith("document:"))).toBe(true);
+
+    // retour à la galerie (rail / barre du haut)
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
+      await flushMicrotasks(4);
+    });
+    expect(shown()).toContain("surface:atelier");
+
+    // même fichier, même onglet, même `activeTab` : il doit revenir devant
+    await openFromChat();
+    expect(shown().some((key) => key.startsWith("document:"))).toBe(true);
+    expect(shown()).not.toContain("surface:atelier");
+  });
+
   it("bascule Chat/Split/Atelier : en Atelier plein, le panneau chat est masqué SANS être démonté", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

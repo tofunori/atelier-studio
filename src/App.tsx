@@ -1273,6 +1273,24 @@ export default function App() {
     if (!showAtelier || !surfaceRequest) return;
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: surfaceRequest.surface } }));
   }, [showAtelier, surfaceRequest]);
+  // Ouvrir un FICHIER, ce n'est pas « montrer la galerie ». switchToSurface
+  // ("atelier") active l'onglet Galerie du workspace : appelé après avoir
+  // ouvert un fichier, il écrasait ce qu'on venait d'ouvrir. Et compter sur
+  // le changement de `activeTab` ne suffit pas — recliquer un fichier DÉJÀ
+  // actif ne change aucun état, donc rien ne bougeait (vécu 2026-08-28).
+  // D'où une demande numérotée, comme `surfaceRequest` : elle repart même
+  // quand la valeur ne change pas.
+  const [tabRequest, setTabRequest] = useState<{ id: string; sequence: number } | null>(null);
+  function revealAtelierTab(id: string) {
+    setLayout((l) => (l === "chat" ? "split" : l));
+    setActiveSurface("atelier");
+    setTabRequest((request) => ({ id, sequence: (request?.sequence ?? 0) + 1 }));
+  }
+  useEffect(() => {
+    if (!showAtelier || !tabRequest) return;
+    // le workspace parle en `document:<id>` / `surface:atelier`, pas en id brut
+    window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id: `document:${tabRequest.id}` } }));
+  }, [showAtelier, tabRequest]);
   useEffect(() => {
     const openPassage = () => switchToSurface("biblio");
     window.addEventListener("chat-open-zotero-passage", openPassage);
@@ -2605,8 +2623,9 @@ export default function App() {
       return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
     });
     setActiveTab(focusId);
-    // l'onglet vit dans la surface Atelier : y basculer si on est ailleurs
-    switchToSurface("atelier");
+    // l'onglet vit dans la surface Atelier : la rendre visible ET y amener le
+    // fichier — pas la galerie (voir revealAtelierTab).
+    revealAtelierTab(focusId);
   }
   /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
    * Zotero → URL viewer avec `path` (stockage servi) ; fichier de projet →
@@ -2644,7 +2663,7 @@ export default function App() {
       return [...tabs, { id: newId, url, title: name, projectRoot: activeProject ?? undefined }];
     });
     setActiveTab(focusId);
-    switchToSurface("atelier");
+    revealAtelierTab(focusId);
   }
 
   const openFileTabRef = useRef(openFileTab);

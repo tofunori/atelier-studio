@@ -572,10 +572,18 @@ export default function AtelierPane({
     const paneOf = () => findWorkspacePane(workspace.root, workspace.focusedPaneId)
       ?? listWorkspacePanes(workspace.root)[0];
     const refOf = (id: string) => paneOf()?.tabs.find((c) => workspaceTabId(c) === id);
+    // Un onglet demandé peut vivre dans l'autre pane d'un split : le chercher
+    // partout, sinon la demande tombe dans le vide et la vue ne bouge pas.
+    const holderOf = (id: string) => {
+      for (const candidate of listWorkspacePanes(workspace.root)) {
+        const ref = candidate.tabs.find((c) => workspaceTabId(c) === id);
+        if (ref) return {pane: candidate, ref};
+      }
+      return null;
+    };
     const onSelect = (event: Event) => {
-      const pane = paneOf();
-      const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
-      if (pane && ref) selectRef(pane.id, ref);
+      const found = holderOf(String((event as CustomEvent).detail?.id ?? ""));
+      if (found) selectRef(found.pane.id, found.ref);
     };
     const onClose = (event: Event) => {
       const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
