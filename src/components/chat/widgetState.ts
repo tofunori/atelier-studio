@@ -27,6 +27,12 @@ export function recallWidgetState(id: string): unknown | undefined {
   return states.get(id);
 }
 
+/** Oubli CIBLÉ : la réinitialisation de la barre du plein écran (spec §F)
+ * ne doit toucher qu'un panneau, pas vider la mémoire de tout le fil. */
+export function forgetWidgetState(id: string): boolean {
+  return states.delete(id);
+}
+
 export function clearWidgetStates(): void {
   states.clear();
 }

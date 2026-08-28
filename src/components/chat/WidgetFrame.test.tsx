@@ -355,6 +355,59 @@ describe("WidgetFrame — actions de barre", () => {
     );
   });
 
+  it("réinitialise l'état gelé du widget depuis la barre du plein écran", async () => {
+    // spec §F : « la réinitialisation de l'état vit dans la barre du plein
+    // écran ». Elle doit oublier CE widget seulement, puis remonter l'iframe
+    // pour repartir des valeurs par défaut.
+    clearWidgetStates();
+    rememberWidgetState(EVENT.id, { nu: 7 });
+    rememberWidgetState("w_ffffffffffffffff", { autre: true });
+    mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
+
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: t("chat.widget-expand") }));
+    });
+    const avant = document.querySelector("iframe");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: t("chat.widget-reset") }));
+    });
+
+    expect(recallWidgetState(EVENT.id)).toBeUndefined();
+    // l'oubli est CIBLÉ : les autres widgets gardent leur état
+    expect(recallWidgetState("w_ffffffffffffffff")).toEqual({ autre: true });
+    // et l'iframe est remontée : elle repart des valeurs par défaut
+    expect(document.querySelector("iframe")).not.toBe(avant);
+    expect(document.querySelectorAll("iframe").length).toBe(1);
+  });
+
+  it("offre « voir la source » en état muet, où lire le code compte le plus", async () => {
+    vi.useFakeTimers();
+    mockFetch(async () => new Response("<html>coquille muette</html>", { status: 200 }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(3100); });
+
+    expect(screen.getByText(t("chat.widget-mute"))).toBeTruthy();
+    const action = screen.getByRole("button", { name: t("chat.widget-view-source") });
+    expect(action).not.toBeDisabled();
+
+    act(() => { fireEvent.click(action); });
+    expect(container.querySelector("pre code")?.textContent).toContain("coquille muette");
+    vi.useRealTimers();
+  });
+
+  it("n'offre aucune action en état introuvable : il n'y a pas de coquille à lire", async () => {
+    mockFetch(async () => new Response("nope", { status: 404 }));
+    render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(screen.getByText(t("chat.widget-missing"))).toBeTruthy());
+    expect(screen.queryByRole("button", { name: t("chat.widget-view-source") })).toBeNull();
+  });
+
   it("désactive le bouton copier tant que la coquille n'est pas chargée", () => {
     pendingFetch();
     render(<WidgetFrame event={EVENT} threadId="t1" />);

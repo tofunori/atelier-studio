@@ -348,7 +348,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .mermaid-invalid-note { padding: 0 12px 10px; font-size: var(--fs-s); color: var(--text-muted); }
 /* Widget du fil : châssis de .codeblock, corps à hauteur déclarée. Le titre
    est de la prose (pas un nom de langage) → police d'interface, pas --code-font. */
-.widget-block .widget-bar-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.widget-block .widget-bar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .widget-block .widget-bar-left > svg { flex: none; color: var(--text-disabled); }
 .widget-title { font-size: var(--fs-s); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -360,6 +360,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 @media (prefers-reduced-motion: reduce) { .widget-frame { transition: none; } }
 .widget-block:focus-within { outline: 1px solid var(--accent); outline-offset: -1px; }
 .widget-fullscreen-frame { width: 100%; height: 100%; border: 0; background: transparent; }
+.widget-fullscreen-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 /* task-lists GFM (lecture seule) : bullet retiré, checkbox custom sobre —
    calque du pattern .git-file-line (ci-dessous). */
 .msg .task-list-item { list-style: none; margin-left: -20px; }

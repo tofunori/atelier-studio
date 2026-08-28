@@ -11,7 +11,7 @@ import { Maximize2Icon, XIcon } from "lucide-react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { getSidecarInfo, sidecarHeaders } from "../../lib/sidecarInfo";
-import { recallWidgetState, rememberWidgetState } from "./widgetState";
+import { forgetWidgetState, recallWidgetState, rememberWidgetState } from "./widgetState";
 import { Button, IconButton } from "../ui";
 import { CopyIcon } from "../icons";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../shadcn/dialog";
@@ -41,6 +41,10 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Change de valeur pour REMONTER l'iframe (clé React). `setPhase("loading")`
+  // ne suffit pas : même srcDoc, même élément — le widget garderait ses
+  // curseurs alors qu'on vient justement d'oublier son état.
+  const [mountNonce, setMountNonce] = useState(0);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   // miroir de `expanded` lisible depuis l'écouteur `message`, dont la clôture
@@ -134,6 +138,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     if (shell == null) return null;
     return (
       <iframe
+        key={mountNonce}
         ref={frameRef}
         className={className}
         title={event.title}
@@ -163,6 +168,26 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     if (next || !showSource) setPhase("loading");
   }
 
+  // spec §F : la réinitialisation vit dans la barre du plein écran. Elle
+  // oublie l'état gelé de CE panneau (jamais celui des autres) et remonte
+  // l'iframe pour repartir des valeurs par défaut.
+  function resetWidget() {
+    forgetWidgetState(event.id);
+    setPhase("loading");
+    setMountNonce((n) => n + 1);
+  }
+
+  const sourceToggle = (
+    <Button
+      variant="ghost"
+      className="mermaid-toggle"
+      disabled={shell == null}
+      onClick={toggleSource}
+    >
+      {showSource ? t("chat.widget-view-panel") : t("chat.widget-view-source")}
+    </Button>
+  );
+
   const widgetLabel = (
     <span className="widget-bar-left">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -175,16 +200,32 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     </span>
   );
 
-  const chrome = <div className="codeblock-bar">{widgetLabel}</div>;
-
   // États dégradés : la hauteur est RENDUE au fil, jamais 400 px de vide.
+  //
+  // En état MUET la coquille EST chargée — c'est justement l'état où pouvoir
+  // lire le code compte le plus (spec §E : « ligne sobre + action voir la
+  // source »). En état INTROUVABLE il n'y a rien à lire : aucune action.
   if (phase === "missing" || phase === "mute") {
     return (
       <div className="codeblock widget-block not-typeset">
-        {chrome}
-        <div className="widget-note">
-          {phase === "missing" ? t("chat.widget-missing") : t("chat.widget-mute")}
+        <div className="codeblock-bar">
+          {widgetLabel}
+          {phase === "mute" && shell != null && (
+            <div className="codeblock-bar-actions">{sourceToggle}</div>
+          )}
         </div>
+        {showSource && shell != null ? (
+          <pre>
+            <code
+              className="hljs language-html"
+              dangerouslySetInnerHTML={{ __html: highlightCode(shell, "html") }}
+            />
+          </pre>
+        ) : (
+          <div className="widget-note">
+            {phase === "missing" ? t("chat.widget-missing") : t("chat.widget-mute")}
+          </div>
+        )}
       </div>
     );
   }
@@ -205,14 +246,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
       <div className="codeblock-bar">
         {widgetLabel}
         <div className="codeblock-bar-actions">
-          <Button
-            variant="ghost"
-            className="mermaid-toggle"
-            disabled={shell == null}
-            onClick={toggleSource}
-          >
-            {showSource ? t("chat.widget-view-panel") : t("chat.widget-view-source")}
-          </Button>
+          {sourceToggle}
           {!showSource && (
             <IconButton
               className="codeblock-copy"
@@ -277,13 +311,18 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
             <DialogTitle className="tw:sr-only">{t("chat.widget-fullscreen-title")}</DialogTitle>
             <div className="mermaid-fullscreen-toolbar">
               <span className="widget-title">{event.title}</span>
-              <DialogClose
-                className="mermaid-fullscreen-close"
-                aria-label={t("chat.mermaid-close-fullscreen")}
-              >
-                <XIcon aria-hidden="true" />
-                <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
-              </DialogClose>
+              <span className="widget-fullscreen-actions">
+                <Button variant="ghost" className="mermaid-toggle" onClick={resetWidget}>
+                  {t("chat.widget-reset")}
+                </Button>
+                <DialogClose
+                  className="mermaid-fullscreen-close"
+                  aria-label={t("chat.mermaid-close-fullscreen")}
+                >
+                  <XIcon aria-hidden="true" />
+                  <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
+                </DialogClose>
+              </span>
             </div>
             {expanded && renderIframe("widget-fullscreen-frame")}
           </DialogContent>
