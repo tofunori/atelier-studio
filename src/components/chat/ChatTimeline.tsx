@@ -31,7 +31,7 @@ import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
-import { activeMargeIndex, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
+import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import type { QaContext } from "../../lib/quickAskContext";
 import { clampToolbarLeft } from "../../lib/selectionToolbar";
@@ -356,8 +356,22 @@ export function ChatTimeline(p: {
   );
   const [margeAll, setMargeAll] = React.useState(false);
   const mode = margeAll ? "all" : margeMode(promptCount);
+  // Cache incrémental de résolution des marques (Tâche 20) : sans lui,
+  // deriveMargeEntries refait un findIndex(includes) sur tout le fil par
+  // marque à chaque render — jusqu'à ~20 M de comparaisons par token sur un
+  // long fil annoté. Reset au rétrécissement du fil (rejeu d'historique) et
+  // au changement de fil (un index caché d'un AUTRE fil est sans rapport).
+  const markCacheRef = React.useRef(createMarkIndexCache());
+  const prevEventsLenRef = React.useRef(0);
+  React.useEffect(() => {
+    if (events.length < prevEventsLenRef.current) markCacheRef.current.reset();
+    prevEventsLenRef.current = events.length;
+  }, [threadId, events.length]);
+  React.useEffect(() => {
+    markCacheRef.current.reset();
+  }, [threadId]);
   const margeEntries = useMemo(() => {
-    const next = deriveMargeEntries(events, pins, marks, { mode });
+    const next = deriveMargeEntries(events, pins, marks, { mode, resolveMark: markCacheRef.current.resolve });
     if (sameMargeEntries(margeRef.current, next)) return margeRef.current;
     margeRef.current = next;
     return next;

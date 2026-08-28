@@ -24,7 +24,42 @@ type MargeMark = { text: string; kind?: string };
  * lisait plus. Rien n'est perdu : « tout · N » rend la vue complète. */
 export type MargeMode = "all" | "marks";
 
-type MargeOptions = { mode?: MargeMode };
+type MargeOptions = {
+  mode?: MargeMode;
+  resolveMark?: (events: MargeEvent[], passage: string) => number;
+};
+
+type MarkHit = { index: number; scannedTo: number };
+
+/** Cache incrémental de résolution passage→index. Le fil ne fait que grandir
+ * pendant un tour ; un passage déjà résolu se re-valide en un `includes` sur
+ * SON événement, et un passage introuvable ne re-scanne que le texte nouveau.
+ * Le dernier événement reste toujours re-scanné : c'est la bulle en cours,
+ * son texte grandit. Reset au changement de fil ou au rejeu d'historique. */
+export function createMarkIndexCache() {
+  const hits = new Map<string, MarkHit>();
+  return {
+    reset() {
+      hits.clear();
+    },
+    resolve(events: MargeEvent[], passage: string): number {
+      const hit = hits.get(passage);
+      if (
+        hit && hit.index >= 0 && hit.index < events.length
+        && (events[hit.index].text ?? "").includes(passage)
+      ) return hit.index;
+      const from = hit && hit.index < 0 ? Math.min(hit.scannedTo, Math.max(0, events.length - 1)) : 0;
+      for (let i = from; i < events.length; i += 1) {
+        if ((events[i].text ?? "").includes(passage)) {
+          hits.set(passage, { index: i, scannedTo: i + 1 });
+          return i;
+        }
+      }
+      hits.set(passage, { index: -1, scannedTo: Math.max(0, events.length - 1) });
+      return -1;
+    },
+  };
+}
 
 const LABEL_MAX = 72;
 /** En dessous, la marge tient d'un œil : la plier n'apporterait rien. */
@@ -49,6 +84,9 @@ export function deriveMargeEntries(
   options: MargeOptions = {},
 ): MargeEntry[] {
   const mode = options.mode ?? "all";
+  const resolveMark = options.resolveMark
+    ?? ((evts: MargeEvent[], passage: string) =>
+      evts.findIndex((event) => (event.text ?? "").includes(passage)));
   const pinByIndex = new Map(pins.map((pin) => [pin.index, pin]));
   // Un passage surligné se rattache au message qui le porte encore : le mark
   // ne connaît que son texte (localStorage), jamais un index.
@@ -56,7 +94,7 @@ export function deriveMargeEntries(
   for (const mark of marks) {
     const passage = (mark.text ?? "").trim();
     if (!passage) continue;
-    const index = events.findIndex((event) => (event.text ?? "").includes(passage));
+    const index = resolveMark(events, passage);
     if (index < 0) continue;
     marksByIndex.set(index, [...(marksByIndex.get(index) ?? []), mark]);
   }
