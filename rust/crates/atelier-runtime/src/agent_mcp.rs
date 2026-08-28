@@ -20,8 +20,12 @@ use uuid::Uuid;
 const SERVER_NAME: &str = "atelier-sessions";
 const GRANT_TTL: Duration = Duration::from_secs(6 * 3600);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AgentCapabilityGrant {
+    /// Jeton porteur en clair, gardé pour pouvoir le RÉÉMETTRE tel quel au
+    /// tour suivant (voir `issue`). Privé au module et redacté dans `Debug` :
+    /// il ne doit jamais fuiter dans une trace.
+    bearer: String,
     pub token_hash: [u8; 32],
     pub caller_thread_id: String,
     pub project_root: String,
@@ -38,6 +42,22 @@ pub struct AgentCapabilityGrant {
     pub turn_id: Option<String>,
 }
 
+impl std::fmt::Debug for AgentCapabilityGrant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentCapabilityGrant")
+            .field("bearer", &"<redacted>")
+            .field("caller_thread_id", &self.caller_thread_id)
+            .field("project_root", &self.project_root)
+            .field("provider", &self.provider)
+            .field("session_id", &self.session_id)
+            .field("expires_at", &self.expires_at)
+            .field("generation", &self.generation)
+            .field("widgets_this_turn", &self.widgets_this_turn)
+            .field("turn_id", &self.turn_id)
+            .finish()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CapabilityRegistry {
     grants: HashMap<String, AgentCapabilityGrant>, // thread_id → grant
@@ -50,6 +70,21 @@ impl CapabilityRegistry {
         Self::default()
     }
 
+    /// Prépare le grant du fil pour un nouveau tour et rend le jeton porteur
+    /// à passer au CLI.
+    ///
+    /// Le JETON appartient au FIL, pas au tour. Jusqu'au 2026-08-28 chaque
+    /// appel révoquait et refrappait : le `mcpServers` déclaré aux providers
+    /// ACP changeait donc à chaque envoi, ce qui condamnait leurs voies
+    /// rapides (grok rejouait tout l'historique via `session/load`, kimi
+    /// risquait un `session/resume` fatal là où le cache répondait).
+    ///
+    /// Tant que le grant est VIVANT (non expiré), on garde donc le même jeton
+    /// et on ne remet à jour que ce qui varie : la portée du fil (projet,
+    /// provider, session — sinon une autorisation périmée survivrait à un
+    /// déplacement de fil) et l'état de tour (`turn_id`, plafond de widgets
+    /// remis à zéro). Un grant absent, révoqué ou EXPIRÉ est refrappé : la
+    /// stabilité ne prolonge jamais une capacité périmée.
     pub fn issue(
         &mut self,
         thread_id: &str,
@@ -58,7 +93,23 @@ impl CapabilityRegistry {
         session_id: Option<String>,
         turn_id: Option<String>,
     ) -> String {
-        // revoke previous
+        let vivant = self
+            .grants
+            .get(thread_id)
+            .is_some_and(|g| Instant::now() <= g.expires_at);
+        if vivant {
+            let g = self
+                .grants
+                .get_mut(thread_id)
+                .expect("grant vivant vérifié juste au-dessus");
+            g.project_root = project_root.to_string();
+            g.provider = provider.to_string();
+            g.session_id = session_id;
+            g.turn_id = turn_id;
+            g.widgets_this_turn = 0;
+            return g.bearer.clone();
+        }
+        // absent ou expiré : on révoque ce qui traîne et on refrappe
         if let Some(prev) = self.grants.remove(thread_id) {
             self.hash_index.remove(&prev.token_hash);
         }
@@ -67,6 +118,7 @@ impl CapabilityRegistry {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let now = Instant::now();
         let grant = AgentCapabilityGrant {
+            bearer: bearer.clone(),
             token_hash,
             caller_thread_id: thread_id.to_string(),
             project_root: project_root.to_string(),
@@ -108,6 +160,15 @@ impl CapabilityRegistry {
 
     pub fn active_count(&self) -> usize {
         self.grants.len()
+    }
+
+    /// Fait expirer le grant d'un fil sans toucher à l'index : sert à vérifier
+    /// que l'expiration donne bien un jeton NEUF (les TTL réels sont de 6 h).
+    #[cfg(test)]
+    fn force_expire_for_test(&mut self, thread_id: &str) {
+        if let Some(g) = self.grants.get_mut(thread_id) {
+            g.expires_at = Instant::now() - Duration::from_secs(1);
+        }
     }
 
     /// Tour courant du fil, tel que porté par son grant. `None` si le fil n'a
@@ -722,6 +783,80 @@ mod tests {
         for provider in ["fake", "", "inconnu"] {
             assert!(!should_launch_mcp(provider), "{provider} ne porte pas de MCP");
         }
+    }
+
+    /// Régression 2026-08-28 : `issue` révoquait et refrappait le jeton à
+    /// CHAQUE tour. Le `mcpServers` déclaré changeait donc à chaque envoi, ce
+    /// qui condamnait les voies rapides ACP (grok rejouait tout l'historique
+    /// via `session/load`, kimi risquait un `session/resume` fatal). Le jeton
+    /// appartient au FIL ; seul ce qui est vraiment par-tour varie.
+    #[test]
+    fn le_jeton_reste_stable_dun_tour_a_lautre() {
+        let mut reg = CapabilityRegistry::new();
+        let tour1 = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
+        assert!(reg.try_consume_widget_slot("t1", 8));
+        assert!(reg.try_consume_widget_slot("t1", 8));
+
+        let tour2 = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-2".into()));
+        assert_eq!(tour1, tour2, "le jeton porteur du fil ne doit pas changer");
+        assert_eq!(
+            reg.turn_id_of("t1").as_deref(),
+            Some("turn-2"),
+            "le turnId, lui, suit le tour"
+        );
+        for i in 0..8 {
+            assert!(
+                reg.try_consume_widget_slot("t1", 8),
+                "le plafond repart à zéro au tour suivant (slot {i})"
+            );
+        }
+        assert!(!reg.try_consume_widget_slot("t1", 8));
+        assert!(reg.resolve(&tour1).is_ok(), "le jeton réutilisé résout");
+
+        // Deux fils n'ont jamais le même jeton.
+        let autre = reg.issue("t2", "/tmp/proj", "claude", None, Some("turn-1".into()));
+        assert_ne!(autre, tour1);
+    }
+
+    /// La stabilité ne doit pas affaiblir la révocation ni l'expiration : un
+    /// grant révoqué ou périmé est REMPLACÉ, jamais prolongé.
+    #[test]
+    fn un_grant_revoque_ou_expire_donne_un_jeton_neuf() {
+        let mut reg = CapabilityRegistry::new();
+
+        let avant = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
+        reg.revoke_thread("t1");
+        assert!(reg.resolve(&avant).is_err(), "révoqué = plus résolvable");
+        let apres = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-2".into()));
+        assert_ne!(avant, apres, "après révocation, jeton neuf");
+        assert!(reg.resolve(&avant).is_err(), "l'ancien reste mort");
+
+        let vieux = reg.issue("t2", "/tmp/proj", "claude", None, Some("turn-1".into()));
+        reg.force_expire_for_test("t2");
+        assert_eq!(
+            reg.resolve(&vieux).err(),
+            Some(err::CAPABILITY_EXPIRED),
+            "un grant périmé se refuse avant tout"
+        );
+        let neuf = reg.issue("t2", "/tmp/proj", "claude", None, Some("turn-2".into()));
+        assert_ne!(vieux, neuf, "un grant expiré n'est jamais prolongé");
+        assert!(reg.resolve(&vieux).is_err(), "l'ancien jeton reste mort");
+        assert!(reg.resolve(&neuf).is_ok());
+    }
+
+    /// Réutiliser le jeton ne doit pas figer la portée du grant : si le fil a
+    /// changé de projet, de provider ou de session, l'autorisation doit suivre.
+    #[test]
+    fn la_portee_du_grant_suit_le_fil_meme_quand_le_jeton_est_reutilise() {
+        let mut reg = CapabilityRegistry::new();
+        let jeton = reg.issue("t1", "/tmp/a", "claude", Some("s1".into()), Some("t-1".into()));
+        let rejeton = reg.issue("t1", "/tmp/b", "codex", Some("s2".into()), Some("t-2".into()));
+        assert_eq!(jeton, rejeton);
+
+        let g = reg.resolve(&jeton).expect("grant vivant");
+        assert_eq!(g.project_root, "/tmp/b");
+        assert_eq!(g.provider, "codex");
+        assert_eq!(g.session_id.as_deref(), Some("s2"));
     }
 
     #[test]
