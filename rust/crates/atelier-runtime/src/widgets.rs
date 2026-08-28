@@ -208,6 +208,30 @@ pub fn widget_event(
     })
 }
 
+/// Cœur pur du handler : ce qui est servi, ou rien.
+pub fn serve_body(app_dir: &Path, thread_id: &str, id: &str) -> Option<String> {
+    read_widget(app_dir, thread_id, id)
+}
+
+/// Handler HTTP pour servir le HTML du widget.
+pub async fn widget_html_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Path((thread_id, id)): axum::extract::Path<(String, String)>,
+) -> axum::response::Response {
+    use axum::http::{header, StatusCode};
+    use axum::response::IntoResponse;
+
+    match serve_body(state.app_dir(), &thread_id, &id) {
+        Some(body) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            body,
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, "widget introuvable").into_response(),
+    }
+}
+
 /// Action MCP `show_widget` : valide, écrit la coquille sur disque, purge le
 /// surplus, puis journalise et publie l'event durable. Le patron d'émission
 /// est copié de `agent_mailbox.rs::emit_agent_message_events`.
@@ -415,5 +439,22 @@ mod tests {
         assert!(read_widget(dir.path(), "t1", ids.last().unwrap()).is_some());
         assert!(read_widget(dir.path(), "t1", ids.first().unwrap()).is_none());
         assert_eq!(purge_oldest(&target, 2), 0, "purge idempotente");
+    }
+
+    #[test]
+    fn served_body_is_the_shell_or_nothing() {
+        let dir = tempdir().unwrap();
+        let id = new_widget_id();
+        write_widget(dir.path(), "t1", &id, "<html>coquille</html>").unwrap();
+
+        // le corps servi est exactement ce qui est sur disque
+        assert_eq!(
+            serve_body(dir.path(), "t1", &id).as_deref(),
+            Some("<html>coquille</html>")
+        );
+        // fichier absent → rien à servir (le handler rendra un 404)
+        assert_eq!(serve_body(dir.path(), "t1", &new_widget_id()), None);
+        // id hostile → rien à servir, aucun chemin construit
+        assert_eq!(serve_body(dir.path(), "t1", "../../etc/passwd"), None);
     }
 }

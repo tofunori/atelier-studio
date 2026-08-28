@@ -97,6 +97,10 @@ pub fn app_router(state: AppState) -> Router {
             "/internal/agent-mcp",
             post(crate::agent_mcp::agent_mcp_handler),
         )
+        .route(
+            "/widgets/:thread_id/:id",
+            get(crate::widgets::widget_html_handler),
+        )
         .route("/", get(ws_upgrade))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
