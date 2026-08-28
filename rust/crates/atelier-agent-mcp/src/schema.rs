@@ -72,7 +72,10 @@ pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)>
     match tool_name {
         WIDGET_TOOL_NAME => Some(("show_widget".to_string(), args.clone())),
         TOOL_NAME => {
-            let action = args.get("action").and_then(|v| v.as_str())?;
+            let action = args
+                .get("action")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?;
             Some((action.to_string(), args.clone()))
         }
         _ => None,
