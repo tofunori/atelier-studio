@@ -51,7 +51,11 @@ pub fn widget_tool_definition() -> Value {
     HTML autonome : aucun réseau, aucune bibliothèque externe, aucune police distante — \
     tout le calcul se fait en JS local. Les couleurs viennent des variables CSS injectées \
     (--fg, --muted, --border, --accent) ; n'invente pas de palette. Écris le contenu de la \
-    page seulement, sans <html>, <head> ni <body>.",
+    page seulement, sans <html>, <head> ni <body>. Trois fonctions sont déjà définies pour \
+    ton script : sendPrompt(texte) propose un message dans le composeur, que l'utilisateur \
+    valide lui-même (rien n'est envoyé tout seul) ; saveState(objet) mémorise l'état du \
+    panneau pour qu'il survive au défilement ; window.onRestore = (etat) => {...} le reçoit \
+    au remontage.",
         "inputSchema": {
             "type": "object",
             "required": ["html", "title", "height"],
@@ -118,6 +122,24 @@ mod tests {
             );
         }
         assert_eq!(def["inputSchema"]["additionalProperties"], json!(false));
+    }
+
+    #[test]
+    fn widget_tool_announces_the_three_bridge_functions() {
+        // Sans ça, aucun LLM ne devine leur existence : tout le §G (le widget
+        // propose un message) et tout le gel d'état du §E reposent sur des
+        // fonctions que l'agent doit appeler dans SON html.
+        let def = widget_tool_definition();
+        let description = def["description"].as_str().unwrap();
+        for f in ["sendPrompt(", "saveState(", "window.onRestore"] {
+            assert!(description.contains(f), "la description n'annonce pas {f}");
+        }
+        // et elle reste courte : elle repart au modèle à chaque tour
+        assert!(
+            description.len() < 900,
+            "description trop longue ({} octets) — elle est envoyée à chaque tour",
+            description.len()
+        );
     }
 
     #[test]
