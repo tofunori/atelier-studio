@@ -73,7 +73,7 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
         r#"<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none';">
 <title>{title}</title>
 <style>
   :root {{ color-scheme: light dark; }}
