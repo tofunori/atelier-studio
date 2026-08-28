@@ -200,4 +200,13 @@ mod tests {
         assert!(!shell.contains("<script>boom()</script>"));
         assert!(shell.contains("&lt;/title&gt;"));
     }
+
+    #[test]
+    fn shell_blocks_the_directives_default_src_does_not_cover() {
+        let input = parse_widget_input(&req("<p>a</p>", "t", 200)).unwrap();
+        let shell = wrap_shell(&input);
+        // default-src n'est pas un repli pour ces deux-là (spec CSP)
+        assert!(shell.contains("form-action 'none'"));
+        assert!(shell.contains("base-uri 'none'"));
+    }
 }

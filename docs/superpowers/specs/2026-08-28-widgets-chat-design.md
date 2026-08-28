@@ -89,10 +89,10 @@ L'iframe est montée en `srcdoc` avec le contenu de `GET /widgets/:id`, attribut
 
 ```html
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;">
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none';">
 ```
 
-Aucun `connect-src`, aucun `font-src` : pas de réseau, pas de police externe, pas de CDN. Les images en `data:` restent permises (un widget peut dessiner puis exporter en canvas).
+Aucun `connect-src`, aucun `font-src` : pas de réseau, pas de police externe, pas de CDN. `form-action` et `base-uri` sont déclarés explicitement parce que `default-src` **n'est pas** un repli pour ces deux directives (relecture tâche 2) — sans eux, un `<form>` posté par le widget partirait vraiment sur le réseau. Les images en `data:` restent permises (un widget peut dessiner puis exporter en canvas).
 
 ### Protocole `postMessage` — cinq messages, rien d'autre
 
