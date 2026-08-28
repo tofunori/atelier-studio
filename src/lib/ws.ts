@@ -91,6 +91,7 @@ type AgentEventBody =
       ts?: number;
     }
   | { kind: "tool"; name: string; detail?: string }
+  | { kind: "widget"; id: string; title: string; height: number; ts?: number }
   | {
       kind: "edit";
       projectRoot?: string | null;

@@ -30,6 +30,7 @@ import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { WidgetFrame } from "./WidgetFrame";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
@@ -1064,6 +1065,7 @@ export function ChatTimeline(p: {
           if (e.kind === "proposed_plan")
             return <ProposedPlanCard key={e.planId} event={e} threadId={threadId} />;
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
+          if (e.kind === "widget") return <WidgetFrame key={e.id} event={e} threadId={threadId} />;
           if (e.kind === "edit") {
             // La carte « fichiers modifiés » du dernier tour terminé liste
             // déjà ces fichiers avec leurs +/− et leur diff par fichier : la
