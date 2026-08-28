@@ -55,7 +55,7 @@ Cas d'usage moteur : « fais-moi voir ce que ν change au poids d'un résidu à 
 
 Nouveau module `rust/crates/atelier-runtime/src/widgets.rs`, appelé depuis `agent_mcp_handler` sur l'action `show_widget` (jeton de capacité déjà exigé par le handler existant).
 
-1. **Validation** — `html` ≤ 512 KiB, `title` ≤ 80 caractères (tronqué, pas rejeté), `height` clampé à [120, 900]. Plafond de **8 widgets par tour** ; au-delà, l'appel rend une erreur explicite au modèle.
+1. **Validation** — `html` ≤ 128 KiB (le pont impose `REQUEST_BODY_MAX = 256 KiB`, `agent_link.rs:160`, et l'échappement JSON gonfle la charge — 128 KiB laisse la marge ; un panneau n'est pas une application), `title` ≤ 80 caractères (tronqué, pas rejeté), `height` clampé à [120, 900]. Plafond de **8 widgets par tour** ; au-delà, l'appel rend une erreur explicite au modèle.
 2. **Identifiant** — `w_` + 16 hexadécimaux tirés dans le runtime. **Jamais dérivé d'une entrée de l'agent** : la traversée de chemin est impossible par construction, pas par assainissement.
 3. **Enveloppe** — le HTML de l'agent n'est jamais servi tel quel. Le runtime le place dans une coquille qui porte la balise CSP, le pont `postMessage` et les variables de thème (§D). *L'agent écrit le contenu de la page, pas sa tête.*
 4. **Écriture** — `<app_dir>/widgets/<sha256(threadId)>/<id>.html`.
@@ -112,7 +112,7 @@ L'hôte ignore tout message dont la `source` n'est pas le `contentWindow` de l'i
 
 `ChatTimeline` tourne sur LegendList avec `recycleItems={false}`, mais la virtualisation démonte quand même les rangées sorties de la fenêtre. Un widget qui annoncerait sa hauteur après coup ferait sauter le scroll — le piège déjà documenté de ce fil.
 
-Donc : `height` est **obligatoire à l'appel d'outil**, et `virtualRows.ts` fait porter cette hauteur à la rangée avant que l'iframe n'existe. En v1 la hauteur déclarée fait foi ; un dépassement scrolle à l'intérieur de l'iframe. Pas de négociation.
+Donc : `height` est **obligatoire à l'appel d'outil**, et le corps de la carte porte cette hauteur en style inline dès le premier rendu — avant même que le `fetch` du HTML ne résolve. LegendList mesure donc la bonne hauteur du premier coup. (`virtualRows.ts` n'est pas concerné : ce module ne fait que stabiliser l'identité des rangées, pas leur taille.) En v1 la hauteur déclarée fait foi ; un dépassement scrolle à l'intérieur de l'iframe. Pas de négociation.
 
 ### État, après le démontage
 
@@ -150,7 +150,7 @@ Le texte arrive dans le composeur, qui prend le focus. Si le composeur contient 
 
 ## H. Tests
 
-**Rust** (`widgets.rs`) : schéma de l'outil ; refus d'une hauteur hors bornes ; troncature du titre ; refus d'un `html` au-delà de 512 KiB ; plafond de 8 par tour ; un `id` malformé ne construit jamais de chemin ; purge au-delà de 200 ; `GET /widgets/:id` rend la coquille et un 404 propre sur fichier absent.
+**Rust** (`widgets.rs`) : schéma de l'outil ; refus d'une hauteur hors bornes ; troncature du titre ; refus d'un `html` au-delà de 128 KiB ; plafond de 8 par tour ; un `id` malformé ne construit jamais de chemin ; purge au-delà de 200 ; `GET /widgets/:id` rend la coquille et un 404 propre sur fichier absent.
 
 **Vitest** (`WidgetFrame.test.tsx`) : `theme` rejoué à la bascule **sans remontage** ; état restauré au remontage ; message d'une `source` étrangère ignoré ; `state` > 4 Ko ignoré ; `prompt` > 2000 caractères rejeté ; `prompt` ajouté sans écraser le composeur ; passage à *muet* après 3 s sans `ready` ; *introuvable* sur 404.
 
