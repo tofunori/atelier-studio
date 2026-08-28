@@ -288,16 +288,30 @@ impl GrokProvider {
         &self,
         runtime: &GrokThreadRuntime,
         requested: Option<&str>,
-        mcp_servers: Value,
+        // `None` = l'appelant ne déclare rien de neuf (compact) : toute session
+        // déjà ouverte lui convient, quelle que soit sa déclaration MCP.
+        mcp_servers: Option<Value>,
     ) -> Result<String, String> {
-        let empreinte = atelier_mcp_fingerprint(&mcp_servers);
+        let declares = mcp_servers.clone().unwrap_or_else(|| json!([]));
+        let empreinte = atelier_mcp_fingerprint(&declares);
         if let Some(sid) = requested.filter(|sid| !sid.is_empty()) {
             // Voie rapide : session déjà ouverte AVEC la même déclaration MCP.
             // Le drapeau `refresh_mcp` valait `atelier_mcp.is_some()`, donc
             // toujours vrai depuis que le serveur atelier part sur tout fil —
             // un `session/load` par envoi, avec rejeu complet de l'historique
             // et 150 ms à 1 s d'attente calme.
-            if runtime.state.lock().unwrap().opened_sessions.get(sid) == Some(&empreinte) {
+            let ouverte = runtime
+                .state
+                .lock()
+                .unwrap()
+                .opened_sessions
+                .get(sid)
+                .copied();
+            let deja_bonne = match ouverte {
+                Some(connue) => mcp_servers.is_none() || connue == empreinte,
+                None => false,
+            };
+            if deja_bonne {
                 return Ok(sid.to_string());
             }
 
@@ -319,7 +333,7 @@ impl GrokProvider {
                 .acp
                 .request(
                     "session/load",
-                    json!({"sessionId": sid, "cwd": runtime.cwd, "mcpServers": mcp_servers}),
+                    json!({"sessionId": sid, "cwd": runtime.cwd, "mcpServers": declares}),
                     Some(30_000),
                 )
                 .await;
@@ -343,7 +357,7 @@ impl GrokProvider {
             .acp
             .request(
                 "session/new",
-                json!({"cwd": runtime.cwd, "mcpServers": mcp_servers}),
+                json!({"cwd": runtime.cwd, "mcpServers": declares}),
                 Some(30_000),
             )
             .await
@@ -529,7 +543,7 @@ impl GrokProvider {
             .open_session(
                 &runtime,
                 req.session_id.as_deref(),
-                atelier_mcp_servers(req.atelier_mcp.as_ref()),
+                Some(atelier_mcp_servers(req.atelier_mcp.as_ref())),
             )
             .await?;
         let selection = self
@@ -954,7 +968,7 @@ impl Provider for GrokProvider {
             .open_session(
                 &runtime,
                 params.get("sessionId").and_then(Value::as_str),
-                json!([]),
+                None,
             )
             .await?;
         *runtime.active_session.lock().unwrap() = Some(sid.clone());

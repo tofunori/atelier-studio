@@ -1799,6 +1799,79 @@ mod tests {
             .starts_with("session_fake_"));
     }
 
+    fn launch_atelier(jeton: &str) -> crate::traits::AtelierMcpLaunch {
+        crate::traits::AtelierMcpLaunch {
+            command: std::path::PathBuf::from("/bin/atelier-agent-mcp"),
+            server_name: "atelier-sessions".into(),
+            env: HashMap::from([("ATELIER_MCP_CAPABILITY".into(), jeton.to_string())]),
+            linked: false,
+        }
+    }
+
+    async fn run_turn_mcp(
+        p: &KimiProvider,
+        prompt: &str,
+        session_id: Option<String>,
+        launch: crate::traits::AtelierMcpLaunch,
+    ) -> TurnOutput {
+        let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
+        let sink = Arc::clone(&events);
+        let req = SendRequest {
+            thread_id: "t-kimi-mcp".into(),
+            turn_id: "turn-1".into(),
+            prompt: prompt.into(),
+            inputs: None,
+            project_root: "/tmp/fake-kimi-proj".into(),
+            session_id,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: None,
+            fork_pending: false,
+            mode: SendMode::Normal,
+            on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            atelier_mcp: Some(launch),
+        };
+        let result = p.send(req).await;
+        let events = events.lock().unwrap().clone();
+        TurnOutput { result, events }
+    }
+
+    /// Régression 2026-08-28 : la voie rapide était conditionnée à
+    /// `atelier_mcp.is_none()`, donc morte depuis que le serveur atelier part
+    /// sur tout fil — un `session/resume` par envoi, dont l'échec FAIT
+    /// ÉCHOUER le tour. Ce qui compte est que la déclaration MCP n'ait pas
+    /// bougé, pas qu'elle soit vide.
+    ///
+    /// Témoin : `remember_snapshot` n'écrit `config[sid]` que sur un
+    /// `session/new|resume` — son absence prouve qu'aucun n'a eu lieu.
+    #[tokio::test]
+    async fn une_declaration_mcp_inchangee_evite_le_resume() {
+        let Some(p) = fixture_provider("nominal") else {
+            return;
+        };
+        let out1 = run_turn_mcp(&p, "a", None, launch_atelier("jeton-stable")).await;
+        assert!(out1.result.ok, "erreur: {:?}", out1.result.error);
+        let sid = out1.result.session_id.clone().unwrap();
+
+        p.config.lock().unwrap().remove(&sid);
+        let out2 = run_turn_mcp(&p, "b", Some(sid.clone()), launch_atelier("jeton-stable")).await;
+        assert!(out2.result.ok, "erreur: {:?}", out2.result.error);
+        assert!(
+            p.config.lock().unwrap().get(&sid).is_none(),
+            "déclaration inchangée : la session ne doit pas être rouverte"
+        );
+
+        let out3 = run_turn_mcp(&p, "c", Some(sid.clone()), launch_atelier("autre-jeton")).await;
+        assert!(out3.result.ok, "erreur: {:?}", out3.result.error);
+        assert!(
+            p.config.lock().unwrap().get(&sid).is_some(),
+            "déclaration changée : la session DOIT être rouverte"
+        );
+    }
+
     #[tokio::test]
     async fn resume_reutilise_la_session_sans_replay() {
         let Some(p) = fixture_provider("nominal") else {
