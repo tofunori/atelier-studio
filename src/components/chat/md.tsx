@@ -302,7 +302,7 @@ export function splitMarkdownBlocks(markdown: string): string[] {
 // re-rend toute la liste des messages, donc sans cache tous les blocs de code
 // de l'historique seraient recolorés à chaque token reçu (O(n²) sur les
 // longues réponses). Clé = `${lang} ${raw}`.
-const highlightCache = new LruCache<string>(300);
+export const highlightCache = new LruCache<string>(300);
 
 /** Post-passe LaTeX : la grammaire hljs ne balise que les commandes
  * (hljs-keyword), les délimiteurs math (hljs-built_in) et les commentaires
@@ -350,7 +350,7 @@ export function decorateLatex(html: string): string {
   return out;
 }
 
-export function highlightCode(raw: string, lang: string): string {
+export function highlightCode(raw: string, lang: string, opts?: { transient?: boolean }): string {
   const key = `${lang} ${raw}`;
   const cached = highlightCache.get(key);
   if (cached !== undefined) return cached;
@@ -367,7 +367,10 @@ export function highlightCode(raw: string, lang: string): string {
   } catch {
     result = escapeHtml(raw);
   }
-  highlightCache.set(key, result);
+  // un bloc en cours de stream produit une clé NEUVE par frame (le raw
+  // grossit à chaque token) : l'insérer évincerait le cache de l'historique
+  // (LRU 300) pour des entrées mortes dès la frame suivante.
+  if (!opts?.transient) highlightCache.set(key, result);
   return result;
 }
 
@@ -382,7 +385,7 @@ export function hasRegisteredLanguage(lang: string): boolean {
 // et la variante streaming — seule la politique de coloration diffère :
 // allowAuto=false colore quand même les langages explicites (```python…),
 // il n'exclut que la détection automatique sur les blocs sans langue.
-export function renderCodeBlock(props: any, allowAuto: boolean) {
+export function renderCodeBlock(props: any, allowAuto: boolean, transient = false) {
   const [copied, setCopied] = useState(false);
   const child = props.children?.props ?? {};
   const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
@@ -390,7 +393,7 @@ export function renderCodeBlock(props: any, allowAuto: boolean) {
   const label = lang || "text";
   const languageClass = label.replace(/[^\w-]/g, "");
   const highlighted = allowAuto || hasRegisteredLanguage(lang)
-    ? highlightCode(raw, lang)
+    ? highlightCode(raw, lang, { transient })
     : escapeHtml(raw);
   return (
     <div className="codeblock not-typeset">
@@ -427,8 +430,13 @@ export function MarkdownCodeBlock(props: any) {
 // variante streaming : même chrome, coloration dès le stream quand la fence
 // porte un langage connu (le cas de loin le plus courant) — plus de « flash »
 // gris→couleur en fin de tour. Seul highlightAuto reste réservé au rendu final.
+// transient=true : le bloc en cours de streaming grossit à chaque frame (clé
+// `lang+raw` neuve à chaque token) — ne PAS insérer dans le cache LRU, sinon
+// chaque frame évincerait une entrée de l'historique pour une clé déjà morte
+// à la frame suivante. Une fois le tour terminé, le rendu bascule sur
+// MD_COMPONENTS (non transient) et la coloration finale se met en cache.
 export function MarkdownCodeBlockStreaming(props: any) {
-  return renderCodeBlock(props, false);
+  return renderCodeBlock(props, false, true);
 }
 
 export function diffLineClass(line: string): string {
