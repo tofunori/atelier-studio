@@ -95,6 +95,7 @@ import {
   type QueuedTurn,
 } from "./lib/chatDraftStore";
 import { localImagePathsForAttachments } from "./lib/chatAttachments";
+import { createStreamCoalescer, STREAM_COALESCE_KINDS } from "./lib/streamCoalesce";
 import {
   appSnapPreviewUrl,
   appSnapContextText,
@@ -530,16 +531,19 @@ export default function App() {
   const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
   const eventsRef = useRef<Record<string, AgentEvent[]>>({});
   eventsRef.current = events;
-  // Lissage réseau (plan 066, L1) : plusieurs deltas "streaming" du même fil
-  // arrivent souvent dans la même frame réseau — on ne garde que le DERNIER
-  // et on l'applique via un seul setState au prochain rAF, plutôt qu'un
-  // setState par delta (c'est ce ré-rendu répété qui faisait « respirer » le
-  // séparateur Working pendant le stream, cf. plan 066 §Why). Tout AUTRE
-  // type d'événement force d'abord le flush du delta en attente — l'ordre
-  // d'arrivée reste donc préservé — puis s'applique immédiatement, jamais
-  // retardé (§STOP : pas de réordonnancement thinking/texte).
-  const pendingStreamEvents = useRef<Map<string, AgentEvent>>(new Map());
-  const streamFrames = useRef<Map<string, number>>(new Map());
+  // Lissage réseau (plan 066, L1 ; réparé 2026-08-28, plan perf) : les
+  // providers émettent "delta"/"thinking_delta" (jamais "streaming", qui
+  // n'existe pas côté backend) — le coalesceur file tous les deltas d'une
+  // frame (aucun n'est écrasé, chacun est un fragment) et les applique en un
+  // seul setState au prochain rAF, plutôt qu'un setState par delta (c'est ce
+  // ré-rendu répété qui faisait « respirer » le séparateur Working pendant
+  // le stream, cf. plan 066 §Why). Tout AUTRE type d'événement force d'abord
+  // le flush des deltas en attente — l'ordre d'arrivée reste donc préservé —
+  // puis s'applique immédiatement, jamais retardé (§STOP : pas de
+  // réordonnancement thinking/texte). `applyThreadEvent` est une fonction
+  // hissée (déclarée plus bas dans ce composant) — utilisable ici grâce au
+  // hoisting des function declarations.
+  const streamCoalescer = useRef(createStreamCoalescer((id, ev) => applyThreadEvent(id, ev))).current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   workingSinceRef.current = workingSince;
@@ -1516,18 +1520,10 @@ export default function App() {
     });
   }
 
-  // flush immédiat (synchrone) du dernier delta "streaming" en attente pour
-  // ce fil, s'il y en a un — annule le rAF programmé.
+  // flush immédiat (synchrone) des deltas en attente pour ce fil, s'il y en
+  // a — annule le rAF programmé et les applique dans l'ordre.
   function flushStreamEvent(threadId: string) {
-    const frame = streamFrames.current.get(threadId);
-    if (frame != null) {
-      cancelAnimationFrame(frame);
-      streamFrames.current.delete(threadId);
-    }
-    const pending = pendingStreamEvents.current.get(threadId);
-    if (!pending) return;
-    pendingStreamEvents.current.delete(threadId);
-    applyThreadEvent(threadId, pending);
+    streamCoalescer.flush(threadId);
   }
 
   // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
@@ -1733,22 +1729,13 @@ export default function App() {
         // identités (turnId, itemId)…) vit dans lib/harnessEvents : le MÊME code
         // rejoue les historiques (plan 025, step 8) — seuls les side-effects
         // (workingSince, usage, notifications…) restent ici.
-        // "streaming" (texte de la bulle en cours) est lissé au rAF (plan 066,
-        // L1, un seul setState par frame et par fil) ; tout le reste flush
-        // d'abord ce delta en attente puis s'applique tout de suite, sans
+        // les deltas de texte (kinds réels émis par le backend, jamais
+        // "streaming") sont lissés au rAF via le coalesceur (plan 066, L1,
+        // un seul setState par frame et par fil) ; tout le reste flush
+        // d'abord les deltas en attente puis s'applique tout de suite, sans
         // jamais changer l'ordre d'arrivée.
-        if (msg.event.kind === "streaming") {
-          pendingStreamEvents.current.set(msg.threadId, msg.event);
-          if (!streamFrames.current.has(msg.threadId)) {
-            const frame = requestAnimationFrame(() => {
-              streamFrames.current.delete(msg.threadId);
-              const pending = pendingStreamEvents.current.get(msg.threadId);
-              if (!pending) return;
-              pendingStreamEvents.current.delete(msg.threadId);
-              applyThreadEvent(msg.threadId, pending);
-            });
-            streamFrames.current.set(msg.threadId, frame);
-          }
+        if (STREAM_COALESCE_KINDS.has(msg.event.kind)) {
+          streamCoalescer.push(msg.threadId, msg.event);
         } else {
           flushStreamEvent(msg.threadId);
           applyThreadEvent(msg.threadId, msg.event);
