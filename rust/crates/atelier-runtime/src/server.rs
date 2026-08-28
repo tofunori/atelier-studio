@@ -98,7 +98,7 @@ pub fn app_router(state: AppState) -> Router {
             post(crate::agent_mcp::agent_mcp_handler),
         )
         .route(
-            "/widgets/:thread_id/:id",
+            "/widgets/{thread_id}/{id}",
             get(crate::widgets::widget_html_handler),
         )
         .route("/", get(ws_upgrade))
@@ -790,5 +790,56 @@ mod tests {
         let s = chrono_iso_now_fixed();
         assert!(s.ends_with('Z'));
         assert_eq!(s.len(), 24); // YYYY-MM-DDTHH:MM:SS.mmmZ
+    }
+
+    #[tokio::test]
+    async fn widget_route_serves_existing_widget_and_returns_404_for_missing() {
+        use crate::widgets::{new_widget_id, write_widget};
+
+        let (state, _dir) = test_state(None).await;
+        let thread_id = "test-thread-1";
+        let widget_id = new_widget_id();
+        let widget_html = "<html><p>widget content</p></html>";
+
+        // Write a widget to disk
+        write_widget(state.app_dir(), thread_id, &widget_id, widget_html).unwrap();
+
+        // Build app router and request the widget
+        let app = app_router(state.clone());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(&format!("/widgets/{}/{}", thread_id, widget_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Verify 200 OK with correct Content-Type and body
+        assert_eq!(res.status(), Sc::OK);
+        let content_type = res
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(content_type, "text/html; charset=utf-8");
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], widget_html.as_bytes());
+
+        // Verify 404 for missing widget
+        let app = app_router(state);
+        let fake_id = new_widget_id();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(&format!("/widgets/{}/{}", thread_id, fake_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::NOT_FOUND);
     }
 }

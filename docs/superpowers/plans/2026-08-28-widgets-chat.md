@@ -858,14 +858,16 @@ Dans `rust/crates/atelier-runtime/src/server.rs`, ajouter la route au `Router::n
 
 ```rust
         .route(
-            "/widgets/:thread_id/:id",
+            // axum 0.8 : les paramètres s'écrivent {param} — la syntaxe :param
+            // fait PANIQUER Router::route, donc tout le serveur (relecture T5).
+            "/widgets/{thread_id}/{id}",
             get(crate::widgets::widget_html_handler),
         )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atelier-runtime widgets:: && cargo build -p atelier-runtime`
+Run: `cargo test -p atelier-runtime && cargo build -p atelier-runtime`
 Expected: PASS et compilation propre du routeur.
 
 - [ ] **Step 5: Commit**

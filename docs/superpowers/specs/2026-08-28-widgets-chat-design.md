@@ -67,7 +67,7 @@ Nouveau module `rust/crates/atelier-runtime/src/widgets.rs`, appelé depuis `age
 
 ### Service du HTML
 
-Nouvelle route `GET /widgets/:id` sur le routeur du runtime (hérite du `CorsLayer` global). Elle rend la coquille complète en `text/html`. Le frontend ne l'appelle que lorsque la rangée monte — un widget jamais scrollé n'est jamais lu.
+Nouvelle route `GET /widgets/{thread_id}/{id}` (le fichier est rangé sous le hash du thread ; et en axum 0.8 un paramètre s'écrit `{param}` — `:param` fait paniquer la construction du routeur) sur le routeur du runtime (hérite du `CorsLayer` global). Elle rend la coquille complète en `text/html`. Le frontend ne l'appelle que lorsque la rangée monte — un widget jamais scrollé n'est jamais lu.
 
 `id` est validé contre `^w_[0-9a-f]{16}$` avant toute construction de chemin.
 
