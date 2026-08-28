@@ -11,7 +11,7 @@ use chrono::{DateTime, Local};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn home() -> PathBuf {
@@ -309,8 +309,30 @@ pub fn local_midnight_ms() -> u64 {
 
 // --------------------------------------------------------------- collect ---
 
-/// Agrège les 5 providers pour le message `{type:"usage"}`.
+// getUsage rescanne des arborescences entières de logs (codex/grok/kimi) :
+// 30 s de fraîcheur suffisent largement à un compteur d'usage, et la rafale
+// de 9 appels du popover (UsagePopover.tsx:163-168) devient gratuite.
+//
+// Verrou tokio (pas std::sync::Mutex comme CLAUDE_CACHE) car il reste tenu
+// PENDANT le scan non-caché : les appels concurrents de la rafale attendent
+// plutôt que de déclencher chacun leur propre rescan.
+static USAGE_CACHE: OnceLock<tokio::sync::Mutex<Option<(Instant, Value)>>> = OnceLock::new();
+
+/// Agrège les 5 providers pour le message `{type:"usage"}`, cache 30 s.
 pub async fn collect_providers() -> Value {
+    let cache = USAGE_CACHE.get_or_init(|| tokio::sync::Mutex::new(None));
+    let mut guard = cache.lock().await;
+    if let Some((at, value)) = guard.as_ref() {
+        if at.elapsed() < Duration::from_secs(30) {
+            return value.clone();
+        }
+    }
+    let fresh = collect_providers_uncached().await;
+    *guard = Some((Instant::now(), fresh.clone()));
+    fresh
+}
+
+async fn collect_providers_uncached() -> Value {
     let h = home();
     let now_s = now_ms() / 1000;
     let midnight = local_midnight_ms();
@@ -497,5 +519,14 @@ mod tests {
     #[test]
     fn kimi_none_without_dir() {
         assert!(kimi_today(Path::new("/nonexistent-kimi"), 0).is_none());
+    }
+
+    /// Deuxième appel dans la fenêtre de 30 s ⇒ même valeur (cache), pas un
+    /// nouveau rescan des arborescences de logs.
+    #[tokio::test]
+    async fn collect_providers_second_call_hits_cache() {
+        let first = collect_providers().await;
+        let second = collect_providers().await;
+        assert_eq!(first, second);
     }
 }
