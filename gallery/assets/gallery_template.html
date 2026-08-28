@@ -384,6 +384,29 @@
      gardes :not() explicites plutôt que par un ordre de déclaration fragile.
      Le panneau flotte au-dessus du voile : la géométrie de #lbWrap/#annotCv
      n'est jamais touchée, seule l'image se décale par le padding de #lb. */
+  /* Mode embarqué : les contrôles du PANNEAU Atelier (rafraîchir, déplacer,
+     ⋯, fermer) flottent en haut à droite du webview. L'en-tête de la galerie
+     leur réserve déjà 120px (`html.emb header`) — mais la barre de la
+     lightbox est `position:fixed` et ignorait cette réserve : ✕ et ⛶
+     passaient DESSOUS (signalé 2026-08-28). Toute la barre se décale d'autant.
+     En plein écran, le webview couvre tout et les contrôles du panneau ne
+     sont plus là : la barre reprend sa place. */
+  html.emb #lb:not(.fs) #lbClose{right:134px}
+  html.emb #lb:not(.fs) #lbFs{right:178px}
+  html.emb #lb:not(.fs) #lbAnnot{right:222px}
+  html.emb #lb:not(.fs) #lbProv{right:266px}
+  /* La réserve décale aussi le panneau et le chevron « suivant » : sinon le
+     panneau se glisse sous les contrôles du panneau Atelier. */
+  @media (min-width:860px){
+    html.emb #provPanel{right:134px}
+    html.emb #lb.prov:not(.fs):not(.vw):not(.annot){padding-right:468px}
+    html.emb #lb.prov:not(.fs):not(.vw):not(.annot) #lbImg{max-width:calc(94vw - 468px)}
+    html.emb #lb.prov:not(.fs):not(.vw):not(.annot) #lbCap{max-width:calc(94vw - 468px)}
+    html.emb #lb.prov:not(.fs):not(.vw):not(.annot) #lbNext{right:468px}
+  }
+  @media (max-width:859px){
+    html.emb #provPanel{right:14px}
+  }
   #lbProv{position:fixed;top:10px;right:146px;width:34px;height:34px;display:none;align-items:center;justify-content:center;
       color:var(--muted);cursor:pointer;z-index:101;border:0;border-radius:9px;background:transparent;padding:0;
       transition:color 140ms ease,background 140ms ease}
@@ -1451,8 +1474,22 @@ function menuToggle(menu, anchor){
 function lbOpenAny(rel){
   const f=FILES.find(x=>x.rel===rel); if(!f) return false;
   const i=lbList.findIndex(x=>x.rel===rel);
-  if(i>=0) lbShow(i); else { lbList=[f]; lbShow(0); }
+  if(i>=0) lbShow(i);
+  else {
+    // Le fichier visé est HORS de la vue courante (un `.py` ouvert depuis la
+    // provenance ou l'inspecteur, alors que la grille filtre des figures) :
+    // la liste d'un seul élément est TEMPORAIRE. Sans mise de côté, elle
+    // restait la liste de la galerie jusqu'au prochain `render()` — et plus
+    // aucune vignette ne s'ouvrait, `lbOpen` cherchant dans un tableau d'un
+    // élément (bug vécu 2026-08-28 : « je clique sur la figure, rien »).
+    if(lbListSaved===null) lbListSaved=lbList;
+    lbList=[f]; lbShow(0);
+  }
   return true;
+}
+/** Remet la liste de la galerie en place après une ouverture hors vue. */
+function lbListRestore(){
+  if(lbListSaved!==null){ lbList=lbListSaved; lbListSaved=null; }
 }
 function findScript(rel){
   const stem = rel.split('/').pop().replace(/\.[^.]+$/,'');
@@ -1789,6 +1826,8 @@ async function delOne(rel){
   }catch(e){ alert('Delete failed — is the server running?'); }
 }
 let lbList = [], lbIdx = -1;
+// Liste de la galerie mise de côté pendant une ouverture hors vue (lbOpenAny).
+let lbListSaved = null;
 const lb=()=>document.getElementById('lb');
 async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
@@ -2009,6 +2048,7 @@ async function lbClose(){
   lb().classList.remove('show');lb().classList.remove('annot');lb().classList.remove('prov');lbIdx=-1;
   // provOpen meurt avec la lightbox : la prochaine figure s'ouvre nue.
   provRel='';provState=null;provSeq++;provOpen=false;provHistOpen=false;
+  lbListRestore();
 }
 let lbFsUiTimer=0, fsLeaving=false, nativeFsOk=null, lbFsEnterGen=0, lbNativeReq=false;
 function fsActiveEl(){
@@ -2394,6 +2434,7 @@ function render(){
     return b.mtime-a.mtime;
   });
   lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext));
+  lbListSaved=null; // la vue vient d'être rebâtie : plus rien à restaurer
   const grid=document.getElementById('grid');
   if(!list.length){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
