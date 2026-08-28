@@ -257,12 +257,26 @@ fn regular_file(path: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
 }
 
+/// Compteur process-wide additionné au nonce temporel. Le pool de
+/// travailleurs de `build_thumbnails` appelle `temporary_output` depuis
+/// plusieurs threads : deux appels dans le même tick de `SystemTime::now()`
+/// (pid constant par process) produisaient le même nom de répertoire — vécu
+/// en revue — et le second `fs::create_dir` échouait silencieusement,
+/// faisant no-op tout le job (pas de commande, pas de cible, pas de
+/// `.fail`). Le `fetch_add` rend chaque nom unique même en cas de collision
+/// de tick.
+static TEMPORARY_OUTPUT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn temporary_output(suffix: &str) -> Option<(PathBuf, PathBuf)> {
     let nonce = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()?
         .as_nanos();
-    let directory = env::temp_dir().join(format!("atelier-thumb-{}-{nonce}", std::process::id()));
+    let sequence = TEMPORARY_OUTPUT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let directory = env::temp_dir().join(format!(
+        "atelier-thumb-{}-{nonce}-{sequence}",
+        std::process::id()
+    ));
     fs::create_dir(&directory).ok()?;
     let output = directory.join(format!("output.{suffix}"));
     Some((directory, output))
@@ -705,6 +719,24 @@ mod tests {
         ));
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    #[test]
+    fn temporary_output_is_unique_across_rapid_successive_calls() {
+        // Régression : deux appels dans le même tick de `SystemTime::now()`
+        // (même pid) produisaient jadis le même nom de répertoire — un
+        // scénario réaliste dans le pool de travailleurs de
+        // `build_thumbnails`. Le compteur `TEMPORARY_OUTPUT_SEQ` garantit
+        // l'unicité même sans écart temporel mesurable entre les appels.
+        let mut directories = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            let (directory, _) = temporary_output("png").expect("création du dossier temporaire");
+            assert!(
+                directories.insert(directory.clone()),
+                "deux appels rapprochés ont produit le même dossier temporaire : {directory:?}"
+            );
+            let _ = fs::remove_dir_all(directory);
+        }
     }
 
     #[test]
