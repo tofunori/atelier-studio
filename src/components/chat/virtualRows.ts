@@ -13,6 +13,14 @@ function shallowEqual(a: Record<string, unknown>, b: Record<string, unknown>): b
 
 export function sameVirtualRow(a: TimelineVirtualItem, b: TimelineVirtualItem): boolean {
   if (a.type !== b.type) return false;
+  // beforeActiveTail (marge du tour actif, ex :has() App.css) vit sur la
+  // RANGÉE, pas dans `item` : shallowEqual(ia, ib) ne le verrait donc jamais.
+  // Un flip doit invalider le cache au même titre qu'un item changé, sinon
+  // LegendList réutilise l'ancienne rangée et la classe avant/après le slot
+  // actif reste figée.
+  const fa = (a as { beforeActiveTail?: boolean }).beforeActiveTail;
+  const fb = (b as { beforeActiveTail?: boolean }).beforeActiveTail;
+  if (fa !== fb) return false;
   const ia = (a as { item?: Record<string, unknown> }).item;
   const ib = (b as { item?: Record<string, unknown> }).item;
   if (!ia || !ib) return ia === ib;

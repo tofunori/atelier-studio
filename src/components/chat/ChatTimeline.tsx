@@ -68,7 +68,12 @@ type RenderedItem =
 
 export type TimelineVirtualItem =
   | { type: "empty"; key: "timeline-empty" }
-  | { type: "rendered"; key: string; item: RenderedItem }
+  // beforeActiveTail : ex-sélecteur :has() (App.css) — vrai pour la rangée qui
+  // PRÉCÈDE immédiatement celle du slot actif (active-turn-tail). Porté par la
+  // rangée elle-même (pas par `item`, dont la forme vient de renderedEvents/
+  // turnViewModel) pour rester un changement local à ce fichier ; sameVirtualRow
+  // (virtualRows.ts) le compare explicitement pour qu'un flip invalide le cache.
+  | { type: "rendered"; key: string; item: RenderedItem; beforeActiveTail?: boolean }
   | { type: "working"; key: "message-working" };
 
 export type TimelineThread = {
@@ -303,6 +308,15 @@ export function ChatTimeline(p: {
     }
     if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });
+    }
+    // Marge du tour actif (ex :has() + combinateur frère, App.css ~216) : le
+    // slot actif doit rester proche du texte qui le précède. L'adjacence est
+    // connue ICI en O(n) — un :has() la refait à chaque mutation du fil (donc
+    // à chaque frappe du stream), sur un DOM viré par la liste virtualisée.
+    const tailIndex = rows.findIndex((row) => row.type === "rendered" && row.item.type === "active-turn-tail");
+    if (tailIndex > 0) {
+      const before = rows[tailIndex - 1];
+      if (before.type === "rendered") rows[tailIndex - 1] = { ...before, beforeActiveTail: true };
     }
     const stable = stabilizeVirtualRows(prevRowsRef.current, rows);
     // Seules les rangées "rendered" portent un `item` : sameVirtualRow
@@ -830,9 +844,12 @@ export function ChatTimeline(p: {
           // continu pendant le stream, un tel sélecteur romprait le budget de
           // style récursif — même discipline que typeset.contract.test.ts.
           const isLiveStream = item.type === "event" && item.event.kind === "streaming";
+          // before-active-tail : posée par virtualItems (adjacence à
+          // active-turn-tail) — remplace les deux :has() d'App.css ~216.
+          const beforeActiveTail = row.type === "rendered" && row.beforeActiveTail === true;
           return (
           <div
-            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}`}
+            className={`timeline-virtual-row${isLiveStream ? " is-live-stream" : ""}${beforeActiveTail ? " before-active-tail" : ""}`}
             id={messageId}
             data-message-id={messageId}
           >

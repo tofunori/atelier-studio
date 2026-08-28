@@ -212,9 +212,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .messages.is-first-turn-settling { visibility: hidden; }
 .timeline-virtual-row { position: relative; max-width: var(--chat-col, 760px); width: 100%; margin: 0 auto; padding-bottom: 14px; }
 /* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
-   texte/de l'action qui le précède, sans compacter le reste du transcript. */
-.timeline-virtual-row:has(+ .timeline-virtual-row .active-turn-tail),
-.messages [data-index]:has(+ [data-index] > .timeline-virtual-row .active-turn-tail) > .timeline-virtual-row {
+   texte/de l'action qui le précède, sans compacter le reste du transcript.
+   Ex :has() + combinateur frère (coûteux : réévalué à chaque mutation du fil,
+   donc à chaque frappe du stream, sur des rangées virtualisées) — l'adjacence
+   à .active-turn-tail est maintenant calculée dans ChatTimeline (virtualItems)
+   et posée comme classe sur la rangée elle-même (perf lot 2, tâche 4). */
+.timeline-virtual-row.before-active-tail {
   padding-bottom: 2px;
 }
 /* Géométrie verrouillée du fil (plan 066, L3). LegendList positionne déjà
