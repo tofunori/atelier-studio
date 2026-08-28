@@ -20,6 +20,9 @@ pub struct CodexProvider {
     server: Arc<CodexAppServer>,
     /// Sync mutex: updated from notification callback + async interrupt.
     active: Arc<StdMutex<HashMap<String, ActiveTurn>>>,
+    /// codex_id → dernier modèle posé via `thread/settings/update`. Évite de
+    /// répéter l'update quand la sélection n'a pas changé.
+    settled_models: Arc<StdMutex<HashMap<String, String>>>,
 }
 
 impl CodexProvider {
@@ -38,6 +41,7 @@ impl CodexProvider {
         Some(Self {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
+            settled_models: Arc::new(StdMutex::new(HashMap::new())),
         })
     }
 
@@ -94,6 +98,7 @@ impl Default for CodexProvider {
         Self {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
+            settled_models: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 }
@@ -735,6 +740,41 @@ impl Provider for CodexProvider {
                 };
             }
         };
+        // Switch de modèle « à la codex » : poser le modèle sur le thread
+        // AVANT le tour (thread/settings/update, capability experimentalApi).
+        // C'est ce qui déclenche l'auto-compaction quand l'historique dépasse
+        // la fenêtre du nouveau modèle — l'override de turn/start seul arrive
+        // trop tard pour ce contrôle (sonde 2026-08-27 : fil de 170k tokens
+        // basculé vers une fenêtre 128k → item contextCompaction puis tour
+        // réussi via settings/update ; 400 passerelle sans). Un refus n'est
+        // pas bloquant : turn/start porte encore l'override.
+        if let Some(model) = req.model.as_ref().filter(|m| !m.is_empty()) {
+            let already = self
+                .settled_models
+                .lock()
+                .map(|k| k.get(&codex_id).map(|m| m == model).unwrap_or(false))
+                .unwrap_or(false);
+            if !already {
+                match self
+                    .server
+                    .request(
+                        "thread/settings/update",
+                        json!({"threadId": codex_id, "model": model}),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        if let Ok(mut k) = self.settled_models.lock() {
+                            k.insert(codex_id.clone(), model.clone());
+                        }
+                    }
+                    Err(e) => eprintln!(
+                        "[codex] thread/settings/update ({model}) refusé, l'override turn/start reste seul: {e}"
+                    ),
+                }
+            }
+        }
+
         let (sandbox, _) = codex_safety(req.permission_mode.as_deref());
         self.server.set_sandbox(&codex_id, sandbox).await;
         if let Some(relay) = req.on_interaction.clone() {

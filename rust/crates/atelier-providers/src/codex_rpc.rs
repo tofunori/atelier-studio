@@ -238,7 +238,12 @@ impl CodexAppServer {
                         "title": "Atelier Studio",
                         "version": "0.1.0"
                     },
-                    "capabilities": null
+                    // experimentalApi ouvre thread/settings/update (switch de
+                    // modèle « à la codex » : réglé AVANT le tour, l'auto-
+                    // compaction se déclenche si l'historique dépasse la
+                    // fenêtre du nouveau modèle — sonde 0.149.0, 2026-08-27)
+                    // et collaborationMode/list (mode plan natif).
+                    "capabilities": { "experimentalApi": true }
                 }),
             )
             .await?;
