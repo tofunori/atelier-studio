@@ -742,8 +742,21 @@ describe("gbrainInvocation — aiguillage NAS (fix 2026-08-16)", () => {
     expect(argv[5]).toBe("gbrain 'search' 'l'\\''albédo des glaciers'");
   });
   it("host vide : binaire local, arguments intacts", () => {
-    const { cmd, argv } = gbrainInvocation(["get", "slug"], "");
-    expect(cmd).not.toBe("ssh");
-    expect(argv).toEqual(["get", "slug"]);
+    // HERMÉTIQUE : sans ATELIER_TEST_GBRAIN, resolveGbrainBin cherche un vrai
+    // binaire et le test ne passait que sur une machine où gbrain est
+    // installé — vert chez Thierry, rouge en CI (2026-08-27). Le code prévoit
+    // cette échappatoire ; on l'utilise, avec l'exécutable node comme fichier
+    // certainement présent.
+    const precedent = process.env.ATELIER_TEST_GBRAIN;
+    process.env.ATELIER_TEST_GBRAIN = process.execPath;
+    try {
+      const { cmd, argv } = gbrainInvocation(["get", "slug"], "");
+      expect(cmd).not.toBe("ssh");
+      expect(cmd).toBe(process.execPath);
+      expect(argv).toEqual(["get", "slug"]);
+    } finally {
+      if (precedent === undefined) delete process.env.ATELIER_TEST_GBRAIN;
+      else process.env.ATELIER_TEST_GBRAIN = precedent;
+    }
   });
 });
