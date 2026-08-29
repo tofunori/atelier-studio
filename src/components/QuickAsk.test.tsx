@@ -85,6 +85,49 @@ describe("rendu des réponses", () => {
     });
   }
 
+  // Un turn codex qui échoue en amont (effort refusé par le provider, clé
+  // invalide…) ne produit AUCUN événement `error` : seulement `done` avec
+  // ok:false et le détail dans `result`. Le réducteur l'ignorait et la
+  // fenêtre restait muette (capture Thierry 2026-08-29 : ollama-cloud +
+  // xhigh → 400 silencieux).
+  it("affiche l'échec quand le turn se termine par done ok:false", () => {
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "pourquoi" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]?.qaId as string;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: {
+          qaId,
+          event: {
+            kind: "done", ok: false,
+            result: JSON.stringify({ error: { message: "Provider error 400: invalid reasoning value: 'xhigh'" } }),
+          },
+        },
+      }));
+    });
+    expect(container.textContent).toContain("⚠ Provider error 400: invalid reasoning value: 'xhigh'");
+    // et la fenêtre est prête pour une nouvelle question
+    fireEvent.change(input, { target: { value: "encore" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(wsSendMock.mock.calls.length).toBe(2);
+  });
+
+  it("affiche un échec générique quand done ok:false n'a pas de détail", () => {
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "pourquoi" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0]?.qaId as string;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "done", ok: false, result: "" } },
+      }));
+    });
+    expect(container.querySelector(".qa-msg.assistant")?.textContent).toContain("⚠");
+  });
+
   it("rend les maths que le modèle écrit en \\[...\\], comme le chat", async () => {
     const { container } = renderQuickAsk();
     const input = container.querySelector(".qa-input") as HTMLTextAreaElement;

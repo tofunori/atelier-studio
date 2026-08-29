@@ -48,6 +48,20 @@ function loadSelection(): QaSelection {
   }
 }
 
+/// Message lisible d'un turn échoué : `result` porte souvent un JSON
+/// `{"error":{"message":…}}` (codex), sinon on montre le texte brut.
+function qaFailureMessage(result: unknown): string {
+  const raw = typeof result === "string" ? result.trim() : "";
+  if (raw) {
+    try {
+      const msg = JSON.parse(raw)?.error?.message;
+      if (typeof msg === "string" && msg) return msg;
+    } catch { /* pas du JSON — texte brut */ }
+    return raw;
+  }
+  return t("qa.turn-failed");
+}
+
 function clampBox(b: { x: number; y: number; w: number; h: number }) {
   const gap = 8;
   const w = Math.min(b.w, Math.max(320, window.innerWidth - gap * 2));
@@ -258,6 +272,12 @@ export default function QuickAsk({
         if (event.kind === "done" || event.kind === "error") {
           if (last?.streaming) list[list.length - 1] = { ...last, streaming: false };
           if (event.kind === "error") list.push({ role: "assistant", text: `⚠ ${event.message}` });
+          // Un turn qui échoue en amont (effort refusé, clé invalide…) ne
+          // produit aucun événement `error` : seulement done ok:false avec le
+          // détail dans `result`. Sans ce cas, la fenêtre restait muette.
+          else if (event.ok === false && !list[list.length - 1]?.text.startsWith("⚠")) {
+            list.push({ role: "assistant", text: `⚠ ${qaFailureMessage(event.result)}` });
+          }
         }
         return list;
       });
