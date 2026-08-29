@@ -76,6 +76,56 @@ asks for a file or a gallery figure.\n</atelier-widget-integration>"
     )
 }
 
+/// Capacité MCP scopée du tour (plan 057 + spec widgets-chat).
+/// Partagée par le tour normal ET le steer : un steer codex qui échoue
+/// retombe sur `thread/resume` DANS le provider, et sans cette config le fil
+/// était repris SANS les serveurs MCP d'Atelier — l'agent perdait
+/// `atelier_widget` et `atelier_sessions` en cours de session (sonde
+/// 2026-08-29). Coût nul quand le steer réussit : le champ n'est pas lu.
+async fn atelier_mcp_for_turn(
+    state: &AppState,
+    thread_id: &str,
+    project_root: &str,
+    provider: &str,
+    session_id: Option<String>,
+    turn_id: &str,
+    previous: Option<&atelier_store::Thread>,
+) -> Option<atelier_providers::AtelierMcpLaunch> {
+    if !crate::agent_mcp::should_launch_mcp(provider) {
+        return None;
+    }
+    // Le lien ne décide plus du LANCEMENT, seulement de l'ISOLATION de la
+    // session MCP côté provider (un fil ordinaire garde la config MCP
+    // personnelle de l'utilisateur).
+    let linked = previous.and_then(|t| t.agent_link.as_ref()).is_some() || {
+        let store = state.threads().lock().await;
+        !store.children_of(thread_id).is_empty()
+    };
+    match crate::agent_mcp::issue_mcp_launch(
+        state,
+        thread_id,
+        project_root,
+        provider,
+        session_id,
+        crate::agent_mcp::provider_label(provider),
+        Some(turn_id.to_string()),
+        linked,
+    )
+    .await
+    {
+        Ok(launch) => Some(atelier_providers::AtelierMcpLaunch {
+            command: std::path::PathBuf::from(launch.command),
+            server_name: launch.server_name,
+            env: launch.env,
+            linked: launch.linked,
+        }),
+        Err(e) => {
+            tracing::warn!(error = %e, "atelier MCP launch unavailable");
+            None
+        }
+    }
+}
+
 fn normalize_display_event(msg: &Value) -> Value {
     if let Some(d) = msg.get("displayEvent") {
         if d.get("kind").and_then(|v| v.as_str()) == Some("user")
@@ -984,6 +1034,21 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let tx = ev_tx.clone();
             let interaction =
                 make_interaction_relay(state.clone(), thread_id.clone(), ev_tx.clone());
+            // Un steer codex qui échoue retombe sur thread/resume DANS le
+            // provider : sans cette capacité, le fil était repris sans les
+            // serveurs MCP d'Atelier (outils disparus en cours de session,
+            // 2026-08-29). Calculée AVANT la requête — `session_id` y est
+            // déplacé.
+            let steer_mcp = atelier_mcp_for_turn(
+                state,
+                &thread_id,
+                &project_root,
+                &provider,
+                session_id.clone(),
+                &turn_id,
+                previous.as_ref(),
+            )
+            .await;
             let req = SendRequest {
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
@@ -1014,7 +1079,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }),
                 on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
-                atelier_mcp: None,
+                atelier_mcp: steer_mcp,
             };
             // Pump events into harness
             let h_pump = Arc::clone(&h);
@@ -1272,43 +1337,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // Le lien reste calculé : il ne décide plus du LANCEMENT du serveur, mais
     // toujours de l'ISOLATION de la session MCP côté provider (un fil ordinaire
     // doit garder la config MCP personnelle de l'utilisateur).
-    let atelier_mcp = {
-        let linked = previous
-            .as_ref()
-            .and_then(|t| t.agent_link.as_ref())
-            .is_some()
-            || {
-                let store = state.threads().lock().await;
-                !store.children_of(&thread_id).is_empty()
-            };
-        if crate::agent_mcp::should_launch_mcp(&provider) {
-            match crate::agent_mcp::issue_mcp_launch(
-                state,
-                &thread_id,
-                &project_root,
-                &provider,
-                session_id.clone(),
-                crate::agent_mcp::provider_label(&provider),
-                Some(turn_id.clone()),
-                linked,
-            )
-            .await
-            {
-                Ok(launch) => Some(atelier_providers::AtelierMcpLaunch {
-                    command: std::path::PathBuf::from(launch.command),
-                    server_name: launch.server_name,
-                    env: launch.env,
-                    linked: launch.linked,
-                }),
-                Err(e) => {
-                    tracing::warn!(error = %e, "atelier MCP launch unavailable");
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    };
+    let atelier_mcp = atelier_mcp_for_turn(
+        state,
+        &thread_id,
+        &project_root,
+        &provider,
+        session_id.clone(),
+        &turn_id,
+        previous.as_ref(),
+    )
+    .await;
 
     // Vrai dès que le provider émet lui-même `done`/`error` : la pompe a alors
     // seulement besoin de finir de le transférer, jamais d'être doublée.

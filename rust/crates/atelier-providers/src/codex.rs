@@ -465,6 +465,18 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
     Ok(json!({"plugins": plugins}))
 }
 
+/// Refus de `turn/steer` qui ne doivent PAS devenir un tour normal : le tour
+/// en vol est une revue ou une compaction, en démarrer un second le
+/// doublerait. Messages relevés en direct sur codex 0.149.0 — le serveur ne
+/// renvoie qu'un texte nu (code -32600), sans `data` structuré.
+fn steer_refus_definitif(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("cannot steer a review turn")
+        || e.contains("cannot steer a compact turn")
+        || e.contains("notsteerable")
+        || e.contains("not steerable")
+}
+
 async fn open_thread(
     server: &CodexAppServer,
     session_id: Option<&str>,
@@ -717,7 +729,7 @@ impl Provider for CodexProvider {
                 .and_then(|g| g.get(&req.thread_id).cloned());
             if let Some(t) = snap {
                 if let Some(turn_id) = t.turn_id {
-                    if self
+                    match self
                         .server
                         .request(
                             "turn/steer",
@@ -728,14 +740,34 @@ impl Provider for CodexProvider {
                             }),
                         )
                         .await
-                        .is_ok()
                     {
-                        (req.on_event)(json!({"kind":"tool","name":"__steered"}));
-                        return SendResult {
-                            session_id: Some(t.codex_id),
-                            ok: true,
-                            error: None,
-                        };
+                        Ok(_) => {
+                            (req.on_event)(json!({"kind":"tool","name":"__steered"}));
+                            return SendResult {
+                                session_id: Some(t.codex_id),
+                                ok: true,
+                                error: None,
+                            };
+                        }
+                        // Le serveur distingue ses refus (sondés le 2026-08-29,
+                        // messages texte nus en -32600, aucun `data`). Un tour
+                        // de revue ou de compaction n'est JAMAIS infléchissable :
+                        // enchaîner un tour normal en démarrerait un second en
+                        // parallèle du premier. On rend la main en le disant.
+                        Err(e) if steer_refus_definitif(&e) => {
+                            (req.on_event)(json!({"kind":"error","message": e}));
+                            return SendResult {
+                                session_id: Some(t.codex_id),
+                                ok: false,
+                                error: Some(e),
+                            };
+                        }
+                        // Les autres refus (« no active turn to steer » : le tour
+                        // s'est terminé entre-temps) deviennent un tour normal
+                        // plutôt que de perdre le message — même choix que grok.
+                        Err(e) => {
+                            eprintln!("codex: steer refusé ({e}) — repli en tour normal");
+                        }
                     }
                 }
             }
@@ -1316,5 +1348,26 @@ mod catalogue_tests {
         assert!(parse_codex_catalog(&fichier).is_empty());
         assert!(parse_codex_catalog(&dir.path().join("absent.json")).is_empty());
         assert!(codex_catalog_path_in(dir.path(), dir.path()).is_none() || true);
+    }
+}
+
+#[cfg(test)]
+mod steer_refus_tests {
+    use super::steer_refus_definitif;
+
+    #[test]
+    fn revue_et_compaction_ne_deviennent_jamais_un_tour_normal() {
+        // Messages EXACTS du serveur, relevés sur codex 0.149.0. Enchaîner un
+        // tour normal ici en démarrerait un second en parallèle du premier.
+        assert!(steer_refus_definitif("cannot steer a review turn"));
+        assert!(steer_refus_definitif("cannot steer a compact turn"));
+        assert!(steer_refus_definitif("ActiveTurnNotSteerable"));
+    }
+
+    #[test]
+    fn un_tour_deja_fini_retombe_en_tour_normal_plutot_que_perdre_le_message() {
+        assert!(!steer_refus_definitif("no active turn to steer"));
+        assert!(!steer_refus_definitif("expectedTurnId must not be empty"));
+        assert!(!steer_refus_definitif("input must not be empty"));
     }
 }
