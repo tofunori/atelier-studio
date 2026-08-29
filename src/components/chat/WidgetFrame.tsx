@@ -24,7 +24,12 @@ export const WIDGET_PROMPT_MAX = 2000;
 type Phase = "loading" | "live" | "mute" | "missing";
 
 // tokens poussés au widget : la seule palette qu'il aura
-const THEME_TOKENS = ["--fg", "--fg2", "--muted", "--border", "--accent", "--bg-card"] as const;
+const THEME_TOKENS = [
+  "--fg", "--fg2", "--muted", "--muted2", "--border", "--accent", "--bg-card",
+  // sémantique ok/attention/mauvais — permise par le manuel du guide, elle
+  // encode un état et ne compte pas comme accent
+  "--u-ok", "--u-warn", "--u-hot",
+] as const;
 
 function currentThemeMessage() {
   const styles = getComputedStyle(document.documentElement);

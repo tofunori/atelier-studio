@@ -85,6 +85,7 @@ pub fn widget_guide_tool_definition() -> Value {
 
 pub fn widget_guide_text() -> Value {
     json!({
+        "manuel": include_str!("widget_guide_manuel.md"),
         "regles": [
             "Un widget = un FRAGMENT HTML compact inclus dans le fil du chat. JAMAIS de fichier sur disque, JAMAIS d'ouverture de navigateur, JAMAIS de page complète (<html>/<head>/<body> interdits).",
             "Autonome : aucun fetch/XHR, aucun CDN, aucune bibliothèque, aucune police distante. Tout le calcul en JS local, les données écrites en dur dans le fragment.",
@@ -241,6 +242,14 @@ mod tests {
         let formes = widget_guide_text();
         let formes = formes["formes"].as_object().unwrap();
         assert!(formes.len() >= 5, "il faut une vraie bibliothèque de formes");
+        // le manuel complet (patron read_me de Desktop) : copieux et structuré
+        let manuel = widget_guide_text()["manuel"].as_str().unwrap().to_string();
+        assert!(manuel.len() > 8_000, "le manuel doit être copieux ({} o)", manuel.len());
+        for section in ["Budgets de complexité", "Lisibilité des graphiques",
+                        "Accessibilité", "Anti-patterns", "Checklist",
+                        "requestAnimationFrame", "tabular-nums", "var(--u-ok"] {
+            assert!(manuel.contains(section), "manuel sans : {section}");
+        }
     }
 
     #[test]
