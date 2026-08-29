@@ -118,7 +118,10 @@ pub fn widget_guide_text() -> Value {
             "avant_apres": "une case à cocher bascule entre deux états de la même figure (avec/sans correction, prior/posterior) — transition opacity 140ms.",
             "table_vivante": "petit tableau dont une colonne se recalcule selon un contrôle ; la ligne max/min se surligne var(--accent) automatiquement.",
             "quiz_estimation": "l'utilisateur devine (curseur) PUIS le vrai résultat se révèle à côté de sa réponse — mémorable pour l'intuition.",
-            "multi_panneaux": "2-3 petits panneaux liés au même contrôle (la loi, le poids, la conséquence) — c'est la forme du panneau Claude Desktop classique."
+            "multi_panneaux": "2-3 petits panneaux liés au même contrôle (la loi, le poids, la conséquence) — c'est la forme du panneau Claude Desktop classique.",
+            "formulaire": "3-5 champs (select, cases, nombre) et UN bouton qui compose une demande claire via sendPrompt — l'utilisateur valide dans le composeur. Pour paramétrer une analyse sans taper.",
+            "maquette": "proposition d'interface statique-cliquable dans les jetons du thème — montrer une UI en vrai plutôt qu'en prose ; un seul écran.",
+            "art_generatif": "canvas animé sobre (accent + gris), seed affiché + bouton régénérer, pause par défaut si prefers-reduced-motion — pour illustrer bruit, champs, attracteurs."
         },
         "appel": "atelier_widget avec { html: <le fragment>, title: <titre court, 80 car. max>, height: <120-900> }. Ne recopie pas le HTML dans ta réponse ensuite : le panneau est déjà affiché."
     })

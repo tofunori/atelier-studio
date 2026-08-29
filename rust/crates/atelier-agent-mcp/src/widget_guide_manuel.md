@@ -209,6 +209,48 @@ Un contrôle, 2-3 petites vues côte à côte qui répondent ensemble : la loi, 
 mécanisme, la conséquence chiffrée. La forme « Claude Desktop » classique.
 Grille : `display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px`.
 
+### 6h. Formulaire (élicitation)
+Quand TU as besoin de choix de l'utilisateur pour continuer (paramètres d'une
+analyse, options d'un run). Le widget recueille, compose UNE demande claire,
+et `sendPrompt` la propose — l'utilisateur relit et valide dans le composeur.
+```html
+<div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+  <label>Région :
+    <select id="reg"><option>saskatchewan</option><option>peyto</option></select></label>
+  <label><input type="checkbox" id="dyn" checked> fraction glacier dynamique</label>
+  <label>Seuil σ : <input id="sig" type="number" value="4" min="2" max="10" style="width:56px"></label>
+  <button id="go" style="align-self:flex-start">composer la demande</button>
+</div>
+<script>
+document.getElementById("go").addEventListener("click",function(){
+  var m="Relance l'analyse : région "+reg.value+", gf_dyn="+(dyn.checked?"oui":"non")+", seuil "+sig.value+" sigma.";
+  sendPrompt(m);
+});
+</script>
+```
+Règles : 3-5 champs maximum ; le bouton dit ce qu'il compose ; jamais d'envoi
+automatique (c'est la garantie du pont) ; libellés en français clair, pas des
+noms de variables.
+
+### 6i. Maquette d'interface
+Quand la conversation porte sur une UI à construire (un panneau d'Atelier, une
+page, un formulaire) : montre la proposition EN VRAI plutôt qu'en prose. Une
+maquette est statique-cliquable : les zones réagissent au survol/clic pour
+montrer les états, sans logique réelle. Utilise les jetons du thème — la
+maquette ressemble ainsi nativement à l'app. Un bouton `sendPrompt`
+(« adopte cette disposition ») referme la boucle. Budgets : un seul écran,
+pas de navigation multi-pages.
+
+### 6j. Art génératif
+Permis quand l'utilisateur le demande ou pour illustrer un concept (bruit,
+attracteur, champ de vecteurs, flocons — la glace se prête au génératif).
+Canvas + `requestAnimationFrame`, MAIS la sobriété tient : palette = les
+jetons (accent + gris + un sémantique au plus), fond transparent, animation
+démarrée en pause si `prefers-reduced-motion`. Un `seed` affiché et un bouton
+« régénérer » rendent l'œuvre reproductible — et `saveState({seed})` la fait
+survivre au défilement. Le monochrome à un accent est une contrainte féconde,
+pas une punition.
+
 ## 7. Accessibilité
 
 - `aria-label` descriptif sur chaque `<svg>`/`<canvas>` (`role="img"`).
