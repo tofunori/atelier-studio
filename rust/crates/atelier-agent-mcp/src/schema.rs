@@ -51,8 +51,7 @@ pub fn widget_tool_definition() -> Value {
     DANS le fil du chat. Si l'utilisateur demande un widget, un panneau ou une visualisation \
     interactive : appelle CET outil — jamais de fichier HTML sur disque, jamais de \
     navigateur. Première utilisation dans cette session : appelle d'abord \
-    atelier_widget_guide pour le mode d'emploi complet (structure, thème, exemple à \
-    calquer). Passe un FRAGMENT compact (sans <html>/<head>/<body>), autonome : aucun \
+    atelier_widget_guide pour le mode d'emploi complet (formes, thème, mécanique). Passe un FRAGMENT compact (sans <html>/<head>/<body>), autonome : aucun \
     réseau ni bibliothèque, calcul en JS local, données en dur, couleurs via les variables \
     CSS injectées (--fg, --muted, --border, --accent).",
         "inputSchema": {
@@ -89,7 +88,7 @@ pub fn widget_guide_text() -> Value {
         "regles": [
             "Un widget = un FRAGMENT HTML compact inclus dans le fil du chat. JAMAIS de fichier sur disque, JAMAIS d'ouverture de navigateur, JAMAIS de page complète (<html>/<head>/<body> interdits).",
             "Autonome : aucun fetch/XHR, aucun CDN, aucune bibliothèque, aucune police distante. Tout le calcul en JS local, les données écrites en dur dans le fragment.",
-            "Sobre et petit : ~100 lignes suffisent. Un panneau, pas une application.",
+            "Sobre mais VIVANT : ~100-150 lignes. Un panneau, pas une application — mais un panneau qu'on a envie de manipuler.",
             "height obligatoire (120-900 px) : compte ~40 px par rangée de contrôles, ~90-150 px par graphique. Un contenu qui dépasse scrolle DANS le panneau."
         ],
         "theme": [
@@ -103,6 +102,23 @@ pub fn widget_guide_text() -> Value {
             "onRestore": "window.onRestore = (etat) => {...} — reçoit l'état mémorisé quand le panneau remonte. etat peut être undefined : repars alors des valeurs par défaut."
         },
         "exemple": "<div style=\"display:flex;flex-direction:column;gap:12px;font-size:13px\">\n<div style=\"display:flex;align-items:center;gap:12px\">\n<span style=\"font-size:11px;color:var(--muted,#90969d)\">paramètre k</span>\n<input id=\"k\" type=\"range\" min=\"1\" max=\"10\" value=\"3\" style=\"flex:1;accent-color:var(--accent,#e77f3e)\">\n<b id=\"kv\" style=\"font-variant-numeric:tabular-nums\">3</b>\n</div>\n<div><span style=\"font-size:10px;color:var(--muted,#90969d)\">résultat</span>\n<div id=\"out\" style=\"font-size:15px;font-weight:600;color:var(--accent,#e77f3e)\">—</div></div>\n<svg viewBox=\"0 0 400 80\" style=\"width:100%\"><path id=\"c\" fill=\"none\" stroke=\"var(--accent,#e77f3e)\" stroke-width=\"1.5\"/></svg>\n</div>\n<script>\nvar k=document.getElementById(\"k\");\nfunction f(){var v=+k.value;document.getElementById(\"kv\").textContent=v;\ndocument.getElementById(\"out\").textContent=(v*v)+\" unités\";\nvar d=\"\";for(var i=0;i<=100;i++){var x=i/100*10;d+=(i?\"L\":\"M\")+(i*4)+\" \"+(75-70*(x*x)/100).toFixed(1)+\" \";}\ndocument.getElementById(\"c\").setAttribute(\"d\",d);\nif(window.saveState)saveState({k:v});}\nwindow.onRestore=function(s){if(s&&s.k)k.value=s.k;f();};\nk.addEventListener(\"input\",f);f();\n</script>",
+        "creativite": [
+            "NE COPIE PAS l'exemple tel quel : c'est un squelette de mécanique, pas un gabarit visuel. Choisis la FORME selon la question — deux widgets d'affilée ne doivent pas se ressembler.",
+            "Demande-toi d'abord : qu'est-ce que l'utilisateur doit COMPRENDRE en manipulant ? Puis choisis la forme qui rend cette chose tangible, pas celle que tu sais déjà coder.",
+            "Un <canvas> est permis et souvent plus vivant qu'un SVG : simulation animée (requestAnimationFrame), champ de particules, tirages aléatoires qui s'accumulent, carte de chaleur dessinée pixel par pixel.",
+            "Anime quand le TEMPS porte du sens (convergence, échantillonnage, trajectoire) : un bouton lancer/pause et une boucle requestAnimationFrame valent mieux qu'une courbe figée. Respecte prefers-reduced-motion.",
+            "Varie les contrôles : boutons radio pour comparer des scénarios, cases à cocher pour superposer des couches, un clic direct SUR le graphique (position de la souris = paramètre), un champ nombre, pas seulement des curseurs.",
+            "Utilise sendPrompt pour prolonger la conversation : un bouton « pourquoi ce creux ? » ou « refais avec mes données » rend le panneau conversationnel."
+        ],
+        "formes": {
+            "comparateur": "2-3 boutons radio (scénarios) qui redessinent la même figure — superpose l'ancien tracé en pointillé var(--muted) pour voir le delta.",
+            "simulation": "canvas + boucle requestAnimationFrame : des tirages s'accumulent (histogramme qui se remplit, marche aléatoire, pluie de points sous une densité), boutons lancer/pause/réinitialiser.",
+            "exploration_2d": "la souris survole le graphique et une lecture suit (crosshair + valeurs), ou un clic pose un point ; le paramètre EST la position.",
+            "avant_apres": "une case à cocher bascule entre deux états de la même figure (avec/sans correction, prior/posterior) — transition opacity 140ms.",
+            "table_vivante": "petit tableau dont une colonne se recalcule selon un contrôle ; la ligne max/min se surligne var(--accent) automatiquement.",
+            "quiz_estimation": "l'utilisateur devine (curseur) PUIS le vrai résultat se révèle à côté de sa réponse — mémorable pour l'intuition.",
+            "multi_panneaux": "2-3 petits panneaux liés au même contrôle (la loi, le poids, la conséquence) — c'est la forme du panneau Claude Desktop classique."
+        },
         "appel": "atelier_widget avec { html: <le fragment>, title: <titre court, 80 car. max>, height: <120-900> }. Ne recopie pas le HTML dans ta réponse ensuite : le panneau est déjà affiché."
     })
 }
@@ -218,6 +234,13 @@ mod tests {
         assert!(!exemple.contains("<html"), "l'exemple ne doit pas être une page");
         assert!(exemple.contains("saveState") && exemple.contains("onRestore"));
         assert!(exemple.contains("var(--accent"));
+        // et le guide impose la variété : sans ça un petit modèle clone
+        // l'exemple unique et tous les widgets se ressemblent (vu avec GLM)
+        let creativite = serde_json::to_string(&widget_guide_text()["creativite"]).unwrap();
+        assert!(creativite.contains("NE COPIE PAS"));
+        let formes = widget_guide_text();
+        let formes = formes["formes"].as_object().unwrap();
+        assert!(formes.len() >= 5, "il faut une vraie bibliothèque de formes");
     }
 
     #[test]
