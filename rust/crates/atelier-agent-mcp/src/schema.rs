@@ -47,15 +47,15 @@ pub const WIDGET_TOOL_NAME: &str = "atelier_widget";
 pub fn widget_tool_definition() -> Value {
     json!({
         "name": WIDGET_TOOL_NAME,
-        "description": "Afficher un panneau interactif dans le fil de la conversation. \
-    HTML autonome : aucun réseau, aucune bibliothèque externe, aucune police distante — \
-    tout le calcul se fait en JS local. Les couleurs viennent des variables CSS injectées \
-    (--fg, --muted, --border, --accent) ; n'invente pas de palette. Écris le contenu de la \
-    page seulement, sans <html>, <head> ni <body>. Trois fonctions sont déjà définies pour \
-    ton script : sendPrompt(texte) propose un message dans le composeur, que l'utilisateur \
-    valide lui-même (rien n'est envoyé tout seul) ; saveState(objet) mémorise l'état du \
-    panneau pour qu'il survive au défilement ; window.onRestore = (etat) => {...} le reçoit \
-    au remontage.",
+        "description": "Affiche un panneau interactif (curseur, graphique, calculateur) \
+    DANS le fil du chat. Si l'utilisateur demande un widget, un panneau ou une visualisation \
+    interactive : appelle CET outil — jamais de fichier HTML sur disque, jamais de \
+    navigateur. Passe un FRAGMENT compact (sans <html>/<head>/<body>), autonome : aucun \
+    réseau ni bibliothèque, calcul en JS local, données en dur, couleurs via les variables \
+    CSS injectées (--fg, --muted, --border, --accent). Déjà définies pour ton script : \
+    sendPrompt(texte) propose un message dans le composeur (l'utilisateur valide) ; \
+    saveState(objet) garde l'état du panneau au défilement ; window.onRestore = (etat) => \
+    {...} le reçoit au remontage.",
         "inputSchema": {
             "type": "object",
             "required": ["html", "title", "height"],
