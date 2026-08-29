@@ -61,6 +61,12 @@ done
 # désormais le binaire Rust copié par la boucle BIN_NAMES ci-dessus.
 # La garde d'imports .mjs a disparu avec les .mjs : le dist ne contient plus
 # que des binaires, dont l'intégrité est déjà couverte par BUILD_STAMP.txt.
+# Contrôle géométrique des figures (render-then-verify, spec Claude Science
+# transposée) : module Python que la consigne <atelier-figure-qc> fait
+# importer par l'agent après chaque savefig. Un asset, pas un binaire.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cp "$ROOT/rust/assets/atelier_figure_qc.py" "$DIST/atelier_figure_qc.py"
+
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

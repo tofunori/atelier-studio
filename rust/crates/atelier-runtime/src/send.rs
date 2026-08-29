@@ -60,6 +60,32 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
 /// consigne doit vivre dans le MESSAGE, comme la galerie et Zotero : c'est le
 /// seul canal que tous les providers et tous les modèles respectent.
 /// N'est injectée que si le fil a le serveur MCP (provider compatible).
+/// Render-then-verify des figures matplotlib — le §9 de Claude Science,
+/// transposé dans le levier qui marche pour tous les providers : la consigne
+/// dans le MESSAGE (cf. galerie, zotero, widgets). Le module consolidé vit
+/// dans le bundle (rust/assets/atelier_figure_qc.py, stagé par
+/// stage-rust-server.sh) — l'agent ne redérive pas le code du contrôle, il
+/// l'importe. La porte est DURE : verify() lève tant que la figure n'est pas
+/// propre, et la consigne interdit de conclure le tour sur un échec.
+fn with_figure_qc_instruction(prompt: String, server_dir: &str) -> String {
+    if server_dir.is_empty() {
+        return prompt;
+    }
+    let module_dir = serde_json::to_string(server_dir).unwrap_or_default();
+    format!(
+        "{prompt}\n\n<atelier-figure-qc>\nRender-then-verify for every matplotlib figure you \
+create or modify. Immediately after EACH savefig call, in the SAME Python session, run:\n\
+import sys; sys.path.insert(0, {module_dir}); from atelier_figure_qc import verify; \
+verify(fig, \"<the path you just saved>\")\n\
+It raises AssertionError listing label overlaps, texts crossing panel frames, and texts \
+clipped at the canvas edge. Fix the layout (spacing, rotation, label placement — not by \
+deleting information) and re-save until verify passes. Do NOT end the turn while a figure \
+fails verification, and do not use tight_layout/constrained_layout/bbox_inches='tight' to \
+silence it — they resize the canvas and verify will say so. Skip only when the user set \
+ATELIER_FIGURE_QC=off.\n</atelier-figure-qc>"
+    )
+}
+
 fn with_widget_tool_instruction(prompt: String, provider: &str) -> String {
     if !crate::agent_mcp::is_mcp_compatible_provider(provider) {
         return prompt;
@@ -877,6 +903,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     } else {
         let p = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
         let p = with_zotero_passage_instruction(p, state.server_dir());
+        let p = with_figure_qc_instruction(p, state.server_dir());
         with_widget_tool_instruction(p, &provider)
     };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
@@ -2344,6 +2371,66 @@ mod tests {
 
         let api = with_widget_tool_instruction("fais-moi un widget".into(), "openrouter");
         assert_eq!(api, "fais-moi un widget");
+    }
+
+    #[test]
+    fn figure_qc_instruction_impose_le_render_then_verify() {
+        let enriched = with_figure_qc_instruction(
+            "trace la tendance d'albedo".into(),
+            "/app/Resources/rust-server",
+        );
+        assert!(enriched.starts_with("trace la tendance d'albedo"));
+        // le chemin du module consolidé, échappé en JSON comme pour la galerie
+        assert!(enriched.contains("\"/app/Resources/rust-server\""));
+        assert!(enriched.contains("from atelier_figure_qc import verify"));
+        // la porte dure : pas de conclusion sur un échec, pas de contournement
+        assert!(enriched.contains("Do NOT end the turn"));
+        assert!(enriched.contains("bbox_inches"));
+        // et la sortie de secours reste documentée
+        assert!(enriched.contains("ATELIER_FIGURE_QC=off"));
+
+        // sans server_dir (tests, environnements nus) : prompt inchangé
+        assert_eq!(
+            with_figure_qc_instruction("p".into(), ""),
+            "p".to_string()
+        );
+    }
+
+    /// Le module Python part dans le bundle par stage-rust-server.sh : un
+    /// module qui ne compile pas = un contrôle mort en silence chez l'agent.
+    /// La compilation est vérifiée ICI, à la source, à chaque cargo test.
+    #[test]
+    fn le_module_figure_qc_compile() {
+        let module = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/atelier_figure_qc.py"
+        );
+        assert!(
+            std::path::Path::new(module).exists(),
+            "module absent : {module}"
+        );
+        let python = ["python3", "python"]
+            .iter()
+            .find(|p| {
+                std::process::Command::new(p)
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            })
+            .copied();
+        let Some(python) = python else {
+            eprintln!("SKIP: aucun python sur cette machine");
+            return;
+        };
+        let out = std::process::Command::new(python)
+            .args(["-m", "py_compile", module])
+            .output()
+            .expect("py_compile doit se lancer");
+        assert!(
+            out.status.success(),
+            "le module ne compile pas :\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
