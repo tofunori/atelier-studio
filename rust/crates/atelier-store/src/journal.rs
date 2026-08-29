@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 const EPHEMERAL: &[&str] = &[
     "delta",
@@ -22,13 +23,23 @@ const SINGLETON: &[&str] = &["todos", "goal"];
 #[derive(Debug, Clone)]
 pub struct HarnessJournal {
     dir: PathBuf,
+    // Allocateur de séquences partagé : trois écrivains concurrents
+    // (mirror des fils liés, boîte aux lettres agent, @mentions) faisaient
+    // chacun `last_sequence(id) + 1` sans coordination — deux écritures
+    // concurrentes pouvaient obtenir la même séquence et corrompre l'ordre
+    // de `materialize` (course vécue, revue finale 2026-08-28). Arc<Mutex<_>>
+    // pour que tout clone de `HarnessJournal` (HarnessManager, HarnessThread,
+    // `state.journal()`) partage le MÊME compteur, pas une copie divergente.
+    sequence_counters: Arc<Mutex<HashMap<String, u64>>>,
 }
-// Clone is intentional: journal is path-based, safe to share across harnesses.
+// Clone is intentional: journal is path-based, safe to share across harnesses
+// (le compteur de séquences est lui-même partagé via Arc, voir ci-dessus).
 
 impl HarnessJournal {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             dir: base_dir.as_ref().join("harness-history"),
+            sequence_counters: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -51,6 +62,13 @@ impl HarnessJournal {
     }
 
     pub fn delete_thread(&self, thread_id: &str) -> bool {
+        // Hygiène mémoire : sequence_counters grossit sans borne sinon
+        // (un fil supprimé n'écrit plus jamais, mais son entrée restait) —
+        // revue finale 2026-08-28.
+        self.sequence_counters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(thread_id);
         let p = self.path_of(thread_id);
         match std::fs::remove_file(&p) {
             Ok(()) => true,
@@ -148,6 +166,50 @@ impl HarnessJournal {
             .filter_map(|e| e.pointer("/meta/sequence").and_then(|v| v.as_u64()))
             .max()
             .unwrap_or(0)
+    }
+
+    /// Prochaine séquence à écrire pour `thread_id`, allouée de façon
+    /// atomique. Remplace le pattern racé `last_sequence(id) + 1` : trois
+    /// écrivains concurrents (mirror des fils liés, boîte aux lettres agent,
+    /// @mentions) pouvaient chacun lire le même `last_sequence` avant que
+    /// l'un d'eux n'ait écrit, obtenant la même valeur (course vécue, revue
+    /// finale 2026-08-28). Le compteur est initialisé paresseusement depuis
+    /// le fichier (UNE seule lecture disque par thread_id), puis incrémenté
+    /// sous verrou — section critique courte, aucun await sous le lock.
+    ///
+    /// `decorate()` (atelier-harness/src/thread.rs) appelle désormais cette
+    /// fonction à CHAQUE delta de streaming, pas seulement au démarrage d'un
+    /// fil : la première version faisait le parse paresseux du fichier
+    /// (`last_sequence`, coûteux) SOUS le verrou global, ce qui bloquait les
+    /// écrivains de TOUS les autres thread_id pendant la lecture disque d'un
+    /// seul fil (revue finale 2026-08-28). Ici, le fast path (compteur déjà
+    /// connu) reste sous verrou court sans I/O ; seule la première allocation
+    /// d'un thread_id lit le disque, et ce hors verrou. Deux racers peuvent
+    /// alors calculer `computed` en même temps avant qu'aucun n'ait pris le
+    /// verrou : le max()+incrément sous verrou reste correct dans tous les
+    /// cas — que la course vienne de deux lectures disque concurrentes ou
+    /// d'un fast path croisant une init tardive, chaque entrée dans la
+    /// section critique repart du dernier compteur connu, jamais d'une
+    /// valeur périmée, donc les séquences restent denses et uniques.
+    pub fn next_sequence(&self, thread_id: &str) -> u64 {
+        // Fast path : compteur déjà initialisé pour ce fil, aucune lecture
+        // disque — c'est le chemin emprunté à chaque delta après la
+        // première allocation.
+        {
+            let mut counters = self.sequence_counters.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(seq) = counters.get_mut(thread_id) {
+                *seq += 1;
+                return *seq;
+            }
+        }
+        // Lent, une seule fois par thread_id : le parse du journal se fait
+        // HORS verrou pour ne pas bloquer les écrivains des autres fils.
+        let computed = self.last_sequence(thread_id);
+        let mut counters = self.sequence_counters.lock().unwrap_or_else(|e| e.into_inner());
+        let seq = counters.entry(thread_id.to_string()).or_insert(0);
+        *seq = (*seq).max(computed);
+        *seq += 1;
+        *seq
     }
 
     /// Semantic replay — Node `materialize`.
@@ -482,5 +544,58 @@ mod tests {
         let mat = j.materialize("t1");
         assert_eq!(mat.len(), 1);
         assert_eq!(mat[0]["output"], "final");
+    }
+
+    /// Trois écrivains concurrents (mirror des fils liés, boîte aux lettres
+    /// agent, @mentions) faisaient chacun `last_sequence(id) + 1` sans
+    /// coordination : deux écritures concurrentes pouvaient obtenir la même
+    /// séquence et corrompre l'ordre de `materialize` (revue finale
+    /// 2026-08-28). `next_sequence` doit être atomique et dense même sous
+    /// contention (std::thread, pas de dépendance tokio ici : la fonction
+    /// est synchrone).
+    #[test]
+    fn next_sequence_is_dense_under_concurrency() {
+        let dir = tempdir().unwrap();
+        let journal = std::sync::Arc::new(HarnessJournal::new(dir.path()));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let j = journal.clone();
+            handles.push(std::thread::spawn(move || {
+                (0..50).map(|_| j.next_sequence("t1")).collect::<Vec<u64>>()
+            }));
+        }
+        let mut all: Vec<u64> = Vec::new();
+        for h in handles {
+            all.extend(h.join().unwrap());
+        }
+        all.sort_unstable();
+        let expected: Vec<u64> = (1..=400).collect();
+        assert_eq!(all, expected, "les séquences doivent être uniques et denses");
+    }
+
+    /// Base : sur un journal vide, la première allocation vaut 1 (cohérent
+    /// avec l'ancien pattern `last_sequence(id) + 1` où `last_sequence`
+    /// d'un fil vide vaut 0).
+    #[test]
+    fn next_sequence_starts_at_one_on_empty_journal() {
+        let dir = tempdir().unwrap();
+        let j = HarnessJournal::new(dir.path());
+        assert_eq!(j.next_sequence("t1"), 1);
+        assert_eq!(j.next_sequence("t1"), 2);
+    }
+
+    /// L'allocateur s'initialise paresseusement depuis le fichier existant :
+    /// s'il y a déjà des événements sur disque (écrits sans passer par
+    /// `next_sequence`, p. ex. `copy_thread`), la première allocation
+    /// reprend après le dernier `last_sequence` observé.
+    #[test]
+    fn next_sequence_resumes_from_existing_journal() {
+        let dir = tempdir().unwrap();
+        let j = HarnessJournal::new(dir.path());
+        j.append(&ev("user", 1, "e1"));
+        j.append(&ev("text", 2, "e2"));
+        assert_eq!(j.last_sequence("t1"), 2);
+        assert_eq!(j.next_sequence("t1"), 3);
+        assert_eq!(j.next_sequence("t1"), 4);
     }
 }

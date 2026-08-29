@@ -298,7 +298,11 @@ pub async fn handle_mention_agent(state: &AppState, msg: &Value) -> Vec<String> 
         "text": display_text,
         "meta": {
             "threadId": source_id,
-            "sequence": state.journal().last_sequence(source_id) + 1,
+            // Allocateur atomique : ces @mentions sont l'un de trois
+            // écrivains concurrents (avec send.rs et agent_mailbox.rs) qui
+            // pouvaient obtenir la même séquence via `last_sequence + 1`
+            // (course vécue, revue finale 2026-08-28).
+            "sequence": state.journal().next_sequence(source_id),
             "eventId": Uuid::new_v4().to_string(),
             "messageId": request_id,
             "ts": std::time::SystemTime::now()

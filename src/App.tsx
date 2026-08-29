@@ -46,11 +46,15 @@ const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette")
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
 const PluginPanel = lazyWithRetry(() => import("./components/PluginPanel"));
-// SettingsSheet n'a pas d'export par défaut (export nommé) : import statique,
-// pas de lazyWithRetry. Elle importe elle-même SettingsPage directement
-// (task 2) — le découpage en chunk séparé de l'ancien SettingsPage lazy
-// n'a plus lieu d'être ici.
-import { SettingsSheet } from "./components/settings/SettingsSheet";
+// SettingsSheet n'a pas d'export par défaut (export nommé) : on adapte le
+// module avec .then() pour fournir le `default` qu'attend lazyWithRetry
+// (perf lot 2, tâche 6 — la feuille de réglages ne pèse plus sur l'entrée).
+type SettingsSheetProps = Parameters<
+  (typeof import("./components/settings/SettingsSheet"))["SettingsSheet"]
+>[0];
+const SettingsSheet = lazyWithRetry<SettingsSheetProps>(() =>
+  import("./components/settings/SettingsSheet").then((m) => ({ default: m.SettingsSheet })),
+);
 import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
@@ -931,6 +935,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
   const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
+  // Miroir de openedAgent lu par l'effet d'éviction (pas en dépendance, pour
+  // ne pas le redéclencher à chaque ouverture/fermeture d'agent) : voir usage
+  // avec selectEvictableThreads plus bas.
+  const openedAgentRef = useRef<AgentDisplay | null>(null);
+  openedAgentRef.current = openedAgent;
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
@@ -2400,12 +2409,17 @@ export default function App() {
 
   // Éviction des fils inactifs (perf, session ouverte plusieurs jours) : à
   // chaque changement de fil actif, les fils SANS tour en cours (`workingSince`
-  // à null), hors nouveau actif et hors MRU (3 derniers visités), perdent leur
-  // `events[id]` — libéré de la RAM, rechargé par getHistory + rejeu à la
-  // prochaine visite (cf. commentaire ci-dessus et lib/threadEviction.ts).
-  // Purement déclenché par le changement de fil actif : `events` et
-  // `workingSince` sont lus via leurs refs (tenues à jour à chaque rendu),
-  // jamais en dépendance, pour ne pas réévaluer l'éviction à chaque delta.
+  // à null), hors nouveau actif, hors MRU (3 derniers visités) et hors agent
+  // ouvert dans le panneau Atelier, perdent leur `events[id]` — libéré de la
+  // RAM, rechargé par getHistory + rejeu à la prochaine visite (cf. commentaire
+  // ci-dessus et lib/threadEviction.ts). L'agent ouvert (openedAgentRef) est
+  // un sous-fil qui n'est ni activeId ni forcément dans la MRU ni "running" :
+  // sans cette garde il était évincé au premier changement de fil actif, et
+  // aucun chemin getHistory ne le rechargeait, laissant le panneau vide en
+  // permanence (revue finale lot 2 2026-08-28). Purement déclenché par le
+  // changement de fil actif : `events`, `workingSince` et l'agent ouvert sont
+  // lus via leurs refs (tenues à jour à chaque rendu), jamais en dépendance,
+  // pour ne pas réévaluer l'éviction à chaque delta.
   useEffect(() => {
     if (!activeId) return;
     const mru = mruThreadsRef.current;
@@ -2422,10 +2436,13 @@ export default function App() {
       activeId,
       mru: mruThreadsRef.current,
       running,
+      openedAgentThreadId: openedAgentRef.current?.threadId ?? null,
     });
     if (!toEvict.length) return;
-    // flush avant suppression : aucun delta coalescé en attente ne doit être
-    // perdu pour un fil qu'on s'apprête à vider.
+    // flush avant suppression : annule tout rAF de coalescing en attente pour
+    // ces fils, sinon une frame déjà programmée pourrait repeupler
+    // `events[id]` juste après sa suppression — les deltas déjà appliqués
+    // sont ensuite supprimés avec le reste (pas "préservés").
     for (const id of toEvict) streamCoalescer.flush(id);
     for (const id of toEvict) evictedThreadsRef.current.add(id);
     setEvents((prev) => {

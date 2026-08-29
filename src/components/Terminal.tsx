@@ -174,6 +174,12 @@ export default function Terminal(p: {
     return () => clearTimeout(focusTimer);
   }, [p.visible]);
 
+  // un terminal masqué (pool de surfaces en display:none) ne tique pas :
+  // couper le clignotement du curseur économise le repaint périodique.
+  useEffect(() => {
+    if (xtermRef.current) xtermRef.current.options.cursorBlink = p.visible;
+  }, [p.visible]);
+
   return (
     <div
       ref={ref}

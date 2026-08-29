@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/primitives.css";
 import "../App.css";
+// Bloc nav compacte/diagnostic/focus extrait vers un chunk lazy (perf lot 2,
+// tâche 6) : le banc rend SettingsPage directement, hors SettingsSheet lazy,
+// donc il doit l'importer lui-même (pas de budget de boot à préserver ici).
+import "../styles/settings-sheet.css";
 import SettingsPage from "./settings/SettingsPage";
 import { DEFAULT_SETTINGS, type Settings } from "../lib/settings";
 import { OPENCODE_BENCH_ROUTES } from "./settings/openCodeBenchRoutes";

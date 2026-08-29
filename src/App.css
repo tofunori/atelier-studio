@@ -212,9 +212,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .messages.is-first-turn-settling { visibility: hidden; }
 .timeline-virtual-row { position: relative; max-width: var(--chat-col, 760px); width: 100%; margin: 0 auto; padding-bottom: 14px; }
 /* Le slot actif prolonge le dernier segment du tour : il doit rester proche du
-   texte/de l'action qui le précède, sans compacter le reste du transcript. */
-.timeline-virtual-row:has(+ .timeline-virtual-row .active-turn-tail),
-.messages [data-index]:has(+ [data-index] > .timeline-virtual-row .active-turn-tail) > .timeline-virtual-row {
+   texte/de l'action qui le précède, sans compacter le reste du transcript.
+   Ex :has() + combinateur frère (coûteux : réévalué à chaque mutation du fil,
+   donc à chaque frappe du stream, sur des rangées virtualisées) — l'adjacence
+   à .active-turn-tail est maintenant calculée dans ChatTimeline (virtualItems)
+   et posée comme classe sur la rangée elle-même (perf lot 2, tâche 4). */
+.timeline-virtual-row.before-active-tail {
   padding-bottom: 2px;
 }
 /* Géométrie verrouillée du fil (plan 066, L3). LegendList positionne déjà
@@ -2997,63 +3000,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
 
-/* ===== Settings (plan 021) : nav compacte, diagnostic, focus ===== */
-.settings-page.narrow { flex-direction: column; }
-.set-nav-compact { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0;
-  -webkit-app-region: drag; }
-.set-nav-compact button, .set-nav-compact .custom-select { -webkit-app-region: no-drag; }
-.settings-page.narrow .set-body { padding: 20px 24px; max-width: none; }
-.set-headline-actions { display: inline-flex; gap: 6px; align-items: center; }
-.set-notice { margin-bottom: 16px; }
-.settings-page button:focus-visible, .settings-page input:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring-color);
-  outline-offset: var(--focus-ring-offset); }
-/* Intégrée dans la feuille modale (lot A) : ne prend plus toute la fenêtre.
-   `.settings-page.embedded` est un enfant de grille (`Popup` dans
-   shadcn/dialog.tsx porte `tw:grid tw:min-h-0`) — or un enfant de grille a
-   `min-height: auto` par défaut : il refuse de rétrécir sous la hauteur de
-   son propre contenu. `height: 100%` ne suffit donc pas seul : sans ce
-   `min-height: 0`, l'élément gonfle à la hauteur de `.set-body` (flex:1
-   depuis .settings-page), qui gonfle en retour avec lui — sa règle
-   `.set-body { overflow-y: auto }` ne s'active alors jamais, et
-   `.settings-sheet { overflow: hidden }` coupe simplement ce qui dépasse.
-   Mesuré : sans cette ligne, popup 400/2032 (client/scroll), sans défilement ;
-   avec, popup 400/400 et .set-body 400/2032 — le défilement s'active. */
-.settings-page.embedded { height: 100%; min-height: 0; }
-/* Correction de revue lot A #2 : `.set-body` plafonnait à 860px + 40/48px de
-   rembourrage plein écran, hérités et jamais retouchés par le lot — dans la
-   feuille de 1100px cela retombait exactement à la largeur de l'ancienne
-   page plein écran (voir commentaire sur `.settings-sheet` ci-dessous). On
-   lève le plafond et resserre les rembourrages en mode embarqué seulement ;
-   le chemin non embarqué (`SetBench`) reste inchangé. */
-.settings-page.embedded .set-body { max-width: none; padding: 24px 32px; }
-/* Les 40px de rembourrage haut de `.set-nav` dégageaient les feux de
-   circulation natifs de la fenêtre en plein écran ; inutiles dans une
-   modale flottante. `-webkit-app-region: no-drag` : dans cette même modale,
-   glisser la nav déplacerait la fenêtre de l'app et un double-clic la
-   zoomerait — sans effet voulu ici. */
-.settings-page.embedded .set-nav { padding: 24px 10px 16px; -webkit-app-region: no-drag; }
-.settings-page.embedded .set-nav-compact { -webkit-app-region: no-drag; }
-/* Correction de revue (spécificité) : `.settings-page.narrow .set-body` et
-   `.settings-page.embedded .set-body` ont la même spécificité (deux
-   classes) — sans ce filet, l'ordre de cascade fait gagner l'embarqué,
-   qui écrase le padding resserré prévu pour l'étroit. Combo à trois
-   classes, strictement plus spécifique, pour que l'étroit garde le dernier
-   mot quand la feuille est À LA FOIS étroite et embarquée (cas atteignable
-   depuis la correction n°3 : la nav bascule maintenant sur la largeur
-   réelle de la feuille, pas seulement de la fenêtre). */
-.settings-page.embedded.narrow .set-body { padding: 20px 24px; max-width: none; }
-
-/* Feuille modale des réglages (lot A). Large à dessein : la section Modèles
-   porte un tableau dense qu'un panneau étroit rendrait illisible — et ce
-   gain de largeur atteint désormais réellement le contenu grâce à l'override
-   `.settings-page.embedded .set-body` ci-dessus, qui lève le plafond de
-   860px et les rembourrages hérités du plein écran (sans cet override,
-   `.set-body` les réappliquait et annulait tout le gain promis ici). */
-.settings-sheet { width: min(1100px, 94vw); height: min(760px, 90vh);
-  max-width: min(1100px, 94vw); padding: 0; overflow: hidden;
-  box-shadow: var(--elevation-overlay); border-radius: var(--r-m); }
-.settings-sheet .settings-page { border-radius: var(--r-m); }
+/* Bloc "Settings (plan 021) : nav compacte, diagnostic, focus" déplacé vers
+   src/styles/settings-sheet.css (perf lot 2, tâche 6) : chargé seulement
+   quand SettingsSheet (lazy, src/App.tsx) est monté, plutôt que parsé pour
+   chaque premier paint. Sélecteurs vérifiés uniques dans App.css avant le
+   déplacement (aucune règle écrasée plus bas, aucune ancre css-contract).
+   Aussi importé directement par src/components/SetBench.tsx (banc de
+   captures) qui rend SettingsPage hors du lazy SettingsSheet — sans cet
+   import le banc régresse (golden settings-setup-1280-dark, revue finale
+   lot 2 2026-08-28). */
 
 /* ===== Research Navigator (plan 024) — Precision Native =====
    Panneau du projet actif : header d'identité, action primaire, chronologie

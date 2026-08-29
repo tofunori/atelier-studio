@@ -10,10 +10,18 @@ export function selectEvictableThreads(input: {
   activeId: string | null;
   mru: string[];
   running: Set<string>;
+  // Sous-fil de l'agent actuellement ouvert dans le panneau Atelier (App.tsx
+  // `openedAgent`) : ce n'est ni activeId (c'est le fil PARENT), ni forcément
+  // dans la MRU, ni "running" une fois le tour terminé — sans cette entrée
+  // il était évincé au premier changement de fil actif, et aucun chemin
+  // getHistory ne le rechargeait (openAgentInAtelier n'en envoie pas),
+  // laissant le panneau vide en permanence (revue finale lot 2 2026-08-28).
+  openedAgentThreadId?: string | null;
 }): string[] {
-  const { events, activeId, mru, running } = input;
+  const { events, activeId, mru, running, openedAgentThreadId } = input;
   const keep = new Set(mru);
   if (activeId) keep.add(activeId);
+  if (openedAgentThreadId) keep.add(openedAgentThreadId);
   const evictable: string[] = [];
   for (const [threadId, threadEvents] of Object.entries(events)) {
     if (!threadEvents || threadEvents.length === 0) continue;

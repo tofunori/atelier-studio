@@ -1,7 +1,9 @@
 //! Universal turn harness (Node `harness_events.mjs` parity).
 //!
-//! One harness per thread: monotone `sequence`, exactly one terminal per turn,
-//! durable events journaled before UI sees them (when a journal is attached).
+//! One harness per thread: monotone `sequence` allocated by the shared
+//! `Journal::next_sequence` (coordinated with the other runtime writers —
+//! fix 2026-08-28), exactly one terminal per turn, durable events journaled
+//! before UI sees them.
 
 mod kinds;
 mod thread;
@@ -59,13 +61,15 @@ impl HarnessManager {
             h.lock().await.set_provider(provider);
             return Arc::clone(h);
         }
-        let initial = self.journal.last_sequence(thread_id);
+        // `initial_sequence` a disparu : `HarnessThread::decorate()` route
+        // désormais l'allocation par `Journal::next_sequence`, qui fait
+        // elle-même sa propre initialisation paresseuse depuis le fichier
+        // (fix septième écrivain, revue finale 2026-08-28).
         let h = Arc::new(Mutex::new(HarnessThread::new(
             thread_id,
             provider,
             emit,
-            Some(self.journal.clone()),
-            initial,
+            self.journal.clone(),
         )));
         map.insert(thread_id.to_string(), Arc::clone(&h));
         h

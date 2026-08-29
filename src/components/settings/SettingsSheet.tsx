@@ -5,6 +5,9 @@ import { Dialog, DialogContent } from "../shadcn/dialog";
 import SettingsPage from "./SettingsPage";
 import type { Settings } from "../../lib/settings";
 import { t } from "../../lib/i18n";
+// CSS de la feuille de réglages (perf lot 2, tâche 6) : suit ce module dans
+// son propre chunk async plutôt que de peser sur App.css au premier paint.
+import "../../styles/settings-sheet.css";
 
 /** Le contrat verrouillé : Échap ferme, JAMAIS pendant une saisie. */
 function focusDansUnChamp(): boolean {

@@ -1204,7 +1204,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     _ => None,
                 };
                 if let Some(text) = mirrored_text.filter(|text| !text.trim().is_empty()) {
-                    let sequence = linked_reply_state.journal().last_sequence(source_thread_id) + 1;
+                    // Allocateur atomique : ce mirror des fils liés est l'un
+                    // de trois écrivains concurrents (avec agent_mailbox.rs
+                    // et agent_links.rs) qui pouvaient obtenir la même
+                    // séquence via `last_sequence + 1` (course vécue, revue
+                    // finale 2026-08-28).
+                    let sequence = linked_reply_state.journal().next_sequence(source_thread_id);
                     let mirrored = json!({
                         "kind": "agent_message",
                         "messageId": message_id,

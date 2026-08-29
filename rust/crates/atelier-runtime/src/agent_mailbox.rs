@@ -285,7 +285,11 @@ async fn emit_agent_message_events(state: &AppState, msg: &MailboxMessage) {
             from_title.as_str(),
         ),
     ] {
-        let seq = state.journal().last_sequence(thread_id) + 1;
+        // Allocateur atomique : cette boîte aux lettres agent est l'un de
+        // trois écrivains concurrents (avec send.rs et agent_links.rs) qui
+        // pouvaient obtenir la même séquence via `last_sequence + 1` (course
+        // vécue, revue finale 2026-08-28).
+        let seq = state.journal().next_sequence(thread_id);
         let durable = json!({
             "kind": "agent_message",
             "messageId": msg.id,
@@ -509,7 +513,11 @@ async fn deliver_via_send(state: &AppState, send_msg: &Value) -> Result<(), Stri
 
 async fn update_agent_message_status(state: &AppState, msg: &MailboxMessage, status: &str) {
     for tid in [&msg.from_thread_id, &msg.to_thread_id] {
-        let sequence = state.journal().last_sequence(tid) + 1;
+        // Allocateur atomique : ce site collisionnait aussi avec les trois
+        // autres écrivains de séquences pour le même fil (inventaire complété
+        // suite au ruling contrôleur du 2026-08-28 — le brief initial n'en
+        // listait que trois, incomplet).
+        let sequence = state.journal().next_sequence(tid);
         let ev = json!({
             "kind": "agent_message",
             "messageId": msg.id,
