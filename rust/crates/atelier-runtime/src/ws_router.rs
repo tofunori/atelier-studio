@@ -1366,11 +1366,16 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 )
                 .await
             {
-                Ok(_) => vec![json_msg(json!({
-                    "type": "event",
-                    "threadId": thread_id,
-                    "event": {"kind": "tool", "name": "__compacted"},
-                }))],
+                // `thread/compact/start` DÉMARRE une compaction, il ne la
+                // termine pas — c'est un tour à part entière (d'où le refus
+                // « cannot steer a compact turn » côté serveur). Émettre
+                // `__compacted` sur l'accusé annonçait la fin au démarrage, et
+                // faisait DOUBLON : les deux providers signalent eux-mêmes leur
+                // compaction — codex par l'item `contextCompaction`
+                // (inProgress puis completed, codex_parse.rs), grok par son
+                // flux ACP (grok_parse.rs). On laisse donc le flux faire foi,
+                // exactement comme pour une compaction automatique.
+                Ok(_) => vec![],
                 Err(error) => vec![err_thread(thread_id, format!("compact: {error}"))],
             }
         }
@@ -3919,6 +3924,37 @@ pub(crate) fn err_thread(thread_id: &str, message: impl Into<String>) -> String 
         "threadId": thread_id,
         "message": message.into(),
     }))
+}
+
+#[cfg(test)]
+mod compaction_contrat_tests {
+    /// Contrat de source : `codexCompact` ne doit RIEN annoncer sur l'accusé
+    /// de `thread/compact/start`. La méthode démarre une compaction (c'est un
+    /// tour, cf. « cannot steer a compact turn ») ; annoncer `__compacted` là
+    /// revenait à dire « fini » au démarrage, et doublonnait le signal que les
+    /// providers émettent déjà eux-mêmes (item `contextCompaction` pour codex,
+    /// flux ACP pour grok).
+    #[test]
+    fn la_compaction_manuelle_nannonce_pas_la_fin_au_demarrage() {
+        let source = include_str!("ws_router.rs");
+        let bloc = source
+            .split("\"codexCompact\" => {")
+            .nth(1)
+            .expect("le handler codexCompact doit exister");
+        let bloc = &bloc[..bloc.find("\"codexClear\"").unwrap_or(bloc.len())];
+        // On vise l'ÉMISSION, pas le mot : le commentaire du handler cite
+        // évidemment le nom de l'event pour expliquer pourquoi il ne l'émet pas.
+        let sans_commentaires: String = bloc
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !sans_commentaires.contains("__compacted"),
+            "codexCompact ne doit pas émettre __compacted : la compaction ne \
+             fait que DÉMARRER, et les providers signalent sa vraie fin"
+        );
+    }
 }
 
 #[cfg(test)]
