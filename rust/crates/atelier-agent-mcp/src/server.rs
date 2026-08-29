@@ -2,7 +2,8 @@
 
 use crate::bridge::Bridge;
 use crate::schema::{
-    bridge_call_for, help_text, tool_definition, widget_tool_definition, TOOL_NAME,
+    bridge_call_for, help_text, tool_definition, widget_guide_text,
+    widget_guide_tool_definition, widget_tool_definition, TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -58,7 +59,11 @@ pub async fn run() -> Result<(), String> {
                 }
             }),
             "ping" => json!({}),
-            "tools/list" => json!({ "tools": [tool_definition(), widget_tool_definition()] }),
+            "tools/list" => json!({ "tools": [
+                tool_definition(),
+                widget_tool_definition(),
+                widget_guide_tool_definition(),
+            ] }),
             "tools/call" => {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -67,6 +72,12 @@ pub async fn run() -> Result<(), String> {
                 if name == TOOL_NAME && args.get("action").and_then(|v| v.as_str()) == Some("help")
                 {
                     tool_text_result(&mut stdout, &id, help_text(), false).await?;
+                    continue;
+                }
+                // Le guide aussi : mode d'emploi statique, chargé seulement
+                // quand l'agent va écrire un widget (patron read_me).
+                if name == WIDGET_GUIDE_TOOL_NAME {
+                    tool_text_result(&mut stdout, &id, widget_guide_text(), false).await?;
                     continue;
                 }
 

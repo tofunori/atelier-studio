@@ -50,12 +50,11 @@ pub fn widget_tool_definition() -> Value {
         "description": "Affiche un panneau interactif (curseur, graphique, calculateur) \
     DANS le fil du chat. Si l'utilisateur demande un widget, un panneau ou une visualisation \
     interactive : appelle CET outil — jamais de fichier HTML sur disque, jamais de \
-    navigateur. Passe un FRAGMENT compact (sans <html>/<head>/<body>), autonome : aucun \
+    navigateur. Première utilisation dans cette session : appelle d'abord \
+    atelier_widget_guide pour le mode d'emploi complet (structure, thème, exemple à \
+    calquer). Passe un FRAGMENT compact (sans <html>/<head>/<body>), autonome : aucun \
     réseau ni bibliothèque, calcul en JS local, données en dur, couleurs via les variables \
-    CSS injectées (--fg, --muted, --border, --accent). Déjà définies pour ton script : \
-    sendPrompt(texte) propose un message dans le composeur (l'utilisateur valide) ; \
-    saveState(objet) garde l'état du panneau au défilement ; window.onRestore = (etat) => \
-    {...} le reçoit au remontage.",
+    CSS injectées (--fg, --muted, --border, --accent).",
         "inputSchema": {
             "type": "object",
             "required": ["html", "title", "height"],
@@ -66,6 +65,45 @@ pub fn widget_tool_definition() -> Value {
             },
             "additionalProperties": false
         }
+    })
+}
+
+pub const WIDGET_GUIDE_TOOL_NAME: &str = "atelier_widget_guide";
+
+/// Mode d'emploi copieux, chargé UNIQUEMENT quand l'agent va écrire un widget
+/// (patron « read_me » de Claude Desktop) : la description d'atelier_widget
+/// reste courte à chaque tour, le guide ne coûte que lors de l'usage réel.
+/// Servi localement par le shim — aucun aller-retour vers le pont.
+pub fn widget_guide_tool_definition() -> Value {
+    json!({
+        "name": WIDGET_GUIDE_TOOL_NAME,
+        "description": "Mode d'emploi d'atelier_widget : structure du fragment, thème, \
+    fonctions du pont, exemple complet à calquer. À appeler une fois avant d'écrire \
+    ton premier widget de la session.",
+        "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    })
+}
+
+pub fn widget_guide_text() -> Value {
+    json!({
+        "regles": [
+            "Un widget = un FRAGMENT HTML compact inclus dans le fil du chat. JAMAIS de fichier sur disque, JAMAIS d'ouverture de navigateur, JAMAIS de page complète (<html>/<head>/<body> interdits).",
+            "Autonome : aucun fetch/XHR, aucun CDN, aucune bibliothèque, aucune police distante. Tout le calcul en JS local, les données écrites en dur dans le fragment.",
+            "Sobre et petit : ~100 lignes suffisent. Un panneau, pas une application.",
+            "height obligatoire (120-900 px) : compte ~40 px par rangée de contrôles, ~90-150 px par graphique. Un contenu qui dépasse scrolle DANS le panneau."
+        ],
+        "theme": [
+            "Les couleurs viennent des variables CSS injectées par l'hôte : var(--fg) texte, var(--fg2) secondaire, var(--muted) libellés, var(--border) traits, var(--accent) LA seule couleur d'accent, var(--bg-card) fond de carte.",
+            "Donne toujours un repli : var(--accent, #e77f3e). N'invente AUCUNE autre palette. Fond transparent (l'hôte peint derrière).",
+            "Tailles de texte : 10-13 px. Chiffres alignés : font-variant-numeric: tabular-nums."
+        ],
+        "pont": {
+            "sendPrompt": "sendPrompt(texte) — propose un message dans le composeur du chat ; l'utilisateur le valide lui-même, rien ne part tout seul. Pour un bouton « explique ce panneau », « refais avec ν=8 ».",
+            "saveState": "saveState(objet) — mémorise l'état (≤ 4 Ko JSON) pour qu'il survive au défilement du fil. Appelle-le à chaque changement de contrôle.",
+            "onRestore": "window.onRestore = (etat) => {...} — reçoit l'état mémorisé quand le panneau remonte. etat peut être undefined : repars alors des valeurs par défaut."
+        },
+        "exemple": "<div style=\"display:flex;flex-direction:column;gap:12px;font-size:13px\">\n<div style=\"display:flex;align-items:center;gap:12px\">\n<span style=\"font-size:11px;color:var(--muted,#90969d)\">paramètre k</span>\n<input id=\"k\" type=\"range\" min=\"1\" max=\"10\" value=\"3\" style=\"flex:1;accent-color:var(--accent,#e77f3e)\">\n<b id=\"kv\" style=\"font-variant-numeric:tabular-nums\">3</b>\n</div>\n<div><span style=\"font-size:10px;color:var(--muted,#90969d)\">résultat</span>\n<div id=\"out\" style=\"font-size:15px;font-weight:600;color:var(--accent,#e77f3e)\">—</div></div>\n<svg viewBox=\"0 0 400 80\" style=\"width:100%\"><path id=\"c\" fill=\"none\" stroke=\"var(--accent,#e77f3e)\" stroke-width=\"1.5\"/></svg>\n</div>\n<script>\nvar k=document.getElementById(\"k\");\nfunction f(){var v=+k.value;document.getElementById(\"kv\").textContent=v;\ndocument.getElementById(\"out\").textContent=(v*v)+\" unités\";\nvar d=\"\";for(var i=0;i<=100;i++){var x=i/100*10;d+=(i?\"L\":\"M\")+(i*4)+\" \"+(75-70*(x*x)/100).toFixed(1)+\" \";}\ndocument.getElementById(\"c\").setAttribute(\"d\",d);\nif(window.saveState)saveState({k:v});}\nwindow.onRestore=function(s){if(s&&s.k)k.value=s.k;f();};\nk.addEventListener(\"input\",f);f();\n</script>",
+        "appel": "atelier_widget avec { html: <le fragment>, title: <titre court, 80 car. max>, height: <120-900> }. Ne recopie pas le HTML dans ta réponse ensuite : le panneau est déjà affiché."
     })
 }
 
@@ -128,12 +166,19 @@ mod tests {
     fn widget_tool_announces_the_three_bridge_functions() {
         // Sans ça, aucun LLM ne devine leur existence : tout le §G (le widget
         // propose un message) et tout le gel d'état du §E reposent sur des
-        // fonctions que l'agent doit appeler dans SON html.
+        // fonctions que l'agent doit appeler dans SON html. Depuis le guide
+        // (patron read_me de Desktop), c'est LUI qui les porte — la
+        // description courte se contente d'y renvoyer.
+        let guide = serde_json::to_string(&widget_guide_text()).unwrap();
+        for f in ["sendPrompt(", "saveState(", "window.onRestore"] {
+            assert!(guide.contains(f), "le guide n'annonce pas {f}");
+        }
         let def = widget_tool_definition();
         let description = def["description"].as_str().unwrap();
-        for f in ["sendPrompt(", "saveState(", "window.onRestore"] {
-            assert!(description.contains(f), "la description n'annonce pas {f}");
-        }
+        assert!(
+            description.contains(WIDGET_GUIDE_TOOL_NAME),
+            "la description doit renvoyer au guide"
+        );
         // et elle reste courte : elle repart au modèle à chaque tour
         assert!(
             description.len() < 900,
@@ -155,6 +200,38 @@ mod tests {
         let args = json!({"action": "current"});
         let (action, _) = bridge_call_for(TOOL_NAME, &args).unwrap();
         assert_eq!(action, "current");
+    }
+
+    #[test]
+    fn guide_is_served_locally_and_carries_the_antipatterns() {
+        // Le guide ne passe JAMAIS par le pont : bridge_call_for l'ignore,
+        // c'est server.rs qui le sert directement (comme le help de sessions).
+        assert!(bridge_call_for(WIDGET_GUIDE_TOOL_NAME, &json!({})).is_none());
+        let guide = serde_json::to_string(&widget_guide_text()).unwrap();
+        // les interdictions qui ont fait échouer le premier test réel (GLM
+        // écrivait dans /tmp puis lançait open) doivent être nommées
+        for interdit in ["JAMAIS de fichier", "navigateur", "page complète", "CDN"] {
+            assert!(guide.contains(interdit), "le guide n'interdit pas : {interdit}");
+        }
+        // l'exemple à calquer est un fragment, pas une page
+        let exemple = widget_guide_text()["exemple"].as_str().unwrap().to_string();
+        assert!(!exemple.contains("<html"), "l'exemple ne doit pas être une page");
+        assert!(exemple.contains("saveState") && exemple.contains("onRestore"));
+        assert!(exemple.contains("var(--accent"));
+    }
+
+    #[test]
+    fn tools_list_serves_three_tools() {
+        let defs = [
+            tool_definition(),
+            widget_tool_definition(),
+            widget_guide_tool_definition(),
+        ];
+        let names: Vec<String> = defs
+            .iter()
+            .map(|d| d["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME]);
     }
 
     #[test]
