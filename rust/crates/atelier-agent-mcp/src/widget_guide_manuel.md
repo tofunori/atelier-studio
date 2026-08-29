@@ -113,6 +113,28 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
 - **Canvas net** : multiplie les dimensions par `devicePixelRatio` et remets
   la taille CSS, sinon flou sur écran Retina.
 
+## 4bis. Finition (ce qui sépare « correct » de « pro »)
+
+- **Nombres à la française** : espace fine pour les milliers (15 787), virgule
+  décimale (0,139), unité collée au chiffre avec espace insécable (22 %,
+  4,9 σ). Une précision UTILE : 2-3 chiffres significatifs, pas 6 décimales.
+- **Étiquetage direct** : nomme la courbe AU BOUT de la courbe (petit texte
+  `var(--muted)`), pas dans une légende séparée que l'œil doit aller chercher.
+- **Annote le point remarquable** : le creux, le croisement, le seuil — une
+  courte étiquette avec un trait fin vaut mieux qu'un paragraphe.
+- **Hiérarchie dans le panneau** : la grande valeur qui change (15-19 px, 600,
+  accent) domine ; son libellé au-dessus en 10-11 px `var(--muted)` ; le
+  contexte en dessous en 10 px `var(--muted2)`. Trois niveaux, jamais plats.
+- **États de survol** : un contrôle ou une zone cliquable réagit au survol
+  (`opacity`, ou fond `var(--bg-card)`), transition 120-150 ms. Ce feedback
+  discret est ce qui fait « vivant ».
+- **Le premier regard** : à l'ouverture, le panneau montre déjà un état
+  intéressant (valeurs par défaut choisies pour raconter quelque chose), pas
+  un graphique vide qui attend qu'on le touche.
+- **Transitions d'état** : quand un clic change la figure, une transition
+  `opacity` 140 ms évite le claquement ; quand un curseur glisse, la mise à
+  jour est immédiate (pas de transition pendant le drag).
+
 ## 5. Le pont (fonctions déjà définies pour ton script)
 
 - `sendPrompt(texte)` — propose un message dans le composeur du chat ;
@@ -168,6 +190,76 @@ document.getElementById("rst").addEventListener("click",function(){on=false;n=0;
 // reduced-motion : démarrer en pause est déjà le défaut — bien.
 </script>
 ```
+
+#### Exemple complet poli (forme simulation)
+
+```html
+<div style="display:flex;flex-direction:column;gap:12px;font-size:13px;color:var(--fg,#dadee3)">
+  <div style="display:flex;align-items:center;gap:12px">
+    <button id="run" style="font-size:11px;padding:4px 12px;border:1px solid var(--border,#34393f);border-radius:6px;background:transparent;color:var(--fg,#dadee3);cursor:pointer">lancer</button>
+    <span style="font-size:11px;color:var(--muted,#90969d)">ν</span>
+    <input id="nu" type="range" min="1" max="30" value="2" style="flex:1;accent-color:var(--accent,#e77f3e)">
+    <b id="nuv" style="font-variant-numeric:tabular-nums;min-width:22px;text-align:right">2</b>
+  </div>
+  <div style="display:flex;gap:24px">
+    <div><div style="font-size:10px;color:var(--muted2,#62666c)">moyenne courante</div>
+      <div id="m" style="font-size:17px;font-weight:600;color:var(--accent,#e77f3e);font-variant-numeric:tabular-nums">—</div></div>
+    <div><div style="font-size:10px;color:var(--muted2,#62666c)">n tirages</div>
+      <div id="n" style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">0</div></div>
+  </div>
+  <canvas id="c" style="width:100%;height:120px"></canvas>
+  <div style="font-size:10px;color:var(--muted2,#62666c)">trajectoire de la moyenne — ν petit : les sauts des queues lourdes cassent la convergence</div>
+</div>
+<script>
+var cv=document.getElementById("c"),dpr=devicePixelRatio||1;
+function size(){cv.width=cv.clientWidth*dpr;cv.height=120*dpr;}
+size();
+var ctx=cv.getContext("2d");
+var on=false,n=0,sum=0,path=[],nu=2;
+function tDraw(v){ // Student-t par rapport de normales (Box-Muller) sur chi2
+  function g(){var u=Math.random(),w=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*w);}
+  var z=g(),chi=0;for(var i=0;i<v;i++){var x=g();chi+=x*x;}
+  return z/Math.sqrt(chi/v);
+}
+function paint(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cv.clientWidth,120);
+  var st=getComputedStyle(document.documentElement);
+  ctx.strokeStyle=st.getPropertyValue("--border")||"#34393f";
+  ctx.beginPath();ctx.moveTo(0,60);ctx.lineTo(cv.clientWidth,60);ctx.stroke(); // référence 0
+  ctx.strokeStyle=st.getPropertyValue("--accent")||"#e77f3e";ctx.lineWidth=1.5;
+  ctx.beginPath();
+  for(var i=0;i<path.length;i++){
+    var x=i/Math.max(400,path.length)*cv.clientWidth;
+    var y=60-Math.max(-58,Math.min(58,path[i]*18));
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+}
+function step(){
+  if(!on)return;
+  for(var k=0;k<8;k++){n++;sum+=tDraw(nu);path.push(sum/n);}
+  document.getElementById("m").textContent=(sum/n).toFixed(3).replace(".",",");
+  document.getElementById("n").textContent=n.toLocaleString("fr-CA");
+  paint();requestAnimationFrame(step);
+}
+document.getElementById("run").addEventListener("click",function(){
+  on=!on;this.textContent=on?"pause":"lancer";if(on)requestAnimationFrame(step);
+});
+document.getElementById("nu").addEventListener("input",function(){
+  nu=+this.value;document.getElementById("nuv").textContent=nu;
+  n=0;sum=0;path=[];paint();
+  if(window.saveState)saveState({nu:nu});
+});
+window.onRestore=function(s){if(s&&s.nu){nu=s.nu;document.getElementById("nu").value=nu;document.getElementById("nuv").textContent=nu;}paint();};
+paint();
+</script>
+```
+
+Remarque ce qui le rend fini : la référence zéro visible, la trajectoire
+bornée (pas de sortie de cadre), les nombres en `tabular-nums` au format
+français, la légende d'une ligne, le bouton qui devient « pause », le canvas
+net en Retina, et le ν qui repart proprement à zéro tirage.
 
 ### 6c. Exploration 2D (la souris est le paramètre)
 ```html
