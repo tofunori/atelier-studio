@@ -343,6 +343,74 @@ démarrée en pause si `prefers-reduced-motion`. Un `seed` affiché et un bouton
 survivre au défilement. Le monochrome à un accent est une contrainte féconde,
 pas une punition.
 
+## 6+. Interactions avancées (le niveau au-dessus)
+
+Patrons éprouvés du monde des « explorable explanations » (Bret Victor,
+Nicky Case, NYT, Distill, Seeing Theory). Utilise-les pour élever une forme
+de base — c'est là que naît le « wow ».
+
+### Nombre glissable dans la phrase (Tangle)
+Un nombre DANS une phrase de prose est glissable horizontalement ; tout le
+panneau se recalcule en direct. Souligné pointillé + `cursor: ew-resize`
+signalent l'affordance. Parfait pour éliciter un prior sans un seul curseur.
+```html
+<p style="font-size:13px">Si le prior met <span id="dn" style="border-bottom:1px dashed var(--accent,#e77f3e);cursor:ew-resize;color:var(--accent,#e77f3e);font-weight:600;font-variant-numeric:tabular-nums">26</span> % de masse sous ν = 10, alors <span id="cons">…</span></p>
+<script>
+var v=26,drag=null;
+var dn=document.getElementById("dn");
+dn.addEventListener("mousedown",function(e){drag={x:e.clientX,v:v};e.preventDefault();});
+window.addEventListener("mousemove",function(e){if(!drag)return;
+  v=Math.max(1,Math.min(99,drag.v+Math.round((e.clientX-drag.x)/6)));
+  dn.textContent=v; maj(); });
+window.addEventListener("mouseup",function(){if(drag&&window.saveState)saveState({v:v});drag=null;});
+function maj(){ /* recalcule et réécrit #cons + la figure ; le TEXTE peut changer de mot selon le signe */ }
+maj();
+</script>
+```
+
+### « Trace ta prédiction » (You Draw It, NYT)
+Le graphique n'affiche d'abord que les axes. L'utilisateur TRACE sa courbe à
+la souris (un point par pixel-x sur mousemove pressé), puis « révéler »
+dessine la vraie courbe par-dessus (transition ~600 ms) avec la zone d'écart
+ombrée entre les deux. Le choc prédiction-vs-réalité vaut dix explications.
+Version science : trace ta tendance d'albédo 2000-2023, révèle la vraie.
+
+### Point de contrôle glissable SUR la courbe
+Un ou deux points de la figure se prennent à la souris (`mousedown` sur un
+cercle ≥ 12 px de rayon de capture) et la courbe se redessine en les
+suivant : ajuster une prior en tirant sur sa bosse, déplacer un seuil.
+Le paramètre EST l'objet graphique, pas un curseur à côté.
+
+### Révélation par paliers (sandbox progressif)
+Un bouton « niveau suivant » ajoute UNE couche à la fois SUR LA MÊME figure
+(les éléments déjà en place ne bougent pas) : d'abord la loi, puis les
+tirages, puis la pondération. La complexité s'apprivoise par étages — et ça
+contourne proprement le budget « 3 contrôles max » : chaque palier reste
+simple.
+
+### Bascule « révéler la vérité »
+Variante de l'avant/après : l'état A est ton intuition ou le modèle naïf,
+la bascule superpose la réalité (données, postérieure) en transition douce.
+Prior vs postérieure, modèle vs observations, hypothèse vs mesure.
+
+### Brush de plage sur l'axe
+Glisser sur l'axe des x dessine une sélection semi-transparente
+(`var(--accent)` à 15 % d'opacité) et les statistiques du panneau se
+recalculent sur CETTE fenêtre : sélectionne 2000-2010 et la tendance se
+réestime. Naturel pour toute série temporelle.
+
+### Petits multiples synchronisés
+3-4 mini-figures identiques (une par région, par scénario, par ν) qui
+répondent ENSEMBLE au même contrôle. Chacune minuscule et sans axes
+détaillés ; une seule porte les étiquettes. La comparaison se fait d'un
+regard.
+
+### Équation colorée liée à la figure
+Chaque terme de l'équation est coloré, et l'élément correspondant de la
+figure porte la même couleur (accent pour le terme actif, gris pour le
+reste). Survoler un terme surligne son objet graphique. L'équation cesse
+d'être décorative : elle devient la légende.
+
 ## 7. Accessibilité
 
 - `aria-label` descriptif sur chaque `<svg>`/`<canvas>` (`role="img"`).

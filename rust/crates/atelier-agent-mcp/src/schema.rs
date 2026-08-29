@@ -109,6 +109,7 @@ pub fn widget_guide_text() -> Value {
             "Un <canvas> est permis et souvent plus vivant qu'un SVG : simulation animée (requestAnimationFrame), champ de particules, tirages aléatoires qui s'accumulent, carte de chaleur dessinée pixel par pixel.",
             "Anime quand le TEMPS porte du sens (convergence, échantillonnage, trajectoire) : un bouton lancer/pause et une boucle requestAnimationFrame valent mieux qu'une courbe figée. Respecte prefers-reduced-motion.",
             "Varie les contrôles : boutons radio pour comparer des scénarios, cases à cocher pour superposer des couches, un clic direct SUR le graphique (position de la souris = paramètre), un champ nombre, pas seulement des curseurs.",
+            "Le manuel contient une section « Interactions avancées » (nombre glissable dans la phrase, trace-ta-prédiction, point glissable sur la courbe, brush de plage, petits multiples, équation colorée) : pioche-y pour élever une forme de base.",
             "Utilise sendPrompt pour prolonger la conversation : un bouton « pourquoi ce creux ? » ou « refais avec mes données » rend le panneau conversationnel."
         ],
         "formes": {
