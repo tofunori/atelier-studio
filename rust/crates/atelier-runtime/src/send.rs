@@ -1740,6 +1740,36 @@ fn err_json(message: impl Into<String>) -> String {
 }
 
 #[cfg(test)]
+mod steer_capacite_tests {
+    /// Contrat de source (même patron que css-contract côté front) : le test
+    /// de comportement vit dans atelier-providers (`thread_opts` déclare bien
+    /// mcp_servers), mais RIEN là-bas ne verrait un retour de `send.rs` à
+    /// `atelier_mcp: None` sur le chemin steer — or c'est exactement la
+    /// régression qui a coûté ses outils à l'agent le 2026-08-29 : un steer
+    /// refusé retombe sur thread/resume DANS le provider, et le fil repartait
+    /// sans les serveurs MCP d'Atelier.
+    #[test]
+    fn le_chemin_steer_transmet_la_capacite_mcp() {
+        let source = include_str!("send.rs");
+        let bloc = source
+            .split("mode: SendMode::Steer,")
+            .nth(1)
+            .expect("le chemin steer doit exister");
+        // On regarde la requête construite juste après le marqueur de mode.
+        let requete = &bloc[..bloc.find("};").unwrap_or(bloc.len())];
+        assert!(
+            !requete.contains("atelier_mcp: None"),
+            "le steer ne doit PAS partir sans capacité MCP : son repli reprend \
+             le fil et l'agent perdrait atelier_widget / atelier_sessions"
+        );
+        assert!(
+            requete.contains("atelier_mcp: steer_mcp"),
+            "le steer doit transmettre la capacité calculée par atelier_mcp_for_turn"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::paths::AppPaths;

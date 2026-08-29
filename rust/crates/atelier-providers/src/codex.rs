@@ -1484,3 +1484,75 @@ mod steer_mismatch_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod steer_mcp_repli_tests {
+    use super::*;
+    use crate::traits::{AtelierMcpLaunch, SendMode};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    fn request(mcp: Option<AtelierMcpLaunch>) -> SendRequest {
+        SendRequest {
+            thread_id: "thread-1".into(),
+            turn_id: "turn-1".into(),
+            prompt: "bifurque".into(),
+            inputs: None,
+            project_root: "/tmp/atelier".into(),
+            session_id: Some("sess-1".into()),
+            model: Some("gpt-5.6-sol".into()),
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("default".into()),
+            fork_pending: false,
+            // C'est le mode qui compte : un steer refusé retombe sur
+            // open_thread(session_id) → thread/resume avec CES options.
+            mode: SendMode::Steer,
+            on_event: Arc::new(|_| {}),
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            atelier_mcp: mcp,
+        }
+    }
+
+    fn launch() -> AtelierMcpLaunch {
+        let mut env = BTreeMap::new();
+        env.insert("ATELIER_MCP_ENDPOINT".to_string(), "http://127.0.0.1:1/x".to_string());
+        env.insert("ATELIER_MCP_CAPABILITY".to_string(), "jeton".to_string());
+        AtelierMcpLaunch {
+            command: std::path::PathBuf::from("/tmp/atelier-agent-mcp"),
+            server_name: "atelier-sessions".into(),
+            env: env.into_iter().collect(),
+            linked: false,
+        }
+    }
+
+    /// Le repli d'un steer refusé reprend le fil par thread/resume. S'il part
+    /// sans mcp_servers, l'agent PERD atelier_widget et atelier_sessions pour
+    /// le reste de la session (incident du 2026-08-29). Ce test tient la
+    /// chaîne : capacité présente dans la requête ⇒ serveurs déclarés au
+    /// resume.
+    #[test]
+    fn un_steer_qui_retombe_garde_les_serveurs_mcp() {
+        let opts = thread_opts(&request(Some(launch())));
+        let serveurs = opts["config"]["mcp_servers"]
+            .as_object()
+            .expect("le resume du repli doit déclarer mcp_servers");
+        let atelier = &serveurs["atelier-sessions"];
+        assert_eq!(atelier["command"], json!("/tmp/atelier-agent-mcp"));
+        assert_eq!(atelier["env"]["ATELIER_MCP_CAPABILITY"], json!("jeton"));
+    }
+
+    /// Le témoin : sans capacité, aucun serveur — c'était l'état du chemin
+    /// steer avant le correctif, et ce que ce test empêche de revenir.
+    #[test]
+    fn sans_capacite_le_repli_ne_declare_aucun_serveur() {
+        let opts = thread_opts(&request(None));
+        assert!(
+            opts.get("config")
+                .and_then(|c| c.get("mcp_servers"))
+                .is_none(),
+            "aucun serveur ne doit être déclaré sans capacité"
+        );
+    }
+}
