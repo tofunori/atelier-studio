@@ -1,0 +1,246 @@
+# Manuel des widgets Atelier
+
+Tu vas écrire un panneau interactif qui s'affiche DANS le fil de la conversation.
+Ce manuel est ta référence complète : lis-le une fois, puis choisis une forme et
+construis. L'objectif n'est jamais « un graphique » — c'est une chose que
+l'utilisateur COMPREND en la manipulant.
+
+## 0. La question avant le code
+
+Avant d'écrire une ligne, réponds à ceci : qu'est-ce que l'utilisateur doit
+ressentir sous les doigts ? Une non-linéarité ? Un compromis ? Un seuil ? Une
+convergence ? La forme du widget découle de cette réponse — jamais l'inverse.
+Si la réponse est « rien, c'est une valeur fixe », un widget n'est pas le bon
+format : réponds en prose.
+
+Deux widgets d'affilée ne doivent pas se ressembler. Si ton dernier panneau
+était curseur + courbe, le prochain ne l'est pas.
+
+## 1. Contraintes absolues (le bac à sable)
+
+- Un FRAGMENT HTML : jamais de `<html>`, `<head>`, `<body>`, jamais de fichier
+  sur disque, jamais d'ouverture de navigateur, jamais la galerie pour ça.
+- Aucun réseau : pas de fetch/XHR/WebSocket, pas de CDN, pas de bibliothèque
+  (Chart.js, D3, Plotly n'existent pas ici), pas de police distante. Tout se
+  calcule en JS local et se dessine en SVG ou en canvas natif.
+- Les données sont écrites en dur dans le fragment. RÈGLE SCIENTIFIQUE : si tu
+  n'as pas les vraies valeurs, dis-le dans le panneau (« illustratif ») — ne
+  présente jamais des nombres inventés comme des résultats réels.
+- `height` obligatoire, 120-900 px. Budget : ~40 px par rangée de contrôles,
+  ~90-150 px par graphique, ~30 px par rangée de stats. Ce qui dépasse scrolle
+  DANS le panneau.
+
+## 2. Budgets de complexité
+
+Un panneau, pas une application. Les plafonds qui gardent un widget lisible :
+
+- **Contrôles : 1 à 3.** Au-delà, scinde en deux widgets ou simplifie la
+  question. Un seul contrôle bien choisi bat quatre curseurs.
+- **Chiffres affichés : 2 à 4 grandes lectures.** Une grille de 8 stats ne se
+  lit pas ; choisis celles qui changent la décision.
+- **Graphiques : 1, exceptionnellement 2 liés** (la forme multi-panneaux).
+- **Courbes par graphique : 3 maximum** — la courbe active en accent, les
+  références en pointillé discret.
+- **Texte : une légende d'une ou deux phrases** en bas si le mécanisme n'est
+  pas évident. Le gros de l'explication reste dans ta réponse de chat, pas
+  dans le panneau.
+- **~100-200 lignes de fragment.** Si tu dépasses 250, tu construis une
+  application — recadre.
+
+## 3. Système de design (contraignant)
+
+Le panneau vit dans une app au style sobre strict. Il en fait partie.
+
+### Couleurs — uniquement les variables injectées
+
+| Variable | Rôle |
+|---|---|
+| `var(--fg)` | texte principal, valeurs |
+| `var(--fg2)` | texte secondaire fort |
+| `var(--muted)` | libellés, axes |
+| `var(--muted2)` | graduations, texte éteint |
+| `var(--border)` | traits, cadres, grilles |
+| `var(--bg-card)` | fond d'une carte interne |
+| `var(--accent)` | LA couleur d'accent — la courbe active, la valeur clé |
+| `var(--u-ok)` | sémantique : bon, gain, dans la cible |
+| `var(--u-warn)` | sémantique : attention, limite |
+| `var(--u-hot)` | sémantique : mauvais, perte, hors cible |
+
+Toujours avec repli : `var(--accent, #e77f3e)`, `var(--muted, #90969d)`,
+`var(--border, #34393f)`, `var(--u-ok, #98c379)`, `var(--u-warn, #e0b74a)`,
+`var(--u-hot, #e06c75)`. Fond du fragment : transparent (l'hôte peint
+derrière, et le thème clair/sombre bascule tout seul via les variables).
+
+N'invente AUCUNE autre couleur. Pas de dégradés décoratifs, pas d'arc-en-ciel,
+pas d'emoji. L'accent est unique : s'il est partout, il n'accentue plus rien.
+La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
+
+### Typographie et espacement
+
+- Tailles : 10 px (graduations), 11 px (libellés), 12-13 px (corps),
+  15-19 px (la grande valeur qui change). Rien entre, rien au-delà.
+- Poids : 400 corps, 500 accent léger, 600 valeurs et titres.
+- Tout chiffre qui change : `font-variant-numeric: tabular-nums` — sinon la
+  mise en page tremble à chaque mouvement du curseur.
+- Espacement en multiples de 4 (4/8/12/16/20). `gap` de flexbox, pas des
+  marges bricolées.
+- Rayons : 6 px (contrôles), 8-10 px (cartes internes). Bordures 1 px
+  `var(--border)`.
+
+### Motion
+
+- Toute transition d'état visible : 120-150 ms (`opacity`, `transform`).
+- Boucles d'animation : `requestAnimationFrame`, jamais `setInterval` pour du
+  visuel.
+- Respecte `prefers-reduced-motion` : `matchMedia("(prefers-reduced-motion:
+  reduce)").matches` → pas de boucle décorative, transitions coupées. Une
+  animation porteuse de sens (simulation) reste permise mais démarre en pause.
+
+## 4. Lisibilité des graphiques (dataviz)
+
+- **Axes toujours étiquetés** : unité et grandeur, en 9-10 px
+  `var(--muted2)`. Un graphique sans axes est une décoration.
+- **Grille discrète** : lignes 1 px `var(--border)`, 3-5 lignes maximum.
+- **Échelle honnête** : commence à zéro pour des barres ; si tu tronques un
+  axe, dis-le. Passe en logarithmique quand les valeurs couvrent plusieurs
+  ordres de grandeur (queues de distribution : toujours envisager le log).
+- **Référence visible** : la valeur de comparaison (normale, gaussienne,
+  baseline, cible) en pointillé `var(--muted)` — le lecteur juge par écart.
+- **Point courant marqué** : quand un contrôle déplace un point sur une
+  courbe, dessine-le (cercle plein accent) et affiche sa lecture en clair.
+- **Jamais** : double axe Y (deux échelles superposées mentent), camembert,
+  3D, plus de 3 courbes, légende plus grosse que la figure.
+- **Canvas net** : multiplie les dimensions par `devicePixelRatio` et remets
+  la taille CSS, sinon flou sur écran Retina.
+
+## 5. Le pont (fonctions déjà définies pour ton script)
+
+- `sendPrompt(texte)` — propose un message dans le composeur du chat ;
+  l'utilisateur le valide lui-même, rien ne part tout seul. Usage fort : un
+  bouton « pourquoi ce creux ? », « refais avec ν=8 », « applique à mes
+  données » rend le panneau conversationnel. Un ou deux boutons, pas six.
+- `saveState(objet)` — mémorise l'état (≤ 4 Ko JSON) pour qu'il survive au
+  défilement du fil. Appelle-le à chaque changement de contrôle.
+- `window.onRestore = (etat) => {...}` — reçoit l'état mémorisé quand le
+  panneau remonte. `etat` peut être `undefined` : repars des valeurs par
+  défaut. Implémente-le TOUJOURS, sinon le widget oublie tout au scroll.
+
+## 6. Les formes, avec squelettes
+
+Choisis UNE forme (ou combine deux au maximum). Les squelettes sont des
+mécaniques à adapter, pas des gabarits visuels à recopier.
+
+### 6a. Comparateur de scénarios
+Quand la question est « qu'est-ce qui change si… entre 2-3 cas discrets ».
+```html
+<div style="display:flex;gap:8px">
+  <label style="font-size:11px"><input type="radio" name="sc" value="a" checked> scénario A</label>
+  <label style="font-size:11px"><input type="radio" name="sc" value="b"> scénario B</label>
+</div>
+<svg id="g" viewBox="0 0 400 120" style="width:100%"></svg>
+<script>
+var prev=null;
+function draw(sc){ /* redessine ; trace prev en pointillé var(--muted) avant, garde le nouveau dans prev */ }
+document.querySelectorAll('[name=sc]').forEach(function(r){r.addEventListener("change",function(){draw(r.value);if(saveState)saveState({sc:r.value});});});
+window.onRestore=function(s){var v=(s&&s.sc)||"a";document.querySelector('[value='+v+']').checked=true;draw(v);};
+draw("a");
+</script>
+```
+
+### 6b. Simulation (canvas animé)
+Quand le TEMPS porte le sens : convergence, échantillonnage, accumulation.
+```html
+<div style="display:flex;gap:8px;align-items:center">
+  <button id="run" style="font-size:11px">lancer</button>
+  <button id="rst" style="font-size:11px">réinitialiser</button>
+  <span id="n" style="font-size:11px;color:var(--muted,#90969d)">n = 0</span>
+</div>
+<canvas id="c" style="width:100%;height:150px"></canvas>
+<script>
+var cv=document.getElementById("c"),dpr=devicePixelRatio||1;
+cv.width=cv.clientWidth*dpr; cv.height=150*dpr;
+var ctx=cv.getContext("2d"); ctx.scale(dpr,dpr);
+var on=false,n=0,raf;
+function step(){ if(!on)return; /* un ou plusieurs tirages, dessine, n++ */ 
+  document.getElementById("n").textContent="n = "+n; raf=requestAnimationFrame(step); }
+document.getElementById("run").addEventListener("click",function(){on=!on;this.textContent=on?"pause":"lancer";if(on)step();});
+document.getElementById("rst").addEventListener("click",function(){on=false;n=0;/* efface */});
+// reduced-motion : démarrer en pause est déjà le défaut — bien.
+</script>
+```
+
+### 6c. Exploration 2D (la souris est le paramètre)
+```html
+<svg id="g" viewBox="0 0 400 140" style="width:100%;cursor:crosshair"></svg>
+<div id="lect" style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">—</div>
+<script>
+var g=document.getElementById("g");
+g.addEventListener("mousemove",function(e){
+  var r=g.getBoundingClientRect(), x=(e.clientX-r.left)/r.width; // 0..1
+  /* convertis x en paramètre, mets à jour crosshair + lecture */
+});
+</script>
+```
+
+### 6d. Avant/après
+```html
+<label style="font-size:11px"><input id="sw" type="checkbox"> avec correction</label>
+<svg id="g" viewBox="0 0 400 120" style="width:100%"><g id="A"></g><g id="B" style="opacity:0;transition:opacity 140ms"></g></svg>
+<script>
+document.getElementById("sw").addEventListener("change",function(){
+  document.getElementById("B").style.opacity=this.checked?1:0;
+  document.getElementById("A").style.opacity=this.checked?0.25:1;
+});
+</script>
+```
+
+### 6e. Table vivante
+Un petit tableau (≤ 6 lignes) dont une colonne se recalcule ; surligne le
+max/min avec `var(--accent)` automatiquement. Bon pour comparer des méthodes,
+des seuils, des modèles.
+
+### 6f. Quiz d'estimation
+L'utilisateur devine d'abord (curseur, sans feedback), clique « révéler », et
+la vraie valeur apparaît à côté de la sienne avec l'écart en
+`var(--u-ok)`/`var(--u-hot)`. Mémorable : l'intuition se corrige.
+
+### 6g. Multi-panneaux liés
+Un contrôle, 2-3 petites vues côte à côte qui répondent ensemble : la loi, le
+mécanisme, la conséquence chiffrée. La forme « Claude Desktop » classique.
+Grille : `display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px`.
+
+## 7. Accessibilité
+
+- `aria-label` descriptif sur chaque `<svg>`/`<canvas>` (`role="img"`).
+- Les contrôles natifs (`input`, `button`, `label`) gardent leur focus
+  clavier ; ne remplace pas un bouton par un `<div>` cliquable.
+- Cibles de clic ≥ 24 px de haut ; curseurs avec `accent-color:
+  var(--accent)`.
+- Contraste : texte en `var(--fg)`/`var(--muted)` sur fond transparent est
+  déjà calibré — n'éclaircis pas toi-même des gris.
+
+## 8. Anti-patterns (vus en vrai, à ne jamais refaire)
+
+- Écrire un fichier HTML dans /tmp ou work/ et l'ouvrir — l'utilisateur ne
+  voit RIEN dans le chat. Le canal widget est le seul valable.
+- Recopier l'exemple du guide en changeant deux mots : trois widgets
+  identiques d'affilée.
+- Page complète avec `<html>`, styles globaux, reset CSS — la coquille s'en
+  charge.
+- Palette inventée (bleus, verts, violets « pour faire joli »").
+- 5 curseurs, 9 stats, 4 courbes : personne ne comprend plus rien.
+- Chiffres qui sautent sans `tabular-nums`.
+- Données inventées présentées comme des résultats réels.
+- Oublier `onRestore` : le widget s'amnésie à chaque défilement.
+
+## 9. Checklist avant d'appeler l'outil
+
+1. La forme choisie rend-elle la CHOSE À COMPRENDRE tangible ?
+2. Fragment sans `<html>` ; aucune requête réseau ; données en dur.
+3. Couleurs = variables avec replis ; accent unique ; tailles 10-19 px.
+4. `tabular-nums` sur tout chiffre mobile ; axes étiquetés ; référence en
+   pointillé.
+5. `saveState` à chaque changement + `onRestore` implémenté.
+6. `height` réaliste (budgets §1) ; testé mentalement en 400 px de large.
+7. Appel : `atelier_widget` avec `{ html, title (≤80 car.), height }` — et ne
+   recopie pas le HTML dans ta réponse ensuite : le panneau est déjà affiché.
