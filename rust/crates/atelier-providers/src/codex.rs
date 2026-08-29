@@ -465,6 +465,21 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
     Ok(json!({"plugins": plugins}))
 }
 
+/// Le serveur refuse un steer dont l'`expectedTurnId` est périmé, mais il
+/// donne le VRAI identifiant dans son message :
+///   expected active turn id `<attendu>` but found `<réel>`
+/// (relevé en direct sur codex 0.149.0, 2026-08-29 : sonde avec un tour en
+/// vol). Le tour est donc toujours infléchissable — il a juste changé d'id
+/// entre notre lecture et l'appel. On extrait le réel pour réessayer, au lieu
+/// de démarrer un tour normal comme si rien n'était en vol.
+fn steer_turn_reel(err: &str) -> Option<String> {
+    let reste = err.split("but found").nth(1)?;
+    let debut = reste.find('`')? + 1;
+    let fin = reste[debut..].find('`')? + debut;
+    let id = reste[debut..fin].trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 /// Refus de `turn/steer` qui ne doivent PAS devenir un tour normal : le tour
 /// en vol est une revue ou une compaction, en démarrer un second le
 /// doublerait. Messages relevés en direct sur codex 0.149.0 — le serveur ne
@@ -748,6 +763,33 @@ impl Provider for CodexProvider {
                                 ok: true,
                                 error: None,
                             };
+                        }
+                        // Identifiant périmé : le tour a changé d'id entre notre
+                        // lecture et l'appel. Le serveur nous donne le bon —
+                        // on réessaie UNE fois, comme le ferait le CLI.
+                        Err(ref e) if steer_turn_reel(e).is_some() => {
+                            let reel = steer_turn_reel(e).unwrap();
+                            if self
+                                .server
+                                .request(
+                                    "turn/steer",
+                                    json!({
+                                        "threadId": t.codex_id,
+                                        "input": build_input(&req.prompt, req.inputs.as_deref()),
+                                        "expectedTurnId": reel,
+                                    }),
+                                )
+                                .await
+                                .is_ok()
+                            {
+                                (req.on_event)(json!({"kind":"tool","name":"__steered"}));
+                                return SendResult {
+                                    session_id: Some(t.codex_id),
+                                    ok: true,
+                                    error: None,
+                                };
+                            }
+                            eprintln!("codex: réessai de steer refusé — repli en tour normal");
                         }
                         // Le serveur distingue ses refus (sondés le 2026-08-29,
                         // messages texte nus en -32600, aucun `data`). Un tour
@@ -1369,5 +1411,35 @@ mod steer_refus_tests {
         assert!(!steer_refus_definitif("no active turn to steer"));
         assert!(!steer_refus_definitif("expectedTurnId must not be empty"));
         assert!(!steer_refus_definitif("input must not be empty"));
+    }
+}
+
+#[cfg(test)]
+mod steer_mismatch_tests {
+    use super::{steer_refus_definitif, steer_turn_reel};
+
+    #[test]
+    fn extrait_le_vrai_identifiant_du_message_du_serveur() {
+        // Message EXACT relevé sur codex 0.149.0 avec un tour en vol.
+        let msg = "expected active turn id `01a00000-0000-0000-0000-000000000000` \
+                   but found `01a04ee1-8ed7-74b2-90bb-8ee7781eb356`";
+        assert_eq!(
+            steer_turn_reel(msg).as_deref(),
+            Some("01a04ee1-8ed7-74b2-90bb-8ee7781eb356")
+        );
+        // et un désaccord n'est PAS un refus définitif : on réessaie
+        assert!(!steer_refus_definitif(msg));
+    }
+
+    #[test]
+    fn les_autres_refus_ne_donnent_aucun_identifiant() {
+        for msg in [
+            "no active turn to steer",
+            "cannot steer a review turn",
+            "expectedTurnId must not be empty",
+            "but found nothing at all",
+        ] {
+            assert_eq!(steer_turn_reel(msg), None, "faux positif sur : {msg}");
+        }
     }
 }
