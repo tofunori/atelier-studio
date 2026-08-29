@@ -54,6 +54,28 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
     )
 }
 
+/// Widgets du fil : la description d'outil ne suffit pas aux petits modèles
+/// (GLM 5.3 Flash avait atelier_widget ET son guide dans sa liste, et a quand
+/// même écrit une page dans /tmp puis ouvert le navigateur — deux fois). La
+/// consigne doit vivre dans le MESSAGE, comme la galerie et Zotero : c'est le
+/// seul canal que tous les providers et tous les modèles respectent.
+/// N'est injectée que si le fil a le serveur MCP (provider compatible).
+fn with_widget_tool_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-widget-integration>\nWhen the user asks for a widget, an interactive panel, a slider, an interactive \
+visualization, or anything they want to manipulate live in the chat, you MUST use the \
+MCP tool `atelier_widget` (on your first use in this session, call `atelier_widget_guide` \
+first and follow it). The panel renders directly inside the conversation. For such \
+requests: never write an HTML file to disk, never open a browser, never send the result \
+to the Atelier Gallery — those are the wrong channels and the user will see nothing in \
+the chat. A static figure or saved file is only appropriate when the user explicitly \
+asks for a file or a gallery figure.\n</atelier-widget-integration>"
+    )
+}
+
 fn normalize_display_event(msg: &Value) -> Value {
     if let Some(d) = msg.get("displayEvent") {
         if d.get("kind").and_then(|v| v.as_str()) == Some("user")
@@ -804,7 +826,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         provider_prompt
     } else {
         let p = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
-        with_zotero_passage_instruction(p, state.server_dir())
+        let p = with_zotero_passage_instruction(p, state.server_dir());
+        with_widget_tool_instruction(p, &provider)
     };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
@@ -2233,6 +2256,21 @@ mod tests {
     fn file_scope_instruction_is_never_part_of_displayed_history() {
         let text = "question\n\n<atelier-file-scope>old</atelier-file-scope>\n\n<atelier-file-scope>new</atelier-file-scope>";
         assert_eq!(strip_file_scope_instruction(text), "question");
+    }
+
+    #[test]
+    fn widget_instruction_rides_the_prompt_for_mcp_providers_only() {
+        // GLM ignorait la description d'outil : la consigne doit vivre dans le
+        // message. Mais seulement quand le fil A l'outil — sinon on ordonne au
+        // modèle d'appeler quelque chose qui n'existe pas.
+        let enriched = with_widget_tool_instruction("fais-moi un widget".into(), "codex");
+        assert!(enriched.starts_with("fais-moi un widget"));
+        assert!(enriched.contains("atelier_widget_guide"));
+        assert!(enriched.contains("never write an HTML file"));
+        assert!(enriched.contains("never send the result"));
+
+        let api = with_widget_tool_instruction("fais-moi un widget".into(), "openrouter");
+        assert_eq!(api, "fais-moi un widget");
     }
 
     #[test]
