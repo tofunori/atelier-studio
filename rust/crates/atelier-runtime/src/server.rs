@@ -849,10 +849,13 @@ mod tests {
         assert_eq!(res.status(), Sc::NOT_FOUND);
     }
 
-    /// C'était la SEULE route sans jeton, avec un `CorsLayer` en
-    /// `allow_origin(Any)` (relecture finale 2026-08-28, I4).
+    /// URL de capacité assumée (revirement du 2026-08-29, révoque I4) : le
+    /// consommateur est une iframe `src=`, qui ne peut pas envoyer d'en-tête.
+    /// srcdoc était impossible — un document srcdoc hérite de la CSP du
+    /// parent, dont le script-src 'self' bloquait la coquille (widget muet).
+    /// La protection est le chemin : hash du fil + 16 hex tirés au runtime.
     #[tokio::test]
-    async fn widget_route_requires_the_token_like_every_other_route() {
+    async fn widget_route_is_a_capability_url_no_token_needed() {
         use crate::widgets::{new_widget_id, write_widget};
 
         let (state, _dir) = test_state(Some("secret")).await;
@@ -860,34 +863,23 @@ mod tests {
         write_widget(state.app_dir(), "t1", &widget_id, "<html>coquille</html>").unwrap();
         let uri = format!("/widgets/t1/{widget_id}");
 
+        // sans jeton : sert quand même — c'est ce que fait une iframe src=
         let res = app_router(state.clone())
             .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert_eq!(res.status(), Sc::UNAUTHORIZED);
+        assert_eq!(res.status(), Sc::OK);
 
-        let res = app_router(state.clone())
-            .oneshot(
-                Request::builder()
-                    .uri(&uri)
-                    .header("x-atelier-token", "pas-le-bon")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), Sc::UNAUTHORIZED);
-
+        // et un identifiant inexistant reste introuvable, jeton ou pas
         let res = app_router(state)
             .oneshot(
                 Request::builder()
-                    .uri(&uri)
-                    .header("x-atelier-token", "secret")
+                    .uri(&format!("/widgets/t1/{}", new_widget_id()))
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), Sc::OK);
+        assert_eq!(res.status(), Sc::NOT_FOUND);
     }
 }

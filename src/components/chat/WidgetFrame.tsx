@@ -37,6 +37,7 @@ function currentThemeMessage() {
 export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null }) {
   const { event, threadId } = props;
   const [shell, setShell] = useState<string | null>(null);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -68,6 +69,11 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     }
     let alive = true;
     const url = `http://127.0.0.1:${info.port}/widgets/${encodeURIComponent(threadId)}/${event.id}`;
+    setFrameUrl(url);
+    // Le fetch ne sert plus qu'à la vue « source », au bouton copier et à la
+    // détection « expiré » (404). L'iframe, elle, charge par src= : un
+    // document srcdoc hériterait de la CSP de l'app (script-src 'self'), qui
+    // bloquait tous les scripts inline de la coquille — widget muet.
     fetch(url, { headers: sidecarHeaders(info) })
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
       .then((html) => { if (alive) setShell(html); })
@@ -135,7 +141,9 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   // c'est voulu, c'est le rôle du gel d'état (tâche 8) de la faire
   // réapparaître à l'identique après avoir rejoué thème + restore.
   function renderIframe(className: string) {
-    if (shell == null) return null;
+    // shell garde son rôle de porte : tant que le fetch n'a pas prouvé que le
+    // fichier existe (404 → « expiré »), on ne monte pas d'iframe.
+    if (shell == null || frameUrl == null) return null;
     return (
       <iframe
         key={mountNonce}
@@ -143,7 +151,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
         className={className}
         title={event.title}
         sandbox="allow-scripts"
-        srcDoc={shell}
+        src={frameUrl}
       />
     );
   }

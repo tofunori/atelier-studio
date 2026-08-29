@@ -58,7 +58,10 @@ describe("WidgetFrame — chargement", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("monte une iframe srcdoc verrouillée quand la coquille arrive", async () => {
+  it("monte une iframe src= verrouillée quand la coquille est confirmée", async () => {
+    // src= et PAS srcdoc : un document srcdoc hérite de la CSP de l'app
+    // (script-src 'self'), qui bloquait tous les scripts inline de la
+    // coquille — widget muet en production, vu le 2026-08-29.
     mockFetch(async () => new Response("<html>coquille</html>", { status: 200 }));
     const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
 
@@ -67,8 +70,10 @@ describe("WidgetFrame — chargement", () => {
     });
     const frame = container.querySelector("iframe") as HTMLIFrameElement;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
-    expect(frame.getAttribute("srcdoc")).toContain("coquille");
-    expect(frame.getAttribute("src")).toBeNull();
+    expect(frame.getAttribute("srcdoc")).toBeNull();
+    expect(frame.getAttribute("src")).toBe(
+      `http://127.0.0.1:4123/widgets/t1/${EVENT.id}`,
+    );
   });
 
   it("retombe sur « expiré » et rend la hauteur quand le fichier a disparu", async () => {

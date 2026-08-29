@@ -278,12 +278,13 @@ pub async fn widget_html_handler(
     use axum::http::{header, StatusCode};
     use axum::response::IntoResponse;
 
-    let token = headers
-        .get("x-atelier-token")
-        .and_then(|v| v.to_str().ok());
-    if !state.authorized(token) {
-        return (StatusCode::UNAUTHORIZED, "jeton requis").into_response();
-    }
+    // URL de capacité, PAS de jeton : le consommateur est une iframe `src=`
+    // (une iframe ne peut pas envoyer d'en-tête), imposée parce qu'un document
+    // srcdoc HÉRITE de la CSP du parent — script-src 'self' de l'app bloquait
+    // tous les scripts inline de la coquille (widget muet, vu le 2026-08-29).
+    // La protection est le chemin lui-même : hash SHA-256 du fil + 16 hex
+    // tirés par le runtime, rien n'est devinable ni énuméré.
+    let _ = &headers;
 
     match serve_body(state.app_dir(), &thread_id, &id) {
         Some(body) => (
