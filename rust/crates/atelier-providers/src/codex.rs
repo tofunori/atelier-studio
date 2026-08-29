@@ -489,6 +489,10 @@ fn steer_refus_definitif(err: &str) -> bool {
     e.contains("cannot steer a review turn")
         || e.contains("cannot steer a compact turn")
         || e.contains("notsteerable")
+        || e.contains("not-steerable")
+        // refus AVEC tour actif, relevé dans le binaire : lui aussi doublerait
+        // le tour en vol si on retombait en tour normal
+        || e.contains("different output schema")
         || e.contains("not steerable")
 }
 
@@ -791,18 +795,48 @@ impl Provider for CodexProvider {
                             }
                             eprintln!("codex: réessai de steer refusé — repli en tour normal");
                         }
-                        // Le serveur distingue ses refus (sondés le 2026-08-29,
-                        // messages texte nus en -32600, aucun `data`). Un tour
-                        // de revue ou de compaction n'est JAMAIS infléchissable :
-                        // enchaîner un tour normal en démarrerait un second en
-                        // parallèle du premier. On rend la main en le disant.
+                        // Un tour de revue ou de compaction n'est JAMAIS
+                        // infléchissable, et enchaîner un tour normal en
+                        // démarrerait un second en parallèle. Le protocole a
+                        // exactement la primitive qu'il faut : `thread/queue/add`
+                        // (paramètres sondés le 2026-08-29 : threadId, input,
+                        // clientUserMessageId). Le message attend son tour au
+                        // lieu d'être perdu OU de doubler celui en vol.
+                        //
+                        // On n'émet PAS d'event `error` ici : la pompe le
+                        // traiterait comme terminal et marquerait Done le tour
+                        // qui tourne encore côté codex.
                         Err(e) if steer_refus_definitif(&e) => {
-                            (req.on_event)(json!({"kind":"error","message": e}));
-                            return SendResult {
-                                session_id: Some(t.codex_id),
-                                ok: false,
-                                error: Some(e),
-                            };
+                            let queued = self
+                                .server
+                                .request(
+                                    "thread/queue/add",
+                                    json!({
+                                        "threadId": t.codex_id,
+                                        "input": build_input(&req.prompt, req.inputs.as_deref()),
+                                        "clientUserMessageId": uuid::Uuid::new_v4().to_string(),
+                                    }),
+                                )
+                                .await;
+                            match queued {
+                                Ok(_) => {
+                                    (req.on_event)(json!({"kind":"tool","name":"__queued"}));
+                                    return SendResult {
+                                        session_id: Some(t.codex_id),
+                                        ok: true,
+                                        error: None,
+                                    };
+                                }
+                                Err(qe) => {
+                                    eprintln!("codex: mise en file refusée ({qe})");
+                                    (req.on_event)(json!({"kind":"error","message": e}));
+                                    return SendResult {
+                                        session_id: Some(t.codex_id),
+                                        ok: false,
+                                        error: Some(e),
+                                    };
+                                }
+                            }
                         }
                         // Les autres refus (« no active turn to steer » : le tour
                         // s'est terminé entre-temps) deviennent un tour normal
@@ -1404,6 +1438,13 @@ mod steer_refus_tests {
         assert!(steer_refus_definitif("cannot steer a review turn"));
         assert!(steer_refus_definitif("cannot steer a compact turn"));
         assert!(steer_refus_definitif("ActiveTurnNotSteerable"));
+        // faux négatifs relevés par la vérification indépendante : eux aussi
+        // sont des refus AVEC un tour actif — retomber en tour normal le
+        // doublerait
+        assert!(steer_refus_definitif("active turn uses a different output schema"));
+        assert!(steer_refus_definitif(
+            "failed to serialize active-turn-not-steerable turn error"
+        ));
     }
 
     #[test]
