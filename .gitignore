@@ -52,3 +52,4 @@ playwright-report/
 # restes d'ecritures atomiques du serveur galerie (tue avant le rename)
 .figures_index.html.*.tmp
 __pycache__/
+src-tauri/rust-server-dist/atelier_figure_qc.py

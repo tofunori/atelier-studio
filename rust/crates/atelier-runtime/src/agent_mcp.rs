@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 const SERVER_NAME: &str = "atelier-sessions";
 const GRANT_TTL: Duration = Duration::from_secs(6 * 3600);
+/// Plafond absolu de vie d'un grant, TTL glissant compris : au-delà, le fil
+/// refrappe un jeton neuf même s'il est actif en continu.
+const GRANT_MAX_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone)]
 pub struct AgentCapabilityGrant {
@@ -93,10 +96,10 @@ impl CapabilityRegistry {
         session_id: Option<String>,
         turn_id: Option<String>,
     ) -> String {
-        let vivant = self
-            .grants
-            .get(thread_id)
-            .is_some_and(|g| Instant::now() <= g.expires_at);
+        let vivant = self.grants.get(thread_id).is_some_and(|g| {
+            Instant::now() <= g.expires_at
+                && Instant::now() - g.issued_at < GRANT_MAX_LIFETIME
+        });
         if vivant {
             let g = self
                 .grants
@@ -104,10 +107,23 @@ impl CapabilityRegistry {
                 .expect("grant vivant vérifié juste au-dessus");
             g.project_root = project_root.to_string();
             g.provider = provider.to_string();
-            g.session_id = session_id;
-            g.turn_id = turn_id;
+            // clonés : si le plafond absolu est atteint juste en dessous, on
+            // retombe sur la frappe d'un jeton neuf, qui en a besoin
+            g.session_id = session_id.clone();
+            g.turn_id = turn_id.clone();
             g.widgets_this_turn = 0;
-            return g.bearer.clone();
+            // TTL GLISSANT. Sans ça il courait depuis la PREMIÈRE frappe : un
+            // fil actif depuis 6 h voyait un tour entier échouer en
+            // CAPABILITY_EXPIRED avant que le tour suivant ne refrappe
+            // (relevé à la vérification indépendante, 2026-08-29).
+            // Plafond absolu quand même : au-delà de GRANT_MAX_LIFETIME on
+            // laisse expirer et refrapper, pour qu'un jeton fuité ne vaille
+            // pas éternellement. Le refrappe arrive ENTRE deux tours, donc
+            // jamais au milieu d'un.
+            if Instant::now() - g.issued_at < GRANT_MAX_LIFETIME {
+                g.expires_at = Instant::now() + GRANT_TTL;
+                return g.bearer.clone();
+            }
         }
         // absent ou expiré : on révoque ce qui traîne et on refrappe
         if let Some(prev) = self.grants.remove(thread_id) {
@@ -165,6 +181,13 @@ impl CapabilityRegistry {
     /// Fait expirer le grant d'un fil sans toucher à l'index : sert à vérifier
     /// que l'expiration donne bien un jeton NEUF (les TTL réels sont de 6 h).
     #[cfg(test)]
+    #[cfg(test)]
+    fn force_age_for_test(&mut self, thread_id: &str, age: Duration) {
+        if let Some(g) = self.grants.get_mut(thread_id) {
+            g.issued_at = Instant::now() - age;
+        }
+    }
+
     fn force_expire_for_test(&mut self, thread_id: &str) {
         if let Some(g) = self.grants.get_mut(thread_id) {
             g.expires_at = Instant::now() - Duration::from_secs(1);
@@ -760,6 +783,54 @@ pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
     let now = atelier_store::iso_now();
     let mut store = state.threads().lock().await;
     let _ = store.upsert(json!({"id": thread_id, "agentContextSeededAt": now}), true);
+}
+
+#[cfg(test)]
+mod ttl_glissant_tests {
+    use super::*;
+
+    fn reg() -> CapabilityRegistry {
+        CapabilityRegistry::default()
+    }
+
+    fn issue(r: &mut CapabilityRegistry, tour: &str) -> String {
+        r.issue("t1", "/p", "codex", Some("s1".into()), Some(tour.into()))
+    }
+
+    /// Le TTL courait depuis la PREMIÈRE frappe : un fil actif depuis 6 h
+    /// voyait un tour entier échouer en CAPABILITY_EXPIRED. Il glisse
+    /// maintenant à chaque tour.
+    #[test]
+    fn un_fil_actif_ne_voit_jamais_son_jeton_expirer_en_cours_de_route() {
+        let mut r = reg();
+        let jeton = issue(&mut r, "tour-1");
+        // presque au bout du TTL, mais le fil est actif : le tour suivant
+        // doit repousser l'échéance sans changer le jeton
+        r.force_age_for_test("t1", GRANT_TTL - Duration::from_secs(60));
+        let g = r.grants.get_mut("t1").unwrap();
+        g.expires_at = Instant::now() + Duration::from_secs(60);
+
+        assert_eq!(issue(&mut r, "tour-2"), jeton, "le jeton doit rester stable");
+        let restant = r.grants["t1"].expires_at - Instant::now();
+        assert!(
+            restant > GRANT_TTL - Duration::from_secs(10),
+            "l'échéance doit être repoussée d'un TTL plein, restant = {restant:?}"
+        );
+    }
+
+    /// Mais le glissement n'est pas éternel : au-delà du plafond absolu, le
+    /// fil refrappe — un jeton fuité ne vaut pas indéfiniment.
+    #[test]
+    fn au_dela_du_plafond_absolu_le_jeton_est_refrappe() {
+        let mut r = reg();
+        let jeton = issue(&mut r, "tour-1");
+        r.force_age_for_test("t1", GRANT_MAX_LIFETIME + Duration::from_secs(1));
+        let neuf = issue(&mut r, "tour-2");
+        assert_ne!(neuf, jeton, "au-delà du plafond, le jeton doit changer");
+        // et l'ancien ne vaut plus rien
+        assert!(r.resolve(&jeton).is_err());
+        assert!(r.resolve(&neuf).is_ok());
+    }
 }
 
 #[cfg(test)]
