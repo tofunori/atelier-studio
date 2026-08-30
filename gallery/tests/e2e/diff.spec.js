@@ -198,9 +198,17 @@ async function expectSingleStableIntervention(page, versionPayloads, expected) {
       matching: versionPayloads.flatMap(payload => matchingInterventions(payload, expected)).length };
   }).toEqual({ total: 1, matching: 1 });
   const postCount = versionPayloads.length;
-  const nextCodeResponse = page.waitForResponse(response =>
-    response.request().method() === 'GET' && new URL(response.url()).pathname === '/code');
-  await nextCodeResponse;
+  // Point de synchronisation : laisser passer UN cycle complet du sondage
+  // disque, pour donner à l'éditeur l'occasion de reposter une version.
+  // Depuis b1af1037 (« le polling 2 s sonde /statfile au lieu de
+  // retélécharger le document »), ce cycle touche /statfile et ne lit /code
+  // que si le mtime a bougé — attendre /code seul expirait ici.
+  const nextPoll = page.waitForResponse(response => {
+    if (response.request().method() !== 'GET') return false;
+    const pathname = new URL(response.url()).pathname;
+    return pathname === '/statfile' || pathname === '/code';
+  });
+  await nextPoll;
   const duplicateVersionPost = await page.waitForRequest(request =>
     request.method() === 'POST' && request.url().endsWith('/versions'), { timeout: 1000 })
     .then(request => request, () => null);
@@ -463,9 +471,14 @@ test('CM5: save and clean disk reload keep explicit intervention sources', async
 
     const interventionCount = allInterventions(versionPayloads).length;
     const versionPostCount = versionPayloads.length;
-    const nextCodeResponse = page.waitForResponse(response =>
-      response.request().method() === 'GET' && new URL(response.url()).pathname === '/code');
-    await nextCodeResponse;
+    // Même cycle de sondage que expectSingleStableIntervention : depuis
+    // b1af1037 il touche /statfile et ne lit /code que si le mtime a bougé.
+    const nextPoll = page.waitForResponse(response => {
+      if (response.request().method() !== 'GET') return false;
+      const pathname = new URL(response.url()).pathname;
+      return pathname === '/statfile' || pathname === '/code';
+    });
+    await nextPoll;
     const duplicateVersionPost = await page.waitForRequest(request =>
       request.method() === 'POST' && request.url().endsWith('/versions'), { timeout: 1000 })
       .then(request => request, () => null);
