@@ -117,6 +117,46 @@ def check(fig=None):
     return violations
 
 
+def _coupable_du_redimensionnement(fig):
+    """Nomme CE qu'il faut retirer, pas la liste des suspects.
+
+    Le premier essai réel (2026-08-30) a coûté deux tours à l'agent : le
+    message citait tight_layout / constrained_layout / bbox_inches sans dire
+    lequel était en cause, et il a doublé le figsize au lieu de retirer le
+    coupable. On l'identifie donc par introspection."""
+    import matplotlib as mpl
+
+    causes = []
+    if str(mpl.rcParams.get("savefig.bbox", "")).lower() == "tight":
+        causes.append(
+            "rcParams['savefig.bbox'] vaut 'tight' → pose "
+            "mpl.rcParams['savefig.bbox'] = 'standard'"
+        )
+    if mpl.rcParams.get("figure.constrained_layout.use"):
+        causes.append(
+            "rcParams['figure.constrained_layout.use'] est True → pose-le à False"
+        )
+    moteur = None
+    try:
+        moteur = fig.get_layout_engine()
+    except AttributeError:
+        pass  # matplotlib < 3.6
+    if moteur is not None:
+        causes.append(
+            f"la figure porte un moteur de mise en page ({type(moteur).__name__}) "
+            "→ construis-la sans layout='constrained'/'tight' et sans "
+            "fig.tight_layout(), et règle les marges avec fig.subplots_adjust(...)"
+        )
+    if causes:
+        return "cause : " + " ; ".join(causes) + "."
+    # aucune trace globale : c'est l'appel lui-même qui l'a demandé
+    return (
+        "cause : savefig a reçu bbox_inches='tight' (ou pad_inches) — retire "
+        "cet argument et règle les marges avec fig.subplots_adjust(...). Le "
+        "figsize n'est PAS en cause : l'agrandir ne fera que déplacer l'écart."
+    )
+
+
 def verify(fig=None, path=None, dpi=None):
     """La porte dure du §9 : lève AssertionError tant que la figure n'est pas
     propre. À appeler juste APRÈS savefig, dans la même session Python.
@@ -139,8 +179,7 @@ def verify(fig=None, path=None, dpi=None):
             if reel != attendu:
                 problemes.append(
                     f"dimensions {reel} != attendues {attendu} — "
-                    "tight_layout/constrained_layout/bbox_inches='tight' a "
-                    "redimensionné le canevas"
+                    + _coupable_du_redimensionnement(fig)
                 )
         except ImportError:
             pass  # PIL absent : le contrôle géométrique reste entier
