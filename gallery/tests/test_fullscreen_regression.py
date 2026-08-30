@@ -103,7 +103,18 @@ class FullscreenRegressionTests(unittest.TestCase):
 
         self.assertIn("get('embedded')==='atelier' || window.self!==window.top", gallery)
         self.assertIn("function openInContext(rel){", gallery)
-        self.assertIn("if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||codeExt(f.ext)))", gallery)
+        # L'INTENTION : en galerie embarquée, les formats ouvrables partent en
+        # onglet IDE. On vérifie la condition et chaque format séparément —
+        # une chaîne littérale cassait la release à chaque format ajouté
+        # (le CSV l'a fait le 2026-08-30, workflow 33318968461).
+        cond = gallery.split("if(EMB && f && (", 1)
+        self.assertEqual(len(cond), 2, "la garde d'ouverture embarquée a disparu")
+        # borne : la fin de la ligne, pas « )) » — la condition se termine par
+        # codeExt(f.ext)) et un split naïf coupait dedans
+        cond = cond[1].split("\n", 1)[0]
+        for ext in ("tex", "md", "pdf", "svg", "csv"):
+            self.assertIn(f"f.ext==='{ext}'", cond, f"format {ext} non routé vers l'IDE")
+        self.assertIn("codeExt(f.ext)", cond)
         self.assertIn("else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='", gallery)
         self.assertIn("lbOpenAny(rel);", gallery.split("function openInContext(rel){", 1)[1].split("function ", 1)[0])
         self.assertIn("body.querySelector('#inspOpen').onclick=()=>openInContext(rel);", gallery)
