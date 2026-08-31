@@ -600,9 +600,19 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.composer-input-group\s*\{[^}]*padding:\s*10px 12px;/);
   });
 
-  it("Quick Ask réserve les marges du textarea dans sa largeur", () => {
-    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*width:\s*calc\(100% - 32px\)/);
-    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*box-sizing:\s*border-box/);
+  // Le cadre du composeur Quick Ask est porté par .qa-composer (marges
+  // comprises) depuis que la citation vit DEDANS : le champ n'a plus ni
+  // bordure ni marge propre, sinon on retrouve deux objets empilés.
+  it("Quick Ask réserve les marges du composeur dans sa largeur", () => {
+    expect(appCss).toMatch(/\.qa-composer\s*\{[^}]*margin:\s*0 16px 12px/);
+    expect(appCss).toMatch(/\.qa-composer\s*\{[^}]*box-sizing:\s*border-box/);
+    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*width:\s*100%/);
+    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*border:\s*none/);
+    expect(appCss).toMatch(/\.qa-input\s*\{[^}]*margin:\s*0/);
+    // une seule bordure, et c'est elle qui répond au focus
+    expect(appCss).toMatch(/\.qa-composer:focus-within\s*\{[^}]*border-color/);
+    expect(appCss).toMatch(/\.qa-ctx\s*\{[^}]*border:\s*none/);
+    expect(appCss).toMatch(/\.qa-ctx\s*\{[^}]*margin:\s*0;/);
   });
 
   it("le textarea du composer peut réellement grandir sans être comprimé par flex", () => {

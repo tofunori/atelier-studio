@@ -63,6 +63,13 @@ function qaFailureMessage(result: unknown): string {
   return t("qa.turn-failed");
 }
 
+/** D'où vient le passage cité : le fichier, sinon le fil, sinon l'auteur. */
+function qaContextSource(ctx: QaContext): string {
+  if (ctx.source) return ctx.source.lines ? `${ctx.source.file} (${ctx.source.lines})` : ctx.source.file;
+  if (ctx.threadTitle) return ctx.threadTitle;
+  return ctx.role === "user" ? t("qa.ctx-from-user") : t("qa.ctx-from-assistant");
+}
+
 /** Remonte d'un nœud surligné jusqu'à l'index du message qui le porte. */
 function qaMsgIndexFromNode(node: Node | null): number | null {
   const start = node?.nodeType === Node.ELEMENT_NODE
@@ -581,24 +588,33 @@ export default function QuickAsk({
             </RowButton>
           </div>
         )}
-        {ctx && (
-          <div className="qa-ctx" title={ctx.message ?? ctx.selection}>
-            <span className="qa-ctx-txt">{ctx.selection.slice(0, 90)}{ctx.selection.length > 90 ? "…" : ""}</span>
-            <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}>✕</IconButton>
-          </div>
-        )}
-        <Textarea
-          ref={inputRef}
-          className="qa-input"
-          rows={Math.min(6, Math.max(1, text.split("\n").length, Math.ceil(text.length / 60)))}
-          value={text}
-          placeholder={t("qa.placeholder")}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
-            if (e.key === "Escape") close();
-          }}
-        />
+        {/* Citation et champ dans le MÊME cadre : la puce était un bloc frère,
+            avec sa propre bordure et sa propre marge — elle se lisait comme un
+            objet posé par-dessus la boîte, pas comme ce qui part avec la
+            question (capture Thierry 2026-08-31). */}
+        <div className="qa-composer">
+          {ctx && (
+            <div className="qa-ctx" title={ctx.message ?? ctx.selection}>
+              <span className="qa-ctx-txt">
+                {ctx.selection}
+                <span className="qa-ctx-src">{qaContextSource(ctx)}</span>
+              </span>
+              <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}>✕</IconButton>
+            </div>
+          )}
+          <Textarea
+            ref={inputRef}
+            className="qa-input"
+            rows={Math.min(6, Math.max(1, text.split("\n").length, Math.ceil(text.length / 60)))}
+            value={text}
+            placeholder={t("qa.placeholder")}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
+              if (e.key === "Escape") close();
+            }}
+          />
+        </div>
         <div className="qa-foot">
           <Button variant="ghost" disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); close(); } }}>
             ↰ {t("qa.inject")}

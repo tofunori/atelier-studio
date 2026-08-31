@@ -217,6 +217,28 @@ describe("contexte visible", () => {
     threadTitle: "Modèle hiérarchique",
   };
 
+  // La puce était un bloc frère du champ : deux bordures, deux marges, elle se
+  // lisait comme un objet posé par-dessus la boîte (capture Thierry
+  // 2026-08-31). Elle vit maintenant DANS le cadre du composeur.
+  it("pose la citation dans le cadre du composeur, pas au-dessus", () => {
+    const { container } = renderQuickAsk(undefined, ctx);
+    expect(container.querySelector(".qa-composer .qa-ctx")).toBeTruthy();
+    expect(container.querySelector(".qa-composer .qa-input")).toBeTruthy();
+  });
+
+  // Le CSS coupe à deux lignes (line-clamp) : couper AUSSI à 90 caractères
+  // dans le code rendait la deuxième ligne inutile.
+  it("laisse la citation entière au CSS plutôt que de la tronquer à 90 caractères", () => {
+    const longue = "a".repeat(140);
+    const { container } = renderQuickAsk(undefined, { ...ctx, selection: longue });
+    expect(container.querySelector(".qa-ctx-txt")?.textContent).toContain(longue);
+  });
+
+  it("nomme d'où vient le passage cité", () => {
+    const { container } = renderQuickAsk(undefined, ctx);
+    expect(container.querySelector(".qa-ctx-src")?.textContent).toBe("Modèle hiérarchique");
+  });
+
   it("garde la sélection sous les yeux une fois la question envoyée", () => {
     const { container } = renderQuickAsk(undefined, ctx);
     const input = container.querySelector(".qa-input") as HTMLTextAreaElement;

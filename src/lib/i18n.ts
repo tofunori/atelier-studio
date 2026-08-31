@@ -427,6 +427,8 @@ const fr = {
   "qa.open": "Question rapide",
   "qa.recents": "Récents",
   "qa.no-recents": "Aucun Quick Ask récent.",
+  "qa.ctx-from-assistant": "Réponse de l'agent",
+  "qa.ctx-from-user": "Votre message",
 
   "chat.unpin": "Retirer la marque",
   "chat.marge": "Navigation par message",
@@ -1979,6 +1981,8 @@ const en: Record<keyof typeof fr, string> = {
   "qa.open": "Quick question",
   "qa.recents": "Recents",
   "qa.no-recents": "No recent Quick Asks.",
+  "qa.ctx-from-assistant": "Agent's answer",
+  "qa.ctx-from-user": "Your message",
 
   "chat.unpin": "Remove mark",
   "chat.marge": "Jump to message",
