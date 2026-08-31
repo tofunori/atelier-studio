@@ -119,8 +119,11 @@ describe("AtelierPane — étoile de favori d'un document ouvert", () => {
     const calls: { url: string; body?: unknown }[] = [];
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      if (url.endsWith("/state")) {
+      if (url === `${ORIGIN}/state`) {
         return { ok: true, json: async () => ({ favs }) } as unknown as Response;
+      }
+      if (!url.startsWith(`${ORIGIN}/favorite`)) {
+        throw new Error(`URL inattendue (route perdue dans un fragment ?) : ${url}`);
       }
       if (!postOk) return { ok: false, json: async () => ({}) } as unknown as Response;
       const body = JSON.parse(String(init?.body ?? "{}"));
@@ -143,7 +146,7 @@ describe("AtelierPane — étoile de favori d'un document ouvert", () => {
 
     await act(async () => { fireEvent.click(etoile); });
 
-    const post = calls.find((call) => call.url.endsWith("/favorite"));
+    const post = calls.find((call) => call.url === `${ORIGIN}/favorite`);
     expect(post?.body).toEqual({ rel: "figs/albedo.pdf", on: true });
     // l'étoile bascule : le prochain clic retire
     expect(screen.getByRole("button", { name: "Retirer des favoris" })).toBeInTheDocument();

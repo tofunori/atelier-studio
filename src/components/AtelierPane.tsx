@@ -602,12 +602,19 @@ export default function AtelierPane({
     };
   });
 
+  // `url` est l'URL complète de la coquille galerie (page + nonce en hash) :
+  // y concaténer « /state » enverrait la route dans le FRAGMENT — le serveur
+  // recevrait figures_index.html. On ne parle qu'à l'origine.
+  const galleryOrigin = useMemo(() => {
+    try { return url ? new URL(url).origin : ""; } catch { return ""; }
+  }, [url]);
+
   useEffect(() => {
-    if (!url) return;
+    if (!galleryOrigin) return;
     let vivant = true;
-    loadGalleryFavorites(url).then((favs) => { if (vivant) setFavorites(favs); });
+    loadGalleryFavorites(galleryOrigin).then((favs) => { if (vivant) setFavorites(favs); });
     return () => { vivant = false; };
-  }, [url, documentIdsKey]);
+  }, [galleryOrigin, documentIdsKey]);
 
   async function toggleFavorite(relative: string) {
     const wanted = !favorites.has(relative);
@@ -617,7 +624,7 @@ export default function AtelierPane({
       if (wanted) next.add(relative); else next.delete(relative);
       return next;
     });
-    const confirmed = await setGalleryFavorite(url, relative, wanted);
+    const confirmed = await setGalleryFavorite(galleryOrigin, relative, wanted);
     if (confirmed === null) {
       setFavorites((prev) => {
         const next = new Set(prev);
