@@ -260,6 +260,9 @@ describe("sélection dans la réponse", () => {
       window.dispatchEvent(new CustomEvent("qa-event", {
         detail: { qaId, event: { kind: "text", text: "Le partial pooling emprunte à la moyenne." } },
       }));
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "done", ok: true } },
+      }));
     });
 
     const reponse = container.querySelector('[data-qa-msg="1"]') as HTMLElement;
