@@ -73,32 +73,6 @@ fn escape_html(raw: &str) -> String {
 
 /// La coquille : CSP, tokens de thème, pont postMessage. L'agent écrit le
 /// contenu de la page, jamais sa tête.
-/// Localise node : le contrôle de script est un CONFORT, jamais une
-/// dépendance dure — sans node, la publication passe telle quelle.
-fn node_bin() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
-        let pb = std::path::PathBuf::from(p);
-        if pb.is_file() {
-            return Some(pb);
-        }
-    }
-    if let Ok(out) = std::process::Command::new("which").arg("node").output() {
-        if out.status.success() {
-            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !p.is_empty() {
-                return Some(std::path::PathBuf::from(p));
-            }
-        }
-    }
-    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
-        let pb = std::path::PathBuf::from(p);
-        if pb.is_file() {
-            return Some(pb);
-        }
-    }
-    None
-}
-
 /// Contenu de tous les blocs `<script>` du fragment, concaténé.
 pub fn extract_scripts(html: &str) -> String {
     let mut out = String::new();
@@ -117,84 +91,83 @@ pub fn extract_scripts(html: &str) -> String {
     out
 }
 
-/// DOM factice permissif : tout accès rend un proxy qui se laisse appeler,
-/// indexer et convertir en nombre. Ce qui SURVIT à ce stub et lève quand
-/// même est une vraie faute du script — variable non déclarée, coquille dans
-/// un nom, syntaxe invalide.
-const HARNAIS: &str = r#"
-const bidon = new Proxy(function () {}, {
-  get(_t, p) {
-    if (p === Symbol.toPrimitive) return () => 0;
-    if (p === Symbol.iterator) return function* () {};
-    if (p === "length") return 0;
-    return bidon;
-  },
-  apply: () => bidon,
-  construct: () => bidon,
-  set: () => true,
-  has: () => true,
-});
-// Certains globaux sont en LECTURE SEULE selon la version de node
-// (`navigator` l'est depuis node 22). Une affectation directe y lève un
-// TypeError qui tuait le harnais avant le script du widget — le contrôle
-// rendait alors « rien à signaler » sur un script pourtant fautif
-// (2026-08-30). On pose donc chaque global défensivement.
-function pose(nom, valeur) {
-  try {
-    Object.defineProperty(globalThis, nom, {
-      value: valeur, configurable: true, writable: true,
-    });
-  } catch (e) { /* global verrouillé : le stub natif de node fera l'affaire */ }
-}
-pose("window", globalThis);
-pose("document", bidon);
-pose("navigator", bidon);
-pose("location", bidon);
-pose("devicePixelRatio", 2);
-pose("requestAnimationFrame", () => 0);
-pose("cancelAnimationFrame", () => {});
-pose("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-pose("addEventListener", () => {});
-pose("removeEventListener", () => {});
-pose("getComputedStyle", () => bidon);
-pose("saveState", () => {});
-pose("sendPrompt", () => {});
-pose("postMessage", () => {});
-pose("alert", () => {});
-"#;
+/// Globaux qu'un script de widget a le DROIT de référencer sans les
+/// déclarer : le langage, le navigateur, et le pont de la coquille. Tout
+/// identifiant libre hors de cette liste est une faute (variable jamais
+/// déclarée, coquille dans un nom) — le cas TAU0/TAUOBS du 2026-08-30.
+/// Un oubli ici ferait un FAUX REFUS : en cas de doute, ajouter le nom.
+const GLOBAUX_PERMIS: &[&str] = &[
+    // langage
+    "globalThis", "undefined", "NaN", "Infinity", "Math", "JSON", "Number",
+    "String", "Array", "Object", "Boolean", "Symbol", "BigInt", "Date",
+    "RegExp", "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy",
+    "Reflect", "Intl", "Error", "TypeError", "RangeError", "SyntaxError",
+    "parseFloat", "parseInt", "isNaN", "isFinite", "structuredClone",
+    "queueMicrotask", "console", "arguments", "eval",
+    "Float32Array", "Float64Array", "Int8Array", "Int16Array", "Int32Array",
+    "Uint8Array", "Uint16Array", "Uint32Array", "Uint8ClampedArray",
+    "ArrayBuffer", "DataView",
+    "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
+    "atob", "btoa", "TextEncoder", "TextDecoder", "URL", "URLSearchParams",
+    // navigateur
+    "window", "document", "navigator", "location", "screen", "self",
+    "parent", "frames", "history", "innerWidth", "innerHeight",
+    "devicePixelRatio", "performance", "crypto", "getComputedStyle",
+    "matchMedia", "alert", "getSelection",
+    "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+    "requestAnimationFrame", "cancelAnimationFrame", "requestIdleCallback",
+    "cancelIdleCallback", "addEventListener", "removeEventListener",
+    "dispatchEvent", "postMessage",
+    "Event", "CustomEvent", "KeyboardEvent", "MouseEvent", "PointerEvent",
+    "WheelEvent", "TouchEvent", "MessageEvent", "AbortController",
+    "ResizeObserver", "IntersectionObserver", "MutationObserver",
+    "Image", "Audio", "Path2D", "DOMMatrix", "DOMPoint", "DOMRect",
+    "ImageData", "OffscreenCanvas", "FontFace", "Option", "Node", "Element",
+    "HTMLElement", "HTMLCanvasElement", "SVGElement", "DocumentFragment",
+    "Blob", "File", "FileReader", "FormData",
+    // bloqués par la CSP à l'exécution, mais référençables sans faute
+    "fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage",
+    "indexedDB", "Worker",
+    // le pont de la coquille
+    "saveState", "sendPrompt", "onRestore",
+];
 
-/// Exécute le script du widget dans le harnais. Rend le message d'erreur
-/// quand le script est FRANCHEMENT fautif, `None` sinon.
-///
-/// Ne refuse QUE sur SyntaxError et ReferenceError : ce sont les seules
-/// erreurs qu'un DOM factice ne peut pas provoquer par lui-même. Un
-/// TypeError vient presque toujours du stub (itération, destructuration) et
-/// ferait un faux refus — on passe outre. Politique générale : en cas de
-/// doute, on publie.
+/// Analyse STATIQUE du script du widget — pure Rust (oxc), aucune exécution,
+/// aucun binaire externe (décision Thierry 2026-08-30, remplace le spawn de
+/// node). Deux fautes seulement, les mêmes qu'avant :
+/// - syntaxe invalide (le parseur la voit nativement) ;
+/// - identifiant libre inconnu du langage, du navigateur et du pont — une
+///   variable jamais déclarée ou une coquille dans un nom. L'analyse les voit
+///   dans TOUTES les branches, y compris celles qu'une exécution n'aurait
+///   jamais parcourues.
+/// Rend `None` quand le script est publiable. En cas de doute, on publie.
 pub fn script_fautif(html: &str) -> Option<String> {
     let script = extract_scripts(html);
     if script.trim().is_empty() {
         return None;
     }
-    let node = node_bin()?;
-    let dir = std::env::temp_dir().join(format!("atelier-widget-check-{}", new_widget_id()));
-    std::fs::create_dir_all(&dir).ok()?;
-    let fichier = dir.join("check.mjs");
-    std::fs::write(&fichier, format!("{HARNAIS}\n{script}\n")).ok()?;
-    let sortie = std::process::Command::new(node).arg(&fichier).output();
-    let _ = std::fs::remove_dir_all(&dir);
-    let sortie = sortie.ok()?;
-    if sortie.status.success() {
-        return None;
+    let alloc = oxc_allocator::Allocator::default();
+    // mode script, pas module : les widgets n'importent rien, et le mode
+    // module imposerait le strict qui change la sémantique de `var`
+    let source_type = oxc_span::SourceType::cjs();
+    let parsed = oxc_parser::Parser::new(&alloc, &script, source_type).parse();
+    if let Some(err) = parsed.errors.first() {
+        return Some(format!("SyntaxError: {}", err.message));
     }
-    let err = String::from_utf8_lossy(&sortie.stderr);
-    for ligne in err.lines() {
-        let l = ligne.trim();
-        if l.starts_with("SyntaxError:") || l.starts_with("ReferenceError:") {
-            return Some(l.to_string());
-        }
-    }
-    None // échec inclassable : on ne bloque pas
+    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program);
+    let scoping = semantic.semantic.scoping();
+    let mut inconnus: Vec<&str> = scoping
+        .root_unresolved_references()
+        .keys()
+        .map(|name| name.as_str())
+        .filter(|name| !GLOBAUX_PERMIS.contains(name))
+        .collect();
+    inconnus.sort_unstable();
+    let premier = inconnus.first()?;
+    Some(format!(
+        "ReferenceError: {premier} is not defined — identifiant jamais déclaré \
+dans le script (coquille dans le nom ?)"
+    ))
 }
 
 pub fn wrap_shell(input: &WidgetInput) -> String {
@@ -917,25 +890,32 @@ f();
         assert_eq!(script_fautif(html), None, "faux refus sur un widget normal");
     }
 
-    /// Le harnais doit tourner PROPREMENT à vide. Sans ce test, une panne du
-    /// prélude rend le contrôle muet au lieu de bruyant : c'est exactement ce
-    /// qui est arrivé le 2026-08-30 (node 22+ verrouille `navigator`, mon
-    /// affectation levait un TypeError avant le script du widget, et la
-    /// politique « en cas de doute on publie » l'avalait).
+    /// La raison technique du passage à l'analyse statique : une exécution à
+    /// blanc ne voit que le chemin parcouru. La coquille dans une branche
+    /// conditionnelle (le gestionnaire d'un clic, un mode alternatif) passait
+    /// la porte version node et plantait chez l'utilisateur au premier clic.
     #[test]
-    fn le_harnais_seul_ne_leve_rien() {
-        let node = super::node_bin().expect("node requis pour ce test");
-        let dir = std::env::temp_dir().join(format!("atelier-harnais-{}", super::new_widget_id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("h.mjs");
-        std::fs::write(&f, super::HARNAIS).unwrap();
-        let out = std::process::Command::new(&node).arg(&f).output().unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            out.status.success(),
-            "le harnais lui-même échoue — le contrôle serait muet :\n{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+    fn la_faute_dans_une_branche_jamais_executee_est_vue_quand_meme() {
+        let html = r#"<script>
+var mode = "pente";
+function bascule() { if (mode === "z") { dessine(TAUX_Z); } }
+function dessine(v) { document.title = v; }
+</script>"#;
+        let faute = script_fautif(html).expect("TAUX_Z doit être vu sans exécuter");
+        assert!(faute.contains("TAUX_Z"), "{faute}");
+    }
+
+    /// Un global navigateur légitime mais rare ne doit pas faire un faux
+    /// refus — c'est la liste blanche qui porte cette garantie.
+    #[test]
+    fn les_api_navigateur_rares_ne_font_pas_de_faux_refus() {
+        let html = r#"<script>
+var p = new Path2D("M0 0 L10 10");
+var obs = new ResizeObserver(function () {});
+var enc = new TextEncoder();
+performance.now(); crypto.getRandomValues(new Uint8Array(4));
+</script>"#;
+        assert_eq!(script_fautif(html), None);
     }
 
     #[test]

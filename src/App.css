@@ -2280,6 +2280,9 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: transparent; border: none; color: var(--text-secondary); font-size: var(--fs-l);
   padding: 5px 10px; border-radius: var(--r-pill); cursor: pointer; }
 .sel-toolbar button:hover { background: var(--bg-ctl); color: var(--text-primary); }
+/* Même barre dans le Quick Ask : la fenêtre est au-dessus du chat, la barre
+   doit passer au-dessus de son composeur. */
+.qa-sel-toolbar { z-index: var(--z-quick-ask-popover); }
 /* Encre du lecteur : ambre --hl-line, la couleur des fiches Surlignés — pas
    l'accent, qui signale partout ailleurs « actif / interactif ». */
 ::highlight(chat-an) { background: color-mix(in srgb, var(--hl-line) 26%, transparent); }

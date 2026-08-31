@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { t } from "../lib/i18n";
 import { ProviderIcon, ZapIcon } from "./icons";
@@ -7,6 +7,7 @@ import { buildQuickAskPrompt, type QaContext } from "../lib/quickAskContext";
 import { normalizeMathDelimiters } from "../lib/markdown";
 import { chatSelection, threadModelKey } from "../lib/quickAskModel";
 import { resizeBox, type ResizeEdge } from "../lib/quickAskBox";
+import { clampToolbarLeft } from "../lib/selectionToolbar";
 import { useMdPlugins } from "./chat/md";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
@@ -60,6 +61,17 @@ function qaFailureMessage(result: unknown): string {
     return raw;
   }
   return t("qa.turn-failed");
+}
+
+/** Remonte d'un nœud surligné jusqu'à l'index du message qui le porte. */
+function qaMsgIndexFromNode(node: Node | null): number | null {
+  const start = node?.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node?.parentElement ?? null;
+  const host = start?.closest<HTMLElement>("[data-qa-msg]");
+  const raw = host?.dataset.qaMsg;
+  const index = raw == null ? NaN : Number(raw);
+  return Number.isInteger(index) ? index : null;
 }
 
 function clampBox(b: { x: number; y: number; w: number; h: number }) {
@@ -178,6 +190,40 @@ export default function QuickAsk({
   }
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // « Ajouter au chat » DANS le Quick Ask : surligner un passage de la réponse
+  // et le reposer en contexte de la question suivante, sans repasser par le
+  // chat principal — la fenêtre est une conversation à part entière.
+  const [quote, setQuote] = useState<{ x: number; y: number; text: string; msgIndex: number | null } | null>(null);
+  const selToolbarRef = useRef<HTMLDivElement>(null);
+  const [selToolbarLeft, setSelToolbarLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!quote) { setSelToolbarLeft(null); return; }
+    const bar = selToolbarRef.current;
+    const host = popRef.current;
+    if (!bar || !host) return;
+    const zone = host.getBoundingClientRect();
+    setSelToolbarLeft(clampToolbarLeft(quote.x, bar.offsetWidth, { left: zone.left, right: zone.right }));
+  }, [quote?.x, quote?.y, quote?.text]);
+
+  function onBodyMouseUp() {
+    // La sélection n'est pas encore posée au moment du mouseup.
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      const host = bodyRef.current;
+      if (!text || !sel || sel.rangeCount === 0 || !host) { setQuote(null); return; }
+      const range = sel.getRangeAt(0);
+      if (!host.contains(range.startContainer)) { setQuote(null); return; }
+      const rect = range.getBoundingClientRect();
+      setQuote({
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+        text,
+        msgIndex: qaMsgIndexFromNode(range.startContainer),
+      });
+    }, 0);
+  }
+
   useEffect(() => {
     if (!box) return;
     const fit = () => saveBox(box);
@@ -201,6 +247,7 @@ export default function QuickAsk({
     setMsgs([]);
     setText(draft);
     setCtx(context ?? null);
+    setQuote(null);
     setBusy(false);
     setRecentsOpen(false);
     setPromoteErr(null);
@@ -364,6 +411,7 @@ export default function QuickAsk({
               setQaId(crypto.randomUUID());
               setMsgs([]);
               setCtx(null);
+              setQuote(null);
               setText("");
               setBusy(false);
               window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -475,10 +523,10 @@ export default function QuickAsk({
             ))}
           </div>
         )}
-        <div className="qa-body" ref={bodyRef}>
+        <div className="qa-body" ref={bodyRef} onMouseUp={onBodyMouseUp}>
           {msgs.length === 0 && <div className="qa-empty">{t("qa.hint")}</div>}
           {msgs.map((msg, i) => (
-            <div key={i} className={`qa-msg ${msg.role}`}>
+            <div key={i} className={`qa-msg ${msg.role}`} data-qa-msg={i}>
               {msg.role === "assistant" ? (
                 <>
                   <ReactMarkdown remarkPlugins={mdPlugins.remark} rehypePlugins={mdPlugins.rehype}>
@@ -509,6 +557,30 @@ export default function QuickAsk({
             </div>
           )}
         </div>
+        {quote && (
+          <div className="sel-toolbar qa-sel-toolbar" ref={selToolbarRef}
+            style={{ left: selToolbarLeft ?? quote.x, top: quote.y - 44 }}>
+            <RowButton
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const src = quote.msgIndex == null ? undefined : msgs[quote.msgIndex];
+                setCtx({
+                  selection: quote.text,
+                  message: src?.text,
+                  role: src?.role,
+                });
+                setQuote(null);
+                window.getSelection()?.removeAllRanges();
+                window.setTimeout(() => inputRef.current?.focus(), 0);
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+              </svg>
+              {t("action.add-to-chat")}
+            </RowButton>
+          </div>
+        )}
         {ctx && (
           <div className="qa-ctx" title={ctx.message ?? ctx.selection}>
             <span className="qa-ctx-txt">{ctx.selection.slice(0, 90)}{ctx.selection.length > 90 ? "…" : ""}</span>

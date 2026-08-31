@@ -229,6 +229,59 @@ describe("contexte visible", () => {
   });
 });
 
+describe("sélection dans la réponse", () => {
+  // La capsule existait seulement dans le chat principal : surligner un
+  // passage de la réponse du Quick Ask n'offrait rien (capture Thierry
+  // 2026-08-31). Ici « Ajouter au chat » vise le Quick Ask lui-même.
+  function selectionner(node: Node, text: string) {
+    vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => text,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        startContainer: node,
+        getBoundingClientRect: () => ({ left: 100, width: 40, top: 200 }),
+      }),
+      removeAllRanges: () => {},
+    } as unknown as Selection);
+  }
+
+  it("pose le passage surligné en contexte de la question suivante", async () => {
+    const { container } = renderQuickAsk();
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId: wsSendMock.mock.calls[0]?.[0]?.qaId ?? "", event: { kind: "text", text: "x" } },
+      }));
+    });
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "explique" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[0][0].qaId as string;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "text", text: "Le partial pooling emprunte à la moyenne." } },
+      }));
+    });
+
+    const reponse = container.querySelector('[data-qa-msg="1"]') as HTMLElement;
+    selectionner(reponse.firstChild ?? reponse, "partial pooling");
+    fireEvent.mouseUp(container.querySelector(".qa-body") as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText("Add to chat")).toBeTruthy());
+    fireEvent.mouseDown(screen.getByText("Add to chat"));
+
+    // la puce de contexte du Quick Ask porte le passage — rien n'est parti
+    // vers le chat principal
+    await waitFor(() => expect(container.querySelector(".qa-ctx")?.textContent).toContain("partial pooling"));
+
+    wsSendMock.mockClear();
+    fireEvent.change(input, { target: { value: "et donc ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const prompt = wsSendMock.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain("Le partial pooling emprunte à la moyenne.");
+    expect(prompt).toContain("partial pooling");
+  });
+});
+
 describe("historique", () => {
   const RECENTS = "atelier-studio.qaRecents";
   function recents() { return JSON.parse(localStorage.getItem(RECENTS) ?? "[]"); }
