@@ -2438,15 +2438,15 @@ function render(){
     // sur les filtres persistants pour que « montre ces figures » ne puisse pas
     // aboutir à une grille vide à cause d'un ancien filtre utilisateur.
     if(chatFocusRels.size) return chatFocusRels.has(f.rel);
-    // Un favori durable ne doit pas sembler perdu après une relance quand les
-    // formats reviennent à leur vue par défaut. Le filtre Favoris prime donc
-    // sur ce masque implicite, mais un choix de type explicite doit se combiner
-    // avec Favoris comme avec les autres filtres.
+    // Un favori ne doit JAMAIS sembler perdu : la vue Favoris est déjà une
+    // vue ciblée, elle montre tous les favoris quel que soit le filtre de
+    // types — même explicite (vécu 2026-08-31 : .py mis en favori depuis
+    // l'app, projet filtré csv/jpg/mp4/png/tex → invisible dans ★ Favorites).
     // Sans filtre de type choisi explicitement, une recherche textuelle porte
     // sur tous les fichiers indexés. Dès que l'utilisateur choisit un format,
     // recherche et types se combinent au lieu que l'un annule l'autre.
     if((!terms.length || formatFilterExplicit) && !exts[f.ext]
-      && !(onlyFavs && favs.has(f.rel) && !formatFilterExplicit)) return false;
+      && !(onlyFavs && favs.has(f.rel))) return false;
     if(!showArch && f.archive) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
