@@ -15,6 +15,7 @@ import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, thr
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin, resolvePins } from "./lib/pins";
+import { stableTabId } from "./lib/workspaceLayout";
 import type { QaContext } from "./lib/quickAskContext";
 import { qaPromotePayload } from "./lib/quickAskModel";
 import {
@@ -2699,21 +2700,22 @@ export default function App() {
       return parsed.toString();
     };
     const baseUrl = tabIdentity(url);
-    // dédoublonner DANS l'updater : atelierTabsRef n'est synchronisé qu'après le
-    // commit React — deux clics rapprochés créaient deux onglets identiques
-    const newId = crypto.randomUUID();
-    // setActiveTab HORS de l'updater : un setState niché dans un updater
-    // peut être avalé selon le timing React — l'onglet se créait sans
-    // devenir actif (vécu 2026-08-16).
-    let focusId: string = newId;
+    // focusId AVANT le setState : compter sur l'updater pour le poser est une
+    // course — React ne l'exécute pas toujours tout de suite, et activer un
+    // id jamais créé matérialisait un onglet fantôme titré UUID dans le rail
+    // (vécu 2026-08-31 : deuxième clic fichier:ligne sur le même fichier).
+    // Nouvel onglet = id DÉTERMINISTE dérivé de l'identité : deux clics
+    // rapprochés sur le même fichier calculent le même id, le dédoublonnage
+    // de l'updater reste correct même quand la ref est en retard d'un commit.
+    const existingTab = atelierTabsRef.current.find((t) => tabIdentity(t.url) === baseUrl);
+    const focusId = existingTab?.id ?? stableTabId(baseUrl);
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
         // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
-        focusId = existing.id;
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
-      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject }];
+      return [...tabs, { id: focusId, url, title: name, projectRoot: activeProject }];
     });
     setActiveTab(focusId);
     // l'onglet vit dans la surface Atelier : la rendre visible ET y amener le
@@ -2745,15 +2747,15 @@ export default function App() {
       return parsed.toString();
     };
     const baseUrl = tabIdentity(url);
-    const newId = crypto.randomUUID();
-    let focusId: string = newId;
+    // même règle qu'openFileTab : focus résolu avant le setState, id stable
+    const existingTab = atelierTabsRef.current.find((t) => tabIdentity(t.url) === baseUrl);
+    const focusId = existingTab?.id ?? stableTabId(baseUrl);
     setAtelierTabs((tabs) => {
       const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
       if (existing) {
-        focusId = existing.id;
         return tabs.map((t) => (t.id === existing.id ? { ...t, url } : t));
       }
-      return [...tabs, { id: newId, url, title: name, projectRoot: activeProject ?? undefined }];
+      return [...tabs, { id: focusId, url, title: name, projectRoot: activeProject ?? undefined }];
     });
     setActiveTab(focusId);
     revealAtelierTab(focusId);

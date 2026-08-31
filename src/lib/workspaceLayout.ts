@@ -118,6 +118,24 @@ export function parseWorkspaceTabId(id: string): WorkspaceTabRef | null {
   return null;
 }
 
+/** Id d'onglet document DÉTERMINISTE, dérivé de l'identité d'URL (sans
+ *  line/diff/base). Deux ouvertures du même fichier calculent le même id :
+ *  le dédoublonnage ne dépend plus du timing des updaters React, et activer
+ *  l'id avant le commit ne peut plus viser un onglet jamais créé. */
+export function stableTabId(identity: string): string {
+  // cyrb53 — petit hachage 53 bits, largement assez pour quelques dizaines
+  // d'onglets ; pas de crypto ici, seulement une identité de session.
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < identity.length; i++) {
+    const ch = identity.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `doc-${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
+}
+
 export function externalTabRef(id: string): WorkspaceTabRef {
   if (id === "gallery") return { kind: "surface", surface: "atelier" };
   if (id === "ide") return { kind: "ide" };
@@ -415,7 +433,11 @@ export function reconcileWorkspaceLayout(
     }));
     next = { ...next, root };
   }
-  return activateWorkspaceTab(next, externalTabRef(activeExternalId));
+  // Un activeExternalId document ABSENT du catalogue ne doit jamais se
+  // matérialiser en onglet fantôme (rail titré par l'id brut, contenu vide).
+  const activeRef = externalTabRef(activeExternalId);
+  if (activeRef.kind === "document" && !validDocuments.has(activeRef.tabId)) return next;
+  return activateWorkspaceTab(next, activeRef);
 }
 
 function migrateLegacyLayout(

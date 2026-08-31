@@ -9,7 +9,9 @@ import {
   loadWorkspaceLayout,
   parseWorkspaceLayout,
   placeWorkspaceTab,
+  reconcileWorkspaceLayout,
   resizeWorkspaceSplit,
+  stableTabId,
   saveWorkspaceLayout,
   workspaceDropPreviewRect,
   workspaceDropZoneAtPoint,
@@ -159,5 +161,29 @@ describe("workspaceLayout", () => {
     saveWorkspaceLayout(memory, project, layout);
 
     expect(parseWorkspaceLayout(JSON.parse(memory.values.get(`${WORKSPACE_LAYOUT_PREFIX}${project}`)!))).toEqual(layout);
+  });
+});
+
+describe("reconcileWorkspaceLayout — id externe inconnu", () => {
+  // Un setActiveTab peut viser un id que la course des updaters n'a jamais
+  // créé (vécu 2026-08-31 : deuxième clic fichier:ligne → onglet fantôme
+  // titré UUID dans le rail, contenu vide). Le workspace ne matérialise
+  // jamais un document hors catalogue.
+  it("n'ajoute pas d'onglet document pour un id hors catalogue", () => {
+    const layout = createWorkspaceLayout(["d1"], "d1");
+    const next = reconcileWorkspaceLayout(layout, ["d1"], "fantome-uuid");
+    expect(findTabPaneId(next.root, "document:fantome-uuid")).toBeNull();
+    // le document connu, lui, reste activable
+    const known = reconcileWorkspaceLayout(layout, ["d1"], "d1");
+    expect(findTabPaneId(known.root, "document:d1")).not.toBeNull();
+  });
+});
+
+describe("stableTabId", () => {
+  it("même identité → même id ; identités différentes → ids différents", () => {
+    const a = stableTabId("http://127.0.0.1:19000/x.py");
+    expect(stableTabId("http://127.0.0.1:19000/x.py")).toBe(a);
+    expect(stableTabId("http://127.0.0.1:19000/y.py")).not.toBe(a);
+    expect(a).toMatch(/^doc-[a-z0-9]+$/);
   });
 });
