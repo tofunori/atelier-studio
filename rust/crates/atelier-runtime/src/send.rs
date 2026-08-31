@@ -108,6 +108,24 @@ asks for a file or a gallery figure.\n</atelier-widget-integration>"
 /// était repris SANS les serveurs MCP d'Atelier — l'agent perdait
 /// `atelier_widget` et `atelier_sessions` en cours de session (sonde
 /// 2026-08-29). Coût nul quand le steer réussit : le champ n'est pas lu.
+/// Journal de bord MCP — `<app_dir>/logs/agent-mcp.log`. Le stderr du
+/// backend part dans Stdio::null (src-tauri/sidecar.rs) : trois récidives de
+/// « l'outil widget a disparu » ont été diagnostiquées à l'aveugle faute de
+/// cette ligne (2026-08-29 → 31). Append best-effort, jamais bloquant.
+fn journal_mcp(state: &AppState, ligne: &str) {
+    let dir = state.app_dir().join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let ts = chrono::Local::now().format("%m-%d %H:%M:%S");
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("agent-mcp.log"))
+    {
+        let _ = writeln!(f, "{ts} {ligne}");
+    }
+}
+
 async fn atelier_mcp_for_turn(
     state: &AppState,
     thread_id: &str,
@@ -139,14 +157,27 @@ async fn atelier_mcp_for_turn(
     )
     .await
     {
-        Ok(launch) => Some(atelier_providers::AtelierMcpLaunch {
-            command: std::path::PathBuf::from(launch.command),
-            server_name: launch.server_name,
-            env: launch.env,
-            linked: launch.linked,
-        }),
+        Ok(launch) => {
+            journal_mcp(
+                state,
+                &format!(
+                    "OK issue fil={thread_id} provider={provider} serveur={} cmd={}",
+                    launch.server_name, launch.command
+                ),
+            );
+            Some(atelier_providers::AtelierMcpLaunch {
+                command: std::path::PathBuf::from(launch.command),
+                server_name: launch.server_name,
+                env: launch.env,
+                linked: launch.linked,
+            })
+        }
         Err(e) => {
             tracing::warn!(error = %e, "atelier MCP launch unavailable");
+            journal_mcp(
+                state,
+                &format!("ECHEC issue fil={thread_id} provider={provider} err={e}"),
+            );
             None
         }
     }
