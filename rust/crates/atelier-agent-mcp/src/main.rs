@@ -12,6 +12,7 @@ use std::process::ExitCode;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    atelier_fdlimit::raise_nofile_limit();
     // Never write to stdout except via server frames.
     if let Err(e) = server::run().await {
         eprintln!("atelier-agent-mcp: {e}");

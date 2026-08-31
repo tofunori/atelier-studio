@@ -13,6 +13,7 @@ members = [
   "crates/atelier-remote",
   "crates/atelier-agent-mcp",
   "crates/atelier-kb",
+  "crates/atelier-fdlimit",
 ]
 
 [workspace.package]
@@ -30,6 +31,7 @@ atelier-workspace = { path = "crates/atelier-workspace" }
 atelier-harness = { path = "crates/atelier-harness" }
 atelier-providers = { path = "crates/atelier-providers" }
 atelier-kb = { path = "crates/atelier-kb" }
+atelier-fdlimit = { path = "crates/atelier-fdlimit" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

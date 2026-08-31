@@ -135,6 +135,7 @@ dependencies = [
 name = "atelier-agent-mcp"
 version = "0.1.0"
 dependencies = [
+ "atelier-fdlimit",
  "reqwest",
  "serde",
  "serde_json",
@@ -157,10 +158,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-fdlimit"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "atelier-gallery"
 version = "0.1.0"
 dependencies = [
  "atelier-core",
+ "atelier-fdlimit",
  "axum",
  "base64",
  "clap",
@@ -199,6 +208,7 @@ dependencies = [
 name = "atelier-kb"
 version = "0.1.0"
 dependencies = [
+ "atelier-fdlimit",
  "chrono",
  "hex",
  "once_cell",
@@ -246,6 +256,7 @@ dependencies = [
 name = "atelier-remote"
 version = "0.1.0"
 dependencies = [
+ "atelier-fdlimit",
  "atelier-protocol",
  "atelier-store",
  "axum",
@@ -308,6 +319,7 @@ dependencies = [
 name = "atelier-server"
 version = "0.1.0"
 dependencies = [
+ "atelier-fdlimit",
  "atelier-runtime",
  "tokio",
  "tracing",

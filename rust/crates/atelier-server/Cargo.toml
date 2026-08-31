@@ -11,6 +11,7 @@ name = "atelier-studio-server"
 path = "src/main.rs"
 
 [dependencies]
+atelier-fdlimit = { workspace = true }
 atelier-runtime = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

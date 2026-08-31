@@ -44,6 +44,7 @@ fn contains_long_hex_run(text: &str) -> bool {
 
 #[tokio::main]
 async fn main() {
+    atelier_fdlimit::raise_nofile_limit();
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)

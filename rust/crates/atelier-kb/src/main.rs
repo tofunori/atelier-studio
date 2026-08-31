@@ -3,6 +3,7 @@
 //! stderr, stdout vide, exit 1.
 
 fn main() {
+    atelier_fdlimit::raise_nofile_limit();
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match atelier_kb::cli::run(&argv) {
         Ok(value) => {

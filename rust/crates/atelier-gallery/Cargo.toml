@@ -15,6 +15,7 @@ name = "atelier-gallery-tool"
 path = "src/gallery_tool_main.rs"
 
 [dependencies]
+atelier-fdlimit = { workspace = true }
 atelier-core = { path = "../atelier-core" }
 axum = "0.8"
 base64 = "0.22"

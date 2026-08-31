@@ -13,6 +13,7 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
+    atelier_fdlimit::raise_nofile_limit();
     init_tracing();
     let config = config_from_env();
     if let Err(e) = run_server(config).await {

@@ -2197,6 +2197,7 @@ fn iso_now() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    atelier_fdlimit::raise_nofile_limit();
     let args = Args::parse();
     let root = resolve_root(&args)?;
     // Balaie au boot les .tmp d'atomic_write abandonnés par un process tué

@@ -10,6 +10,7 @@ name = "atelier-agent-mcp"
 path = "src/main.rs"
 
 [dependencies]
+atelier-fdlimit = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

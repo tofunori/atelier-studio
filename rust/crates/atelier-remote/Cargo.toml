@@ -11,6 +11,7 @@ name = "atelier-remote-gateway"
 path = "src/main.rs"
 
 [dependencies]
+atelier-fdlimit = { workspace = true }
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
 axum = { workspace = true }

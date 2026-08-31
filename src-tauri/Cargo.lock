@@ -179,6 +179,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-fdlimit"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3494,6 +3501,7 @@ dependencies = [
 name = "tauri-app"
 version = "1.6.0"
 dependencies = [
+ "atelier-fdlimit",
  "block2",
  "dirs 5.0.1",
  "fix-path-env",
