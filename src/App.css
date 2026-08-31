@@ -2678,6 +2678,9 @@ body.dragging iframe { pointer-events: none; }
 .workspace-pane-controls { display: inline-flex; align-items: center; gap: 1px; color: var(--text-disabled); }
 .workspace-pane-controls .workspace-pane-grip { cursor: grab; touch-action: none; }
 .workspace-pane-controls .workspace-pane-grip:active { cursor: grabbing; }
+/* Étoile de favori d'un document ouvert : marquée = accent, jamais un simple
+   changement de variant (invisible en thème sombre, mémoire 2026-07). */
+.workspace-pane-controls .workspace-fav.is-on { color: var(--primary); }
 .workspace-pane-controls.is-integrated { padding-left: 3px; border-left: 1px solid var(--border-subtle); }
 .workspace-pane-controls.is-floating { position: absolute; top: 6px; right: 6px; z-index: var(--z-sticky);
   padding: 2px; border-radius: var(--r-m); background: color-mix(in srgb, var(--surface-header) 94%, var(--bg) 6%);

@@ -274,6 +274,76 @@ async fn save_gallery_state(
     }
 }
 
+/// Bascule d'un favori depuis l'APP (barre d'onglet d'un document ouvert),
+/// sans passer par la page galerie. Un POST /state partiel ne conviendrait
+/// pas : il reconstruit tout l'état à partir du corps reçu, donc un client
+/// qui ne connaît que les favoris effacerait notes, tags et collections. Ici
+/// on relit le fichier, on ne touche QUE `favs`, et on réécrit.
+async fn toggle_favorite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error":"loopback origin required"})),
+        )
+            .into_response();
+    }
+    let rel = body.get("rel").and_then(Value::as_str).unwrap_or("").trim();
+    // Même forme que les `rel` de /data : relatif au projet, séparateurs `/`.
+    if rel.is_empty() || rel.len() > 2048 || rel.starts_with('/') || rel.contains("..") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"rel invalide"})),
+        )
+            .into_response();
+    }
+    let path = state.root.join(".fig_state.json");
+    let mut current = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(default_gallery_state);
+
+    let mut favs: std::collections::BTreeSet<String> = current
+        .get("favs")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    // `on` absent = bascule ; explicite = idempotent (deux clics rapides sur
+    // l'étoile ne doivent pas dépendre de l'ordre d'arrivée des requêtes).
+    let fav = match body.get("on").and_then(Value::as_bool) {
+        Some(on) => on,
+        None => !favs.contains(rel),
+    };
+    if fav {
+        favs.insert(rel.to_string());
+    } else {
+        favs.remove(rel);
+    }
+    let count = favs.len();
+    current["favs"] = Value::Array(favs.into_iter().map(Value::String).collect());
+
+    match atelier_core::atomic_write_json(&path, &current) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({"ok": true, "rel": rel, "fav": fav, "favs": count})),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 /// Réplique la sanitisation du POST /state Python : mêmes troncatures,
 /// mêmes tris, mêmes valeurs autorisées — la validation vit côté serveur.
 fn sanitize_gallery_state(request: &Value) -> Value {
@@ -2310,6 +2380,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/rev", get(revision))
         .route("/data", get(data))
         .route("/state", get(gallery_state).post(save_gallery_state))
+        .route("/favorite", post(toggle_favorite))
         // Phase 1 — fichiers, état, éditeurs
         .route("/ls", get(files::ls))
         .route("/snippet", get(files::snippet))

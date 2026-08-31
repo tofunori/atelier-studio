@@ -12,6 +12,7 @@ const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
+import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
 import { CloseIcon, RefreshIcon } from "./icons";
 import { GallerySkeleton } from "./GallerySkeleton";
 import { Button, IconButton, RowButton } from "./ui";
@@ -209,6 +210,10 @@ export default function AtelierPane({
   const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
+  // Favoris de la galerie : l'étoile d'un onglet doit se marquer sans ouvrir
+  // la galerie (demande Thierry 2026-08-31). La liste vient du projet, pas du
+  // localStorage du WebView — celui-ci ne survit pas à une relance.
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
   const [paneBounds, setPaneBounds] = useState<Record<string, PaneBounds>>({});
   const workspaceRootRef = useRef<HTMLDivElement | null>(null);
   const pointerDragRef = useRef<PointerDragSession | null>(null);
@@ -597,12 +602,59 @@ export default function AtelierPane({
     };
   });
 
+  useEffect(() => {
+    if (!url) return;
+    let vivant = true;
+    loadGalleryFavorites(url).then((favs) => { if (vivant) setFavorites(favs); });
+    return () => { vivant = false; };
+  }, [url, documentIdsKey]);
+
+  async function toggleFavorite(relative: string) {
+    const wanted = !favorites.has(relative);
+    // optimiste : l'étoile répond au clic, le serveur tranche ensuite
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (wanted) next.add(relative); else next.delete(relative);
+      return next;
+    });
+    const confirmed = await setGalleryFavorite(url, relative, wanted);
+    if (confirmed === null) {
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (wanted) next.delete(relative); else next.add(relative);
+        return next;
+      });
+      return;
+    }
+    // La page galerie garde SES favoris en mémoire et repousse tout l'état au
+    // moindre changement (note, tag…) : sans ce mot, sa copie périmée
+    // effacerait le favori qu'on vient de poser.
+    const frame = document.querySelector('iframe.atelier[data-atelier-role="gallery"]') as HTMLIFrameElement | null;
+    frame?.contentWindow?.postMessage({ type: "atelier-favorite-changed", rel: relative, fav: confirmed }, "*");
+  }
+
   function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, placement: "integrated" | "floating") {
     const relative = ref.kind === "document"
       ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
       : null;
     return (
       <div className={`workspace-pane-controls is-${placement}`} data-pane-controls={placement}>
+        {ref.kind === "document" && relative && (
+          <IconButton
+            className={`ghost workspace-fav${favorites.has(relative) ? " is-on" : ""}`}
+            label={favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
+            title={favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
+            aria-pressed={favorites.has(relative)}
+            size="s"
+            onClick={() => toggleFavorite(relative)}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16"
+              fill={favorites.has(relative) ? "currentColor" : "none"}
+              stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 1.9l1.85 3.9 4.15.6-3 3 .71 4.25L8 11.63l-3.71 2.02.71-4.25-3-3 4.15-.6z" />
+            </svg>
+          </IconButton>
+        )}
         {ref.kind === "surface" && ref.surface === "atelier" && onGalleryReload && (
           <IconButton className="ghost" label={t("action.refresh-hard")} title={t("action.refresh-hard")} size="s" onClick={onGalleryReload}>
             <RefreshIcon />
@@ -675,6 +727,11 @@ export default function AtelierPane({
                   <DropdownMenuItem onClick={() => onPinTab(ref.tabId)}>
                     {documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
                   </DropdownMenuItem>
+                  {relative && (
+                    <DropdownMenuItem onClick={() => toggleFavorite(relative)}>
+                      {favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
+                    </DropdownMenuItem>
+                  )}
                   {relative && onInspectFile && (
                     <DropdownMenuItem onClick={() => onInspectFile(relative)}>
                       {t("inspector.open")}

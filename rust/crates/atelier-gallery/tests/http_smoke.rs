@@ -456,6 +456,52 @@ fn gitcommit_places_a_milestone_when_auto_commits_left_a_clean_tree() {
     assert!(body.contains("\"ok\":false"), "doublon refusé — {body}");
 }
 
+/// Étoile de favori depuis l'app (2026-08-31) : Thierry veut marquer une
+/// figure ouverte dans un onglet sans ouvrir la galerie. Un POST /state
+/// partiel effacerait le reste de l'état — /favorite ne touche que `favs`.
+#[test]
+fn le_favori_bascule_sans_effacer_le_reste_de_l_etat() {
+    let srv = start_server();
+
+    let plein = r#"{"favs":["deja.png"],"ratings":{"deja.png":4},"hidden":["cache.png"],
+        "tags":{"deja.png":["albedo"]},"hideRules":[],"collections":{},"workflow":{},
+        "fileTypes":["tex","pdf"]}"#;
+    let (st, body) = http(srv.port, "POST", "/state", Some(plein));
+    assert_eq!(st, 200, "POST /state — {body}");
+
+    // ajout
+    let (st, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf"}"#));
+    assert_eq!(st, 200, "POST /favorite — {body}");
+    assert!(body.contains("\"fav\":true"), "bascule vers favori — {body}");
+
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert!(body.contains("figs/albedo.pdf"), "favori absent — {body}");
+    assert!(body.contains("deja.png"), "favori existant perdu — {body}");
+    assert!(body.contains("albedo"), "tags perdus — {body}");
+    assert!(body.contains("cache.png"), "masqués perdus — {body}");
+    assert!(body.contains("\"fileTypes\""), "filtre du projet perdu — {body}");
+
+    // deuxième appel : bascule inverse
+    let (_, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf"}"#));
+    assert!(body.contains("\"fav\":false"), "retrait — {body}");
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert!(!body.contains("figs/albedo.pdf"), "favori non retiré — {body}");
+
+    // `on` explicite : idempotent, l'ordre d'arrivée ne décide de rien
+    for _ in 0..2 {
+        let (_, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf","on":true}"#));
+        assert!(body.contains("\"fav\":true"), "on:true — {body}");
+    }
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    assert_eq!(body.matches("figs/albedo.pdf").count(), 1, "doublon — {body}");
+
+    // chemins hors projet refusés
+    for sale in [r#"{"rel":"/etc/passwd"}"#, r#"{"rel":"../secret.png"}"#, r#"{"rel":""}"#] {
+        let (st, _) = http(srv.port, "POST", "/favorite", Some(sale));
+        assert_eq!(st, 400, "rel accepté à tort : {sale}");
+    }
+}
+
 /// Filtre de types par PROJET (2026-08-24). Le panneau Filtres ne gardait son
 /// état que dans le localStorage du WebView, qui ne survit pas au redémarrage
 /// de l'app (PIEGES_CONNUS §1) : « pas de PNG dans FRQNT » était perdu à chaque

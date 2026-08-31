@@ -2230,6 +2230,19 @@ function toggleFav(rel, el){
   document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
   render();
 }
+// The app can star an open document from its tab bar (no gallery visit). The
+// server already wrote .fig_state.json; we only refresh this page's in-memory
+// set and its localStorage mirror — never pushState, whose stale copy would
+// otherwise undo that write.
+window.addEventListener('message', function(e){
+  if(e.source!==window.top || !e.data || e.data.type!=='atelier-favorite-changed') return;
+  const rel=e.data.rel;
+  if(typeof rel!=='string' || !rel) return;
+  if(e.data.fav) favs.add(rel); else favs.delete(rel);
+  saveFavs();
+  document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
+  render();
+});
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
 const GALLERY_PROJECT_SCOPE='__ROOT__';
 const galleryProjectStorageKey=name=>name+':'+GALLERY_PROJECT_SCOPE;

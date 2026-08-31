@@ -111,6 +111,57 @@ describe("AtelierPane — chrome du pane (plan 057)", () => {
   });
 });
 
+describe("AtelierPane — étoile de favori d'un document ouvert", () => {
+  // Marquer une figure ouverte demandait d'aller dans la galerie et de
+  // retrouver sa vignette (demande Thierry 2026-08-31). L'étoile vit
+  // maintenant dans les contrôles de l'onglet ; la vérité reste le projet.
+  function mockGallery(favs: string[], postOk = true) {
+    const calls: { url: string; body?: unknown }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url.endsWith("/state")) {
+        return { ok: true, json: async () => ({ favs }) } as unknown as Response;
+      }
+      if (!postOk) return { ok: false, json: async () => ({}) } as unknown as Response;
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      return { ok: true, json: async () => ({ ok: true, fav: body.on }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return calls;
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function renderAvecFavoris(favs: string[], postOk = true) {
+    const calls = mockGallery(favs, postOk);
+    await act(async () => { pane({ tabs: [PDF_TAB], activeTab: "t1" }); });
+    return calls;
+  }
+
+  it("ajoute le document ouvert aux favoris du projet, sans passer par la galerie", async () => {
+    const calls = await renderAvecFavoris([]);
+    const etoile = screen.getByRole("button", { name: "Ajouter aux favoris" });
+
+    await act(async () => { fireEvent.click(etoile); });
+
+    const post = calls.find((call) => call.url.endsWith("/favorite"));
+    expect(post?.body).toEqual({ rel: "figs/albedo.pdf", on: true });
+    // l'étoile bascule : le prochain clic retire
+    expect(screen.getByRole("button", { name: "Retirer des favoris" })).toBeInTheDocument();
+  });
+
+  it("montre l'étoile déjà pleine quand le projet connaît le favori", async () => {
+    await renderAvecFavoris(["figs/albedo.pdf"]);
+    expect(screen.getByRole("button", { name: "Retirer des favoris" })).toBeInTheDocument();
+  });
+
+  it("remet l'étoile comme elle était quand le serveur refuse", async () => {
+    await renderAvecFavoris([], false);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajouter aux favoris" })); });
+    // pas de favori fantôme : l'app ne prétend pas avoir écrit
+    expect(screen.getByRole("button", { name: "Ajouter aux favoris" })).toBeInTheDocument();
+  });
+});
+
 describe("AtelierPane — menu du pane (actions rescapées de la bande)", () => {
   async function openPaneMenu() {
     fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
