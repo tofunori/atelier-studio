@@ -3394,6 +3394,16 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             "event": {"kind":"error","message":"provider inconnu"},
         }))];
     };
+    // Le Quick Ask tournait dans $HOME : le CLI démarrait sans CLAUDE.md, sans
+    // git, sans l'arborescence du projet — il ne pouvait rien vérifier de ce
+    // dont la conversation parlait. Il suit maintenant le projet ouvert, et ne
+    // retombe sur $HOME que si la fenêtre n'en connaît aucun.
+    let project_root = msg
+        .get("projectRoot")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
     let prev = state.qa_sessions().lock().await.get(&qa_id).cloned();
     push_qa_line(state, &qa_id, "user", &prompt);
     let state_bg = state.clone();
@@ -3444,7 +3454,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             turn_id: uuid_v4(),
             prompt,
             inputs: None,
-            project_root: std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
+            project_root,
             session_id: prev.map(|s| s.session_id),
             model,
             effort,

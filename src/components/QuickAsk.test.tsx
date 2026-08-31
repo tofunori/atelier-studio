@@ -20,7 +20,7 @@ const providers = [
 function renderQuickAsk(
   activeThreadId?: string,
   context?: QaContext,
-  cb: { onInject?: () => void; onMinimize?: () => void; onClose?: () => void } = {},
+  cb: { onInject?: () => void; onMinimize?: () => void; onClose?: () => void; activeProject?: string } = {},
 ) {
   return renderUi(
     <QuickAsk
@@ -28,6 +28,7 @@ function renderQuickAsk(
       minimized={false}
       draft=""
       activeThreadId={activeThreadId ?? null}
+      activeProject={cb.activeProject ?? null}
       context={context ?? null}
       providers={providers}
       defaultModels={{ grok: "grok-4.6" }}
@@ -62,6 +63,20 @@ describe("Quick Ask", () => {
       provider: "grok",
       model: "grok-4.6",
       effort: "high",
+    })));
+  });
+
+  // Le Quick Ask lançait son CLI dans $HOME : ni CLAUDE.md, ni git, ni les
+  // fichiers dont la conversation parlait. Il suit le projet ouvert.
+  it("lance le CLI dans le projet ouvert", async () => {
+    renderQuickAsk(undefined, undefined, { activeProject: "/Users/x/Documents/atelier-studio" });
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "où est le coefficient ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(wsSendMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: "quickAsk",
+      projectRoot: "/Users/x/Documents/atelier-studio",
     })));
   });
 

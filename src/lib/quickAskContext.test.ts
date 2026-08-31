@@ -22,12 +22,14 @@ describe("buildQuickAskPrompt", () => {
     expect(prompt).toContain("mais cest quoi contribution?");
   });
 
-  it("dit à l'agent de répondre depuis l'extrait plutôt que de fouiller le disque", () => {
+  it("part de l'extrait mais laisse ouvrir les fichiers du projet", () => {
     const prompt = buildQuickAskPrompt(
       { selection: "Contribution", message: "Author contributions.", role: "assistant" },
       "c'est quoi ?",
     );
-    expect(prompt).toMatch(/n['’]ouvre pas de fichiers/i);
+    expect(prompt).toMatch(/Pars de cet extrait/i);
+    expect(prompt).toMatch(/ouvrir les fichiers du projet/i);
+    expect(prompt).not.toMatch(/n['’]ouvre pas de fichiers/i);
   });
 
   it("retombe sur la sélection seule quand le message n'a pas pu être retrouvé", () => {
@@ -153,11 +155,11 @@ describe("buildQuickAskPrompt — origine fichier", () => {
     expect(prompt).not.toContain("Manuscrit");
   });
 
-  it("garde la consigne anti-fouille", () => {
+  it("garde la consigne de cadrage", () => {
     const prompt = buildQuickAskPrompt(
       {selection: "x", message: "y", source: {file: "a.tex"}},
       "?",
     );
-    expect(prompt).toMatch(/n['’]ouvre pas de fichiers/i);
+    expect(prompt).toMatch(/Pars de cet extrait/i);
   });
 });
