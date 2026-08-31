@@ -255,11 +255,11 @@
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
   /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
-  .hov{position:absolute;bottom:0;left:0;right:0;z-index:4;display:none;gap:3px;
-       padding:7px 8px;background:var(--card);border-top:1px solid var(--border);
+  .hov{position:absolute;bottom:0;left:0;right:0;z-index:4;display:none;gap:2px;
+       padding:7px 6px;background:var(--card);border-top:1px solid var(--border);
        align-items:center;justify-content:flex-start;flex-wrap:nowrap;overflow:hidden}
   .card:hover .hov{display:flex}
-  .hov button{height:26px;min-width:26px;padding:0 5px;font-size:11px;line-height:1;cursor:pointer;
+  .hov button{height:26px;min-width:24px;padding:0 4px;font-size:11px;line-height:1;cursor:pointer;
         display:inline-flex;align-items:center;justify-content:center;
         background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--muted);box-shadow:var(--shadow)}
   .hov button:hover{color:var(--txt);border-color:var(--border-strong)}
@@ -269,6 +269,10 @@
   .hov button.embOnly{display:none}
   .hov button .fill{fill:none}
   .hov button[data-act="more"]{margin-left:auto}
+  /* cartes étroites : les actions secondaires se replient dans le menu ⋯,
+     qui les propose désormais quel que soit l'hôte */
+  @media (max-width:520px){ .hov button[data-act="board"]{display:none} }
+  @media (max-width:340px){ .hov button[data-act="src"]{display:none} }
   .hov button.on{color:var(--primary)}
   .hov button.on .fill{fill:currentColor}
   .selbox{position:absolute;top:6px;left:6px;z-index:4;font-size:15px;cursor:pointer;line-height:1;
@@ -1485,8 +1489,8 @@ function cardMenu(anchor, rel){
     +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
       `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
     +'<div class="mhd sep"></div>'
-    +(EMB?'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
-      +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>':'')
+    +'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>'
     +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
