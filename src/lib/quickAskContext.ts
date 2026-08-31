@@ -30,17 +30,38 @@ function ou(ctx: QaContext): string {
   return ctx.threadTitle ? `le fil « ${ctx.threadTitle} »` : "la conversation";
 }
 
-export function buildQuickAskPrompt(ctx: QaContext | null, question: string): string {
+// Images collées : la consigne « n'ouvre pas de fichiers » interdirait
+// justement le seul fichier qu'il FAUT ouvrir. On la remplace, en la bornant
+// aux captures données.
+function consigne(images: string[]): string {
+  if (images.length === 0) return CONSIGNE;
+  const bloc = images.map((p) => `- ${p}`).join("\n");
+  const quoi = images.length > 1 ? "ces fichiers image" : "ce fichier image";
+  return [
+    images.length > 1 ? "Images collées par l’utilisateur :" : "Image collée par l’utilisateur :",
+    bloc,
+    `Lis ${quoi} (outil Read) avant de répondre — n’ouvre aucun autre fichier.`,
+  ].join("\n");
+}
+
+export function buildQuickAskPrompt(
+  ctx: QaContext | null,
+  question: string,
+  images: string[] = [],
+): string {
   const selection = ctx?.selection.trim() ?? "";
   const message = ctx?.message?.trim() ?? "";
-  if (!ctx || (!selection && !message)) return question;
+  const fin = consigne(images);
+  if (!ctx || (!selection && !message)) {
+    return images.length === 0 ? question : [question, fin].join("\n\n");
+  }
 
   if (!message) {
     return [
       `Extrait sélectionné dans ${ou(ctx)} :`,
       `"""\n${selection}\n"""`,
       question,
-      CONSIGNE,
+      fin,
     ].join("\n\n");
   }
 
@@ -51,7 +72,7 @@ export function buildQuickAskPrompt(ctx: QaContext | null, question: string): st
   const bloc = [entete, `"""\n${message}\n"""`];
   // La sélection couvre déjà tout le message : le répéter n'ajouterait rien.
   if (selection && selection !== message) bloc.push(`Sélection : « ${selection} »`);
-  return [...bloc, question, CONSIGNE].join("\n\n");
+  return [...bloc, question, fin].join("\n\n");
 }
 
 /** Remonte d'un nœud sélectionné jusqu'à l'index de sa ligne de timeline. */

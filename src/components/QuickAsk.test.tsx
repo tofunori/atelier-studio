@@ -307,6 +307,61 @@ describe("sélection dans la réponse", () => {
   });
 });
 
+describe("capture collée", () => {
+  // WebKit collait le CHEMIN du fichier en clair dans le champ (capture
+  // Thierry 2026-08-31) : le Quick Ask n'écoutait pas le collage d'image.
+  function coller(input: HTMLElement, file: File) {
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => file }],
+        getData: () => "",
+      },
+    });
+  }
+  const shot = () => new File(["x"], "CleanShot.png", { type: "image/png" });
+
+  it("transforme le collage en vignette au lieu d'un chemin dans le champ", async () => {
+    const demande = vi.fn();
+    window.addEventListener("qa-paste-image", demande);
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    coller(input, shot());
+
+    await waitFor(() => expect(container.querySelector(".qa-composer .qa-shot")).toBeTruthy());
+    expect(input.value).toBe("");
+    expect(demande).toHaveBeenCalled();
+    window.removeEventListener("qa-paste-image", demande);
+  });
+
+  it("attend le chemin du backend avant d'envoyer, puis le passe au modèle", async () => {
+    const { container } = renderQuickAsk();
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    coller(input, shot());
+    await waitFor(() => expect(container.querySelector(".qa-shot")).toBeTruthy());
+
+    // capture encore en vol : l'envoi ne part pas
+    fireEvent.change(input, { target: { value: "c'est quoi ce bug ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(wsSendMock).not.toHaveBeenCalled();
+
+    const dataURL = (container.querySelector(".qa-shot img") as HTMLImageElement).src;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-image-saved", {
+        detail: { path: "/tmp/pasted/shot.png", name: "shot.png", dataURL },
+      }));
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(wsSendMock).toHaveBeenCalled());
+    const prompt = wsSendMock.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain("c'est quoi ce bug ?");
+    expect(prompt).toContain("/tmp/pasted/shot.png");
+    // la consigne « n'ouvre pas de fichiers » interdirait le seul fichier utile
+    expect(prompt).not.toContain("N\u2019ouvre pas de fichiers");
+    expect(container.querySelector(".qa-shot")).toBeNull();
+  });
+});
+
 describe("historique", () => {
   const RECENTS = "atelier-studio.qaRecents";
   function recents() { return JSON.parse(localStorage.getItem(RECENTS) ?? "[]"); }

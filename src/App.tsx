@@ -595,6 +595,10 @@ export default function App() {
   const lastInjected = useRef<string | null>(null);
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
+  // Qui a collé : le composeur du chat ou celui du Quick Ask. Le protocole
+  // `saveImage` ne porte pas de corrélation — un seul collage est en vol à la
+  // fois, comme pour `pendingPaste` juste au-dessus.
+  const pendingPasteOrigin = useRef<"chat" | "qa">("chat");
   const pendingZoteroDigest = useRef(new Map<string, ZoteroPaletteItem>()); // clé Zotero -> item en attente du digest
   const pendingAgentMentions = useRef(new Map<string, { threadId: string; provider: string }>());
   const pendingLinkedCreations = useRef(new Map<string, {
@@ -1932,6 +1936,15 @@ export default function App() {
       }
       if (msg.type === "imageSaved") {
         const name = msg.path.split("/").pop() ?? "image.png";
+        if (pendingPasteOrigin.current === "qa") {
+          const dataURL = pendingPaste.current ?? undefined;
+          pendingPasteOrigin.current = "chat";
+          pendingPaste.current = null;
+          window.dispatchEvent(new CustomEvent("qa-image-saved", {
+            detail: { path: msg.path, name, dataURL },
+          }));
+          return;
+        }
         setAttachments((l) =>
           addAttachment(l, {
             name,
@@ -2360,6 +2373,13 @@ export default function App() {
       setQaContext(null);
       setQaMode("open");
     };
+    const onQaPasteImage = (e: Event) => {
+      const dataURL = (e as CustomEvent).detail?.dataURL;
+      if (typeof dataURL !== "string" || ws.current?.readyState !== 1) return;
+      pendingPaste.current = dataURL;
+      pendingPasteOrigin.current = "qa";
+      ws.current.send(JSON.stringify({ type: "saveImage", dataURL }));
+    };
     const onOpenPalette = () => setPaletteOpen(true);
     const onUsageToggle = () => setUsageOpen((v) => !v);
     useWorkspaceEvents({
@@ -2372,6 +2392,7 @@ export default function App() {
       "request-review": onRequestReview,
       "open-palette": onOpenPalette,
       "quick-ask-toggle": onQaToggle,
+      "qa-paste-image": onQaPasteImage,
       "usage-toggle": onUsageToggle,
     });
   }

@@ -34,6 +34,8 @@ function saveRecent(qaId: string, msgs: QaMsg[]) {
   localStorage.setItem(RECENTS_KEY, JSON.stringify([{ qaId, ts: Date.now(), msgs: clean }, ...rest].slice(0, 20)));
 }
 type QaSelection = { provider: string; model: string; effort: string };
+/** Capture collée : la vignette est immédiate, le chemin arrive du backend. */
+type QaImage = { dataURL: string; name: string; path: string | null };
 // Une fenêtre se prend par ses huit côtés, pas seulement par un coin.
 const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 const MIN_BOX = { w: 380, h: 240 };
@@ -197,6 +199,33 @@ export default function QuickAsk({
   }
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // Captures collées dans le champ : même geste que le composeur du chat —
+  // la vignette remplace le chemin de fichier que WebKit collait en clair.
+  const [images, setImages] = useState<QaImage[]>([]);
+  useEffect(() => {
+    const onSaved = (e: Event) => {
+      const { path, name, dataURL } = (e as CustomEvent).detail ?? {};
+      if (typeof path !== "string") return;
+      setImages((prev) => prev.map((img) => (
+        img.path === null && (dataURL == null || img.dataURL === dataURL)
+          ? { ...img, path, name: typeof name === "string" ? name : img.name }
+          : img
+      )));
+    };
+    window.addEventListener("qa-image-saved", onSaved);
+    return () => window.removeEventListener("qa-image-saved", onSaved);
+  }, []);
+
+  function pasteImage(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataURL = String(reader.result);
+      setImages((prev) => [...prev, { dataURL, path: null, name: file.name || t("qa.image-pending") }]);
+      window.dispatchEvent(new CustomEvent("qa-paste-image", { detail: { dataURL } }));
+    };
+    reader.readAsDataURL(file);
+  }
+
   // « Ajouter au chat » DANS le Quick Ask : surligner un passage de la réponse
   // et le reposer en contexte de la question suivante, sans repasser par le
   // chat principal — la fenêtre est une conversation à part entière.
@@ -255,6 +284,7 @@ export default function QuickAsk({
     setText(draft);
     setCtx(context ?? null);
     setQuote(null);
+    setImages([]);
     setBusy(false);
     setRecentsOpen(false);
     setPromoteErr(null);
@@ -382,11 +412,15 @@ export default function QuickAsk({
   function ask() {
     const q = text.trim();
     if (!q || busy) return;
+    // Une capture encore en cours d'écriture n'a pas de chemin : sans elle, le
+    // modèle répondrait à côté. On attend le retour du backend.
+    if (images.some((img) => img.path === null)) return;
     setMsgs((prev) => [...prev, { role: "user", text: q, context: ctx ?? undefined }]);
     setText("");
     setBusy(true);
-    const prompt = buildQuickAskPrompt(ctx, q);
+    const prompt = buildQuickAskPrompt(ctx, q, images.map((img) => img.path!).filter(Boolean));
     if (ctx) setCtx(null);
+    setImages([]);
     wsSend({ type: "quickAsk", qaId, prompt, ...activeSelection });
   }
 
@@ -419,6 +453,7 @@ export default function QuickAsk({
               setMsgs([]);
               setCtx(null);
               setQuote(null);
+              setImages([]);
               setText("");
               setBusy(false);
               window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -602,6 +637,21 @@ export default function QuickAsk({
               <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}>✕</IconButton>
             </div>
           )}
+          {images.length > 0 && (
+            <div className="qa-shots">
+              {images.map((img) => (
+                <span key={img.dataURL} className={`qa-shot ${img.path ? "" : "pending"}`} title={img.path ?? t("qa.image-pending")}>
+                  <img src={img.dataURL} alt="" />
+                  <span className="qa-shot-name">{img.name}</span>
+                  <IconButton
+                    size="s"
+                    label={t("action.close")}
+                    onClick={() => setImages((prev) => prev.filter((x) => x.dataURL !== img.dataURL))}
+                  >✕</IconButton>
+                </span>
+              ))}
+            </div>
+          )}
           <Textarea
             ref={inputRef}
             className="qa-input"
@@ -609,6 +659,16 @@ export default function QuickAsk({
             value={text}
             placeholder={t("qa.placeholder")}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              for (const item of e.clipboardData.items) {
+                if (!item.type.startsWith("image/")) continue;
+                const file = item.getAsFile();
+                if (!file) continue;
+                e.preventDefault();
+                pasteImage(file);
+                return;
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
               if (e.key === "Escape") close();
