@@ -101,6 +101,7 @@ export default function QuickAsk({
   draft,
   context,
   activeThreadId,
+  activeProject,
   providers,
   customModels = [],
   defaultModels = {},
@@ -117,6 +118,8 @@ export default function QuickAsk({
   context?: QaContext | null;
   /** fil affiché dans le chat — le Quick Ask emprunte son modèle */
   activeThreadId?: string | null;
+  /** dossier du projet ouvert — le Quick Ask y lance son CLI, comme le chat */
+  activeProject?: string | null;
   providers: ProviderInfo[];
   customModels?: { provider: string; id: string }[];
   defaultModels?: Record<string, string>;
@@ -421,7 +424,7 @@ export default function QuickAsk({
     const prompt = buildQuickAskPrompt(ctx, q, images.map((img) => img.path!).filter(Boolean));
     if (ctx) setCtx(null);
     setImages([]);
-    wsSend({ type: "quickAsk", qaId, prompt, ...activeSelection });
+    wsSend({ type: "quickAsk", qaId, prompt, projectRoot: activeProject ?? "", ...activeSelection });
   }
 
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));

@@ -18,9 +18,13 @@ export type QaContext = {
   source?: {file: string; lines?: string};
 };
 
-// Le Quick Ask tourne avec les outils du CLI : sans consigne, un modèle à
-// court de contexte préfère chercher plutôt que répondre.
-const CONSIGNE = "Réponds à partir de cet extrait. N’ouvre pas de fichiers.";
+// Le Quick Ask tourne avec les outils du CLI, dans le dossier du projet
+// ouvert. On lui laisse le disque : l'extrait ne suffit pas quand la question
+// porte sur ce que le code fait vraiment (un coefficient standardisé ou brut,
+// par exemple). La consigne cadre la fouille au lieu de l'interdire — c'est
+// le prix à payer pour éviter les vingt appels d'outils aveugles de 2026-08-26.
+const CONSIGNE =
+  "Pars de cet extrait. Tu peux ouvrir les fichiers du projet si la réponse en dépend.";
 
 function ou(ctx: QaContext): string {
   if (ctx.source) {
@@ -30,9 +34,8 @@ function ou(ctx: QaContext): string {
   return ctx.threadTitle ? `le fil « ${ctx.threadTitle} »` : "la conversation";
 }
 
-// Images collées : la consigne « n'ouvre pas de fichiers » interdirait
-// justement le seul fichier qu'il FAUT ouvrir. On la remplace, en la bornant
-// aux captures données.
+// Images collées : elles ne se devinent pas, il faut les lire d'abord — la
+// consigne les nomme explicitement avant de rendre la main sur le reste.
 function consigne(images: string[]): string {
   if (images.length === 0) return CONSIGNE;
   const bloc = images.map((p) => `- ${p}`).join("\n");
@@ -40,7 +43,8 @@ function consigne(images: string[]): string {
   return [
     images.length > 1 ? "Images collées par l’utilisateur :" : "Image collée par l’utilisateur :",
     bloc,
-    `Lis ${quoi} (outil Read) avant de répondre — n’ouvre aucun autre fichier.`,
+    `Lis ${quoi} (outil Read) avant de répondre.`,
+    CONSIGNE,
   ].join("\n");
 }
 

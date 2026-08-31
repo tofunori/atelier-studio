@@ -245,7 +245,7 @@
   .row2{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--muted);min-width:0;margin-top:auto}
   .row2 .mf{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--code-font);font-size:11px}
   .row2 .md{flex:none;color:var(--faint);font-variant-numeric:tabular-nums}
-  .row2 .fv,.row2 .rt{color:#c79a3b;flex:none}
+  .row2 .fv,.row2 .rt{color:var(--primary);flex:none}
   .row{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted);margin-top:auto}
   .tag{padding:2px 7px;border-radius:6px;background:var(--card2);font-size:10px;text-transform:uppercase}
   .tag.archive{background:var(--arch);color:#d9a441}
@@ -282,11 +282,11 @@
   .selbox.on{color:#ff6b6b;border-color:#ff6b6b}
   .star{position:absolute;top:6px;right:6px;font-size:18px;cursor:pointer;line-height:1;
         background:rgba(15,17,21,.85);border:1px solid var(--border);border-radius:50%;padding:5px 6px;user-select:none;color:var(--txt)}
-  .star.on{color:#ffce3a;border-color:#ffce3a}
+  .star.on{color:var(--primary);border-color:var(--primary)}
   .rate{display:flex;gap:2px;font-size:13px;line-height:1;user-select:none}
   .rate span{cursor:pointer;color:var(--border)}
-  .rate span.on{color:#d9a441}
-  .rate span:hover{color:#e8c26a}
+  .rate span.on{color:var(--primary)}
+  .rate span:hover{color:color-mix(in srgb,var(--primary) 65%,var(--txt))}
   .card{position:relative}
   .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:60px}
   #lb{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.88);display:none;

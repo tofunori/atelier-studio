@@ -4237,6 +4237,7 @@ export default function App() {
             draft={qaDraft}
             context={qaContext}
             activeThreadId={activeId}
+            activeProject={activeProject}
             providers={providerList}
             customModels={settings.customModels}
             defaultModels={settings.defaultModel}
