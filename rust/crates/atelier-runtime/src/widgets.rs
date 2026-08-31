@@ -73,6 +73,130 @@ fn escape_html(raw: &str) -> String {
 
 /// La coquille : CSP, tokens de thème, pont postMessage. L'agent écrit le
 /// contenu de la page, jamais sa tête.
+/// Localise node : le contrôle de script est un CONFORT, jamais une
+/// dépendance dure — sans node, la publication passe telle quelle.
+fn node_bin() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(out) = std::process::Command::new("which").arg("node").output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    None
+}
+
+/// Contenu de tous les blocs `<script>` du fragment, concaténé.
+pub fn extract_scripts(html: &str) -> String {
+    let mut out = String::new();
+    let bas = html.to_ascii_lowercase();
+    let mut i = 0;
+    while let Some(rel) = bas[i..].find("<script") {
+        let ouvre = i + rel;
+        let Some(rel_fin_balise) = bas[ouvre..].find('>') else { break };
+        let debut = ouvre + rel_fin_balise + 1;
+        let Some(rel_fermeture) = bas[debut..].find("</script") else { break };
+        let fin = debut + rel_fermeture;
+        out.push_str(&html[debut..fin]);
+        out.push('\n');
+        i = fin;
+    }
+    out
+}
+
+/// DOM factice permissif : tout accès rend un proxy qui se laisse appeler,
+/// indexer et convertir en nombre. Ce qui SURVIT à ce stub et lève quand
+/// même est une vraie faute du script — variable non déclarée, coquille dans
+/// un nom, syntaxe invalide.
+const HARNAIS: &str = r#"
+const bidon = new Proxy(function () {}, {
+  get(_t, p) {
+    if (p === Symbol.toPrimitive) return () => 0;
+    if (p === Symbol.iterator) return function* () {};
+    if (p === "length") return 0;
+    return bidon;
+  },
+  apply: () => bidon,
+  construct: () => bidon,
+  set: () => true,
+  has: () => true,
+});
+// Certains globaux sont en LECTURE SEULE selon la version de node
+// (`navigator` l'est depuis node 22). Une affectation directe y lève un
+// TypeError qui tuait le harnais avant le script du widget — le contrôle
+// rendait alors « rien à signaler » sur un script pourtant fautif
+// (2026-08-30). On pose donc chaque global défensivement.
+function pose(nom, valeur) {
+  try {
+    Object.defineProperty(globalThis, nom, {
+      value: valeur, configurable: true, writable: true,
+    });
+  } catch (e) { /* global verrouillé : le stub natif de node fera l'affaire */ }
+}
+pose("window", globalThis);
+pose("document", bidon);
+pose("navigator", bidon);
+pose("location", bidon);
+pose("devicePixelRatio", 2);
+pose("requestAnimationFrame", () => 0);
+pose("cancelAnimationFrame", () => {});
+pose("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+pose("addEventListener", () => {});
+pose("removeEventListener", () => {});
+pose("getComputedStyle", () => bidon);
+pose("saveState", () => {});
+pose("sendPrompt", () => {});
+pose("postMessage", () => {});
+pose("alert", () => {});
+"#;
+
+/// Exécute le script du widget dans le harnais. Rend le message d'erreur
+/// quand le script est FRANCHEMENT fautif, `None` sinon.
+///
+/// Ne refuse QUE sur SyntaxError et ReferenceError : ce sont les seules
+/// erreurs qu'un DOM factice ne peut pas provoquer par lui-même. Un
+/// TypeError vient presque toujours du stub (itération, destructuration) et
+/// ferait un faux refus — on passe outre. Politique générale : en cas de
+/// doute, on publie.
+pub fn script_fautif(html: &str) -> Option<String> {
+    let script = extract_scripts(html);
+    if script.trim().is_empty() {
+        return None;
+    }
+    let node = node_bin()?;
+    let dir = std::env::temp_dir().join(format!("atelier-widget-check-{}", new_widget_id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let fichier = dir.join("check.mjs");
+    std::fs::write(&fichier, format!("{HARNAIS}\n{script}\n")).ok()?;
+    let sortie = std::process::Command::new(node).arg(&fichier).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    let sortie = sortie.ok()?;
+    if sortie.status.success() {
+        return None;
+    }
+    let err = String::from_utf8_lossy(&sortie.stderr);
+    for ligne in err.lines() {
+        let l = ligne.trim();
+        if l.starts_with("SyntaxError:") || l.starts_with("ReferenceError:") {
+            return Some(l.to_string());
+        }
+    }
+    None // échec inclassable : on ne bloque pas
+}
+
 pub fn wrap_shell(input: &WidgetInput) -> String {
     format!(
         r#"<!doctype html>
@@ -309,6 +433,22 @@ pub async fn action_show_widget(
     // budget du tour sans qu'un seul panneau n'ait été affiché. Le slot est
     // pris juste après, et TOUJOURS avant la moindre écriture disque.
     let input = parse_widget_input(req)?;
+
+    // Porte de fiabilité (2026-08-30). Sans elle, un script fautif publiait
+    // quand même : la coquille poste `ready` au `load` de la page, donc
+    // l'hôte révélait un panneau VIDE qui se prétendait vivant. L'agent ne
+    // s'en apercevait qu'en relisant son propre code, et empilait alors une
+    // seconde carte pour corriger la première — trois panneaux publiés, deux
+    // morts (constaté chez Thierry). On refuse AVANT toute écriture, avec le
+    // message d'erreur exact : c'est le seul canal qui atteint l'agent dans
+    // le même tour, donc il corrige sans jamais avoir sali le fil.
+    if let Some(faute) = script_fautif(&input.html) {
+        return Err(format!(
+            "widget_script_invalide — le script du panneau échoue avant même \
+d'être affiché : {faute}. Corrige-le et rappelle l'outil ; RIEN n'a été publié \
+dans le fil, tu n'as donc pas de panneau à remplacer."
+        ));
+    }
 
     let turn_id = {
         let mut reg = state.capabilities().lock().await;
@@ -721,3 +861,94 @@ mod tests {
         assert!(!widget_dir(state.app_dir(), "orphelin").exists());
     }
 }
+
+#[cfg(test)]
+mod porte_script_tests {
+    use super::{extract_scripts, script_fautif};
+
+    /// LE cas réel du 2026-08-30 : l'agent écrit TAU0 au lieu de TAUOBS. Le
+    /// canevas restait vide et le panneau se prétendait vivant.
+    #[test]
+    fn la_variable_non_declaree_est_attrapee() {
+        let html = r#"<div id="p"></div>
+<script>
+var TAUOBS = 0.0015;
+function dessine() { var x = TAU0 * 2; document.getElementById("p").textContent = x; }
+dessine();
+</script>"#;
+        let faute = script_fautif(html).expect("TAU0 doit être refusé");
+        assert!(faute.starts_with("ReferenceError:"), "{faute}");
+        assert!(faute.contains("TAU0"), "{faute}");
+    }
+
+    #[test]
+    fn la_syntaxe_invalide_est_attrapee() {
+        let html = r#"<script>function f( { return 1; }</script>"#;
+        let faute = script_fautif(html).expect("syntaxe invalide doit être refusée");
+        assert!(faute.starts_with("SyntaxError:"), "{faute}");
+    }
+
+    /// Le point qui décide de l'utilité : un widget NORMAL, qui touche le DOM,
+    /// le canvas, requestAnimationFrame et le pont, ne doit JAMAIS être refusé.
+    #[test]
+    fn un_widget_honnete_passe() {
+        let html = r#"<div><input id="k" type="range"><canvas id="c"></canvas></div>
+<script>
+var k = document.getElementById("k");
+var cv = document.getElementById("c"), dpr = devicePixelRatio || 1;
+cv.width = cv.clientWidth * dpr;
+var ctx = cv.getContext("2d");
+ctx.scale(dpr, dpr);
+function f() {
+  var v = +k.value;
+  ctx.clearRect(0, 0, 400, 100);
+  ctx.beginPath();
+  for (var i = 0; i < 50; i++) ctx.lineTo(i * 8, 50 - v * i);
+  ctx.stroke();
+  if (window.saveState) saveState({ k: v });
+  requestAnimationFrame(f);
+}
+window.onRestore = function (s) { if (s && s.k) k.value = s.k; f(); };
+k.addEventListener("input", f);
+var st = getComputedStyle(document.documentElement).getPropertyValue("--accent");
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) { /* pause */ }
+f();
+</script>"#;
+        assert_eq!(script_fautif(html), None, "faux refus sur un widget normal");
+    }
+
+    /// Le harnais doit tourner PROPREMENT à vide. Sans ce test, une panne du
+    /// prélude rend le contrôle muet au lieu de bruyant : c'est exactement ce
+    /// qui est arrivé le 2026-08-30 (node 22+ verrouille `navigator`, mon
+    /// affectation levait un TypeError avant le script du widget, et la
+    /// politique « en cas de doute on publie » l'avalait).
+    #[test]
+    fn le_harnais_seul_ne_leve_rien() {
+        let node = super::node_bin().expect("node requis pour ce test");
+        let dir = std::env::temp_dir().join(format!("atelier-harnais-{}", super::new_widget_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("h.mjs");
+        std::fs::write(&f, super::HARNAIS).unwrap();
+        let out = std::process::Command::new(&node).arg(&f).output().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            out.status.success(),
+            "le harnais lui-même échoue — le contrôle serait muet :\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn un_fragment_sans_script_passe() {
+        assert_eq!(script_fautif("<div>juste du texte</div>"), None);
+    }
+
+    #[test]
+    fn les_blocs_script_sont_tous_extraits() {
+        let html = r#"<script>var a=1;</script><p>x</p><script type="text/javascript">var b=2;</script>"#;
+        let s = extract_scripts(html);
+        assert!(s.contains("var a=1;") && s.contains("var b=2;"));
+        assert!(!s.contains("<p>"));
+    }
+}
+
