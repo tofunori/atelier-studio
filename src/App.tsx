@@ -4634,6 +4634,25 @@ export default function App() {
               projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}
               onGalleryReload={hardReloadAtelier}
               onInspectFile={openInspector}
+              onAddFileToChat={(rel) => {
+                // Même contrat que le bouton chat des cartes galerie
+                // (chatAttachment) : chemin absolu + consigne de lecture,
+                // vignette pour les images.
+                const root = activeProject ?? "";
+                const path = `${root}/${rel}`;
+                const name = rel.split("/").pop() || rel;
+                const ext = (name.split(".").pop() || "").toLowerCase();
+                const origin = (() => {
+                  try { return atelierUrl ? new URL(atelierUrl).origin : null; } catch { return null; }
+                })();
+                const previewUrl = origin && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)
+                  ? new URL(rel, `${origin}/`).href
+                  : undefined;
+                attachContextToChat(
+                  `${path}\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.`,
+                  { path, name, previewUrl },
+                );
+              }}
               agent={activeAgent}
               agentEvents={activeAgentEvents}
               onCloseAgent={closeAgentInAtelier}

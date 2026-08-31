@@ -111,6 +111,22 @@ describe("AtelierPane — chrome du pane (plan 057)", () => {
   });
 });
 
+describe("AtelierPane — joindre le document ouvert au chat", () => {
+  // Le bouton chat vivait seulement sur les cartes galerie : joindre un
+  // fichier déjà ouvert demandait d'y retourner (demande Thierry 2026-08-31).
+  it("la bulle des contrôles envoie le rel du document actif", () => {
+    const onAddFileToChat = vi.fn();
+    pane({ tabs: [PDF_TAB], activeTab: "t1", onAddFileToChat });
+    fireEvent.click(screen.getByRole("button", { name: "Ajouter au chat" }));
+    expect(onAddFileToChat).toHaveBeenCalledWith("figs/albedo.pdf");
+  });
+
+  it("sans câblage, pas de bouton mort", () => {
+    pane({ tabs: [PDF_TAB], activeTab: "t1", onAddFileToChat: undefined });
+    expect(screen.queryByRole("button", { name: "Ajouter au chat" })).toBeNull();
+  });
+});
+
 describe("AtelierPane — étoile de favori d'un document ouvert", () => {
   // Marquer une figure ouverte demandait d'aller dans la galerie et de
   // retrouver sa vignette (demande Thierry 2026-08-31). L'étoile vit

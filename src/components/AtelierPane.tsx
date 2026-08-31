@@ -155,6 +155,7 @@ export default function AtelierPane({
   onOpenExplorer,
   onGalleryReload,
   onInspectFile,
+  onAddFileToChat,
   kbBinding,
   kbThreadTitle,
   agent,
@@ -188,6 +189,8 @@ export default function AtelierPane({
   projectName?: string | null;
   onGalleryReload?: () => void;
   onInspectFile?: (rel: string) => void;
+  /** Joint le fichier de l'onglet au composeur du chat (même contrat que le bouton chat des cartes galerie). */
+  onAddFileToChat?: (rel: string) => void;
   kbBinding?: import("../lib/kbSources").KbBinding | null;
   kbThreadTitle?: string;
   agent?: AgentDisplay | null;
@@ -646,6 +649,19 @@ export default function AtelierPane({
       : null;
     return (
       <div className={`workspace-pane-controls is-${placement}`} data-pane-controls={placement}>
+        {ref.kind === "document" && relative && onAddFileToChat && (
+          <IconButton
+            className="ghost"
+            label={t("action.add-to-chat")}
+            title={t("action.add-to-chat")}
+            size="s"
+            onClick={() => onAddFileToChat(relative)}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
+            </svg>
+          </IconButton>
+        )}
         {ref.kind === "document" && relative && (
           <IconButton
             className={`ghost workspace-fav${favorites.has(relative) ? " is-on" : ""}`}
@@ -734,6 +750,11 @@ export default function AtelierPane({
                   <DropdownMenuItem onClick={() => onPinTab(ref.tabId)}>
                     {documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
                   </DropdownMenuItem>
+                  {relative && onAddFileToChat && (
+                    <DropdownMenuItem onClick={() => onAddFileToChat(relative)}>
+                      {t("action.add-to-chat")}
+                    </DropdownMenuItem>
+                  )}
                   {relative && (
                     <DropdownMenuItem onClick={() => toggleFavorite(relative)}>
                       {favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
