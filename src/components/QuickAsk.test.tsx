@@ -17,7 +17,11 @@ const providers = [
   makeProviderInfo({ id: "grok", label: "Grok", models: ["grok-4.6", "grok-4.5"], defaultModel: "grok-4.6", modelLabels: { "grok-4.6": "Grok 4.6", "grok-4.5": "Grok 4.5" }, efforts: ["minimal", "low", "medium", "high", "xhigh", "max"] }),
 ];
 
-function renderQuickAsk(activeThreadId?: string, context?: QaContext) {
+function renderQuickAsk(
+  activeThreadId?: string,
+  context?: QaContext,
+  cb: { onInject?: () => void; onMinimize?: () => void; onClose?: () => void } = {},
+) {
   return renderUi(
     <QuickAsk
       open
@@ -28,9 +32,9 @@ function renderQuickAsk(activeThreadId?: string, context?: QaContext) {
       providers={providers}
       defaultModels={{ grok: "grok-4.6" }}
       defaultEfforts={{ grok: "high" }}
-      onMinimize={vi.fn()}
-      onClose={vi.fn()}
-      onInject={vi.fn()}
+      onMinimize={cb.onMinimize ?? vi.fn()}
+      onClose={cb.onClose ?? vi.fn()}
+      onInject={cb.onInject ?? vi.fn()}
       onPromote={vi.fn()}
     />,
   );
@@ -359,6 +363,33 @@ describe("capture collée", () => {
     // la consigne « n'ouvre pas de fichiers » interdirait le seul fichier utile
     expect(prompt).not.toContain("N\u2019ouvre pas de fichiers");
     expect(container.querySelector(".qa-shot")).toBeNull();
+  });
+});
+
+describe("injection dans le chat", () => {
+  // Injecter fermait la fenêtre, et l'ouverture suivante repartait à neuf : la
+  // conversation dont on venait de se servir disparaissait (signalé
+  // 2026-08-31). Elle se replie désormais, et ⚡ / ⌥⌘K la ramène intacte.
+  it("replie la fenêtre au lieu de la fermer, et garde la conversation", async () => {
+    const onInject = vi.fn();
+    const onMinimize = vi.fn();
+    const onClose = vi.fn();
+    const { container } = renderQuickAsk(undefined, undefined, { onInject, onMinimize, onClose });
+    const input = container.querySelector(".qa-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "explique" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const qaId = wsSendMock.mock.calls[0][0].qaId as string;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qa-event", {
+        detail: { qaId, event: { kind: "text", text: "La réponse utile." } },
+      }));
+      window.dispatchEvent(new CustomEvent("qa-event", { detail: { qaId, event: { kind: "done", ok: true } } }));
+    });
+
+    fireEvent.click(screen.getByText(/Inject into chat/));
+    expect(onInject).toHaveBeenCalledWith("La réponse utile.");
+    expect(onMinimize).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 

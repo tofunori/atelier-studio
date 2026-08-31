@@ -576,7 +576,7 @@ export default function QuickAsk({
                   </ReactMarkdown>
                   {!msg.streaming && !msg.text.startsWith("⚠") && (
                     <IconButton className="qa-inject-one" label={t("qa.inject")} title={t("qa.inject")}
-                      onClick={() => { onInject(msg.text); close(); }}>
+                      onClick={() => { onInject(msg.text); onMinimize(); }}>
                       ↰
                     </IconButton>
                   )}
@@ -676,7 +676,11 @@ export default function QuickAsk({
           />
         </div>
         <div className="qa-foot">
-          <Button variant="ghost" disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); close(); } }}>
+          {/* Injecter REPLIE la fenêtre au lieu de la fermer : fermer effaçait la
+              conversation (l'ouverture suivante repart à neuf), alors qu'on
+              vient justement de s'en servir — on veut pouvoir y revenir par
+              ⚡ / ⌥⌘K (signalé 2026-08-31). */}
+          <Button variant="ghost" disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); onMinimize(); } }}>
             ↰ {t("qa.inject")}
           </Button>
           <Button variant="ghost" disabled={msgs.length === 0 || busy} onClick={() => {
