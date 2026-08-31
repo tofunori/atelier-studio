@@ -1290,12 +1290,14 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let state_review = state.clone();
             let thread_id_owned = thread_id.to_string();
             tokio::spawn(async move {
+                let mcp = atelier_mcp_param(&state_review, &thread).await;
                 let result = provider
                     .native_command(
                         "review",
                         json!({
                             "sessionId": thread.session_id,
                             "projectRoot": thread.project_root,
+                            "atelierMcp": mcp,
                         }),
                     )
                     .await;
@@ -1355,6 +1357,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     format!("compact: provider {} absent", thread.provider),
                 )];
             };
+            let mcp = atelier_mcp_param(state, &thread).await;
             match provider
                 .native_command(
                     "compact",
@@ -1362,6 +1365,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         "threadId": thread_id,
                         "sessionId": thread.session_id,
                         "projectRoot": thread.project_root,
+                        "atelierMcp": mcp,
                     }),
                 )
                 .await
@@ -1403,6 +1407,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let mut params = json!({
                 "sessionId": thread.session_id,
                 "projectRoot": thread.project_root,
+                "atelierMcp": atelier_mcp_param(state, &thread).await,
             });
             if command == "goalSet" {
                 params["objective"] = msg.get("objective").cloned().unwrap_or(Value::Null);
@@ -1574,6 +1579,37 @@ fn term_events(state: &AppState) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Capacité MCP pour une COMMANDE NATIVE codex (compact, goal, review).
+/// L'app-server n'applique `config.mcp_servers` qu'à la PREMIÈRE ouverture
+/// d'une session (sondes 2026-08-31) — or ces commandes partent dès
+/// l'ouverture d'un fil, AVANT le premier tour : sans capacité ici, la
+/// session naît sans serveurs MCP et les tours suivants ne peuvent plus les
+/// lui donner. turn_id=None : hors tour, le grant garde son tour courant.
+async fn atelier_mcp_param(state: &AppState, thread: &atelier_store::Thread) -> Option<Value> {
+    if !crate::agent_mcp::should_launch_mcp(&thread.provider) {
+        return None;
+    }
+    match crate::agent_mcp::issue_mcp_launch(
+        state,
+        &thread.id,
+        &thread.project_root,
+        &thread.provider,
+        thread.session_id.clone(),
+        crate::agent_mcp::provider_label(&thread.provider),
+        None,
+        false,
+    )
+    .await
+    {
+        Ok(launch) => Some(json!({
+            "command": launch.command,
+            "serverName": launch.server_name,
+            "env": launch.env,
+        })),
+        Err(_) => None,
+    }
 }
 
 pub(crate) async fn broadcast_threads(state: &AppState) -> Vec<String> {

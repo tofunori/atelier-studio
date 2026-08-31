@@ -110,8 +110,14 @@ impl CapabilityRegistry {
             // clonés : si le plafond absolu est atteint juste en dessous, on
             // retombe sur la frappe d'un jeton neuf, qui en a besoin
             g.session_id = session_id.clone();
-            g.turn_id = turn_id.clone();
-            g.widgets_this_turn = 0;
+            // turn_id=None = appel HORS tour (commande native goalGet/compact,
+            // qui injecte la config MCP à l'ouverture) : il ne doit ni voler
+            // le turnId du tour en cours (l'event widget le porte — C1), ni
+            // remettre le budget de widgets à zéro en plein tour.
+            if turn_id.is_some() {
+                g.turn_id = turn_id.clone();
+                g.widgets_this_turn = 0;
+            }
             // TTL GLISSANT. Sans ça il courait depuis la PREMIÈRE frappe : un
             // fil actif depuis 6 h voyait un tour entier échouer en
             // CAPABILITY_EXPIRED avant que le tour suivant ne refrappe

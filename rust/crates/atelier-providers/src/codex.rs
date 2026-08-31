@@ -496,6 +496,39 @@ fn steer_refus_definitif(err: &str) -> bool {
         || e.contains("not steerable")
 }
 
+/// Options d'ouverture d'une COMMANDE NATIVE (compact, goal, review…).
+/// Portent la config MCP quand l'appelant la fournit : l'app-server applique
+/// `config.mcp_servers` UNIQUEMENT à la PREMIÈRE ouverture d'une session —
+/// tout resume ultérieur avec config est accepté puis ignoré (sondes du
+/// 2026-08-31). Or ces commandes partent dès l'OUVERTURE d'un fil
+/// (pluginsInstalled, goalGet), donc avant le premier tour : sans config ici,
+/// la session naît sans serveurs MCP et aucun tour ne peut plus les lui
+/// donner. `thread/settings/update` ne guérit pas non plus (sondé).
+fn native_open_opts(cwd: &str, sandbox: &str, params: &Value) -> Value {
+    let mut opts = json!({
+        "cwd": if cwd.is_empty() { Value::Null } else { json!(cwd) },
+        "sandbox": sandbox,
+        "approvalPolicy": "never",
+    });
+    if let Some(m) = params.get("atelierMcp") {
+        let (Some(command), Some(server_name)) = (
+            m.get("command").and_then(Value::as_str),
+            m.get("serverName").and_then(Value::as_str),
+        ) else {
+            return opts;
+        };
+        opts.as_object_mut().unwrap().insert(
+            "config".into(),
+            json!({ "mcp_servers": { server_name: {
+                "command": command,
+                "args": [],
+                "env": m.get("env").cloned().unwrap_or_else(|| json!({})),
+            }}}),
+        );
+    }
+    opts
+}
+
 async fn open_thread(
     server: &CodexAppServer,
     session_id: Option<&str>,
@@ -1141,11 +1174,7 @@ impl Provider for CodexProvider {
         let codex_id = open_thread(
             &self.server,
             Some(session_id),
-            json!({
-                "cwd": if cwd.is_empty() { Value::Null } else { json!(cwd) },
-                "sandbox": sandbox,
-                "approvalPolicy": "never",
-            }),
+            native_open_opts(cwd, sandbox, &params),
         )
         .await?;
         match name {
@@ -1554,5 +1583,35 @@ mod steer_mcp_repli_tests {
                 .is_none(),
             "aucun serveur ne doit être déclaré sans capacité"
         );
+    }
+}
+
+#[cfg(test)]
+mod native_open_mcp_tests {
+    use super::native_open_opts;
+    use serde_json::json;
+
+    /// LE bug des trois récidives : une commande native ouvrait la session
+    /// sans serveurs MCP, et l'app-server n'applique la config qu'à la
+    /// PREMIÈRE ouverture — atelier_widget disparaissait pour toute la vie
+    /// de la session.
+    #[test]
+    fn la_commande_native_porte_la_config_mcp() {
+        let params = json!({"atelierMcp": {
+            "command": "/x/atelier-agent-mcp",
+            "serverName": "atelier-sessions",
+            "env": {"ATELIER_MCP_CAPABILITY": "jeton"},
+        }});
+        let opts = native_open_opts("/proj", "read-only", &params);
+        let serveur = &opts["config"]["mcp_servers"]["atelier-sessions"];
+        assert_eq!(serveur["command"], json!("/x/atelier-agent-mcp"));
+        assert_eq!(serveur["env"]["ATELIER_MCP_CAPABILITY"], json!("jeton"));
+    }
+
+    #[test]
+    fn sans_capacite_aucune_config_nest_declaree() {
+        let opts = native_open_opts("", "read-only", &json!({}));
+        assert!(opts.get("config").is_none());
+        assert_eq!(opts["cwd"], serde_json::Value::Null);
     }
 }
