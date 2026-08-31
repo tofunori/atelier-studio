@@ -1,0 +1,10 @@
+[package]
+name = "atelier-fdlimit"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "Relève la soft limit RLIMIT_NOFILE (256 en contexte launchd GUI) avant tout spawn"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
