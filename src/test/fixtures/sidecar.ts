@@ -18,6 +18,12 @@ import { vi } from "vitest";
  * manuel en plus du dispatch.
  */
 export class FakeWS extends EventTarget {
+  // constantes du vrai WebSocket — App garde parfois ses envois avec
+  // `readyState !== WebSocket.OPEN` (et non `!== 1`)
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
   static instances: FakeWS[] = [];
   url: string;
   sent: string[] = [];

@@ -108,6 +108,31 @@ describe("connectSidecar", () => {
     await vi.advanceTimersByTimeAsync(20000);
     expect(FakeWS.instances).toHaveLength(1);
   });
+
+  it("un sidecar qui flappe n'empile pas de listeners abort sur le signal", async () => {
+    // Avant le fix, chaque tentative laissait sur le signal partagé son
+    // onAbort (closure retenant la socket morte) + le rejeteur de la promesse
+    // d'ouverture — croissance sans borne quand le sidecar flappe.
+    invokeMock.mockResolvedValue({ port: 1111 });
+    const ctrl = new AbortController();
+    const adds = vi.spyOn(ctrl.signal, "addEventListener");
+    const removes = vi.spyOn(ctrl.signal, "removeEventListener");
+    const p = connectSidecar(() => {}, undefined, undefined, ctrl.signal);
+    await flushMicrotasks();
+    FakeWS.instances[0].open();
+    await p;
+
+    for (let cycle = 0; cycle < 5; cycle++) {
+      FakeWS.instances[FakeWS.instances.length - 1].fireClose();
+      await vi.advanceTimersByTimeAsync(1000);
+      FakeWS.instances[FakeWS.instances.length - 1].open();
+      await flushMicrotasks();
+    }
+    expect(FakeWS.instances).toHaveLength(6);
+    // seul le onAbort de la tentative VIVANTE peut rester accroché
+    const pending = adds.mock.calls.length - removes.mock.calls.length;
+    expect(pending).toBeLessThanOrEqual(1);
+  });
 });
 
 // Envoi sur socket non ouverte (2026-08-25). `ws.send()` lève InvalidStateError

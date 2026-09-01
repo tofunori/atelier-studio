@@ -575,6 +575,9 @@ export default function App() {
   // envois getHistory (rejeu complet et sans danger via mergeHarnessHistory).
   const mruThreadsRef = useRef<string[]>([]);
   const evictedThreadsRef = useRef<Set<string>>(new Set());
+  // empreinte (nb:seq:eventId) du dernier agentHistory appliqué par fil
+  // d'agent — évite de rematérialiser un transcript inchangé (voir handler)
+  const agentHistoryFps = useRef<Map<string, string>>(new Map());
   // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
   const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
   // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
@@ -993,6 +996,13 @@ export default function App() {
   // Le flux d'activité parent indique qu'un sous-agent existe mais ne contient
   // pas son transcript. Celui-ci vit dans le rollout enfant Codex : on le
   // charge à l'ouverture, puis on le rafraîchit doucement tant qu'il travaille.
+  // Un sous-agent ne travaille que pendant un tour du fil parent : sans tour
+  // parent vivant, un statut « working » est un reliquat (done manqué) et le
+  // polling tournerait pour toujours — le serveur relit et renvoie alors le
+  // rollout COMPLET toutes les 2,5 s, ce qui gonflait le WebContent WKWebView
+  // de ~35 Mo/min au repos (mesure 2026-08-31). On garde l'envoi unique à
+  // l'ouverture du panneau ; seul l'intervalle exige le tour parent.
+  const parentTurnStartedAt = activeId ? workingSince[activeId] ?? null : null;
   useEffect(() => {
     const agentThreadId = activeAgent?.threadId;
     const agentWorking = activeAgent?.status === "working";
@@ -1006,10 +1016,10 @@ export default function App() {
       }));
     };
     request();
-    if (!agentWorking) return;
+    if (!agentWorking || parentTurnStartedAt == null) return;
     const timer = window.setInterval(request, 2500);
     return () => window.clearInterval(timer);
-  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady]);
+  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady, parentTurnStartedAt]);
   useEffect(() => {
     setOpenedAgent(null);
     setActiveTab((current) => current.startsWith("agent:") ? previousAtelierTab.current : current);
@@ -1032,10 +1042,51 @@ export default function App() {
   const attachments = activeComposerDraft.attachments;
   const appSnapPreviewUrlsRef = useRef(new Set<string>());
   const hydratingAppSnapsRef = useRef(new Set<string>());
+  const composerDraftsRef = useRef(composerDrafts);
+  composerDraftsRef.current = composerDrafts;
 
   useEffect(() => () => {
     for (const url of appSnapPreviewUrlsRef.current) URL.revokeObjectURL(url);
     appSnapPreviewUrlsRef.current.clear();
+  }, []);
+
+  // Les blobs de capture n'étaient révoqués qu'au démontage de App : chaque
+  // capture retenait son PNG pour toute la session. Un blob est encore
+  // référencé s'il apparaît dans un brouillon (pièce jointe ou tour en file)
+  // ou dans un événement `user` déjà envoyé — tout le reste est orphelin
+  // (capture abandonnée, fil évincé) et peut être libéré. Appelé par le
+  // passage périodique d'éviction. Le référencement ne devient visible du
+  // sweep qu'au commit React suivant l'add : un blob fraîchement créé est
+  // donc protégé une passe (`fresh`), et seulement balayable à la suivante.
+  const freshAppSnapUrlsRef = useRef(new Set<string>());
+  const sweepAppSnapPreviewUrls = useCallback(() => {
+    const owned = appSnapPreviewUrlsRef.current;
+    if (owned.size === 0) return;
+    const referenced = new Set<string>();
+    const note = (attachment: { imageUrl?: string }) => {
+      if (attachment.imageUrl?.startsWith("blob:")) referenced.add(attachment.imageUrl);
+    };
+    for (const draft of Object.values(composerDraftsRef.current)) {
+      draft.attachments.forEach(note);
+      for (const turn of draft.queuedTurns) turn.attachments.forEach(note);
+    }
+    for (const list of Object.values(eventsRef.current)) {
+      for (const event of list) {
+        const url = (event as { imageUrl?: string }).imageUrl;
+        if (url?.startsWith("blob:")) referenced.add(url);
+      }
+    }
+    const fresh = freshAppSnapUrlsRef.current;
+    for (const url of [...owned]) {
+      if (fresh.has(url)) {
+        fresh.delete(url);
+        continue;
+      }
+      if (!referenced.has(url)) {
+        URL.revokeObjectURL(url);
+        owned.delete(url);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -1060,6 +1111,7 @@ export default function App() {
         hydratingAppSnapsRef.current.add(hydrationKey);
         void appSnapPreviewUrl(path).then((imageUrl) => {
           appSnapPreviewUrlsRef.current.add(imageUrl);
+          freshAppSnapUrlsRef.current.add(imageUrl);
           updateComposerDraft(key, (current) => {
             let changed = false;
             const hydrate = (attachment: Attachment) => {
@@ -1104,6 +1156,7 @@ export default function App() {
             return;
           }
           appSnapPreviewUrlsRef.current.add(imageUrl);
+          freshAppSnapUrlsRef.current.add(imageUrl);
           const projectRoot = activeProjectRef.current ?? "";
           let threadId = activeIdRef.current;
           if (!threadId) {
@@ -1885,16 +1938,30 @@ export default function App() {
         }
       }
       if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
-        const next = materializeHarnessHistory((msg.events ?? []) as AgentEvent[]);
-        setEvents((prev) => {
-          const current = prev[msg.agentThreadId] ?? [];
-          // Les rollouts natifs ne portent pas tous la meta durable des events
-          // harnais. Une substitution contrôlée est donc nécessaire pour que
-          // les nouveaux fragments réellement produits deviennent visibles.
-          return JSON.stringify(current) === JSON.stringify(next)
-            ? prev
-            : { ...prev, [msg.agentThreadId]: next };
-        });
+        // Les rollouts natifs ne portent pas tous la meta durable des events
+        // harnais : le transcript reçu REMPLACE le fil de l'agent dès qu'il a
+        // changé. « Changé » se détecte sur (nb d'événements, meta du dernier)
+        // — un rollout ne fait qu'append — et jamais en re-sérialisant tout :
+        // avec un enfant figé « working », l'ancien double JSON.stringify du
+        // transcript complet toutes les 2,5 s gonflait le WebContent WKWebView
+        // de dizaines de Mo/min (mesure 2026-08-31, banc bench_realapp).
+        const incoming = (msg.events ?? []) as AgentEvent[];
+        const lastMeta = incoming.length
+          ? (incoming[incoming.length - 1] as { meta?: { sequence?: number; eventId?: string } }).meta
+          : undefined;
+        const fp = `${incoming.length}:${lastMeta?.sequence ?? "-"}:${lastMeta?.eventId ?? "-"}`;
+        // Inchangé → ne PAS appeler setEvents du tout : un updater en
+        // bail-out (retour de prev) reste empilé dans la file du hook avec sa
+        // closure (le transcript entier) tant qu'aucun render ne la vide —
+        // sur une page au repos, cette file grossissait sans fin (banc
+        // 2026-08-31 : ~230 Mo/min avec un transcript de 4 Mo poussé toutes
+        // les 2,5 s, plat une fois le setEvents évité).
+        const known = agentHistoryFps.current.get(msg.agentThreadId);
+        if (known !== fp || !eventsRef.current[msg.agentThreadId]?.length) {
+          agentHistoryFps.current.set(msg.agentThreadId, fp);
+          const next = materializeHarnessHistory(incoming);
+          setEvents((prev) => ({ ...prev, [msg.agentThreadId]: next }));
+        }
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
@@ -2442,12 +2509,7 @@ export default function App() {
   // changement de fil actif : `events`, `workingSince` et l'agent ouvert sont
   // lus via leurs refs (tenues à jour à chaque rendu), jamais en dépendance,
   // pour ne pas réévaluer l'éviction à chaque delta.
-  useEffect(() => {
-    if (!activeId) return;
-    const mru = mruThreadsRef.current;
-    if (mru[0] !== activeId) {
-      mruThreadsRef.current = [activeId, ...mru.filter((id) => id !== activeId)].slice(0, 3);
-    }
+  const runThreadEviction = useCallback(() => {
     const running = new Set(
       Object.entries(workingSinceRef.current)
         .filter(([, since]) => since != null)
@@ -2455,7 +2517,7 @@ export default function App() {
     );
     const toEvict = selectEvictableThreads({
       events: eventsRef.current,
-      activeId,
+      activeId: activeIdRef.current,
       mru: mruThreadsRef.current,
       running,
       openedAgentThreadId: openedAgentRef.current?.threadId ?? null,
@@ -2467,12 +2529,34 @@ export default function App() {
     // sont ensuite supprimés avec le reste (pas "préservés").
     for (const id of toEvict) streamCoalescer.flush(id);
     for (const id of toEvict) evictedThreadsRef.current.add(id);
+    // l'empreinte agentHistory doit suivre l'éviction : sans ça un fil
+    // d'agent évincé serait vu « inchangé » et ne se repeuplerait jamais
+    for (const id of toEvict) agentHistoryFps.current.delete(id);
     setEvents((prev) => {
       const next = { ...prev };
       for (const id of toEvict) delete next[id];
       return next;
     });
-  }, [activeId]);
+  }, []);
+  useEffect(() => {
+    if (!activeId) return;
+    const mru = mruThreadsRef.current;
+    if (mru[0] !== activeId) {
+      mruThreadsRef.current = [activeId, ...mru.filter((id) => id !== activeId)].slice(0, 3);
+    }
+    runThreadEviction();
+  }, [activeId, runThreadEviction]);
+  // Au repos, l'éviction ne tournait qu'au changement de fil actif : un fil
+  // peuplé en arrière-plan par le WS (tour autonome, sous-agent, automation)
+  // ne sortait jamais de `events` tant qu'on ne changeait pas de fil. Un
+  // passage périodique libère aussi les blobs appsnap orphelins.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      runThreadEviction();
+      sweepAppSnapPreviewUrls();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [runThreadEviction, sweepAppSnapPreviewUrls]);
 
   // Preuves (tâche 7) : re-demander les épingles à chaque changement de
   // projet actif — sans ça le store garde le projet précédent (ou reste
