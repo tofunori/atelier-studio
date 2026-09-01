@@ -1907,12 +1907,18 @@ export default function App() {
           ? (incoming[incoming.length - 1] as { meta?: { sequence?: number; eventId?: string } }).meta
           : undefined;
         const fp = `${incoming.length}:${lastMeta?.sequence ?? "-"}:${lastMeta?.eventId ?? "-"}`;
-        setEvents((prev) => {
-          const current = prev[msg.agentThreadId];
-          if (current?.length && agentHistoryFps.current.get(msg.agentThreadId) === fp) return prev;
+        // Inchangé → ne PAS appeler setEvents du tout : un updater en
+        // bail-out (retour de prev) reste empilé dans la file du hook avec sa
+        // closure (le transcript entier) tant qu'aucun render ne la vide —
+        // sur une page au repos, cette file grossissait sans fin (banc
+        // 2026-08-31 : ~230 Mo/min avec un transcript de 4 Mo poussé toutes
+        // les 2,5 s, plat une fois le setEvents évité).
+        const known = agentHistoryFps.current.get(msg.agentThreadId);
+        if (known !== fp || !eventsRef.current[msg.agentThreadId]?.length) {
           agentHistoryFps.current.set(msg.agentThreadId, fp);
-          return { ...prev, [msg.agentThreadId]: materializeHarnessHistory(incoming) };
-        });
+          const next = materializeHarnessHistory(incoming);
+          setEvents((prev) => ({ ...prev, [msg.agentThreadId]: next }));
+        }
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
@@ -2485,6 +2491,9 @@ export default function App() {
     // sont ensuite supprimés avec le reste (pas "préservés").
     for (const id of toEvict) streamCoalescer.flush(id);
     for (const id of toEvict) evictedThreadsRef.current.add(id);
+    // l'empreinte agentHistory doit suivre l'éviction : sans ça un fil
+    // d'agent évincé serait vu « inchangé » et ne se repeuplerait jamais
+    for (const id of toEvict) agentHistoryFps.current.delete(id);
     setEvents((prev) => {
       const next = { ...prev };
       for (const id of toEvict) delete next[id];
