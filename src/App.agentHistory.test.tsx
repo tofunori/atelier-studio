@@ -162,6 +162,34 @@ describe("polling getAgentHistory", () => {
     expect(sentOfType(sock, "getAgentHistory").length).toBe(afterDone);
   });
 
+  it("évince au repos un fil peuplé en arrière-plan", async () => {
+    const THREAD_B = makeThread({ id: "thread-B", title: "Fil B — manuscrit" });
+    const { sock } = await mountApp();
+    await push(sock, { type: "threads", threads: [THREAD_A, THREAD_B] });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    await act(async () => {
+      within(sidebar).getAllByText(THREAD_A.title)[0].click();
+      await flushMicrotasks(4);
+    });
+    // le fil B se peuple par le WS sans jamais devenir actif (tour autonome),
+    // et son tour se termine (done) — il devient évincable
+    await push(sock, { type: "event", threadId: THREAD_B.id, event: events.user("question autonome") });
+    await push(sock, { type: "event", threadId: THREAD_B.id, event: events.done() });
+    // au repos : le passage périodique (60 s) doit le sortir de `events`
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+      await flushMicrotasks(4);
+    });
+    const before = sentOfType(sock, "getHistory").length;
+    await act(async () => {
+      within(sidebar).getAllByText(THREAD_B.title)[0].click();
+      await flushMicrotasks(4);
+    });
+    // fil évincé → réactivation = rechargement complet par getHistory
+    const asked = sentOfType(sock, "getHistory").slice(before);
+    expect(asked.some((m) => m.threadId === THREAD_B.id)).toBe(true);
+  });
+
   it("ne rematérialise pas un transcript agent inchangé", async () => {
     const { sock } = await mountApp();
     await openAgentPane(sock);

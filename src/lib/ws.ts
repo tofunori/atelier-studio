@@ -322,11 +322,23 @@ async function connectSidecarAttempt(
       console.warn("sidecar: message non JSON ignoré", e.data, error);
     }
   };
-  await new Promise((res, rej) => {
-    ws.onopen = res;
-    ws.onerror = rej;
-    signal?.addEventListener("abort", () => rej(abortError()), { once: true });
-  });
+  // Chaque tentative retire ses listeners du signal partagé : un sidecar qui
+  // flappe empilait sinon une closure (retenant la socket morte) par
+  // reconnexion, pour toute la vie de l'app.
+  let openAbort: (() => void) | null = null;
+  try {
+    await new Promise((res, rej) => {
+      openAbort = () => rej(abortError());
+      ws.onopen = res;
+      ws.onerror = rej;
+      signal?.addEventListener("abort", openAbort, { once: true });
+    });
+  } catch (error) {
+    if (openAbort) signal?.removeEventListener("abort", openAbort);
+    signal?.removeEventListener("abort", onAbort);
+    throw error;
+  }
+  if (openAbort) signal?.removeEventListener("abort", openAbort);
   if (signal?.aborted) throw abortError();
   ws.send(JSON.stringify({ type: "clientHello", clientInstanceId: getClientInstanceId() }));
   ws.send(JSON.stringify({ type: "listThreads" }));
@@ -345,7 +357,12 @@ async function connectSidecarAttempt(
     const retry = () => {
       if (signal?.aborted) return;
       connectSidecarAttempt(onMessage, onReconnect, onDisconnect, signal, true)
-        .then((next) => onReconnect?.(next))
+        .then((next) => {
+          // la relève est en place : le onAbort de CETTE tentative (et sa
+          // socket morte) n'ont plus de raison de rester accrochés au signal
+          signal?.removeEventListener("abort", onAbort);
+          onReconnect?.(next);
+        })
         .catch(() => {
           if (signal?.aborted) return;
           delay = Math.min(delay * 2, 30000);

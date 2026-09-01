@@ -1042,10 +1042,44 @@ export default function App() {
   const attachments = activeComposerDraft.attachments;
   const appSnapPreviewUrlsRef = useRef(new Set<string>());
   const hydratingAppSnapsRef = useRef(new Set<string>());
+  const composerDraftsRef = useRef(composerDrafts);
+  composerDraftsRef.current = composerDrafts;
 
   useEffect(() => () => {
     for (const url of appSnapPreviewUrlsRef.current) URL.revokeObjectURL(url);
     appSnapPreviewUrlsRef.current.clear();
+  }, []);
+
+  // Les blobs de capture n'étaient révoqués qu'au démontage de App : chaque
+  // capture retenait son PNG pour toute la session. Un blob est encore
+  // référencé s'il apparaît dans un brouillon (pièce jointe ou tour en file)
+  // ou dans un événement `user` déjà envoyé — tout le reste est orphelin
+  // (capture abandonnée, fil évincé) et peut être libéré. Appelé par le
+  // passage périodique d'éviction ; les couples add(url)+référencement se
+  // font dans un même bloc synchrone, un timer ne peut pas s'y intercaler.
+  const sweepAppSnapPreviewUrls = useCallback(() => {
+    const owned = appSnapPreviewUrlsRef.current;
+    if (owned.size === 0) return;
+    const referenced = new Set<string>();
+    const note = (attachment: { imageUrl?: string }) => {
+      if (attachment.imageUrl?.startsWith("blob:")) referenced.add(attachment.imageUrl);
+    };
+    for (const draft of Object.values(composerDraftsRef.current)) {
+      draft.attachments.forEach(note);
+      for (const turn of draft.queuedTurns) turn.attachments.forEach(note);
+    }
+    for (const list of Object.values(eventsRef.current)) {
+      for (const event of list) {
+        const url = (event as { imageUrl?: string }).imageUrl;
+        if (url?.startsWith("blob:")) referenced.add(url);
+      }
+    }
+    for (const url of [...owned]) {
+      if (!referenced.has(url)) {
+        URL.revokeObjectURL(url);
+        owned.delete(url);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -2466,12 +2500,7 @@ export default function App() {
   // changement de fil actif : `events`, `workingSince` et l'agent ouvert sont
   // lus via leurs refs (tenues à jour à chaque rendu), jamais en dépendance,
   // pour ne pas réévaluer l'éviction à chaque delta.
-  useEffect(() => {
-    if (!activeId) return;
-    const mru = mruThreadsRef.current;
-    if (mru[0] !== activeId) {
-      mruThreadsRef.current = [activeId, ...mru.filter((id) => id !== activeId)].slice(0, 3);
-    }
+  const runThreadEviction = useCallback(() => {
     const running = new Set(
       Object.entries(workingSinceRef.current)
         .filter(([, since]) => since != null)
@@ -2479,7 +2508,7 @@ export default function App() {
     );
     const toEvict = selectEvictableThreads({
       events: eventsRef.current,
-      activeId,
+      activeId: activeIdRef.current,
       mru: mruThreadsRef.current,
       running,
       openedAgentThreadId: openedAgentRef.current?.threadId ?? null,
@@ -2499,7 +2528,26 @@ export default function App() {
       for (const id of toEvict) delete next[id];
       return next;
     });
-  }, [activeId]);
+  }, []);
+  useEffect(() => {
+    if (!activeId) return;
+    const mru = mruThreadsRef.current;
+    if (mru[0] !== activeId) {
+      mruThreadsRef.current = [activeId, ...mru.filter((id) => id !== activeId)].slice(0, 3);
+    }
+    runThreadEviction();
+  }, [activeId, runThreadEviction]);
+  // Au repos, l'éviction ne tournait qu'au changement de fil actif : un fil
+  // peuplé en arrière-plan par le WS (tour autonome, sous-agent, automation)
+  // ne sortait jamais de `events` tant qu'on ne changeait pas de fil. Un
+  // passage périodique libère aussi les blobs appsnap orphelins.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      runThreadEviction();
+      sweepAppSnapPreviewUrls();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [runThreadEviction, sweepAppSnapPreviewUrls]);
 
   // Preuves (tâche 7) : re-demander les épingles à chaque changement de
   // projet actif — sans ça le store garde le projet précédent (ou reste
