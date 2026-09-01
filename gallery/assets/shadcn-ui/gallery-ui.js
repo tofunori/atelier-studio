@@ -23820,7 +23820,7 @@ function dS({ className: n, children: o, ...a }) {
       ...a,
       children: [
         /* @__PURE__ */ b.jsx("span", { className: "tw:absolute tw:right-2 tw:flex tw:size-3.5 tw:items-center tw:justify-center", "aria-hidden": "true", children: /* @__PURE__ */ b.jsx(_2, { children: /* @__PURE__ */ b.jsx(vi, { "data-icon": "select-check" }) }) }),
-        /* @__PURE__ */ b.jsx(U2, { children: o })
+        /* @__PURE__ */ b.jsx(U2, { "data-slot": "select-item-text", children: o })
       ]
     }
   );
