@@ -44,7 +44,7 @@ Pas de « types de réponse » d'un côté et de « règles custom » de l'autre
 
 ## Modèle de données
 
-### Les consignes — `atelier-store/src/settings.rs`
+### Les consignes — `src/lib/settings.ts`
 
 Stockées dans les réglages existants, sous la clé `consignes` :
 
@@ -69,11 +69,16 @@ Stockées dans les réglages existants, sous la clé `consignes` :
 - `livree` : marque les quatre consignes fournies — modifiables, non
   supprimables, pour qu'une liste ne puisse pas être vidée par accident.
 
-Quatre consignes livrées à la première ouverture, insérées si la clé est
-absente : *Concis*, *Pédagogique*, *Rigueur scientifique*, *Français
-québécois*. L'insertion est idempotente : une consigne livrée supprimée du
-JSON à la main ne revient pas (on écrit un marqueur `consignes_amorcees:
-true` à côté).
+**Le catalogue vit côté frontend.** `saveSettings` écrase `settings.json`
+avec le miroir typé complet (`src/lib/settings.ts`, cf. `App.tsx:909`) : une
+clé absente du type `Settings` serait effacée au premier enregistrement. Donc
+`consignes` s'ajoute au type `Settings` et les quatre consignes livrées
+(*Concis*, *Pédagogique*, *Rigueur scientifique*, *Français québécois*)
+vivent dans `DEFAULT_SETTINGS` — appliquées seulement quand la clé est
+absente du fichier, ce qui donne gratuitement l'idempotence (une consigne
+livrée supprimée ne revient pas). `atelier-store/src/settings.rs` reste
+inchangé : le Rust ne lit jamais le catalogue, seulement la copie portée par
+le fil.
 
 ### L'état du fil — `atelier-store/src/threads.rs`
 
@@ -107,12 +112,21 @@ Règles qui en découlent :
 pub consigne: Option<String>,
 ```
 
-Rempli par `atelier-runtime/src/send.rs` depuis `thread.extra["consigne"]`.
+Rempli par `atelier-runtime/src/send.rs` depuis `previous.extra["consigne"]`
+(le `Thread` est déjà passé en paramètre aux deux endroits qui construisent
+un `SendRequest`) : le tour normal (`send.rs:1422`) **et** le chemin steer
+non-claude (`send.rs:1110`) — le steer claude retombe dans le tour normal
+(`send.rs:1063-1077`) et est couvert par le premier site. La réécriture de la
+copie « au tour suivant » se fait dans le bloc d'upsert qui suit
+`send.rs:996` ; `upsert` fusionne clé à clé au niveau racine et `extra` est
+`#[serde(flatten)]`, donc un patch `{"id": …, "consigne": {…}}` préserve les
+autres clés d'extra (test existant `preserves_extra_fields`).
 
 ### claude — en système
 
-Deux arguments de plus dans le constructeur d'arguments
-(`atelier-providers/src/claude.rs`, à côté de `--model`) :
+Un argument de plus dans `build_args` (`claude.rs:211`, à côté de
+`--model`). `build_args` est le seul constructeur de production (appelé de
+`send()`, y compris pour `--resume`), donc chaque tour du fil le reçoit :
 
 ```
 --append-system-prompt <texte>
@@ -122,9 +136,13 @@ Invisible dans le fil : le message de l'utilisateur reste son message.
 
 ### codex — en préfixe
 
-codex n'a pas d'équivalent. Le texte est préfixé à l'entrée dans
-`build_input` (`atelier-providers/src/codex.rs`), séparé du message par une
-ligne vide, et **marqué** pour que le rendu puisse le masquer :
+codex n'a pas d'équivalent. **Piège vérifié** : dans `build_input`
+(`codex.rs:265`), `prompt` n'est utilisé que dans la branche de repli — si
+`req.inputs` est non vide (image, mention, skill), un préfixe posé sur
+`req.prompt` disparaîtrait. La consigne s'injecte donc *dans* `build_input`
+(nouveau paramètre `consigne: Option<&str>`), en tête du tableau d'items
+dans **les deux branches**, et ses quatre sites d'appel (`codex.rs:790`,
+`815`, `849`, `1030` — steer, retry steer, queue, tour normal) la reçoivent.
 
 ```
 <consigne-atelier>
@@ -134,13 +152,16 @@ ligne vide, et **marqué** pour que le rendu puisse le masquer :
 {prompt}
 ```
 
-Le frontend retire ce bloc à l'affichage du message utilisateur. Le texte
-part donc bien dans l'historique de codex — c'est le prix du CLI, et le pied
-du menu le dit à l'utilisateur.
+**Aucun masquage frontend.** `send.rs:906-985` sépare déjà `prompt` (ce que
+la bulle affiche) de `provider_prompt` (les blocs injectés galerie/zotero/
+KB) ; la consigne suit ce patron et n'atteint jamais l'UI. Un utilisateur
+qui tape `<consigne-atelier>` dans son message ne voit rien disparaître. Le
+texte part bien dans l'historique de codex — c'est le prix du CLI, et le
+pied du menu le dit.
 
 **Piège :** codex ne retient aucun réglage entre les tours (modèle, effort,
 politique de sandbox sont tous réémis à chaque envoi). La consigne suit la
-même règle, y compris sur `--resume`. Une consigne appliquée au premier tour
+même règle, y compris à la reprise. Une consigne appliquée au premier tour
 puis oubliée serait le pire bogue possible : silencieux.
 
 ### Les trois autres
@@ -212,8 +233,10 @@ Il écrase sur place plutôt que d'ouvrir un panneau de comparaison à
 arbitrer ; le filet est « Rétablir ».
 
 Implémentation : un tour unique sur haiku dans
-`atelier-providers/src/claude.rs`, calqué sur `commit_message` — même
-`--system-prompt`, même modèle, même délai de 60 s. **N'envoie que les trois
+`atelier-providers/src/claude.rs`, calqué sur `commit_message`
+(`claude.rs:773` — args construits en dur hors `build_args`, comme
+`title_conversation`) : même `--system-prompt`, même modèle, même délai de
+60 s. **N'envoie que les trois
 champs** : ni le fil, ni les fichiers du projet, ni `CLAUDE.md`. CLI
 indisponible → bouton éteint, éditeur utilisable à la main. Rien d'assisté
 sur le nom ni la description.
@@ -230,30 +253,41 @@ pas : elles disent la même chose, la redondance est inoffensive.
 
 ## Tests
 
-- **Store** : amorçage idempotent des quatre consignes livrées ; suppression
+- **Réglages frontend** : `DEFAULT_SETTINGS` fournit les quatre consignes
+  quand la clé est absente et ne touche pas une clé présente ; suppression
   refusée sur une consigne `livree` ; `nom` coupé à 24 caractères.
-- **Fil** : `extra.consigne` survit à un aller-retour d'`upsert` ; une
-  consigne supprimée du catalogue laisse le fil fonctionnel.
+- **Fil** : un patch `{"consigne": …}` via `upsert` préserve les autres clés
+  d'extra ; une consigne supprimée du catalogue laisse le fil fonctionnel.
 - **claude** : `--append-system-prompt` présent avec le bon texte quand
-  `consigne` est `Some`, absent quand elle est `None`.
-- **codex** : le bloc `<consigne-atelier>` est présent dans `build_input`,
-  et **sur le second tour d'un même fil** — le test qui protège du bogue
-  silencieux.
+  `consigne` est `Some`, absent quand elle est `None`, y compris sur un tour
+  `--resume`.
+- **codex** : le bloc `<consigne-atelier>` est présent dans les **deux
+  branches** de `build_input` (avec et sans `inputs`), et **sur le second
+  tour d'un même fil** — le test qui protège du bogue silencieux.
 - **grok / kimi / opencode** : `consigne: Some(_)` ne modifie aucun argument
   ni aucune charge utile.
-- **Frontend** : le bloc `<consigne-atelier>` est retiré au rendu du message
-  utilisateur ; la pilule est plafonnée à 132 px ; l'état actif n'utilise
-  aucune couleur d'accent (verrouillé dans `css-contract.test.ts`).
+- **Frontend** : la bulle utilisateur n'affiche jamais le bloc (il ne quitte
+  pas `provider_prompt`) ; la pilule est plafonnée à 132 px ; l'état actif
+  n'utilise aucune couleur d'accent — ancré dans `css-contract.test.ts` sur
+  le patron existant « tabs neutres sans accent de marque »
+  (`css-contract.test.ts:684`).
 
 ## Découpage en phases
 
-1. **Store + transport** — clé `consignes`, `extra.consigne`, champ
-   `SendRequest`, câblage claude et codex, tests Rust. Rien de visible.
+1. **Transport** — `extra.consigne`, champ `SendRequest` aux deux sites de
+   construction, câblage claude et codex, tests Rust. Rien de visible ;
+   activable en écrivant l'extra du fil à la main.
 2. **Composeur** — déclencheur, menu, pilule, marqueur d'en-tête, masquage du
    bloc codex au rendu.
 3. **Éditeur** — section de réglages, liste et formulaire.
 4. **Reformuler** — le tour haiku et les trois états du bouton.
 
-Chaque phase est livrable seule : après la 1, tout marche par écriture
-manuelle du JSON ; après la 2, la fonctionnalité est utilisable ; la 3 et la
-4 sont du confort.
+La clé `consignes` du type `Settings` frontend arrive avec la phase 2 (le
+menu en a besoin). Chaque phase est livrable seule : après la 1, tout marche
+par écriture manuelle de l'extra ; après la 2, la fonctionnalité est
+utilisable ; la 3 et la 4 sont du confort.
+
+Réglages : lecture/écriture par le canal WebSocket existant
+(`getSettings`/`saveSettings`, `ws_router.rs:393-402`) ; la nouvelle section
+de l'éditeur se déclare dans `src/components/settings/sections.ts` (une
+ligne + un fichier dans `sections/` + clé i18n).
