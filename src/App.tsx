@@ -1055,8 +1055,10 @@ export default function App() {
   // référencé s'il apparaît dans un brouillon (pièce jointe ou tour en file)
   // ou dans un événement `user` déjà envoyé — tout le reste est orphelin
   // (capture abandonnée, fil évincé) et peut être libéré. Appelé par le
-  // passage périodique d'éviction ; les couples add(url)+référencement se
-  // font dans un même bloc synchrone, un timer ne peut pas s'y intercaler.
+  // passage périodique d'éviction. Le référencement ne devient visible du
+  // sweep qu'au commit React suivant l'add : un blob fraîchement créé est
+  // donc protégé une passe (`fresh`), et seulement balayable à la suivante.
+  const freshAppSnapUrlsRef = useRef(new Set<string>());
   const sweepAppSnapPreviewUrls = useCallback(() => {
     const owned = appSnapPreviewUrlsRef.current;
     if (owned.size === 0) return;
@@ -1074,7 +1076,12 @@ export default function App() {
         if (url?.startsWith("blob:")) referenced.add(url);
       }
     }
+    const fresh = freshAppSnapUrlsRef.current;
     for (const url of [...owned]) {
+      if (fresh.has(url)) {
+        fresh.delete(url);
+        continue;
+      }
       if (!referenced.has(url)) {
         URL.revokeObjectURL(url);
         owned.delete(url);
@@ -1104,6 +1111,7 @@ export default function App() {
         hydratingAppSnapsRef.current.add(hydrationKey);
         void appSnapPreviewUrl(path).then((imageUrl) => {
           appSnapPreviewUrlsRef.current.add(imageUrl);
+          freshAppSnapUrlsRef.current.add(imageUrl);
           updateComposerDraft(key, (current) => {
             let changed = false;
             const hydrate = (attachment: Attachment) => {
@@ -1148,6 +1156,7 @@ export default function App() {
             return;
           }
           appSnapPreviewUrlsRef.current.add(imageUrl);
+          freshAppSnapUrlsRef.current.add(imageUrl);
           const projectRoot = activeProjectRef.current ?? "";
           let threadId = activeIdRef.current;
           if (!threadId) {
