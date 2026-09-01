@@ -3064,10 +3064,17 @@ export default function App() {
 
   function createChat(projectRoot: string, provider: string) {
     const id = crypto.randomUUID();
+    // consigne choisie avant toute conversation (plan 2026-09-01) : consommée
+    // AVANT consumePendingKb pour pouvoir la lui transmettre — un id encore
+    // inconnu du backend ne doit jamais recevoir de patch partiel (ThreadStore
+    // normalise provider→claude et projectRoot→"" pour un id absent du store,
+    // cf. commentaire consumePendingKb ci-dessous : même piège que le KB).
+    const consigneAttente = consumePendingConsigne();
     // sélection KB faite avant toute conversation : adoptée par le fil créé
-    const kbInit = consumePendingKb({ id, provider, projectRoot, title: t("app.new-chat-title") });
-    // même repli pour une consigne choisie avant toute conversation (plan 2026-09-01)
-    const consigneInit = consumePendingConsigne(id);
+    const kbInit = consumePendingKb({
+      id, provider, projectRoot, title: t("app.new-chat-title"),
+      ...(consigneAttente ? { consigne: consigneAttente } : {}),
+    });
     const created = {
       id,
       projectRoot,
@@ -3077,23 +3084,27 @@ export default function App() {
       status: "idle" as const,
       updatedAt: new Date().toISOString(),
       ...kbInit,
-      ...consigneInit,
+      ...(consigneAttente ? { consigne: consigneAttente } : {}),
     };
     setDraftThreads((p) => [created, ...p]);
     // un chat vide doit survivre a la relance : on l'ecrit tout de suite dans
     // threads.json au lieu d'attendre le premier message (consumePendingKb a
-    // deja fait l'upsert quand une selection KB etait en attente). WS fermée
-    // (reconnexion) : le filet sur wsReady republiera ce brouillon.
+    // deja fait l'upsert — consigne comprise — quand une selection KB etait
+    // en attente). WS fermée (reconnexion) : le filet sur wsReady republiera
+    // ce brouillon (consigne comprise, `created` la porte déjà).
     if (!("kbSourceIds" in kbInit) && ws.current?.readyState === 1) {
       publishedDraftsRef.current.add(id);
       ws.current.send(JSON.stringify({
         type: "upsertThread",
-        thread: { id, projectRoot, provider, title: created.title },
+        thread: {
+          id, projectRoot, provider, title: created.title,
+          ...(consigneAttente ? { consigne: consigneAttente } : {}),
+        },
       }));
     }
     // (cas KB : consumePendingKb a fait — ou raté, WS fermée — son upsert
-    // complet ; le filet ne double que d'une fusion inoffensive, on ne marque
-    // donc rien ici)
+    // complet, consigne comprise ; le filet ne double que d'une fusion
+    // inoffensive, on ne marque donc rien ici)
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
@@ -3507,12 +3518,15 @@ export default function App() {
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
+      // consigne « en attente » (accueil/boot) : consommée AVANT
+      // consumePendingKb pour lui être transmise — même patch complet,
+      // jamais un second message partiel (plan 2026-09-01).
+      const consigneAttente = consumePendingConsigne();
       // sélection KB « en attente » (accueil/boot) adoptée par ce fil
       const kbInit = consumePendingKb({
         id, provider, projectRoot: activeProject ?? "", title: displayPrompt.slice(0, 40),
+        ...(consigneAttente ? { consigne: consigneAttente } : {}),
       });
-      // même repli pour une consigne choisie avant toute conversation (plan 2026-09-01)
-      const consigneInit = consumePendingConsigne(id);
       setDraftThreads((p) => [
         {
           id: id as string,
@@ -3523,7 +3537,7 @@ export default function App() {
           status: "idle" as const,
           updatedAt: new Date().toISOString(),
           ...kbInit,
-          ...consigneInit,
+          ...(consigneAttente ? { consigne: consigneAttente } : {}),
         },
         ...p,
       ]);
@@ -3803,7 +3817,11 @@ export default function App() {
   );
   const pendingKbRef = useRef(pendingKb);
   pendingKbRef.current = pendingKb;
-  function consumePendingKb(thread: { id: string; provider: string; projectRoot: string; title: string }) {
+  // `thread` peut porter une `consigne` en attente (plan 2026-09-01) : elle
+  // n'est jamais lue ni modifiée ici, seulement transportée — le spread
+  // `{...thread, ...pending}` la fait atterrir dans CE MÊME message complet
+  // au lieu d'un second patch partiel sur un id encore inconnu du backend.
+  function consumePendingKb(thread: { id: string; provider: string; projectRoot: string; title: string; consigne?: ConsigneDuFil }) {
     const pending = pendingKbRef.current;
     if (!pending.kbSourceIds.length && !pending.kbFullContent.length) return {};
     setPendingKb({ kbSourceIds: [], kbFullContent: [] });
@@ -3862,17 +3880,18 @@ export default function App() {
     patchConsigneDuFil(id, choix);
   }
   // Consomme la consigne en attente (repli créé au-dessus) pour le fil qu'on
-  // vient de créer — même forme que consumePendingKb : upsert immédiat si la
-  // WS est ouverte, et la copie retournée est foldée dans l'objet local du
-  // fil créé par l'appelant (createChat / création à la volée de submit()).
-  function consumePendingConsigne(id: string): { consigne?: ConsigneDuFil } {
+  // vient de créer. PUR — n'envoie RIEN sur la WS : contrairement à un fil
+  // déjà connu du backend (patchConsigneDuFil, patch minimal correct), un id
+  // encore inconnu ne doit recevoir qu'UN SEUL message complet. L'appelant
+  // (createChat / création à la volée de submit()) plie la valeur retournée
+  // dans le même patch complet que consumePendingKb envoie déjà — jamais un
+  // second message partiel qui ferait normaliser provider→claude et perdre
+  // le projet (piège documenté sur consumePendingKb ci-dessus, vécu ici en
+  // fix round 2 : le patch séparé arrivait AVANT le patch complet).
+  function consumePendingConsigne(): ConsigneDuFil | null {
     const pending = pendingConsigneRef.current;
-    if (!pending) return {};
-    setPendingConsigne(null);
-    if (ws.current?.readyState === 1) {
-      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: pending } }));
-    }
-    return { consigne: pending };
+    if (pending) setPendingConsigne(null);
+    return pending;
   }
   // Copie à jour de la consigne active : relit le catalogue COURANT pour
   // l'identifiant porté par le fil, pour qu'une consigne éditée s'applique

@@ -36,6 +36,7 @@ import { renderUi, resetTestState } from "./test/render";
 import { FakeWS, flushMicrotasks } from "./test/fixtures/sidecar";
 import {
   PROJECT_ROOT,
+  FIXED_ISO,
   events,
   makeFigureAddToChatText,
   makeCapabilities,
@@ -43,6 +44,7 @@ import {
   makeThread,
 } from "./test/fixtures";
 import { resetSidecarInfo } from "./lib/sidecarInfo";
+import { resetKbSourcesForTests } from "./lib/kbSources";
 
 const THREAD_A = makeThread({ id: "thread-A", title: "Fil A — albédo" });
 const THREAD_B = makeThread({ id: "thread-B", title: "Fil B — manuscrit" });
@@ -141,6 +143,7 @@ afterEach(() => {
   cleanup(); // pas de globals vitest → RTL ne se nettoie pas tout seul
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  resetKbSourcesForTests(); // cache module-level (lib/kbSources) : ne fuit pas au test suivant
 });
 
 describe("orchestration App — caractérisation", () => {
@@ -314,12 +317,15 @@ describe("orchestration App — caractérisation", () => {
     expect(typeof upserts[0].thread.id).toBe("string");
   });
 
-  it("une consigne choisie avant tout fil se transfère au fil créé (repli pendingConsigne)", async () => {
+  it("une consigne choisie avant tout fil se transfère au fil créé en UN SEUL message complet", async () => {
     // Le déclencheur « Consigne du fil » n'est gardé que par le provider
     // (claude par défaut), jamais par l'existence d'un fil — un premier
     // choix avant la moindre conversation doit survivre à la création du
     // fil au lieu d'être perdu en silence (même repli que pendingKb pour
-    // la base de connaissances).
+    // la base de connaissances). Fix round 2 : ça doit être le fil COMPLET
+    // dès le premier message — jamais un patch {id, consigne} isolé, qui
+    // ferait normaliser provider→claude et perdre le projet côté backend
+    // pour un id qu'il ne connaît pas encore (ThreadStore::upsert / normalize).
     const { sock } = await mountApp();
     fireEvent.click(screen.getByLabelText("Consigne du fil"));
     fireEvent.click(screen.getByText("Concis"));
@@ -330,8 +336,61 @@ describe("orchestration App — caractérisation", () => {
     await act(async () => { await flushMicrotasks(4); });
 
     const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
-    const withConsigne = upserts.find((m) => m.thread?.consigne);
-    expect(withConsigne?.thread.consigne).toMatchObject({ id: "concis" });
+    expect(upserts, "un seul upsertThread — pas de patch partiel avant le complet").toHaveLength(1);
+    expect(upserts[0].thread).toMatchObject({ provider: "codex", consigne: { id: "concis" } });
+    expect(typeof upserts[0].thread.projectRoot).toBe("string");
+    expect(typeof upserts[0].thread.id).toBe("string");
+  });
+
+  it("consigne ET base de connaissances en attente ensemble : pliées dans le MÊME message complet, jamais un patch partiel", async () => {
+    // Combinaison la plus susceptible de régresser (mentionnée par le
+    // reviewer) : consumePendingKb et consumePendingConsigne sont consommés
+    // l'un après l'autre dans createChat(). consumePendingKb envoie SON
+    // upsertThread complet — la consigne y est pliée via son paramètre
+    // `thread` — et c'est LUI qui doit porter les deux, jamais un second
+    // message {id, consigne} isolé. (Un filet de persistance existant,
+    // indépendant de ce fix, republie parfois une 2e annonce du même fil une
+    // fois qu'il est en `draftThreads` — harmless car TOUJOURS complète ; ce
+    // test n'exige donc pas un message unique, seulement qu'aucun ne soit
+    // partiel et que consigne+KB voyagent ensemble sur celui qui les porte.)
+    const { sock } = await mountApp();
+    // Source déjà connue du cache global (lib/kbSources.ts) — alimenté en
+    // temps normal par le WS via l'événement fenêtre "kb-sources" que App
+    // relaie ; pas besoin de driver tout le flux d'ajout (kbAdd) pour ce test.
+    window.dispatchEvent(new CustomEvent("kb-sources", {
+      detail: [{
+        id: "src-1", kind: "note", title: "Note de test",
+        origin: null, chars: 42, addedAt: FIXED_ISO, updatedAt: FIXED_ISO,
+      }],
+    }));
+
+    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByText("Concis"));
+
+    fireEvent.click(screen.getByLabelText(t("kb.open")));
+    fireEvent.click(screen.getByText("Note de test"));
+
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    expect(upserts.length).toBeGreaterThan(0);
+    // aucun patch partiel : chaque annonce de ce fil neuf porte provider ET
+    // projectRoot (jamais un {id, consigne} isolé — le défaut du round
+    // précédent, qui ferait normaliser provider→claude côté backend pour un
+    // id qu'il ne connaît pas encore).
+    for (const u of upserts) {
+      expect(typeof u.thread.provider, JSON.stringify(u)).toBe("string");
+      expect(typeof u.thread.projectRoot, JSON.stringify(u)).toBe("string");
+    }
+    const withBoth = upserts.find((u) => u.thread.consigne && u.thread.kbSourceIds);
+    expect(withBoth?.thread).toMatchObject({
+      provider: "codex",
+      consigne: { id: "concis" },
+      kbSourceIds: ["src-1"],
+    });
   });
 
   it("un chat créé pendant qu'un projet est ouvert APPARTIENT à ce projet", async () => {
