@@ -34,6 +34,9 @@ export default function SettingsPage(p: {
   onClose: () => void;
   ws: WebSocket | null;
   projects?: string[];
+  /** Racine du projet actif — transmise telle quelle à `SectionProps`
+   *  (tâche 11, bouton Reformuler de Consignes.tsx). */
+  projectRoot?: string;
   initialSection?: string;
   /** Vrai quand la page est posée dans `SettingsSheet` (lot A) : elle ne doit
    *  plus occuper toute la fenêtre ni gérer Échap elle-même — la feuille
@@ -136,7 +139,8 @@ export default function SettingsPage(p: {
       <div className="set-body">
         <div className="set-body-status"><SavedIndicator visible={saved} /></div>
         <Suspense fallback={<p className="set-empty">{t("settings.checking")}</p>}>
-          <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects} narrow={narrow} />
+          <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects}
+            projectRoot={p.projectRoot} narrow={narrow} />
         </Suspense>
       </div>
     </div>

@@ -1606,6 +1606,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    ne prennent déjà pas l'orange) — la sélection se lit au remplissage,
    comme .set-nav-item, mais SANS le repère à puce (::before) qui, lui,
    colore avec --accent. */
+.set-consignes-wrap { display: flex; flex-direction: column; gap: 20px; }
 .set-consignes { display: flex; gap: 20px; align-items: flex-start; }
 .set-consignes-list { width: 196px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
 .set-consignes-item { display: flex; align-items: center; gap: 8px; text-align: left;
@@ -1623,6 +1624,12 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-consignes-hint { font-size: var(--fs-m); color: var(--text-muted); margin: 4px 0 0; }
 .set-consignes-textarea { font-family: var(--code-font); font-size: var(--fs-l); min-height: 160px; }
 .set-consignes-delete { align-self: flex-start; }
+.set-consignes-reformuler { flex-shrink: 0; }
+.set-consignes-assist { max-width: 320px; }
+.set-consignes-assist-select { width: 100%; background: var(--bg-ctl); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: var(--r-s); padding: 6px 9px;
+  font-size: var(--fs-m); outline: none; }
+.set-consignes-assist-select:focus-visible { border-color: var(--border2); color: var(--text-primary); }
 
 /* ---- ModelsGrid (lot B1, tâche 3) : tableau dense des modèles ----------
    Colonnes alignées pour comparer d'un coup d'œil (voir ModelsGrid.tsx pour

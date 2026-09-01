@@ -24,6 +24,7 @@ export function SettingsSheet(p: {
   onChange: (s: Settings) => void;
   ws: WebSocket | null;
   projects?: string[];
+  projectRoot?: string;
   initialSection?: string;
 }) {
   // Pas de `if (!p.open) return null` ici : ça arracherait le sous-arbre de
@@ -63,6 +64,7 @@ export function SettingsSheet(p: {
           onClose={p.onClose}
           ws={p.ws}
           projects={p.projects}
+          projectRoot={p.projectRoot}
           initialSection={p.initialSection}
           embedded
         />

@@ -14,6 +14,12 @@ export type SectionProps = {
   /** À appeler après tout changement : déclenche la pastille « Enregistré ». */
   onSaved: () => void;
   projects?: string[];
+  /** Racine du projet actif — seul consommateur : le bouton Reformuler de
+   *  Consignes.tsx (tâche 11), pour le `cwd` du tour un-coup qui reformule.
+   *  Absent/vide = aucun projet actif ; les adaptateurs Rust (codex, claude)
+   *  ont déjà leur propre repli pour ce cas, même chemin que les autres
+   *  tours un-coup (`commit_message`, `title_conversation`). */
+  projectRoot?: string;
   /** Vrai sous le seuil ≤880px de la feuille modale (calculé UNE fois par
    *  la coquille SettingsPage — ResizeObserver sur la feuille en mode
    *  embarqué, matchMedia sur la fenêtre sinon). Une section qui a besoin

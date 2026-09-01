@@ -67,6 +67,8 @@ export type Settings = {
   railMoreOpen: boolean; // rail : section « Autres surfaces » dépliée (la surface active reste toujours visible)
   /** Catalogue des consignes de réponse (le fil actif en porte une copie). */
   consignes: Consigne[];
+  /** Modèle qui reformule les consignes (bouton de l'éditeur). */
+  consignesAssist: { provider: string; model: string };
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -113,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeView: "chats",
   railMoreOpen: false,
   consignes: CONSIGNES_LIVREES,
+  consignesAssist: { provider: "codex", model: "gpt-5.6-sol" },
 };
 
 const KEY = "atelier-studio.settings";

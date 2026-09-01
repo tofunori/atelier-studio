@@ -2115,6 +2115,12 @@ export default function App() {
       if (msg.type === "commitMsg") {
         window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
       }
+      if (msg.type === "consigneReformulee") {
+        // Réponse au bouton Reformuler des réglages (tâche 11) — pas de
+        // corrélation par id dans le contrat WS, Consignes.tsx écoute cet
+        // événement le temps d'un seul aller-retour.
+        window.dispatchEvent(new CustomEvent("consigne-reformulee", { detail: msg }));
+      }
       if (msg.type === "imageGenerated") {
         window.dispatchEvent(new CustomEvent("image-generated", { detail: msg }));
       }
@@ -4395,6 +4401,7 @@ export default function App() {
           onChange={setSettings}
           ws={ws.current}
           projects={projects}
+          projectRoot={activeProject ?? ""}
           initialSection={settingsInitialSection}
         />
       </LazyBoundary>
