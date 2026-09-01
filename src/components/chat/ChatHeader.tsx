@@ -82,7 +82,7 @@ export function ChatHeader(p: {
   // elle a été supprimée du catalogue, repli neutre (le fil garde son texte).
   const consigneDuFil = p.consigneDuFil ?? null;
   const nomConsigne = consigneDuFil
-    ? (p.consignes ?? []).find((c) => c.id === consigneDuFil.id)?.nom ?? "(supprimée)"
+    ? (p.consignes ?? []).find((c) => c.id === consigneDuFil.id)?.nom ?? t("chat.consigne-deleted")
     : null;
   const linkedParents = p.linkedAgents?.filter((agent) => agent.direction === "parent") ?? [];
   const linkedChildren = p.linkedAgents?.filter((agent) => agent.direction === "child") ?? [];
@@ -171,7 +171,7 @@ export function ChatHeader(p: {
             </StatusBadge>
           )}
           {nomConsigne != null ? (
-            <span className="chat-header-consigne" title={`Consigne du fil : ${nomConsigne}`}>
+            <span className="chat-header-consigne" title={t("chat.consigne-header", { nom: nomConsigne })}>
               {nomConsigne}
             </span>
           ) : null}

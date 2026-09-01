@@ -1231,6 +1231,10 @@ const fr = {
   "chat.transcript-view.reflexion": "Réflexion en cours",
   "chat.transcript-view.detaille": "Détaillé",
   "chat.transcript-view.resume": "Résumé",
+  // Rappel de la consigne active dans l'en-tête du fil (plan 2026-09-01,
+  // tâche 8) — le nom vient du catalogue courant, jamais le texte.
+  "chat.consigne-header": "Consigne du fil : {nom}",
+  "chat.consigne-deleted": "(supprimée)",
   "settings.transcript-view-desc": "Normal replie la pensée en fenêtre de 4 lignes ; Réflexion la déroule ; Détaillé ouvre aussi les outils ; Résumé la masque.",
   "settings.display-timestamps": "Horodater le travail",
   "settings.display-timestamps-desc": "Début → fin sur les lignes d'outils du transcript.",
@@ -1557,6 +1561,13 @@ const fr = {
   "linkedConversation.unlinkFromMany": "Délier de…",
   "linkedConversation.unlinkKeepsChats": "Les conversations et leur historique seront conservés.",
   "linkedConversation.createFailed": "Impossible de créer la conversation liée.",
+  // Consigne de réponse — menu du composeur (plan 2026-09-01, tâche 7/8).
+  "consigne.menu-title": "Consigne du fil",
+  "consigne.none": "Aucune",
+  "consigne.edit": "Modifier les consignes…",
+  "consigne.footer-claude": "Sur claude : appliquée en système, invisible dans le fil.",
+  "consigne.footer-codex": "Sur codex : ajoutée en tête de chaque message.",
+  "consigne.unsupported": "Consigne : pas encore supportée sur ce CLI",
   "common.cancel": "Annuler",
 } satisfies Record<string, string>;
 
@@ -2779,6 +2790,8 @@ const en: Record<keyof typeof fr, string> = {
   "chat.transcript-view.reflexion": "Live thinking",
   "chat.transcript-view.detaille": "Detailed",
   "chat.transcript-view.resume": "Summary",
+  "chat.consigne-header": "Thread instruction: {nom}",
+  "chat.consigne-deleted": "(deleted)",
   "settings.transcript-view-desc": "Normal folds thinking to a 4-line window; Live thinking unrolls it; Detailed also opens tools; Summary hides it.",
   "settings.display-timestamps": "Timestamp the work",
   "settings.display-timestamps-desc": "Start → end on the transcript's tool lines.",
@@ -3103,6 +3116,12 @@ const en: Record<keyof typeof fr, string> = {
   "linkedConversation.unlinkFromMany": "Unlink from…",
   "linkedConversation.unlinkKeepsChats": "Both conversations and their history will be kept.",
   "linkedConversation.createFailed": "Could not create the linked conversation.",
+  "consigne.menu-title": "Thread instruction",
+  "consigne.none": "None",
+  "consigne.edit": "Edit instructions…",
+  "consigne.footer-claude": "On claude: applied as system prompt, invisible in the thread.",
+  "consigne.footer-codex": "On codex: prepended to every message.",
+  "consigne.unsupported": "Instruction: not supported on this CLI yet",
   "common.cancel": "Cancel",
 
 };

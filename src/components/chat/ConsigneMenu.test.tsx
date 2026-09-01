@@ -1,12 +1,17 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConsigneMenu } from "./ConsigneMenu";
 import { CONSIGNES_LIVREES } from "../../lib/consignes";
+import { setLanguage } from "../../lib/i18n";
 
 // Sans cleanup explicite, les rendus des `it` précédents restent dans le DOM
 // (globals désactivés ici — vitest.config.ts) : "Consigne du fil" devenait
 // ambigu dès le 3e test. Même filet que surfaces.test.tsx.
 afterEach(cleanup);
+// Les libellés passent par t() (round 1 de revue, tâche 8) : la langue du
+// runner de test n'est pas garantie (navigator.language) — la fixer ici
+// rend les assertions sur le texte français déterministes.
+beforeEach(() => setLanguage("fr"));
 
 const base = {
   consignes: CONSIGNES_LIVREES,
