@@ -739,6 +739,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .consigne-nom { font-size: 13px; font-weight: 500; color: var(--text-primary); }
 .consigne-desc { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
 .consigne-lien { font-size: 13px; color: var(--text-secondary); }
+/* Rappel de la consigne active dans l'en-tête du fil (Task 8) — le nom
+   seul, jamais le texte envoyé au provider ; discret comme les autres méta
+   du header, aucun accent (même décision que la pilule du composeur). */
+.chat-header-consigne { font-size: 11px; color: var(--text-muted); }
 /* Pied non cliquable des menus DropdownMenuSurface (ex. Consigne du fil) —
    contexte, jamais une action : séparé visuellement du dernier item. */
 .dropdown-surface-footer {

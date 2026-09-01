@@ -990,6 +990,8 @@ export default function Chat(p: {
           onUnlinkLinkedAgent={p.onUnlinkLinkedAgent}
           transcriptView={p.defaults.transcriptView}
           onTranscriptViewChange={p.onTranscriptViewChange}
+          consigneDuFil={p.consigneDuFil ?? null}
+          consignes={p.defaults.consignes ?? []}
         />
       )}
       <ChatTimeline

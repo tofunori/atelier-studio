@@ -6,6 +6,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ChatHeader } from "./ChatHeader";
 import { setLanguage, t } from "../../lib/i18n";
 import { presentStatus } from "../../lib/statusPresentation";
+import { CONSIGNES_LIVREES } from "../../lib/consignes";
 
 afterEach(cleanup);
 beforeEach(() => setLanguage("fr"));
@@ -21,6 +22,7 @@ const base = {
   projectName: "Thèse albédo",
   projectPath: "/Users/tofunori/Documents/these-albedo",
   status: null,
+  consignes: CONSIGNES_LIVREES,
 } as const;
 
 describe("ChatHeader", () => {
@@ -141,5 +143,22 @@ describe("ChatHeader", () => {
   it("sans onTranscriptViewChange, aucun sélecteur de vue", () => {
     render(<ChatHeader {...base} />);
     expect(screen.queryByRole("button", { name: new RegExp(t("chat.transcript-view")) })).toBeNull();
+  });
+
+  // Rappel de la consigne active (Task 8, plan 2026-09-01) : le nom du
+  // catalogue courant, jamais le texte envoyé au provider.
+  it("rappelle la consigne active du fil", () => {
+    render(<ChatHeader {...base} consigneDuFil={{ id: "concis", texte: "x" }} />);
+    expect(screen.getByTitle("Consigne du fil : Concis")).toBeTruthy();
+  });
+
+  it("n'affiche rien quand le fil n'a pas de consigne", () => {
+    render(<ChatHeader {...base} consigneDuFil={null} />);
+    expect(screen.queryByText(/Consigne du fil/)).toBeNull();
+  });
+
+  it("consigne supprimée du catalogue → repli neutre, le fil garde son id", () => {
+    render(<ChatHeader {...base} consigneDuFil={{ id: "disparue", texte: "x" }} />);
+    expect(screen.getByTitle("Consigne du fil : (supprimée)")).toBeTruthy();
   });
 });

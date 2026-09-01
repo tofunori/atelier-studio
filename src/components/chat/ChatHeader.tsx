@@ -24,6 +24,7 @@ import {
 import { t } from "../../lib/i18n";
 import type { PresentedStatus } from "../../lib/statusPresentation";
 import type { TranscriptView } from "../../lib/settings";
+import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import "../../styles/local-headers.css";
 
 /* Vue de la transcription (2026-08-21, façon Claude Code desktop) : le bouton
@@ -60,6 +61,11 @@ export function ChatHeader(p: {
   /** Vue de la transcription — sélecteur à droite du header ; absent = masqué. */
   transcriptView?: TranscriptView;
   onTranscriptViewChange?: (view: TranscriptView) => void;
+  // Consigne de réponse active sur ce fil (plan 2026-09-01) — rappel en
+  // remontant la conversation : le nom vient du catalogue actuel, jamais le
+  // texte. `consignes` sert seulement à résoudre ce nom.
+  consigneDuFil?: ConsigneDuFil | null;
+  consignes?: Consigne[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
@@ -71,6 +77,13 @@ export function ChatHeader(p: {
   // « idle » n'est pas un état à montrer : le badge n'existe que pour un
   // record vivant (running/done/warning/error/…).
   const badge = status != null && status.kind !== "idle" ? status : null;
+  // Nom résolu depuis le catalogue courant — pas depuis la copie du fil : si
+  // la consigne a été renommée, l'en-tête doit refléter le nom actuel ; si
+  // elle a été supprimée du catalogue, repli neutre (le fil garde son texte).
+  const consigneDuFil = p.consigneDuFil ?? null;
+  const nomConsigne = consigneDuFil
+    ? (p.consignes ?? []).find((c) => c.id === consigneDuFil.id)?.nom ?? "(supprimée)"
+    : null;
   const linkedParents = p.linkedAgents?.filter((agent) => agent.direction === "parent") ?? [];
   const linkedChildren = p.linkedAgents?.filter((agent) => agent.direction === "child") ?? [];
 
@@ -157,6 +170,11 @@ export function ChatHeader(p: {
               {badge.label}
             </StatusBadge>
           )}
+          {nomConsigne != null ? (
+            <span className="chat-header-consigne" title={`Consigne du fil : ${nomConsigne}`}>
+              {nomConsigne}
+            </span>
+          ) : null}
           {p.linkedAgents?.length ? (
             <Popover>
               <Tooltip label={t("linkedConversation.title")} placement="bottom">
