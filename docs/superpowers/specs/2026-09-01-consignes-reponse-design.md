@@ -236,18 +236,22 @@ arbitrer ; le filet est « Rétablir ».
 
 **Le modèle est choisi par l'utilisateur**, pas figé : un réglage
 `consignesAssist: { provider, model }` sur le modèle exact du sélecteur
-`autoReview` (`sections/Atelier.tsx:141`), défaut haiku parce qu'il est
-rapide et suffit à ce geste. Le mécanisme passe par une méthode du trait
-`Provider` à implémentation par défaut `None`, comme `title_conversation` et
-`commit_message` (`traits.rs:133-146`) : claude l'implémente, un provider
-qui ne l'implémente pas n'est pas offert dans le sélecteur. Ajouter codex
-plus tard = une méthode, sans toucher au reste.
+`autoReview` (`sections/Atelier.tsx:141`). Le mécanisme passe par une
+méthode du trait `Provider` à implémentation par défaut `None`, comme
+`title_conversation` et `commit_message` (`traits.rs:133-146`) : un provider
+qui ne l'implémente pas n'est pas offert dans le sélecteur.
 
-Implémentation claude : un tour unique dans
-`atelier-providers/src/claude.rs`, calqué sur `commit_message`
-(`claude.rs:759` — args construits en dur hors `build_args`, comme
-`title_conversation`) : même `--system-prompt`, `--model` pris du réglage,
-même délai de 60 s. **N'envoie que les trois
+**codex d'abord**, et par défaut. Son tour un-coup suit le squelette de
+`run_native_review` (`codex.rs:48-92`) : fil éphémère par `thread/start`,
+handler sur `item/completed` de type `agentMessage`, `turn/start` avec le
+modèle réémis, canal `oneshot` sous timeout de 60 s, handler nettoyé.
+N'ayant pas de prompt système séparé, codex reçoit les deux blocs
+concaténés. Coût assumé : le fil éphémère laisse un rollout de plus dans
+l'historique du CLI.
+
+claude vient ensuite, en second choix du sélecteur : copie de
+`commit_message` (`claude.rs:759`, args en dur hors `build_args`), avec un
+vrai `--system-prompt` et `--model` pris du réglage. **N'envoie que les trois
 champs** : ni le fil, ni les fichiers du projet, ni `CLAUDE.md`. CLI
 indisponible → bouton éteint, éditeur utilisable à la main. Rien d'assisté
 sur le nom ni la description.

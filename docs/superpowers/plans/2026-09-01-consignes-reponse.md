@@ -1257,39 +1257,38 @@ git commit -m "feat(consignes): éditeur de consignes dans les réglages"
 
 ---
 
-### Task 10 : Reformuler, sur le modèle choisi par l'utilisateur
+### Task 10 : Reformuler — le socle et l'implémentation codex
 
-Un tour unique, calqué sur `commit_message` (`claude.rs:759`) : args
-construits en dur hors `build_args`, `--system-prompt`, timeout 60 s. Le
-modèle n'est **pas** figé — il vient d'un réglage, sur le modèle exact du
-sélecteur `autoReview` (`src/components/settings/sections/Atelier.tsx:141`).
+Le mécanisme passe par une méthode du trait `Provider` à implémentation par
+défaut `None`, comme `title_conversation` et `commit_message`
+(`traits.rs:133-146`). **codex la implémente en premier** : c'est lui le
+défaut du réglage.
 
-Le mécanisme est générique : une méthode du trait `Provider` avec une
-implémentation par défaut qui rend `None`, comme `title_conversation` et
-`commit_message` (`traits.rs:133-146`). **Seul claude l'implémente dans ce
-plan** ; un provider qui ne l'implémente pas répond « indisponible » et le
-bouton s'éteint avec sa raison. Ajouter codex plus tard = implémenter une
-méthode, sans toucher au reste.
+Le précédent de tour un-coup codex existe déjà : `run_native_review`
+(`codex.rs:48-92`) — poser un handler, tirer une requête, attendre un canal
+`oneshot` sous timeout, nettoyer le handler. La reformulation suit ce
+squelette avec `thread/start` puis `turn/start`.
+
+**Coût assumé :** un tour un-coup ouvre un fil codex éphémère, qui laisse une
+trace dans les rollouts de l'utilisateur. C'est le prix du CLI ; le signaler
+dans le message de commit plutôt que de le découvrir plus tard.
 
 **Files:**
-- Modify: `rust/crates/atelier-providers/src/traits.rs:133-146` (méthode de trait)
-- Modify: `rust/crates/atelier-providers/src/claude.rs` (prompts + implémentation)
+- Modify: `rust/crates/atelier-providers/src/traits.rs:138-146` (méthode de trait)
+- Modify: `rust/crates/atelier-providers/src/codex.rs` (prompts + implémentation)
 - Modify: `rust/crates/atelier-runtime/src/ws_router.rs` (message `reformulerConsigne`)
-- Modify: `src/lib/settings.ts` (réglage `consignesAssist`)
-- Modify: `src/components/settings/sections/Consignes.tsx`
-- Test: `rust/crates/atelier-providers/src/claude.rs`, `src/components/settings/sections/Consignes.test.tsx`
+- Test: `rust/crates/atelier-providers/src/codex.rs`
 
 **Interfaces:**
-- Consumes: `Consigne` (Task 6), le composant `Consignes` (Task 9).
+- Consumes: rien (indépendante des tâches 1 à 9).
 - Produces:
-  - Rust : `fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String)` (système, utilisateur)
-  - Trait : `async fn reformuler_consigne(&self, nom: &str, description: &str, texte: &str, model: &str) -> Option<String>` — défaut `None`
-  - Réglage : `Settings.consignesAssist: { provider: string; model: string }`, défaut `{ provider: "claude", model: "claude-haiku-4-5-20251001" }`
-  - WS : `{"type":"reformulerConsigne","nom":…,"description":…,"texte":…,"provider":…,"model":…}` → `{"type":"consigneReformulee","texte":…}` (`texte: null` si indisponible)
+  - `pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String)` — `(systeme, utilisateur)`, dans `codex.rs` (module partagé plus tard avec claude)
+  - Trait : `async fn reformuler_consigne(&self, nom: &str, description: &str, texte: &str, model: &str, project_root: &str) -> Option<String>` — défaut `None`
+  - WS : `{"type":"reformulerConsigne","nom":…,"description":…,"texte":…,"provider":…,"model":…,"projectRoot":…}` → `{"type":"consigneReformulee","texte":…}` (`texte: null` si indisponible)
 
-- [ ] **Step 1: Écrire le test Rust qui échoue**
+- [ ] **Step 1: Écrire le test qui échoue**
 
-Dans le module de tests de `claude.rs` :
+Dans le module de tests de `codex.rs` :
 
 ```rust
     /// Le prompt de reformulation n'emporte QUE les trois champs de
@@ -1305,6 +1304,9 @@ Dans le module de tests de `claude.rs` :
         assert!(utilisateur.contains("Rigueur scientifique"));
         assert!(utilisateur.contains("Chiffre, cite."));
         assert!(utilisateur.contains("sois rigoureux stp"));
+        // codex n'a pas de prompt système séparé : les deux se concatènent
+        // à l'envoi, donc aucun des deux ne doit contenir l'autre.
+        assert!(!utilisateur.contains(&systeme));
     }
 
     /// Champ vide : on rédige un premier jet à partir du nom et de la
@@ -1314,36 +1316,9 @@ Dans le module de tests de `claude.rs` :
         let (systeme, _) = prompts_reformulation("Concis", "Réponse directe.", "");
         assert!(systeme.contains("Rédige"), "{systeme}");
     }
-
-    /// Le modèle vient du réglage, jamais d'une constante : c'est
-    /// l'utilisateur qui choisit ce qui reformule ses consignes.
-    #[tokio::test]
-    async fn le_modele_de_reformulation_vient_de_l_appelant() {
-        let dir = std::env::temp_dir().join(format!("claude-reform-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let bin = dir.join("fake-claude");
-        // Faux CLI : recrache ses arguments, pour observer --model.
-        std::fs::write(&bin, "#!/bin/sh\necho \"$@\" >&2\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        // Reprendre ici le mécanisme d'injection du faux binaire utilisé par
-        // les tests voisins du fichier (`ATELIER_CLAUDE_BIN` ou le champ de
-        // configuration de la struct — suivre le test d'interruption
-        // existant, `claude.rs:1240` et suivants, et NE PAS muter l'env :
-        // `env::set_var` crée une course entre tests).
-    }
 ```
 
-**Note à l'implémenteur :** si les tests voisins n'offrent aucun moyen
-d'injecter un faux binaire sans muter l'environnement, supprimer ce
-troisième test et se contenter des deux premiers, plus l'assertion de la
-Step 3 : la fonction prend `model: &str` en paramètre, ce que le
-compilateur garantit déjà. Ne pas introduire `env::set_var` dans les tests.
-
-- [ ] **Step 2: Lancer les tests, vérifier qu'ils échouent**
+- [ ] **Step 2: Lancer le test, vérifier qu'il échoue**
 
 ```bash
 cd rust && cargo test -p atelier-providers reformulation 2>&1 | tail -15
@@ -1351,9 +1326,9 @@ cd rust && cargo test -p atelier-providers reformulation 2>&1 | tail -15
 
 Attendu : `cannot find function 'prompts_reformulation'`.
 
-- [ ] **Step 3: Implémenter côté Rust**
+- [ ] **Step 3: Écrire les prompts**
 
-Dans `claude.rs`, à côté de `commit_message_prompts` :
+Dans `codex.rs`, à côté des autres helpers purs :
 
 ```rust
 /// Prompts de l'assistance « Reformuler » de l'éditeur de consignes.
@@ -1377,60 +1352,144 @@ pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (Stri
 }
 ```
 
+- [ ] **Step 4: Déclarer la méthode de trait**
+
 Dans `traits.rs`, à côté de `commit_message` (`traits.rs:138`) :
 
 ```rust
     /// Reformule une consigne de l'éditeur. `model` vient du réglage
     /// `consignesAssist` : l'utilisateur choisit ce qui réécrit ses textes.
     /// Défaut `None` = ce CLI n'a pas de tour un-coup exploitable ; l'UI
-    /// éteint le bouton au lieu d'inventer un chemin.
+    /// n'offre pas ce provider plutôt que d'éteindre un bouton sans raison.
     async fn reformuler_consigne(
         &self,
         _nom: &str,
         _description: &str,
         _texte: &str,
         _model: &str,
+        _project_root: &str,
     ) -> Option<String> {
         None
     }
 ```
 
-Puis l'implémentation dans `impl Provider for ClaudeProvider`, copie de
-`commit_message` (`claude.rs:759-800`) : mêmes args en dur, `--system-prompt`
-avec le prompt système, `--model` avec le **paramètre `model`** (jamais une
-constante), même timeout 60 s, rend `Option<String>`.
+- [ ] **Step 5: Implémenter pour codex**
 
-- [ ] **Step 4: Lancer les tests Rust**
+Dans `impl Provider for CodexProvider`, sur le squelette de `run_native_review`
+(`codex.rs:48-92`) :
+
+```rust
+    async fn reformuler_consigne(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+    ) -> Option<String> {
+        let (systeme, utilisateur) = prompts_reformulation(nom, description, texte);
+        // codex n'a pas de prompt système séparé : les deux blocs se
+        // concatènent dans le message.
+        let message = format!("{systeme}\n\n{utilisateur}");
+
+        // Fil éphémère : cette reformulation ne doit pas s'accrocher à une
+        // conversation existante. Coût assumé : un rollout codex de plus.
+        let codex_id = open_thread(
+            &self.server,
+            None,
+            json!({ "cwd": project_root }),
+        )
+        .await
+        .ok()?;
+
+        let (tx, rx) = oneshot::channel::<String>();
+        let tx = Arc::new(StdMutex::new(Some(tx)));
+        let tx_handler = Arc::clone(&tx);
+        let handler = Arc::new(move |method: &str, params: &Value| {
+            if method != "item/completed" {
+                return;
+            }
+            let item = params.get("item").unwrap_or(&Value::Null);
+            if item.get("type").and_then(Value::as_str) != Some("agentMessage") {
+                return;
+            }
+            let texte = item.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+            if let Ok(mut slot) = tx_handler.lock() {
+                if let Some(sender) = slot.take() {
+                    let _ = sender.send(texte);
+                }
+            }
+        });
+        self.server.set_handler(&codex_id, handler).await;
+
+        // Le modèle est réémis ici : codex ne retient aucun réglage d'un
+        // tour à l'autre, y compris sur un fil qu'on vient d'ouvrir.
+        let params = json!({
+            "threadId": codex_id,
+            "model": model,
+            "input": [{ "type": "text", "text": message, "text_elements": [] }],
+        });
+        if self.server.request("turn/start", params).await.is_err() {
+            self.server.clear_handler(&codex_id).await;
+            return None;
+        }
+
+        let recu = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+        self.server.clear_handler(&codex_id).await;
+        let texte = recu.ok()?.ok()?;
+        let texte = texte.trim();
+        (!texte.is_empty()).then(|| texte.to_string())
+    }
+```
+
+**Note à l'implémenteur :** vérifier les noms réels (`open_thread`, `set_handler`,
+`clear_handler`, `oneshot`, `StdMutex`) contre `run_native_review` et les
+imports du fichier. Si `thread/start` exige d'autres champs d'options,
+reprendre exactement ceux que `send` passe à `open_thread` (`codex.rs:532-556`),
+moins tout ce qui touche à la session de l'utilisateur.
+
+- [ ] **Step 6: Lancer les tests**
 
 ```bash
 cd rust && cargo test -p atelier-providers 2>&1 | tail -12
 ```
 
-- [ ] **Step 5: Router le message WebSocket**
+Attendu : `test result: ok`. Les deux tests de prompts passent ; l'appel réseau
+n'est pas testé unitairement (il demanderait un faux app-server — hors
+périmètre, comme pour `run_native_review` qui n'en a pas non plus).
 
-Dans `ws_router.rs`, ajouter la branche `reformulerConsigne` sur le modèle
-des autres branches à réponse unique : résoudre le provider par son id dans
-le registre, appeler `reformuler_consigne` avec le `model` du message,
-répondre `{"type":"consigneReformulee","texte":…}` — ou
-`{"type":"consigneReformulee","texte":null}` quand le provider rend `None`
-(non implémenté, ou CLI absent).
+- [ ] **Step 7: Router le message WebSocket**
 
-- [ ] **Step 6: Ajouter le réglage**
+Dans `ws_router.rs`, ajouter la branche `reformulerConsigne` sur le modèle des
+autres branches à réponse unique : résoudre le provider par son id dans le
+registre, appeler `reformuler_consigne` avec le `model` et le `projectRoot` du
+message, répondre `{"type":"consigneReformulee","texte":…}` — ou
+`{"type":"consigneReformulee","texte":null}` quand le provider rend `None`.
 
-Dans `src/lib/settings.ts`, dans le type `Settings` :
+- [ ] **Step 8: Commit**
 
-```ts
-  /** Modèle qui reformule les consignes (bouton de l'éditeur). */
-  consignesAssist: { provider: string; model: string };
+```bash
+git add rust/crates/atelier-providers rust/crates/atelier-runtime/src/ws_router.rs
+git commit -m "feat(consignes): Reformuler — méthode de trait et implémentation codex
+
+Le tour un-coup ouvre un fil codex éphémère : un rollout de plus dans
+l'historique du CLI, coût assumé."
 ```
 
-et dans `DEFAULT_SETTINGS` :
+---
 
-```ts
-  consignesAssist: { provider: "claude", model: "claude-haiku-4-5-20251001" },
-```
+### Task 11 : le bouton Reformuler et le choix du modèle
 
-- [ ] **Step 7: Écrire le test frontend qui échoue**
+**Files:**
+- Modify: `src/lib/settings.ts` (réglage `consignesAssist`)
+- Modify: `src/components/settings/sections/Consignes.tsx`
+- Test: `src/components/settings/sections/Consignes.test.tsx`
+
+**Interfaces:**
+- Consumes: le composant `Consignes` (Task 9) ; le message WS de la Task 10.
+- Produces: `Settings.consignesAssist: { provider: string; model: string }`, défaut `{ provider: "codex", model: "gpt-5.6-sol" }`.
+
+- [ ] **Step 1: Écrire les tests qui échouent**
 
 Dans `src/components/settings/sections/Consignes.test.tsx` :
 
@@ -1459,7 +1518,7 @@ Dans `src/components/settings/sections/Consignes.test.tsx` :
     expect(onChange.mock.calls.at(-1)?.[0][0].texte).toBe("original");
   });
 
-  it("éteint le bouton quand le modèle choisi ne sait pas reformuler", () => {
+  it("éteint le bouton quand le CLI est indisponible", () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
     render(<Consignes consignes={[mienne]} onChange={() => {}} reformuler={null} />);
     fireEvent.click(screen.getByText("Ma règle"));
@@ -1472,23 +1531,45 @@ Dans `src/components/settings/sections/Consignes.test.tsx` :
       <Consignes
         consignes={[]}
         onChange={() => {}}
-        assist={{ provider: "claude", model: "claude-haiku-4-5-20251001" }}
+        assist={{ provider: "codex", model: "gpt-5.6-sol" }}
         onChangeAssist={save}
       />,
     );
     fireEvent.change(screen.getByLabelText("Modèle de reformulation"), {
-      target: { value: "claude:claude-sonnet-5" },
+      target: { value: "codex:gpt-5.5" },
     });
-    expect(save).toHaveBeenCalledWith({ provider: "claude", model: "claude-sonnet-5" });
+    expect(save).toHaveBeenCalledWith({ provider: "codex", model: "gpt-5.5" });
   });
 ```
 
-- [ ] **Step 8: Implémenter le bouton et le sélecteur**
+- [ ] **Step 2: Lancer les tests, vérifier qu'ils échouent**
+
+```bash
+npx vitest run src/components/settings/sections/Consignes.test.tsx 2>&1 | tail -12
+```
+
+- [ ] **Step 3: Ajouter le réglage**
+
+Dans `src/lib/settings.ts`, dans le type `Settings` :
+
+```ts
+  /** Modèle qui reformule les consignes (bouton de l'éditeur). */
+  consignesAssist: { provider: string; model: string };
+```
+
+et dans `DEFAULT_SETTINGS` :
+
+```ts
+  consignesAssist: { provider: "codex", model: "gpt-5.6-sol" },
+```
+
+- [ ] **Step 4: Implémenter le bouton et le sélecteur**
 
 Dans `Consignes.tsx` :
 
 1. Props ajoutées : `reformuler: ((c: Consigne) => Promise<string | null>) | null`,
-   `assist: { provider: string; model: string }`, `onChangeAssist: (a: { provider: string; model: string }) => void`.
+   `assist: { provider: string; model: string }`,
+   `onChangeAssist: (a: { provider: string; model: string }) => void`.
 2. Dans l'en-tête du champ *Consigne*, un `RowButton` dont le libellé suit
    l'état : `texte` vide → « Rédiger » ; texte présent → « Reformuler » ;
    juste après une reformulation → « Rétablir ». L'original est gardé dans un
@@ -1500,35 +1581,111 @@ Dans `Consignes.tsx` :
 
 ```tsx
             options={[
-              { value: "claude:claude-haiku-4-5-20251001", label: "Haiku 4.5 · rapide" },
-              { value: "claude:claude-sonnet-5", label: "Sonnet 5" },
-              { value: "claude:claude-opus-5", label: "Opus 5" },
+              { value: "codex:gpt-5.6-sol", label: "GPT-5.6 sol" },
+              { value: "codex:gpt-5.5", label: "GPT-5.5" },
             ]}
 ```
 
 **Ne pas offrir de provider dont `reformuler_consigne` rend encore `None`** :
 un choix qui éteint le bouton sans l'expliquer serait pire que pas de choix.
-Quand un provider est implémenté plus tard, son option s'ajoute ici.
+claude s'ajoute à cette liste en Task 12, pas avant.
 
-- [ ] **Step 9: Lancer les tests**
+- [ ] **Step 5: Lancer les tests**
 
 ```bash
 npx vitest run src/components/settings 2>&1 | tail -12
 ```
 
-- [ ] **Step 10: Vérifier le typage, le build et la suite complète**
+- [ ] **Step 6: Vérifier le typage et le build**
 
 ```bash
-npx tsc --noEmit 2>&1 | grep -v test_auto_review | tail -5 \
-  && npx vite build 2>&1 | tail -3 \
-  && cd rust && cargo test --workspace 2>&1 | tail -8
+npx tsc --noEmit 2>&1 | grep -v test_auto_review | tail -5 && npx vite build 2>&1 | tail -3
 ```
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add rust/crates src/components/settings src/lib/settings.ts
-git commit -m "feat(consignes): Reformuler sur le modèle choisi dans les réglages"
+git add src/lib/settings.ts src/components/settings
+git commit -m "feat(consignes): bouton Reformuler et choix du modèle"
+```
+
+---
+
+### Task 12 : claude comme second modèle de reformulation
+
+Additive : la méthode de trait et l'UI existent déjà. claude a un vrai
+`--system-prompt`, donc son implémentation est plus simple que celle de codex
+— pas de concaténation.
+
+**Files:**
+- Modify: `rust/crates/atelier-providers/src/claude.rs` (implémentation)
+- Modify: `src/components/settings/sections/Consignes.tsx` (options du sélecteur)
+- Test: `rust/crates/atelier-providers/src/claude.rs`
+
+**Interfaces:**
+- Consumes: `prompts_reformulation` et la méthode de trait (Task 10) ; le sélecteur (Task 11).
+- Produces: rien de nouveau.
+
+- [ ] **Step 1: Écrire le test qui échoue**
+
+Dans le module de tests de `claude.rs` :
+
+```rust
+    /// claude a un vrai prompt système : la reformulation doit l'utiliser
+    /// plutôt que de concaténer comme codex, et le modèle vient de
+    /// l'appelant — jamais d'une constante dans le code.
+    #[test]
+    fn la_reformulation_claude_separe_systeme_et_message() {
+        let (systeme, utilisateur) =
+            crate::codex::prompts_reformulation("Concis", "Réponse directe.", "sois bref");
+        assert!(systeme.contains("impératif"));
+        assert!(!utilisateur.contains("impératif"));
+    }
+```
+
+- [ ] **Step 2: Lancer le test, vérifier qu'il échoue**
+
+```bash
+cd rust && cargo test -p atelier-providers reformulation_claude 2>&1 | tail -12
+```
+
+Attendu : erreur de visibilité si `prompts_reformulation` n'est pas exporté
+depuis `codex.rs` — le rendre `pub` et l'atteindre par son chemin de module.
+
+- [ ] **Step 3: Implémenter pour claude**
+
+Dans `impl Provider for ClaudeProvider`, copie de `commit_message`
+(`claude.rs:759-800`) : mêmes args en dur, `--system-prompt` avec le prompt
+système, `--model` avec le **paramètre `model`** (jamais une constante), même
+timeout 60 s, rend `Option<String>`. `project_root` sert de répertoire de
+travail.
+
+- [ ] **Step 4: Ouvrir le choix dans le sélecteur**
+
+Dans `Consignes.tsx`, ajouter aux options :
+
+```tsx
+              { value: "claude:claude-haiku-4-5-20251001", label: "Haiku 4.5 · rapide" },
+              { value: "claude:claude-sonnet-5", label: "Sonnet 5" },
+```
+
+- [ ] **Step 5: Lancer la suite complète**
+
+```bash
+cd rust && cargo test --workspace 2>&1 | tail -8
+```
+
+```bash
+npx vitest run 2>&1 | tail -8 \
+  && npx tsc --noEmit 2>&1 | grep -v test_auto_review | tail -5 \
+  && npx vite build 2>&1 | tail -3
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add rust/crates/atelier-providers/src/claude.rs src/components/settings
+git commit -m "feat(consignes): claude comme second modèle de reformulation"
 ```
 
 ---
@@ -1539,7 +1696,7 @@ git commit -m "feat(consignes): Reformuler sur le modèle choisi dans les régla
 - [ ] `npx vitest run` — vert
 - [ ] `npx tsc --noEmit` (hors `test_auto_review*`) — silencieux
 - [ ] `npx vite build` — vert
-- [ ] `git log --oneline` montre dix commits, un par tâche
+- [ ] `git log --oneline` montre douze commits, un par tâche
 
 **La galerie n'est pas touchée** par ce plan : `node gallery/server/tests/diff_suite.mjs` n'est pas requis. Si une tâche finit par modifier `gallery/`, c'est un signe de dérive — s'arrêter et le signaler.
 
