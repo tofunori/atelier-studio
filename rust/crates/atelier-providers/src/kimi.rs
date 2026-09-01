@@ -2026,39 +2026,29 @@ mod tests {
         assert_eq!(blocks[2]["type"], "resource_link");
     }
 
-    /// Kimi n'a pas de mécanisme de consigne en v1 : une consigne posée sur
-    /// la requête ne doit modifier AUCUNE charge utile — plutôt qu'être
-    /// injectée au hasard dans le prompt. Le jour où on l'implémente, ce
-    /// test tombe : c'est le signal d'écrire le vrai.
+    /// Kimi n'a pas de mécanisme de consigne en v1. `build_prompt_blocks`
+    /// prend `(prompt, inputs)` — PAS `&SendRequest` — donc comparer sa
+    /// sortie avec/sans `req.consigne` ne prouve rien : les deux appels
+    /// reçoivent des arguments identiques et ne peuvent jamais diverger
+    /// (constaté en revue, l'ancien test ici était tautologique).
+    /// Garde de remplacement : le code de PRODUCTION de ce fichier (tout ce
+    /// qui précède `mod tests`) ne doit contenir AUCUNE lecture de
+    /// `.consigne` — c'est ainsi que codex.rs a branché sa consigne
+    /// (`req\n    .consigne`, cf. `build_input`). Le jour où quelqu'un fait
+    /// pareil ici, ce test échoue : c'est le signal de supprimer cette
+    /// garde et d'écrire un vrai test de charge utile sur le nouveau code.
     #[test]
-    fn une_consigne_ne_fuit_pas_dans_la_charge_kimi() {
-        fn request(consigne: Option<&str>) -> SendRequest {
-            SendRequest {
-                thread_id: "t-consigne".into(),
-                turn_id: "turn-1".into(),
-                prompt: "analyse ce fichier".into(),
-                inputs: None,
-                project_root: "/tmp".into(),
-                session_id: None,
-                model: None,
-                effort: None,
-                fast_mode: false,
-                permission_mode: None,
-                fork_pending: false,
-                mode: SendMode::Normal,
-                on_event: Arc::new(|_| {}),
-                on_interaction: None,
-                is_cancelled: Arc::new(|| false),
-                consigne: consigne.map(str::to_string),
-                atelier_mcp: None,
-            }
-        }
-        let sans = request(None);
-        let avec = request(Some("Réponds directement, sans préambule."));
-        assert_eq!(
-            build_prompt_blocks(&sans.prompt, sans.inputs.as_ref()),
-            build_prompt_blocks(&avec.prompt, avec.inputs.as_ref()),
-            "la consigne a fui dans la charge Kimi",
+    fn le_code_de_production_kimi_ne_lit_jamais_consigne() {
+        let source = include_str!("kimi.rs");
+        let production = source
+            .split_once("\nmod tests {")
+            .map(|(before, _)| before)
+            .unwrap_or(source);
+        assert!(
+            !production.contains(".consigne"),
+            "kimi.rs (code de production, hors `mod tests`) lit désormais `.consigne` — \
+             ce fichier n'a pas de mécanisme de consigne en v1 ; si c'est intentionnel, \
+             écris le vrai test de charge utile puis supprime cette garde",
         );
     }
 
