@@ -22479,7 +22479,7 @@ function kc({ className: n, ...o }) {
     r2,
     {
       "data-slot": "popover-title",
-      className: Ke("tw:font-medium", n),
+      className: Ke("tw:m-0 tw:text-[length:var(--fs-body-s)] tw:font-medium", n),
       ...o
     }
   );
@@ -22492,7 +22492,7 @@ function xp({
     a2,
     {
       "data-slot": "popover-description",
-      className: Ke("tw:text-muted-foreground", n),
+      className: Ke("tw:m-0 tw:text-muted-foreground", n),
       ...o
     }
   );
