@@ -1902,6 +1902,36 @@ mod tests {
         assert!(prompt.contains("/tmp/a.png"));
     }
 
+    /// Grok n'a pas de mécanisme de consigne en v1 : une consigne posée sur
+    /// la requête ne doit modifier AUCUNE charge utile — plutôt qu'être
+    /// injectée au hasard dans le prompt. Le jour où on l'implémente, ce
+    /// test tombe : c'est le signal d'écrire le vrai.
+    #[test]
+    fn une_consigne_ne_fuit_pas_dans_la_charge_grok() {
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let sans = send_request(
+            "t-consigne",
+            "analyse ce fichier",
+            None,
+            Arc::clone(&events),
+            Arc::clone(&cancelled),
+        );
+        let mut avec = send_request(
+            "t-consigne",
+            "analyse ce fichier",
+            None,
+            events,
+            cancelled,
+        );
+        avec.consigne = Some("Réponds directement, sans préambule.".into());
+        assert_eq!(
+            build_prompt(&sans.prompt, sans.inputs.as_ref()),
+            build_prompt(&avec.prompt, avec.inputs.as_ref()),
+            "la consigne a fui dans la charge Grok",
+        );
+    }
+
     #[test]
     fn model_parser_ignores_headers() {
         assert_eq!(

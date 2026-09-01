@@ -2026,6 +2026,42 @@ mod tests {
         assert_eq!(blocks[2]["type"], "resource_link");
     }
 
+    /// Kimi n'a pas de mécanisme de consigne en v1 : une consigne posée sur
+    /// la requête ne doit modifier AUCUNE charge utile — plutôt qu'être
+    /// injectée au hasard dans le prompt. Le jour où on l'implémente, ce
+    /// test tombe : c'est le signal d'écrire le vrai.
+    #[test]
+    fn une_consigne_ne_fuit_pas_dans_la_charge_kimi() {
+        fn request(consigne: Option<&str>) -> SendRequest {
+            SendRequest {
+                thread_id: "t-consigne".into(),
+                turn_id: "turn-1".into(),
+                prompt: "analyse ce fichier".into(),
+                inputs: None,
+                project_root: "/tmp".into(),
+                session_id: None,
+                model: None,
+                effort: None,
+                fast_mode: false,
+                permission_mode: None,
+                fork_pending: false,
+                mode: SendMode::Normal,
+                on_event: Arc::new(|_| {}),
+                on_interaction: None,
+                is_cancelled: Arc::new(|| false),
+                consigne: consigne.map(str::to_string),
+                atelier_mcp: None,
+            }
+        }
+        let sans = request(None);
+        let avec = request(Some("Réponds directement, sans préambule."));
+        assert_eq!(
+            build_prompt_blocks(&sans.prompt, sans.inputs.as_ref()),
+            build_prompt_blocks(&avec.prompt, avec.inputs.as_ref()),
+            "la consigne a fui dans la charge Kimi",
+        );
+    }
+
     #[test]
     fn prompt_blocks_input_inconnu_echoue_fort() {
         let inputs = vec![json!({"type":"blob","data":"xxx"})];
