@@ -1,3 +1,5 @@
+import { CONSIGNES_LIVREES, type Consigne } from "./consignes";
+
 export type ProviderId = string;
 
 // vue active du panneau latéral (barre d'activité) — "highlights" arrive
@@ -63,6 +65,8 @@ export type Settings = {
   hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
   activeView: ViewId;
   railMoreOpen: boolean; // rail : section « Autres surfaces » dépliée (la surface active reste toujours visible)
+  /** Catalogue des consignes de réponse (le fil actif en porte une copie). */
+  consignes: Consigne[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -108,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenProviders: [],
   activeView: "chats",
   railMoreOpen: false,
+  consignes: CONSIGNES_LIVREES,
 };
 
 const KEY = "atelier-studio.settings";
