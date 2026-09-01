@@ -114,7 +114,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
           <Check data-icon="select-check" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemText data-slot="select-item-text">{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   )
 }

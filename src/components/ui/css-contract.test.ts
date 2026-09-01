@@ -322,6 +322,28 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(textarea).toContain('variant="bare"');
   });
 
+  // La rangée de menu doit décrire le balisage réel du SelectItem : deux
+  // enfants dont la coche en absolu. Une grille à colonnes fixes n'a plus
+  // qu'un enfant à placer et l'enferme dans 14px — l'icône passait à la ligne
+  // au-dessus de son libellé (capture Thierry 2026-08-31).
+  it("les rangées de select ne repartent pas en grille à colonnes fixes", () => {
+    const rule = appCss.match(/\.custom-select-option \{[^}]*\}/)![0];
+    expect(rule).toContain("display: flex");
+    expect(rule).not.toContain("grid-template-columns");
+    expect(appCss).not.toContain(".custom-select-option.has-icon");
+    // le ✓ et le chevron de lucide sortent en 24px s'ils ne sont pas bornés
+    expect(appCss).toContain('.custom-select-option [data-icon="select-check"]');
+  });
+
+  // Une classe déclarée deux fois dans App.css se corrige au mauvais endroit
+  // une fois sur deux — les récents du Quick Ask ont vécu ça.
+  it("les blocs du Quick Ask ne sont déclarés qu'une fois", () => {
+    for (const sel of [".qa-recents", ".qa-recents-btn", ".qa-recent-row", ".qa-recent-q"]) {
+      const hits = appCss.split("\n").filter((line) => line.trimStart().startsWith(sel + " {"));
+      expect(hits.length, `${sel} déclaré ${hits.length} fois`).toBe(1);
+    }
+  });
+
   it("la couche shadcn ne contient que des primitives de registre", () => {
     expect(readdirSync(shadcnDir)).not.toContain("dialog-surface.tsx");
     expect(readdirSync(shadcnDir)).not.toContain("dropdown-menu-surface.tsx");

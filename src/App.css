@@ -629,15 +629,25 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--r-m); box-shadow: var(--elev); padding: 4px; overflow-y: auto;
   animation: pop-in 130ms ease; transform-origin: top; }
 .custom-select-menu.top { transform-origin: bottom; }
-.custom-select-option { width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr);
-  align-items: center; gap: 8px; background: transparent; border: none; border-radius: var(--r-s);
-  color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--fs-l); padding: 7px 8px;
+/* La rangée décrit le balisage RÉEL du SelectItem, pas celui du select maison
+ * d'avant shadcn : deux enfants, dont la coche en position absolue — donc hors
+ * flux. La grille à colonnes fixes n'avait plus qu'un enfant à placer, le bloc
+ * de texte, qu'elle enfermait dans 14px : l'icône passait à la ligne au-dessus
+ * de son libellé, et le menu s'affichait par débordement (capture Thierry
+ * 2026-08-31). En ligne, la gouttière du ✓ se réserve au padding droit. */
+.custom-select-option { width: 100%; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: none; border-radius: var(--r-s);
+  color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--fs-l);
+  padding: 4px 28px 4px 8px;
   text-align: left; transition: background var(--ease), color var(--ease); }
-.custom-select-option.has-icon { grid-template-columns: 14px 16px minmax(0, 1fr); }
+.custom-select-option [data-slot="select-item-text"] {
+  display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Le ✓ sortait à sa taille lucide native (24px) dans un logement de 14. */
+.custom-select-option [data-icon="select-check"] { width: 12px; height: 12px; }
 .custom-select-option:hover, .custom-select-option.active, .custom-select-option[aria-selected="true"], .custom-select-option[data-highlighted] {
   background: var(--bg-ctl); color: var(--text-primary); }
 .custom-select-check { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
-  color: var(--text-primary); }
+  color: var(--accent); }
 .custom-select-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-bar .custom-select.compact { color: var(--text-muted); }
 .composer-bar .custom-select.compact[data-value="plan"] { color: var(--accent); }
@@ -667,14 +677,11 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .perm-icon { display: inline-flex; flex: none; align-items: center; justify-content: center;
   color: var(--text-muted); }
 /* Menu du mode de permission : il sort d'un contrôle à 11px, il se lit à la
- * même échelle. La colonne d'icône vaut la pastille (10px) au lieu des 14px
- * vides du gabarit générique, et le ✓ vit dans sa colonne fixe à droite —
- * jamais collé à la fin d'un libellé, où il changeait de x à chaque rangée. */
+ * même échelle. Le ✓ vit dans sa gouttière fixe à droite — jamais collé à la
+ * fin d'un libellé, où il changeait de x à chaque rangée. */
 .permission-select .custom-select-menu { padding: 4px; min-width: 148px; }
-.permission-select .custom-select-option,
-.permission-select .custom-select-option.has-icon {
-  grid-template-columns: 14px minmax(0, 1fr); gap: 8px;
-  font-size: var(--fs-m); padding: 6px 24px 6px 8px; }
+.permission-select .custom-select-option {
+  gap: 8px; font-size: var(--fs-m); padding: 6px 24px 6px 8px; }
 .permission-select .custom-select-option [data-icon="select-check"] {
   width: 11px; height: 11px; color: var(--text-muted); }
 .permission-select .custom-select-option[data-selected] .custom-select-option-label,
@@ -2731,10 +2738,6 @@ body.dragging iframe { pointer-events: none; }
 .qa-head { display: flex; align-items: center; gap: 9px; padding: 13px 18px 11px;
   font-size: var(--fs-l); color: var(--text-secondary); }
 .qa-zap { color: var(--text-muted); display: flex; }
-.qa-recents-btn { margin-left: auto; background: transparent; border: none;
-  color: var(--text-disabled); width: 24px; height: 24px; display: flex; align-items: center;
-  justify-content: center; border-radius: var(--r-s); cursor: pointer; }
-.qa-recents-btn:hover { color: var(--text-secondary); background: var(--bg-ctl); }
 .qa-model { background: transparent; border: none; display: flex; align-items: center;
   gap: 6px; color: var(--text-muted); font-size: var(--fs-s); padding: 3px 6px; cursor: pointer;
   border-radius: var(--r-s); }
@@ -2744,16 +2747,10 @@ body.dragging iframe { pointer-events: none; }
 .qa-model-positioner { z-index: var(--z-quick-ask-popover); }
 /* Le libellé se colle à son champ : le `mb-1.5` de shadcn s'ajoutait au gap du
  * Field et ouvrait 10px là où 4 suffisent. */
+.qa-model-positioner .custom-select-menu { font-size: var(--fs-m); }
+.qa-model-positioner .custom-select-option { font-size: var(--fs-m); }
 .qa-model-fields { gap: 12px; }
 .qa-model-fields [data-slot="field-label"] { margin-bottom: 0; }
-.qa-recents { border-top: 1px solid var(--border); max-height: 180px; overflow-y: auto;
-  padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
-.qa-recent-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;
-  background: transparent; border: none; border-radius: var(--r-m); cursor: pointer;
-  color: var(--text-secondary); font-size: var(--fs-m); text-align: left; }
-.qa-recent-row:hover { background: var(--bg-ctl); }
-.qa-recent-q { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qa-recent-ts { color: var(--text-disabled); font-size: var(--fs-s); flex-shrink: 0; }
 .qa-body { flex: 1; min-height: 90px; overflow-y: auto; padding: 6px 20px 14px;
   display: flex; flex-direction: column; gap: 14px; font-size: var(--fs-l); line-height: 1.6; }
 .qa-empty { color: var(--text-disabled); font-size: var(--fs-m); padding: 10px 0; }
@@ -2864,11 +2861,17 @@ body.dragging iframe { pointer-events: none; }
 .ur-close { position: absolute; top: 10px; right: 12px; background: transparent; border: none;
   color: var(--text-disabled); font-size: var(--fs-s); cursor: pointer; }
 /* Quick Ask : récents + erreurs */
-.qa-recents-btn { background: transparent; border: none; color: var(--text-disabled);
+.qa-recents-btn { margin-left: auto; background: transparent; border: none; color: var(--text-disabled);
   width: 22px; height: 22px; display: inline-flex; align-items: center;
   justify-content: center; border-radius: var(--r-s); cursor: pointer; }
 .qa-recents-btn:hover { color: var(--text-primary); background: var(--bg-ctl); }
-.qa-recents { border-bottom: 1px solid var(--border); max-height: 180px; overflow-y: auto;
+/* Bande des récents : déclarée deux fois dans ce fichier jusqu'au 2026-08-31,
+ * les deux blocs divergeant sur la bordure, le rayon et la gouttière. Le second
+ * gagnait sur tout SAUF `border-top`, qui n'existait que dans le premier — d'où
+ * un bandeau ceint des deux côtés que personne n'avait décidé. Un seul bloc
+ * désormais, au rendu identique. */
+.qa-recents { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  max-height: 180px; overflow-y: auto;
   padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .qa-recent-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 9px;
   border: none; background: transparent; border-radius: var(--r-s); cursor: pointer;
