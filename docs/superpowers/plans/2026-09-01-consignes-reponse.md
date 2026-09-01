@@ -1257,21 +1257,35 @@ git commit -m "feat(consignes): éditeur de consignes dans les réglages"
 
 ---
 
-### Task 10 : Reformuler
+### Task 10 : Reformuler, sur le modèle choisi par l'utilisateur
 
-Un tour unique sur haiku, calqué sur `commit_message` (`claude.rs:773`) : args construits en dur hors `build_args`, `--system-prompt`, timeout 60 s.
+Un tour unique, calqué sur `commit_message` (`claude.rs:759`) : args
+construits en dur hors `build_args`, `--system-prompt`, timeout 60 s. Le
+modèle n'est **pas** figé — il vient d'un réglage, sur le modèle exact du
+sélecteur `autoReview` (`src/components/settings/sections/Atelier.tsx:141`).
+
+Le mécanisme est générique : une méthode du trait `Provider` avec une
+implémentation par défaut qui rend `None`, comme `title_conversation` et
+`commit_message` (`traits.rs:133-146`). **Seul claude l'implémente dans ce
+plan** ; un provider qui ne l'implémente pas répond « indisponible » et le
+bouton s'éteint avec sa raison. Ajouter codex plus tard = implémenter une
+méthode, sans toucher au reste.
 
 **Files:**
-- Modify: `rust/crates/atelier-providers/src/claude.rs` (nouvelle fonction `reformuler_consigne`)
+- Modify: `rust/crates/atelier-providers/src/traits.rs:133-146` (méthode de trait)
+- Modify: `rust/crates/atelier-providers/src/claude.rs` (prompts + implémentation)
 - Modify: `rust/crates/atelier-runtime/src/ws_router.rs` (message `reformulerConsigne`)
+- Modify: `src/lib/settings.ts` (réglage `consignesAssist`)
 - Modify: `src/components/settings/sections/Consignes.tsx`
 - Test: `rust/crates/atelier-providers/src/claude.rs`, `src/components/settings/sections/Consignes.test.tsx`
 
 **Interfaces:**
 - Consumes: `Consigne` (Task 6), le composant `Consignes` (Task 9).
 - Produces:
-  - Rust : `fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String)` (système, utilisateur) et `async fn reformuler_consigne(nom, description, texte) -> Option<String>`
-  - WS : `{"type":"reformulerConsigne","nom":…,"description":…,"texte":…}` → `{"type":"consigneReformulee","texte":…}`
+  - Rust : `fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String)` (système, utilisateur)
+  - Trait : `async fn reformuler_consigne(&self, nom: &str, description: &str, texte: &str, model: &str) -> Option<String>` — défaut `None`
+  - Réglage : `Settings.consignesAssist: { provider: string; model: string }`, défaut `{ provider: "claude", model: "claude-haiku-4-5-20251001" }`
+  - WS : `{"type":"reformulerConsigne","nom":…,"description":…,"texte":…,"provider":…,"model":…}` → `{"type":"consigneReformulee","texte":…}` (`texte: null` si indisponible)
 
 - [ ] **Step 1: Écrire le test Rust qui échoue**
 
@@ -1300,13 +1314,42 @@ Dans le module de tests de `claude.rs` :
         let (systeme, _) = prompts_reformulation("Concis", "Réponse directe.", "");
         assert!(systeme.contains("Rédige"), "{systeme}");
     }
+
+    /// Le modèle vient du réglage, jamais d'une constante : c'est
+    /// l'utilisateur qui choisit ce qui reformule ses consignes.
+    #[tokio::test]
+    async fn le_modele_de_reformulation_vient_de_l_appelant() {
+        let dir = std::env::temp_dir().join(format!("claude-reform-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("fake-claude");
+        // Faux CLI : recrache ses arguments, pour observer --model.
+        std::fs::write(&bin, "#!/bin/sh\necho \"$@\" >&2\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Reprendre ici le mécanisme d'injection du faux binaire utilisé par
+        // les tests voisins du fichier (`ATELIER_CLAUDE_BIN` ou le champ de
+        // configuration de la struct — suivre le test d'interruption
+        // existant, `claude.rs:1240` et suivants, et NE PAS muter l'env :
+        // `env::set_var` crée une course entre tests).
+    }
 ```
 
-- [ ] **Step 2: Lancer le test, vérifier qu'il échoue**
+**Note à l'implémenteur :** si les tests voisins n'offrent aucun moyen
+d'injecter un faux binaire sans muter l'environnement, supprimer ce
+troisième test et se contenter des deux premiers, plus l'assertion de la
+Step 3 : la fonction prend `model: &str` en paramètre, ce que le
+compilateur garantit déjà. Ne pas introduire `env::set_var` dans les tests.
+
+- [ ] **Step 2: Lancer les tests, vérifier qu'ils échouent**
 
 ```bash
 cd rust && cargo test -p atelier-providers reformulation 2>&1 | tail -15
 ```
+
+Attendu : `cannot find function 'prompts_reformulation'`.
 
 - [ ] **Step 3: Implémenter côté Rust**
 
@@ -1328,14 +1371,34 @@ pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (Stri
          Écris à l'impératif, en français, une instruction par ligne, cinq lignes au maximum. \
          Ne commente pas, ne justifie pas : renvoie uniquement le texte de la consigne."
     );
-    let utilisateur = format!(
-        "Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}"
-    );
+    let utilisateur =
+        format!("Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}");
     (systeme, utilisateur)
 }
 ```
 
-Puis `reformuler_consigne`, copie de `commit_message` (`claude.rs:773-800`) : même modèle `claude-haiku-4-5-20251001`, même `--system-prompt`, même timeout 60 s, renvoie `Option<String>` (le texte, ou `None` en cas d'échec ou de CLI absent).
+Dans `traits.rs`, à côté de `commit_message` (`traits.rs:138`) :
+
+```rust
+    /// Reformule une consigne de l'éditeur. `model` vient du réglage
+    /// `consignesAssist` : l'utilisateur choisit ce qui réécrit ses textes.
+    /// Défaut `None` = ce CLI n'a pas de tour un-coup exploitable ; l'UI
+    /// éteint le bouton au lieu d'inventer un chemin.
+    async fn reformuler_consigne(
+        &self,
+        _nom: &str,
+        _description: &str,
+        _texte: &str,
+        _model: &str,
+    ) -> Option<String> {
+        None
+    }
+```
+
+Puis l'implémentation dans `impl Provider for ClaudeProvider`, copie de
+`commit_message` (`claude.rs:759-800`) : mêmes args en dur, `--system-prompt`
+avec le prompt système, `--model` avec le **paramètre `model`** (jamais une
+constante), même timeout 60 s, rend `Option<String>`.
 
 - [ ] **Step 4: Lancer les tests Rust**
 
@@ -1345,9 +1408,29 @@ cd rust && cargo test -p atelier-providers 2>&1 | tail -12
 
 - [ ] **Step 5: Router le message WebSocket**
 
-Dans `ws_router.rs`, ajouter la branche `reformulerConsigne` sur le modèle des autres branches à réponse unique : appelle `reformuler_consigne`, répond `{"type":"consigneReformulee","texte":…}`, ou `{"type":"consigneReformulee","texte":null}` si le CLI est indisponible.
+Dans `ws_router.rs`, ajouter la branche `reformulerConsigne` sur le modèle
+des autres branches à réponse unique : résoudre le provider par son id dans
+le registre, appeler `reformuler_consigne` avec le `model` du message,
+répondre `{"type":"consigneReformulee","texte":…}` — ou
+`{"type":"consigneReformulee","texte":null}` quand le provider rend `None`
+(non implémenté, ou CLI absent).
 
-- [ ] **Step 6: Écrire le test frontend qui échoue**
+- [ ] **Step 6: Ajouter le réglage**
+
+Dans `src/lib/settings.ts`, dans le type `Settings` :
+
+```ts
+  /** Modèle qui reformule les consignes (bouton de l'éditeur). */
+  consignesAssist: { provider: string; model: string };
+```
+
+et dans `DEFAULT_SETTINGS` :
+
+```ts
+  consignesAssist: { provider: "claude", model: "claude-haiku-4-5-20251001" },
+```
+
+- [ ] **Step 7: Écrire le test frontend qui échoue**
 
 Dans `src/components/settings/sections/Consignes.test.tsx` :
 
@@ -1366,7 +1449,9 @@ Dans `src/components/settings/sections/Consignes.test.tsx` :
   it("garde le texte original derrière Rétablir jusqu'à la frappe suivante", async () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "original" };
     const onChange = vi.fn();
-    render(<Consignes consignes={[mienne]} onChange={onChange} reformuler={async () => "reformulé"} />);
+    render(
+      <Consignes consignes={[mienne]} onChange={onChange} reformuler={async () => "reformulé"} />,
+    );
     fireEvent.click(screen.getByText("Ma règle"));
     fireEvent.click(screen.getByText("Reformuler"));
     expect(await screen.findByText("Rétablir")).toBeTruthy();
@@ -1374,25 +1459,64 @@ Dans `src/components/settings/sections/Consignes.test.tsx` :
     expect(onChange.mock.calls.at(-1)?.[0][0].texte).toBe("original");
   });
 
-  it("éteint le bouton quand le CLI est indisponible", () => {
+  it("éteint le bouton quand le modèle choisi ne sait pas reformuler", () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
     render(<Consignes consignes={[mienne]} onChange={() => {}} reformuler={null} />);
     fireEvent.click(screen.getByText("Ma règle"));
     expect(screen.getByText("Reformuler").closest("button")).toHaveAttribute("disabled");
   });
+
+  it("laisse choisir le modèle qui reformule", () => {
+    const save = vi.fn();
+    render(
+      <Consignes
+        consignes={[]}
+        onChange={() => {}}
+        assist={{ provider: "claude", model: "claude-haiku-4-5-20251001" }}
+        onChangeAssist={save}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Modèle de reformulation"), {
+      target: { value: "claude:claude-sonnet-5" },
+    });
+    expect(save).toHaveBeenCalledWith({ provider: "claude", model: "claude-sonnet-5" });
+  });
 ```
 
-- [ ] **Step 7: Implémenter le bouton**
+- [ ] **Step 8: Implémenter le bouton et le sélecteur**
 
-Dans `Consignes.tsx`, ajouter la prop `reformuler: ((c: Consigne) => Promise<string | null>) | null` et, dans l'en-tête du champ *Consigne*, un `RowButton` dont le libellé suit l'état : `texte` vide → « Rédiger » ; texte présent → « Reformuler » ; juste après une reformulation → « Rétablir ». L'original est gardé dans un `useState` et **effacé à la première frappe de l'utilisateur** dans la zone de texte.
+Dans `Consignes.tsx` :
 
-- [ ] **Step 8: Lancer les tests**
+1. Props ajoutées : `reformuler: ((c: Consigne) => Promise<string | null>) | null`,
+   `assist: { provider: string; model: string }`, `onChangeAssist: (a: { provider: string; model: string }) => void`.
+2. Dans l'en-tête du champ *Consigne*, un `RowButton` dont le libellé suit
+   l'état : `texte` vide → « Rédiger » ; texte présent → « Reformuler » ;
+   juste après une reformulation → « Rétablir ». L'original est gardé dans un
+   `useState` et **effacé à la première frappe** dans la zone de texte.
+3. En bas de la section, un `Select` « Modèle de reformulation », copie du
+   sélecteur `autoReview` (`sections/Atelier.tsx:141-154`) : `value` de la
+   forme `provider:model`, liste d'options en dur — même parti pris que
+   `autoReview`, aucun état de catalogue à porter.
+
+```tsx
+            options={[
+              { value: "claude:claude-haiku-4-5-20251001", label: "Haiku 4.5 · rapide" },
+              { value: "claude:claude-sonnet-5", label: "Sonnet 5" },
+              { value: "claude:claude-opus-5", label: "Opus 5" },
+            ]}
+```
+
+**Ne pas offrir de provider dont `reformuler_consigne` rend encore `None`** :
+un choix qui éteint le bouton sans l'expliquer serait pire que pas de choix.
+Quand un provider est implémenté plus tard, son option s'ajoute ici.
+
+- [ ] **Step 9: Lancer les tests**
 
 ```bash
 npx vitest run src/components/settings 2>&1 | tail -12
 ```
 
-- [ ] **Step 9: Vérifier le typage, le build et la suite complète**
+- [ ] **Step 10: Vérifier le typage, le build et la suite complète**
 
 ```bash
 npx tsc --noEmit 2>&1 | grep -v test_auto_review | tail -5 \
@@ -1400,11 +1524,11 @@ npx tsc --noEmit 2>&1 | grep -v test_auto_review | tail -5 \
   && cd rust && cargo test --workspace 2>&1 | tail -8
 ```
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add rust/crates src/components/settings
-git commit -m "feat(consignes): assistance Reformuler dans l'éditeur"
+git add rust/crates src/components/settings src/lib/settings.ts
+git commit -m "feat(consignes): Reformuler sur le modèle choisi dans les réglages"
 ```
 
 ---

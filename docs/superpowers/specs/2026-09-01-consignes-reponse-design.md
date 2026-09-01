@@ -234,11 +234,20 @@ selon l'état :
 Il écrase sur place plutôt que d'ouvrir un panneau de comparaison à
 arbitrer ; le filet est « Rétablir ».
 
-Implémentation : un tour unique sur haiku dans
+**Le modèle est choisi par l'utilisateur**, pas figé : un réglage
+`consignesAssist: { provider, model }` sur le modèle exact du sélecteur
+`autoReview` (`sections/Atelier.tsx:141`), défaut haiku parce qu'il est
+rapide et suffit à ce geste. Le mécanisme passe par une méthode du trait
+`Provider` à implémentation par défaut `None`, comme `title_conversation` et
+`commit_message` (`traits.rs:133-146`) : claude l'implémente, un provider
+qui ne l'implémente pas n'est pas offert dans le sélecteur. Ajouter codex
+plus tard = une méthode, sans toucher au reste.
+
+Implémentation claude : un tour unique dans
 `atelier-providers/src/claude.rs`, calqué sur `commit_message`
-(`claude.rs:773` — args construits en dur hors `build_args`, comme
-`title_conversation`) : même `--system-prompt`, même modèle, même délai de
-60 s. **N'envoie que les trois
+(`claude.rs:759` — args construits en dur hors `build_args`, comme
+`title_conversation`) : même `--system-prompt`, `--model` pris du réglage,
+même délai de 60 s. **N'envoie que les trois
 champs** : ni le fil, ni les fichiers du projet, ni `CLAUDE.md`. CLI
 indisponible → bouton éteint, éditeur utilisable à la main. Rien d'assisté
 sur le nom ni la description.
