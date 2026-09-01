@@ -4356,6 +4356,49 @@ mod tests {
         assert_eq!(thread["kbSourceIds"], json!(["9c81", "gbrain"]));
     }
 
+    #[tokio::test]
+    async fn upsert_thread_persiste_la_consigne_et_survit_a_un_patch_partiel() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let msg = json!({"type": "upsertThread", "thread": {
+            "id": "t-consigne", "provider": "claude",
+            "consigne": { "id": "concis", "texte": "Réponds directement." },
+        }});
+        route_ws(&s, &msg.to_string()).await;
+
+        // Patch sans rapport : la consigne doit survivre au merge.
+        let rename = json!({"type": "upsertThread", "thread": {
+            "id": "t-consigne", "title": "Renommé",
+        }});
+        let out = route_ws(&s, &rename.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        let thread = v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "t-consigne")
+            .expect("thread présent");
+        assert_eq!(thread["title"], "Renommé");
+        assert_eq!(thread["consigne"]["texte"], "Réponds directement.");
+
+        // Retrait explicite : null efface.
+        let retrait = json!({"type": "upsertThread", "thread": {
+            "id": "t-consigne", "consigne": null,
+        }});
+        let out = route_ws(&s, &retrait.to_string()).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        let thread = v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "t-consigne")
+            .unwrap();
+        assert!(
+            thread["consigne"].is_null(),
+            "le retrait doit effacer la consigne — {thread}",
+        );
+    }
+
     #[test]
     fn api_provider_public_list_excludes_auxiliary_image_credentials() {
         let dir = tempdir().unwrap();
