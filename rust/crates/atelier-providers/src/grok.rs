@@ -1833,6 +1833,7 @@ mod tests {
             on_event: Arc::new(move |event| events.lock().unwrap().push(event)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled.load(Ordering::Relaxed)),
+            consigne: None,
             atelier_mcp: None,
         }
     }
@@ -2033,6 +2034,7 @@ mod tests {
             on_event: Arc::new(|_| {}),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         assert!(provider.interject(&req).await.is_none());

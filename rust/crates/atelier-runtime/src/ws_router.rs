@@ -3479,6 +3479,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             on_event,
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         let result = p.send(req).await;

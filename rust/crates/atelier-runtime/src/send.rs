@@ -1137,6 +1137,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }),
                 on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
+                consigne: None,
                 atelier_mcp: steer_mcp,
             };
             // Pump events into harness
@@ -1453,6 +1454,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             }),
             on_interaction: Some(interaction),
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
+            consigne: None,
             atelier_mcp,
         };
         let result = pimpl.send(req).await;

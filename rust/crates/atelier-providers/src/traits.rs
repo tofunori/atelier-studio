@@ -48,6 +48,11 @@ pub struct SendRequest {
     pub is_cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Scoped Atelier Sessions MCP launch (plan 057). Built only by the runtime.
     pub atelier_mcp: Option<AtelierMcpLaunch>,
+    /// Consigne du fil : instruction de ton/forme choisie par l'utilisateur,
+    /// RÉÉMISE À CHAQUE TOUR. Aucun CLI ne la retient d'un tour à l'autre.
+    /// Texte brut, sans balise — chaque adaptateur choisit son enveloppe.
+    /// `None` = aucune consigne active sur ce fil.
+    pub consigne: Option<String>,
 }
 
 /// MCP subprocess config for a single thread (plan 057).

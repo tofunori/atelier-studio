@@ -117,6 +117,7 @@ mod tests {
             on_event: Arc::new(move |v| e2.lock().unwrap().push(v)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         let r = p.send(req).await;

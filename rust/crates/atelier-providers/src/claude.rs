@@ -266,6 +266,17 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
             }
         }
     }
+    // Consigne du fil : prompt système ajouté, pas substitué — le préréglage
+    // `claude_code` du CLI reste en place.
+    if let Some(consigne) = req
+        .consigne
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        args.push("--append-system-prompt".into());
+        args.push(consigne.to_string());
+    }
     if let Some(sid) = &req.session_id {
         if !sid.is_empty() && regex_is_uuid(sid) {
             args.push("--resume".into());
@@ -915,6 +926,7 @@ mod drapeaux_tests {
             on_event: std::sync::Arc::new(|_| {}),
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         }
     }
@@ -1074,6 +1086,44 @@ mod drapeaux_tests {
         assert!(args.contains(&"/tmp/b".to_string()));
         assert!(args.contains(&"--include-hook-events".to_string()));
     }
+
+    /// La consigne de fil part en prompt système : invisible dans le fil,
+    /// et présente AUSSI sur un tour de reprise — un `--resume` qui perdrait
+    /// la consigne serait un bogue silencieux (le ton change sans raison
+    /// visible au deuxième message).
+    #[test]
+    fn la_consigne_part_en_prompt_systeme_y_compris_sur_une_reprise() {
+        let mut r = req(Some(SESSION), false);
+        r.consigne = Some("Réponds directement, sans préambule.".into());
+        let args = build_args(&r, None);
+
+        let i = args
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect(&format!("drapeau absent — {args:?}"));
+        assert_eq!(args[i + 1], "Réponds directement, sans préambule.");
+        assert!(
+            args.contains(&"--resume".to_string()),
+            "ce tour est bien une reprise — {args:?}",
+        );
+    }
+
+    /// Pas de consigne, pas de drapeau : un `--append-system-prompt` vide
+    /// écraserait le comportement par défaut du CLI.
+    #[test]
+    fn sans_consigne_aucun_prompt_systeme() {
+        let args = build_args(&req(None, false), None);
+        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
+    }
+
+    /// Une consigne blanche vaut pas de consigne.
+    #[test]
+    fn une_consigne_blanche_est_ignoree() {
+        let mut r = req(None, false);
+        r.consigne = Some("   \n ".into());
+        let args = build_args(&r, None);
+        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
+    }
 }
 
 #[cfg(test)]
@@ -1104,6 +1154,7 @@ mod title_tests {
             on_event: Arc::new(|_| {}),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         }
     }
@@ -1272,6 +1323,7 @@ mod interrupt_tests {
             // Le flag asynchrone ne se propage JAMAIS ici : le marqueur posé
             // par interrupt() doit suffire.
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         let p2 = Arc::clone(&provider);

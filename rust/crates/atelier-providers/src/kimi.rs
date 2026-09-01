@@ -1524,6 +1524,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         let result = p.send(req).await;
@@ -1832,6 +1833,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: Some(launch),
         };
         let result = p.send(req).await;
@@ -1915,6 +1917,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(move || cancelled2.load(std::sync::atomic::Ordering::SeqCst)),
+            consigne: None,
             atelier_mcp: None,
         };
         let flip = Arc::clone(&cancelled);
@@ -2092,6 +2095,7 @@ mod tests {
             on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
+            consigne: None,
             atelier_mcp: None,
         };
         let result = p.send(req).await;
