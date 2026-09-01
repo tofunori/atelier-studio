@@ -3066,6 +3066,8 @@ export default function App() {
     const id = crypto.randomUUID();
     // sélection KB faite avant toute conversation : adoptée par le fil créé
     const kbInit = consumePendingKb({ id, provider, projectRoot, title: t("app.new-chat-title") });
+    // même repli pour une consigne choisie avant toute conversation (plan 2026-09-01)
+    const consigneInit = consumePendingConsigne(id);
     const created = {
       id,
       projectRoot,
@@ -3075,6 +3077,7 @@ export default function App() {
       status: "idle" as const,
       updatedAt: new Date().toISOString(),
       ...kbInit,
+      ...consigneInit,
     };
     setDraftThreads((p) => [created, ...p]);
     // un chat vide doit survivre a la relance : on l'ecrit tout de suite dans
@@ -3508,6 +3511,8 @@ export default function App() {
       const kbInit = consumePendingKb({
         id, provider, projectRoot: activeProject ?? "", title: displayPrompt.slice(0, 40),
       });
+      // même repli pour une consigne choisie avant toute conversation (plan 2026-09-01)
+      const consigneInit = consumePendingConsigne(id);
       setDraftThreads((p) => [
         {
           id: id as string,
@@ -3518,6 +3523,7 @@ export default function App() {
           status: "idle" as const,
           updatedAt: new Date().toISOString(),
           ...kbInit,
+          ...consigneInit,
         },
         ...p,
       ]);
@@ -3598,9 +3604,7 @@ export default function App() {
       if (id === activeThread?.id && activeThread.consigne) {
         const refresh = consigneAJour(activeThread.consigne);
         if (refresh && refresh.texte !== activeThread.consigne.texte) {
-          setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: refresh } : th)));
-          setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: refresh } : th)));
-          ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: refresh } }));
+          patchConsigneDuFil(id, refresh);
         }
       }
       const envoye = sendPrompt(ws.current, {
@@ -3832,16 +3836,43 @@ export default function App() {
   // — modifier ou supprimer la consigne du catalogue ne doit pas réécrire le
   // sens d'une conversation déjà en cours (extra.consigne, lu côté Rust dans
   // send.rs::consigne_du_fil). Sans fil actif (accueil, avant le premier
-  // message), le choix n'a pas encore de fil où se poser — no-op assumé,
-  // comme les autres réglages du composer qui n'existent qu'après création.
+  // message), le choix n'a pas encore de fil où se poser : il vit « en
+  // attente » — même repli que pendingKb ci-dessus — et se transfère au fil
+  // dès sa création (createChat, et la création à la volée dans submit()).
+  const [pendingConsigne, setPendingConsigne] = useState<ConsigneDuFil | null>(null);
+  const pendingConsigneRef = useRef(pendingConsigne);
+  pendingConsigneRef.current = pendingConsigne;
+  /** Patch commun à un choix explicite (onChoisirConsigne) et au
+   *  rafraîchissement fait juste avant l'envoi d'un tour (submit()) : reflète
+   *  la consigne dans les deux listes de fils locales et envoie le patch
+   *  `upsertThread` correspondant. */
+  function patchConsigneDuFil(id: string, consigne: ConsigneDuFil | null) {
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne } : th)));
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne } }));
+    }
+  }
   function onChoisirConsigne(choix: ConsigneDuFil | null) {
     const id = activeIdRef.current;
-    if (!id) return;
-    setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: choix } : th)));
-    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: choix } : th)));
-    if (ws.current?.readyState === 1) {
-      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: choix } }));
+    if (!id) {
+      setPendingConsigne(choix);
+      return;
     }
+    patchConsigneDuFil(id, choix);
+  }
+  // Consomme la consigne en attente (repli créé au-dessus) pour le fil qu'on
+  // vient de créer — même forme que consumePendingKb : upsert immédiat si la
+  // WS est ouverte, et la copie retournée est foldée dans l'objet local du
+  // fil créé par l'appelant (createChat / création à la volée de submit()).
+  function consumePendingConsigne(id: string): { consigne?: ConsigneDuFil } {
+    const pending = pendingConsigneRef.current;
+    if (!pending) return {};
+    setPendingConsigne(null);
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: pending } }));
+    }
+    return { consigne: pending };
   }
   // Copie à jour de la consigne active : relit le catalogue COURANT pour
   // l'identifiant porté par le fil, pour qu'une consigne éditée s'applique

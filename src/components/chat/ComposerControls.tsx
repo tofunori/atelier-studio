@@ -276,17 +276,24 @@ export function ComposerControls(p: {
   return (
     <>
         <div className="composer-bar">
-          <DropdownMenu open={plusOpen} onOpenChange={setPlusOpen}>
-            <ButtonGroup className="composer-tool-group">
-              <IconButton
-                size="s"
-                className="ghost qa-zap-btn"
-                label={t("qa.open")}
-                title={t("qa.open") + " (⌥⌘K)"}
-                onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
-              >
-                <ZapIcon />
-              </IconButton>
+          <ButtonGroup className="composer-tool-group">
+            <IconButton
+              size="s"
+              className="ghost qa-zap-btn"
+              label={t("qa.open")}
+              title={t("qa.open") + " (⌥⌘K)"}
+              onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
+            >
+              <ZapIcon />
+            </IconButton>
+            {/* Menu.Root ne rend AUCUN élément DOM lui-même (contexte pur) — le
+                borner au trigger+content laisse KbPicker et ConsigneMenu, qui
+                portent chacun leur PROPRE Menu.Root/Popover, en simples
+                frères dans ce ButtonGroup au lieu de descendants d'un menu
+                étranger (deux Menu.Root imbriqués se disputeraient Échap et
+                la détection de clic extérieur — pas prouvé sûr, retiré). Le
+                DOM et la mise en page du groupe restent inchangés. */}
+            <DropdownMenu open={plusOpen} onOpenChange={setPlusOpen}>
               <DropdownMenuTrigger
                 render={
                   <IconButton
@@ -299,16 +306,7 @@ export function ComposerControls(p: {
                   </IconButton>
                 }
               />
-              {p.kb && <KbPicker binding={p.kb} />}
-              <ConsigneMenu
-                consignes={p.defaults.consignes ?? []}
-                actif={p.consigneDuFil}
-                provider={provider}
-                onChoisir={p.onChoisirConsigne}
-                onOuvrirReglages={p.onOuvrirReglagesConsignes}
-              />
-            </ButtonGroup>
-            <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
+              <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
                 <DropdownMenuItem className="mp-item" onClick={() => attachFiles()}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                     <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
@@ -346,8 +344,17 @@ export function ComposerControls(p: {
                     <span>{t("goal.menu")}</span>
                   </DropdownMenuItem>
                 )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {p.kb && <KbPicker binding={p.kb} />}
+            <ConsigneMenu
+              consignes={p.defaults.consignes ?? []}
+              actif={p.consigneDuFil}
+              provider={provider}
+              onChoisir={p.onChoisirConsigne}
+              onOuvrirReglages={p.onOuvrirReglagesConsignes}
+            />
+          </ButtonGroup>
           <span className="flex" />
           {permissionOptions.length > 0 && (
             <>

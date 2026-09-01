@@ -734,6 +734,31 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     await waitFor(() => expect(document.activeElement).toBe(plusBtn));
   });
 
+  // ConsigneMenu (plan 2026-09-01) porte son propre Menu.Root ; il vit
+  // maintenant en FRÈRE du Menu.Root du menu + dans .composer-tool-group
+  // (ComposerControls.tsx), pas comme descendant de sa subtree — deux
+  // Menu.Root imbriqués se disputeraient Échap et le clic extérieur. Ce test
+  // couvre jsdom (ouverture/fermeture indépendantes) ; le focus clavier réel
+  // sur deux menus flottants simultanés dans un vrai navigateur n'est PAS
+  // vérifié ici.
+  it("menu + et menu consigne : deux Menu.Root frères, indépendants l'un de l'autre", async () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    const plusBtn = screen.getByTitle(t("action.add-file-image")) as HTMLButtonElement;
+    fireEvent.click(plusBtn);
+    await waitFor(() => expect(document.querySelector(".plus-up")).toBeTruthy());
+
+    const consigneBtn = screen.getByLabelText("Consigne du fil") as HTMLButtonElement;
+    fireEvent.click(consigneBtn);
+    await waitFor(() => expect(screen.getByText("Aucune")).toBeTruthy());
+    // ouvrir le menu consigne ne ferme pas le menu + resté ouvert au-dessus
+    expect(document.querySelector(".plus-up")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Aucune"));
+    await waitFor(() => expect(screen.queryByText("Aucune")).toBeNull());
+    // fermer (par sélection) le menu consigne ne ferme pas le menu +
+    expect(document.querySelector(".plus-up")).toBeTruthy();
+  });
+
   it("compose InputGroup, son textarea officiel et les groupes d’actions dédiés", () => {
     renderUi(<Chat {...chatProps({ workingSince: FIXED_TS })} />);
     const group = document.querySelector('.composer [data-slot="input-group"]');

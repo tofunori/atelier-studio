@@ -223,6 +223,68 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByText(t("action.interrupt"))).toBeNull();
   });
 
+  // Task 7 fix round 1 (finding 2) : rien ne testait le rafraîchissement de
+  // la consigne au moment de l'envoi (App.tsx::submit(), juste avant
+  // sendPrompt) — un refactor de submit() pourrait en inverser l'ORDRE (le
+  // patch upsertThread doit partir AVANT le send, sur la même connexion :
+  // send.rs::consigne_du_fil lit `previous`, l'état du fil déjà en mémoire
+  // au moment où le serveur traite le message "send") sans qu'aucun test
+  // ne le remarque.
+  it("l'envoi rafraîchit la consigne AVANT le tour : le patch part sur le fil, puis le send", async () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      consignes: [{ id: "concis", nom: "Concis", description: "d", texte: "Texte édité dans les réglages." }],
+    }));
+    const { sock } = await mountApp();
+    const withConsigne = makeThread({
+      id: "thread-A",
+      title: "Fil A — albédo",
+      consigne: { id: "concis", texte: "Ancien texte, avant édition." },
+    });
+    await pushThreads(sock, [withConsigne]);
+    await selectThread(sock, "Fil A — albédo");
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "allo" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+
+    const messages = sock.sent.map((s) => JSON.parse(s));
+    const upsertIdx = messages.findIndex(
+      (m) => m.type === "upsertThread" && m.thread?.id === "thread-A" && m.thread?.consigne,
+    );
+    const sendIdx = messages.findIndex((m) => m.type === "send" && m.threadId === "thread-A");
+    expect(upsertIdx, "le patch de consigne doit avoir été envoyé").toBeGreaterThanOrEqual(0);
+    expect(sendIdx, "le send doit suivre le patch, pas le précéder").toBeGreaterThan(upsertIdx);
+    expect(messages[upsertIdx].thread.consigne).toEqual({ id: "concis", texte: "Texte édité dans les réglages." });
+  });
+
+  it("une consigne disparue du catalogue garde sa dernière copie ; le tour part quand même", async () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ consignes: [] }));
+    const { sock } = await mountApp();
+    const withConsigne = makeThread({
+      id: "thread-A",
+      title: "Fil A — albédo",
+      consigne: { id: "disparue", texte: "Dernière copie connue." },
+    });
+    await pushThreads(sock, [withConsigne]);
+    await selectThread(sock, "Fil A — albédo");
+
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "allo" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+
+    const messages = sock.sent.map((s) => JSON.parse(s));
+    // rien à rafraîchir (même texte que la dernière copie connue) : aucun
+    // patch de consigne envoyé — le fil garde ce qu'il portait déjà.
+    expect(
+      messages.some((m) => m.type === "upsertThread" && m.thread?.id === "thread-A" && m.thread?.consigne),
+    ).toBe(false);
+    // et surtout : le tour part normalement malgré l'id disparu du catalogue.
+    const sends = messages.filter((m) => m.type === "send" && m.threadId === "thread-A");
+    expect(sends).toHaveLength(1);
+  });
+
   it("choisit le provider avant de créer un chat et le conserve au premier envoi", async () => {
     const { sock } = await mountApp();
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -250,6 +312,26 @@ describe("orchestration App — caractérisation", () => {
     expect(upserts).toHaveLength(1);
     expect(upserts[0].thread).toMatchObject({ provider: "codex" });
     expect(typeof upserts[0].thread.id).toBe("string");
+  });
+
+  it("une consigne choisie avant tout fil se transfère au fil créé (repli pendingConsigne)", async () => {
+    // Le déclencheur « Consigne du fil » n'est gardé que par le provider
+    // (claude par défaut), jamais par l'existence d'un fil — un premier
+    // choix avant la moindre conversation doit survivre à la création du
+    // fil au lieu d'être perdu en silence (même repli que pendingKb pour
+    // la base de connaissances).
+    const { sock } = await mountApp();
+    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByText("Concis"));
+
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    const withConsigne = upserts.find((m) => m.thread?.consigne);
+    expect(withConsigne?.thread.consigne).toMatchObject({ id: "concis" });
   });
 
   it("un chat créé pendant qu'un projet est ouvert APPARTIENT à ce projet", async () => {
