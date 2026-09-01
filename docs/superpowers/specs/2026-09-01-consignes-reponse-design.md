@@ -116,9 +116,11 @@ Rempli par `atelier-runtime/src/send.rs` depuis `previous.extra["consigne"]`
 (le `Thread` est déjà passé en paramètre aux deux endroits qui construisent
 un `SendRequest`) : le tour normal (`send.rs:1422`) **et** le chemin steer
 non-claude (`send.rs:1110`) — le steer claude retombe dans le tour normal
-(`send.rs:1063-1077`) et est couvert par le premier site. La réécriture de la
-copie « au tour suivant » se fait dans le bloc d'upsert qui suit
-`send.rs:996` ; `upsert` fusionne clé à clé au niveau racine et `extra` est
+(`send.rs:1063-1077`) et est couvert par le premier site. La copie est rafraîchie **côté
+frontend**, au moment de l'envoi : le composeur relit le texte courant du
+catalogue pour l'identifiant actif et le joint au patch `upsertThread`. Le
+Rust ne fait que lire — aucun chemin d'écriture de la consigne côté runtime.
+`upsert` fusionne clé à clé au niveau racine et `extra` est
 `#[serde(flatten)]`, donc un patch `{"id": …, "consigne": {…}}` préserve les
 autres clés d'extra (test existant `preserves_extra_fields`).
 
