@@ -5,7 +5,9 @@
 //! interrupt kills the active child process group.
 
 use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
-use crate::traits::{CommitMessageDetails, Provider, ProviderCaps, SendRequest, SendResult};
+use crate::traits::{
+    prompts_reformulation, CommitMessageDetails, Provider, ProviderCaps, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -824,6 +826,53 @@ impl Provider for ClaudeProvider {
         parse_commit_message_details(&String::from_utf8_lossy(&output.stdout)).map(Some)
     }
 
+    async fn reformuler_consigne(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+    ) -> Option<String> {
+        let (system, prompt) = prompts_reformulation(nom, description, texte);
+        let cwd = if !project_root.is_empty() && std::path::Path::new(project_root).is_dir() {
+            project_root.to_string()
+        } else {
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
+        };
+        let mut cmd = Command::new(&self.bin);
+        cmd.args([
+            "-p",
+            "--safe-mode",
+            "--no-session-persistence",
+            "--tools",
+            "",
+            "--permission-mode",
+            "dontAsk",
+            "--effort",
+            "low",
+            "--model",
+            model,
+            "--system-prompt",
+            &system,
+            &prompt,
+        ])
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output())
+            .await
+            .ok()?
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let texte = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (!texte.is_empty()).then_some(texte)
+    }
+
     async fn interrupt(&self, thread_id: &str) -> bool {
         let mut runs = self.runs.lock().await;
         if let Some(mut r) = runs.remove(thread_id) {
@@ -1275,6 +1324,17 @@ mod title_tests {
         assert!(first_system.contains("title and description"));
         assert!(first_user.contains("diff --git a/src/a.ts b/src/a.ts"));
         assert_ne!(first_user.lines().next(), second_user.lines().next());
+    }
+
+    /// claude a un vrai prompt système : la reformulation doit l'utiliser
+    /// plutôt que de concaténer comme codex, et le modèle vient de
+    /// l'appelant — jamais d'une constante dans le code.
+    #[test]
+    fn la_reformulation_claude_separe_systeme_et_message() {
+        let (systeme, utilisateur) =
+            crate::traits::prompts_reformulation("Concis", "Réponse directe.", "sois bref");
+        assert!(systeme.contains("impératif"));
+        assert!(!utilisateur.contains("impératif"));
     }
 }
 

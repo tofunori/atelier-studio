@@ -122,6 +122,31 @@ pub struct CommitMessageDetails {
     pub description: String,
 }
 
+/// Prompts de l'assistance « Reformuler » de l'éditeur de consignes.
+/// N'emporte que les trois champs du formulaire — jamais le fil, les
+/// fichiers du projet ou CLAUDE.md. Vit ici (pas dans `codex.rs`) : c'est le
+/// module partagé des deux adaptateurs qui l'implémentent (codex, claude) —
+/// l'un ne doit pas dépendre de l'autre pour un simple gabarit de texte.
+/// Le texte produit est identique pour les deux ; seule l'enveloppe d'appel
+/// diverge (codex concatène système + utilisateur, claude a un vrai
+/// `--system-prompt`).
+pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String) {
+    let vide = texte.trim().is_empty();
+    let verbe = if vide {
+        "Rédige une consigne à partir du nom et de la description fournis."
+    } else {
+        "Reformule la consigne fournie : resserre-la, mets-la à l'impératif, coupe le flou."
+    };
+    let systeme = format!(
+        "Tu écris des consignes destinées à un assistant de programmation. {verbe} \
+         Écris à l'impératif, en français, une instruction par ligne, cinq lignes au maximum. \
+         Ne commente pas, ne justifie pas : renvoie uniquement le texte de la consigne."
+    );
+    let utilisateur =
+        format!("Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}");
+    (systeme, utilisateur)
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn id(&self) -> &str;

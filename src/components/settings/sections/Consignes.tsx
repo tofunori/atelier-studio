@@ -32,11 +32,12 @@ type Assist = { provider: string; model: string };
 // (sections/Atelier.tsx) : aucun catalogue à porter pour une poignée
 // d'entrées. Ne jamais y ajouter un provider dont `reformuler_consigne`
 // rend encore `None` côté Rust — un choix qui éteint le bouton sans
-// l'expliquer serait pire que pas de choix (codex seul tant que claude
-// n'a pas son implémentation, tâche 12).
+// l'expliquer serait pire que pas de choix.
 const OPTIONS_MODELE_REFORMULATION: { value: string; label: string }[] = [
   { value: "codex:gpt-5.6-sol", label: "GPT-5.6 sol" },
   { value: "codex:gpt-5.5", label: "GPT-5.5" },
+  { value: "claude:claude-haiku-4-5-20251001", label: "Haiku 4.5 · rapide" },
+  { value: "claude:claude-sonnet-5", label: "Sonnet 5" },
 ];
 
 const EVENT_CONSIGNE_REFORMULEE = "consigne-reformulee";
