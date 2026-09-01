@@ -1491,6 +1491,27 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }
             }
         }
+        "reformulerConsigne" => {
+            let provider_id = msg.get("provider").and_then(Value::as_str).unwrap_or("");
+            let Some(provider) = state.provider(provider_id) else {
+                return vec![json_msg(json!({
+                    "type": "consigneReformulee",
+                    "texte": Value::Null,
+                }))];
+            };
+            let nom = msg.get("nom").and_then(Value::as_str).unwrap_or("");
+            let description = msg.get("description").and_then(Value::as_str).unwrap_or("");
+            let texte = msg.get("texte").and_then(Value::as_str).unwrap_or("");
+            let model = msg.get("model").and_then(Value::as_str).unwrap_or("");
+            let project_root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            let resultat = provider
+                .reformuler_consigne(nom, description, texte, model, project_root)
+                .await;
+            vec![json_msg(json!({
+                "type": "consigneReformulee",
+                "texte": resultat,
+            }))]
+        }
         "pinPassage" => handle_pin_passage(state, &msg),
         "listPins" => handle_list_pins(state, &msg),
         "unpinPassage" => handle_unpin_passage(state, &msg),

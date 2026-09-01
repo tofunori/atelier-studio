@@ -120,6 +120,29 @@ fn turn_idle_secs() -> u64 {
         .unwrap_or(TURN_IDLE_SECS_DEFAULT)
 }
 
+/// Prompts de l'assistance « Reformuler » de l'éditeur de consignes.
+/// N'emporte que les trois champs du formulaire — jamais le fil, les
+/// fichiers du projet ou CLAUDE.md. Partagé avec claude (`crate::codex::
+/// prompts_reformulation`) : les deux adaptateurs écrivent le même texte,
+/// seule l'enveloppe d'appel diverge (codex concatène, claude a un vrai
+/// `--system-prompt`).
+pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String) {
+    let vide = texte.trim().is_empty();
+    let verbe = if vide {
+        "Rédige une consigne à partir du nom et de la description fournis."
+    } else {
+        "Reformule la consigne fournie : resserre-la, mets-la à l'impératif, coupe le flou."
+    };
+    let systeme = format!(
+        "Tu écris des consignes destinées à un assistant de programmation. {verbe} \
+         Écris à l'impératif, en français, une instruction par ligne, cinq lignes au maximum. \
+         Ne commente pas, ne justifie pas : renvoie uniquement le texte de la consigne."
+    );
+    let utilisateur =
+        format!("Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}");
+    (systeme, utilisateur)
+}
+
 fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     match permission_mode {
         Some("bypassPermissions") => ("danger-full-access", "never"),
@@ -1172,6 +1195,78 @@ impl Provider for CodexProvider {
             .is_ok()
     }
 
+    async fn reformuler_consigne(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+    ) -> Option<String> {
+        let (systeme, utilisateur) = prompts_reformulation(nom, description, texte);
+        // codex n'a pas de prompt système séparé : les deux blocs se
+        // concatènent dans le message.
+        let message = format!("{systeme}\n\n{utilisateur}");
+
+        // Fil éphémère : cette reformulation ne doit pas s'accrocher à une
+        // conversation existante. Coût assumé : un rollout codex de plus.
+        // Même résolution de cwd que `thread_opts` pour un fil ordinaire —
+        // vide devient `null`, pas une chaîne vide.
+        let codex_id = open_thread(
+            &self.server,
+            None,
+            json!({
+                "cwd": if project_root.is_empty() { Value::Null } else { json!(project_root) },
+                "sandbox": "read-only",
+                "approvalPolicy": "never",
+            }),
+        )
+        .await
+        .ok()?;
+
+        let (tx, rx) = oneshot::channel::<String>();
+        let tx = Arc::new(StdMutex::new(Some(tx)));
+        let tx_handler = Arc::clone(&tx);
+        let handler = Arc::new(move |method: &str, params: &Value| {
+            if method != "item/completed" {
+                return;
+            }
+            let item = params.get("item").unwrap_or(&Value::Null);
+            if item.get("type").and_then(Value::as_str) != Some("agentMessage") {
+                return;
+            }
+            let texte = item
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if let Ok(mut slot) = tx_handler.lock() {
+                if let Some(sender) = slot.take() {
+                    let _ = sender.send(texte);
+                }
+            }
+        });
+        self.server.set_handler(&codex_id, handler).await;
+
+        // Le modèle est réémis ici : codex ne retient aucun réglage d'un
+        // tour à l'autre, y compris sur un fil qu'on vient d'ouvrir.
+        let params = json!({
+            "threadId": codex_id,
+            "model": model,
+            "input": [{ "type": "text", "text": message, "text_elements": [] }],
+        });
+        if self.server.request("turn/start", params).await.is_err() {
+            self.server.clear_handler(&codex_id).await;
+            return None;
+        }
+
+        let recu = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+        self.server.clear_handler(&codex_id).await;
+        let texte = recu.ok()?.ok()?;
+        let texte = texte.trim();
+        (!texte.is_empty()).then(|| texte.to_string())
+    }
+
     async fn native_command(&self, name: &str, params: Value) -> Result<Value, String> {
         if name == "pluginsInstalled" {
             let cwd = params
@@ -1254,6 +1349,32 @@ mod command_tests {
         );
         assert_eq!(codex_safety(Some("plan")), ("read-only", "never"));
         assert_eq!(codex_safety(None), ("read-only", "on-request"));
+    }
+
+    /// Le prompt de reformulation n'emporte QUE les trois champs de
+    /// l'éditeur : ni le fil, ni les fichiers du projet, ni CLAUDE.md.
+    #[test]
+    fn la_reformulation_n_emporte_que_les_champs_de_l_editeur() {
+        let (systeme, utilisateur) = prompts_reformulation(
+            "Rigueur scientifique",
+            "Chiffre, cite.",
+            "sois rigoureux stp",
+        );
+        assert!(systeme.contains("impératif"), "{systeme}");
+        assert!(utilisateur.contains("Rigueur scientifique"));
+        assert!(utilisateur.contains("Chiffre, cite."));
+        assert!(utilisateur.contains("sois rigoureux stp"));
+        // codex n'a pas de prompt système séparé : les deux se concatènent
+        // à l'envoi, donc aucun des deux ne doit contenir l'autre.
+        assert!(!utilisateur.contains(&systeme));
+    }
+
+    /// Champ vide : on rédige un premier jet à partir du nom et de la
+    /// description — le verbe du bouton change, le chemin est le même.
+    #[test]
+    fn un_texte_vide_demande_une_redaction() {
+        let (systeme, _) = prompts_reformulation("Concis", "Réponse directe.", "");
+        assert!(systeme.contains("Rédige"), "{systeme}");
     }
 }
 

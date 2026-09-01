@@ -148,6 +148,21 @@ pub trait Provider: Send + Sync {
         Ok(None)
     }
 
+    /// Reformule une consigne de l'éditeur. `model` vient du réglage
+    /// `consignesAssist` : l'utilisateur choisit ce qui réécrit ses textes.
+    /// Défaut `None` = ce CLI n'a pas de tour un-coup exploitable ; l'UI
+    /// n'offre pas ce provider plutôt que d'éteindre un bouton sans raison.
+    async fn reformuler_consigne(
+        &self,
+        _nom: &str,
+        _description: &str,
+        _texte: &str,
+        _model: &str,
+        _project_root: &str,
+    ) -> Option<String> {
+        None
+    }
+
     /// Optional native steer (Codex). Default: not supported.
     async fn steer(&self, _req: SendRequest) -> bool {
         false
