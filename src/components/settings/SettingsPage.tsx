@@ -20,11 +20,12 @@ const General = lazyWithRetry(() => import("./sections/General"));
 const Models = lazyWithRetry(() => import("./sections/Models"));
 const Appearance = lazyWithRetry(() => import("./sections/Appearance"));
 const Atelier = lazyWithRetry(() => import("./sections/Atelier"));
+const Consignes = lazyWithRetry(() => import("./sections/Consignes"));
 
 type PanelComponent = React.ComponentType<SectionProps>;
 
 const PANELS: Record<SectionId, PanelComponent> = {
-  general: General, modeles: Models, apparence: Appearance, atelier: Atelier,
+  general: General, modeles: Models, apparence: Appearance, atelier: Atelier, consignes: Consignes,
 };
 
 export default function SettingsPage(p: {

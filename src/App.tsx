@@ -4500,7 +4500,7 @@ export default function App() {
           onKbChange={handleKbChange}
           consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : null}
           onChoisirConsigne={onChoisirConsigne}
-          onOuvrirReglagesConsignes={() => openSettings("atelier")}
+          onOuvrirReglagesConsignes={() => openSettings("consignes")}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}

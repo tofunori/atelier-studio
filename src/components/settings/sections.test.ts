@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { SECTIONS, resolveSection } from "./sections";
 
 describe("SECTIONS", () => {
-  it("expose les quatre sections du lot 1, dans l'ordre de lecture", () => {
-    expect(SECTIONS.map((s) => s.id)).toEqual(["general", "modeles", "apparence", "atelier"]);
+  it("expose les quatre sections du lot 1 puis « consignes » (tâche 9), dans l'ordre de lecture", () => {
+    expect(SECTIONS.map((s) => s.id)).toEqual(["general", "modeles", "apparence", "atelier", "consignes"]);
   });
 
   it("chaque section porte une clé i18n, jamais un libellé en dur", () => {

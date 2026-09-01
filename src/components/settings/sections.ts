@@ -3,13 +3,14 @@
 // = une ligne ici + un fichier dans sections/.
 import type { I18nKey } from "../../lib/i18n";
 
-export type SectionId = "general" | "modeles" | "apparence" | "atelier";
+export type SectionId = "general" | "modeles" | "apparence" | "atelier" | "consignes";
 
 export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "general", labelKey: "settings.general" },
   { id: "modeles", labelKey: "settings.models" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "atelier", labelKey: "settings.atelier" },
+  { id: "consignes", labelKey: "settings.consignes" },
 ];
 
 /** Les anciennes sections (setup, providers, review, appsnap, avance) sont
