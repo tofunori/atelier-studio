@@ -299,6 +299,19 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(shadcn).toContain("--text-sm: var(--fs-body)");
   });
 
+  // Un <h2>/<p> sans taille ni marge explicites retombe sur la feuille du
+  // navigateur : 18px et des marges de .83em, à l'intérieur d'un panneau de
+  // 300px. Le titre du panneau modèle Quick Ask a vécu ça jusqu'au
+  // 2026-08-31 ; deux popovers s'étaient déjà rattrapés à la main.
+  it("les titres de surface ne retombent jamais sur l'échelle du navigateur", () => {
+    const popover = shadcnSources.find(([name]) => name === "popover.tsx")![1];
+    const title = popover.match(/data-slot="popover-title"[\s\S]*?className\)/)![0];
+    expect(title).toContain("tw:m-0");
+    expect(title).toContain("tw:text-[length:var(--fs-body-s)]");
+    const desc = popover.match(/data-slot="popover-description"[\s\S]*?className\)/)![0];
+    expect(desc).toContain("tw:m-0");
+  });
+
   it("la couche shadcn ne contient que des primitives de registre", () => {
     expect(readdirSync(shadcnDir)).not.toContain("dialog-surface.tsx");
     expect(readdirSync(shadcnDir)).not.toContain("dropdown-menu-surface.tsx");

@@ -27,6 +27,10 @@ export function Select(p: {
   options: SelectOption[];
   compact?: boolean;
   title?: string;
+  /** Bulle native au survol. À couper quand un libellé visible dit déjà la
+   *  même chose : elle repasse alors par-dessus le panneau pour répéter le
+   *  label (capture Thierry 2026-08-31). Le nom accessible, lui, reste. */
+  tooltip?: boolean;
   className?: string;
   triggerIcon?: ReactNode;
   menuLabel?: string;
@@ -55,7 +59,7 @@ export function Select(p: {
       >
       <SelectTrigger
         size={p.compact ? "sm" : "default"}
-        title={p.title}
+        title={p.tooltip === false ? undefined : p.title}
         aria-label={p.title}
         className={cn("custom-select-trigger", p.compact && "compact", p.triggerIcon && "icon-only")}
       >

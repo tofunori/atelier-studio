@@ -646,10 +646,17 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
  * descendent d'un cran typographique (--fs-m, sous le texte de conversation),
  * se lisent ensemble à droite, et un id long tronque au lieu de plier la
  * barre sur deux lignes (vécu : `openrouter/z-ai-glm-5.3-flash`). */
-.composer-bar .custom-select.compact { font-size: var(--fs-m); }
-.composer-bar .custom-select.compact .custom-select-trigger {
+/* La même recette sert au panneau modèle du Quick Ask : un select de panneau
+ * n'a aucune raison de peser plus lourd que le même select dans la barre. Sans
+ * elle, le chevron sortait à sa taille lucide native — 24px à côté d'un texte
+ * de 13 (capture Thierry 2026-08-31). */
+.composer-bar .custom-select.compact,
+.qa-model-pop .custom-select.compact { font-size: var(--fs-m); }
+.composer-bar .custom-select.compact .custom-select-trigger,
+.qa-model-pop .custom-select.compact .custom-select-trigger {
   height: 24px; min-height: 24px; padding: 0 7px; gap: 6px; border-radius: var(--r-s); }
-.composer-bar .custom-select.compact [data-icon="select-chevron"] svg {
+.composer-bar .custom-select.compact [data-icon="select-chevron"] svg,
+.qa-model-pop .custom-select.compact [data-icon="select-chevron"] svg {
   width: 9px; height: 9px; color: var(--text-disabled); }
 /* Signe du mode (redesign 2026-08-26) : UNE seule mécanique, la même dans le
  * déclencheur et dans le menu — l'icône est portée par l'option, plus un
@@ -2735,7 +2742,10 @@ body.dragging iframe { pointer-events: none; }
 .qa-model-effort { color: var(--text-disabled); }
 .qa-model-pop { width: min(300px, calc(100vw - 24px)); }
 .qa-model-positioner { z-index: var(--z-quick-ask-popover); }
-.qa-model-fields { gap: 10px; }
+/* Le libellé se colle à son champ : le `mb-1.5` de shadcn s'ajoutait au gap du
+ * Field et ouvrait 10px là où 4 suffisent. */
+.qa-model-fields { gap: 12px; }
+.qa-model-fields [data-slot="field-label"] { margin-bottom: 0; }
 .qa-recents { border-top: 1px solid var(--border); max-height: 180px; overflow-y: auto;
   padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
 .qa-recent-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;

@@ -17,7 +17,7 @@ import { Select as ProductSelect } from "./Select";
 import { Button as ShadcnButton } from "./shadcn/button";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import {
-  Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger,
+  Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger,
 } from "./shadcn/popover";
 
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean; context?: QaContext };
@@ -489,15 +489,18 @@ export default function QuickAsk({
               className="qa-model-pop"
               positionerClassName="qa-model-positioner"
             >
+              {/* Pas de description : la phrase « choisir le provider, le
+                  modèle et l'effort » ne faisait que lire à voix haute les
+                  trois champs étiquetés juste dessous. */}
               <PopoverHeader>
                 <PopoverTitle>{t("qa.model-selector")}</PopoverTitle>
-                <PopoverDescription>{t("qa.model-selector-hint")}</PopoverDescription>
               </PopoverHeader>
               <FieldGroup className="qa-model-fields">
                 <Field>
                   <FieldLabel>{t("qa.provider")}</FieldLabel>
                   <ProductSelect
                     compact
+                    tooltip={false}
                     title={t("qa.provider")}
                     portalContainer={null}
                     positionerClassName="qa-model-positioner"
@@ -523,6 +526,7 @@ export default function QuickAsk({
                   <FieldLabel>{t("qa.model")}</FieldLabel>
                   <ProductSelect
                     compact
+                    tooltip={false}
                     title={t("qa.model")}
                     portalContainer={null}
                     positionerClassName="qa-model-positioner"
@@ -541,6 +545,7 @@ export default function QuickAsk({
                   <FieldLabel>{t("qa.effort")}</FieldLabel>
                   <ProductSelect
                     compact
+                    tooltip={false}
                     title={t("qa.effort")}
                     portalContainer={null}
                     positionerClassName="qa-model-positioner"

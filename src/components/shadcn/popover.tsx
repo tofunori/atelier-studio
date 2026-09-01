@@ -68,11 +68,18 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// `Title` rend un <h2> et `Description` un <p> : sans taille ni marge
+// explicites, les deux retombent sur la feuille du NAVIGATEUR — 1.5em (18px)
+// et des marges de .83em/1em qui s'ajoutent au gap du header. Le panneau
+// modèle du Quick Ask affichait ainsi un titre display dans 300px de large
+// (capture Thierry 2026-08-31). Deux popovers s'étaient déjà rattrapés à la
+// main (.git-branch-popover-head, .pnav-family-popover) : la correction
+// remonte ici, au seul endroit qui la rend vraie partout.
 function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
   return (
     <PopoverPrimitive.Title
       data-slot="popover-title"
-      className={cn("tw:font-medium", className)}
+      className={cn("tw:m-0 tw:text-[length:var(--fs-body-s)] tw:font-medium", className)}
       {...props}
     />
   )
@@ -85,7 +92,7 @@ function PopoverDescription({
   return (
     <PopoverPrimitive.Description
       data-slot="popover-description"
-      className={cn("tw:text-muted-foreground", className)}
+      className={cn("tw:m-0 tw:text-muted-foreground", className)}
       {...props}
     />
   )
