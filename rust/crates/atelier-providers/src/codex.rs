@@ -262,7 +262,12 @@ async fn resolve_plan_mode(server: &CodexAppServer) -> Option<Value> {
         .cloned()
 }
 
-fn build_input(prompt: &str, inputs: Option<&[Value]>) -> Value {
+/// Items d'entrée d'un tour codex. Prend la requête entière (et non
+/// `prompt` + `inputs`) pour que la consigne du fil ne puisse pas être
+/// oubliée sur l'un des quatre sites d'appel : le compilateur l'impose.
+fn build_input(req: &SendRequest) -> Value {
+    let prompt = req.prompt.as_str();
+    let inputs = req.inputs.as_deref();
     let clean = inputs
         .unwrap_or_default()
         .iter()
@@ -292,11 +297,29 @@ fn build_input(prompt: &str, inputs: Option<&[Value]>) -> Value {
             _ => None,
         })
         .collect::<Vec<_>>();
-    if clean.is_empty() {
-        json!([{ "type": "text", "text": prompt, "text_elements": [] }])
+    let mut items = if clean.is_empty() {
+        vec![json!({ "type": "text", "text": prompt, "text_elements": [] })]
     } else {
-        Value::Array(clean)
+        clean
+    };
+    // codex n'a pas d'équivalent d'`--append-system-prompt` : la consigne
+    // voyage en tête des items, balisée pour rester lisible dans le rollout.
+    if let Some(texte) = req
+        .consigne
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        items.insert(
+            0,
+            json!({
+                "type": "text",
+                "text": format!("<consigne-atelier>\n{texte}\n</consigne-atelier>"),
+                "text_elements": [],
+            }),
+        );
     }
+    Value::Array(items)
 }
 
 const ATELIER_PLUGIN_MVP: &[&str] = &[
@@ -787,7 +810,7 @@ impl Provider for CodexProvider {
                             "turn/steer",
                             json!({
                                 "threadId": t.codex_id,
-                                "input": build_input(&req.prompt, req.inputs.as_deref()),
+                                "input": build_input(&req),
                                 "expectedTurnId": turn_id,
                             }),
                         )
@@ -812,7 +835,7 @@ impl Provider for CodexProvider {
                                     "turn/steer",
                                     json!({
                                         "threadId": t.codex_id,
-                                        "input": build_input(&req.prompt, req.inputs.as_deref()),
+                                        "input": build_input(&req),
                                         "expectedTurnId": reel,
                                     }),
                                 )
@@ -846,7 +869,7 @@ impl Provider for CodexProvider {
                                     "thread/queue/add",
                                     json!({
                                         "threadId": t.codex_id,
-                                        "input": build_input(&req.prompt, req.inputs.as_deref()),
+                                        "input": build_input(&req),
                                         "clientUserMessageId": uuid::Uuid::new_v4().to_string(),
                                     }),
                                 )
@@ -1027,7 +1050,7 @@ impl Provider for CodexProvider {
 
         let mut turn_params = json!({
             "threadId": codex_id,
-            "input": build_input(&req.prompt, req.inputs.as_deref()),
+            "input": build_input(&req),
         });
         turn_params
             .as_object_mut()
@@ -1376,6 +1399,59 @@ mod service_tier_tests {
             assert_eq!(tier, case["serviceTier"], "{name}: service_tier");
             assert_eq!(effort_out, case["effortOut"], "{name}: effort");
         }
+    }
+
+    /// La consigne doit survivre à la présence d'`inputs` : `build_input`
+    /// ignore `prompt` dès qu'il y a une image, une mention ou un skill.
+    /// Un préfixe posé sur le prompt disparaîtrait dans ce cas — silencieusement.
+    #[test]
+    fn la_consigne_est_en_tete_avec_et_sans_inputs() {
+        let mut sans = request("medium", false);
+        sans.prompt = "salut".into();
+        sans.inputs = None;
+        sans.consigne = Some("Réponds directement.".into());
+        let items = build_input(&sans);
+        let items = items.as_array().expect("tableau d'items");
+        assert_eq!(items.len(), 2, "consigne + message — {items:?}");
+        assert!(
+            items[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("<consigne-atelier>"),
+            "la consigne vient en premier — {items:?}",
+        );
+        assert_eq!(items[1]["text"], "salut");
+
+        let mut avec = request("medium", false);
+        avec.prompt = "ignoré quand inputs est plein".into();
+        avec.inputs = Some(vec![serde_json::json!({
+            "type": "mention", "name": "note.md", "path": "/tmp/note.md",
+        })]);
+        avec.consigne = Some("Réponds directement.".into());
+        let items = build_input(&avec);
+        let items = items.as_array().expect("tableau d'items");
+        assert!(
+            items[0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Réponds directement."),
+            "consigne perdue dès qu'il y a des inputs — {items:?}",
+        );
+        assert_eq!(items[1]["type"], "mention");
+    }
+
+    /// Sans consigne, la charge utile est exactement celle d'avant.
+    #[test]
+    fn sans_consigne_les_items_sont_inchanges() {
+        let mut r = request("medium", false);
+        r.prompt = "salut".into();
+        r.inputs = None;
+        r.consigne = None;
+        let items = build_input(&r);
+        assert_eq!(
+            items,
+            serde_json::json!([{ "type": "text", "text": "salut", "text_elements": [] }]),
+        );
     }
 }
 
