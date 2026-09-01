@@ -799,6 +799,21 @@ pub fn expand_ref_command(
     )))
 }
 
+/// Consigne portée par le fil (`extra.consigne.texte`). Le fil stocke une
+/// COPIE du texte, pas seulement l'identifiant : modifier ou supprimer une
+/// consigne du catalogue ne doit pas réécrire le sens d'une conversation
+/// déjà en cours. Le frontend rafraîchit cette copie à chaque envoi.
+fn consigne_du_fil(previous: Option<&atelier_store::Thread>) -> Option<String> {
+    previous?
+        .extra
+        .get("consigne")?
+        .get("texte")?
+        .as_str()
+        .map(str::trim)
+        .filter(|texte| !texte.is_empty())
+        .map(str::to_string)
+}
+
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg
         .get("threadId")
@@ -1137,7 +1152,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }),
                 on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
-                consigne: None,
+                consigne: consigne_du_fil(previous.as_ref()),
                 atelier_mcp: steer_mcp,
             };
             // Pump events into harness
@@ -1454,7 +1469,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             }),
             on_interaction: Some(interaction),
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
-            consigne: None,
+            consigne: consigne_du_fil(previous.as_ref()),
             atelier_mcp,
         };
         let result = pimpl.send(req).await;
@@ -1834,6 +1849,42 @@ mod tests {
     use super::*;
     use crate::paths::AppPaths;
     use tempfile::tempdir;
+
+    fn fil_avec(extra: serde_json::Value) -> atelier_store::Thread {
+        let mut base = serde_json::json!({
+            "id": "t1", "projectRoot": "/tmp", "provider": "claude",
+            "title": "essai", "status": "idle",
+            "updatedAt": "2026-09-01T00:00:00Z", "createdAt": "2026-09-01T00:00:00Z",
+        });
+        let base_map = base.as_object_mut().expect("objet attendu");
+        let extra_map = extra.as_object().expect("objet attendu").clone();
+        base_map.extend(extra_map);
+        serde_json::from_value(base).expect("Thread désérialisable")
+    }
+
+    #[test]
+    fn la_consigne_du_fil_est_lue_depuis_extra() {
+        let fil = fil_avec(serde_json::json!({
+            "consigne": { "id": "concis", "texte": "Réponds directement." },
+        }));
+        assert_eq!(
+            consigne_du_fil(Some(&fil)).as_deref(),
+            Some("Réponds directement."),
+        );
+    }
+
+    #[test]
+    fn un_fil_sans_consigne_ou_avec_un_texte_vide_ne_donne_rien() {
+        assert_eq!(consigne_du_fil(None), None);
+        assert_eq!(
+            consigne_du_fil(Some(&fil_avec(serde_json::json!({})))),
+            None
+        );
+        let vide = fil_avec(serde_json::json!({
+            "consigne": { "id": "concis", "texte": "  " },
+        }));
+        assert_eq!(consigne_du_fil(Some(&vide)), None);
+    }
 
     #[test]
     fn upsert_title_ecrase_le_placeholder_du_brouillon() {
