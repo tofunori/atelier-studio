@@ -3161,6 +3161,18 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .pnav-row .prov-ico svg[fill="none"] { stroke: currentColor; }
 .pnav-row .prov-ico svg:not([fill="none"]) { fill: currentColor; }
 
+/* marqueur de branche : remplace l'ancien préfixe « ⑂ » du titre. Éteint au
+   repos, accent sur la rangée active — même règle que les toggles galerie.
+   La profondeur ne s'affiche qu'à partir de la deuxième coupe. */
+.pnav-fork { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
+  color: var(--text-disabled);
+  transition: color var(--motion-fast) var(--ease-out); }
+.pnav-fork svg { width: 13px; height: 13px; }
+.pnav-fork-depth { font-size: var(--fs-xs); font-weight: 500; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.pnav-row.active .pnav-fork, .pnav-row-main[aria-current="true"] .pnav-fork {
+  color: var(--accent); }
+
 /* « N conversations plus anciennes » / « Afficher moins » */
 .sidebar button.pnav-more { display: block; width: 100%; text-align: left;
   background: none; border: none; color: var(--text-disabled); font-size: var(--fs-m);

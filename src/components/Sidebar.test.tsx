@@ -522,6 +522,30 @@ describe("Research Navigator — sections et déduplication", () => {
     expect(screen.queryByText("Conversation numéro 8")).toBeNull();
   });
 
+  it("un fil forké affiche le marqueur de branche, pas un préfixe dans le titre", () => {
+    const threads = [
+      makeThread({ id: "src", title: "Rendu des vignettes" }),
+      makeThread({
+        id: "branche",
+        title: "Rendu des vignettes",
+        fork: { parentThreadId: "src", depth: 3, forkedAt: FIXED_ISO },
+      }),
+    ];
+    renderUi(<Sidebar {...makeProps({ threads, activeId: "src" })} />);
+    const marker = document.querySelector(".pnav-fork");
+    expect(marker).toBeTruthy();
+    // la profondeur s'affiche à partir de la 2e coupe, jamais dans le titre
+    expect(marker!.textContent).toBe("3");
+    expect(screen.queryByText(/⑂/)).toBeNull();
+    expect(marker!.getAttribute("title")).toContain("Rendu des vignettes");
+  });
+
+  it("un titre déjà préfixé « ⑂ » (fils d'avant la migration) s'affiche nettoyé", () => {
+    const threads = [makeThread({ id: "vieux", title: "⑂ ⑂ ⑂ Rendu des vignettes" })];
+    renderUi(<Sidebar {...makeProps({ threads, activeId: "vieux" })} />);
+    expect(screen.getByText("Rendu des vignettes")).toBeTruthy();
+  });
+
   it("le thread actif porte aria-current sur son bouton principal", () => {
     renderUi(<Sidebar {...makeProps({ threads: projectThreads(), activeId: "th-b" })} />);
     const current = document.querySelector('[aria-current="true"]');

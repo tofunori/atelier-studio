@@ -77,9 +77,15 @@ function threadRoot(th: Thread): string {
   return typeof (th as any).projectRoot === "string" ? (th as any).projectRoot : "";
 }
 
+// Migration douce : les fils forkés avant le marqueur de branche portent le
+// préfixe « ⑂ » (parfois répété) dans leur titre. On le retire à l'affichage,
+// la profondeur venant désormais de `thread.fork`. Rien n'est réécrit sur disque.
+const FORK_TITLE_PREFIX = /^(?:\u2442\s*)+/;
+
 export function rawThreadTitle(th: Thread): string {
   const raw = (th as any).title;
-  return typeof raw === "string" && raw.trim() ? raw : "Sans titre";
+  const clean = typeof raw === "string" ? raw.replace(FORK_TITLE_PREFIX, "").trim() : "";
+  return clean || "Sans titre";
 }
 
 export function threadTitle(th: Thread): string {
@@ -413,6 +419,15 @@ export default function Sidebar(p: {
     kind: "pinned" | "conversation",
   ) {
     const relatedCount = linkedConversations(p.threads, th.id).length;
+    const fork = th.fork
+      ? {
+          depth: th.fork.depth,
+          parentTitle: (() => {
+            const parent = p.threads.find((other) => other.id === th.fork?.parentThreadId);
+            return parent ? threadTitle(parent) : "Sans titre";
+          })(),
+        }
+      : undefined;
     const rowSource = `${kind}:${th.id}`;
     const family = familyByThread.get(th.id);
     return (
@@ -427,6 +442,7 @@ export default function Sidebar(p: {
         unread={p.unread.has(th.id)}
         heartbeat={p.heartbeatThreadIds?.has(th.id) ?? false}
         linkedConversationCount={relatedCount}
+        fork={fork}
         family={family}
         familyPreviewed={family?.id === previewFamilyId}
         onOpenFamilyThread={(thread) => p.onSelect(thread.id, threadRoot(thread))}

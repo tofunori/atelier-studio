@@ -244,6 +244,12 @@ export type Thread = {
     autoDeliveryUsed: number;
     paused: boolean;
   };
+  /** Bifurcation : portée par le fil, jamais par son titre. */
+  fork?: {
+    parentThreadId: string;
+    depth: number;
+    forkedAt: string;
+  };
   agentContextSeededAt?: string;
   // base de connaissances (plan 049) : sources attachées à la conversation
   kbSourceIds?: string[];

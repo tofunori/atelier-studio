@@ -337,6 +337,19 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     expect(forked.some((e) => e.kind === "user")).toBe(true);
   });
 
+  it("forkThread d'un fork approfondit `fork.depth` sans empiler de préfixe", async () => {
+    const { ctx, store } = setup({ provider: "grok" });
+    store.upsert({ id: "src", provider: "grok", projectRoot: "/p", title: "Rendu des vignettes" });
+    for (const [from, to] of [["src", "f1"], ["f1", "f2"], ["f2", "f3"]]) {
+      await route({ type: "forkThread", fromThreadId: from, newThreadId: to }, ctx);
+    }
+    for (const [id, depth] of [["f1", 1], ["f2", 2], ["f3", 3]]) {
+      expect(store.get(id).title).toBe("Rendu des vignettes");
+      expect(store.get(id).fork.depth).toBe(depth);
+    }
+    expect(store.get("f3").fork.parentThreadId).toBe("f2");
+  });
+
   it("forkThread Grok crée une session neuve et injecte le contexte une seule fois", async () => {
     const prompts = [];
     const { ctx, store } = setup({
@@ -365,6 +378,9 @@ describe("Bug 4/5 — fork par fromThreadId+eventId, revert par eventId (journal
     expect(fork.provider).toBe("grok");
     expect(fork.sessionId).toBeNull();
     expect(fork.forkContext).toContain("question source");
+    // parité Rust : titre non préfixé, bifurcation portée par `fork`
+    expect(fork.title).toBe("Grok source");
+    expect(fork.fork).toMatchObject({ parentThreadId: "grok-src", depth: 1 });
 
     await route(send({
       threadId: "grok-fork",

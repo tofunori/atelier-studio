@@ -1520,14 +1520,21 @@ export async function route(msg, ctx) {
       }
       const nativeClaudeFork = src.provider === "claude" && !!src.sessionId;
       const forkContext = nativeClaudeFork ? null : buildForkContext(msg.contextEvents, src.provider);
+      // parité Rust : la branche garde le titre de la source (plus de préfixe
+      // « ⑂ » qui s'accumulait fork après fork) et porte sa profondeur dans `fork`.
       ctx.store.upsert({
         id: msg.newThreadId,
         projectRoot: src.projectRoot,
         provider: src.provider,
-        title: "⑂ " + (src.title ?? "fork"),
+        title: src.title || "fork",
         sessionId: nativeClaudeFork ? src.sessionId : null,
         forkPending: nativeClaudeFork,
         forkContext,
+        fork: {
+          parentThreadId: msg.fromThreadId,
+          depth: (Number(src.fork?.depth) || 0) + 1,
+          forkedAt: new Date().toISOString(),
+        },
         status: "idle",
       });
       // le fork reçoit une COPIE du journal du thread SOURCE (fromThreadId)

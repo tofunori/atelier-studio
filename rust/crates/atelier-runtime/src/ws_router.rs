@@ -3060,14 +3060,22 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
             "Tu reprends une conversation commencée avec un autre agent. Voici le fil jusqu'ici — prends-le comme contexte acquis, ne le résume pas, ne le répète pas :\n\n---\n{transcript}\n=== fin du fil transmis — message réel ci-dessous ===\n\n"
         ))
     };
-    let title = format!(
-        "⑂ {}",
-        if src.title.is_empty() {
-            "fork"
-        } else {
-            &src.title
-        }
-    );
+    // La bifurcation est une donnée du fil, pas un caractère dans son nom :
+    // préfixer le titre l'accumulait à chaque fork de fork (« ⑂ ⑂ ⑂ … ») et
+    // rognait la largeur utile de la barre latérale. La branche reprend donc
+    // le titre de la source tel quel, et porte sa profondeur dans `fork`.
+    let title = if src.title.is_empty() {
+        "fork".to_string()
+    } else {
+        src.title.clone()
+    };
+    let fork_depth = src
+        .extra
+        .get("fork")
+        .and_then(|fork| fork.get("depth"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        + 1;
     // Fork NATIF quand le provider sait dupliquer sa session : la branche
     // hérite de l'historique réel (outils, plan) au lieu d'un transcript
     // recollé, et le fil source n'est pas touché. Le repli contextuel reste
@@ -3120,6 +3128,12 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
                 .filter(|session| !session.is_empty() && fork_by_resume)
         }),
         "forkPending": native_session.is_none() && fork_by_resume,
+        // Marqueur de branche pour l'UI : parent + profondeur, jamais le titre.
+        "fork": {
+            "parentThreadId": from,
+            "depth": fork_depth,
+            "forkedAt": iso_now(),
+        },
         // Un fork natif porte déjà l'historique : lui ajouter le transcript
         // le ferait relire deux fois.
         "forkContext": if native_session.is_some() || fork_by_resume {
@@ -4664,6 +4678,41 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("réponse source"));
+        // le titre de la branche n'est plus préfixé : la bifurcation vit dans `fork`
+        assert_eq!(fork.title, "Source Grok");
+        assert_eq!(fork.extra["fork"]["parentThreadId"], "grok-source");
+        assert_eq!(fork.extra["fork"]["depth"], 1);
+    }
+
+    #[tokio::test]
+    async fn forking_a_fork_deepens_instead_of_stacking_title_prefixes() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({"id":"src","title":"Rendu des vignettes","provider":"grok"}),
+                false,
+            )
+            .unwrap();
+
+        for (from, to) in [("src", "f1"), ("f1", "f2"), ("f2", "f3")] {
+            route_ws(
+                &s,
+                &json!({"type":"forkThread","fromThreadId":from,"newThreadId":to})
+                    .to_string(),
+            )
+            .await;
+        }
+
+        let store = s.threads().lock().await;
+        for (id, depth) in [("f1", 1), ("f2", 2), ("f3", 3)] {
+            let thread = store.get(id).cloned().unwrap();
+            assert_eq!(thread.title, "Rendu des vignettes", "titre préfixé pour {id}");
+            assert_eq!(thread.extra["fork"]["depth"], depth, "profondeur pour {id}");
+        }
+        assert_eq!(store.get("f3").unwrap().extra["fork"]["parentThreadId"], "f2");
     }
 
     #[tokio::test]

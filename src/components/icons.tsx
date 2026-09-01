@@ -123,6 +123,19 @@ export function ForkIcon({ size = 13 }: IconProps) {
   );
 }
 
+/** Marqueur de branche dans la barre latérale : une conversation qui repart
+ * d'un point du fil parent. Le trait part du point de coupe (le disque) et
+ * remonte vers la nouvelle direction. */
+export function ForkBranchIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <circle cx="5" cy="13.4" r="1.5" />
+      <path d="M5 11.9V6.4c0-1.2.9-2.1 2.1-2.1H11" />
+      <path d="M9.4 2.6L11.2 4.3 9.4 6" />
+    </StrokeIcon>
+  );
+}
+
 /** Marqueur Atelier d'une continuité entre conversations. Ce n'est ni une
  * chaîne ni une couleur de statut : deux sessions, un passage explicite. */
 export function SessionBridgeIcon({ size = 14 }: IconProps) {

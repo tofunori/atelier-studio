@@ -6,7 +6,7 @@
 import { t } from "../../lib/i18n";
 import type { ConversationFamily } from "../../lib/threadLinks";
 import type { Thread } from "../../lib/ws";
-import { ProviderIcon } from "../icons";
+import { ForkBranchIcon, ProviderIcon } from "../icons";
 import { Input } from "../shadcn/input";
 import {
   SidebarMenuButton,
@@ -78,6 +78,8 @@ export function ThreadRow(p: {
   unread: boolean;
   heartbeat: boolean;
   linkedConversationCount?: number;
+  /** Bifurcation : profondeur et titre du fil source, pour le marqueur. */
+  fork?: { depth: number; parentTitle: string };
   family?: ConversationFamily;
   familyPreviewed?: boolean;
   onOpenFamilyThread: (thread: Thread) => void;
@@ -101,10 +103,18 @@ export function ThreadRow(p: {
   menuItems: LazyDropdownMenuItem[];
 }) {
   const running = p.thread.status === "running";
+  // Le marqueur de branche remplace l'ancien préfixe « ⑂ » du titre : le
+  // chiffre n'apparaît qu'à partir de la deuxième coupe, sinon l'icône suffit.
+  const forkLabel = p.fork
+    ? p.fork.depth > 1
+      ? t("sidebar.forkedDepth", { title: p.fork.parentTitle, depth: p.fork.depth })
+      : t("sidebar.forkedFrom", { title: p.fork.parentTitle })
+    : null;
   const status = presentStatus({ kind: running ? "running" : p.thread.status === "done" ? "done" : "idle" });
   const a11ySuffix = [
     p.unread ? t("sidebar.unread") : null,
     p.heartbeat ? t("automations.heartbeat-active") : null,
+    forkLabel,
     p.linkedConversationCount
       ? t("linkedConversation.relatedCount", { count: p.linkedConversationCount })
       : null,
@@ -150,6 +160,14 @@ export function ThreadRow(p: {
           <span className="prov-ico" aria-hidden="true">
             <ProviderIcon provider={p.thread.provider} />
           </span>
+          {p.fork ? (
+            <span className="pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">
+              <ForkBranchIcon />
+              {p.fork.depth > 1 ? (
+                <span className="pnav-fork-depth">{p.fork.depth}</span>
+              ) : null}
+            </span>
+          ) : null}
           <span className="pnav-row-copy">
             <span className="pnav-title-row">
               <span className="title">
