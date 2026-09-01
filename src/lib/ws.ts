@@ -254,6 +254,9 @@ export type Thread = {
   // base de connaissances (plan 049) : sources attachées à la conversation
   kbSourceIds?: string[];
   kbFullContent?: string[];
+  /** Consigne de réponse (plan 2026-09-01) — copie {id, texte} portée par le
+   *  fil ; `null`/absent = aucune consigne active. */
+  consigne?: { id: string; texte: string } | null;
 };
 
 export type AgentMessageEvent = {

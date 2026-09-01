@@ -720,6 +720,37 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .mp-model:hover .mp-name { color: var(--text-primary); }
 .mp-model-label.mp-dim .mp-name { color: var(--text-muted); }
+/* Consigne du fil — l'état actif se lit au REMPLISSAGE, jamais à l'accent :
+   décision produit 2026-09-01 (l'orange criait sur une barre déjà chargée).
+   Un fond tient dans les deux thèmes, là où une bordure seule disparaît. */
+.consigne-trigger { color: var(--text-muted); border-radius: var(--r-s); }
+.consigne-pilule {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 8px 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--bg-ctl); color: var(--text-primary);
+  font-size: 12px; font-weight: 500;
+  max-width: 132px;
+  transition: background 130ms ease;
+}
+@media (prefers-reduced-motion: reduce) { .consigne-pilule { transition: none; } }
+.consigne-pilule-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consigne-option { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.consigne-nom { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.consigne-desc { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.consigne-lien { font-size: 13px; color: var(--text-secondary); }
+/* Pied non cliquable des menus DropdownMenuSurface (ex. Consigne du fil) —
+   contexte, jamais une action : séparé visuellement du dernier item. */
+.dropdown-surface-footer {
+  padding: 6px 8px 4px; margin-top: 4px;
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-muted); line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .consigne-pilule-nom { display: none; }
+  .consigne-pilule { padding: 0 7px; }
+}
 .send { width: 30px; height: 30px; border-radius: var(--r-s); border: none;
   background: var(--bg-ctl); color: var(--text-secondary); font-size: var(--fs-xl); cursor: pointer;
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }

@@ -30,6 +30,7 @@ import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import type { PluginCatalogEntry } from "../lib/plugins";
 import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
+import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import {
   buildChatTurnViewModels,
   projectChatTimeline,
@@ -123,6 +124,10 @@ export default function Chat(p: {
   kbSourceIds?: string[];
   kbFullContent?: string[];
   onKbChange?: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
+  // consigne de réponse (plan 2026-09-01) — copie portée par le fil actif
+  consigneDuFil?: ConsigneDuFil | null;
+  onChoisirConsigne?: (choix: ConsigneDuFil | null) => void;
+  onOuvrirReglagesConsignes?: () => void;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null; window?: number | null } | null;
@@ -151,6 +156,8 @@ export default function Chat(p: {
     providerOrder?: string[];
     hiddenProviders?: string[];
     favoriteModels?: Record<string, string[]>;
+    /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
+    consignes?: Consigne[];
   };
   providers?: ProviderInfo[];
   /** Agents réellement disponibles pour la mention Atelier (capability Rust confirmée). */
@@ -1074,6 +1081,9 @@ export default function Chat(p: {
             : undefined,
           activeGoal,
           defaults: p.defaults,
+          consigneDuFil: p.consigneDuFil ?? null,
+          onChoisirConsigne: p.onChoisirConsigne ?? (() => {}),
+          onOuvrirReglagesConsignes: p.onOuvrirReglagesConsignes ?? (() => {}),
         }}
       />
       {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint

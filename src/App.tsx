@@ -70,6 +70,7 @@ import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
+import type { ConsigneDuFil } from "./lib/consignes";
 import { THEME_PRESETS, presetById } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
@@ -3588,6 +3589,20 @@ export default function App() {
           : {}),
         ...(imagePaths.length ? { imagePaths } : {}),
       };
+      // Consigne (plan 2026-09-01) : rafraîchir la copie AVANT le tour, sur le
+      // MÊME fil (pas un handoff ni un fil neuf, qui n'ont encore aucune
+      // consigne enregistrée côté store) — c'est ce patch qui fait qu'une
+      // consigne éditée dans les réglages s'applique dès le tour suivant. Le
+      // send (ci-dessous) lit sa copie de thread.extra.consigne côté Rust :
+      // ce message doit donc partir AVANT, sur la même connexion.
+      if (id === activeThread?.id && activeThread.consigne) {
+        const refresh = consigneAJour(activeThread.consigne);
+        if (refresh && refresh.texte !== activeThread.consigne.texte) {
+          setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: refresh } : th)));
+          setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: refresh } : th)));
+          ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: refresh } }));
+        }
+      }
       const envoye = sendPrompt(ws.current, {
         autoReview: settingsRef.current.autoReview,
         threadId: id,
@@ -3812,6 +3827,31 @@ export default function App() {
         },
       }));
     }
+  }
+  // Consigne de réponse (plan 2026-09-01) : le fil garde une COPIE {id, texte}
+  // — modifier ou supprimer la consigne du catalogue ne doit pas réécrire le
+  // sens d'une conversation déjà en cours (extra.consigne, lu côté Rust dans
+  // send.rs::consigne_du_fil). Sans fil actif (accueil, avant le premier
+  // message), le choix n'a pas encore de fil où se poser — no-op assumé,
+  // comme les autres réglages du composer qui n'existent qu'après création.
+  function onChoisirConsigne(choix: ConsigneDuFil | null) {
+    const id = activeIdRef.current;
+    if (!id) return;
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: choix } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne: choix } : th)));
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne: choix } }));
+    }
+  }
+  // Copie à jour de la consigne active : relit le catalogue COURANT pour
+  // l'identifiant porté par le fil, pour qu'une consigne éditée s'applique
+  // dès le tour suivant. Identifiant disparu du catalogue (consigne
+  // supprimée) : on garde la dernière copie connue plutôt que de casser la
+  // conversation en cours.
+  function consigneAJour(actif: ConsigneDuFil | null | undefined): ConsigneDuFil | null {
+    if (!actif) return null;
+    const c = settingsRef.current.consignes.find((x) => x.id === actif.id);
+    return c ? { id: c.id, texte: c.texte } : actif;
   }
   const drainingQueuedRef = useRef(new Set<string>());
   useEffect(() => {
@@ -4408,6 +4448,9 @@ export default function App() {
           kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
           kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
           onKbChange={handleKbChange}
+          consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : null}
+          onChoisirConsigne={onChoisirConsigne}
+          onOuvrirReglagesConsignes={() => openSettings("atelier")}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}

@@ -688,6 +688,13 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(primitives).not.toMatch(/\.ui-tab\.is-active[^}]*var\(--selection-line\)/);
   });
 
+  it("la consigne active se lit au remplissage, jamais à l'accent de marque", () => {
+    const bloc = appCss.match(/\.consigne-pilule \{[^}]*\}/)?.[0] ?? "";
+    expect(bloc).toContain("var(--bg-ctl)");
+    expect(bloc).not.toContain("--accent");
+    expect(bloc).toContain("max-width: 132px");
+  });
+
   it("les patterns officiels n'ont plus de seconde implémentation dans App.css", () => {
     for (const legacy of [".atab {", ".jump-pill {", ".tool-group.worklog", ".turn-fold {"]) {
       expect(appCss.includes(legacy), `ancienne implémentation encore présente: ${legacy}`).toBe(false);

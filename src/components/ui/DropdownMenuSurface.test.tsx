@@ -60,4 +60,24 @@ describe("DropdownMenuSurface", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Codex" }))
     expect(onCodex).toHaveBeenCalledTimes(1)
   })
+
+  it("rend un pied non cliquable après les items, distinct du header", async () => {
+    render(
+      <DropdownMenuSurface
+        open
+        onOpenChange={() => {}}
+        label="Notes"
+        header="Conversation"
+        footer="Contexte additionnel"
+        trigger={<button type="button">Notes</button>}
+        items={[{ key: "rename", label: "Rename", onSelect: () => {} }]}
+      />,
+    )
+
+    const menu = await screen.findByRole("menu", { name: "Notes" })
+    expect(menu).toBeInTheDocument()
+    const footer = screen.getByText("Contexte additionnel")
+    expect(footer).toHaveClass("dropdown-surface-footer")
+    expect(screen.queryByRole("menuitem", { name: "Contexte additionnel" })).toBeNull()
+  })
 })

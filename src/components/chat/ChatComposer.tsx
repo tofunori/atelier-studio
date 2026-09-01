@@ -8,6 +8,7 @@ import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import type { Mark } from "../../lib/annotations";
 import { type KbBinding } from "./KbPicker";
+import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
 import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
@@ -109,8 +110,18 @@ export type ComposerHost = {
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   /** goal Codex actif (dernier événement goal non-cleared) — pilote la barre épinglée */
   activeGoal?: GoalInfo | null;
-  defaults: { autoReview?: { enabled: boolean }; providerOrder?: string[]; hiddenProviders?: string[] };
+  defaults: {
+    autoReview?: { enabled: boolean };
+    providerOrder?: string[];
+    hiddenProviders?: string[];
+    /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
+    consignes?: Consigne[];
+  };
   onOpenModelSettings?: () => void;
+  // consigne de réponse du fil actif (plan 2026-09-01) — copie portée par le fil
+  consigneDuFil: ConsigneDuFil | null;
+  onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
+  onOuvrirReglagesConsignes: () => void;
 };
 
 export function ChatComposer(props: {

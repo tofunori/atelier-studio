@@ -30,6 +30,8 @@ export function DropdownMenuSurface(props: {
   triggerRef?: Ref<HTMLButtonElement>
   label?: string
   header?: ReactNode
+  /** Ligne de pied non cliquable — contexte, jamais une action. */
+  footer?: ReactNode
   align?: "start" | "center" | "end"
   className?: string
   items: DropdownMenuSurfaceItem[]
@@ -73,6 +75,7 @@ export function DropdownMenuSurface(props: {
         <DropdownMenuGroup>
           {props.header && <DropdownMenuLabel>{props.header}</DropdownMenuLabel>}
           {props.items.map(renderItem)}
+          {props.footer && <div className="dropdown-surface-footer">{props.footer}</div>}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>

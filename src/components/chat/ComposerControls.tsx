@@ -25,6 +25,8 @@ import { Field, FieldLabel } from "../shadcn/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
+import { ConsigneMenu } from "./ConsigneMenu";
+import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, SearchIcon, SquareIcon } from "lucide-react";
 
@@ -148,10 +150,16 @@ export function ComposerControls(p: {
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
+    /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
+    consignes?: Consigne[];
   };
   onOpenModelSettings?: () => void;
   // base de connaissances (plan 049 T3) — picker d'attache par conversation
   kb?: KbBinding;
+  // consigne de réponse du fil actif (plan 2026-09-01)
+  consigneDuFil: ConsigneDuFil | null;
+  onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
+  onOuvrirReglagesConsignes: () => void;
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -292,6 +300,13 @@ export function ComposerControls(p: {
                 }
               />
               {p.kb && <KbPicker binding={p.kb} />}
+              <ConsigneMenu
+                consignes={p.defaults.consignes ?? []}
+                actif={p.consigneDuFil}
+                provider={provider}
+                onChoisir={p.onChoisirConsigne}
+                onOuvrirReglages={p.onOuvrirReglagesConsignes}
+              />
             </ButtonGroup>
             <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
                 <DropdownMenuItem className="mp-item" onClick={() => attachFiles()}>
