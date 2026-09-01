@@ -660,8 +660,13 @@ export default function QuickAsk({
               ))}
             </div>
           )}
+          {/* `bare` n'est pas cosmétique : la variante par défaut de shadcn pose
+              un `ring-1` au focus, qui se superposait au cadre de .qa-composer
+              — et gardait des angles droits, .qa-input forçant un rayon nul.
+              D'où les deux contours désaccordés (capture Thierry 2026-08-31). */}
           <Textarea
             ref={inputRef}
+            variant="bare"
             className="qa-input"
             rows={Math.min(6, Math.max(1, text.split("\n").length, Math.ceil(text.length / 60)))}
             value={text}

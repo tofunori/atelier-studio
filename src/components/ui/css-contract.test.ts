@@ -312,6 +312,16 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(desc).toContain("tw:m-0");
   });
 
+  // Le cadre du composeur Quick Ask est porté par .qa-composer ; le champ n'a
+  // pas d'état de focus à lui. En variante `default`, shadcn pose un `ring-1`
+  // qui se superposait à ce cadre — angles droits contre rayon 10, parce que
+  // .qa-input force un rayon nul. Deux contours désaccordés au clic.
+  it("le champ du composeur Quick Ask ne porte pas son propre focus", () => {
+    const qa = readFileSync(join(root, "components", "QuickAsk.tsx"), "utf8");
+    const textarea = qa.match(/<Textarea[\s\S]*?className="qa-input"/)![0];
+    expect(textarea).toContain('variant="bare"');
+  });
+
   it("la couche shadcn ne contient que des primitives de registre", () => {
     expect(readdirSync(shadcnDir)).not.toContain("dialog-surface.tsx");
     expect(readdirSync(shadcnDir)).not.toContain("dropdown-menu-surface.tsx");
