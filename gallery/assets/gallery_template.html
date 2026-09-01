@@ -963,7 +963,9 @@ const pendingChatAcks=new Map();
 window.addEventListener('message',e=>{
   const data=e.data;
   if(e.source!==window.top || !data || data.type!=='atelier-add-to-chat-ack') return;
-  const nonce=sessionStorage.getItem('atelier_nonce')||'';
+  // Même source de nonce que __atelierPost : WKWebView peut neutraliser
+  // sessionStorage.setItem, et lire le nonce ici seul jetait tous les ACK.
+  const nonce=(window.__atelierNonce||sessionStorage.getItem('atelier_nonce')||'');
   if(!nonce || data.nonce!==nonce || data.ok!==true) return;
   const pending=pendingChatAcks.get(data.requestId); if(!pending) return;
   clearTimeout(pending.timer); pendingChatAcks.delete(data.requestId); pending.resolve();
@@ -2922,7 +2924,10 @@ function annotInit(){
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:annotStrokes.filter(s=>s.note).map(s=>({n:s.n,text:s.note}))})});
     const j=await r.json();
-    if(ANNOT_EMBEDDED&&j&&j.message)__atelierPost({type:'atelier-add-to-chat',text:j.message});
+    // Même contrat que le bouton « Chat » d'une carte : sans ACK de l'hôte le
+    // message se perd en silence (nonce périmé, hôte pas encore à l'écoute) et
+    // la pilule mentait avec « Added to chat ✓ ». On attend l'accusé réel.
+    if(ANNOT_EMBEDDED&&j&&j.message) await postChatPayload({text:j.message});
     return j;
   }
   document.getElementById('annotPillCancel').onclick=async function(){
@@ -2981,8 +2986,11 @@ function annotInit(){
       this.textContent='✓';
       lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
     }catch(e){
+      // Les marques restent en place : un nouveau clic sur ↑ rejoue l'envoi.
       this.textContent='!';
-      lbl.textContent='Serveur off — démarrer le serveur';
+      lbl.textContent=/ack/.test(String(e&&e.message))
+        ? 'Chat injoignable — réessayer'
+        : 'Serveur off — démarrer le serveur';
     }
     setTimeout(()=>{this.textContent='↑'; annotPillUpdate();},2400);
   };

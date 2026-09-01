@@ -643,6 +643,60 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
   });
 });
 
+// L'annotation d'image emprunte le même canal que le bouton « Chat » d'une
+// carte : elle doit attendre l'ACK de l'hôte (et relancer), sinon la capsule
+// affichait « Added to chat ✓ » alors que le message s'était perdu.
+test('annotation add-to-chat waits for the host ACK and retries', async ({ page }) => {
+  await withGallery(async ({ root, port }) => {
+    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat'){window.__msgs.push(e.data);if(window.__msgs.length>1)e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
+<iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
+    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    const g = page.frameLocator('#g');
+    await g.locator('#grid .card').first().waitFor();
+    await annotateOnce(page, g, 'note ack');
+
+    // premier tir perdu, relance bornée : l'hôte finit par accuser réception
+    await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBeGreaterThan(1);
+    await expect(g.locator('#annotPillN')).toHaveText('Added to chat ✓');
+    const msg = await page.evaluate(() => window.__msgs[0]);
+    expect(msg.text).toContain('annotation-previews');
+    expect(msg.text).toContain('note ack');
+    expect(msg.requestId).toBeTruthy();
+  });
+});
+
+test('annotation add-to-chat never claims success when the host stays silent', async ({ page }) => {
+  await withGallery(async ({ root, port }) => {
+    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+<script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat')window.__msgs.push(e.data)});</script>
+<iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
+    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    const g = page.frameLocator('#g');
+    await g.locator('#grid .card').first().waitFor();
+    await annotateOnce(page, g, 'note muette');
+
+    await expect(g.locator('#annotPillN')).toHaveText('Chat injoignable — réessayer');
+    // les marques restent : le mode annotation n'est pas quitté, ↑ rejoue
+    await expect(g.locator('#lb')).toHaveClass(/annot/);
+  });
+});
+
+async function annotateOnce(page, g, note) {
+  await g.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+  await expect(g.locator('#lbImg')).toBeVisible();
+  await g.locator('#lbAnnot').click();
+  await expect(g.locator('#lb')).toHaveClass(/annot/);
+  const cv = await g.locator('#annotCv').boundingBox();
+  await page.mouse.move(cv.x + cv.width / 2 - 30, cv.y + cv.height / 2 - 20);
+  await page.mouse.down();
+  await page.mouse.move(cv.x + cv.width / 2 + 30, cv.y + cv.height / 2 + 20);
+  await page.mouse.up();
+  await expect(g.locator('#annotNote')).toBeVisible();
+  await g.locator('#annotNote textarea').fill(note);
+  await g.locator('#annotNote .anSave').click();
+}
+
 test('add-to-chat retries when the host misses the first postMessage during startup', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
     writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
