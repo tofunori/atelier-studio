@@ -575,6 +575,9 @@ export default function App() {
   // envois getHistory (rejeu complet et sans danger via mergeHarnessHistory).
   const mruThreadsRef = useRef<string[]>([]);
   const evictedThreadsRef = useRef<Set<string>>(new Set());
+  // empreinte (nb:seq:eventId) du dernier agentHistory appliqué par fil
+  // d'agent — évite de rematérialiser un transcript inchangé (voir handler)
+  const agentHistoryFps = useRef<Map<string, string>>(new Map());
   // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
   const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
   // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
@@ -993,6 +996,13 @@ export default function App() {
   // Le flux d'activité parent indique qu'un sous-agent existe mais ne contient
   // pas son transcript. Celui-ci vit dans le rollout enfant Codex : on le
   // charge à l'ouverture, puis on le rafraîchit doucement tant qu'il travaille.
+  // Un sous-agent ne travaille que pendant un tour du fil parent : sans tour
+  // parent vivant, un statut « working » est un reliquat (done manqué) et le
+  // polling tournerait pour toujours — le serveur relit et renvoie alors le
+  // rollout COMPLET toutes les 2,5 s, ce qui gonflait le WebContent WKWebView
+  // de ~35 Mo/min au repos (mesure 2026-08-31). On garde l'envoi unique à
+  // l'ouverture du panneau ; seul l'intervalle exige le tour parent.
+  const parentTurnStartedAt = activeId ? workingSince[activeId] ?? null : null;
   useEffect(() => {
     const agentThreadId = activeAgent?.threadId;
     const agentWorking = activeAgent?.status === "working";
@@ -1006,10 +1016,10 @@ export default function App() {
       }));
     };
     request();
-    if (!agentWorking) return;
+    if (!agentWorking || parentTurnStartedAt == null) return;
     const timer = window.setInterval(request, 2500);
     return () => window.clearInterval(timer);
-  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady]);
+  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady, parentTurnStartedAt]);
   useEffect(() => {
     setOpenedAgent(null);
     setActiveTab((current) => current.startsWith("agent:") ? previousAtelierTab.current : current);
@@ -1885,15 +1895,23 @@ export default function App() {
         }
       }
       if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
-        const next = materializeHarnessHistory((msg.events ?? []) as AgentEvent[]);
+        // Les rollouts natifs ne portent pas tous la meta durable des events
+        // harnais : le transcript reçu REMPLACE le fil de l'agent dès qu'il a
+        // changé. « Changé » se détecte sur (nb d'événements, meta du dernier)
+        // — un rollout ne fait qu'append — et jamais en re-sérialisant tout :
+        // avec un enfant figé « working », l'ancien double JSON.stringify du
+        // transcript complet toutes les 2,5 s gonflait le WebContent WKWebView
+        // de dizaines de Mo/min (mesure 2026-08-31, banc bench_realapp).
+        const incoming = (msg.events ?? []) as AgentEvent[];
+        const lastMeta = incoming.length
+          ? (incoming[incoming.length - 1] as { meta?: { sequence?: number; eventId?: string } }).meta
+          : undefined;
+        const fp = `${incoming.length}:${lastMeta?.sequence ?? "-"}:${lastMeta?.eventId ?? "-"}`;
         setEvents((prev) => {
-          const current = prev[msg.agentThreadId] ?? [];
-          // Les rollouts natifs ne portent pas tous la meta durable des events
-          // harnais. Une substitution contrôlée est donc nécessaire pour que
-          // les nouveaux fragments réellement produits deviennent visibles.
-          return JSON.stringify(current) === JSON.stringify(next)
-            ? prev
-            : { ...prev, [msg.agentThreadId]: next };
+          const current = prev[msg.agentThreadId];
+          if (current?.length && agentHistoryFps.current.get(msg.agentThreadId) === fp) return prev;
+          agentHistoryFps.current.set(msg.agentThreadId, fp);
+          return { ...prev, [msg.agentThreadId]: materializeHarnessHistory(incoming) };
         });
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
