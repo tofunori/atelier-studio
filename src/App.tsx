@@ -3808,7 +3808,16 @@ export default function App() {
       publishedDraftsRef.current.add(draft.id);
       ws.current.send(JSON.stringify({
         type: "upsertThread",
-        thread: { id: draft.id, projectRoot: draft.projectRoot, provider: draft.provider, title: draft.title },
+        thread: {
+          id: draft.id, projectRoot: draft.projectRoot, provider: draft.provider, title: draft.title,
+          // La consigne voyage AVEC le fil : elle n'existait que localement
+          // tant que la WS était fermée, et le rafraîchissement d'avant-tour
+          // (submit) ne la republie pas — il ne patche QUE si le catalogue a
+          // changé depuis. Sans elle ici, `send.rs::consigne_du_fil` ne
+          // trouverait aucun `extra.consigne` et le tout premier tour du fil
+          // partirait sans consigne, en silence.
+          ...(draft.consigne ? { consigne: draft.consigne } : {}),
+        },
       }));
     }
   }, [wsReady, draftThreads, threads]);
@@ -3874,7 +3883,19 @@ export default function App() {
     setThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne } : th)));
     setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, consigne } : th)));
     if (ws.current?.readyState === 1) {
-      ws.current.send(JSON.stringify({ type: "upsertThread", thread: { id, consigne } }));
+      // Même garde que handleKbChange : `ThreadStore::upsert` fusionne sur un
+      // objet VIDE pour un id qu'il ne connaît pas, et `normalize` remplit
+      // ensuite provider→claude et projectRoot→"". On réémet donc les champs
+      // d'identité du fil dès qu'on les a.
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          consigne,
+        },
+      }));
     }
   }
   function onChoisirConsigne(choix: ConsigneDuFil | null) {
@@ -4505,7 +4526,7 @@ export default function App() {
           kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
           kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
           onKbChange={handleKbChange}
-          consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : null}
+          consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
           onOuvrirReglagesConsignes={() => openSettings("consignes")}
           highlights={highlights}

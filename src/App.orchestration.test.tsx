@@ -393,6 +393,69 @@ describe("orchestration App — caractérisation", () => {
     });
   });
 
+  it("choisir une consigne sur un fil connu réémet provider/projectRoot/title", async () => {
+    // ThreadStore::upsert fusionne sur un objet VIDE pour un id inconnu et
+    // normalize remplit ensuite provider→claude, projectRoot→"" : un patch
+    // {id, consigne} nu suffirait à déplacer le fil hors de son projet.
+    // Même garde que handleKbChange (KB).
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+
+    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByText("Concis"));
+    await act(async () => { await flushMicrotasks(4); });
+
+    const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    expect(upserts.length).toBeGreaterThan(0);
+    expect(upserts[upserts.length - 1].thread).toMatchObject({
+      id: "thread-A",
+      provider: THREAD_A.provider,
+      projectRoot: THREAD_A.projectRoot,
+      title: THREAD_A.title,
+      consigne: { id: "concis" },
+    });
+  });
+
+  it("une consigne choisie sans fil actif s'affiche quand même dans la pilule", async () => {
+    // Sans ce repli, le choix était bien mémorisé (pendingConsigne) mais
+    // invisible : l'utilisateur ne pouvait pas savoir qu'il avait pris.
+    await mountApp();
+    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByText("Concis"));
+    await act(async () => { await flushMicrotasks(4); });
+    expect(document.querySelector(".consigne-pilule-nom")?.textContent).toBe("Concis");
+  });
+
+  it("un fil créé WS fermée est republié à la reconnexion AVEC sa consigne", async () => {
+    // Filet de persistance (useEffect sur wsReady) : sans la consigne dans sa
+    // charge utile, le fil repartait nu côté store. Le rafraîchissement
+    // d'avant-tour de submit() ne rattrape rien — il ne patche que si le
+    // catalogue a bougé — et `send.rs::consigne_du_fil` ne trouvait donc
+    // aucun `extra.consigne` : consigne perdue en silence dès le 1er tour.
+    const { sock } = await mountApp();
+    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByText("Concis"));
+
+    // la socket meurt AVANT la création : aucun upsertThread ne peut partir
+    await act(async () => { sock.fireClose(); await flushMicrotasks(4); });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+    expect(sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread")).toHaveLength(0);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); await flushMicrotasks(10); });
+    const sock2 = FakeWS.last();
+    expect(sock2).not.toBe(sock);
+    await act(async () => { sock2.open(); await flushMicrotasks(10); });
+
+    const upserts = sock2.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
+    expect(upserts, "le brouillon doit être republié une fois").toHaveLength(1);
+    expect(upserts[0].thread).toMatchObject({ provider: "codex", consigne: { id: "concis" } });
+    expect(typeof upserts[0].thread.projectRoot).toBe("string");
+  });
+
   it("un chat créé pendant qu'un projet est ouvert APPARTIENT à ce projet", async () => {
     // Régression 2026-08-23 : les entrées « + » qui passent par newChat()
     // (état vide de la timeline, rail compact) créaient un fil projectRoot:""
