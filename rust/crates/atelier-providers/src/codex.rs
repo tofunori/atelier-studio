@@ -1201,29 +1201,11 @@ impl Provider for CodexProvider {
         .await
         .ok()?;
 
-        let (tx, rx) = oneshot::channel::<String>();
+        let (tx, rx) = oneshot::channel::<Option<String>>();
         let tx = Arc::new(StdMutex::new(Some(tx)));
-        let tx_handler = Arc::clone(&tx);
-        let handler = Arc::new(move |method: &str, params: &Value| {
-            if method != "item/completed" {
-                return;
-            }
-            let item = params.get("item").unwrap_or(&Value::Null);
-            if item.get("type").and_then(Value::as_str) != Some("agentMessage") {
-                return;
-            }
-            let texte = item
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if let Ok(mut slot) = tx_handler.lock() {
-                if let Some(sender) = slot.take() {
-                    let _ = sender.send(texte);
-                }
-            }
-        });
-        self.server.set_handler(&codex_id, handler).await;
+        self.server
+            .set_handler(&codex_id, handler_reformulation(tx))
+            .await;
 
         // Le modèle est réémis ici : codex ne retient aucun réglage d'un
         // tour à l'autre, y compris sur un fil qu'on vient d'ouvrir.
@@ -1239,7 +1221,7 @@ impl Provider for CodexProvider {
 
         let recu = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
         self.server.clear_handler(&codex_id).await;
-        let texte = recu.ok()?.ok()?;
+        let texte = recu.ok()?.ok()??;
         let texte = texte.trim();
         (!texte.is_empty()).then(|| texte.to_string())
     }
@@ -1306,6 +1288,47 @@ impl Provider for CodexProvider {
     }
 }
 
+/// Handler de notifications d'une reformulation. Extrait de
+/// `reformuler_consigne` pour être testable sans app-server : il ne dépend
+/// que du canal.
+///
+/// Deux issues, jamais une seule : `item/completed` porte la réponse, et
+/// `turn/completed` FERME le tour — y compris le tour synthétique en
+/// `status: failed` que `codex_rpc` émet quand l'app-server meurt. Sans ce
+/// second cas, un tour raté laissait `rx` en suspens et le filet de 60 s
+/// courait en entier ; or `route_ws` traite les messages EN SÉRIE par
+/// connexion, donc `send` et `upsertThread` restaient bloqués tout ce temps.
+fn handler_reformulation(
+    tx: Arc<StdMutex<Option<oneshot::Sender<Option<String>>>>>,
+) -> Arc<dyn Fn(&str, &Value) + Send + Sync> {
+    Arc::new(move |method: &str, params: &Value| {
+        let reponse = match method {
+            "item/completed" => {
+                let item = params.get("item").unwrap_or(&Value::Null);
+                if item.get("type").and_then(Value::as_str) != Some("agentMessage") {
+                    return;
+                }
+                Some(
+                    item.get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            }
+            // Fin de tour sans message d'agent : rien à reformuler. Le
+            // premier des deux à parler gagne — un `turn/completed` normal
+            // qui suit un `item/completed` trouve le canal déjà consommé.
+            "turn/completed" => None,
+            _ => return,
+        };
+        if let Ok(mut slot) = tx.lock() {
+            if let Some(sender) = slot.take() {
+                let _ = sender.send(reponse);
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod command_tests {
     use super::*;
@@ -1352,6 +1375,75 @@ mod command_tests {
     fn un_texte_vide_demande_une_redaction() {
         let (systeme, _) = prompts_reformulation("Concis", "Réponse directe.", "");
         assert!(systeme.contains("Rédige"), "{systeme}");
+    }
+
+    fn canal_reformulation() -> (
+        Arc<dyn Fn(&str, &Value) + Send + Sync>,
+        oneshot::Receiver<Option<String>>,
+    ) {
+        let (tx, rx) = oneshot::channel::<Option<String>>();
+        (handler_reformulation(Arc::new(StdMutex::new(Some(tx)))), rx)
+    }
+
+    /// Chemin nominal : le message d'agent résout le canal.
+    #[test]
+    fn un_message_d_agent_resout_la_reformulation() {
+        let (handler, mut rx) = canal_reformulation();
+        handler(
+            "item/completed",
+            &json!({"item": {"type": "agentMessage", "text": "reformulé"}}),
+        );
+        assert_eq!(rx.try_recv(), Ok(Some("reformulé".to_string())));
+    }
+
+    /// Un tour raté DOIT résoudre le canal. Sinon `rx` reste en suspens et
+    /// le filet de 60 s court en entier — pendant que `route_ws`, sérielle
+    /// par connexion, ne traite plus ni `send` ni `upsertThread`.
+    #[test]
+    fn un_tour_rate_resout_le_canal_sans_attendre_le_delai() {
+        let (handler, mut rx) = canal_reformulation();
+        handler(
+            "turn/completed",
+            &json!({"turn": {"status": "failed", "error": {"message": "boum"}}}),
+        );
+        assert_eq!(rx.try_recv(), Ok(None));
+    }
+
+    /// Le tour synthétique émis quand l'app-server meurt (codex_rpc.rs)
+    /// passe par le même chemin : mêmes params, même résolution.
+    #[test]
+    fn la_mort_de_l_app_server_resout_le_canal() {
+        let (handler, mut rx) = canal_reformulation();
+        handler(
+            "turn/completed",
+            &json!({"turn": {"status": "failed", "error": {"message": "app-server terminé"}}}),
+        );
+        assert_eq!(rx.try_recv(), Ok(None));
+    }
+
+    /// Le premier à parler gagne : le `turn/completed` qui suit un
+    /// `item/completed` normal ne doit pas écraser la réponse.
+    #[test]
+    fn la_fin_de_tour_n_ecrase_pas_une_reponse_deja_recue() {
+        let (handler, mut rx) = canal_reformulation();
+        handler(
+            "item/completed",
+            &json!({"item": {"type": "agentMessage", "text": "reformulé"}}),
+        );
+        handler("turn/completed", &json!({"turn": {"status": "completed"}}));
+        assert_eq!(rx.try_recv(), Ok(Some("reformulé".to_string())));
+    }
+
+    /// Les autres notifications (deltas, items d'outil) ne résolvent rien.
+    #[test]
+    fn les_autres_notifications_laissent_le_canal_ouvert() {
+        let (handler, mut rx) = canal_reformulation();
+        handler("item/started", &json!({"item": {"type": "agentMessage"}}));
+        handler(
+            "item/completed",
+            &json!({"item": {"type": "commandExecution"}}),
+        );
+        assert_eq!(rx.try_recv(), Err(oneshot::error::TryRecvError::Empty));
     }
 }
 
