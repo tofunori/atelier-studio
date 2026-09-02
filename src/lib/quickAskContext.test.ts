@@ -22,10 +22,23 @@ describe("buildQuickAskPrompt", () => {
     expect(prompt).toContain("mais cest quoi contribution?");
   });
 
-  it("part de l'extrait mais laisse ouvrir les fichiers du projet", () => {
+  it("reste SCELLÉ par défaut — le disque n'est pas autorisé sans geste", () => {
+    // Régression 2026-09-02 : le régime ouvert avait été imposé à tous le
+    // 2026-08-31. Il redevient volontaire ; le défaut ne doit jamais dériver.
     const prompt = buildQuickAskPrompt(
       { selection: "Contribution", message: "Author contributions.", role: "assistant" },
       "c'est quoi ?",
+    );
+    expect(prompt).toMatch(/n['’]ouvre pas de fichiers/i);
+    expect(prompt).not.toMatch(/ouvrir les fichiers du projet/i);
+  });
+
+  it("ouvre le projet quand le bouton de fouille est allumé", () => {
+    const prompt = buildQuickAskPrompt(
+      { selection: "Contribution", message: "Author contributions.", role: "assistant" },
+      "c'est quoi ?",
+      [],
+      true,
     );
     expect(prompt).toMatch(/Pars de cet extrait/i);
     expect(prompt).toMatch(/ouvrir les fichiers du projet/i);
@@ -160,6 +173,36 @@ describe("buildQuickAskPrompt — origine fichier", () => {
       {selection: "x", message: "y", source: {file: "a.tex"}},
       "?",
     );
-    expect(prompt).toMatch(/Pars de cet extrait/i);
+    expect(prompt).toMatch(/Réponds à partir de cet extrait/i);
+  });
+
+  it("question à froid, bouton allumé : la permission est dite quand même", () => {
+    // Sans cette branche, le modèle recevait le dossier du projet sans
+    // AUCUNE instruction — et un modèle à qui on tend le disque sans cadre
+    // fouille au hasard (vécu 2026-08-26).
+    const prompt = buildQuickAskPrompt(null, "où est le coefficient ?", [], true);
+    expect(prompt).toMatch(/ouvrir les fichiers du projet/i);
+  });
+
+  it("question à froid, bouton éteint : rien n'est ajouté", () => {
+    // Sans extrait, « réponds à partir de cet extrait » ne veut rien dire —
+    // et le disque n'est de toute façon pas transmis.
+    expect(buildQuickAskPrompt(null, "c'est quoi un albédo ?")).toBe("c'est quoi un albédo ?");
+  });
+
+  it("scellé + image collée : la permission est bornée à la capture", () => {
+    // Piège : « n'ouvre pas de fichiers » interdirait le seul fichier qu'il
+    // FAUT ouvrir. La capture est nommée, et rien d'autre n'est permis.
+    const prompt = buildQuickAskPrompt({selection: "x"}, "?", ["/tmp/shot.png"]);
+    expect(prompt).toContain("/tmp/shot.png");
+    expect(prompt).toMatch(/n['’]ouvre aucun autre fichier/i);
+    expect(prompt).not.toMatch(/ouvrir les fichiers du projet/i);
+  });
+
+  it("ouvert + image collée : la capture s'ajoute sans restreindre le reste", () => {
+    const prompt = buildQuickAskPrompt({selection: "x"}, "?", ["/tmp/shot.png"], true);
+    expect(prompt).toContain("/tmp/shot.png");
+    expect(prompt).toMatch(/ouvrir les fichiers du projet/i);
+    expect(prompt).not.toMatch(/n['’]ouvre aucun autre fichier/i);
   });
 });

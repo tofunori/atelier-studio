@@ -205,6 +205,11 @@ export default function QuickAsk({
   // Captures collées dans le champ : même geste que le composeur du chat —
   // la vignette remplace le chemin de fichier que WebKit collait en clair.
   const [images, setImages] = useState<QaImage[]>([]);
+  // Bouton de fouille : scellé par DÉFAUT, et remis à zéro à chaque
+  // ouverture (voir l'effet sur `open`). Une fenêtre qu'on invoque au
+  // clavier et qu'on referme aussitôt ne doit pas garder une permission
+  // accordée la veille.
+  const [fouille, setFouille] = useState(false);
   useEffect(() => {
     const onSaved = (e: Event) => {
       const { path, name, dataURL } = (e as CustomEvent).detail ?? {};
@@ -289,6 +294,7 @@ export default function QuickAsk({
     setQuote(null);
     setImages([]);
     setBusy(false);
+    setFouille(false);
     setRecentsOpen(false);
     setPromoteErr(null);
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -421,10 +427,24 @@ export default function QuickAsk({
     setMsgs((prev) => [...prev, { role: "user", text: q, context: ctx ?? undefined }]);
     setText("");
     setBusy(true);
-    const prompt = buildQuickAskPrompt(ctx, q, images.map((img) => img.path!).filter(Boolean));
+    const prompt = buildQuickAskPrompt(
+      ctx,
+      q,
+      images.map((img) => img.path!).filter(Boolean),
+      fouille,
+    );
     if (ctx) setCtx(null);
     setImages([]);
-    wsSend({ type: "quickAsk", qaId, prompt, projectRoot: activeProject ?? "", ...activeSelection });
+    // Sans projectRoot, le CLI n'a pas de dossier où fouiller : le bouton
+    // ferme la porte pour de vrai, il ne se contente pas de le demander
+    // poliment dans la consigne.
+    wsSend({
+      type: "quickAsk",
+      qaId,
+      prompt,
+      projectRoot: fouille ? activeProject ?? "" : "",
+      ...activeSelection,
+    });
   }
 
   const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
@@ -664,6 +684,32 @@ export default function QuickAsk({
               un `ring-1` au focus, qui se superposait au cadre de .qa-composer
               — et gardait des angles droits, .qa-input forçant un rayon nul.
               D'où les deux contours désaccordés (capture Thierry 2026-08-31). */}
+          {/* Bouton de fouille, posé DANS le coin du champ : la fenêtre ne
+              grandit pas d'un pixel (traitement B, 2026-09-02). Le même
+              glyphe dit l'action et l'état — dossier fermé quand c'est
+              scellé, ouvert quand ça fouille — et l'état se lit au
+              remplissage, jamais à un accent. */}
+          <div className="qa-champ">
+            <IconButton
+              className={`qa-fouille ${fouille ? "on" : ""}`}
+              label={t(fouille ? "qa.search-on" : "qa.search-off")}
+              title={t(fouille ? "qa.search-on" : "qa.search-off")}
+              aria-pressed={fouille}
+              onClick={() => setFouille((v) => !v)}
+            >
+              {fouille ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.4}
+                  strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+                  <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v1.5" />
+                  <path d="M3 17.5V7.5M4.5 19h13L21 11.5H7.5z" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.4}
+                  strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+                  <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z" />
+                </svg>
+              )}
+            </IconButton>
           <Textarea
             ref={inputRef}
             variant="bare"
@@ -687,6 +733,7 @@ export default function QuickAsk({
               if (e.key === "Escape") close();
             }}
           />
+          </div>
         </div>
         <div className="qa-foot">
           {/* Injecter REPLIE la fenêtre au lieu de la fermer : fermer effaçait la

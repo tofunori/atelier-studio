@@ -18,12 +18,19 @@ export type QaContext = {
   source?: {file: string; lines?: string};
 };
 
-// Le Quick Ask tourne avec les outils du CLI, dans le dossier du projet
-// ouvert. On lui laisse le disque : l'extrait ne suffit pas quand la question
-// porte sur ce que le code fait vraiment (un coefficient standardisé ou brut,
-// par exemple). La consigne cadre la fouille au lieu de l'interdire — c'est
-// le prix à payer pour éviter les vingt appels d'outils aveugles de 2026-08-26.
-const CONSIGNE =
+// Le Quick Ask tourne avec les outils du CLI. Deux régimes, choisis par le
+// bouton de fouille du composeur (2026-09-02) :
+//
+// SCELLÉ (défaut) — l'extrait et rien d'autre. C'est ce qui rend la fenêtre
+// instantanée, et ce qui évite les vingt appels d'outils aveugles dans $HOME
+// vécus le 2026-08-26.
+//
+// OUVERT (sur geste) — le disque est autorisé, parce que l'extrait ne suffit
+// pas quand la question porte sur ce que le code fait vraiment (un
+// coefficient standardisé ou brut, par exemple). C'était le régime imposé à
+// tous depuis le 2026-08-31 ; il redevient volontaire au lieu d'être subi.
+const SCELLEE = "Réponds à partir de cet extrait. N’ouvre pas de fichiers.";
+const OUVERTE =
   "Pars de cet extrait. Tu peux ouvrir les fichiers du projet si la réponse en dépend.";
 
 function ou(ctx: QaContext): string {
@@ -36,15 +43,22 @@ function ou(ctx: QaContext): string {
 
 // Images collées : elles ne se devinent pas, il faut les lire d'abord — la
 // consigne les nomme explicitement avant de rendre la main sur le reste.
-function consigne(images: string[]): string {
-  if (images.length === 0) return CONSIGNE;
+function consigne(images: string[], fouille: boolean): string {
+  if (images.length === 0) return fouille ? OUVERTE : SCELLEE;
   const bloc = images.map((p) => `- ${p}`).join("\n");
   const quoi = images.length > 1 ? "ces fichiers image" : "ce fichier image";
+  // En régime scellé, « n'ouvre pas de fichiers » interdirait justement le
+  // seul fichier qu'il FAUT ouvrir : la permission est bornée aux captures
+  // nommées, et à rien d'autre. En régime ouvert, la capture s'ajoute au
+  // reste sans le restreindre.
+  const lecture = fouille
+    ? `Lis ${quoi} (outil Read) avant de répondre.`
+    : `Lis ${quoi} (outil Read) avant de répondre — n’ouvre aucun autre fichier.`;
   return [
     images.length > 1 ? "Images collées par l’utilisateur :" : "Image collée par l’utilisateur :",
     bloc,
-    `Lis ${quoi} (outil Read) avant de répondre.`,
-    CONSIGNE,
+    lecture,
+    ...(fouille ? [OUVERTE] : []),
   ].join("\n");
 }
 
@@ -52,12 +66,20 @@ export function buildQuickAskPrompt(
   ctx: QaContext | null,
   question: string,
   images: string[] = [],
+  /** Bouton de fouille du composeur. Faux = scellé, le défaut. */
+  fouille = false,
 ): string {
   const selection = ctx?.selection.trim() ?? "";
   const message = ctx?.message?.trim() ?? "";
-  const fin = consigne(images);
+  const fin = consigne(images, fouille);
   if (!ctx || (!selection && !message)) {
-    return images.length === 0 ? question : [question, fin].join("\n\n");
+    // Question posée à froid. En régime OUVERT, la permission doit tout de
+    // même être dite : le dossier du projet part avec, et un modèle qui
+    // reçoit le disque sans instruction fouille au hasard (2026-08-26).
+    // En régime scellé, rien à ajouter — sans extrait, « réponds à partir
+    // de cet extrait » ne veut rien dire, et le disque n'est pas transmis.
+    const nu = images.length === 0 && !fouille;
+    return nu ? question : [question, fin].join("\n\n");
   }
 
   if (!message) {

@@ -8,6 +8,7 @@ import QuickAsk from "./QuickAsk";
 import { renderUi, resetTestState } from "../test/render";
 import { makeProviderInfo } from "../test/fixtures";
 import type { QaContext } from "../lib/quickAskContext";
+import { t } from "../lib/i18n";
 
 const providers = [
   makeProviderInfo({ id: "claude", label: "Claude", models: ["claude-fable-5", "claude-sonnet-5"], defaultModel: "claude-fable-5" }),
@@ -68,8 +69,27 @@ describe("Quick Ask", () => {
 
   // Le Quick Ask lançait son CLI dans $HOME : ni CLAUDE.md, ni git, ni les
   // fichiers dont la conversation parlait. Il suit le projet ouvert.
-  it("lance le CLI dans le projet ouvert", async () => {
+  it("reste SCELLÉ par défaut : aucun projectRoot, donc rien à fouiller", async () => {
+    // Régression 2026-09-02 : le Quick Ask avait reçu l'accès au projet pour
+    // tout le monde le 2026-08-31. Sans projectRoot, le CLI n'a pas de
+    // dossier où chercher — la porte est fermée pour de vrai, pas seulement
+    // demandée poliment dans la consigne.
     renderQuickAsk(undefined, undefined, { activeProject: "/Users/x/Documents/atelier-studio" });
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "où est le coefficient ?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(wsSendMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: "quickAsk",
+      projectRoot: "",
+    })));
+    const envoi = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0] as unknown as { prompt: string };
+    expect(envoi.prompt).not.toMatch(/ouvrir les fichiers du projet/i);
+  });
+
+  it("lance le CLI dans le projet ouvert quand le bouton de fouille est allumé", async () => {
+    renderQuickAsk(undefined, undefined, { activeProject: "/Users/x/Documents/atelier-studio" });
+    fireEvent.click(screen.getByRole("button", { name: t("qa.search-off") }));
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "où est le coefficient ?" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -78,6 +98,8 @@ describe("Quick Ask", () => {
       type: "quickAsk",
       projectRoot: "/Users/x/Documents/atelier-studio",
     })));
+    const envoi = wsSendMock.mock.calls[wsSendMock.mock.calls.length - 1]?.[0] as unknown as { prompt: string };
+    expect(envoi.prompt).toMatch(/ouvrir les fichiers du projet/i);
   });
 
   it("ouvre un sélecteur complet provider, modèle et effort", async () => {
