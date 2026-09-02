@@ -131,6 +131,8 @@ function visibleRows(root: Node, expanded: Set<string>): Row[] {
 export default function Explorer(p: {
   files: string[];
   onOpen: (rel: string) => void;
+  /** Le dépôt dépasse le plafond du catalogue : l'arbre est incomplet. */
+  truncated?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -319,6 +321,12 @@ export default function Explorer(p: {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      {/* Une troncature muette fait passer un fichier absent pour un fichier
+          inexistant — vécu le 2026-09-02 sur un dépôt de 24 414 fichiers, où
+          l'arbre en cachait les deux tiers sans le dire. */}
+      {p.truncated && (
+        <p className="exp-tronque" role="status">{t("atelier.explorer-truncated")}</p>
+      )}
       <div className="exp-tree" role="tree" aria-label={t("atelier.file-explorer")} onKeyDown={onKeyDown}>
         {matches
           ? rows.map((row) => (

@@ -440,6 +440,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "projectRoot": root,
                 "files": catalog.files,
                 "recentFiles": catalog.recent_files,
+                // Le frontend doit pouvoir DIRE que l'arbre est incomplet :
+                // un fichier absent sans avertissement passe pour un fichier
+                // inexistant (vécu 2026-09-02, dépôt de 24 414 fichiers).
+                "truncated": catalog.tronque,
             }))]
         }
         "narvalStatus" => {

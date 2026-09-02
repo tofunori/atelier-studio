@@ -23,10 +23,21 @@ const BUILTINS: &[&str] = &[
     "plugins",
 ];
 
+/// Plafond du catalogue envoyé au frontend. 5 000 était trop bas : un dépôt
+/// de recherche ordinaire (24 414 fichiers non ignorés, mesuré le
+/// 2026-09-02) perdait les deux tiers de son arborescence — et surtout, il
+/// les perdait EN SILENCE, ce qui faisait passer un fichier absent pour un
+/// fichier inexistant. À 50 000, la liste pèse ~4 Mo de JSON au pire sur un
+/// WebSocket local, une fois par changement de projet.
+pub const PLAFOND_CATALOGUE: usize = 50_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileCatalog {
     pub files: Vec<String>,
     pub recent_files: Vec<String>,
+    /// Le dépôt dépasse `PLAFOND_CATALOGUE` : l'arbre affiché est incomplet.
+    /// Le frontend DOIT le dire — une troncature muette est un mensonge.
+    pub tronque: bool,
 }
 
 pub fn list_files(project_root: &str) -> Vec<String> {
@@ -38,6 +49,7 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
         return FileCatalog {
             files: Vec::new(),
             recent_files: Vec::new(),
+            tronque: false,
         };
     }
     let root = Path::new(project_root);
@@ -45,6 +57,7 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
         return FileCatalog {
             files: Vec::new(),
             recent_files: Vec::new(),
+            tronque: false,
         };
     }
     // `git` can block indefinitely in a bundled macOS app while TCC asks for
@@ -52,9 +65,11 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
     // so a large repository cannot deadlock the child before the timeout.
     if let Some(all) = git_files_bounded(root) {
         let recent_files = recent_project_files(root, &all, 12);
+        let tronque = all.len() > PLAFOND_CATALOGUE;
         return FileCatalog {
-            files: all.into_iter().take(5000).collect(),
+            files: all.into_iter().take(PLAFOND_CATALOGUE).collect(),
             recent_files,
+            tronque,
         };
     }
     // The fallback can hit the same macOS TCC suspension as `git`, so keep
@@ -62,9 +77,11 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
     // rather than making the whole sidecar unresponsive.
     let all = read_dir_bounded(root);
     let recent_files = recent_project_files(root, &all, 12);
+    let tronque = all.len() > PLAFOND_CATALOGUE;
     FileCatalog {
-        files: all,
+        files: all.into_iter().take(PLAFOND_CATALOGUE).collect(),
         recent_files,
+        tronque,
     }
 }
 

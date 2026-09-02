@@ -588,6 +588,9 @@ export default function App() {
   >({});
   const [commands, setCommands] = useState<Command[]>([]);
   const [files, setFiles] = useState<string[]>([]);
+  // Le catalogue a un plafond : sans ce drapeau, un fichier coupé passait
+  // pour un fichier inexistant (vécu 2026-09-02, dépôt de 24 414 fichiers).
+  const [filesTruncated, setFilesTruncated] = useState(false);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
   const [appBanner, setAppBanner] = useState<{
@@ -2250,6 +2253,7 @@ export default function App() {
       if (msg.type === "plugins") setPlugins(Array.isArray(msg.plugins) ? msg.plugins : []);
       if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
         setFiles(Array.isArray(msg.files) ? msg.files : []);
+        setFilesTruncated(msg.truncated === true);
         setDiskRecents(Array.isArray(msg.recentFiles) ? msg.recentFiles : []);
       }
       if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalRunFiles", "narvalText"].includes(msg.type)) {
@@ -4823,6 +4827,7 @@ export default function App() {
               }}
               kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
               files={files}
+              filesTruncated={filesTruncated}
               onReorderTabs={(ids) => {
                 setAtelierTabs((tabs) => {
                   // `ids` ne décrit que les onglets VISIBLES : remapper la

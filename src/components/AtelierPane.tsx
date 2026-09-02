@@ -135,6 +135,7 @@ export default function AtelierPane({
   activeThreadId,
   ws,
   files,
+  filesTruncated,
   onOpenFile,
   onPinTab,
   onColorTab,
@@ -177,6 +178,8 @@ export default function AtelierPane({
   onOpenAnnot?: (rel: string, annotId: string) => void;
   onQuoteAnnot?: (text: string) => void;
   files: string[];
+  /** catalogue tronqué : l'arbre est incomplet */
+  filesTruncated?: boolean;
   recentFiles: string[];
   onOpenExplorer: () => void;
   onOpenFile: (rel: string) => void;
@@ -1126,7 +1129,7 @@ export default function AtelierPane({
             </div>
           )}
         </div>
-        {showExplorer && <Explorer files={files} onOpen={onOpenFile} />}
+        {showExplorer && <Explorer files={files} truncated={filesTruncated} onOpen={onOpenFile} />}
         {showAnnots && (
           <AnnotationsPanel
             galleryOrigin={url ? new URL(url).origin : null}

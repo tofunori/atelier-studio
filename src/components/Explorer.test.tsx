@@ -172,3 +172,20 @@ describe("Explorer", () => {
     expect(onOpen).toHaveBeenCalledWith("src/lib/i18n.ts");
   });
 });
+
+describe("catalogue tronqué", () => {
+  // Vécu 2026-09-02 : le catalogue plafonnait à 5 000 fichiers sur un dépôt
+  // de 24 414, et l'arbre en cachait les deux tiers SANS LE DIRE — un
+  // fichier absent passait pour un fichier inexistant.
+  it("ne dit rien quand l'arbre est complet", () => {
+    const onOpen = vi.fn();
+    render(<Explorer files={FILES} onOpen={onOpen} />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("avertit quand l'arbre est incomplet", () => {
+    const onOpen = vi.fn();
+    render(<Explorer files={FILES} truncated onOpen={onOpen} />);
+    expect(screen.getByRole("status").textContent).toMatch(/incomplet|50 000/i);
+  });
+});

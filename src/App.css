@@ -1951,6 +1951,11 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .exp-search { margin: 8px; padding: 6px 10px; background: var(--bg-ctl);
   min-height: var(--control-height); border: 1px solid var(--border-interactive); border-radius: var(--r-s); color: inherit;
   font-size: var(--fs-m); outline: none; }
+/* Avis de troncature : le catalogue a un plafond, et une troncature
+   muette fait passer un fichier absent pour un fichier inexistant
+   (vécu 2026-09-02). Discret, mais jamais absent. */
+.exp-tronque { margin: 0 8px 6px; font-size: var(--fs-s);
+  color: var(--text-muted); line-height: 1.4; }
 .exp-tree { flex: 1; overflow-y: auto; padding-bottom: 12px; font-size: var(--fs-m); }
 /* arbre : rangée deux fois plus serrée qu'une liste — la densité s'y applique
    à la même échelle (compact 1,5 / comfortable 3 / spacious 5 px) */
