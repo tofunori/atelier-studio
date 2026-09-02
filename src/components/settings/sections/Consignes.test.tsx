@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Consignes } from "./Consignes";
 import { CONSIGNES_LIVREES } from "../../../lib/consignes";
@@ -86,7 +86,22 @@ describe("réglages — consignes", () => {
     expect(screen.getByText("Reformuler").closest("button")).toHaveAttribute("disabled");
   });
 
-  it("laisse choisir le modèle qui reformule", () => {
+  it("dit à l'écran qu'une reformulation a échoué au lieu de ne rien faire", async () => {
+    // `null` = socket fermée, provider sans reformuler_consigne, ou tour
+    // raté. Avant, le bouton s'éteignait une seconde et rien ne bougeait.
+    const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
+    render(<Consignes consignes={[mienne]} onChange={() => {}} reformuler={async () => null} />);
+    fireEvent.click(screen.getByText("Ma règle"));
+    fireEvent.click(screen.getByText("Reformuler"));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // le message s'efface à la frappe suivante
+    fireEvent.change(screen.getByLabelText("Consigne"), { target: { value: "tu" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("laisse choisir le modèle qui reformule", async () => {
+    // `Select` maison (Base UI) : on pilote le vrai composant — déclencheur
+    // puis option — comme Composer.characterization.test.tsx.
     const save = vi.fn();
     render(
       <Consignes
@@ -96,9 +111,14 @@ describe("réglages — consignes", () => {
         onChangeAssist={save}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Modèle de reformulation"), {
-      target: { value: "codex:gpt-5.5" },
-    });
-    expect(save).toHaveBeenCalledWith({ provider: "codex", model: "gpt-5.5" });
+    fireEvent.click(screen.getByRole("combobox", { name: "Modèle de reformulation" }));
+    // Même séquence que GeneralModelsDefaults.test.tsx / Select.test.tsx : le
+    // popup Base UI valide sur pointerdown/pointerup, un `click` seul ne
+    // sélectionne rien.
+    const option = await screen.findByRole("option", { name: "GPT-5.5" });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ provider: "codex", model: "gpt-5.5" }));
   });
 });

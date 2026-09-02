@@ -1635,10 +1635,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .set-consignes-delete { align-self: flex-start; }
 .set-consignes-reformuler { flex-shrink: 0; }
 .set-consignes-assist { max-width: 320px; }
-.set-consignes-assist-select { width: 100%; background: var(--bg-ctl); color: var(--text-secondary);
-  border: 1px solid var(--border); border-radius: var(--r-s); padding: 6px 9px;
-  font-size: var(--fs-m); outline: none; }
-.set-consignes-assist-select:focus-visible { border-color: var(--border2); color: var(--text-primary); }
 
 /* ---- ModelsGrid (lot B1, tâche 3) : tableau dense des modèles ----------
    Colonnes alignées pour comparer d'un coup d'œil (voir ModelsGrid.tsx pour

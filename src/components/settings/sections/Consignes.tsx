@@ -21,7 +21,8 @@ import { normaliserNom, nouvelId, type Consigne } from "../../../lib/consignes";
 import type { SectionProps } from "../shared";
 import { DEFAULT_SETTINGS, type Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
-import { Button, RowButton } from "../../ui";
+import { Button, InlineNotice, RowButton } from "../../ui";
+import { Select } from "../../Select";
 import { Field, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
 import { Textarea } from "../../shadcn/textarea";
@@ -111,6 +112,11 @@ export function Consignes(p: {
   // peut très bien ignorer le patch, comme en test).
   const [original, setOriginal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Une reformulation qui rend `null` (socket fermée, provider sans
+  // `reformuler_consigne`, tour raté) ne changeait RIEN à l'écran : le
+  // bouton s'éteignait une seconde puis tout redevenait comme avant. On le
+  // dit, plutôt que de laisser croire à un clic non enregistré.
+  const [echec, setEchec] = useState(false);
   const selected = p.consignes.find((c) => c.id === selectedId) ?? null;
   const assist = p.assist ?? DEFAULT_SETTINGS.consignesAssist;
 
@@ -122,6 +128,7 @@ export function Consignes(p: {
   function selectionner(id: string) {
     setSelectedId(id);
     setOriginal(null);
+    setEchec(false);
   }
 
   function ajouter() {
@@ -136,6 +143,7 @@ export function Consignes(p: {
     p.onChange(p.consignes.filter((c) => c.id !== selected.id));
     setSelectedId(null);
     setOriginal(null);
+    setEchec(false);
   }
 
   async function reformulerClick() {
@@ -147,11 +155,14 @@ export function Consignes(p: {
     }
     if (!p.reformuler) return;
     setBusy(true);
+    setEchec(false);
     try {
       const texte = await p.reformuler(selected);
       if (texte) {
         setOriginal(selected.texte);
         patchSelected({ texte });
+      } else {
+        setEchec(true);
       }
     } finally {
       setBusy(false);
@@ -216,7 +227,12 @@ export function Consignes(p: {
                   </Button>
                 </div>
                 <Textarea id="consigne-texte" className="set-consignes-textarea" rows={8} value={selected.texte}
-                  onChange={(e) => { setOriginal(null); patchSelected({ texte: e.target.value }); }} />
+                  onChange={(e) => { setOriginal(null); setEchec(false); patchSelected({ texte: e.target.value }); }} />
+                {echec && (
+                  <InlineNotice tone="error" className="set-notice">
+                    {t("settings.consignes-rewrite-failed")}
+                  </InlineNotice>
+                )}
               </Field>
               {!selected.livree && (
                 <Button variant="ghost" className="set-consignes-delete" onClick={supprimer}>
@@ -230,21 +246,22 @@ export function Consignes(p: {
         </div>
       </div>
 
+      {/* `Select` maison (même composant que le sélecteur autoReview de
+          sections/Atelier.tsx) : le <select> natif d'avant redoublait un
+          style que le design system fournit déjà. Le libellé visible n'a
+          plus de `htmlFor` — la cible est un bouton, pas un <select> : le
+          nom accessible vient de `title` (aria-label du déclencheur). */}
       <Field className="set-consignes-assist">
-        <FieldLabel htmlFor="consignes-assist-model">{t("settings.consignes-assist-model")}</FieldLabel>
-        <select
-          id="consignes-assist-model"
-          className="set-consignes-assist-select"
+        <FieldLabel>{t("settings.consignes-assist-model")}</FieldLabel>
+        <Select
+          title={t("settings.consignes-assist-model")}
           value={`${assist.provider}:${assist.model}`}
-          onChange={(e) => {
-            const [provider, model] = e.target.value.split(":");
+          onChange={(value) => {
+            const [provider, model] = value.split(":");
             (p.onChangeAssist ?? (() => {}))({ provider, model });
           }}
-        >
-          {OPTIONS_MODELE_REFORMULATION.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+          options={OPTIONS_MODELE_REFORMULATION}
+        />
       </Field>
     </div>
   );
