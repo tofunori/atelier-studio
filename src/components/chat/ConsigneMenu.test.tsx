@@ -52,6 +52,22 @@ describe("ConsigneMenu", () => {
     expect(onChoisir).toHaveBeenCalledWith(null);
   });
 
+  it("marque la rangée active — et « Aucune » quand le fil n'a pas de consigne", () => {
+    // Spec 2026-09-01 : fond plein + coche, AUCUN accent. Sans ce marquage,
+    // ouvrir le menu ne disait pas laquelle des consignes est en vigueur.
+    const { rerender } = render(<ConsigneMenu {...base} actif={null} />);
+    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    const actives = () => [...document.querySelectorAll(".consigne-item.on")];
+    expect(actives()).toHaveLength(1);
+    expect(actives()[0].textContent).toContain("Aucune");
+    expect(actives()[0].querySelector(".consigne-coche")).toBeTruthy();
+
+    rerender(<ConsigneMenu {...base} actif={{ id: "rigueur", texte: "x" }} />);
+    expect(actives()).toHaveLength(1);
+    expect(actives()[0].textContent).toContain("Rigueur scientifique");
+    expect(actives()[0].querySelector(".consigne-coche")).toBeTruthy();
+  });
+
   it("garde le fil fonctionnel quand la consigne a disparu du catalogue", () => {
     render(<ConsigneMenu {...base} actif={{ id: "disparue", texte: "x" }} />);
     expect(screen.getByText("(supprimée)")).toBeTruthy();

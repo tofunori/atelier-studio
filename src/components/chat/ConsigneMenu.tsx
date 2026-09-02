@@ -28,6 +28,20 @@ function GlypheConsigne() {
   );
 }
 
+/** Coche de la rangée active. Le remplissage de la rangée porte déjà le
+ *  signal (décision produit : aucun accent sur les consignes) — la coche
+ *  le confirme sans couleur. */
+function CocheConsigne() {
+  return (
+    <span className="consigne-coche" aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+           strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3.5 8.4 6.4 11.3 12.5 4.9" />
+      </svg>
+    </span>
+  );
+}
+
 export function ConsigneMenu(p: {
   consignes: Consigne[];
   actif: ConsigneDuFil | null;
@@ -45,19 +59,34 @@ export function ConsigneMenu(p: {
     ? t(PIED_KEYS[p.provider as keyof typeof PIED_KEYS])
     : undefined;
 
+  // Rangée active : « Aucune » quand le fil n'a pas de consigne, sinon celle
+  // du fil. Marquée par un fond plein + une coche (spec 2026-09-01) — sans
+  // ça, ouvrir le menu ne disait pas laquelle est en vigueur.
+  const rangee = (actif: boolean) => (actif ? "consigne-item on" : "consigne-item");
+
   const items = [
     {
       key: "aucune",
-      label: <span className="consigne-nom">{t("consigne.none")}</span>,
+      className: rangee(!p.actif),
+      label: (
+        <>
+          <span className="consigne-nom">{t("consigne.none")}</span>
+          {!p.actif && <CocheConsigne />}
+        </>
+      ),
       onSelect: () => p.onChoisir(null),
     },
     ...p.consignes.map((c) => ({
       key: c.id,
+      className: rangee(p.actif?.id === c.id),
       label: (
-        <span className="consigne-option">
-          <span className="consigne-nom">{c.nom}</span>
-          <span className="consigne-desc">{c.description}</span>
-        </span>
+        <>
+          <span className="consigne-option">
+            <span className="consigne-nom">{c.nom}</span>
+            <span className="consigne-desc">{c.description}</span>
+          </span>
+          {p.actif?.id === c.id && <CocheConsigne />}
+        </>
       ),
       onSelect: () => p.onChoisir({ id: c.id, texte: c.texte }),
     })),
