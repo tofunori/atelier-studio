@@ -212,6 +212,7 @@ export function Consignes(p: {
                 <FieldLabel htmlFor="consigne-description">{t("settings.consignes-field-description")}</FieldLabel>
                 <Input id="consigne-description" className="set-text" value={selected.description}
                   onChange={(e) => patchSelected({ description: e.target.value })} />
+                <p className="set-consignes-hint">{t("settings.consignes-field-description-hint")}</p>
               </Field>
               <Field>
                 <div className="set-consignes-field-header">

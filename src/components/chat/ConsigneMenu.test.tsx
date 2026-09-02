@@ -52,6 +52,23 @@ describe("ConsigneMenu", () => {
     expect(onChoisir).toHaveBeenCalledWith(null);
   });
 
+  it("garde la glose entière en infobulle, puisqu'elle est tronquée à l'écran", () => {
+    // Traitement D (2026-09-01) : la description passe à droite du nom sur
+    // UNE ligne, donc elle est coupée à l'ellipse dès qu'elle est longue.
+    // Sans le `title`, une consigne écrite par l'utilisateur avec une
+    // description bavarde perdrait son explication pour de bon.
+    const bavarde = {
+      id: "mienne",
+      nom: "Ma règle",
+      description: "une description délibérément trop longue pour la rangée du menu",
+      texte: "peu importe",
+    };
+    render(<ConsigneMenu {...base} consignes={[bavarde]} actif={null} />);
+    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    const glose = document.querySelector(".consigne-desc");
+    expect(glose?.getAttribute("title")).toBe(bavarde.description);
+  });
+
   it("marque la rangée active — et « Aucune » quand le fil n'a pas de consigne", () => {
     // Spec 2026-09-01 : fond plein + coche, AUCUN accent. Sans ce marquage,
     // ouvrir le menu ne disait pas laquelle des consignes est en vigueur.

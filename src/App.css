@@ -744,10 +744,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .consigne-item.on { background: var(--bg-ctl); }
 .consigne-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
 .consigne-item .consigne-coche svg { width: 12px; height: 12px; }
-.consigne-option { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.consigne-nom { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-.consigne-desc { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
-.consigne-lien { font-size: 13px; color: var(--text-secondary); }
+/* Rangée sur UNE ligne (décision produit 2026-09-01) : la glose n'est pas
+   du contenu qu'on lit, c'est une note de marge qu'on consulte. Elle passe
+   donc à droite, en gris éteint, tronquée — présente pour l'œil qui
+   cherche, absente pour l'œil qui sait. Le menu perd 39 % de sa hauteur. */
+.consigne-option { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
+.consigne-nom { font-size: 12px; font-weight: 500; color: var(--text-primary); flex: none; }
+.consigne-desc {
+  font-size: 10px; color: var(--text-disabled); margin-left: auto;
+  min-width: 0; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.consigne-lien { font-size: 12px; color: var(--text-secondary); }
 /* Rappel de la consigne active dans l'en-tête du fil (Task 8) — le nom
    seul, jamais le texte envoyé au provider ; discret comme les autres méta
    du header, aucun accent (même décision que la pilule du composeur). */

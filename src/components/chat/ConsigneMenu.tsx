@@ -83,7 +83,11 @@ export function ConsigneMenu(p: {
         <>
           <span className="consigne-option">
             <span className="consigne-nom">{c.nom}</span>
-            <span className="consigne-desc">{c.description}</span>
+            {/* Tronquée à droite : l'infobulle rend le texte entier, pour
+                les consignes dont la description est longue. */}
+            <span className="consigne-desc" title={c.description}>
+              {c.description}
+            </span>
           </span>
           {p.actif?.id === c.id && <CocheConsigne />}
         </>

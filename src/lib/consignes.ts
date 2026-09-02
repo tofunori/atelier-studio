@@ -30,7 +30,7 @@ export const CONSIGNES_LIVREES: Consigne[] = [
   {
     id: "concis",
     nom: "Concis",
-    description: "Réponse directe, sans préambule ni récapitulatif.",
+    description: "direct, sans préambule",
     texte: [
       "Réponds directement à la question posée.",
       "Pas de préambule, pas de reformulation de la demande, pas de récapitulatif final.",
@@ -41,7 +41,7 @@ export const CONSIGNES_LIVREES: Consigne[] = [
   {
     id: "pedagogique",
     nom: "Pédagogique",
-    description: "Décompose du concret vers le technique, comme un prof.",
+    description: "du concret au technique",
     texte: [
       "Décompose le sujet en morceaux simples, puis monte du très concret vers le technique.",
       "Définis chaque terme la première fois qu'il apparaît.",
@@ -52,7 +52,7 @@ export const CONSIGNES_LIVREES: Consigne[] = [
   {
     id: "rigueur",
     nom: "Rigueur scientifique",
-    description: "Chiffre, cite, distingue mesuré de supposé.",
+    description: "chiffre et cite",
     texte: [
       "Distingue toujours ce qui est mesuré de ce qui est supposé.",
       "Donne les incertitudes quand elles existent.",
@@ -64,7 +64,7 @@ export const CONSIGNES_LIVREES: Consigne[] = [
   {
     id: "quebecois",
     nom: "Français québécois",
-    description: "Norme OQLF, typographie canadienne-française.",
+    description: "norme OQLF",
     texte: [
       "Écris en français québécois selon la norme de l'OQLF.",
       "Évite les anglicismes et les calques de l'anglais.",
