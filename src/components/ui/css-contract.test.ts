@@ -625,6 +625,26 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.permission-select \.custom-select-trigger-icon\s*\{[^}]*color:\s*var\(--text-muted\)/);
   });
 
+  it("la barre du composer désigne qui cède quand la place manque", () => {
+    // Vécu 2026-09-01 : avec la pilule « Rigueur scientifique », la barre
+    // débordait et le bouton d'ENVOI sortait de la boîte. Cause : personne
+    // n'avait le droit de rétrécir, donc l'ordre du DOM choisissait la
+    // victime. Le nom du modèle est l'élastique désigné ; l'envoi ne cède
+    // jamais. Sans `min-width: 0` sur les deux maillons, l'ellipse déjà
+    // portée par `.mp-name` reste inopérante.
+    expect(appCss).toMatch(/\.composer-bar \.send\s*\{[^}]*flex:\s*none/);
+    expect(appCss).toMatch(/\.model-pick\s*\{[^}]*min-width:\s*0/);
+    expect(appCss).toMatch(/\.composer-bar \.mp-btn\.mp-model\s*\{[^}]*min-width:\s*0/);
+    expect(appCss).toMatch(/\.mp-model \.mp-name\s*\{[^}]*text-overflow:\s*ellipsis/);
+    // Les paliers de repli suivent le CONTENEUR (.chat-primary), pas la
+    // fenêtre : un panneau latéral ouvert rend le composeur étroit dans une
+    // fenêtre large, et une media query ne le voyait pas.
+    for (const largeur of [520, 430, 360]) {
+      expect(appCss).toMatch(new RegExp(`@container \\(max-width: ${largeur}px\\)`));
+    }
+    expect(appCss).not.toMatch(/@media \(max-width: 720px\)[^}]*\{[^}]*consigne-pilule-nom/);
+  });
+
   it("la barre du composer tient sur UNE assise et DEUX gouttières", () => {
     // une seule hauteur pour tous les contrôles : 24/24/auto/auto/30 ne donnait
     // aucune ligne d'assise et la barre se lisait comme huit objets isolés

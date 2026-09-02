@@ -602,10 +602,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
  * (l'action) se détache du reste. */
 .composer-bar .ctx-ring-wrap { height: var(--composer-ctl-h); padding: 0 4px; }
 .composer-bar .send { width: var(--composer-ctl-h); height: var(--composer-ctl-h);
-  margin-left: 12px; border-radius: var(--r-s); }
+  margin-left: 12px; border-radius: var(--r-s); flex: none; }
 .access { color: var(--text-muted) !important; font-size: var(--fs-l); }
 .access.accent { color: var(--accent) !important; }
-.model-pick { display: flex; align-items: center; gap: 4px; }
+/* Le nom du modèle est le SEUL élastique de la barre. Sans `min-width: 0`
+   ici, `.mp-name` avait beau porter une ellipse, le bouton refusait de
+   passer sous sa largeur intrinsèque : la barre débordait et le bouton
+   d'envoi sortait de la boîte (vécu 2026-09-01 avec « Rigueur
+   scientifique »). Rien ne cédait, donc l'ordre du DOM choisissait la
+   victime — et c'était le seul élément qu'on ne peut pas perdre. */
+.model-pick { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; }
 .bare { background: transparent; border: none; color: var(--text-secondary); font-size: var(--fs-l);
   cursor: pointer; outline: none; appearance: none; -webkit-appearance: none;
   padding: 2px 4px; }
@@ -706,7 +712,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   background: var(--border2); opacity: .55; }
 /* Modèle : ne plie plus. La route recule, le nom porte la lecture. */
 .composer-bar .mp-btn.mp-model { height: var(--composer-ctl-h); max-width: 230px; gap: 5px;
-  padding: 0 7px; font-size: var(--fs-m); border-radius: var(--r-s); white-space: nowrap; }
+  padding: 0 7px; font-size: var(--fs-m); border-radius: var(--r-s); white-space: nowrap;
+  min-width: 0; }
 /* effort et niveau de service rejoignent la même assise et le même rayon : ils
  * arrondissaient à 10px (--r-m de .mp-btn) contre 6px pour leurs voisins. */
 .composer-bar .mp-btn.mp-effort, .composer-bar .mp-btn.tier-toggle {
@@ -768,7 +775,28 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font-size: 11px; color: var(--text-muted); line-height: 1.35;
 }
 
-@media (max-width: 720px) {
+/* Repli progressif de la barre du composeur (traitement C, 2026-09-01).
+   Un ORDRE DE SACRIFICE explicite, du moins utile au plus utile — avant,
+   rien ne cédait et le débordement tombait sur le bouton d'envoi.
+   Les paliers suivent la largeur du CONTENEUR (.chat-primary), pas celle
+   de la fenêtre : avec un panneau latéral ouvert, le composeur est étroit
+   dans une fenêtre large, et une media query ne le voyait pas. */
+
+/* 1. Le fournisseur s'efface : « glm-5.3-flash » identifie déjà le modèle. */
+@container (max-width: 520px) {
+  .composer-bar .mp-model .mp-route { display: none; }
+}
+
+/* 2. « Fast » tombe à son éclair seul. L'effort garde son mot : il n'a pas
+      de glyphe honnête, et « Max » coûte trois caractères. */
+@container (max-width: 430px) {
+  .composer-bar .mp-btn.tier-toggle { font-size: 0; gap: 0; padding: 0 6px; }
+  .composer-bar .mp-btn.tier-toggle svg { font-size: var(--fs-m); }
+}
+
+/* 3. La pilule tombe au glyphe seul — dernier recours, le nom vit dans
+      l'infobulle et dans l'en-tête du fil. */
+@container (max-width: 360px) {
   .consigne-pilule-nom { display: none; }
   .consigne-pilule { padding: 0 7px; }
 }
