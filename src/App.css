@@ -734,6 +734,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   transition: background 130ms ease;
 }
 @media (prefers-reduced-motion: reduce) { .consigne-pilule { transition: none; } }
+/* Le glyphe garde sa taille : sans `flex: none`, la contrainte de 132 px
+   de la pilule le compresserait avant le nom (c'est le nom qui doit
+   passer en ellipse, jamais l'icône). */
+.consigne-trigger svg, .consigne-pilule svg { flex: none; }
 .consigne-pilule-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .consigne-option { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .consigne-nom { font-size: 13px; font-weight: 500; color: var(--text-primary); }

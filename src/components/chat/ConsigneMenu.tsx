@@ -18,8 +18,8 @@ const PIED_KEYS = {
 
 function GlypheConsigne() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"
-         strokeLinecap="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+         strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
       <circle cx="5" cy="7" r="1.4" />
       <circle cx="5" cy="12" r="1.4" />
       <circle cx="5" cy="17" r="1.4" />

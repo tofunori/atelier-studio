@@ -327,7 +327,7 @@ describe("orchestration App — caractérisation", () => {
     // ferait normaliser provider→claude et perdre le projet côté backend
     // pour un id qu'il ne connaît pas encore (ThreadStore::upsert / normalize).
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -364,7 +364,7 @@ describe("orchestration App — caractérisation", () => {
       }],
     }));
 
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     fireEvent.click(screen.getByLabelText(t("kb.open")));
