@@ -78,7 +78,11 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
 ### Typographie et espacement
 
 - Tailles : 10 px (graduations), 11 px (libellés), 12-13 px (corps),
-  15-19 px (la grande valeur qui change). Rien entre, rien au-delà.
+  15 px (la grande valeur qui change). Rien entre, rien au-delà : c'est
+  l'échelle de l'app, un panneau qui en sort se repère au premier coup d'œil.
+- **Dans un SVG, ces tailles ne valent que si le viewBox est mesuré** (§4).
+  Un `viewBox` fixe étiré à `width:100%` multiplie toute la figure — une
+  étiquette écrite 8 arrive à 15 px au milieu d'une interface en 11 px.
 - Poids : 400 corps, 500 accent léger, 600 valeurs et titres.
 - Tout chiffre qui change : `font-variant-numeric: tabular-nums` — sinon la
   mise en page tremble à chaque mouvement du curseur.
@@ -98,7 +102,22 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
 
 ## 4. Lisibilité des graphiques (dataviz)
 
-- **Axes toujours étiquetés** : unité et grandeur, en 9-10 px
+- **Un SVG se mesure, il ne s'étire pas.** Le panneau est FLUIDE : un
+  `viewBox` de grille fixe (`0 0 400 …`) posé sur un `width:100%` se fait
+  agrandir par le rapport largeur réelle / 400 — texte, traits et graduations
+  compris (relevé le 2026-09-03 : grille de 400 dans un panneau de 740,
+  ×1,85). Une unité SVG doit valoir un pixel, comme le canvas en §6b :
+
+  ```js
+  var g=document.getElementById("g"), H=180;                 // hauteur fixée en CSS
+  function mesure(){ g.setAttribute("viewBox","0 0 "+g.clientWidth+" "+H); dessine(); }
+  mesure(); new ResizeObserver(mesure).observe(g);
+  ```
+
+  avec `<svg id="g" style="width:100%;height:180px"></svg>`. Le panneau
+  change de largeur (fenêtre, marge, épinglage) : sans `ResizeObserver` la
+  figure se déforme au premier redimensionnement.
+- **Axes toujours étiquetés** : unité et grandeur, en 10-11 px
   `var(--muted2)`. Un graphique sans axes est une décoration.
 - **Grille discrète** : lignes 1 px `var(--border)`, 3-5 lignes maximum.
 - **Échelle honnête** : commence à zéro pour des barres ; si tu tronques un
@@ -122,7 +141,7 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
   `var(--muted)`), pas dans une légende séparée que l'œil doit aller chercher.
 - **Annote le point remarquable** : le creux, le croisement, le seuil — une
   courte étiquette avec un trait fin vaut mieux qu'un paragraphe.
-- **Hiérarchie dans le panneau** : la grande valeur qui change (15-19 px, 600,
+- **Hiérarchie dans le panneau** : la grande valeur qui change (15 px, 600,
   accent) domine ; son libellé au-dessus en 10-11 px `var(--muted)` ; le
   contexte en dessous en 10 px `var(--muted2)`. Trois niveaux, jamais plats.
 - **États de survol** : un contrôle ou une zone cliquable réagit au survol
@@ -159,13 +178,14 @@ Quand la question est « qu'est-ce qui change si… entre 2-3 cas discrets ».
   <label style="font-size:11px"><input type="radio" name="sc" value="a" checked> scénario A</label>
   <label style="font-size:11px"><input type="radio" name="sc" value="b"> scénario B</label>
 </div>
-<svg id="g" viewBox="0 0 400 120" style="width:100%"></svg>
+<svg id="g" style="width:100%;height:120px"></svg>
 <script>
-var prev=null;
-function draw(sc){ /* redessine ; trace prev en pointillé var(--muted) avant, garde le nouveau dans prev */ }
+var g=document.getElementById("g"),prev=null,cur="a";
+function mesure(){g.setAttribute("viewBox","0 0 "+g.clientWidth+" 120");draw(cur);}
+function draw(sc){ cur=sc; /* redessine ; trace prev en pointillé var(--muted) avant, garde le nouveau dans prev */ }
 document.querySelectorAll('[name=sc]').forEach(function(r){r.addEventListener("change",function(){draw(r.value);if(saveState)saveState({sc:r.value});});});
 window.onRestore=function(s){var v=(s&&s.sc)||"a";document.querySelector('[value='+v+']').checked=true;draw(v);};
-draw("a");
+new ResizeObserver(mesure).observe(g); mesure();
 </script>
 ```
 
@@ -203,9 +223,9 @@ document.getElementById("rst").addEventListener("click",function(){on=false;n=0;
   </div>
   <div style="display:flex;gap:24px">
     <div><div style="font-size:10px;color:var(--muted2,#62666c)">moyenne courante</div>
-      <div id="m" style="font-size:17px;font-weight:600;color:var(--accent,#e77f3e);font-variant-numeric:tabular-nums">—</div></div>
+      <div id="m" style="font-size:15px;font-weight:600;color:var(--accent,#e77f3e);font-variant-numeric:tabular-nums">—</div></div>
     <div><div style="font-size:10px;color:var(--muted2,#62666c)">n tirages</div>
-      <div id="n" style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">0</div></div>
+      <div id="n" style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">0</div></div>
   </div>
   <canvas id="c" style="width:100%;height:120px"></canvas>
   <div style="font-size:10px;color:var(--muted2,#62666c)">trajectoire de la moyenne — ν petit : les sauts des queues lourdes cassent la convergence</div>
@@ -263,7 +283,8 @@ net en Retina, et le ν qui repart proprement à zéro tirage.
 
 ### 6c. Exploration 2D (la souris est le paramètre)
 ```html
-<svg id="g" viewBox="0 0 400 140" style="width:100%;cursor:crosshair"></svg>
+<svg id="g" style="width:100%;height:140px;cursor:crosshair"></svg>
+<!-- viewBox mesuré au démarrage ET au ResizeObserver (§4), sinon tout grossit -->
 <div id="lect" style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">—</div>
 <script>
 var g=document.getElementById("g");
@@ -277,7 +298,8 @@ g.addEventListener("mousemove",function(e){
 ### 6d. Avant/après
 ```html
 <label style="font-size:11px"><input id="sw" type="checkbox"> avec correction</label>
-<svg id="g" viewBox="0 0 400 120" style="width:100%"><g id="A"></g><g id="B" style="opacity:0;transition:opacity 140ms"></g></svg>
+<svg id="g" style="width:100%;height:120px"><g id="A"></g><g id="B" style="opacity:0;transition:opacity 140ms"></g></svg>
+<!-- viewBox mesuré au démarrage ET au ResizeObserver (§4), sinon tout grossit -->
 <script>
 document.getElementById("sw").addEventListener("change",function(){
   document.getElementById("B").style.opacity=this.checked?1:0;
@@ -432,6 +454,8 @@ d'être décorative : elle devient la légende.
 - Palette inventée (bleus, verts, violets « pour faire joli »").
 - 5 curseurs, 9 stats, 4 courbes : personne ne comprend plus rien.
 - Chiffres qui sautent sans `tabular-nums`.
+- `viewBox` fixe (la grille 400 des squelettes) étiré à `width:100%` : la
+  figure entière arrive agrandie, texte compris — mesure-la (§4).
 - Données inventées présentées comme des résultats réels.
 - Oublier `onRestore` : le widget s'amnésie à chaque défilement.
 
@@ -439,10 +463,11 @@ d'être décorative : elle devient la légende.
 
 1. La forme choisie rend-elle la CHOSE À COMPRENDRE tangible ?
 2. Fragment sans `<html>` ; aucune requête réseau ; données en dur.
-3. Couleurs = variables avec replis ; accent unique ; tailles 10-19 px.
+3. Couleurs = variables avec replis ; accent unique ; tailles 10/11/12/13/15 px.
 4. `tabular-nums` sur tout chiffre mobile ; axes étiquetés ; référence en
    pointillé.
 5. `saveState` à chaque changement + `onRestore` implémenté.
-6. `height` réaliste (budgets §1) ; testé mentalement en 400 px de large.
+6. `height` réaliste (budgets §1) ; SVG mesuré, jamais de `viewBox` étiré
+   (§4) ; testé mentalement à 600 ET à 900 px de large.
 7. Appel : `atelier_widget` avec `{ html, title (≤80 car.), height }` — et ne
    recopie pas le HTML dans ta réponse ensuite : le panneau est déjà affiché.

@@ -164,6 +164,54 @@ pub fn help_text() -> Value {
 }
 
 #[cfg(test)]
+mod contrat_typographique_du_manuel {
+    const MANUEL: &str = include_str!("widget_guide_manuel.md");
+
+    /// Le manuel est le seul endroit où la typographie des widgets se décide :
+    /// l'agent écrit ce qu'il y lit. Il doit donc tenir l'échelle de l'app
+    /// (10/11/12/13/15), sinon chaque panneau détonne — relevé le 2026-09-03,
+    /// des tuiles en 17 px enseignées par l'exemple.
+    #[test]
+    fn le_manuel_ne_prescrit_que_les_tailles_du_systeme() {
+        let permises = ["10", "11", "12", "13", "15"];
+        let mut hors_echelle = Vec::new();
+        for (i, ligne) in MANUEL.lines().enumerate() {
+            for tag in ["font-size:", "font-size=\""] {
+                let mut reste = ligne;
+                while let Some(pos) = reste.find(tag) {
+                    reste = &reste[pos + tag.len()..];
+                    let valeur: String =
+                        reste.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !valeur.is_empty() && !permises.contains(&valeur.as_str()) {
+                        hors_echelle.push(format!("ligne {} : {valeur} px", i + 1));
+                    }
+                }
+            }
+        }
+        assert!(
+            hors_echelle.is_empty(),
+            "le manuel enseigne des tailles hors échelle : {hors_echelle:?}"
+        );
+    }
+
+    /// Le panneau est FLUIDE : un `viewBox` fixe étiré par `width:100%`
+    /// multiplie toute la figure, texte compris (grille de 400 dans un
+    /// panneau de 740 → ×1,85). Les squelettes doivent mesurer, comme le
+    /// canvas le fait déjà.
+    #[test]
+    fn aucun_squelette_netire_un_viewbox_fixe() {
+        let coupables: Vec<&str> = MANUEL
+            .lines()
+            .filter(|l| l.contains("viewBox=\"0 0 ") && l.contains("width:100%"))
+            .collect();
+        assert!(
+            coupables.is_empty(),
+            "viewBox fixe étiré à 100 % — la figure entière arrive agrandie : {coupables:?}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
