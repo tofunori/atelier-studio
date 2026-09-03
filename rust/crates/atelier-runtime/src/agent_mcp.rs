@@ -247,6 +247,23 @@ fn empreinte_courte(bearer: &str) -> String {
     hex::encode(&hash_bearer(bearer)[..4])
 }
 
+/// Vrai la PREMIÈRE fois qu'une cause de refus se présente. Un serveur MCP
+/// orphelin retape le pont à chaque appel : la panne est unique, la trace
+/// doit l'être aussi, sinon `agent-mcp.log` (sans rotation) enfle pour rien.
+/// Plafonné, pour qu'un flot de jetons distincts ne fasse pas grossir le set.
+fn refus_inedit(cause: &str) -> bool {
+    static VUS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let mut vus = VUS
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if vus.len() >= 64 {
+        return false;
+    }
+    vus.insert(cause.to_string())
+}
+
 /// Resolve path to `atelier-agent-mcp` binary.
 pub fn resolve_mcp_binary(server_dir: &str) -> PathBuf {
     if let Ok(p) = std::env::var("ATELIER_AGENT_MCP_BIN") {
@@ -423,10 +440,10 @@ pub async fn agent_mcp_handler(
                 // pas un secret et suffit à distinguer un jeton périmé d'un
                 // appel sans en-tête.
                 drop(reg);
-                journal_mcp(
-                    &state,
-                    &format!("REFUS {code} jeton={}", empreinte_courte(bearer)),
-                );
+                let cause = format!("REFUS {code} jeton={}", empreinte_courte(bearer));
+                if refus_inedit(&cause) {
+                    journal_mcp(&state, &cause);
+                }
                 return (StatusCode::UNAUTHORIZED, Json(json!({"error": code})));
             }
         }
@@ -902,6 +919,44 @@ mod journal_des_refus_tests {
     use axum::response::IntoResponse;
     use tempfile::tempdir;
 
+    /// Un `atelier-agent-mcp` orphelin retape le pont à chaque appel : sans
+    /// garde, le journal grossirait sans borne pour une seule et même panne.
+    /// Une cause = une ligne.
+    #[tokio::test]
+    async fn le_meme_refus_repete_nen_ecrit_quune_seule_fois() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-atelier-agent-capability",
+            "jeton-de-la-veille".parse().unwrap(),
+        );
+
+        for _ in 0..5 {
+            let _ = agent_mcp_handler(
+                State(state.clone()),
+                ConnectInfo("127.0.0.1:52000".parse().unwrap()),
+                headers.clone(),
+                Bytes::from_static(b"{\"action\":\"current\"}"),
+            )
+            .await;
+        }
+
+        let journal = std::fs::read_to_string(dir.path().join("logs/agent-mcp.log")).unwrap();
+        assert_eq!(
+            journal.lines().filter(|l| l.contains("REFUS")).count(),
+            1,
+            "cinq appels, une seule ligne attendue : {journal}"
+        );
+    }
+
     /// Un jeton refusé était jusqu'ici un silence total côté backend : le
     /// stderr part dans Stdio::null, et l'agent ne voyait qu'un
     /// `capability_invalid` sans cause. La trace doit exister — et ne jamais
@@ -982,20 +1037,71 @@ mod duree_de_vie_du_jeton_tests {
         );
     }
 
-    /// Le même piège hors tour : une commande native (goalGet, compact) ou
-    /// une remise de boîte aux lettres appelle le pont SANS `issue`
-    /// préalable. Une échéance d'horloge rendrait ces appels invalides sans
-    /// que rien ne puisse re-livrer un jeton neuf.
+    /// Un appel HORS TOUR (commande native goalGet/compact, qui réinjecte la
+    /// config MCP à l'ouverture) passe `turn_id=None`. Il doit rafraîchir la
+    /// portée sans voler le turnId du tour en vol ni remettre le budget de
+    /// widgets à zéro — et rendre le même jeton, seul jeton que le processus
+    /// MCP vivant connaisse.
     #[test]
-    fn un_appel_hors_tour_resout_encore_apres_une_longue_pause() {
+    fn un_appel_hors_tour_ne_vole_ni_le_tour_ni_le_budget_de_widgets() {
         let mut r = CapabilityRegistry::new();
         let livre = issue(&mut r, "tour-1");
-        r.force_age_for_test("t1", Duration::from_secs(30 * 3600));
+        assert!(r.try_consume_widget_slot("t1", 2));
 
-        assert!(
-            r.resolve(&livre).is_ok(),
-            "sans nouveau tour, le jeton doit rester résolvable"
+        let hors_tour = r.issue("t1", "/p", "codex", Some("s1".into()), None);
+
+        assert_eq!(hors_tour, livre, "même fil, même jeton");
+        assert_eq!(
+            r.turn_id_of("t1").as_deref(),
+            Some("tour-1"),
+            "le tour en vol garde son turnId"
         );
+        assert!(
+            r.try_consume_widget_slot("t1", 2),
+            "il reste un slot : le budget du tour n'a pas été remis à zéro"
+        );
+        assert!(
+            !r.try_consume_widget_slot("t1", 2),
+            "et le plafond du tour tient toujours"
+        );
+    }
+
+    /// CONTRAT DE SOURCE. Aucun test de comportement ne peut attendre six
+    /// heures : une échéance d'horloge réintroduite sous une forme neuve
+    /// (champ `expires_at`, `elapsed()`, plafond de vie) repasserait donc au
+    /// vert. La vérification indépendante du 2026-09-03 l'a prouvé en
+    /// remettant le bug d'origine sous les tests : les huit passaient.
+    /// On ancre donc la décision dans le TEXTE de la partie production,
+    /// comme `css-contract.test.ts` le fait côté frontend.
+    ///
+    /// Si tu viens de faire tomber ce test : tu es en train de refaire mourir
+    /// le widget après une nuit d'inactivité. Le jeton n'est LIVRÉ qu'au
+    /// démarrage du processus CLI et rien ne sait le re-livrer ensuite — lis
+    /// le commentaire de `issue` avant d'ajouter une horloge ici.
+    #[test]
+    fn aucune_echeance_dhorloge_ne_revient_dans_le_registre() {
+        let source = include_str!("agent_mcp.rs");
+        // Le registre de capacités seul : de l'en-tête jusqu'à la fin de son
+        // `impl`. Le reste du fichier a des horloges légitimes (l'attente
+        // d'events de `action_wait` a un timeout, et c'est très bien).
+        let registre = source
+            .split_once("\nfn random_bearer(")
+            .expect("`random_bearer` clôt le registre")
+            .0;
+        for interdit in [
+            "expires_at",
+            "MAX_LIFETIME",
+            "GRANT_TTL",
+            ".elapsed()",
+            "Instant::now() >",
+            "Instant::now() <",
+        ] {
+            assert!(
+                !registre.contains(interdit),
+                "« {interdit} » est de retour dans le chemin capacité : \
+                 une capacité ne vit pas sur une horloge (voir `issue`)"
+            );
+        }
     }
 
     /// Ce qui doit TOUJOURS tuer un jeton : la révocation explicite (fil

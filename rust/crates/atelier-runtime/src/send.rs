@@ -1,5 +1,6 @@
 //! Send / interrupt orchestration (plan 033 Porte 5).
 
+use crate::agent_mcp::journal_mcp;
 use crate::state::AppState;
 use atelier_harness::EmitFn;
 use atelier_providers::{provider_status_list, InteractionFn, SendMode, SendRequest};
@@ -108,8 +109,6 @@ asks for a file or a gallery figure.\n</atelier-widget-integration>"
 /// était repris SANS les serveurs MCP d'Atelier — l'agent perdait
 /// `atelier_widget` et `atelier_sessions` en cours de session (sonde
 /// 2026-08-29). Coût nul quand le steer réussit : le champ n'est pas lu.
-use crate::agent_mcp::journal_mcp;
-
 async fn atelier_mcp_for_turn(
     state: &AppState,
     thread_id: &str,
