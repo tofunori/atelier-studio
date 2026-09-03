@@ -18,10 +18,6 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 const SERVER_NAME: &str = "atelier-sessions";
-const GRANT_TTL: Duration = Duration::from_secs(6 * 3600);
-/// Plafond absolu de vie d'un grant, TTL glissant compris : au-delà, le fil
-/// refrappe un jeton neuf même s'il est actif en continu.
-const GRANT_MAX_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone)]
 pub struct AgentCapabilityGrant {
@@ -35,7 +31,6 @@ pub struct AgentCapabilityGrant {
     pub provider: String,
     pub session_id: Option<String>,
     pub issued_at: Instant,
-    pub expires_at: Instant,
     pub generation: u64,
     /// Widgets déjà affichés sous CE grant. Un grant neuf = un tour neuf.
     pub widgets_this_turn: u32,
@@ -53,7 +48,7 @@ impl std::fmt::Debug for AgentCapabilityGrant {
             .field("project_root", &self.project_root)
             .field("provider", &self.provider)
             .field("session_id", &self.session_id)
-            .field("expires_at", &self.expires_at)
+            .field("issued_at", &self.issued_at)
             .field("generation", &self.generation)
             .field("widgets_this_turn", &self.widgets_this_turn)
             .field("turn_id", &self.turn_id)
@@ -82,12 +77,27 @@ impl CapabilityRegistry {
     /// rapides (grok rejouait tout l'historique via `session/load`, kimi
     /// risquait un `session/resume` fatal là où le cache répondait).
     ///
-    /// Tant que le grant est VIVANT (non expiré), on garde donc le même jeton
-    /// et on ne remet à jour que ce qui varie : la portée du fil (projet,
-    /// provider, session — sinon une autorisation périmée survivrait à un
-    /// déplacement de fil) et l'état de tour (`turn_id`, plafond de widgets
-    /// remis à zéro). Un grant absent, révoqué ou EXPIRÉ est refrappé : la
-    /// stabilité ne prolonge jamais une capacité périmée.
+    /// Le jeton vit donc AUSSI LONGTEMPS QUE LE FIL : tant qu'un grant
+    /// existe, on garde le même porteur et on ne remet à jour que ce qui
+    /// varie — la portée du fil (projet, provider, session, sinon une
+    /// autorisation survivrait à un déplacement de fil) et l'état de tour
+    /// (`turn_id`, plafond de widgets remis à zéro).
+    ///
+    /// AUCUNE ÉCHÉANCE D'HORLOGE (incident du 2026-09-03, quatrième récidive
+    /// de « le widget ne marche plus »). Le jeton n'est LIVRÉ qu'au démarrage
+    /// du processus CLI ; le backend ne sait pas le re-livrer en cours de
+    /// session — l'app-server codex n'applique `config.mcp_servers` qu'à la
+    /// PREMIÈRE ouverture d'une session (codex.rs::native_open_opts), tout
+    /// resume ultérieur l'ignore. Une rotation par TTL ne protégeait donc
+    /// rien : elle rendait juste muet, et pour de bon, un `atelier-agent-mcp`
+    /// toujours vivant (relevé : dernier tour 22:38, tour suivant 08:17,
+    /// 9 h 39 de trou > TTL de 6 h, puis `capability_invalid` à chaque appel
+    /// widget jusqu'à la relance de l'app).
+    ///
+    /// Ce qui borne la capacité, ce sont les deux bornes RÉELLES du canal :
+    /// la révocation explicite (`revoke_thread` — fil supprimé, lien défait)
+    /// et la vie du backend, dont le registre est en mémoire et dont TOUS les
+    /// CLI sont des processus enfants.
     pub fn issue(
         &mut self,
         thread_id: &str,
@@ -96,44 +106,19 @@ impl CapabilityRegistry {
         session_id: Option<String>,
         turn_id: Option<String>,
     ) -> String {
-        let vivant = self.grants.get(thread_id).is_some_and(|g| {
-            Instant::now() <= g.expires_at
-                && Instant::now() - g.issued_at < GRANT_MAX_LIFETIME
-        });
-        if vivant {
-            let g = self
-                .grants
-                .get_mut(thread_id)
-                .expect("grant vivant vérifié juste au-dessus");
+        if let Some(g) = self.grants.get_mut(thread_id) {
             g.project_root = project_root.to_string();
             g.provider = provider.to_string();
-            // clonés : si le plafond absolu est atteint juste en dessous, on
-            // retombe sur la frappe d'un jeton neuf, qui en a besoin
-            g.session_id = session_id.clone();
+            g.session_id = session_id;
             // turn_id=None = appel HORS tour (commande native goalGet/compact,
             // qui injecte la config MCP à l'ouverture) : il ne doit ni voler
             // le turnId du tour en cours (l'event widget le porte — C1), ni
             // remettre le budget de widgets à zéro en plein tour.
             if turn_id.is_some() {
-                g.turn_id = turn_id.clone();
+                g.turn_id = turn_id;
                 g.widgets_this_turn = 0;
             }
-            // TTL GLISSANT. Sans ça il courait depuis la PREMIÈRE frappe : un
-            // fil actif depuis 6 h voyait un tour entier échouer en
-            // CAPABILITY_EXPIRED avant que le tour suivant ne refrappe
-            // (relevé à la vérification indépendante, 2026-08-29).
-            // Plafond absolu quand même : au-delà de GRANT_MAX_LIFETIME on
-            // laisse expirer et refrapper, pour qu'un jeton fuité ne vaille
-            // pas éternellement. Le refrappe arrive ENTRE deux tours, donc
-            // jamais au milieu d'un.
-            if Instant::now() - g.issued_at < GRANT_MAX_LIFETIME {
-                g.expires_at = Instant::now() + GRANT_TTL;
-                return g.bearer.clone();
-            }
-        }
-        // absent ou expiré : on révoque ce qui traîne et on refrappe
-        if let Some(prev) = self.grants.remove(thread_id) {
-            self.hash_index.remove(&prev.token_hash);
+            return g.bearer.clone();
         }
         let bearer = random_bearer();
         let token_hash = hash_bearer(&bearer);
@@ -147,7 +132,6 @@ impl CapabilityRegistry {
             provider: provider.to_string(),
             session_id,
             issued_at: now,
-            expires_at: now + GRANT_TTL,
             generation,
             widgets_this_turn: 0,
             turn_id,
@@ -170,9 +154,8 @@ impl CapabilityRegistry {
         let h = hash_bearer(bearer);
         let tid = self.hash_index.get(&h).ok_or(err::CAPABILITY_INVALID)?;
         let g = self.grants.get(tid).ok_or(err::CAPABILITY_INVALID)?;
-        if Instant::now() > g.expires_at {
-            return Err(err::CAPABILITY_EXPIRED);
-        }
+        // Pas de test d'échéance : un jeton vit tant que son grant vit (voir
+        // `issue`). Seules la révocation et l'arrêt du backend le tuent.
         // constant-time compare already via hash map lookup of full hash
         if g.token_hash != h {
             return Err(err::CAPABILITY_INVALID);
@@ -184,19 +167,13 @@ impl CapabilityRegistry {
         self.grants.len()
     }
 
-    /// Fait expirer le grant d'un fil sans toucher à l'index : sert à vérifier
-    /// que l'expiration donne bien un jeton NEUF (les TTL réels sont de 6 h).
-    #[cfg(test)]
+    /// Vieillit le grant d'un fil : sert à prouver qu'une longue inactivité
+    /// (une nuit, un week-end) ne coupe pas un canal dont le processus CLI
+    /// est toujours vivant.
     #[cfg(test)]
     fn force_age_for_test(&mut self, thread_id: &str, age: Duration) {
         if let Some(g) = self.grants.get_mut(thread_id) {
             g.issued_at = Instant::now() - age;
-        }
-    }
-
-    fn force_expire_for_test(&mut self, thread_id: &str) {
-        if let Some(g) = self.grants.get_mut(thread_id) {
-            g.expires_at = Instant::now() - Duration::from_secs(1);
         }
     }
 
@@ -242,6 +219,32 @@ fn hash_bearer(bearer: &str) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(&d);
     out
+}
+
+/// Journal de bord MCP — `<app_dir>/logs/agent-mcp.log`. Le stderr du
+/// backend part dans Stdio::null (src-tauri/sidecar.rs) : trois récidives de
+/// « l'outil widget a disparu » ont été diagnostiquées à l'aveugle faute de
+/// cette ligne (2026-08-29 → 31). Append best-effort, jamais bloquant.
+pub(crate) fn journal_mcp(state: &AppState, ligne: &str) {
+    let dir = state.app_dir().join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let ts = chrono::Local::now().format("%m-%d %H:%M:%S");
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("agent-mcp.log"))
+    {
+        let _ = writeln!(f, "{ts} {ligne}");
+    }
+}
+
+/// Empreinte tronquée d'un jeton, pour le journal : jamais le jeton lui-même.
+fn empreinte_courte(bearer: &str) -> String {
+    if bearer.is_empty() {
+        return "absent".into();
+    }
+    hex::encode(&hash_bearer(bearer)[..4])
 }
 
 /// Resolve path to `atelier-agent-mcp` binary.
@@ -413,6 +416,17 @@ pub async fn agent_mcp_handler(
         match reg.resolve(bearer) {
             Ok(g) => g.caller_thread_id.clone(),
             Err(code) => {
+                // Un refus ici veut dire qu'un `atelier-agent-mcp` VIVANT
+                // présente un jeton que le registre ne connaît pas : la panne
+                // est muette côté agent (« capability_invalid ») et invisible
+                // côté backend sans cette ligne. L'empreinte tronquée n'est
+                // pas un secret et suffit à distinguer un jeton périmé d'un
+                // appel sans en-tête.
+                drop(reg);
+                journal_mcp(
+                    &state,
+                    &format!("REFUS {code} jeton={}", empreinte_courte(bearer)),
+                );
                 return (StatusCode::UNAUTHORIZED, Json(json!({"error": code})));
             }
         }
@@ -792,54 +806,6 @@ pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
 }
 
 #[cfg(test)]
-mod ttl_glissant_tests {
-    use super::*;
-
-    fn reg() -> CapabilityRegistry {
-        CapabilityRegistry::default()
-    }
-
-    fn issue(r: &mut CapabilityRegistry, tour: &str) -> String {
-        r.issue("t1", "/p", "codex", Some("s1".into()), Some(tour.into()))
-    }
-
-    /// Le TTL courait depuis la PREMIÈRE frappe : un fil actif depuis 6 h
-    /// voyait un tour entier échouer en CAPABILITY_EXPIRED. Il glisse
-    /// maintenant à chaque tour.
-    #[test]
-    fn un_fil_actif_ne_voit_jamais_son_jeton_expirer_en_cours_de_route() {
-        let mut r = reg();
-        let jeton = issue(&mut r, "tour-1");
-        // presque au bout du TTL, mais le fil est actif : le tour suivant
-        // doit repousser l'échéance sans changer le jeton
-        r.force_age_for_test("t1", GRANT_TTL - Duration::from_secs(60));
-        let g = r.grants.get_mut("t1").unwrap();
-        g.expires_at = Instant::now() + Duration::from_secs(60);
-
-        assert_eq!(issue(&mut r, "tour-2"), jeton, "le jeton doit rester stable");
-        let restant = r.grants["t1"].expires_at - Instant::now();
-        assert!(
-            restant > GRANT_TTL - Duration::from_secs(10),
-            "l'échéance doit être repoussée d'un TTL plein, restant = {restant:?}"
-        );
-    }
-
-    /// Mais le glissement n'est pas éternel : au-delà du plafond absolu, le
-    /// fil refrappe — un jeton fuité ne vaut pas indéfiniment.
-    #[test]
-    fn au_dela_du_plafond_absolu_le_jeton_est_refrappe() {
-        let mut r = reg();
-        let jeton = issue(&mut r, "tour-1");
-        r.force_age_for_test("t1", GRANT_MAX_LIFETIME + Duration::from_secs(1));
-        let neuf = issue(&mut r, "tour-2");
-        assert_ne!(neuf, jeton, "au-delà du plafond, le jeton doit changer");
-        // et l'ancien ne vaut plus rien
-        assert!(r.resolve(&jeton).is_err());
-        assert!(r.resolve(&neuf).is_ok());
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -895,32 +861,6 @@ mod tests {
         assert_ne!(autre, tour1);
     }
 
-    /// La stabilité ne doit pas affaiblir la révocation ni l'expiration : un
-    /// grant révoqué ou périmé est REMPLACÉ, jamais prolongé.
-    #[test]
-    fn un_grant_revoque_ou_expire_donne_un_jeton_neuf() {
-        let mut reg = CapabilityRegistry::new();
-
-        let avant = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
-        reg.revoke_thread("t1");
-        assert!(reg.resolve(&avant).is_err(), "révoqué = plus résolvable");
-        let apres = reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-2".into()));
-        assert_ne!(avant, apres, "après révocation, jeton neuf");
-        assert!(reg.resolve(&avant).is_err(), "l'ancien reste mort");
-
-        let vieux = reg.issue("t2", "/tmp/proj", "claude", None, Some("turn-1".into()));
-        reg.force_expire_for_test("t2");
-        assert_eq!(
-            reg.resolve(&vieux).err(),
-            Some(err::CAPABILITY_EXPIRED),
-            "un grant périmé se refuse avant tout"
-        );
-        let neuf = reg.issue("t2", "/tmp/proj", "claude", None, Some("turn-2".into()));
-        assert_ne!(vieux, neuf, "un grant expiré n'est jamais prolongé");
-        assert!(reg.resolve(&vieux).is_err(), "l'ancien jeton reste mort");
-        assert!(reg.resolve(&neuf).is_ok());
-    }
-
     /// Réutiliser le jeton ne doit pas figer la portée du grant : si le fil a
     /// changé de projet, de provider ou de session, l'autorisation doit suivre.
     #[test]
@@ -952,5 +892,123 @@ mod tests {
 
         // un fil sans grant ne consomme rien
         assert!(!reg.try_consume_widget_slot("inconnu", 8));
+    }
+}
+
+#[cfg(test)]
+mod journal_des_refus_tests {
+    use super::*;
+    use crate::paths::AppPaths;
+    use axum::response::IntoResponse;
+    use tempfile::tempdir;
+
+    /// Un jeton refusé était jusqu'ici un silence total côté backend : le
+    /// stderr part dans Stdio::null, et l'agent ne voyait qu'un
+    /// `capability_invalid` sans cause. La trace doit exister — et ne jamais
+    /// contenir le jeton lui-même.
+    #[tokio::test]
+    async fn un_jeton_inconnu_laisse_une_trace_qui_ne_contient_pas_le_jeton() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-atelier-agent-capability",
+            "jeton-perime-de-la-veille".parse().unwrap(),
+        );
+
+        let reponse = agent_mcp_handler(
+            State(state),
+            ConnectInfo("127.0.0.1:52000".parse().unwrap()),
+            headers,
+            Bytes::from_static(b"{\"action\":\"current\"}"),
+        )
+        .await
+        .into_response();
+        assert_eq!(reponse.status(), StatusCode::UNAUTHORIZED);
+
+        let journal = std::fs::read_to_string(dir.path().join("logs/agent-mcp.log"))
+            .expect("le refus doit laisser une ligne de journal");
+        assert!(
+            journal.contains("REFUS capability_invalid"),
+            "la cause doit être lisible : {journal}"
+        );
+        assert!(
+            !journal.contains("jeton-perime-de-la-veille"),
+            "le jeton ne doit JAMAIS être écrit : {journal}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod duree_de_vie_du_jeton_tests {
+    use super::*;
+
+    fn issue(r: &mut CapabilityRegistry, tour: &str) -> String {
+        r.issue("t1", "/p", "codex", Some("s1".into()), Some(tour.into()))
+    }
+
+    /// Incident du 2026-09-03, quatrième récidive de « le widget ne marche
+    /// plus » : dernier tour à 22:38, tour suivant à 08:17. Le grant avait
+    /// expiré dans l'intervalle, donc `issue` refrappait — mais le jeton
+    /// n'est LIVRÉ qu'au démarrage du processus CLI, et l'app-server codex
+    /// n'applique `config.mcp_servers` qu'à la première ouverture d'une
+    /// session (codex.rs::native_open_opts). Le processus `atelier-agent-mcp`
+    /// vivant depuis la veille gardait donc l'ancien jeton et TOUT appel
+    /// widget répondait `capability_invalid`, définitivement.
+    #[test]
+    fn un_jeton_deja_livre_survit_a_une_nuit_dinactivite() {
+        let mut r = CapabilityRegistry::new();
+        let livre = issue(&mut r, "tour-1");
+        // la nuit : bien au-delà de l'ancien TTL de 6 h ET de l'ancien
+        // plafond absolu de 24 h — aucune horloge ne doit couper un fil
+        // dont le processus CLI, lui, est toujours en vie
+        r.force_age_for_test("t1", Duration::from_secs(30 * 3600));
+
+        let apres = issue(&mut r, "tour-2");
+        assert_eq!(
+            apres, livre,
+            "le jeton du fil ne doit pas changer sous le processus qui le détient"
+        );
+        assert!(
+            r.resolve(&livre).is_ok(),
+            "le jeton déjà livré au serveur MCP doit continuer de résoudre"
+        );
+    }
+
+    /// Le même piège hors tour : une commande native (goalGet, compact) ou
+    /// une remise de boîte aux lettres appelle le pont SANS `issue`
+    /// préalable. Une échéance d'horloge rendrait ces appels invalides sans
+    /// que rien ne puisse re-livrer un jeton neuf.
+    #[test]
+    fn un_appel_hors_tour_resout_encore_apres_une_longue_pause() {
+        let mut r = CapabilityRegistry::new();
+        let livre = issue(&mut r, "tour-1");
+        r.force_age_for_test("t1", Duration::from_secs(30 * 3600));
+
+        assert!(
+            r.resolve(&livre).is_ok(),
+            "sans nouveau tour, le jeton doit rester résolvable"
+        );
+    }
+
+    /// Ce qui doit TOUJOURS tuer un jeton : la révocation explicite (fil
+    /// supprimé, lien défait). C'est, avec l'arrêt du backend, la seule
+    /// borne — et elle survit au retrait de l'échéance d'horloge.
+    #[test]
+    fn la_revocation_explicite_tue_toujours_le_jeton() {
+        let mut r = CapabilityRegistry::new();
+        let avant = issue(&mut r, "tour-1");
+        r.revoke_thread("t1");
+        assert!(r.resolve(&avant).is_err(), "révoqué = plus résolvable");
+        let apres = issue(&mut r, "tour-2");
+        assert_ne!(avant, apres, "après révocation, jeton neuf");
+        assert!(r.resolve(&avant).is_err(), "l'ancien reste mort");
     }
 }

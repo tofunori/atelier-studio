@@ -224,6 +224,14 @@ MCP. Chaque MCP reçoit uniquement une capability propre à son thread.
 Une capability expire avec le process backend, la suppression du thread, le
 déplacement du projet, le retrait du lien ou un changement de session native.
 
+Jamais avec une horloge (décision du 2026-09-03) : le bearer n'est LIVRÉ qu'au
+démarrage du processus CLI et le backend ne sait pas le re-livrer en cours de
+session — l'app-server codex n'applique `config.mcp_servers` qu'à la première
+ouverture. Une rotation par TTL ne retirait donc rien à un attaquant, elle
+rendait muet un `atelier-agent-mcp` toujours vivant (widget mort après une nuit
+d'inactivité, quatre récidives). `capability_expired` reste défini dans le
+protocole mais n'est plus émis.
+
 ### S7 — Contexte observable seulement
 
 La projection exclut par défaut `thinking`, secrets, réponses d'interactions,
@@ -320,7 +328,6 @@ struct AgentCapabilityGrant {
     provider: String,
     session_id: Option<String>,
     issued_at: Instant,
-    expires_at: Instant,
     generation: u64,
 }
 ```

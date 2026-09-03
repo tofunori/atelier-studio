@@ -130,6 +130,9 @@ pub mod agent_mcp_errors {
     pub const MCP_DISABLED: &str = "mcp_disabled";
     pub const CALLER_UNKNOWN: &str = "caller_unknown";
     pub const CAPABILITY_INVALID: &str = "capability_invalid";
+    /// Plus jamais émis depuis le 2026-09-03 : une capacité ne vit plus sur
+    /// une horloge mais sur la vie du fil et du backend (agent_mcp::issue).
+    /// Gardé pour la stabilité du protocole et des clients existants.
     pub const CAPABILITY_EXPIRED: &str = "capability_expired";
     pub const THREAD_NOT_FOUND: &str = "thread_not_found";
     pub const RELATION_REQUIRED: &str = "relation_required";
