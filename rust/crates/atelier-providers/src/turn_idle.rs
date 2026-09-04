@@ -26,6 +26,26 @@ use std::time::Duration;
 /// un tour d'une heure.
 const TICK: Duration = Duration::from_secs(5);
 
+/// Fenêtre de SILENCE tolérée avant d'interrompre un tour (le filet ne vise
+/// que le CLI figé — vivant mais muet ; un tour long reste légitime, quelle
+/// que soit sa durée). Commune à tous les providers app-server/CLI (codex,
+/// claude — grok et kimi ont leur propre copie, pas encore migrée).
+const TURN_IDLE_SECS_DEFAULT: u64 = 600;
+
+/// Lit la fenêtre d'inactivité depuis `ATELIER_TURN_TIMEOUT_SECS` (défaut
+/// 600 s). Déplacé depuis `codex.rs` (2026-09-04) pour être partagé avec
+/// `claude.rs`. **Ne jamais appeler dans la boucle chaude d'un `send()`** :
+/// lire l'env une fois à la construction du provider et l'injecter sur la
+/// struct — lire l'env par tour ouvrirait une course avec les tests qui
+/// mutent `ATELIER_TURN_TIMEOUT_SECS`.
+pub fn idle_from_env() -> Duration {
+    let secs = std::env::var("ATELIER_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(TURN_IDLE_SECS_DEFAULT);
+    Duration::from_secs(secs)
+}
+
 /// Compteur d'événements d'un tour : le handler du provider l'incrémente à
 /// chaque notification reçue, l'attente le lit pour savoir si le CLI parle.
 #[derive(Clone, Default)]

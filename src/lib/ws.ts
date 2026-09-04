@@ -136,7 +136,7 @@ type AgentEventBody =
       };
       ts?: number;
     }
-  | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null }; ts?: number }
+  | { kind: "usage"; usage: { context: number | null; output: number | null; cost: number | null; turns: number | null; window?: number | null }; ts?: number }
   /** active : l'item en cours (TodoWrite in_progress) — rendu accentué */
   | { kind: "todos"; items: { text: string; completed: boolean; active?: boolean }[]; ts?: number }
   | {
@@ -170,7 +170,17 @@ type AgentEventBody =
        * même ensemble de chemins que filesChanged ; null = binaire. */
       fileStats?: { path: string; add: number | null; del: number | null }[];
       checkpoint?: { snapshotSha: string; filesChanged: string[] };
-      usage?: { context: number; output: number; cost: number | null; turns: number | null };
+      /** durationMs : temps API préféré au temps mur (Claude, plan phase A) ;
+       * permissionDenials : nombre de refus du tour (détail déjà visible
+       * par outil via les notes de refus, pas ici). */
+      usage?: {
+        context: number;
+        output: number;
+        cost: number | null;
+        turns: number | null;
+        durationMs?: number;
+        permissionDenials?: number;
+      };
       ts?: number;
     }
   | { kind: "error"; message: string }

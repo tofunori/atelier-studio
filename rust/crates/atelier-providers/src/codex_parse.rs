@@ -432,14 +432,22 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             }
         }
         "thread/tokenUsage/updated" => {
-            // optional usage snapshot
+            // Snapshot d'usage optionnel. Contrat `src/lib/ws.ts:139` +
+            // `App.tsx` (`msg.event.usage`) : les champs doivent être
+            // imbriqués sous `usage`, jamais à plat — la forme à plat
+            // n'était jamais lue côté harnais.
             if let Some(info) = params.get("info").or_else(|| params.get("tokenUsage")) {
                 events.push(json!({
                     "kind": "usage",
-                    "context": info.pointer("/last_token_usage/total_tokens")
-                        .or_else(|| info.get("totalTokens")),
-                    "output": info.pointer("/total_token_usage/output_tokens"),
-                    "window": info.get("model_context_window"),
+                    "usage": {
+                        "context": info.pointer("/last_token_usage/total_tokens")
+                            .or_else(|| info.get("totalTokens")),
+                        "output": info.pointer("/total_token_usage/output_tokens"),
+                        "cost": Value::Null,
+                        "turns": Value::Null,
+                        "window": info.get("model_context_window"),
+                    },
+                    "__ephemeral": true,
                 }));
             }
         }
@@ -1233,5 +1241,36 @@ mod tests {
         let e2 = web_search_update(&seul, "inProgress");
         assert_eq!(e2["detail"], "albedo MODIS");
         assert_eq!(e2["input"]["queries"][0], "albedo MODIS");
+    }
+
+    /// Contrat `src/lib/ws.ts:139` (+ `App.tsx` qui lit `msg.event.usage`) :
+    /// l'événement doit imbriquer les champs sous `usage`, jamais à plat —
+    /// sinon la barre de contexte ne se met jamais à jour (jamais vu, jamais
+    /// appliqué avant ce correctif).
+    #[test]
+    fn thread_token_usage_updated_imbrique_sous_usage() {
+        let mut st = TurnMapState::default();
+        let e = map_turn_notification(
+            "thread/tokenUsage/updated",
+            &json!({"info": {
+                "last_token_usage": {"total_tokens": 12345},
+                "total_token_usage": {"output_tokens": 678},
+                "model_context_window": 200000,
+            }}),
+            &mut st,
+        );
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0]["kind"], "usage");
+        assert!(
+            e[0].get("context").is_none(),
+            "les champs ne doivent plus être à plat, reçu {:?}",
+            e[0]
+        );
+        assert_eq!(e[0]["usage"]["context"], 12345);
+        assert_eq!(e[0]["usage"]["output"], 678);
+        assert_eq!(e[0]["usage"]["window"], 200000);
+        assert_eq!(e[0]["usage"]["cost"], Value::Null);
+        assert_eq!(e[0]["usage"]["turns"], Value::Null);
+        assert_eq!(e[0]["__ephemeral"], true);
     }
 }

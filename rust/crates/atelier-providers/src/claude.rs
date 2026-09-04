@@ -40,6 +40,11 @@ pub struct ClaudeProvider {
     /// boucle par EOF AVANT la propagation, et le tour s'affichait « session
     /// terminée sans résultat » au lieu d'« interrupted » (2026-08-24).
     interrupted: Mutex<std::collections::HashSet<String>>,
+    /// Fenêtre de silence tolérée avant d'interrompre un tour (filet
+    /// anti-CLI-figé, cf. `turn_idle`). Lue UNE FOIS à la construction —
+    /// jamais dans `send()` — pour éviter la course `env::set_var` connue
+    /// entre tests qui mutent `ATELIER_TURN_TIMEOUT_SECS`.
+    idle: std::time::Duration,
 }
 
 impl ClaudeProvider {
@@ -52,7 +57,16 @@ impl ClaudeProvider {
             bin,
             runs: Mutex::new(HashMap::new()),
             interrupted: Mutex::new(std::collections::HashSet::new()),
+            idle: crate::turn_idle::idle_from_env(),
         }
+    }
+
+    /// Surcharge la fenêtre d'inactivité (tests uniquement) : injectée sur la
+    /// struct plutôt que lue dans `send()`.
+    #[cfg(test)]
+    pub fn with_idle(mut self, idle: std::time::Duration) -> Self {
+        self.idle = idle;
+        self
     }
 }
 
@@ -215,10 +229,7 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     // requêtes malformées (permission_mode absent) — il doit rester sûr par
     // défaut et ne jamais fabriquer --dangerously-skip-permissions de son
     // propre chef (plan 063, finding SEC-05).
-    let permission_mode = req
-        .permission_mode
-        .as_deref()
-        .unwrap_or("acceptEdits");
+    let permission_mode = req.permission_mode.as_deref().unwrap_or("acceptEdits");
     // Contrat Atelier/SDK : « default ». Le CLI Claude récent nomme le même
     // comportement explicite « manual »; lui transmettre « default » fait
     // échouer le process avant même le premier événement.
@@ -442,7 +453,6 @@ fn regex_is_uuid(s: &str) -> bool {
     true
 }
 
-
 /// Modèles supplémentaires auxquels ce compte a droit. Claude Code n'a
 /// AUCUNE commande de listing : il met en cache dans `~/.claude.json` les
 /// options qui s'ajoutent à son jeu intégré (`additionalModelOptionsCache`),
@@ -613,11 +623,16 @@ impl Provider for ClaudeProvider {
                 };
             }
         };
+        // Signe de vie du CLI : chaque ligne stdout ET stderr repousse le
+        // filet anti-figé (le CLI qui parle, même sur stderr, est vivant).
+        let activity = crate::turn_idle::TurnActivity::new();
         if let Some(err) = child.stderr.take() {
+            let activity_stderr = activity.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(err).lines();
                 let log_dir = dirs_log();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    activity_stderr.bump();
                     let _ = append_log(&log_dir, &line);
                 }
             });
@@ -642,60 +657,104 @@ impl Provider for ClaudeProvider {
         let mut ok = true;
         let mut err_msg = None;
 
-        loop {
-            if is_cancelled() {
-                // kill process group
+        // La boucle de lecture devient un bloc async : `with_idle_timeout`
+        // l'enveloppe pour couper sur un silence total (stdout ET stderr),
+        // sans toucher au re-test d'is_cancelled en tête d'itération (Stop
+        // utilisateur, cf. `interrupt_tests`).
+        let read_loop = async {
+            loop {
+                if is_cancelled() {
+                    // kill process group
+                    if let Some(pid) = pid {
+                        kill_process_group(pid);
+                    }
+                    let mut runs = self.runs.lock().await;
+                    if let Some(mut r) = runs.remove(&thread_id) {
+                        let _ = r.child.kill().await;
+                        let _ = r.child.wait().await;
+                    }
+                    drop(runs);
+                    let mut flush = Vec::new();
+                    flush_pending(&mut state, &mut flush);
+                    for ev in flush {
+                        on_event(ev);
+                    }
+                    if !state.saw_terminal {
+                        on_event(json!({"kind":"error","message":"interrupted"}));
+                    }
+                    // Marque le terminal comme vu pour que le bloc post-boucle
+                    // (ligne ~saw_terminal plus bas) n'émette pas un second
+                    // « error » : celui-ci a déjà été émis ici.
+                    state.saw_terminal = true;
+                    ok = false;
+                    err_msg = Some("interrupted".into());
+                    return;
+                }
+
+                match reader.next_line().await {
+                    Ok(Some(line)) => {
+                        activity.bump();
+                        let events = parse_line(&mut state, &line);
+                        for ev in events {
+                            let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                            if kind == "error" {
+                                ok = false;
+                                err_msg = ev
+                                    .get("message")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string);
+                            }
+                            if kind == "done"
+                                && ev.get("ok").and_then(|v| v.as_bool()) == Some(false)
+                            {
+                                ok = false;
+                                err_msg = ev
+                                    .get("result")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string);
+                            }
+                            on_event(ev);
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        ok = false;
+                        err_msg = Some(format!("read claude stdout: {e}"));
+                        break;
+                    }
+                }
+            }
+        };
+
+        match crate::turn_idle::with_idle_timeout(read_loop, self.idle, &activity).await {
+            Ok(()) => {}
+            Err(()) => {
+                // Silence total (ni stdout ni stderr) > idle : le CLI est
+                // vivant mais figé. On tue le process group et on remonte un
+                // échec explicite, comme Codex (codex.rs).
                 if let Some(pid) = pid {
                     kill_process_group(pid);
                 }
-                let mut runs = self.runs.lock().await;
-                if let Some(mut r) = runs.remove(&thread_id) {
-                    let _ = r.child.kill().await;
-                    let _ = r.child.wait().await;
+                {
+                    let mut runs = self.runs.lock().await;
+                    if let Some(mut r) = runs.remove(&thread_id) {
+                        let _ = r.child.kill().await;
+                        let _ = r.child.wait().await;
+                    }
                 }
                 let mut flush = Vec::new();
                 flush_pending(&mut state, &mut flush);
                 for ev in flush {
                     on_event(ev);
                 }
-                if !state.saw_terminal {
-                    on_event(json!({"kind":"error","message":"interrupted"}));
-                }
-                return SendResult {
-                    session_id: state.session_id,
-                    ok: false,
-                    error: Some("interrupted".into()),
-                };
-            }
-
-            match reader.next_line().await {
-                Ok(Some(line)) => {
-                    let events = parse_line(&mut state, &line);
-                    for ev in events {
-                        let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                        if kind == "error" {
-                            ok = false;
-                            err_msg = ev
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string);
-                        }
-                        if kind == "done" && ev.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-                            ok = false;
-                            err_msg = ev
-                                .get("result")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string);
-                        }
-                        on_event(ev);
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    ok = false;
-                    err_msg = Some(format!("read claude stdout: {e}"));
-                    break;
-                }
+                let minutes = self.idle.as_secs() / 60;
+                on_event(json!({
+                    "kind": "error",
+                    "message": format!("Claude muet depuis {minutes} min — tour interrompu"),
+                }));
+                state.saw_terminal = true;
+                ok = false;
+                err_msg = Some("timeout".into());
             }
         }
 
@@ -889,10 +948,7 @@ impl Provider for ClaudeProvider {
         if let Some(mut r) = runs.remove(thread_id) {
             // Marqueur AVANT le kill : l'EOF du process tué peut conclure le
             // tour avant que le flag asynchrone ne se propage (watcher 50 ms).
-            self.interrupted
-                .lock()
-                .await
-                .insert(thread_id.to_string());
+            self.interrupted.lock().await.insert(thread_id.to_string());
             if let Some(pid) = r.child.id() {
                 kill_process_group(pid);
             }
@@ -1071,7 +1127,11 @@ mod drapeaux_tests {
             build_args(&req_mcp(false), None),
         ] {
             let n = args.len();
-            assert_eq!(args[n - 2], "--", "prompt non séparé des options — {args:?}");
+            assert_eq!(
+                args[n - 2],
+                "--",
+                "prompt non séparé des options — {args:?}"
+            );
             assert!(
                 !args[..n - 2].iter().any(|a| a == "--"),
                 "un seul séparateur — {args:?}"
@@ -1110,8 +1170,9 @@ mod drapeaux_tests {
 
     #[test]
     fn un_tour_ordinaire_ne_forke_pas() {
-        assert!(!build_args(&req(Some(SESSION), false), None)
-            .contains(&"--fork-session".to_string()));
+        assert!(
+            !build_args(&req(Some(SESSION), false), None).contains(&"--fork-session".to_string())
+        );
     }
 
     /// Sans session à reprendre, le drapeau n'a aucun sens.
@@ -1146,7 +1207,10 @@ mod drapeaux_tests {
             "--plugin-dir",
             "--include-hook-events",
         ] {
-            assert!(!args.contains(&drapeau.to_string()), "{drapeau} imposé : {args:?}");
+            assert!(
+                !args.contains(&drapeau.to_string()),
+                "{drapeau} imposé : {args:?}"
+            );
         }
 
         unsafe {
@@ -1163,7 +1227,9 @@ mod drapeaux_tests {
         }
 
         assert!(args.windows(2).any(|w| w == ["--autocompact", "120000"]));
-        assert!(args.windows(2).any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
         assert_eq!(args.iter().filter(|a| *a == "--plugin-dir").count(), 2);
         assert!(args.contains(&"/tmp/b".to_string()));
         assert!(args.contains(&"--include-hook-events".to_string()));
@@ -1195,7 +1261,10 @@ mod drapeaux_tests {
     #[test]
     fn sans_consigne_aucun_prompt_systeme() {
         let args = build_args(&req(None, false), None);
-        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
+        assert!(
+            !args.iter().any(|a| a == "--append-system-prompt"),
+            "{args:?}"
+        );
     }
 
     /// Une consigne blanche vaut pas de consigne.
@@ -1204,7 +1273,10 @@ mod drapeaux_tests {
         let mut r = req(None, false);
         r.consigne = Some("   \n ".into());
         let args = build_args(&r, None);
-        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
+        assert!(
+            !args.iter().any(|a| a == "--append-system-prompt"),
+            "{args:?}"
+        );
     }
 }
 
@@ -1283,7 +1355,9 @@ mod title_tests {
         let mut plain = request("acceptEdits");
         plain.effort = Some("max".into());
         let plain_args = build_args(&plain, None);
-        assert!(plain_args.windows(2).any(|pair| pair == ["--effort", "max"]));
+        assert!(plain_args
+            .windows(2)
+            .any(|pair| pair == ["--effort", "max"]));
         assert!(!plain_args.iter().any(|arg| arg == "--settings"));
     }
 
@@ -1422,7 +1496,10 @@ mod interrupt_tests {
         let p2 = Arc::clone(&provider);
         let handle = tokio::spawn(async move { p2.send(req).await });
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert!(provider.interrupt("t-stop").await, "le run devait être enregistré");
+        assert!(
+            provider.interrupt("t-stop").await,
+            "le run devait être enregistré"
+        );
         let res = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("send doit se terminer après le kill")
@@ -1435,6 +1512,148 @@ mod interrupt_tests {
         assert!(events
             .iter()
             .any(|v| v["kind"] == "heartbeat" && v["note"] == "Claude démarre…"));
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use crate::traits::SendMode;
+
+    fn write_fake_cli(script: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("claude-fake-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("fake-claude");
+        std::fs::write(&bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        bin
+    }
+
+    fn base_req(thread_id: &str, on_event: Arc<dyn Fn(Value) + Send + Sync>) -> SendRequest {
+        SendRequest {
+            thread_id: thread_id.into(),
+            turn_id: "u".into(),
+            prompt: "salut".into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("acceptEdits".into()),
+            fork_pending: false,
+            mode: SendMode::Normal,
+            on_event,
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            consigne: None,
+            atelier_mcp: None,
+        }
+    }
+
+    /// Le cas visé par le filet (plan phase B) : le CLI dit bonjour
+    /// (`system/init`) puis reste muet — ici un `sleep 60` qui simule un
+    /// process vivant mais figé. La fenêtre d'inactivité doit couper le tour
+    /// bien avant la fin du sleep, tuer le process et remonter un `error`
+    /// « muet » avec le session_id déjà capturé.
+    #[tokio::test]
+    async fn un_cli_muet_apres_init_est_coupe_par_le_filet() {
+        let bin = write_fake_cli(
+            "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000\"}'\nsleep 60\n",
+        );
+        let provider = ClaudeProvider::with_bin(bin).with_idle(std::time::Duration::from_secs(1));
+        let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let req = base_req("t-idle-muet", {
+            let seen = Arc::clone(&events_seen);
+            Arc::new(move |ev| seen.lock().unwrap().push(ev))
+        });
+
+        let debut = std::time::Instant::now();
+        let res = tokio::time::timeout(std::time::Duration::from_secs(15), provider.send(req))
+            .await
+            .expect("le tour doit se conclure avant le timeout du test");
+        let ecoule = debut.elapsed();
+
+        assert!(!res.ok);
+        assert_eq!(res.error.as_deref(), Some("timeout"));
+        assert_eq!(
+            res.session_id.as_deref(),
+            Some("0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000"),
+            "le session_id vu dans system/init doit rester capturé malgré la coupure"
+        );
+        assert!(
+            ecoule < std::time::Duration::from_secs(15),
+            "coupure trop tardive : {ecoule:?}"
+        );
+        let events = events_seen.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|v| v["kind"] == "error"
+                    && v["message"].as_str().unwrap_or("").contains("muet")),
+            "aucun événement error muet parmi {events:?}"
+        );
+
+        // Pas de process orphelin : le shell parent est mort, et son enfant
+        // `sleep 60` (même groupe de process) a été tué avec lui. Poll plutôt
+        // qu'une pause fixe unique : sous charge (suite complète en
+        // parallèle), le reap du group peut prendre plus de 200 ms sans que
+        // ce soit une vraie fuite.
+        #[cfg(unix)]
+        {
+            let mut reste = String::new();
+            for _ in 0..20 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                let ps = std::process::Command::new("pgrep")
+                    .args(["-f", "sleep 60"])
+                    .output()
+                    .expect("pgrep");
+                reste = String::from_utf8_lossy(&ps.stdout).trim().to_string();
+                if reste.is_empty() {
+                    break;
+                }
+            }
+            assert!(
+                reste.is_empty(),
+                "un `sleep 60` orphelin traîne encore : {reste:?}"
+            );
+        }
+    }
+
+    /// Un tour normal (le faux CLI parle puis termine) ne doit JAMAIS être
+    /// coupé par le filet, même avec une fenêtre d'inactivité très courte.
+    #[tokio::test]
+    async fn un_tour_normal_qui_parle_puis_termine_n_est_pas_coupe() {
+        let bin = write_fake_cli(
+            "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"abc-123\"}'\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"bonjour\",\"session_id\":\"abc-123\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"num_turns\":1}'\n",
+        );
+        let provider = ClaudeProvider::with_bin(bin).with_idle(std::time::Duration::from_secs(1));
+        let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let req = base_req("t-idle-normal", {
+            let seen = Arc::clone(&events_seen);
+            Arc::new(move |ev| seen.lock().unwrap().push(ev))
+        });
+
+        let res = tokio::time::timeout(std::time::Duration::from_secs(10), provider.send(req))
+            .await
+            .expect("le tour doit se conclure");
+
+        assert!(res.ok, "erreur inattendue : {:?}", res.error);
+        assert_eq!(res.session_id.as_deref(), Some("abc-123"));
+        let events = events_seen.lock().unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|v| v["kind"] == "error"
+                    && v["message"].as_str().unwrap_or("").contains("muet")),
+            "un tour qui termine normalement ne doit pas déclencher le filet : {events:?}"
+        );
     }
 }
 
@@ -1454,7 +1673,10 @@ mod append_log_tests {
         let path = dir.path().join("claude-cli.log");
         {
             use std::io::Write;
-            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
             f.write_all(&vec![b'x'; (super::LOG_ROTATE_BYTES as usize) + 1])
                 .unwrap();
         }

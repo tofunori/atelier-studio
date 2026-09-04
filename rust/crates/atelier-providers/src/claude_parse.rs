@@ -24,6 +24,9 @@ pub struct PendingTool {
     pub silent: bool,
     pub todos_items: Option<Value>,
     pub started_at_ms: u128,
+    /// `system.permission_denied.message` reçu pendant que cet outil est en
+    /// attente — sert d'`output` de repli si le `tool_result` arrive vide.
+    pub denial_message: Option<String>,
 }
 
 /// State carried across a single Claude process stream.
@@ -44,11 +47,23 @@ pub struct ClaudeStreamState {
     /// a disparu, mais ce compteur donne quand même un signal de progression
     /// à l'UI. Remis à zéro partout où current_msg_* se réinitialise.
     pub thinking_chunks: u64,
+    /// Estimation native (`system.thinking_tokens.estimated_tokens`) du
+    /// message courant — alimente le ticker au même titre que les deltas de
+    /// texte. Remis à zéro partout où current_msg_* le sont (le CLI ne le
+    /// fait pas savoir autrement qu'en enchaînant sur le message suivant).
+    pub current_msg_thinking_tokens: u64,
     /// Nom de l'outil EN RÉDACTION (content_block_start tool_use, input vide) :
     /// le vrai `tool_update` running le remplace ; sert au test pour vérifier
     /// que le drafting ne survit pas à l'arrivée du bloc complet.
     pub drafting_tool: Option<String>,
     pub pending_tools: std::collections::HashMap<String, PendingTool>,
+    /// Dernier `system.task_summary.detail` émis — dédup du même détail
+    /// consécutif (le CLI le répète parfois tel quel).
+    pub last_task_summary: Option<String>,
+    /// `tool_use_id` de l'outil Task/Agent PARENT → `task_id` du sous-agent,
+    /// alimentée par `system.task_started`. Sert à router les messages
+    /// enfants (`parent_tool_use_id`) vers le bon fil d'agent.
+    pub task_id_by_tool_use_id: std::collections::HashMap<String, String>,
     pub saw_terminal: bool,
 }
 
@@ -58,6 +73,7 @@ impl ClaudeStreamState {
             + self
                 .current_msg_output_tokens
                 .max((self.current_msg_est_chars / 4) as u64)
+                .max(self.current_msg_thinking_tokens)
     }
 }
 
@@ -106,9 +122,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         // « requesting » = la requête est partie, on attend le premier jeton.
         // C'est LE trou visible des gros tours (13-55 s mesurés 2026-08-24) :
         // sans note, le chrono tourne nu et le fil paraît bloqué.
-        if subtype == "status"
-            && msg.get("status").and_then(|v| v.as_str()) == Some("requesting")
-        {
+        if subtype == "status" && msg.get("status").and_then(|v| v.as_str()) == Some("requesting") {
             out.push(json!({"kind":"heartbeat","note":"en attente du modèle…"}));
         }
         if subtype == "compact_boundary" {
@@ -151,6 +165,172 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 }
             }
         }
+        // Résumé natif de l'étape en cours (façon Codex summaryTextDelta) :
+        // ignoré si vide/null, et jamais répété tel quel d'affilée.
+        if subtype == "task_summary" {
+            if let Some(detail) = msg
+                .get("detail")
+                .and_then(|v| v.as_str())
+                .filter(|d| !d.is_empty())
+            {
+                if state.last_task_summary.as_deref() != Some(detail) {
+                    state.last_task_summary = Some(detail.to_string());
+                    out.push(json!({"kind":"tool","name":"__thinking-step","detail": detail}));
+                }
+            }
+        }
+        // Estimation native du thinking (CLI ≥2.1.261) : alimente le ticker
+        // au même titre que les deltas de texte du message courant.
+        if subtype == "thinking_tokens" {
+            if let Some(tok) = msg.get("estimated_tokens").and_then(|v| v.as_u64()) {
+                state.current_msg_thinking_tokens = tok;
+                let ticker = state.ticker_tokens();
+                state.last_beat_tokens = ticker;
+                out.push(json!({"kind":"heartbeat","tokens": ticker}));
+            }
+        }
+        // Refus de permission : le tool_use en attente garde le message pour
+        // servir d'output si le tool_result revient vide, et une note dit
+        // tout de suite ce qui vient d'être refusé.
+        if subtype == "permission_denied" {
+            let tool_name = msg
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("outil");
+            if let Some(id) = msg.get("tool_use_id").and_then(|v| v.as_str()) {
+                if let Some(pt) = state.pending_tools.get_mut(id) {
+                    pt.denial_message = msg
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                }
+            }
+            out.push(
+                json!({"kind":"heartbeat","note": format!("Permission refusée — {tool_name}")}),
+            );
+        }
+        // Cycle de vie natif des sous-agents (plan phase C). Les messages du
+        // sous-agent lui-même (parent_tool_use_id non nul, cf. plus bas) ne
+        // portent aucune ligne de fil principal — seule cette activité
+        // groupée le représente.
+        if subtype == "task_started" {
+            if let Some(task_id) = msg
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            {
+                if let Some(tool_use_id) = msg.get("tool_use_id").and_then(|v| v.as_str()) {
+                    state
+                        .task_id_by_tool_use_id
+                        .insert(tool_use_id.to_string(), task_id.clone());
+                }
+                let description = msg.get("description").and_then(|v| v.as_str());
+                let mut agents_states = serde_json::Map::new();
+                agents_states.insert(
+                    task_id.clone(),
+                    json!({"status":"running","message": description}),
+                );
+                let mut activity = serde_json::Map::new();
+                activity.insert("tool".into(), json!("activity"));
+                activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
+                activity.insert("agentsStates".into(), Value::Object(agents_states));
+                activity.insert("agentThreadId".into(), json!(task_id.clone()));
+                activity.insert(
+                    "agentPath".into(),
+                    msg.get("subagent_type").cloned().unwrap_or(Value::Null),
+                );
+                activity.insert("activityKind".into(), json!("started"));
+                activity.insert(
+                    "prompt".into(),
+                    msg.get("prompt").cloned().unwrap_or(Value::Null),
+                );
+                out.push(subagent_event(
+                    &task_id,
+                    "inProgress",
+                    description.map(|d| json!(d)),
+                    false,
+                    activity,
+                ));
+            }
+        }
+        if subtype == "task_updated" {
+            if let Some(task_id) = msg
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            {
+                let status = msg
+                    .pointer("/patch/status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("running")
+                    .to_string();
+                let mut agents_states = serde_json::Map::new();
+                agents_states.insert(task_id.clone(), json!({"status": status, "message": null}));
+                let mut activity = serde_json::Map::new();
+                activity.insert("tool".into(), json!("activity"));
+                activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
+                activity.insert("agentsStates".into(), Value::Object(agents_states));
+                activity.insert("agentThreadId".into(), json!(task_id.clone()));
+                activity.insert("activityKind".into(), json!("updated"));
+                let tool_status = if is_subagent_terminal(
+                    msg.pointer("/patch/status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(""),
+                ) {
+                    "completed"
+                } else {
+                    "inProgress"
+                };
+                out.push(subagent_event(&task_id, tool_status, None, false, activity));
+            }
+        }
+        if subtype == "task_notification" {
+            if let Some(task_id) = msg
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            {
+                let status = msg
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("completed")
+                    .to_string();
+                let summary = msg
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .map(|s| truncate_chars(s, 200));
+                let usage = msg.get("usage").cloned().unwrap_or(json!({}));
+                let detail = task_notification_detail(&usage);
+                let mut agents_states = serde_json::Map::new();
+                agents_states.insert(
+                    task_id.clone(),
+                    json!({"status": status.clone(), "message": summary}),
+                );
+                let mut activity = serde_json::Map::new();
+                activity.insert("tool".into(), json!("activity"));
+                activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
+                activity.insert("agentsStates".into(), Value::Object(agents_states));
+                activity.insert("agentThreadId".into(), json!(task_id.clone()));
+                activity.insert("activityKind".into(), json!("notification"));
+                let tool_status = if matches!(
+                    status.replace(['_', '-'], "").to_ascii_lowercase().as_str(),
+                    "failed" | "errored" | "error"
+                ) {
+                    "failed"
+                } else {
+                    "completed"
+                };
+                out.push(subagent_event(
+                    &task_id,
+                    tool_status,
+                    detail.map(|d| json!(d)),
+                    false,
+                    activity,
+                ));
+            }
+        }
+        // `background_tasks_changed` : instantané redondant avec le cycle
+        // started/updated/notification déjà mappé — ignoré.
         return out;
     }
 
@@ -196,6 +376,18 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     }
 
     if ty == "stream_event" {
+        // Flux d'un sous-agent (`parent_tool_use_id` non nul) : jamais de
+        // delta/text/thinking* dans la bulle principale — ils polluaient le
+        // fil (plan phase C). Seuls task_started/updated/notification (côté
+        // `system`) et le tool_use enfant (côté `assistant`, plus bas)
+        // portent l'activité de l'agent.
+        if msg
+            .get("parent_tool_use_id")
+            .and_then(|v| v.as_str())
+            .is_some()
+        {
+            return out;
+        }
         if let Some(ev) = msg.get("event") {
             let et = ev.get("type").and_then(|v| v.as_str()).unwrap_or("");
             if et == "message_start" {
@@ -265,16 +457,55 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             if et == "message_stop" {
                 state.completed_output_tokens += state
                     .current_msg_output_tokens
-                    .max((state.current_msg_est_chars / 4) as u64);
+                    .max((state.current_msg_est_chars / 4) as u64)
+                    .max(state.current_msg_thinking_tokens);
                 state.current_msg_output_tokens = 0;
                 state.current_msg_est_chars = 0;
                 state.thinking_chunks = 0;
+                state.current_msg_thinking_tokens = 0;
             }
         }
         return out;
     }
 
     if ty == "assistant" {
+        // Message d'un sous-agent (`parent_tool_use_id` non nul) : jamais de
+        // texte/thinking dans la bulle principale. Seul son tool_use devient
+        // une mise à jour éphémère de `agentsStates[task_id].message` (verbe
+        // outil), à condition que `task_started` ait déjà lié ce
+        // `tool_use_id` parent à un `task_id`.
+        if let Some(parent_id) = msg.get("parent_tool_use_id").and_then(|v| v.as_str()) {
+            if let Some(task_id) = state.task_id_by_tool_use_id.get(parent_id).cloned() {
+                if let Some(blocks) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
+                    for block in blocks {
+                        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+                            continue;
+                        }
+                        let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
+                        let input = block.get("input").cloned().unwrap_or(json!({}));
+                        let verb = tool_detail(name, &input);
+                        let message = if verb.is_empty() {
+                            name.to_string()
+                        } else {
+                            verb
+                        };
+                        let mut agents_states = serde_json::Map::new();
+                        agents_states.insert(
+                            task_id.clone(),
+                            json!({"status":"running","message": message}),
+                        );
+                        let mut activity = serde_json::Map::new();
+                        activity.insert("tool".into(), json!("activity"));
+                        activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
+                        activity.insert("agentsStates".into(), Value::Object(agents_states));
+                        activity.insert("agentThreadId".into(), json!(task_id.clone()));
+                        activity.insert("activityKind".into(), json!("interacted"));
+                        out.push(subagent_event(&task_id, "inProgress", None, true, activity));
+                    }
+                }
+            }
+            return out;
+        }
         if let Some(au) = msg.pointer("/message/usage") {
             let ctx = au.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0)
                 + au.get("cache_read_input_tokens")
@@ -285,6 +516,20 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .unwrap_or(0);
             if ctx > 0 {
                 state.last_ctx = Some(ctx);
+                // Barre de contexte en direct : le CLI ne redonne le vrai
+                // total qu'au `result` final, mais l'input_tokens de CHAQUE
+                // message assistant suffit à faire vivre la barre pendant le
+                // tour. Éphémère : jamais journalisé, remplacé au prochain.
+                out.push(json!({
+                    "kind": "usage",
+                    "usage": {
+                        "context": ctx,
+                        "output": state.ticker_tokens(),
+                        "cost": null,
+                        "turns": null,
+                    },
+                    "__ephemeral": true,
+                }));
             }
         }
         if let Some(blocks) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
@@ -364,6 +609,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                                     Some(Value::Array(items))
                                 },
                                 started_at_ms: now_ms(),
+                                denial_message: None,
                             },
                         );
                         continue;
@@ -428,6 +674,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         silent: false,
                         todos_items: None,
                         started_at_ms: now_ms(),
+                        denial_message: None,
                     };
                     state.pending_tools.insert(id.clone(), pt.clone());
                     // Le bloc complet (input intégral) remplace le verbe de
@@ -463,6 +710,16 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     }
 
     if ty == "user" {
+        // tool_result d'un sous-agent (`parent_tool_use_id` non nul) : son
+        // tool_use n'a jamais rejoint `pending_tools` (cf. bloc `assistant`
+        // ci-dessus) — aucune ligne de fil principal à produire ici non plus.
+        if msg
+            .get("parent_tool_use_id")
+            .and_then(|v| v.as_str())
+            .is_some()
+        {
+            return out;
+        }
         if let Some(blocks) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
             for block in blocks {
                 if block.get("type").and_then(|v| v.as_str()) != Some("tool_result") {
@@ -488,6 +745,14 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         continue;
                     }
                     let duration = now_ms().saturating_sub(pt.started_at_ms);
+                    // Refus de permission déjà vu pour cet id : sert d'output
+                    // de repli si le tool_result revient vide (cas observé
+                    // à la sonde — le refus lui-même ne porte pas de sortie).
+                    let output = if output.is_empty() {
+                        pt.denial_message.clone().unwrap_or(output)
+                    } else {
+                        output
+                    };
                     let mut ev = json!({
                         "kind": "tool_update",
                         "id": pt.id,
@@ -544,6 +809,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         state.current_msg_est_chars = 0;
         state.last_beat_tokens = 0;
         state.thinking_chunks = 0;
+        state.current_msg_thinking_tokens = 0;
         let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let ok = subtype == "success"
             && !msg
@@ -568,12 +834,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 "kind": "done",
                 "ok": true,
                 "result": msg.get("result").and_then(|v| v.as_str()).unwrap_or(""),
-                "usage": {
-                    "context": context,
-                    "output": u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                    "cost": msg.get("total_cost_usd"),
-                    "turns": msg.get("num_turns"),
-                }
+                "usage": build_result_usage(context, &u, msg),
             }));
         } else {
             // `result` n'est posé que sur `success` ; les autres subtypes
@@ -604,12 +865,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     "kind": "done",
                     "ok": false,
                     "result": message,
-                    "usage": {
-                        "context": context,
-                        "output": u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                        "cost": msg.get("total_cost_usd"),
-                        "turns": msg.get("num_turns"),
-                    }
+                    "usage": build_result_usage(context, &u, msg),
                 }));
             } else {
                 out.push(json!({"kind":"error","message": message}));
@@ -639,6 +895,128 @@ pub fn flush_pending(state: &mut ClaudeStreamState, out: &mut Vec<Value>) {
         }));
     }
     state.pending_tools.clear();
+}
+
+/// `done.usage` enrichi des champs optionnels du `result` final (plan phase A) :
+/// `durationMs` préfère le temps API (hors attentes de permission) au temps
+/// mur ; `permissionDenials` est un compte, pas le détail (déjà visible par
+/// outil via les notes de refus).
+fn build_result_usage(context: u64, u: &Value, msg: &Value) -> Value {
+    let mut usage = json!({
+        "context": context,
+        "output": u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+        "cost": msg.get("total_cost_usd"),
+        "turns": msg.get("num_turns"),
+    });
+    let duration_ms = msg
+        .get("duration_api_ms")
+        .and_then(|v| v.as_u64())
+        .or_else(|| msg.get("duration_ms").and_then(|v| v.as_u64()));
+    if let Some(d) = duration_ms {
+        usage
+            .as_object_mut()
+            .unwrap()
+            .insert("durationMs".into(), json!(d));
+    }
+    if let Some(denials) = msg.get("permission_denials").and_then(|v| v.as_array()) {
+        usage
+            .as_object_mut()
+            .unwrap()
+            .insert("permissionDenials".into(), json!(denials.len()));
+    }
+    usage
+}
+
+/// Enveloppe commune des trois événements du cycle de vie d'un sous-agent
+/// (`task_started`/`task_updated`/`task_notification`) et de la mise à jour
+/// éphémère portée par son `tool_use` (plan phase C) : même `id` stable
+/// (`subagent:<task_id>`) pour que le transcript groupe tout sous le même
+/// agent, seul le contenu d'`agentActivity` change.
+fn subagent_event(
+    task_id: &str,
+    status: &str,
+    detail: Option<Value>,
+    ephemeral: bool,
+    activity: serde_json::Map<String, Value>,
+) -> Value {
+    let mut ev = json!({
+        "kind": "tool_update",
+        "id": format!("subagent:{task_id}"),
+        "name": "agent:activity",
+        "output": "",
+        "status": status,
+        "source": "claude",
+    });
+    let obj = ev.as_object_mut().expect("tool_update object");
+    if let Some(d) = detail {
+        obj.insert("detail".into(), d);
+    }
+    obj.insert("agentActivity".into(), Value::Object(activity));
+    if ephemeral {
+        obj.insert("__ephemeral".into(), json!(true));
+    }
+    ev
+}
+
+/// `running/pending/queued/started` = pas terminal ; tout le reste
+/// (`completed`, `failed`, `interrupted`, `shutdown`, `errored`…) l'est.
+fn is_subagent_terminal(status: &str) -> bool {
+    !matches!(
+        status.replace(['_', '-'], "").to_ascii_lowercase().as_str(),
+        "running" | "pending" | "queued" | "started" | "inprogress" | ""
+    )
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max).collect()
+    }
+}
+
+/// « 13,6k tokens · 2 outils · 1,1 s » — même esprit que le résumé Codex,
+/// virgule décimale française.
+fn task_notification_detail(usage: &Value) -> Option<String> {
+    let total_tokens = usage.get("total_tokens").and_then(|v| v.as_u64());
+    let tool_uses = usage.get("tool_uses").and_then(|v| v.as_u64());
+    let duration_ms = usage.get("duration_ms").and_then(|v| v.as_u64());
+    if total_tokens.is_none() && tool_uses.is_none() && duration_ms.is_none() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if let Some(t) = total_tokens {
+        parts.push(format!("{} tokens", format_token_count(t)));
+    }
+    if let Some(n) = tool_uses {
+        parts.push(format!("{n} outil{}", if n > 1 { "s" } else { "" }));
+    }
+    if let Some(d) = duration_ms {
+        parts.push(format_seconds(d));
+    }
+    Some(parts.join(" · "))
+}
+
+fn format_token_count(n: u64) -> String {
+    if n >= 1000 {
+        format!("{}k", format_one_decimal(n as f64 / 1000.0))
+    } else {
+        n.to_string()
+    }
+}
+
+fn format_seconds(ms: u64) -> String {
+    format!("{} s", format_one_decimal(ms as f64 / 1000.0))
+}
+
+/// Une décimale, virgule française, sans `,0` superflu sur les entiers.
+fn format_one_decimal(v: f64) -> String {
+    let rounded = (v * 10.0).round() / 10.0;
+    if (rounded.fract()).abs() < f64::EPSILON {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded:.1}").replace('.', ",")
+    }
 }
 
 pub fn tool_detail(name: &str, input: &Value) -> String {
@@ -812,7 +1190,10 @@ mod tests {
         // Nom d'annotation `__waiting` : un nom ordinaire faisait disparaître
         // la réponse finale dans le repli du tour (cf. terminalAssistantIndex).
         assert_eq!(bloque[0]["name"], "__waiting");
-        assert!(bloque[0]["detail"].as_str().unwrap().contains("clarify the task"));
+        assert!(bloque[0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("clarify the task"));
 
         // Un tour normal ne doit rien ajouter au transcript.
         let normal = parse_message(
@@ -868,7 +1249,8 @@ mod tests {
                     "input":{"command":"echo bonjour > hello.txt"}}]}}),
         );
         assert!(
-            full.iter().any(|e| e["kind"] == "tool_update" && e["status"] == "running"),
+            full.iter()
+                .any(|e| e["kind"] == "tool_update" && e["status"] == "running"),
             "le bloc complet doit émettre le tool_update running: {full:?}"
         );
         assert!(full.iter().all(|e| e["kind"] != "drafting"));
@@ -901,7 +1283,10 @@ mod tests {
             .any(|v| v["kind"] == "heartbeat" && v["note"] == "en attente du modèle…"));
 
         // Un autre statut ne fabrique PAS de note.
-        let autre = parse_message(&mut state, &json!({"type":"system","subtype":"status","status":"idle"}));
+        let autre = parse_message(
+            &mut state,
+            &json!({"type":"system","subtype":"status","status":"idle"}),
+        );
         assert!(autre.iter().all(|v| v["kind"] != "heartbeat"));
 
         // Le stream démarre : la note d'attente s'efface (note vide → le
@@ -1259,5 +1644,398 @@ mod tests {
         );
         assert_eq!(e[0]["kind"], "error");
         assert_eq!(e[0]["message"], "claude error");
+    }
+
+    // ---- Phase A : signaux natifs inexploités ------------------------------
+
+    /// `system.task_summary` → pseudo-outil `__thinking-step`, façon Codex
+    /// summaryTextDelta. `detail` null/vide ignoré, jamais répété d'affilée.
+    #[test]
+    fn task_summary_devient_un_thinking_step_dedupe() {
+        let mut st = ClaudeStreamState::default();
+        let e1 = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_summary","detail":"Simple test agent","session_id":"s"}"#,
+        );
+        assert_eq!(e1.len(), 1);
+        assert_eq!(e1[0]["kind"], "tool");
+        assert_eq!(e1[0]["name"], "__thinking-step");
+        assert_eq!(e1[0]["detail"], "Simple test agent");
+
+        // Même détail répété : silence.
+        let e2 = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_summary","detail":"Simple test agent","session_id":"s"}"#,
+        );
+        assert!(e2.is_empty(), "le même détail ne se répète pas");
+
+        // `detail: null` : ignoré.
+        let e3 = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_summary","detail":null,"session_id":"s"}"#,
+        );
+        assert!(e3.is_empty());
+
+        // Un détail différent redevient audible.
+        let e4 = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_summary","detail":"Autre étape","session_id":"s"}"#,
+        );
+        assert_eq!(e4[0]["detail"], "Autre étape");
+    }
+
+    /// `system.thinking_tokens` alimente le ticker au même titre que les
+    /// deltas de texte — même quand le message courant n'a encore streamé
+    /// aucun caractère.
+    #[test]
+    fn thinking_tokens_alimente_le_ticker() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":150,"estimated_tokens_delta":100,"session_id":"s"}"#,
+        );
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0]["kind"], "heartbeat");
+        assert_eq!(e[0]["tokens"], 150);
+        assert_eq!(st.current_msg_thinking_tokens, 150);
+
+        // message_stop remet le compteur à zéro comme les autres current_msg_*.
+        parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"message_stop"}}"#,
+        );
+        assert_eq!(st.current_msg_thinking_tokens, 0);
+    }
+
+    /// `system.permission_denied` : note immédiate + le refus sert d'output
+    /// de repli si le tool_result revient vide (cas vu à la sonde).
+    #[test]
+    fn permission_denied_note_et_output_de_repli() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"rm -rf /tmp/x"}}]}}"#,
+        );
+        let note = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_1","message":"L'utilisateur a refusé Bash","session_id":"s"}"#,
+        );
+        assert_eq!(note.len(), 1);
+        assert_eq!(note[0]["kind"], "heartbeat");
+        assert_eq!(note[0]["note"], "Permission refusée — Bash");
+
+        // tool_result vide → l'output devient le message de refus.
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"","is_error":true}]}}"#,
+        );
+        assert_eq!(e[0]["status"], "failed");
+        assert_eq!(e[0]["output"], "L'utilisateur a refusé Bash");
+    }
+
+    /// Sans tool en attente pour l'id refusé, la note sort quand même seule.
+    #[test]
+    fn permission_denied_sans_tool_en_attente_note_seule() {
+        let mut st = ClaudeStreamState::default();
+        let note = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"permission_denied","tool_name":"Write","tool_use_id":"toolu_inconnu","message":"non","session_id":"s"}"#,
+        );
+        assert_eq!(note.len(), 1);
+        assert_eq!(note[0]["kind"], "heartbeat");
+        assert_eq!(note[0]["note"], "Permission refusée — Write");
+    }
+
+    /// Une sortie de tool_result NON vide garde la priorité sur le refus.
+    #[test]
+    fn permission_denied_naffecte_pas_une_sortie_non_vide() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"ls"}}]}}"#,
+        );
+        parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_2","message":"refus","session_id":"s"}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"a.txt"}]}}"#,
+        );
+        assert_eq!(e[0]["output"], "a.txt");
+    }
+
+    /// Chaque message assistant dont le contexte avance émet un `usage`
+    /// éphémère — la barre de contexte en direct, indépendante du `result`
+    /// final qui ne connaît le vrai output_tokens qu'à la fin du tour.
+    #[test]
+    fn chaque_message_assistant_alimente_lusage_ephemere() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":500,"cache_read_input_tokens":200},"content":[{"type":"text","text":"bonjour"}]}}"#,
+        );
+        let usage_ev = e
+            .iter()
+            .find(|v| v["kind"] == "usage")
+            .expect("un événement usage éphémère attendu");
+        assert_eq!(usage_ev["usage"]["context"], 700);
+        assert_eq!(usage_ev["usage"]["cost"], serde_json::Value::Null);
+        assert_eq!(usage_ev["usage"]["turns"], serde_json::Value::Null);
+        assert_eq!(usage_ev["__ephemeral"], true);
+
+        // ctx == 0 (pas de bloc usage) : aucun événement usage.
+        let mut st2 = ClaudeStreamState::default();
+        let e2 = parse_line(
+            &mut st2,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"x"}]}}"#,
+        );
+        assert!(e2.iter().all(|v| v["kind"] != "usage"));
+    }
+
+    /// `result.duration_api_ms` (préféré à `duration_ms`) et
+    /// `permission_denials[]` (compte) enrichissent `done.usage`.
+    #[test]
+    fn le_result_final_porte_duree_et_refus_dans_lusage() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"fini",
+                "duration_ms":9000,"duration_api_ms":7200,
+                "permission_denials":[{"tool_name":"Bash"},{"tool_name":"Write"}],
+                "usage":{"input_tokens":10,"output_tokens":5},"num_turns":1}"#,
+        );
+        assert_eq!(e[0]["kind"], "done");
+        assert_eq!(e[0]["usage"]["durationMs"], 7200);
+        assert_eq!(e[0]["usage"]["permissionDenials"], 2);
+
+        // Sans duration_api_ms : repli sur duration_ms.
+        let mut st2 = ClaudeStreamState::default();
+        let e2 = parse_line(
+            &mut st2,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"fini",
+                "duration_ms":9000,"usage":{}}"#,
+        );
+        assert_eq!(e2[0]["usage"]["durationMs"], 9000);
+        assert!(e2[0]["usage"].get("permissionDenials").is_none());
+    }
+
+    // ---- Phase C : cycle de vie natif des sous-agents ----------------------
+
+    /// Scénario complet : `task_started` → tool_use enfant (message avec
+    /// `parent_tool_use_id`) → `task_updated` → `task_notification`. Vérifie
+    /// ids stables, `receiverThreadIds`, `agentsStates`, `agentPath`, et
+    /// l'absence totale de delta/text pour les messages enfants.
+    #[test]
+    fn scenario_complet_de_sous_agent() {
+        let mut st = ClaudeStreamState::default();
+
+        // 1. task_started : lie tool_use_id parent → task_id, ouvre l'agent.
+        let started = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"a927b98e",
+                "tool_use_id":"toolu_015k","description":"Simple test agent",
+                "subagent_type":"Explore","is_backgrounded":true,"spawn_depth":1,
+                "task_type":"local_agent","prompt":"Respond with exactly: pong",
+                "session_id":"s"}"#,
+        );
+        assert_eq!(started.len(), 1);
+        assert_eq!(started[0]["kind"], "tool_update");
+        assert_eq!(started[0]["id"], "subagent:a927b98e");
+        assert_eq!(started[0]["name"], "agent:activity");
+        assert_eq!(started[0]["status"], "inProgress");
+        assert_eq!(started[0]["source"], "claude");
+        assert_eq!(started[0]["detail"], "Simple test agent");
+        let act = &started[0]["agentActivity"];
+        assert_eq!(act["tool"], "activity");
+        assert_eq!(act["receiverThreadIds"], serde_json::json!(["a927b98e"]));
+        assert_eq!(act["agentThreadId"], "a927b98e");
+        assert_eq!(act["agentPath"], "Explore");
+        assert_eq!(act["activityKind"], "started");
+        assert_eq!(act["prompt"], "Respond with exactly: pong");
+        assert_eq!(act["agentsStates"]["a927b98e"]["status"], "running");
+        assert_eq!(
+            act["agentsStates"]["a927b98e"]["message"],
+            "Simple test agent"
+        );
+        assert_eq!(
+            st.task_id_by_tool_use_id.get("toolu_015k"),
+            Some(&"a927b98e".to_string())
+        );
+
+        // 2. Un stream_event portant `parent_tool_use_id` (message du
+        // sous-agent) ne doit produire STRICTEMENT rien dans le fil principal.
+        let child_stream = parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta",
+                "delta":{"type":"text_delta","text":"ne doit jamais apparaître"}},
+                "session_id":"s","parent_tool_use_id":"toolu_015k"}"#,
+        );
+        assert!(
+            child_stream.is_empty(),
+            "aucun delta pour un message enfant"
+        );
+
+        // 3. Un message `assistant` enfant avec du texte : pas de "text"/
+        // "thinking", seul son tool_use produit une mise à jour éphémère.
+        let child_text = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"text","text":"je réfléchis"},
+                {"type":"thinking","thinking":"plan interne"}
+            ]},"session_id":"s","parent_tool_use_id":"toolu_015k"}"#,
+        );
+        assert!(
+            child_text
+                .iter()
+                .all(|v| v["kind"] != "text" && v["kind"] != "thinking"),
+            "un message enfant ne doit jamais alimenter le fil principal: {child_text:?}"
+        );
+
+        let child_tool = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","id":"toolu_child1","name":"Read",
+                 "input":{"file_path":"src/x.rs"}}
+            ]},"session_id":"s","parent_tool_use_id":"toolu_015k"}"#,
+        );
+        assert_eq!(child_tool.len(), 1);
+        assert_eq!(child_tool[0]["kind"], "tool_update");
+        assert_eq!(child_tool[0]["id"], "subagent:a927b98e");
+        assert_eq!(child_tool[0]["__ephemeral"], true);
+        assert_eq!(
+            child_tool[0]["agentActivity"]["agentsStates"]["a927b98e"]["message"],
+            "src/x.rs"
+        );
+        assert_eq!(child_tool[0]["agentActivity"]["activityKind"], "interacted");
+        assert!(
+            !st.pending_tools.contains_key("toolu_child1"),
+            "le tool_use enfant ne doit jamais rejoindre pending_tools"
+        );
+
+        // 4. Le tool_result de cet outil enfant ne produit AUCUNE ligne
+        // (ni tool_update "unknown", ni rien d'autre).
+        let child_result = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[
+                {"type":"tool_result","tool_use_id":"toolu_child1","content":"contenu du fichier"}
+            ]},"session_id":"s","parent_tool_use_id":"toolu_015k"}"#,
+        );
+        assert!(
+            child_result.is_empty(),
+            "le tool_result d'un enfant ne produit rien: {child_result:?}"
+        );
+
+        // 5. task_updated : statut terminal → agentsStates + tool status.
+        let updated = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_updated","task_id":"a927b98e",
+                "patch":{"status":"completed","end_time":1788557712978},"session_id":"s"}"#,
+        );
+        assert_eq!(updated[0]["id"], "subagent:a927b98e");
+        assert_eq!(updated[0]["status"], "completed");
+        assert_eq!(
+            updated[0]["agentActivity"]["agentsStates"]["a927b98e"]["status"],
+            "completed"
+        );
+
+        // 6. task_notification : résumé tronqué + détail formaté + statut.
+        let notif = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_notification","task_id":"a927b98e",
+                "tool_use_id":"toolu_015k","status":"completed",
+                "output_file":"/tmp/a927b98e.output","summary":"pong",
+                "usage":{"total_tokens":13615,"tool_uses":2,"duration_ms":1100},
+                "session_id":"s"}"#,
+        );
+        assert_eq!(notif[0]["id"], "subagent:a927b98e");
+        assert_eq!(notif[0]["status"], "completed");
+        assert_eq!(
+            notif[0]["agentActivity"]["agentsStates"]["a927b98e"]["message"],
+            "pong"
+        );
+        assert_eq!(notif[0]["detail"], "13,6k tokens · 2 outils · 1,1 s");
+
+        // 7. `background_tasks_changed` : ignoré.
+        let ignored = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#,
+        );
+        assert!(ignored.is_empty());
+    }
+
+    /// Un `task_updated` échoué reste `agentsStates.status = "failed"`, mais
+    /// le plan ne distingue pas "failed" au niveau du statut de l'outil lui
+    /// -même sur cette branche (seul task_notification le fait) : "completed"
+    /// dès que le statut est terminal.
+    #[test]
+    fn task_updated_echoue_reste_terminal_cote_outil() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"t1",
+                "tool_use_id":"tu1","description":"x","subagent_type":"Explore",
+                "session_id":"s"}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_updated","task_id":"t1",
+                "patch":{"status":"failed"},"session_id":"s"}"#,
+        );
+        assert_eq!(e[0]["status"], "completed");
+        assert_eq!(
+            e[0]["agentActivity"]["agentsStates"]["t1"]["status"],
+            "failed"
+        );
+    }
+
+    /// `task_notification` en échec → statut de l'outil "failed".
+    #[test]
+    fn task_notification_echouee_status_failed() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"t2",
+                "tool_use_id":"tu2","description":"x","subagent_type":"Explore",
+                "session_id":"s"}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_notification","task_id":"t2",
+                "status":"failed","summary":"boom","usage":{},"session_id":"s"}"#,
+        );
+        assert_eq!(e[0]["status"], "failed");
+    }
+
+    /// Un tool_use enfant dont le `parent_tool_use_id` ne correspond à
+    /// AUCUN `task_started` connu (ordre de livraison, sonde incomplète)
+    /// ne doit rien produire — pas de crash, pas d'id `subagent:unknown`.
+    #[test]
+    fn tool_use_enfant_sans_task_started_connu_ne_produit_rien() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","id":"toolu_x","name":"Bash","input":{"command":"ls"}}
+            ]},"session_id":"s","parent_tool_use_id":"toolu_inconnu"}"#,
+        );
+        assert!(e.is_empty());
+    }
+
+    /// `stream_event` d'annonce ("event": nested) portant `parent_tool_use_id`
+    /// est bien coupé même s'il s'agit d'un `content_block_start` tool_use
+    /// (drafting) — jamais de verbe de rédaction pour un enfant.
+    #[test]
+    fn drafting_dun_enfant_est_coupe() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"stream_event","event":{
+                "type":"content_block_start",
+                "content_block":{"type":"tool_use","id":"toolu_y","name":"Bash","input":{}}},
+                "session_id":"s","parent_tool_use_id":"toolu_015k"}"#,
+        );
+        assert!(e.is_empty());
+        assert_eq!(st.drafting_tool, None);
     }
 }
