@@ -576,11 +576,28 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 }
             }));
         } else {
+            // `result` n'est posé que sur `success` ; les autres subtypes
+            // (error_during_execution, error_max_turns…) portent le vrai
+            // message dans `errors[]` (CLI 2.1.261, vu avec un --resume
+            // périmé : « No conversation found with session ID »).
+            let errors = msg
+                .get("errors")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|e| e.as_str())
+                        .filter(|e| !e.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" — ")
+                })
+                .filter(|s| !s.is_empty());
             let message = msg
                 .get("result")
                 .and_then(|v| v.as_str())
-                .unwrap_or("claude error")
-                .to_string();
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string)
+                .or(errors)
+                .unwrap_or_else(|| "claude error".to_string());
             // Prefer done with ok:false to match Node when subtype success+is_error
             if subtype == "success" {
                 out.push(json!({
@@ -1212,5 +1229,35 @@ mod tests {
         );
         assert_eq!(e[0]["kind"], "done");
         assert_eq!(e[0]["ok"], false);
+    }
+
+    /// Audit 2026-09-04 : sur `subtype != success` (ex. `--resume` d'un
+    /// session_id périmé), le CLI 2.1.261 met le vrai message dans `errors[]`
+    /// et n'envoie PAS de `result` — l'utilisateur ne voyait que « claude
+    /// error ».
+    #[test]
+    fn le_message_derreur_vient_du_tableau_errors() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["No conversation found with session ID: 0000","second"],"session_id":"x","usage":{}}"#,
+        );
+        assert_eq!(e[0]["kind"], "error");
+        assert_eq!(
+            e[0]["message"],
+            "No conversation found with session ID: 0000 — second"
+        );
+    }
+
+    /// Sans `errors[]` ni `result`, le repli reste le message générique.
+    #[test]
+    fn sans_errors_ni_result_le_repli_generique_tient() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"x","usage":{}}"#,
+        );
+        assert_eq!(e[0]["kind"], "error");
+        assert_eq!(e[0]["message"], "claude error");
     }
 }

@@ -758,6 +758,9 @@ impl Provider for ClaudeProvider {
             "claude-haiku-4-5-20251001",
             "--system-prompt",
             system,
+            // `--` : un premier message qui commence par « - » (puce
+            // markdown, nombre négatif) serait pris pour une option inconnue.
+            "--",
             &message,
         ])
         .current_dir(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
@@ -804,6 +807,7 @@ impl Provider for ClaudeProvider {
             "claude-haiku-4-5-20251001",
             "--system-prompt",
             &system,
+            "--",
             &prompt,
         ])
         .current_dir(cwd)
@@ -861,6 +865,7 @@ impl Provider for ClaudeProvider {
             model,
             "--system-prompt",
             &system,
+            "--",
             &prompt,
         ])
         .current_dir(cwd)
