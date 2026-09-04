@@ -349,6 +349,11 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
         args.push(path.display().to_string());
     }
     // Prompt as final arg (one-shot). Steer = same with resume.
+    // `--` OBLIGATOIRE : `--mcp-config <configs...>` (et d'autres drapeaux du
+    // CLI) sont variadiques — sans séparateur, le prompt positionnel est avalé
+    // comme second fichier de config et le CLI meurt en 1 s sur « Invalid MCP
+    // configuration: ENAMETOOLONG » (vécu 2026-09-04, tous modèles).
+    args.push("--".into());
     args.push(req.prompt.clone());
     args
 }
@@ -1045,6 +1050,28 @@ mod drapeaux_tests {
             );
         }
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Régression 2026-09-04 (« session terminée sans résultat » en 1 s sur
+    /// TOUT modèle) : `--mcp-config <configs...>` est VARIADIQUE dans le CLI.
+    /// Sans séparateur, il avale le prompt positionnel qui le suit et le CLI
+    /// meurt sur « Invalid MCP configuration: ENAMETOOLONG ». Le prompt doit
+    /// donc toujours être précédé de `--`.
+    #[test]
+    fn le_prompt_est_isole_des_options_variadiques() {
+        let path = std::path::PathBuf::from("/tmp/mcp.json");
+        for args in [
+            build_args(&req_mcp(false), Some(&path)),
+            build_args(&req_mcp(true), Some(&path)),
+            build_args(&req_mcp(false), None),
+        ] {
+            let n = args.len();
+            assert_eq!(args[n - 2], "--", "prompt non séparé des options — {args:?}");
+            assert!(
+                !args[..n - 2].iter().any(|a| a == "--"),
+                "un seul séparateur — {args:?}"
+            );
+        }
     }
 
     /// L'isolation stricte des sous-agents liés est délibérée (plan 057 :
