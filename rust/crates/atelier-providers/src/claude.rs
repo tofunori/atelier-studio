@@ -6,7 +6,8 @@
 
 use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
 use crate::traits::{
-    prompts_reformulation, CommitMessageDetails, Provider, ProviderCaps, SendRequest, SendResult,
+    prompts_reformulation, CommitMessageDetails, Provider, ProviderCaps, SendMode, SendRequest,
+    SendResult,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -16,8 +17,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -27,8 +28,147 @@ use uuid::Uuid;
 /// Le rendu, lui, le traite comme un cran à part (voir .ef-ultra dans App.css).
 pub const ULTRACODE: &str = "ultracode";
 
+/// Stdin du tour en cours, partagé entre la boucle de lecture (réponses de
+/// permission), le steer (message injecté dans le tour COURANT) et la clôture
+/// après `result`. `None` = déjà refermé : plus rien ne peut y entrer, et un
+/// steer retombe alors sur le chemin normal.
+type LiveStdin = Arc<Mutex<Option<ChildStdin>>>;
+
 struct ActiveRun {
     child: Child,
+    stdin: LiveStdin,
+}
+
+/// Message utilisateur NDJSON attendu par `--input-format stream-json`
+/// (forme sondée sur le CLI 2.1.261, 2026-09-04).
+fn user_message(text: &str) -> Value {
+    json!({
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+    })
+}
+
+/// Écrit une ligne NDJSON sur le stdin du tour. `false` si le stdin est déjà
+/// refermé (tour conclu) ou si le CLI est parti — jamais une panique : un
+/// EPIPE sur un process qui vient de sortir est banal.
+async fn write_line(stdin: &LiveStdin, value: &Value) -> bool {
+    let mut guard = stdin.lock().await;
+    let Some(pipe) = guard.as_mut() else {
+        return false;
+    };
+    let mut ligne = match serde_json::to_vec(value) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    ligne.push(b'\n');
+    if pipe.write_all(&ligne).await.is_err() {
+        return false;
+    }
+    pipe.flush().await.is_ok()
+}
+
+/// Message rendu au CLI quand Atelier ne peut pas — ou ne veut pas —
+/// accorder la permission. Il apparaît tel quel dans le `tool_result`.
+const REFUS_ATELIER: &str = "Refusé dans Atelier";
+
+/// Traite un `control_request` du CLI (demande de permission d'outil).
+/// Retourne `true` si la ligne EST un `control_request` — elle ne doit alors
+/// pas repartir dans `parse_line` (ce n'est pas un événement de fil).
+///
+/// La réponse part d'une tâche détachée : la boucle stdout ne doit JAMAIS
+/// attendre l'utilisateur. Un sous-type inconnu reçoit quand même une réponse,
+/// sans quoi le CLI resterait bloqué pour toujours.
+fn handle_control_request(
+    line: &str,
+    stdin: &LiveStdin,
+    on_event: &Arc<dyn Fn(Value) + Send + Sync>,
+    on_interaction: Option<&crate::traits::InteractionFn>,
+) -> bool {
+    let Ok(msg) = serde_json::from_str::<Value>(line) else {
+        return false;
+    };
+    if msg.get("type").and_then(Value::as_str) != Some("control_request") {
+        return false;
+    }
+    let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
+    let request = msg.get("request").cloned().unwrap_or_else(|| json!({}));
+    let stdin = Arc::clone(stdin);
+
+    if request.get("subtype").and_then(Value::as_str) != Some("can_use_tool") {
+        tokio::spawn(async move {
+            let _ = write_line(
+                &stdin,
+                &json!({
+                    "type": "control_response",
+                    "response": {
+                        "subtype": "error",
+                        "request_id": request_id,
+                        "error": "unsupported",
+                    },
+                }),
+            )
+            .await;
+        });
+        return true;
+    }
+
+    let outil = request
+        .get("display_name")
+        .and_then(Value::as_str)
+        .or_else(|| request.get("tool_name").and_then(Value::as_str))
+        .filter(|nom| !nom.is_empty())
+        .unwrap_or("outil")
+        .to_string();
+    // Le CLI est MUET tant qu'il attend : sans cette note, le chrono tourne
+    // nu et le fil paraît figé.
+    on_event(json!({
+        "kind": "heartbeat",
+        "note": format!("En attente de ta permission — {outil}"),
+    }));
+
+    let relais = on_interaction.cloned();
+    tokio::spawn(async move {
+        let reponse = match relais {
+            Some(relais) => relais("claude/can_use_tool".to_string(), request.clone()).await,
+            // Pas d'interface interactive : refus sûr, jamais d'attente
+            // indéfinie (contrat `on_interaction`, traits.rs).
+            None => None,
+        };
+        let autorise = reponse
+            .as_ref()
+            .and_then(|r| r.get("allow").and_then(Value::as_bool))
+            == Some(true);
+        let verdict = if autorise {
+            json!({
+                "behavior": "allow",
+                "updatedInput": request.get("input").cloned().unwrap_or_else(|| json!({})),
+            })
+        } else {
+            json!({"behavior": "deny", "message": REFUS_ATELIER})
+        };
+        let _ = write_line(
+            &stdin,
+            &json!({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": request_id,
+                    "response": verdict,
+                },
+            }),
+        )
+        .await;
+    });
+    true
+}
+
+/// Ferme le stdin du tour. Le CLI ne sort JAMAIS tant que son stdin est
+/// ouvert : sans cette clôture après le `result`, le tour ne se terminerait
+/// qu'au filet d'inactivité (600 s de chrono à vide).
+async fn close_stdin(stdin: &LiveStdin) {
+    if let Some(mut pipe) = stdin.lock().await.take() {
+        let _ = pipe.shutdown().await;
+    }
 }
 
 pub struct ClaudeProvider {
@@ -247,6 +387,16 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
         "--output-format".into(),
         "stream-json".into(),
         "--include-partial-messages".into(),
+        // Session vivante (plan phase E) : le prompt et les steers partent sur
+        // stdin en NDJSON, et le CLI demande ses permissions sur stdout.
+        // `--permission-prompt-tool stdio` est OBLIGATOIRE — `--permission-prompts
+        // host` seul fait refuser les outils EN SILENCE (sonde 2026-09-04).
+        "--input-format".into(),
+        "stream-json".into(),
+        "--permission-prompt-tool".into(),
+        "stdio".into(),
+        "--permission-prompts".into(),
+        "host".into(),
         "--permission-mode".into(),
         cli_permission_mode.into(),
     ];
@@ -362,13 +512,10 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
         args.push("--mcp-config".into());
         args.push(path.display().to_string());
     }
-    // Prompt as final arg (one-shot). Steer = same with resume.
-    // `--` OBLIGATOIRE : `--mcp-config <configs...>` (et d'autres drapeaux du
-    // CLI) sont variadiques — sans séparateur, le prompt positionnel est avalé
-    // comme second fichier de config et le CLI meurt en 1 s sur « Invalid MCP
-    // configuration: ENAMETOOLONG » (vécu 2026-09-04, tous modèles).
-    args.push("--".into());
-    args.push(req.prompt.clone());
+    // Plus AUCUN positionnel : le prompt part sur stdin (`user_message`) juste
+    // après le spawn. Du même coup disparaît le `--` qui l'isolait des options
+    // variadiques (`--mcp-config <configs...>` l'avalait, et le CLI mourait en
+    // 1 s sur « Invalid MCP configuration: ENAMETOOLONG », 2026-09-04).
     args
 }
 
@@ -565,6 +712,32 @@ impl Provider for ClaudeProvider {
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
+        // VRAI steer (plan phase E) : le message s'écrit sur le stdin du tour
+        // EN COURS, qui le prend dans le tour courant (sonde 2026-09-04 : un
+        // seul `result`, `num_turns: 2`). Aucun kill, aucun `--resume`, donc
+        // aucun second terminal à avaler. À tester AVANT le nettoyage
+        // ci-dessous, qui tuerait justement le process qu'on veut infléchir.
+        // Pas de run vivant, ou stdin déjà refermé (`result` reçu, EOF pas
+        // encore traité) : chemin normal, comme le repli Codex.
+        if req.mode == SendMode::Steer {
+            let stdin = self
+                .runs
+                .lock()
+                .await
+                .get(&req.thread_id)
+                .map(|run| Arc::clone(&run.stdin));
+            if let Some(stdin) = stdin {
+                if write_line(&stdin, &user_message(&req.prompt)).await {
+                    (req.on_event)(json!({"kind":"tool","name":"__steered"}));
+                    return SendResult {
+                        session_id: req.session_id,
+                        ok: true,
+                        error: None,
+                    };
+                }
+            }
+        }
+
         // Kill any previous child for this thread
         self.interrupted.lock().await.remove(&req.thread_id);
         {
@@ -588,7 +761,9 @@ impl Provider for ClaudeProvider {
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .stdin(Stdio::null())
+            // Session vivante : stdin reste OUVERT tout le tour — c'est par là
+            // que passent le prompt, les steers et les réponses de permission.
+            .stdin(Stdio::piped())
             .kill_on_drop(true);
 
         #[cfg(unix)]
@@ -610,6 +785,15 @@ impl Provider for ClaudeProvider {
                 };
             }
         };
+
+        // Le prompt part sur stdin, tout de suite : le CLI attend son premier
+        // message `user` avant de dire quoi que ce soit. Un échec d'écriture
+        // (process déjà sorti) n'est pas remonté ici — le tour se conclura
+        // sur la sortie du CLI, avec son propre message.
+        let live_stdin: LiveStdin = Arc::new(Mutex::new(child.stdin.take()));
+        if !write_line(&live_stdin, &user_message(&req.prompt)).await {
+            eprintln!("[claude] prompt non écrit sur stdin (process déjà sorti ?)");
+        }
 
         // Première trace de vie AVANT toute sortie du CLI : le chargement
         // d'une grosse session (--resume) peut retenir la première ligne
@@ -652,10 +836,13 @@ impl Provider for ClaudeProvider {
         let on_event = Arc::clone(&req.on_event);
 
         let pid = child.id();
-        self.runs
-            .lock()
-            .await
-            .insert(thread_id.clone(), ActiveRun { child });
+        self.runs.lock().await.insert(
+            thread_id.clone(),
+            ActiveRun {
+                child,
+                stdin: Arc::clone(&live_stdin),
+            },
+        );
 
         let mut reader = BufReader::new(stdout).lines();
         let mut ok = true;
@@ -698,6 +885,24 @@ impl Provider for ClaudeProvider {
                 match reader.next_line().await {
                     Ok(Some(line)) => {
                         activity.bump();
+                        // Les demandes de permission ne passent PAS par
+                        // claude_parse (ce n'est pas un événement de fil) et
+                        // ne doivent JAMAIS bloquer cette boucle : le CLI est
+                        // muet tant qu'il attend, mais il continue d'exister —
+                        // la réponse part d'une tâche à part, sur le stdin
+                        // partagé. L'attente (≤ 120 s côté relais) reste sous
+                        // la fenêtre d'inactivité, et le `bump` ci-dessus a
+                        // déjà repoussé le filet.
+                        if line.contains("control_request")
+                            && handle_control_request(
+                                &line,
+                                &live_stdin,
+                                &on_event,
+                                req.on_interaction.as_ref(),
+                            )
+                        {
+                            continue;
+                        }
                         let events = parse_line(&mut state, &line);
                         for ev in events {
                             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -718,6 +923,12 @@ impl Provider for ClaudeProvider {
                                     .map(str::to_string);
                             }
                             on_event(ev);
+                        }
+                        // Tour conclu : refermer stdin, sinon le CLI reste
+                        // vivant (il attend un message de plus) et la boucle
+                        // n'atteindrait l'EOF qu'au filet d'inactivité.
+                        if state.saw_terminal {
+                            close_stdin(&live_stdin).await;
                         }
                     }
                     Ok(None) => break,
@@ -1120,24 +1331,40 @@ mod drapeaux_tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    /// Régression 2026-09-04 (« session terminée sans résultat » en 1 s sur
-    /// TOUT modèle) : `--mcp-config <configs...>` est VARIADIQUE dans le CLI.
-    /// Sans séparateur, il avale le prompt positionnel qui le suit et le CLI
-    /// meurt sur « Invalid MCP configuration: ENAMETOOLONG ». Le prompt doit
-    /// donc toujours être précédé de `--`.
+    /// Phase E (session vivante) : le prompt ne passe PLUS en positionnel, il
+    /// part sur stdin en NDJSON. Du même coup disparaît le `--` qui l'isolait
+    /// de `--mcp-config <configs...>` (variadique — il avalait le prompt et le
+    /// CLI mourait sur « Invalid MCP configuration: ENAMETOOLONG », 2026-09-04).
+    /// `--permission-prompt-tool stdio` est OBLIGATOIRE : `--permission-prompts
+    /// host` seul fait refuser les outils en silence (sonde 2026-09-04).
     #[test]
-    fn le_prompt_est_isole_des_options_variadiques() {
+    fn le_prompt_part_sur_stdin_avec_les_permissions_en_relais() {
         let path = std::path::PathBuf::from("/tmp/mcp.json");
         for args in [
             build_args(&req_mcp(false), Some(&path)),
             build_args(&req_mcp(true), Some(&path)),
-            build_args(&req_mcp(false), None),
+            build_args(&req(None, false), None),
         ] {
-            let n = args.len();
-            assert_eq!(args[n - 2], "--", "prompt non séparé des options — {args:?}");
             assert!(
-                !args[..n - 2].iter().any(|a| a == "--"),
-                "un seul séparateur — {args:?}"
+                args.windows(2).any(|w| w == ["--input-format", "stream-json"]),
+                "stdin NDJSON absent — {args:?}"
+            );
+            assert!(
+                args.windows(2)
+                    .any(|w| w == ["--permission-prompt-tool", "stdio"]),
+                "relais de permission absent — {args:?}"
+            );
+            assert!(
+                args.windows(2).any(|w| w == ["--permission-prompts", "host"]),
+                "prompts host absents — {args:?}"
+            );
+            assert!(
+                !args.iter().any(|a| a == "salut"),
+                "prompt encore positionnel — {args:?}"
+            );
+            assert!(
+                !args.iter().any(|a| a == "--"),
+                "plus de positionnel : le séparateur n'a plus lieu d'être — {args:?}"
             );
         }
     }
@@ -1640,6 +1867,408 @@ mod idle_tests {
                     && v["message"].as_str().unwrap_or("").contains("muet")),
             "un tour qui termine normalement ne doit pas déclencher le filet : {events:?}"
         );
+    }
+}
+
+/// Phase E : session vivante — stdin ouvert pendant le tour, donc vraies
+/// permissions (`control_request` → `control_response`) et vrai steer (2e
+/// message `user` pris dans le tour COURANT, sans kill ni `--resume`).
+#[cfg(test)]
+mod session_vivante_tests {
+    use super::*;
+    use crate::traits::SendMode;
+
+    struct FauxCli {
+        bin: PathBuf,
+    }
+
+    impl FauxCli {
+        fn nouveau(script: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("claude-fake-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let bin = dir.join("fake-claude");
+            std::fs::write(&bin, script).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            Self { bin }
+        }
+
+        /// Ce que le faux CLI a lu sur SON stdin (écrit à côté du binaire).
+        fn recu(&self, nom: &str) -> String {
+            std::fs::read_to_string(self.bin.with_extension(nom)).unwrap_or_default()
+        }
+
+        fn attendre_recu(&self, nom: &str, max: std::time::Duration) -> String {
+            let debut = std::time::Instant::now();
+            loop {
+                let v = self.recu(nom);
+                if !v.trim().is_empty() || debut.elapsed() > max {
+                    return v;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+    }
+
+    const RESULT: &str = "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"fini\",\"session_id\":\"0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"num_turns\":1}";
+    const INIT: &str = "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000\"}";
+
+    fn req(
+        thread_id: &str,
+        mode: SendMode,
+        prompt: &str,
+        on_event: Arc<dyn Fn(Value) + Send + Sync>,
+        on_interaction: Option<crate::traits::InteractionFn>,
+    ) -> SendRequest {
+        SendRequest {
+            thread_id: thread_id.into(),
+            turn_id: "u".into(),
+            prompt: prompt.into(),
+            inputs: None,
+            project_root: "/tmp".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: Some("acceptEdits".into()),
+            fork_pending: false,
+            mode,
+            on_event,
+            on_interaction,
+            is_cancelled: Arc::new(|| false),
+            consigne: None,
+            atelier_mcp: None,
+        }
+    }
+
+    fn collecteur() -> (
+        Arc<dyn Fn(Value) + Send + Sync>,
+        Arc<std::sync::Mutex<Vec<Value>>>,
+    ) {
+        let vus: Arc<std::sync::Mutex<Vec<Value>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&vus);
+        (Arc::new(move |ev| sink.lock().unwrap().push(ev)), vus)
+    }
+
+    /// Faux CLI qui lit le prompt, demande la permission d'écrire, recopie la
+    /// réponse reçue sur stdin dans un fichier, puis conclut le tour.
+    fn cli_permission() -> FauxCli {
+        FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' \"$prompt\" > \"$0.prompt\"\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"control_request\",\"request_id\":\"req-1\",\"request\":{{\"subtype\":\"can_use_tool\",\"tool_name\":\"Write\",\"display_name\":\"Write\",\"input\":{{\"file_path\":\"/tmp/x.txt\"}},\"description\":\"/tmp/x.txt\",\"tool_use_id\":\"toolu_1\"}}}}'\n\
+             IFS= read -r rep\n\
+             printf '%s\\n' \"$rep\" > \"$0.reponse\"\n\
+             printf '%s\\n' '{RESULT}'\n"
+        ))
+    }
+
+    /// Le prompt part bien sur stdin, en NDJSON, dès le début du tour.
+    #[tokio::test]
+    async fn le_prompt_arrive_sur_stdin_en_ndjson() {
+        let cli = cli_permission();
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, _vus) = collecteur();
+        let relais: crate::traits::InteractionFn =
+            Arc::new(|_, _| Box::pin(async { Some(json!({"allow": true})) }));
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req(
+                "t-prompt",
+                SendMode::Normal,
+                "salut claude",
+                on_event,
+                Some(relais),
+            )),
+        )
+        .await
+        .expect("le tour doit se conclure");
+        assert!(res.ok, "{:?}", res.error);
+        let recu: Value =
+            serde_json::from_str(cli.recu("prompt").trim()).expect("ligne NDJSON valide");
+        assert_eq!(recu["type"], "user");
+        assert_eq!(recu["message"]["role"], "user");
+        assert_eq!(recu["message"]["content"][0]["text"], "salut claude");
+    }
+
+    /// Une permission accordée par l'UI redescend au CLI en `control_response`
+    /// `allow`, avec l'entrée d'outil inchangée.
+    #[tokio::test]
+    async fn une_permission_accordee_redescend_en_allow() {
+        let cli = cli_permission();
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, vus) = collecteur();
+        let methodes: Arc<std::sync::Mutex<Vec<(String, Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let vues = Arc::clone(&methodes);
+        let relais: crate::traits::InteractionFn = Arc::new(move |methode, params| {
+            vues.lock().unwrap().push((methode, params));
+            Box::pin(async { Some(json!({"allow": true, "scope": "once"})) })
+        });
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req(
+                "t-perm-ok",
+                SendMode::Normal,
+                "écris",
+                on_event,
+                Some(relais),
+            )),
+        )
+        .await
+        .expect("le tour doit se conclure");
+        assert!(res.ok, "{:?}", res.error);
+
+        let reponse: Value = serde_json::from_str(
+            cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .trim(),
+        )
+        .expect("control_response JSON");
+        assert_eq!(reponse["type"], "control_response");
+        assert_eq!(reponse["response"]["subtype"], "success");
+        assert_eq!(reponse["response"]["request_id"], "req-1");
+        assert_eq!(reponse["response"]["response"]["behavior"], "allow");
+        assert_eq!(
+            reponse["response"]["response"]["updatedInput"]["file_path"],
+            "/tmp/x.txt"
+        );
+
+        let appels = methodes.lock().unwrap();
+        assert_eq!(appels.len(), 1, "une seule demande relayée : {appels:?}");
+        assert_eq!(appels[0].0, "claude/can_use_tool");
+        assert_eq!(appels[0].1["tool_name"], "Write");
+        assert_eq!(appels[0].1["tool_use_id"], "toolu_1");
+
+        // L'attente est occupée : sans note, le chrono tourne nu (le CLI est
+        // MUET tant qu'il attend la réponse).
+        let events = vus.lock().unwrap();
+        assert!(
+            events.iter().any(|v| v["kind"] == "heartbeat"
+                && v["note"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("En attente de ta permission")),
+            "aucune note d'attente : {events:?}"
+        );
+    }
+
+    /// Sans interface interactive (`on_interaction: None`), la demande est
+    /// refusée — jamais laissée en suspens (le CLI attendrait pour toujours).
+    #[tokio::test]
+    async fn sans_interface_la_permission_est_refusee() {
+        let cli = cli_permission();
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, _vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req("t-perm-non", SendMode::Normal, "écris", on_event, None)),
+        )
+        .await
+        .expect("le tour doit se conclure");
+        assert!(res.ok, "{:?}", res.error);
+        let reponse: Value = serde_json::from_str(
+            cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .trim(),
+        )
+        .expect("control_response JSON");
+        assert_eq!(reponse["response"]["response"]["behavior"], "deny");
+        assert!(reponse["response"]["response"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Atelier"));
+    }
+
+    /// Un `control_request` d'un autre sous-type ne doit pas figer le CLI :
+    /// il reçoit une erreur explicite au lieu du silence.
+    #[tokio::test]
+    async fn un_control_request_inconnu_recoit_une_erreur() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"control_request\",\"request_id\":\"req-9\",\"request\":{{\"subtype\":\"mystere\"}}}}'\n\
+             IFS= read -r rep\n\
+             printf '%s\\n' \"$rep\" > \"$0.reponse\"\n\
+             printf '%s\\n' '{RESULT}'\n"
+        ));
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, _vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req("t-ctrl", SendMode::Normal, "salut", on_event, None)),
+        )
+        .await
+        .expect("le tour doit se conclure");
+        assert!(res.ok, "{:?}", res.error);
+        let reponse: Value = serde_json::from_str(
+            cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .trim(),
+        )
+        .expect("control_response JSON");
+        assert_eq!(reponse["response"]["subtype"], "error");
+        assert_eq!(reponse["response"]["request_id"], "req-9");
+    }
+
+    /// Vrai steer : le 2e message part sur le stdin du tour EN COURS. Pas de
+    /// kill, pas de `--resume` — un seul process, un seul `done`.
+    #[tokio::test]
+    async fn un_steer_ecrit_sur_le_stdin_du_tour_en_cours() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             IFS= read -r steer\n\
+             printf '%s\\n' \"$steer\" > \"$0.steer\"\n\
+             printf '%s\\n' '{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"STEER RECU\"}}]}}}}'\n\
+             printf '%s\\n' '{RESULT}'\n"
+        ));
+        let provider = Arc::new(
+            ClaudeProvider::with_bin(cli.bin.clone())
+                .with_idle(std::time::Duration::from_secs(30)),
+        );
+        let (on_event, vus) = collecteur();
+
+        let p2 = Arc::clone(&provider);
+        let premier = tokio::spawn({
+            let on_event = Arc::clone(&on_event);
+            async move { p2.send(req("t-steer", SendMode::Normal, "premier", on_event, None)).await }
+        });
+
+        // Attendre que le tour soit vivant (le run est enregistré AVANT la
+        // boucle de lecture, donc avant l'événement d'init).
+        for _ in 0..200 {
+            if vus
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|v| v["note"] == "session chargée")
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let debut = std::time::Instant::now();
+        let steer = provider
+            .send(req(
+                "t-steer",
+                SendMode::Steer,
+                "en fait, arrête",
+                Arc::clone(&on_event),
+                None,
+            ))
+            .await;
+        assert!(steer.ok, "steer refusé : {:?}", steer.error);
+        assert!(
+            debut.elapsed() < std::time::Duration::from_millis(500),
+            "le steer doit rendre la main tout de suite : {:?}",
+            debut.elapsed()
+        );
+
+        let res = tokio::time::timeout(std::time::Duration::from_secs(10), premier)
+            .await
+            .expect("le PREMIER tour doit se conclure")
+            .unwrap();
+        assert!(res.ok, "{:?}", res.error);
+
+        let recu: Value = serde_json::from_str(
+            cli.attendre_recu("steer", std::time::Duration::from_secs(2))
+                .trim(),
+        )
+        .expect("ligne NDJSON du steer");
+        assert_eq!(recu["message"]["content"][0]["text"], "en fait, arrête");
+
+        let events = vus.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|v| v["kind"] == "tool" && v["name"] == "__steered"),
+            "marqueur de steer absent : {events:?}"
+        );
+        assert!(
+            events.iter().any(|v| v["kind"] == "delta"
+                || v.to_string().contains("STEER RECU")),
+            "la réponse du tour infléchi doit arriver dans le PREMIER tour : {events:?}"
+        );
+        assert_eq!(
+            events.iter().filter(|v| v["kind"] == "done").count(),
+            1,
+            "un seul terminal pour le tour : {events:?}"
+        );
+    }
+
+    /// Sans tour vivant, un steer redevient un tour normal (nouveau process).
+    #[tokio::test]
+    async fn un_steer_sans_tour_vivant_repart_en_tour_normal() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' \"$prompt\" > \"$0.prompt\"\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{RESULT}'\n"
+        ));
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req("t-orphelin", SendMode::Steer, "tout seul", on_event, None)),
+        )
+        .await
+        .expect("le tour doit se conclure");
+        assert!(res.ok, "{:?}", res.error);
+        assert!(
+            cli.recu("prompt").contains("tout seul"),
+            "le message devait partir comme un tour normal"
+        );
+        let events = vus.lock().unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|v| v["kind"] == "tool" && v["name"] == "__steered"),
+            "aucun steer n'a eu lieu : {events:?}"
+        );
+        assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
+    }
+
+    /// Le CLI ne sort que si son stdin se ferme : après le `result`, Atelier
+    /// doit le refermer, sinon le tour ne finit qu'au filet d'inactivité.
+    #[tokio::test]
+    async fn le_stdin_se_ferme_apres_le_result() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{RESULT}'\n\
+             cat > /dev/null\n"
+        ));
+        let provider = ClaudeProvider::with_bin(cli.bin.clone())
+            .with_idle(std::time::Duration::from_secs(30));
+        let (on_event, vus) = collecteur();
+        let debut = std::time::Instant::now();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            provider.send(req("t-stdin", SendMode::Normal, "salut", on_event, None)),
+        )
+        .await
+        .expect("sans fermeture de stdin, le tour resterait bloqué sur `cat`");
+        assert!(res.ok, "{:?}", res.error);
+        assert!(
+            debut.elapsed() < std::time::Duration::from_secs(8),
+            "{:?}",
+            debut.elapsed()
+        );
+        let events = vus.lock().unwrap();
+        assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
     }
 }
 
