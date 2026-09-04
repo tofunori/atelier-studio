@@ -229,7 +229,10 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     // requêtes malformées (permission_mode absent) — il doit rester sûr par
     // défaut et ne jamais fabriquer --dangerously-skip-permissions de son
     // propre chef (plan 063, finding SEC-05).
-    let permission_mode = req.permission_mode.as_deref().unwrap_or("acceptEdits");
+    let permission_mode = req
+        .permission_mode
+        .as_deref()
+        .unwrap_or("acceptEdits");
     // Contrat Atelier/SDK : « default ». Le CLI Claude récent nomme le même
     // comportement explicite « manual »; lui transmettre « default » fait
     // échouer le process avant même le premier événement.
@@ -452,6 +455,7 @@ fn regex_is_uuid(s: &str) -> bool {
     }
     true
 }
+
 
 /// Modèles supplémentaires auxquels ce compte a droit. Claude Code n'a
 /// AUCUNE commande de listing : il met en cache dans `~/.claude.json` les
@@ -948,7 +952,10 @@ impl Provider for ClaudeProvider {
         if let Some(mut r) = runs.remove(thread_id) {
             // Marqueur AVANT le kill : l'EOF du process tué peut conclure le
             // tour avant que le flag asynchrone ne se propage (watcher 50 ms).
-            self.interrupted.lock().await.insert(thread_id.to_string());
+            self.interrupted
+                .lock()
+                .await
+                .insert(thread_id.to_string());
             if let Some(pid) = r.child.id() {
                 kill_process_group(pid);
             }
@@ -1127,11 +1134,7 @@ mod drapeaux_tests {
             build_args(&req_mcp(false), None),
         ] {
             let n = args.len();
-            assert_eq!(
-                args[n - 2],
-                "--",
-                "prompt non séparé des options — {args:?}"
-            );
+            assert_eq!(args[n - 2], "--", "prompt non séparé des options — {args:?}");
             assert!(
                 !args[..n - 2].iter().any(|a| a == "--"),
                 "un seul séparateur — {args:?}"
@@ -1170,9 +1173,8 @@ mod drapeaux_tests {
 
     #[test]
     fn un_tour_ordinaire_ne_forke_pas() {
-        assert!(
-            !build_args(&req(Some(SESSION), false), None).contains(&"--fork-session".to_string())
-        );
+        assert!(!build_args(&req(Some(SESSION), false), None)
+            .contains(&"--fork-session".to_string()));
     }
 
     /// Sans session à reprendre, le drapeau n'a aucun sens.
@@ -1207,10 +1209,7 @@ mod drapeaux_tests {
             "--plugin-dir",
             "--include-hook-events",
         ] {
-            assert!(
-                !args.contains(&drapeau.to_string()),
-                "{drapeau} imposé : {args:?}"
-            );
+            assert!(!args.contains(&drapeau.to_string()), "{drapeau} imposé : {args:?}");
         }
 
         unsafe {
@@ -1227,9 +1226,7 @@ mod drapeaux_tests {
         }
 
         assert!(args.windows(2).any(|w| w == ["--autocompact", "120000"]));
-        assert!(args
-            .windows(2)
-            .any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
+        assert!(args.windows(2).any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
         assert_eq!(args.iter().filter(|a| *a == "--plugin-dir").count(), 2);
         assert!(args.contains(&"/tmp/b".to_string()));
         assert!(args.contains(&"--include-hook-events".to_string()));
@@ -1261,10 +1258,7 @@ mod drapeaux_tests {
     #[test]
     fn sans_consigne_aucun_prompt_systeme() {
         let args = build_args(&req(None, false), None);
-        assert!(
-            !args.iter().any(|a| a == "--append-system-prompt"),
-            "{args:?}"
-        );
+        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
     }
 
     /// Une consigne blanche vaut pas de consigne.
@@ -1273,10 +1267,7 @@ mod drapeaux_tests {
         let mut r = req(None, false);
         r.consigne = Some("   \n ".into());
         let args = build_args(&r, None);
-        assert!(
-            !args.iter().any(|a| a == "--append-system-prompt"),
-            "{args:?}"
-        );
+        assert!(!args.iter().any(|a| a == "--append-system-prompt"), "{args:?}");
     }
 }
 
@@ -1355,9 +1346,7 @@ mod title_tests {
         let mut plain = request("acceptEdits");
         plain.effort = Some("max".into());
         let plain_args = build_args(&plain, None);
-        assert!(plain_args
-            .windows(2)
-            .any(|pair| pair == ["--effort", "max"]));
+        assert!(plain_args.windows(2).any(|pair| pair == ["--effort", "max"]));
         assert!(!plain_args.iter().any(|arg| arg == "--settings"));
     }
 
@@ -1496,10 +1485,7 @@ mod interrupt_tests {
         let p2 = Arc::clone(&provider);
         let handle = tokio::spawn(async move { p2.send(req).await });
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert!(
-            provider.interrupt("t-stop").await,
-            "le run devait être enregistré"
-        );
+        assert!(provider.interrupt("t-stop").await, "le run devait être enregistré");
         let res = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("send doit se terminer après le kill")
@@ -1673,10 +1659,7 @@ mod append_log_tests {
         let path = dir.path().join("claude-cli.log");
         {
             use std::io::Write;
-            let mut f = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&path)
-                .unwrap();
+            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
             f.write_all(&vec![b'x'; (super::LOG_ROTATE_BYTES as usize) + 1])
                 .unwrap();
         }
