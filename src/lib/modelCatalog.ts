@@ -2,6 +2,7 @@
 // catalogue providerStatus du sidecar. Un id inconnu reste affiché tel quel.
 export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   claude: {
+    "claude-fable-5-1": "Fable 5.1",
     "claude-fable-5": "Fable 5",
     "claude-opus-5": "Opus 5",
     "claude-opus-4-8": "Opus 4.8",

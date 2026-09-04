@@ -268,6 +268,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             label: "Claude Code".into(),
             kind: "cli".into(),
             models: vec![
+                "claude-fable-5-1".into(),
                 "claude-fable-5".into(),
                 "claude-opus-5".into(),
                 "claude-opus-4-8".into(),

@@ -31,6 +31,7 @@ const PROVIDERS = [
     bin: "claude",
     defaultModel: "claude-opus-5[1m]",
     models: [
+      "claude-fable-5-1",
       "claude-fable-5",
       "claude-opus-5",
       "claude-opus-4-8",

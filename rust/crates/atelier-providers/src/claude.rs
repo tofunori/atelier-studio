@@ -497,6 +497,7 @@ impl Provider for ClaudeProvider {
     }
     fn models(&self) -> Vec<String> {
         vec![
+            "claude-fable-5-1".into(),
             "claude-fable-5".into(),
             "claude-opus-5".into(),
             "claude-opus-4-8".into(),
