@@ -516,6 +516,45 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
     if method == "session/request_permission" {
         return describe_acp_permission(params);
     }
+    // Claude Code, `--permission-prompt-tool stdio` : le CLI envoie l'outil
+    // brut (`tool_name`, `input`, `tool_use_id`), sans liste de choix — la
+    // réponse `{allow, scope}` de l'UI suffit, et `scope:"session"` alimente
+    // `approval_sessions` (auto-allow des demandes suivantes, ws_router.rs).
+    if method == "claude/can_use_tool" {
+        let tool = params
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let affiche = params
+            .get("display_name")
+            .and_then(Value::as_str)
+            .filter(|nom| !nom.is_empty())
+            .unwrap_or(tool);
+        let title = match tool {
+            "Bash" => "Exécution de commande".to_string(),
+            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
+                "Modification de fichiers".to_string()
+            }
+            _ => format!("Outil {affiche}"),
+        };
+        let input = params.get("input");
+        let detail = input
+            .and_then(|i| i.get("command"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                input
+                    .and_then(|i| i.get("file_path"))
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| params.get("description").and_then(Value::as_str))
+            .unwrap_or_default();
+        return Some(json!({
+            "interactionType": "approval",
+            "title": title,
+            "detail": detail.chars().take(400).collect::<String>(),
+            "itemId": params.get("tool_use_id").cloned().unwrap_or(Value::Null),
+        }));
+    }
     let approval = matches!(
         method,
         "execCommandApproval"
@@ -1047,32 +1086,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
 
     // Steer on active run
     //
-    // Claude n'a PAS de vrai steer : le CLI tourne en one-shot avec stdin
-    // fermé, et le chemin générique ci-dessous (kill du process + resume sur
-    // le MÊME turn_id) cassait tout en cascade — l'EOF du process tué
-    // émettait « session terminée sans résultat », consommait l'unique
-    // terminal du tour, et le done du process relancé était avalé : chrono
-    // infini, file de relances bloquée, Stop inopérant (Thierry 2026-08-23).
-    // Un steer claude devient donc : interruption propre du tour en cours,
-    // puis le message part comme un TOUR NORMAL. Le session_id est capturé à
-    // l'init et persisté par le nettoyage du tour interrompu avant
-    // clear_running, donc le nouveau tour reprend la même session (--resume),
-    // contexte intact — même en steerant le premier tour d'un fil.
-    if running && mode != "queue" && provider == "claude" {
-        state.harness().request_cancel(&thread_id).await;
-        // Laisse le watcher (poll 50 ms) propager le flag vers is_cancelled
-        // AVANT de tuer le process : l'ancien tour se termine alors en
-        // « interrupted », pas en faux échec.
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-        let _ = provider_impl.interrupt(&thread_id).await;
-        for _ in 0..100 {
-            if !state.harness().is_running(&thread_id).await {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        // … puis on tombe dans le chemin « nouveau tour » ci-dessous.
-    } else if running && mode != "queue" {
+    // Claude prend désormais le chemin GÉNÉRIQUE, comme codex et grok. Le
+    // détour qui vivait ici (request_cancel + interrupt + attente, puis
+    // départ en tour normal) datait du CLI lancé en one-shot avec stdin
+    // FERMÉ : son seul steer possible était un kill + `--resume`, et l'EOF du
+    // process tué consommait l'unique terminal du tour — « session terminée
+    // sans résultat », chrono infini, file de relances bloquée, Stop
+    // inopérant (Thierry 2026-08-23). Depuis la session vivante (plan phase E),
+    // `claude.rs` garde stdin ouvert pendant le tour : un steer n'y ÉCRIT
+    // qu'une ligne, sans toucher au process — plus de second EOF, donc plus
+    // de terminal volé, et le message est pris dans le tour courant au lieu
+    // d'en démarrer un nouveau. Sans run vivant, le provider retombe
+    // lui-même sur le tour normal avec `--resume`.
+    if running && mode != "queue" {
         let turn_id = {
             let mut guard = h.lock().await;
             guard.steer(client_mid.as_deref(), Some(user_event.clone()))
@@ -2675,6 +2701,77 @@ mod tests {
         assert_eq!(opts[0]["label"], "Rouge");
         assert_eq!(opts[0]["value"], "q0_opt_0");
         assert_eq!(opts[1]["value"], "q0_opt_1");
+    }
+
+    /// Claude `can_use_tool` : pas de `choices` (le CLI n'en propose pas) —
+    /// c'est ce qui rend la carte compatible avec le cache « toujours
+    /// autoriser » de la session, et avec la réponse `{allow, scope}` de l'UI.
+    #[test]
+    fn claude_can_use_tool_devient_une_carte_dapprobation() {
+        let bash = describe_server_request(
+            "claude/can_use_tool",
+            &json!({
+                "subtype": "can_use_tool",
+                "tool_name": "Bash",
+                "display_name": "Bash",
+                "input": {"command": "rm -rf /tmp/x"},
+                "description": "Supprime le dossier",
+                "tool_use_id": "toolu_1",
+            }),
+        )
+        .unwrap();
+        assert_eq!(bash["interactionType"], "approval");
+        assert_eq!(bash["title"], "Exécution de commande");
+        assert_eq!(bash["detail"], "rm -rf /tmp/x");
+        assert_eq!(bash["itemId"], "toolu_1");
+        assert!(bash.get("choices").is_none(), "pas de choix dynamiques");
+
+        let ecriture = describe_server_request(
+            "claude/can_use_tool",
+            &json!({
+                "tool_name": "Write",
+                "display_name": "Write",
+                "input": {"file_path": "/tmp/x.txt", "content": "…"},
+                "tool_use_id": "toolu_2",
+            }),
+        )
+        .unwrap();
+        assert_eq!(ecriture["title"], "Modification de fichiers");
+        assert_eq!(ecriture["detail"], "/tmp/x.txt");
+
+        // Outil quelconque (MCP compris) : le nom affiché sert de titre, et
+        // la description tient lieu de détail quand l'entrée n'a ni commande
+        // ni chemin.
+        let mcp = describe_server_request(
+            "claude/can_use_tool",
+            &json!({
+                "tool_name": "mcp__gbrain__query",
+                "display_name": "gbrain - query",
+                "input": {"question": "albédo"},
+                "description": "Interroge le brain",
+                "tool_use_id": "toolu_3",
+            }),
+        )
+        .unwrap();
+        assert_eq!(mcp["title"], "Outil gbrain - query");
+        assert_eq!(mcp["detail"], "Interroge le brain");
+    }
+
+    /// Le détail est borné comme les autres approbations : une commande d'un
+    /// mégaoctet ne doit pas traverser le bus d'événements.
+    #[test]
+    fn claude_can_use_tool_borne_le_detail() {
+        let spec = describe_server_request(
+            "claude/can_use_tool",
+            &json!({
+                "tool_name": "Bash",
+                "input": {"command": "x".repeat(5_000)},
+                "tool_use_id": "toolu_4",
+            }),
+        )
+        .unwrap();
+        assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 400);
+        assert_eq!(spec["title"], "Exécution de commande");
     }
 
     #[test]

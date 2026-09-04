@@ -1346,7 +1346,8 @@ mod drapeaux_tests {
             build_args(&req(None, false), None),
         ] {
             assert!(
-                args.windows(2).any(|w| w == ["--input-format", "stream-json"]),
+                args.windows(2)
+                    .any(|w| w == ["--input-format", "stream-json"]),
                 "stdin NDJSON absent — {args:?}"
             );
             assert!(
@@ -1355,7 +1356,8 @@ mod drapeaux_tests {
                 "relais de permission absent — {args:?}"
             );
             assert!(
-                args.windows(2).any(|w| w == ["--permission-prompts", "host"]),
+                args.windows(2)
+                    .any(|w| w == ["--permission-prompts", "host"]),
                 "prompts host absents — {args:?}"
             );
             assert!(
@@ -1733,6 +1735,14 @@ mod idle_tests {
     use super::*;
     use crate::traits::SendMode;
 
+    /// Fenêtre d'inactivité des tests. PAS 1 s : le premier `exec` d'un faux
+    /// CLI fraîchement écrit passe par le contrôle de politique système de
+    /// macOS, qui se met en file quand plusieurs tests spawnent en parallèle —
+    /// mesuré > 1 s sous charge, et le filet coupait un tour parfaitement sain
+    /// (flake 2026-09-04). 3 s laisse la place au spawn sans rien changer à ce
+    /// que les tests prouvent : la coupure reste très loin du `sleep 60`.
+    const FENETRE: std::time::Duration = std::time::Duration::from_secs(3);
+
     fn write_fake_cli(script: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("claude-fake-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1778,7 +1788,7 @@ mod idle_tests {
         let bin = write_fake_cli(
             "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000\"}'\nsleep 60\n",
         );
-        let provider = ClaudeProvider::with_bin(bin).with_idle(std::time::Duration::from_secs(1));
+        let provider = ClaudeProvider::with_bin(bin).with_idle(FENETRE);
         let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let req = base_req("t-idle-muet", {
@@ -1845,7 +1855,7 @@ mod idle_tests {
         let bin = write_fake_cli(
             "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"abc-123\"}'\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"bonjour\",\"session_id\":\"abc-123\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"num_turns\":1}'\n",
         );
-        let provider = ClaudeProvider::with_bin(bin).with_idle(std::time::Duration::from_secs(1));
+        let provider = ClaudeProvider::with_bin(bin).with_idle(FENETRE);
         let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let req = base_req("t-idle-normal", {
@@ -1901,14 +1911,17 @@ mod session_vivante_tests {
             std::fs::read_to_string(self.bin.with_extension(nom)).unwrap_or_default()
         }
 
-        fn attendre_recu(&self, nom: &str, max: std::time::Duration) -> String {
+        /// Attente NON bloquante : un `std::thread::sleep` ici retiendrait le
+        /// thread du runtime et ferait chauffer toute la suite (cf. mémoire
+        /// « suite flaky sous charge »).
+        async fn attendre_recu(&self, nom: &str, max: std::time::Duration) -> String {
             let debut = std::time::Instant::now();
             loop {
                 let v = self.recu(nom);
                 if !v.trim().is_empty() || debut.elapsed() > max {
                     return v;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         }
     }
@@ -1944,6 +1957,12 @@ mod session_vivante_tests {
         }
     }
 
+    /// Fenêtre d'inactivité LARGE : ces tests mesurent le protocole, pas le
+    /// filet anti-figé — et une attente de permission est muette par nature.
+    fn provider_pour(cli: &FauxCli) -> ClaudeProvider {
+        ClaudeProvider::with_bin(cli.bin.clone()).with_idle(std::time::Duration::from_secs(30))
+    }
+
     fn collecteur() -> (
         Arc<dyn Fn(Value) + Send + Sync>,
         Arc<std::sync::Mutex<Vec<Value>>>,
@@ -1972,8 +1991,7 @@ mod session_vivante_tests {
     #[tokio::test]
     async fn le_prompt_arrive_sur_stdin_en_ndjson() {
         let cli = cli_permission();
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, _vus) = collecteur();
         let relais: crate::traits::InteractionFn =
             Arc::new(|_, _| Box::pin(async { Some(json!({"allow": true})) }));
@@ -2002,8 +2020,7 @@ mod session_vivante_tests {
     #[tokio::test]
     async fn une_permission_accordee_redescend_en_allow() {
         let cli = cli_permission();
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, vus) = collecteur();
         let methodes: Arc<std::sync::Mutex<Vec<(String, Value)>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2028,6 +2045,7 @@ mod session_vivante_tests {
 
         let reponse: Value = serde_json::from_str(
             cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .await
                 .trim(),
         )
         .expect("control_response JSON");
@@ -2064,8 +2082,7 @@ mod session_vivante_tests {
     #[tokio::test]
     async fn sans_interface_la_permission_est_refusee() {
         let cli = cli_permission();
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, _vus) = collecteur();
         let res = tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -2076,6 +2093,7 @@ mod session_vivante_tests {
         assert!(res.ok, "{:?}", res.error);
         let reponse: Value = serde_json::from_str(
             cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .await
                 .trim(),
         )
         .expect("control_response JSON");
@@ -2099,8 +2117,7 @@ mod session_vivante_tests {
              printf '%s\\n' \"$rep\" > \"$0.reponse\"\n\
              printf '%s\\n' '{RESULT}'\n"
         ));
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, _vus) = collecteur();
         let res = tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -2111,6 +2128,7 @@ mod session_vivante_tests {
         assert!(res.ok, "{:?}", res.error);
         let reponse: Value = serde_json::from_str(
             cli.attendre_recu("reponse", std::time::Duration::from_secs(2))
+                .await
                 .trim(),
         )
         .expect("control_response JSON");
@@ -2131,16 +2149,16 @@ mod session_vivante_tests {
              printf '%s\\n' '{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"STEER RECU\"}}]}}}}'\n\
              printf '%s\\n' '{RESULT}'\n"
         ));
-        let provider = Arc::new(
-            ClaudeProvider::with_bin(cli.bin.clone())
-                .with_idle(std::time::Duration::from_secs(30)),
-        );
+        let provider = Arc::new(provider_pour(&cli));
         let (on_event, vus) = collecteur();
 
         let p2 = Arc::clone(&provider);
         let premier = tokio::spawn({
             let on_event = Arc::clone(&on_event);
-            async move { p2.send(req("t-steer", SendMode::Normal, "premier", on_event, None)).await }
+            async move {
+                p2.send(req("t-steer", SendMode::Normal, "premier", on_event, None))
+                    .await
+            }
         });
 
         // Attendre que le tour soit vivant (le run est enregistré AVANT la
@@ -2182,6 +2200,7 @@ mod session_vivante_tests {
 
         let recu: Value = serde_json::from_str(
             cli.attendre_recu("steer", std::time::Duration::from_secs(2))
+                .await
                 .trim(),
         )
         .expect("ligne NDJSON du steer");
@@ -2195,8 +2214,9 @@ mod session_vivante_tests {
             "marqueur de steer absent : {events:?}"
         );
         assert!(
-            events.iter().any(|v| v["kind"] == "delta"
-                || v.to_string().contains("STEER RECU")),
+            events
+                .iter()
+                .any(|v| v["kind"] == "delta" || v.to_string().contains("STEER RECU")),
             "la réponse du tour infléchi doit arriver dans le PREMIER tour : {events:?}"
         );
         assert_eq!(
@@ -2216,12 +2236,17 @@ mod session_vivante_tests {
              printf '%s\\n' '{INIT}'\n\
              printf '%s\\n' '{RESULT}'\n"
         ));
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, vus) = collecteur();
         let res = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            provider.send(req("t-orphelin", SendMode::Steer, "tout seul", on_event, None)),
+            provider.send(req(
+                "t-orphelin",
+                SendMode::Steer,
+                "tout seul",
+                on_event,
+                None,
+            )),
         )
         .await
         .expect("le tour doit se conclure");
@@ -2251,8 +2276,7 @@ mod session_vivante_tests {
              printf '%s\\n' '{RESULT}'\n\
              cat > /dev/null\n"
         ));
-        let provider = ClaudeProvider::with_bin(cli.bin.clone())
-            .with_idle(std::time::Duration::from_secs(30));
+        let provider = provider_pour(&cli);
         let (on_event, vus) = collecteur();
         let debut = std::time::Instant::now();
         let res = tokio::time::timeout(
