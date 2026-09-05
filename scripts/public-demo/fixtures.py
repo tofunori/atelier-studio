@@ -141,14 +141,11 @@ All figures in this demonstration use synthetic data. A real analysis would requ
 ''')
 print(root)
 
-# Keep the reading document outside the indexed figure gallery.
-import subprocess
+# Preserve the publisher's original open-access PDF; attribution is in papers/README.md.
+from shutil import copyfile
 papers = root / '.fig_thumbs'
 papers.mkdir(exist_ok=True)
-subprocess.run(['pdflatex', '-interaction=nonstopmode', '-halt-on-error',
-                '-output-directory=' + str(papers),
-                str(Path(__file__).with_name('research-note.tex').resolve())],
-               check=True, stdout=subprocess.DEVNULL)
+copyfile(Path(__file__).with_name('papers') / 'brms-2017.pdf', papers / 'brms-2017.pdf')
 
 # The editor's revision view needs a real base commit, even for a demo.
 import subprocess

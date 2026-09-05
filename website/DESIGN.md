@@ -19,7 +19,7 @@ Buttons use 6px corners and 44px minimum targets; media uses 8px corners. Naviga
 One shallow shadow under the hero capture. Sections rely on spacing and faint separators. No decorative gradient or glass layer.
 
 ## 7. Guardrails
-Use fictional demo content only. Capture production components. Never reconstruct app controls in an image editor. No automatic video playback. Avoid heavy headings, button outlines, generic card grids, and unverified feature claims.
+Use fictional project content and synthetic figures; published open-access papers may appear with verified reuse rights and visible attribution. Capture production components. Never reconstruct app controls in an image editor. No automatic video playback. Avoid heavy headings, button outlines, generic card grids, and unverified feature claims.
 
 ## 8. Responsive behaviour
 At 800px, headings and explanatory copy stack. At 560px, the menu becomes a disclosure and workflows stack. Images remain proportional and surface screenshots open at full size. Native video controls remain available. Reduced motion disables smooth scrolling and transitions.

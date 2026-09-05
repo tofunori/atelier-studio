@@ -25,7 +25,7 @@ Atelier is a native macOS workspace for scientific research, built for master’
 
 ![A silent research workflow tour with analysis scripts, figures, annotation, and rendered LaTeX](docs/media/public/atelier-tour.gif)
 
-[Download the MP4 tour](docs/media/public/atelier-tour.mp4). All example content and data are fictional.
+[Download the MP4 tour](docs/media/public/atelier-tour.mp4). Conversations and figures are synthetic. The PDF reader shows the original open-access article credited below.
 
 </details>
 
@@ -33,7 +33,7 @@ Atelier is a native macOS workspace for scientific research, built for master’
 
 | Code editor | PDF reader |
 | --- | --- |
-| ![Python editor with a synthetic-data example](docs/media/public/editor.png) | ![PDF reader displaying a fictional scientific article with prose and equations](docs/media/public/reading.png) |
+| ![Python editor with a synthetic-data example](docs/media/public/editor.png) | ![PDF reader displaying the published brms article by Paul-Christian Bürkner (2017)](docs/media/public/reading.png) |
 
 | Figure gallery | Appearance settings |
 | --- | --- |
@@ -46,6 +46,8 @@ Atelier is a native macOS workspace for scientific research, built for master’
 These panel views keep the conversation beside the research material. The main figure combines a seasonal regression, confidence intervals, coefficient estimates, and residual diagnostics from one synthetic dataset ([view the figure](docs/media/public/research-figure.pdf)). The gallery shows twelve synthetic figures; the annotation view marks a detail for revision; the LaTeX view renders prose and equations in reading mode. Open any image to inspect it at full size.
 
 The workspace also includes terminals, Git tools, a browser, and reference management.
+
+The PDF reader and tour display Bürkner, P.-C. (2017), [*brms: An R Package for Bayesian Multilevel Models Using Stan*](https://doi.org/10.18637/jss.v080.i01), *Journal of Statistical Software*, 80(1), 1–28, under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The publisher’s PDF is unmodified; its pages are shown within Atelier’s interface. This does not imply endorsement.
 
 ## Quiet by design
 

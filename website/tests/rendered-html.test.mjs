@@ -16,6 +16,8 @@ test("exports the finished Atelier Studio site for GitHub Pages", async () => {
   assert.match(html, /From research question/);
   assert.match(html, /A few things to know/);
   assert.match(html, /PhD candidates/);
+  assert.match(html, /Bürkner \(2017\)/);
+  assert.match(html, /creativecommons.org\/licenses\/by\/3.0/);
   assert.match(html, /Read the literature/);
   assert.match(html, /Develop the analysis/);
   assert.match(html, /thesis chapters/);
