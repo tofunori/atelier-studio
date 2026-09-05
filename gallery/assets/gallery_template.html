@@ -2911,18 +2911,26 @@ function annotInit(){
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-flex !important} .embHide{display:none !important}'
       +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#383c41;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 16%,transparent)}'
       +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
-  async function annotPost(direct){
-    const f=lbList[lbIdx], img=document.getElementById('lbImg');
-    const scale=Math.min(1, 2200/img.naturalWidth);
+  function annotRender(maxW){
+    const img=document.getElementById('lbImg');
+    const scale=Math.min(1, maxW/img.naturalWidth);
     const out=document.createElement('canvas');
     out.width=Math.round(img.naturalWidth*scale); out.height=Math.round(img.naturalHeight*scale);
     const x=out.getContext('2d');
     x.drawImage(img,0,0,out.width,out.height); x.drawImage(cv(),0,0,out.width,out.height);
-    const r=await fetch('/save',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name:f.name,dataURL:out.toDataURL('image/png'),direct:!!direct,
+    return out.toDataURL('image/png');
+  }
+  async function annotPost(direct){
+    const f=lbList[lbIdx];
+    const body=(dataURL)=>JSON.stringify({name:f.name,dataURL,direct:!!direct,
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
-        notes:annotStrokes.filter(s=>s.note).map(s=>({n:s.n,text:s.note}))})});
+        notes:annotStrokes.filter(s=>s.note).map(s=>({n:s.n,text:s.note}))});
+    let r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:body(annotRender(2200))});
+    // 413 : une carte dense à 2 200 px dépasse la limite de corps d'un serveur
+    // plus ancien (vécu 2026-09-04, fig1 = 3,1 Mo en base64). On rejoue une
+    // fois à 1 400 px — la vignette et l'agent n'ont pas besoin de plus.
+    if(r.status===413) r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:body(annotRender(1400))});
+    if(!r.ok){ const e=new Error('save '+r.status); e.status=r.status; throw e; }
     const j=await r.json();
     // Même contrat que le bouton « Chat » d'une carte : sans ACK de l'hôte le
     // message se perd en silence (nonce périmé, hôte pas encore à l'écoute) et
@@ -3000,8 +3008,13 @@ function annotInit(){
     }catch(e){
       // Les marques restent en place : un nouveau clic sur ↑ rejoue l'envoi.
       this.textContent='!';
+      // Trois échecs distincts, trois messages : l'ACK du chat, une réponse
+      // HTTP du serveur (413 = image trop lourde), ou pas de serveur du tout.
+      // « Serveur off » sur un 413 envoyait chercher un serveur qui tournait.
       lbl.textContent=/ack/.test(String(e&&e.message))
         ? 'Chat injoignable — réessayer'
+        : e&&e.status===413 ? 'Image trop lourde — serveur à relancer'
+        : e&&e.status ? 'Erreur serveur '+e.status
         : 'Serveur off — démarrer le serveur';
     }
     setTimeout(()=>{this.textContent='↑'; annotPillUpdate();},2400);

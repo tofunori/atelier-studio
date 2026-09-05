@@ -2459,7 +2459,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/prov", get(prov))
         .route("/regenerate", post(regenerate))
         .route("/rescan", post(rescan))
-        .route("/save", post(save_annotation))
+        // La figure annotée voyage en PNG base64 dans le JSON : une carte
+        // dense rendue à 2 200 px pèse 3 Mo, au-delà des 2 MiB par défaut de
+        // l'extracteur `Json` — 413 avant même d'entrer dans le handler, dont
+        // la garde de 64 Mio ne servait à rien (fig1, 2026-09-04). La limite
+        // suit la garde (base64 ≈ ×1,37) sur CETTE route seulement.
+        .route(
+            "/save",
+            post(save_annotation).layer(axum::extract::DefaultBodyLimit::max(96 * 1024 * 1024)),
+        )
         .route("/agent-selection", get(get_agent_selection).post(selection))
         .route("/agent-consumers/register", post(register_consumer))
         .route("/agent-selections", get(selections))
