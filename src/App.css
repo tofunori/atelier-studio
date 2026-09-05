@@ -1317,8 +1317,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .user-annots li { display: grid; grid-template-columns: 1fr 16px; gap: 8px;
   align-items: start; font-size: var(--fs-m); color: var(--text-secondary); text-align: right; }
 .user-annot-badge { display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--fg);
-  color: var(--bg); font-size: var(--fs-xs); font-weight: 500;
+  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--text-primary);
+  color: var(--surface-app); font-size: var(--fs-xs); font-weight: 500;
   font-variant-numeric: tabular-nums; }
 /* demande utilisateur : identifiable par le fond léger et l'alignement, sans
    grande bulle saturée (plan 020, étape 2) */
