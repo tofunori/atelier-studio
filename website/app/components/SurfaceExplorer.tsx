@@ -1,4 +1,6 @@
 "use client";
+import { assetPath } from '../site';
+
 import { useState } from 'react';
 const surfaces = [
     { id: 'annotation', name: 'Figure annotation', description: 'Mark a detail in a scientific figure and draft precise feedback for revision.' },
@@ -13,6 +15,6 @@ export default function SurfaceExplorer() {
     const [active, setActive] = useState(surfaces[0]);
     return <div className="surface-explorer">
   <div className="surface-controls" role="group" aria-label="Workspace surfaces">{surfaces.map(s => <button key={s.id} aria-pressed={active.id === s.id} onClick={() => setActive(s)}>{s.name}</button>)}</div>
-  <figure><a href={`/media/${active.id}.png`} target="_blank" rel="noreferrer" aria-label={`Open full-size ${active.name} screenshot`}><img src={`/media/${active.id}.png`} width="1600" height="1000" alt={`Atelier ${active.name}, showing the fictional Observatory project`} loading="lazy"/></a><figcaption aria-live="polite"><span>{active.description}</span><span>Fictional demo project · Open image to enlarge</span></figcaption></figure>
+  <figure><a href={assetPath(`/media/${active.id}.png`)} target="_blank" rel="noreferrer" aria-label={`Open full-size ${active.name} screenshot`}><img src={assetPath(`/media/${active.id}.png`)} width="1600" height="1000" alt={`Atelier ${active.name}, showing the fictional Observatory project`} loading="lazy"/></a><figcaption aria-live="polite"><span>{active.description}</span><span>Fictional demo project · Open image to enlarge</span></figcaption></figure>
  </div>;
 }

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
+import { assetPath, siteUrl } from "./site";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -9,23 +9,21 @@ export const viewport: Viewport = {
 };
 
 export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
+  const origin = siteUrl.replace(/\/$/, "");
   const description = "A native macOS workspace for scientific research, master’s theses, and PhD dissertations. Read papers, develop analyses, inspect figures, and write in LaTeX.";
 
   return {
-    metadataBase: new URL(origin),
+    metadataBase: new URL(siteUrl),
+    alternates: { canonical: siteUrl },
     title: "Atelier Studio — A workspace for scientific research",
     description,
     applicationName: "Atelier Studio",
     keywords: ["scientific research", "master’s thesis", "PhD dissertation", "LaTeX", "research workspace", "macOS", "Claude Code", "Codex", "scientific figures", "Zotero", "Tauri"],
     authors: [{ name: "Atelier Studio" }],
     icons: {
-      icon: "/atelier-icon.png",
-      shortcut: "/atelier-icon.png",
-      apple: "/atelier-icon.png",
+      icon: assetPath("/atelier-icon.png"),
+      shortcut: assetPath("/atelier-icon.png"),
+      apple: assetPath("/atelier-icon.png"),
     },
     openGraph: {
       type: "website",
