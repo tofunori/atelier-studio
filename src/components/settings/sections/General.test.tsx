@@ -1,14 +1,3 @@
-// Section Général (lot 1) : migration verbatim de general + avance, avec le
-// repli « Avancé » et la remontée onSaved.
-//
-// Écarts volontaires par rapport au gabarit du plan (task-5-brief.md) :
-// - le texte "Recherche web" n'existe dans aucune clé i18n réelle ; la
-//   rangée websearch réelle (Settings.tsx:559-561) rend
-//   t("settings.web-search") = "Web search Codex" (fr) — le test s'adapte.
-// - "Format d'heure" n'appartient PAS à la vraie section « avance »
-//   (Settings.tsx:1251-1290 = Sidecar, images collées, appareils distants) ;
-//   il vit dans « apparence » → tâche 6. Le test du repli Avancé vérifie donc
-//   la rangée Sidecar, réellement présente ici.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../../test/render";
@@ -45,13 +34,13 @@ function emitWs(ws: WebSocket, message: unknown) {
 describe("Section Général", () => {
   it("montre les réglages essentiels sans rien déplier", () => {
     renderUi(<General {...props()} />);
-    expect(screen.getByText("Web search Codex")).toBeInTheDocument();
+    expect(screen.getByText("Recherche web")).toBeInTheDocument();
   });
 
   it("garde le statut Sidecar sous le repli « Avancé »", () => {
     renderUi(<General {...props()} />);
     expect(screen.queryByText("Sidecar")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
     expect(screen.getByText("Sidecar")).toBeInTheDocument();
   });
 
@@ -59,7 +48,7 @@ describe("Section Général", () => {
     const set = vi.fn();
     const onSaved = vi.fn();
     renderUi(<General {...props({ set, onSaved })} />);
-    fireEvent.click(screen.getByRole("switch", { name: "Web search Codex" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Recherche web" }));
     expect(set).toHaveBeenCalledWith({ webSearch: true });
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
@@ -79,7 +68,7 @@ describe("Section Général", () => {
     });
     // Fermé par défaut.
     expect(screen.queryByText("2.4.1 — 22.4.0")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
     expect(screen.getByText("2.4.1 — 22.4.0")).toBeInTheDocument();
   });
 
@@ -94,7 +83,7 @@ describe("Section Général", () => {
         providers: [],
       },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
     // Une seule rangée « Sidecar » (pas une deuxième pour le diagnostic de
     // l'ex-section setup) et un seul badge « connecté ».
     expect(screen.getAllByText("Sidecar")).toHaveLength(1);

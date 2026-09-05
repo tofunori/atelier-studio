@@ -178,10 +178,6 @@ export default function General(p: SectionProps) {
         <Row title={t("settings.web-search")} desc={t("settings.web-search-desc")}>
           <Toggle label={t("settings.web-search")} checked={s.webSearch} onChange={(v) => save({ webSearch: v })} />
         </Row>
-        <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
-          <Textarea className="set-text" rows={3} value={s.additionalDirectories}
-            onChange={(e) => save({ additionalDirectories: e.target.value })} />
-        </Row>
       </Group>
 
       {/* Settings.tsx:567-592 */}
@@ -217,7 +213,15 @@ export default function General(p: SectionProps) {
           Runtime (Node) rejoint Sidecar dans son propre groupe, restauré
           depuis l'ex-section setup (voir commentaire d'en-tête) : mêmes
           données de diagnostic, même famille. */}
-      <Advanced count={4}>
+      <Advanced>
+        <Group>
+        <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
+          <Textarea aria-label={t("settings.additional-dirs")} className="set-text" rows={3} value={s.additionalDirectories}
+            onChange={(e) => save({ additionalDirectories: e.target.value })} />
+        </Row>
+        </Group>
+      </Advanced>
+      <Advanced label={t("settings.maintenance")}>
         <Group label={t("settings.setup-runtime")}>
           <Row title={t("settings.setup-node")} desc={setup ? `${setup.runtime.version} — ${setup.runtime.node}` : "…"}>
             {setup && (

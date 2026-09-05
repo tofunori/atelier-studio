@@ -28,6 +28,32 @@ export const THEME_PRESETS: ThemePreset[] = [
     "#1e2124", "#161a1e", "#24282d", "#24282d", "#2c2f34",
     "#383c41", "#43474c", "#dadee3", "#b9bec4", "#90969d", "#62666c", "#e77f3e",
     ["#161a1e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4", "#5a616d", "#ff7a85", "#a9d47f", "#f0ca79", "#74bdf7", "#d894e8", "#6cd0dd", "#ffffff"]),
+  T("graphite", "Graphite", true,
+    "#202123", "#1a1b1d", "#292a2d", "#252628", "#303134",
+    "#303134", "#494b4e", "#dfdfdc", "#c3c3bf", "#a0a19e", "#7f817e", "#ca926b",
+    ["#1a1b1d", "#cf8e8e", "#a2b593", "#c7b18a", "#95acc7", "#b3a0bd", "#91b7b5", "#c3c3bf", "#7f817e", "#e1a3a3", "#b7c8a9", "#dcc5a0", "#aec1d9", "#c8b6d1", "#a8cdca", "#dfdfdc"]),
+  T("obsidienne", "Obsidienne", true,
+    "#17191c", "#121417", "#22252a", "#1d2024", "#2a2d33",
+    "#2b2e33", "#41464e", "#dddfe2", "#bfc4ca", "#989fa9", "#7b838e", "#93a7bc",
+    ["#121417", "#c88891", "#96ae9c", "#bdad8a", "#93a7bc", "#aa9bbb", "#8fadb4", "#bfc4ca", "#7b838e", "#dda0a8", "#adc5b3", "#d3c3a0", "#abc0d5", "#c0b2d1", "#a6c4cb", "#dddfe2"]),
+  T("encre", "Encre", true,
+    "#1c2027", "#171b21", "#272d36", "#222730", "#2d3440",
+    "#2e3540", "#465162", "#dee1e7", "#c0c7d2", "#9aa6b8", "#7d899c", "#91a8ca",
+    ["#171b21", "#cf919e", "#9fb7a3", "#c7b58e", "#91a8ca", "#afa0c4", "#8eb8c0", "#c0c7d2", "#7d899c", "#e3a7b3", "#b5cdb9", "#ddcba5", "#a9c0e1", "#c5b6da", "#a5ced6", "#dee1e7"]),
+  T("pierre", "Pierre", true,
+    "#242321", "#1d1c1b", "#2e2c29", "#292724", "#36332f",
+    "#35322e", "#4e4942", "#e2ded7", "#c7c1b7", "#a8a093", "#8b8378", "#bba889",
+    ["#1d1c1b", "#c79084", "#a4b095", "#c1ac83", "#9aaebb", "#b3a0b0", "#96b2ab", "#c7c1b7", "#8b8378", "#dca69a", "#bac6ab", "#d7c299", "#b1c4d1", "#c9b6c6", "#acc8c1", "#e2ded7"]),
+  T("sous-bois", "Sous-bois", true,
+    "#202421", "#191d1b", "#2a302b", "#252a26", "#303832",
+    "#303832", "#465248", "#dee2dc", "#bec8bc", "#9eac9c", "#808f7f", "#9daf96",
+    ["#191d1b", "#c78f89", "#9daf96", "#bdb18c", "#94aeb9", "#b0a0b4", "#8fb5ab", "#bec8bc", "#808f7f", "#dda59f", "#b3c5ac", "#d3c7a2", "#aac4cf", "#c6b6ca", "#a5cbc1", "#dee2dc"]),
+  // Monokai classic surfaces and ANSI palette from VS Code's built-in theme.
+  // https://github.com/microsoft/vscode/blob/main/extensions/theme-monokai/themes/monokai-color-theme.json
+  T("monokai", "Monokai", true,
+    "#272822", "#1e1f1c", "#34352f", "#2e2f28", "#3b3d33",
+    "#34352f", "#57594c", "#f8f8f2", "#ccccc7", "#aaa797", "#90908a", "#a6e22e",
+    ["#333333", "#c4265e", "#86b42b", "#b3b42b", "#6a7ec8", "#8c6bc8", "#56adbc", "#e3e3dd", "#666666", "#f92672", "#a6e22e", "#e2e22e", "#819aff", "#ae81ff", "#66d9ef", "#f8f8f2"]),
   T("onedark", "One Dark", true,
     "#282c34", "#21252b", "#21252b", "#2c313c", "#353b45",
     "#3e4451", "#4b5263", "#abb2bf", "#c8cdd4", "#828997", "#5c6370", "#61afef",
@@ -78,8 +104,24 @@ export function presetById(id: string): ThemePreset {
   return THEME_PRESETS.find((t) => t.id === id) ?? THEME_PRESETS[0];
 }
 
-export function xtermThemeFor(id: string) {
-  const p = presetById(id);
+/** Named palettes are explicit choices. Atelier itself follows the mode. */
+export function resolveAppearanceTheme(settings: { themePreset: string; theme: "dark" | "light" | "system" }, systemDark: boolean): ThemePreset {
+  const preset = presetById(settings.themePreset);
+  if (preset.id !== "atelier") return preset;
+  const dark = settings.theme === "system" ? systemDark : settings.theme === "dark";
+  if (dark) return { ...preset, vars: { ...preset.vars, "--border": "#2a2d31" } };
+  return {
+    ...preset, dark: false, ansi: presetById("github-light").ansi,
+    vars: {
+      "--bg": "#f1f4f7", "--bg-side": "#e3e7ec", "--bg-pop": "#fafcfe", "--bg-card": "#fafcfe",
+      "--bg-ctl": "#dadee4", "--border": "#dde0e5", "--border2": "#b8bcc2", "--fg": "#1a1d22",
+      "--fg2": "#32363b", "--muted": "#595e64", "--muted2": "#82878c", "--accent": "#cf630d",
+    },
+  };
+}
+
+export function xtermThemeFor(selection: string | { themePreset: string; theme: "dark" | "light" | "system" }, systemDark = true) {
+  const p = typeof selection === "string" ? presetById(selection) : resolveAppearanceTheme(selection, systemDark);
   const a = p.ansi ?? [];
   return {
     background: p.vars["--bg-side"],

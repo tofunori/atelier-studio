@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, renderHook, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
 
@@ -7,6 +7,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("../../lib/wsBus", () => ({ wsSend: vi.fn(() => true) }));
 
 import { resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
+import { useKbActions } from "./kbActions";
 import { KbPickerPanel } from "./KbPicker";
 
 const SOURCES: KbSource[] = [
@@ -250,5 +251,49 @@ describe("KbPickerPanel — sélection multiple (plan 052)", () => {
     fireEvent.click(screen.getByText("Web"));
     fireEvent.click(screen.getByText("Archiver"));
     expect(onBatchArchive).toHaveBeenCalledWith(["bbbb2222"]);
+  });
+});
+
+
+describe("collections attachées en un clic", () => {
+  it("attache toute la collection malgré le filtre de recherche et le plafond de lignes", () => {
+    const onCollectionToggle = vi.fn();
+    const sources = Array.from({length:25}, (_,i) => ({...SOURCES[0],id:`doc-${i}`,title:`Document ${i}`,collections:["these"]}));
+    sources.push({...sources[0],id:"archive",archived:true} as typeof sources[number]);
+    renderUi(<KbPickerPanel {...panelProps({sources,collections:[{slug:"these",title:"Thèse"}],onCollectionToggle})}/>);
+    fireEvent.change(screen.getByPlaceholderText("Rechercher…"), {target:{value:"Document 0"}});
+    fireEvent.click(screen.getByRole("checkbox", {name:"Inclure les sources de Thèse"}));
+    expect(onCollectionToggle).toHaveBeenCalledTimes(1);
+    expect(onCollectionToggle).toHaveBeenCalledWith(sources.slice(0,25).map(s => s.id),true);
+  });
+  it("sépare filtrage et attache, et reflète une sélection partielle", () => {
+    const props=panelProps({sources:SOURCES.map(s=>({...s,collections:["these"]})),collections:[{slug:"these",title:"Thèse"}],attached:["aaaa1111"],onCollectionToggle:vi.fn()});
+    const {rerender}=renderUi(<KbPickerPanel {...props}/>);
+    const checkbox=()=>screen.getByRole("checkbox",{name:"Inclure les sources de Thèse"});
+    expect(checkbox()).toHaveAttribute("aria-checked","mixed");
+    fireEvent.click(screen.getByText("Thèse · 3"));
+    expect(props.onCollectionToggle).not.toHaveBeenCalled();
+    fireEvent.click(checkbox());
+    expect(props.onCollectionToggle).toHaveBeenLastCalledWith(SOURCES.map(s=>s.id),true);
+    rerender(<KbPickerPanel {...props} attached={SOURCES.map(s=>s.id)}/>);
+    expect(checkbox()).toHaveAttribute("aria-checked","true");
+    fireEvent.click(checkbox());
+    expect(props.onCollectionToggle).toHaveBeenLastCalledWith(SOURCES.map(s=>s.id),false);
+  });
+  it("désactive la coche d'une collection vide", () => {
+    renderUi(<KbPickerPanel {...panelProps({collections:[{slug:"vide",title:"Vide"}],onCollectionToggle:vi.fn()})}/>);
+    expect(screen.getByRole("checkbox",{name:"Inclure les sources de Vide"})).toBeDisabled();
+  });
+  it("met à jour les attaches en un seul appel et préserve les sources hors collection", () => {
+    const onChange=vi.fn();
+    const binding={attached:["outside","a"],fullContent:["outside","a"],onChange};
+    const {result,rerender}=renderHook(({binding})=>useKbActions(binding,()=>true),{initialProps:{binding}});
+    act(()=>result.current.toggleCollection(["a","b","b"],true));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith({kbSourceIds:["outside","a","b"],kbFullContent:["outside","a"]});
+    rerender({binding:{...binding,attached:["outside","a","b"]}});
+    act(()=>result.current.toggleCollection(["a","b"],false));
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith({kbSourceIds:["outside"],kbFullContent:["outside"]});
   });
 });

@@ -1818,6 +1818,7 @@ mod tests {
         cancelled: Arc<AtomicBool>,
     ) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: thread_id.into(),
             turn_id: format!("turn-{thread_id}"),
             prompt: prompt.into(),
@@ -2045,6 +2046,7 @@ mod tests {
             vec!["agent".into(), "--no-leader".into(), "stdio".into()],
         );
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "fil-sans-tour".into(),
             turn_id: "t1".into(),
             prompt: "attends, change d'approche".into(),

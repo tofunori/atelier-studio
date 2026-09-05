@@ -1,7 +1,7 @@
 // Feuille modale des réglages (lot A). Les réglages ne remplacent plus
 // l'application : elle reste montée derrière le voile, ce qui rend visibles
 // en direct les réglages de typographie du fil.
-import { Dialog, DialogContent } from "../shadcn/dialog";
+import { Dialog, DialogContent, DialogTitle } from "../shadcn/dialog";
 import SettingsPage from "./SettingsPage";
 import type { Settings } from "../../lib/settings";
 import { t } from "../../lib/i18n";
@@ -54,10 +54,12 @@ export function SettingsSheet(p: {
       }}
     >
       <DialogContent
-        className="settings-sheet"
+        className="settings-sheet settings-sheet-refined"
+        overlayClassName="settings-sheet-overlay"
         showCloseButton={false}
         aria-label={t("settings.title")}
       >
+        <DialogTitle className="tw:sr-only">{t("settings.title")}</DialogTitle>
         <SettingsPage
           settings={p.settings}
           onChange={p.onChange}

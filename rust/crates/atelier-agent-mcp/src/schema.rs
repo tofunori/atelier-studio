@@ -182,7 +182,9 @@ mod contrat_typographique_du_manuel {
                     reste = &reste[pos + tag.len()..];
                     let valeur: String =
                         reste.chars().take_while(|c| c.is_ascii_digit()).collect();
-                    if !valeur.is_empty() && !permises.contains(&valeur.as_str()) {
+                    // 1rem inherits the user's chat size; it is not a one-pixel font.
+                    let inherits_chat = valeur == "1" && reste[valeur.len()..].starts_with("rem");
+                    if !valeur.is_empty() && !inherits_chat && !permises.contains(&valeur.as_str()) {
                         hors_echelle.push(format!("ligne {} : {valeur} px", i + 1));
                     }
                 }

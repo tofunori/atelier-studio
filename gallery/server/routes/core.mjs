@@ -241,6 +241,29 @@ export async function handleCorePost(req, res, url) {
         collections,
         workflow,
       };
+      const extensions = v => Array.isArray(v) ? [...new Set(v.filter(x => typeof x === "string").map(x => x.trim().replace(/^\./, "").toLowerCase()).filter(x => /^[a-z0-9]{1,12}$/.test(x)))].sort().slice(0,60) : null;
+      if(reqJson.fileTypes === null) state.fileTypes=null;
+      else if(extensions(reqJson.fileTypes)) state.fileTypes=extensions(reqJson.fileTypes);
+      if(extensions(reqJson.pinnedTypes)) state.pinnedTypes=extensions(reqJson.pinnedTypes).slice(0,24);
+      if(Array.isArray(reqJson.filePresets)) state.filePresets=reqJson.filePresets.filter(p=>p&&typeof p.id==='string'&&p.id.trim()&&typeof p.label==='string'&&p.label.trim()&&extensions(p.extensions)).slice(0,40).map(p=>{
+        const clean={id:p.id.trim().slice(0,64),label:p.label.trim().slice(0,60),extensions:extensions(p.extensions)};
+        if(p.view&&typeof p.view==='object'&&!Array.isArray(p.view)) {
+          clean.view={};
+          for(const key of ['favorites','archive','hidden'])clean.view[key]=p.view[key]===true;
+          for(const key of ['collection','status','folder','query','sort'])clean.view[key]=typeof p.view[key]==='string'?p.view[key].slice(0,1024):'';
+          clean.view.rate=Number.isInteger(p.view.rate)?Math.max(0,Math.min(5,p.view.rate)):0;
+        }
+        return clean;
+      });
+      if(reqJson.presentation&&typeof reqJson.presentation==='object'&&!Array.isArray(reqJson.presentation)) {
+        const p=reqJson.presentation,widths={};
+        for(const key of ['name','type','size','mtime','status'])if(Number.isFinite(p.widths?.[key]))widths[key]=Math.max(70,Math.min(800,p.widths[key]));
+        state.presentation={mode:p.mode==='list'?'list':'grid',size:Number.isFinite(p.size)?Math.max(150,Math.min(320,p.size)):185,rows:p.rows==='compact'?'compact':'comfortable',widths};
+      }
+      let previousState={};
+      try{previousState=JSON.parse(fs.readFileSync(path.join(PROJECT,'.fig_state.json'),'utf8'));}catch{}
+      for(const key of ['fileTypes','pinnedTypes','filePresets','presentation'])if(!(key in state)&&key in previousState)state[key]=previousState[key];
+      if(state.fileTypes===null)delete state.fileTypes;
       // Réglages d'éditeur persistés côté serveur (piège n°1 : le localStorage
       // du WebView ne survit pas au redémarrage de l'app). Sans cette entrée
       // dans la liste blanche, le POST du client était accepté puis la clé

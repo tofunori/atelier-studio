@@ -235,7 +235,7 @@ async fn save_gallery_state(
     // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
     // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
     // Un POST partiel (ajout de favori) ne doit pas effacer le filtre du projet.
-    for kept_key in ["fileTypes", "pinnedTypes", "filePresets"] {
+    for kept_key in ["fileTypes", "pinnedTypes", "filePresets", "presentation"] {
         if sanitized.get(kept_key).is_none()
             && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
             && let Ok(previous) = serde_json::from_str::<Value>(&raw)
@@ -506,12 +506,36 @@ fn sanitize_gallery_state(request: &Value) -> Value {
                     .take(60)
                     .collect();
                 let extensions = extension_list(object.get("extensions"), 60)?;
-                (!id.is_empty() && !label.is_empty())
-                    .then(|| json!({"id": id, "label": label, "extensions": extensions}))
+                if id.is_empty() || label.is_empty() { return None; }
+                let mut result = json!({"id": id, "label": label, "extensions": extensions});
+                if let Some(view) = object.get("view").filter(|v| v.is_object()) {
+                    let mut clean = json!({});
+                    for key in ["favorites", "archive", "hidden"] { clean[key] = json!(view.get(key).and_then(Value::as_bool).unwrap_or(false)); }
+                    for key in ["collection", "status", "folder", "query", "sort"] {
+                        clean[key] = json!(view.get(key).and_then(Value::as_str).unwrap_or("").chars().take(1024).collect::<String>());
+                    }
+                    clean["rate"] = json!(view.get("rate").and_then(Value::as_u64).unwrap_or(0).min(5));
+                    result["view"] = clean;
+                }
+                Some(result)
             })
             .take(40)
             .collect();
         state["filePresets"] = json!(presets);
+    }
+    if let Some(p) = request.get("presentation").filter(|v| v.is_object()) {
+        let mut widths = json!({});
+        for key in ["name", "type", "size", "mtime", "status"] {
+            if let Some(width) = p.get("widths").and_then(|w| w.get(key)).and_then(Value::as_f64) {
+                widths[key] = json!(width.clamp(70.0, 800.0));
+            }
+        }
+        state["presentation"] = json!({
+            "mode": if p.get("mode").and_then(Value::as_str) == Some("list") { "list" } else { "grid" },
+            "size": p.get("size").and_then(Value::as_f64).unwrap_or(185.0).clamp(150.0, 320.0),
+            "rows": if p.get("rows").and_then(Value::as_str) == Some("compact") { "compact" } else { "comfortable" },
+            "widths": widths,
+        });
     }
     if let Some(auto_rewrap) = request.get("texAutoRewrap").and_then(Value::as_bool) {
         state["texAutoRewrap"] = json!(auto_rewrap);

@@ -2,15 +2,18 @@
 // la moitié passe simplement sous ce repli, FERMÉ par défaut. L'état n'est
 // délibérément PAS persisté — un repli qui se souvient d'être ouvert annule
 // son bénéfice au démarrage suivant.
-import React, { useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { RowButton } from "../../ui";
 import { t } from "../../../lib/i18n";
+import { SettingsSearchTarget } from "../searchTarget";
 
-export function Advanced(p: { children: React.ReactNode; count?: number }) {
+export function Advanced(p: { children: React.ReactNode; count?: number; label?: string }) {
   const [open, setOpen] = useState(false);
-  const label = p.count
+  const target = useContext(SettingsSearchTarget);
+  useEffect(() => { if (target) setOpen(true); }, [target]);
+  const label = p.label ?? (p.count
     ? `${t("settings.advanced-toggle")} · ${t("settings.advanced-count", { count: p.count })}`
-    : t("settings.advanced-toggle");
+    : t("settings.advanced-toggle"));
   return (
     <div className="set-advanced">
       <RowButton

@@ -1245,6 +1245,7 @@ mod drapeaux_tests {
 
     fn req(session: Option<&str>, fork: bool) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t".into(),
             turn_id: "u".into(),
             prompt: "salut".into(),
@@ -1513,6 +1514,7 @@ mod title_tests {
 
     fn request(permission_mode: &str) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t".into(),
             turn_id: "turn".into(),
             prompt: "bonjour".into(),
@@ -1688,6 +1690,7 @@ mod interrupt_tests {
         let events_seen: Arc<std::sync::Mutex<Vec<Value>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-stop".into(),
             turn_id: "u".into(),
             prompt: "salut".into(),
@@ -1758,6 +1761,7 @@ mod idle_tests {
 
     fn base_req(thread_id: &str, on_event: Arc<dyn Fn(Value) + Send + Sync>) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: thread_id.into(),
             turn_id: "u".into(),
             prompt: "salut".into(),
@@ -1937,6 +1941,7 @@ mod session_vivante_tests {
         on_interaction: Option<crate::traits::InteractionFn>,
     ) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: thread_id.into(),
             turn_id: "u".into(),
             prompt: prompt.into(),

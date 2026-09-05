@@ -222,6 +222,15 @@ export function useKbActions(
     }
   }
 
+  function toggleCollection(ids: string[], attach: boolean) {
+    if (attach) { attachMany(ids); return; }
+    const removed = new Set(ids);
+    binding.onChange({
+      kbSourceIds: binding.attached.filter(id => !removed.has(id)),
+      kbFullContent: binding.fullContent.filter(id => !removed.has(id)),
+    });
+  }
+
   function archiveSource(id: string, off: boolean) {
     wsSend({ type: "kbArchive", id, off });
     // une source archivée quitte le contexte de la conversation
@@ -238,6 +247,6 @@ export function useKbActions(
     toggle, toggleFull, removeSource, removeMany, promote,
     addFiles, addFolder, addPdf, addUrl, addNote, addGbrain,
     createCollection, tagSource, archiveSource,
-    tagMany, archiveMany, attachMany,
+    tagMany, archiveMany, attachMany, toggleCollection,
   };
 }

@@ -51,6 +51,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "getLedger",
     "upsertThread",
     "listFiles",
+    "projectFolderCatalog",
     "narvalStatus",
     "narvalSnapshot",
     "narvalListDirectory",
@@ -66,6 +67,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "kbGbrainPage",
     "kbSourceText",
     "kbList",
+    "getTurnContextPreview",
     "kbCollection",
     "kbTag",
     "kbArchive",
@@ -397,9 +399,29 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             )]
         }
         "saveSettings" => {
-            let settings = msg.get("settings").cloned().unwrap_or(Value::Null);
+            let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
+            if !settings.is_object() { return vec![json_msg(json!({"type":"settingsSaved","ok":false}))]; }
+            let previous = read_settings(&state.settings_path()).unwrap_or_else(|| json!({}));
+            let threads = state.threads().lock().await.list();
+            let mut rejected = false;
+            for thread in threads {
+                let root = &thread.project_root;
+                if crate::project_folders::scope_changed(root, &previous, &settings)
+                    && state.harness().is_running(&thread.id).await {
+                    if let Some(old) = previous.get("projectFolders").and_then(|v| v.get(root)) {
+                        if !settings["projectFolders"].is_object() { settings["projectFolders"] = json!({}); }
+                        settings["projectFolders"][root] = old.clone();
+                    } else {
+                        if let Some(map) = settings.get_mut("projectFolders").and_then(Value::as_object_mut) { map.remove(root); }
+                        settings["additionalDirectories"] = json!(previous["additionalDirectories"].as_str().unwrap_or(""));
+                    }
+                    rejected = true;
+                }
+            }
             let ok_flag = write_settings(&state.settings_path(), &settings);
-            vec![json_msg(json!({"type":"settingsSaved","ok": ok_flag}))]
+            if rejected {
+                vec![json_msg(json!({"type":"settingsSaved","ok":false,"reason":"project_running"})), json_msg(json!({"type":"settingsFile","settings":settings}))]
+            } else { vec![json_msg(json!({"type":"settingsSaved","ok": ok_flag}))] }
         }
         "getLedger" => {
             let root = msg
@@ -428,6 +450,27 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
 
         // --- Porte 4: files / pasted / scan / git / zotero / terminal ---
+        "projectFolderCatalog" => {
+            let root = msg["projectRoot"].as_str().unwrap_or("").to_string();
+            let config = msg["config"].clone();
+            let request_id = msg["requestId"].clone();
+            let state = state.clone();
+            // Catalog work never holds the WebSocket receive loop (stop/steer).
+            // Bound workers as filesystem calls on disconnected volumes can block.
+            static CATALOG_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+            tokio::spawn(async move {
+                let response_root = root.clone();
+                let result = match CATALOG_WORKERS.try_acquire() {
+                    Ok(permit) => tokio::time::timeout(std::time::Duration::from_secs(12), tokio::task::spawn_blocking(move || {
+                        let _permit = permit;
+                        crate::project_folders::catalog(&root, &config)
+                    })).await.ok().and_then(Result::ok),
+                    Err(_) => None,
+                };
+                state.publish(json_msg(json!({"type":"projectFolderCatalog","projectRoot":response_root,"requestId":request_id,"sources":result.clone().unwrap_or_else(|| json!([])),"error":if result.is_none() { Some("catalog_unavailable") } else { None }})));
+            });
+            vec![]
+        }
         "listFiles" => {
             let root = msg
                 .get("projectRoot")
@@ -637,6 +680,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbGbrainPage" => handle_kb_gbrain_page(state, &msg).await,
         "kbSourceText" => handle_kb_source_text(state, &msg).await,
         "kbList" => handle_kb_list(state),
+        "getTurnContextPreview" => {
+            let extra = std::collections::HashMap::from([
+                ("kbSourceIds".into(), msg.get("kbSourceIds").cloned().unwrap_or(json!([]))),
+                ("kbFullContent".into(), msg.get("kbFullContent").cloned().unwrap_or(json!([]))),
+            ]);
+            let prepared = crate::kb_block::prepare_knowledge(state.app_dir(), state.server_dir(), Some(&extra));
+            vec![json!({"type":"turnContextPreview", "requestId":msg.get("requestId"),
+                "sources":prepared.sources, "knowledgeText":prepared.block.trim_start()}).to_string()]
+        }
         "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg).await,
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
@@ -3489,6 +3541,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
                 }
             });
         let req = atelier_providers::SendRequest {
+            additional_directories: Vec::new(),
             thread_id: format!("qa:{qa_id_bg}"),
             turn_id: uuid_v4(),
             prompt,

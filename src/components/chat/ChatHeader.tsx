@@ -24,6 +24,7 @@ import {
 import { t } from "../../lib/i18n";
 import type { PresentedStatus } from "../../lib/statusPresentation";
 import type { TranscriptView } from "../../lib/settings";
+import { nomConsigne as composedConsigneName } from "../../lib/consignes";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import "../../styles/local-headers.css";
 
@@ -81,7 +82,7 @@ export function ChatHeader(p: {
   // la consigne a été renommée, l'en-tête doit refléter le nom actuel ; si
   // elle a été supprimée du catalogue, repli neutre (le fil garde son texte).
   const consigneDuFil = p.consigneDuFil ?? null;
-  const nomConsigne = consigneDuFil
+  const nomConsigne = (consigneDuFil?.composition || consigneDuFil?.selection) ? composedConsigneName(consigneDuFil, p.consignes) : consigneDuFil
     ? (p.consignes ?? []).find((c) => c.id === consigneDuFil.id)?.nom ?? t("chat.consigne-deleted")
     : null;
   const linkedParents = p.linkedAgents?.filter((agent) => agent.direction === "parent") ?? [];

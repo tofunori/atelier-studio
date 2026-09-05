@@ -203,41 +203,56 @@ export default function Chat(p: {
   useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
-    const previousScrollTop = ta.scrollTop;
-    const followCaretToEnd = ta.dataset.composerFollowCaret === "end";
-    delete ta.dataset.composerFollowCaret;
-    // champ vide : hauteur CSS fixe, sans mesure — sous WebKit le placeholder
-    // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
-    if (text === "") {
-      ta.style.height = "";
-      ta.style.overflowY = "";
-      ta.scrollTop = 0;
-      return;
-    }
-    // Mesure sous hauteur extérieure FIGÉE : le passage par height:auto
-    // rétrécit le textarea un instant, le fil au-dessus grandit, son
-    // scrollTop est clampé, puis le filet re-scrollait en animé — le
-    // transcript oscillait à chaque frappe d'un prompt multi-ligne (mesuré
-    // Playwright 2026-08-23 : amplitude 53 px, motif clamp→remontée).
-    const wrap = ta.parentElement;
-    const lockHeight = wrap?.offsetHeight;
-    if (wrap && lockHeight) wrap.style.minHeight = `${lockHeight}px`;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
-    if (wrap) wrap.style.minHeight = "";
-    // au plafond 220px : réactiver le scroll (le CSS le cache pour éviter la
-    // scrollbar fantôme due à l'arrondi WebKit d'1px)
-    const overflows = ta.scrollHeight > 220;
-    ta.style.overflowY = overflows ? "auto" : "";
-    if (overflows) {
-      // Le passage temporaire par height:auto peut remettre WebKit en haut du
-      // textarea. Pendant une frappe en fin de prompt, garder le curseur et les
-      // dernières lignes visibles; pendant une édition au milieu, préserver la
-      // position choisie par l'utilisateur.
-      ta.scrollTop = followCaretToEnd ? ta.scrollHeight : previousScrollTop;
-      const backdrop = ta.parentElement?.querySelector<HTMLElement>(".ta-backdrop");
-      if (backdrop) backdrop.scrollTop = ta.scrollTop;
-    }
+    const resize = () => {
+      const previousScrollTop = ta.scrollTop;
+      const followCaretToEnd = ta.dataset.composerFollowCaret === "end";
+      delete ta.dataset.composerFollowCaret;
+      // champ vide : hauteur CSS fixe, sans mesure — sous WebKit le placeholder
+      // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
+      if (text === "") {
+        ta.style.height = "";
+        ta.style.overflowY = "";
+        ta.scrollTop = 0;
+        return;
+      }
+      // Mesure sous hauteur extérieure FIGÉE : le passage par height:auto
+      // rétrécit le textarea un instant, le fil au-dessus grandit, son
+      // scrollTop est clampé, puis le filet re-scrollait en animé — le
+      // transcript oscillait à chaque frappe d'un prompt multi-ligne (mesuré
+      // Playwright 2026-08-23 : amplitude 53 px, motif clamp→remontée).
+      const wrap = ta.parentElement;
+      const lockHeight = wrap?.offsetHeight;
+      if (wrap && lockHeight) wrap.style.minHeight = `${lockHeight}px`;
+      ta.style.height = "auto";
+      ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
+      if (wrap) wrap.style.minHeight = "";
+      // au plafond 220px : réactiver le scroll (le CSS le cache pour éviter la
+      // scrollbar fantôme due à l'arrondi WebKit d'1px)
+      const overflows = ta.scrollHeight > 220;
+      ta.style.overflowY = overflows ? "auto" : "";
+      if (overflows) {
+        // Le passage temporaire par height:auto peut remettre WebKit en haut du
+        // textarea. Pendant une frappe en fin de prompt, garder le curseur et les
+        // dernières lignes visibles; pendant une édition au milieu, préserver la
+        // position choisie par l'utilisateur.
+        ta.scrollTop = followCaretToEnd ? ta.scrollHeight : previousScrollTop;
+        const backdrop = ta.parentElement?.querySelector<HTMLElement>(".ta-backdrop");
+        if (backdrop) backdrop.scrollTop = ta.scrollTop;
+      }
+    };
+    resize();
+    window.addEventListener("app-theme-changed", resize);
+    let width = ta.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (ta.clientWidth === width) return;
+      width = ta.clientWidth;
+      resize();
+    });
+    observer.observe(ta);
+    return () => {
+      window.removeEventListener("app-theme-changed", resize);
+      observer.disconnect();
+    };
   }, [text]);
   const [provider, setProvider] = useState<string>("claude");
   const [model, setModel] = useState("");
@@ -712,7 +727,7 @@ export default function Chat(p: {
           }),
       );
     }
-    // dossiers correspondants (clic = descendre dedans, l'autocomplétion continue)
+    // dossiers correspondants (clic = joindre le dossier comme contexte)
     const dirSet = new Set<string>();
     for (const f of p.files) {
       const parts = f.split("/");
@@ -762,18 +777,18 @@ export default function Chat(p: {
       setSelIdx(0);
       return;
     }
-    // pièce jointe « feuille » (fichier / citation) : la PUCE représente la
+    // pièce jointe (fichier / dossier / citation) : la PUCE représente la
     // référence — retirer le @token tapé au lieu de laisser « @main.tex » en
     // double dans le message
-    if (s.attachPath || s.attachZoteroKey) {
+    if (s.attachPath || s.attachFolder || s.attachZoteroKey) {
       if (s.attachPath) p.onAttachPath?.(s.attachPath);
+      if (s.attachFolder) p.onAttachFolder?.(s.attachFolder);
       if (s.attachZoteroKey) p.onAttachZotero?.(s.attachZoteroKey);
       setText((cur) => cur.replace(/(^|\s)@[\w./:-]*$/, "$1"));
       setSelIdx(0);
       return;
     }
-    // navigation (dossier, @recent:/@zotero:…) : on garde le texte pour continuer
-    if (s.attachFolder) p.onAttachFolder?.(s.attachFolder);
+    // navigation (@recent:/@zotero:…) : on garde le texte pour continuer
     setText(s.insert);
     setSelIdx(0);
   }

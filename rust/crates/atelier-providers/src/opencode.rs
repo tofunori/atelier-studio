@@ -1034,6 +1034,7 @@ mod tests {
         let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
         let sink = Arc::clone(&events);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-e2e-045".into(),
             turn_id: "turn-1".into(),
             prompt: "Réponds exactement: ok".into(),

@@ -5,6 +5,7 @@ pub mod agent_mailbox;
 pub mod agent_mcp;
 pub mod atomic;
 pub mod automations;
+mod project_folders;
 mod codex_history;
 pub mod evidence;
 mod grok_history;

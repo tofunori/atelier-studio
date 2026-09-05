@@ -131,6 +131,13 @@ pub(crate) fn load_grok_history(session_id: &str) -> Vec<Value> {
 }
 
 pub(crate) fn prefer_richer_dialogue(journal: Vec<Value>, native: Vec<Value>) -> Vec<Value> {
+    // Context receipts and turn-scoped tool evidence only exist in Atelier's
+    // journal. Native transcripts cannot replace this authoritative history.
+    if journal.iter().any(|event| event.get("kind").and_then(Value::as_str) == Some("user")
+        && event.pointer("/context/version").and_then(Value::as_u64) == Some(1)) {
+        return journal;
+    }
+
     let score = |events: &[Value]| {
         let texts = events
             .iter()
@@ -199,6 +206,18 @@ pub(crate) fn prefer_richer_dialogue(journal: Vec<Value>, native: Vec<Value>) ->
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn context_history_keeps_receipts_and_tool_identity_even_if_native_is_richer() {
+        let journal = vec![
+            serde_json::json!({"kind":"user","text":"hello","context":{"version":1},"meta":{"turnId":"t1"}}),
+            serde_json::json!({"kind":"tool_update","id":"kb","output":"passage","meta":{"turnId":"t1"}}),
+        ];
+        for prompt in ["hello", "hello\n\n<atelier-file-scope>policy</atelier-file-scope>", "mismatch"] {
+            let native = vec![serde_json::json!({"kind":"user","text":prompt}),serde_json::json!({"kind":"text","text":"recovered answer"})];
+            assert_eq!(prefer_richer_dialogue(journal.clone(), native), journal);
+        }
+    }
 
     #[test]
     fn reads_multi_turn_native_history_and_ignores_synthetic_user_context() {

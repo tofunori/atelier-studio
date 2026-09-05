@@ -8,6 +8,7 @@ import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
+import { Tooltip } from "./ui/Tooltip";
 import { IconButton } from "./ui/IconButton";
 
 /** Cible de la barre : une surface de l'atelier, l'IDE, ou l'explorateur. */
@@ -268,19 +269,21 @@ export default function TopBarSurfaces(p: {
 
   const button = (target: TopBarTarget) => {
     const node = (
+      <Tooltip label={target.label} placement="bottom">
       <IconButton
-        key={target.id}
         label={target.label}
-        title={target.label}
+        aria-pressed={target.active}
         className={`ghost topbar-qa topbar-surface ${target.active ? "on" : ""}`}
         onClick={target.onSelect}
       >
         {target.icon}
       </IconButton>
+      </Tooltip>
     );
-    if (!target.surface) return node;
     return (
-      <span key={target.id} className="topbar-surface-drag" {...dragProps(target.surface)}>
+      <span key={target.id} data-active={target.active}
+        className={`topbar-target ${target.surface ? "topbar-surface-drag" : ""}`}
+        {...(target.surface ? dragProps(target.surface) : {})}>
         {node}
       </span>
     );

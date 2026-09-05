@@ -32,6 +32,7 @@ import remarkGfm from "remark-gfm";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
 import { hardenPartialMarkdown } from "../../lib/markdown";
+import { splitInsightBlocks } from "../../lib/insightBlocks";
 import rehypeWordFade from "../../lib/rehypeWordFade";
 import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
@@ -590,7 +591,7 @@ export type MdBodyProps = {
  * Les blocs précédents gardent la même référence de texte d'un chunk au
  * suivant, donc MdBlock (React.memo) les saute — seule la queue re-parse.
  */
-export function MdBody({ text, streaming, components, remarkPlugins, rehypePlugins }: MdBodyProps) {
+function MarkdownBlocks({ text, streaming, components, remarkPlugins, rehypePlugins }: MdBodyProps) {
   const blocks = useMemo(() => splitMarkdownBlocks(text), [text]);
   // Fade par mots (plan 067) : le bloc de queue — le seul dont le texte change
   // pendant le streaming — reçoit rehypeWordFade en plus des plugins courants.
@@ -616,6 +617,29 @@ export function MdBody({ text, streaming, components, remarkPlugins, rehypePlugi
       })}
     </>
   );
+}
+
+export function MdBody(props: MdBodyProps) {
+  const segments = useMemo(() => splitInsightBlocks(props.text, props.streaming), [props.text, props.streaming]);
+  return <>{segments.map((segment, index) => {
+    const streaming = props.streaming && index === segments.length - 1
+      && (segment.kind === "markdown" || !segment.complete);
+    return segment.kind === "markdown" ? <MarkdownBlocks key={segment.start}
+      {...props} text={segment.text} streaming={streaming} /> : (
+      <aside key={segment.start} className="chat-insight" aria-label="Insight">
+        <div className="chat-insight-title">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 1.5 9.7 6.3 14.5 8 9.7 9.7 8 14.5 6.3 9.7 1.5 8 6.3 6.3Z"
+              stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+          </svg>
+          <span>Insight</span>
+        </div>
+        <div className="chat-insight-body">
+          <MarkdownBlocks {...props} text={segment.text} streaming={streaming} />
+        </div>
+      </aside>
+    );
+  })}</>;
 }
 
 // ---- maths HORS du chemin critique (plan 022) -----------------------------

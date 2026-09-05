@@ -194,7 +194,7 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     if (mid) {
       const idx = next.findIndex((x) => x.kind === "user" && x.meta?.messageId === mid);
       if (idx >= 0) {
-        next[idx] = { ...next[idx], meta: ev.meta };
+        next[idx] = { ...next[idx], meta: ev.meta, ...(ev.context ? { context: ev.context } : {}) };
         return next;
       }
     }

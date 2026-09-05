@@ -75,9 +75,9 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
     // The fallback can hit the same macOS TCC suspension as `git`, so keep
     // the directory read off the WebSocket worker and return an empty catalog
     // rather than making the whole sidecar unresponsive.
-    let all = read_dir_bounded(root);
+    let (all, incomplete) = read_dir_bounded(root);
     let recent_files = recent_project_files(root, &all, 12);
-    let tronque = all.len() > PLAFOND_CATALOGUE;
+    let tronque = incomplete || all.len() > PLAFOND_CATALOGUE;
     FileCatalog {
         files: all.into_iter().take(PLAFOND_CATALOGUE).collect(),
         recent_files,
@@ -86,9 +86,14 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
 }
 
 fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
+    let canonical_root = std::fs::canonicalize(root).ok()?;
+    let root = canonical_root.as_path();
     let mut child = Command::new("git")
         .args(["ls-files", "--cached", "--others", "--exclude-standard"])
         .current_dir(root)
+        // A selected folder must not inherit an unrelated ancestor repository
+        // (e.g. ~/Documents), whose ignore rules can hide the entire project.
+        .env("GIT_CEILING_DIRECTORIES", root.parent().unwrap_or(root))
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -189,21 +194,62 @@ fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<Stri
     ranked.into_iter().take(limit).map(|(_, rel)| rel).collect()
 }
 
-fn read_dir_bounded(root: &Path) -> Vec<String> {
+fn read_dir_bounded(root: &Path) -> (Vec<String>, bool) {
     let root = root.to_path_buf();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     thread::spawn(move || {
-        let files = std::fs::read_dir(root)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
-                    .filter(|name| !name.starts_with('.'))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let _ = tx.send(files);
+        let mut pending = vec![root.clone()];
+        let mut files = Vec::new();
+        let mut incomplete = false;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut visited = 0usize;
+        'walk: while let Some(dir) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                incomplete = true;
+                continue;
+            };
+            for entry in entries {
+                visited += 1;
+                if visited > 100_000
+                    || files.len() > PLAFOND_CATALOGUE
+                    || Instant::now() >= deadline
+                {
+                    incomplete = true;
+                    break 'walk;
+                }
+                let Ok(entry) = entry else {
+                    incomplete = true;
+                    continue;
+                };
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.')
+                    || matches!(
+                        name.as_ref(),
+                        "node_modules" | "target" | "__pycache__" | "dist" | "build" | "venv"
+                    )
+                {
+                    continue;
+                }
+                let Ok(kind) = entry.file_type() else {
+                    incomplete = true;
+                    continue;
+                };
+                if kind.is_dir() {
+                    pending.push(entry.path());
+                } else if kind.is_file() {
+                    // Never follow symlinks outside the selected project.
+                    if let Ok(rel) = entry.path().strip_prefix(&root) {
+                        files.push(rel.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+        files.sort();
+        let _ = tx.send((files, incomplete));
     });
-    rx.recv_timeout(Duration::from_secs(1)).unwrap_or_default()
+    rx.recv_timeout(Duration::from_secs(2))
+        .unwrap_or((Vec::new(), true))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -287,6 +333,57 @@ mod tests {
         std::fs::write(dir.path().join("a.py"), b"x").unwrap();
         let files = list_files(dir.path().to_str().unwrap());
         assert!(files.iter().any(|f| f == "a.py"));
+    }
+
+    #[test]
+    fn standalone_project_ignores_ancestor_git_and_finds_nested_files() {
+        let parent = tempdir().unwrap();
+        assert!(Command::new("git")
+            .arg("init")
+            .arg(parent.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        std::fs::write(parent.path().join(".gitignore"), "project/\n").unwrap();
+        let root = parent.path().join("project");
+        std::fs::create_dir_all(root.join("manuscrit/sections")).unwrap();
+        std::fs::write(root.join("manuscrit/sections/methods_en.tex"), "Methods").unwrap();
+        std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        std::fs::write(root.join("node_modules/pkg/noise.js"), "noise").unwrap();
+        std::fs::create_dir_all(root.join("build/cache")).unwrap();
+        std::fs::write(root.join("build/cache/_methods.py"), "noise").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(parent.path(), root.join("outside")).unwrap();
+        let catalog = list_file_catalog(root.to_str().unwrap());
+        assert_eq!(catalog.files, vec!["manuscrit/sections/methods_en.tex"]);
+        assert_eq!(catalog.recent_files, catalog.files);
+        assert!(!catalog.tronque);
+        #[cfg(unix)]
+        {
+            let links = tempdir().unwrap();
+            let linked_root = links.path().join("linked-project");
+            std::os::unix::fs::symlink(&root, &linked_root).unwrap();
+            assert_eq!(list_file_catalog(linked_root.to_str().unwrap()), catalog);
+        }
+    }
+
+    #[test]
+    fn project_repository_still_respects_its_own_ignore_rules() {
+        let root = tempdir().unwrap();
+        assert!(Command::new("git")
+            .arg("init")
+            .arg(root.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        std::fs::write(root.path().join(".gitignore"), "ignored.tex\n").unwrap();
+        std::fs::write(root.path().join("ignored.tex"), "hidden").unwrap();
+        std::fs::write(root.path().join("methods.tex"), "Methods").unwrap();
+        let catalog = list_file_catalog(root.path().to_str().unwrap());
+        assert!(catalog.files.contains(&"methods.tex".into()));
+        assert!(!catalog.files.contains(&"ignored.tex".into()));
     }
 
     #[test]

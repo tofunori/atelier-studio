@@ -1,3 +1,7 @@
+import { interfaceTypography, interfaceGeometry } from "./lib/interfaceTheme";
+import { projectWritableDirectories } from "./lib/projectFolders";
+import { lazy } from "react";
+const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -71,7 +75,7 @@ import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } f
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
-import { THEME_PRESETS, presetById } from "./lib/themes";
+import { THEME_PRESETS, resolveAppearanceTheme } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
 import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
@@ -347,7 +351,7 @@ const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
 // (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
 // une police uniforme dans la galerie et les visionneuses comme dans l'app.
 function themeVars(settings: Settings): Record<string, string> {
-  const preset = presetById(settings.themePreset);
+  const preset = resolveAppearanceTheme(settings, window.matchMedia("(prefers-color-scheme: dark)").matches);
   const base = { ...preset.vars };
   if (settings.accentColor) base["--accent"] = settings.accentColor;
   if (settings.bgColor) base["--bg"] = settings.bgColor;
@@ -369,11 +373,8 @@ function themeVars(settings: Settings): Record<string, string> {
     "--text-disabled": base["--muted2"],
     "--border-subtle": base["--border"],
     "--border-interactive": base["--border2"],
-    "--radius-control": "4px",
-    "--control-height": settings.density === "compact" ? "26px" : "28px",
-    "--surface-header-height": settings.density === "compact" ? "38px" : "42px",
-    "--motion-fast": "120ms",
-    "--motion-standard": "160ms",
+    ...interfaceGeometry(getComputedStyle(document.documentElement)),
+    ...interfaceTypography(settings.baseFontSize),
     "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
     "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
   };
@@ -383,7 +384,7 @@ function themeMessage(settings: Settings, nonce: string): AtelierOutboundMessage
   return {
     type: "atelier-theme",
     version: 2,
-    colorScheme: presetById(settings.themePreset).dark ? "dark" : "light",
+    colorScheme: resolveAppearanceTheme(settings, window.matchMedia("(prefers-color-scheme: dark)").matches).dark ? "dark" : "light",
     nonce,
     vars: themeVars(settings),
   };
@@ -698,14 +699,18 @@ export default function App() {
     r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
     r.setProperty("--chat-w", `${settings.chatWidth}px`);
     r.setProperty("--chat-lh", String(settings.chatLineHeight));
-    // thème
-    const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const preset = THEME_PRESETS.find((t) => t.id === settings.themePreset);
-    const theme = preset
-      ? (preset.dark ? "dark" : "light")
-      : settings.theme === "system" ? (sysDark ? "dark" : "light") : settings.theme;
-    root.setAttribute("data-theme", theme);
-    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
+    // One resolver serves the shell and its embedded views.
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyPalette = () => {
+      const preset = resolveAppearanceTheme(settings, systemTheme.matches);
+      root.setAttribute("data-theme", preset.dark ? "dark" : "light");
+      const colors = { ...preset.vars };
+      if (settings.accentColor) colors["--accent"] = settings.accentColor;
+      if (settings.bgColor) colors["--bg"] = settings.bgColor;
+      if (settings.fgColor) colors["--fg"] = settings.fgColor;
+      for (const [key, value] of Object.entries(colors)) r.setProperty(key, value);
+      window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
+    };
     // propager aux iframes atelier (galerie, viewers)
     const pushThemeToAtelierFrames = () => {
       document.querySelectorAll("iframe.atelier").forEach((f) => {
@@ -721,22 +726,23 @@ export default function App() {
     // page dont WKWebView a purgé le sessionStorage (clics « Add to chat »
     // muets jusqu'au reload) le réadopte et redevient fonctionnelle seule
     const reseedNonce = setInterval(pushThemeToAtelierFrames, 30_000);
-    // preset : pose toutes les variables ; "atelier" = valeurs de la feuille
-    for (const k of ["--bg","--bg-side","--bg-pop","--bg-card","--bg-ctl","--border","--border2","--fg","--fg2","--muted","--muted2","--accent"]) {
-      if (preset && preset.id !== "atelier") r.setProperty(k, preset.vars[k]);
-      else r.removeProperty(k);
-    }
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotion.addEventListener?.("change", pushThemeToAtelierFrames);
+    const onSystemThemeChange = () => { applyPalette(); pushThemeToAtelierFrames(); };
+    systemTheme.addEventListener?.("change", onSystemThemeChange);
     root.setAttribute("data-density", settings.density);
     root.style.fontSize = `${settings.baseFontSize}px`;
+    for (const [name, value] of Object.entries(interfaceTypography(settings.baseFontSize))) {
+      r.setProperty(name, value);
+    }
     root.classList.toggle("no-smoothing", !settings.fontSmoothing);
     root.classList.toggle("no-stream-fade", !settings.streamFade);
     const setOrClear = (name: string, val: string) =>
       val ? r.setProperty(name, val) : r.removeProperty(name);
-    setOrClear("--accent", settings.accentColor);
-    setOrClear("--bg", settings.bgColor);
-    setOrClear("--fg", settings.fgColor);
-    setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', 'Inter Variable', sans-serif` : "");
-    setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ui-monospace, monospace` : "");
+    setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : "");
+    setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : "");
+    // Notify widgets only after fonts and type scales are effective.
+    applyPalette();
     // miroir disque via sidecar : les réglages survivent au redémarrage/mise à jour
     const mirror = setTimeout(() => {
       if (ws.current?.readyState === 1) {
@@ -749,6 +755,8 @@ export default function App() {
     return () => {
       clearTimeout(broadcastTheme);
       clearInterval(reseedNonce);
+      reducedMotion.removeEventListener?.("change", pushThemeToAtelierFrames);
+      systemTheme.removeEventListener?.("change", onSystemThemeChange);
       clearTimeout(mirror);
     };
   }, [settings]);
@@ -885,6 +893,7 @@ export default function App() {
     }
     setActiveView("chats");
   }, [activeView, activeProject, lastThreadByProject, setActiveView]);
+  const [projectSettingsRoot, setProjectSettingsRoot] = useState<string | null>(null);
   const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
     try {
       return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
@@ -1655,6 +1664,9 @@ export default function App() {
       if (msg.type === "automations") {
         setAutomations(Array.isArray(msg.automations) ? msg.automations : []);
       }
+      if (msg.type === "settingsSaved" && msg.reason === "project_running") {
+        void showInfo(t("project.folders-running"));
+      }
       if (msg.type === "settingsFile") {
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         // Rust renvoie `null` quand settings.json n'existe pas encore (tout
@@ -2044,6 +2056,9 @@ export default function App() {
       }
       if (msg.type === "kbSources") {
         window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg }));
+      }
+      if (msg.type === "turnContextPreview") {
+        window.dispatchEvent(new CustomEvent("turn-context-preview", { detail: msg }));
       }
       if (msg.type === "kbPromoted") {
         window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
@@ -2841,6 +2856,24 @@ export default function App() {
     // fichier — pas la galerie (voir revealAtelierTab).
     revealAtelierTab(focusId);
   }
+  async function openSourceFile(sourceRoot: string, rel: string) {
+    if (sourceRoot === activeProject) { openFileTab(rel); return; }
+    const owner = activeProject;
+    if (!owner || !settings.projectFolders?.[owner]?.folders.some(f => f.path === sourceRoot && f.gallery)) return;
+    const server = await invoke<string>("start_atelier", { root: sourceRoot, galleryDir: settings.galleryPath, galleryExts: settings.galleryExts });
+    if (activeProjectRef.current !== owner || !settingsRef.current.projectFolders?.[owner]?.folders.some(f => f.path === sourceRoot && f.gallery)) return;
+    const origin = new URL(server).origin;
+    const ext = rel.split(".").pop()?.toLowerCase() || "";
+    const encoded = rel.split("/").map(encodeURIComponent).join("/");
+    const path = `${sourceRoot}/${rel}`;
+    let target = `${origin}/${encoded}`;
+    if (ext === "pdf" || ext === "svg") target = `${origin}/.fig_thumbs/${ext}_viewer.html?file=${encodeURIComponent(rel)}`;
+    else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
+    const url = withAtelierNonce(target, atelierNonce);
+    const id = stableTabId(`${owner}\0${url}`);
+    setAtelierTabs(current => current.some(tab => tab.id === id) ? current : [...current, { id, url, title: `${rel.split("/").pop()} · ${sourceRoot.split("/").pop()}`, projectRoot: owner }]);
+    setActiveTab(id); revealAtelierTab(id);
+  }
   /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
    * Zotero → URL viewer avec `path` (stockage servi) ; fichier de projet →
    * URL viewer simple. Même identité d'onglet que openFileTab. */
@@ -3306,10 +3339,7 @@ export default function App() {
     // contexte et ses paramètres, reste modifiable/supprimable et ne crée pas
     // encore de bulle dans la timeline.
     if (mode === "queue" && activeId && workingSinceRef.current[activeId] != null) {
-      const additionalDirectories = settingsRef.current.additionalDirectories
-        .split(/\r?\n|,/)
-        .map((dir) => dir.trim())
-        .filter(Boolean);
+      const additionalDirectories = projectWritableDirectories(activeProject, settingsRef.current);
       enqueueTurn(composerDraftKey(activeId, activeProject), {
         id: crypto.randomUUID(),
         prompt: displayPrompt,
@@ -3528,10 +3558,7 @@ export default function App() {
             : []),
         ]
       : undefined;
-    const additionalDirectories = settingsRef.current.additionalDirectories
-      .split(/\r?\n|,/)
-      .map((dir) => dir.trim())
-      .filter(Boolean);
+    const additionalDirectories = projectWritableDirectories(activeProject, settingsRef.current);
     setAttachments([]);
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
@@ -3939,6 +3966,7 @@ export default function App() {
   // conversation en cours.
   function consigneAJour(actif: ConsigneDuFil | null | undefined): ConsigneDuFil | null {
     if (!actif) return null;
+    if (actif.composition || actif.selection) return actif;
     const c = settingsRef.current.consignes.find((x) => x.id === actif.id);
     return c ? { id: c.id, texte: c.texte } : actif;
   }
@@ -4267,6 +4295,7 @@ export default function App() {
           // n'est plus atteignable — depuis que les réglages sont une
           // feuille modale, le Rail vit sous le voile et Base UI Dialog le
           // rend `inert` pendant que la feuille est ouverte (clic bloqué).
+          onProjectSettings={setProjectSettingsRoot}
           onSettings={handleOpenSettings}
           onSetMeta={handleSetProjMeta}
           onRemoveProject={handleRemoveProject}
@@ -4318,6 +4347,7 @@ export default function App() {
       </LazyBoundary>
   ) : (
         <Sidebar
+          onProjectSettings={setProjectSettingsRoot}
           projects={projects}
           threads={allThreads}
           unread={unread}
@@ -4420,9 +4450,18 @@ export default function App() {
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
   const overlayOpen = showSettings || paletteOpen || qaMode === "open" || pluginsOpen
-    || newChatRequest != null || articleDialogOpen;
+    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null;
+  function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
+    if (!projectSettingsRoot) return;
+    const next = { ...settingsRef.current, projectFolders: { ...settingsRef.current.projectFolders, [projectSettingsRoot]: value } };
+    settingsRef.current = next;
+    setSettings(next);
+    // Same WebSocket as send: persist the scope before a following chat turn.
+    if (ws.current?.readyState === 1) ws.current.send(JSON.stringify({ type: "saveSettings", settings: buildMirrorSettings(next) }));
+  }
   const overlaysNode = (
     <>
+      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders} /></LazyBoundary>}
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
           `if (showSettings) return`) — la feuille se pose ici, par-dessus
           l'arbre monté, comme les autres surcouches de ce fragment. */}
@@ -4819,6 +4858,11 @@ export default function App() {
             <div className="atelier-host">
             <AtelierPane
               key={activeProject}
+              galleryDir={settings.galleryPath}
+              galleryExts={settings.galleryExts}
+              projectFolders={activeProject ? settings.projectFolders?.[activeProject] : undefined}
+              onProjectSettings={() => { if (activeProject) setProjectSettingsRoot(activeProject); }}
+              onOpenSourceFile={openSourceFile}
               url={atelierUrl ?? ""}
               layout={layout}
               onToggleExpand={() => setLayout((l) => (l === "atelier" ? "split" : "atelier"))}

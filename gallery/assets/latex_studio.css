@@ -1,13 +1,14 @@
 :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px}
+  button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 10px;height:44px;box-sizing:border-box;
-         display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;
+         display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0;
          overflow:hidden;white-space:nowrap}
   header .grp{display:flex;gap:3px;align-items:center;flex:none}
   header .sep{width:1px;height:18px;background:var(--border);flex:none;margin:0 3px}
   header button{background:transparent;color:var(--muted);border:1px solid transparent;
-                border-radius:var(--radius-control);padding:0 10px;height:var(--control-height);font-size:12px;cursor:pointer;flex:none}
+                border-radius:var(--radius-control);padding:0 10px;height:var(--control-height);font-size:var(--fs-body-s, 12px);cursor:pointer;flex:none}
   header button:hover{color:var(--txt);background:var(--border)}
   header button:active:not(:disabled){transform:scale(.96)}
   header button:focus-visible{outline:2px solid var(--toolbar-active-text);outline-offset:1px}
@@ -16,12 +17,12 @@
   header button.on{background:var(--border);color:var(--txt)}
   .modeseg{display:inline-flex;height:28px;padding:2px;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex:none;box-sizing:border-box;background:color-mix(in srgb,var(--card) 82%,var(--bg))}
   /* Icônes seules : 26 px carrés au lieu de 12 px de padding par libellé. */
-  .modeseg button{border:none!important;border-radius:6px!important;height:22px;width:26px;padding:0;font-size:12px;
+  .modeseg button{border:none!important;border-radius:6px!important;height:22px;width:26px;padding:0;font-size:var(--fs-body-s, 12px);
     display:inline-flex;align-items:center;justify-content:center}
   .modeseg button svg{width:14px;height:14px}
   .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card));color:var(--txt)}
   header select{background:transparent;color:var(--txt);border:1px solid var(--border);
-                border-radius:6px;padding:0 6px;height:26px;font-size:12px;cursor:pointer;flex:none}
+                border-radius:6px;padding:0 6px;height:26px;font-size:var(--fs-body-s, 12px);cursor:pointer;flex:none}
   #build{width:30px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0;
     background:transparent;color:var(--muted);border:1px solid transparent}
   #build svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;
@@ -29,7 +30,7 @@
   #build:hover{background:var(--border);border-color:transparent;color:var(--txt)}
   #popPdf{padding:0 8px}
   #fileIdentity{position:relative;display:inline-flex;align-items:center;min-width:0;flex:none}
-  #fname{font-size:13px;font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
+  #fname{font-size:var(--fs-body, 13px);font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
   header .sep{display:none}
   #toolbarActions{gap:2px}
   #moreBtn,#texcBtn,#rewrapAllBtn,#popPdf{width:30px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0}
@@ -48,7 +49,7 @@
   #state.dirty{color:var(--muted)}
   #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
            background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
-           font-size:12px;color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
+           font-size:var(--fs-body-s, 12px);color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
   #helpPop b{color:var(--txt);font-weight:600}
   @media (max-width: 640px){ #state{display:none} }
   /* Une comparaison ne change jamais l'empreinte de la barre. En espace serré,
@@ -141,19 +142,19 @@
   #pickerBox{background:var(--card);border:1px solid var(--border);border-radius:10px;width:520px;
              max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
              box-shadow:0 8px 40px rgba(0,0,0,.6)}
-  #pickerPath{padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);
+  #pickerPath{padding:10px 14px;font-size:var(--fs-body-s, 12px);color:var(--muted);border-bottom:1px solid var(--border);
               white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #pickerList{overflow-y:auto;flex:1}
-  #pickerList div{padding:7px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px}
+  #pickerList div{padding:7px 14px;font-size:var(--fs-body, 13px);cursor:pointer;display:flex;gap:8px}
   #pickerList div:hover{background:var(--border)}
   #pickerList .d{color:var(--accent)}
   /* selection pill + annotation card (same language as the gallery/HTML overlay) */
   #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
       background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;
-      box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:13px;user-select:none;-webkit-user-select:none}
-  #selPill .nb{font-size:13px;flex:none;line-height:1}
+      box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:var(--fs-body, 13px);user-select:none;-webkit-user-select:none}
+  #selPill .nb{font-size:var(--fs-body, 13px);flex:none;line-height:1}
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
-      font-size:13px;line-height:1.45;padding:0;resize:none;font-family:inherit;height:20px;max-height:120px}
+      font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
   #selPill textarea::placeholder{color:#6d7480}
   #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
   #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
@@ -161,17 +162,17 @@
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);font-size:13px;flex:none}
+      border:1px solid #3a4150;color:var(--muted);font-size:var(--fs-body, 13px);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:#e8823a;color:#e8823a}
-  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:15px;flex:none}
+  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
   #selPill .go:hover{background:#e0714a}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
-      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:13px}
-  #tgMenu .hd{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:var(--fs-body, 13px)}
+  #tgMenu .hd{font-size:var(--fs-label, 11px);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
   #tgMenu .it:hover{background:rgba(255,255,255,.06)}
-  #tgMenu .it .app{flex:none;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
       color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:#8ab4ff}
@@ -185,7 +186,7 @@
   #diffGrp #diffRestore{order:3}
   #diffGrp #dvHist{order:4}
   #diffGrp #dvCommit.has-changes::after{content:"";position:absolute;right:4px;top:3px;width:4px;height:4px;border-radius:50%;background:var(--toolbar-active-text)}
-  #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
+  #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
   /* palette LaTeX/code plus riche (par-dessus material-darker) */
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
@@ -218,12 +219,12 @@
 
 /* ---- option B : status bar + menus (sobre) ---- */
 #statusbar{display:flex;gap:16px;align-items:center;padding:2px 12px;min-height:22px;
-  background:#1a1d22;border-top:1px solid #333a45;font-size:11px;color:#868d9a;
+  background:#1a1d22;border-top:1px solid #333a45;font-size:var(--fs-label, 11px);color:#868d9a;
   font-variant-numeric:tabular-nums}
 #statusbar span{cursor:default}
 #sbWrap:hover,#sbRewrap:hover,#sbLint:hover{color:#dbdfe5;cursor:pointer}
 #sbRewrap.on{color:var(--accent)}
-#sbCompile{display:none;align-items:center;gap:6px;border-radius:999px;padding:1px 10px;font-size:11px;
+#sbCompile{display:none;align-items:center;gap:6px;border-radius:999px;padding:1px 10px;font-size:var(--fs-label, 11px);
   cursor:pointer;transition:background .13s,color .13s}
 #sbCompile .sbdot{width:6px;height:6px;border-radius:999px;background:currentColor;flex:none}
 #sbCompile.run{background:rgba(217,119,87,.14);color:#e5a389}
@@ -234,22 +235,22 @@
 @media (prefers-reduced-motion: reduce){ #sbCompile.run .sbdot{animation:none} }
 #sbConsole:hover{color:#dbdfe5;cursor:pointer}
 #wrapMenu{position:fixed;z-index:400;background:#1b1f26;border:1px solid #333a45;border-radius:10px;
-  padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#b6bdc7;display:none}
+  padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:var(--fs-body, 13px);color:#b6bdc7;display:none}
 #wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
 #wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:#dbdfe5}
 #wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #2c313a;margin-top:3px}
 #wrapMenu .wm-custom input{width:52px;background:#20242b;color:#dbdfe5;border:1px solid #3f3f46;
-  border-radius:4px;padding:2px 5px;font-size:12px;font-family:inherit}
+  border-radius:4px;padding:2px 5px;font-size:var(--fs-body-s, 12px);font-family:inherit}
 #sbLint.err{color:#e06c75}
 #sbLint.ok{color:#98c379}
 #morePop{position:fixed;top:40px;right:10px;z-index:400;background:#1b1f26;
   border:1px solid #333a45;border-radius:10px;padding:5px;min-width:220px;
-  box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;color:#b6bdc7}
+  box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:var(--fs-body, 13px);color:#b6bdc7}
 #morePop div{padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;gap:14px}
 #morePop div:hover{background:#2c313a}
-#morePop em{font-style:normal;color:#646d7b;font-size:11px}
+#morePop em{font-style:normal;color:#646d7b;font-size:var(--fs-label, 11px)}
 #lintPane{max-height:140px;overflow-y:auto;background:#1a1d22;border-top:1px solid #333a45;
-  font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:4px 0}
+  font:calc(var(--ui-base-size, 15px) * 0.76666667)/1.6 ui-monospace,Menlo,monospace;padding:4px 0}
 #lintPane div{padding:1px 12px;cursor:pointer;color:#b6bdc7}
 #lintPane div:hover{background:#2c313a}
 #lintPane .lc{color:#e06c75;margin-right:8px}
@@ -284,10 +285,10 @@
   #texcPop .tc-colors .sw-purple{background:rgba(170,140,224,.85)}
   #texcPop{position:fixed;z-index:310;display:none;box-sizing:border-box;width:min(326px,calc(100vw - 16px));background:var(--card);
     border:1px solid var(--border-strong,#3f4652);border-radius:10px;box-shadow:0 10px 34px rgba(0,0,0,.45);padding:10px 12px}
-  #texcPop .tc-quote{font:italic 11.5px/1.4 -apple-system,sans-serif;color:var(--muted);
+  #texcPop .tc-quote{font:italic calc(var(--ui-base-size, 15px) * 0.76666667)/1.4 var(--ui-font);color:var(--muted);
     border-left:2px solid var(--border);padding-left:8px;margin-bottom:7px;max-height:60px;overflow:hidden}
   #texcPop textarea{width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);
-    border-radius:7px;color:var(--txt);font:12.5px/1.5 -apple-system,sans-serif;padding:6px 8px;resize:vertical;min-height:52px;outline:none}
+    border-radius:7px;color:var(--txt);font:calc(var(--ui-base-size, 15px) * 0.83333333)/1.5 var(--ui-font);padding:6px 8px;resize:vertical;min-height:52px;outline:none}
   #texcPop .tc-row{display:flex;gap:4px;margin-top:8px;align-items:center}
   #texcPop .tc-sp{flex:1}
   #texcPop .tc-row button{border:none;background:transparent;color:var(--muted);width:26px;height:26px;
@@ -300,22 +301,22 @@
     background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
     box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
   #outline.open{display:block}
-  #outline .oh{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
+  #outline .oh{font-size:var(--fs-caption, 10px);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
   #outline .oi{display:block;width:100%;text-align:left;background:transparent;border:none;color:var(--muted);
-    font:12.5px/1.5 -apple-system,sans-serif;padding:3px 8px;border-radius:6px;cursor:pointer;
+    font:calc(var(--ui-base-size, 15px) * 0.83333333)/1.5 var(--ui-font);padding:3px 8px;border-radius:6px;cursor:pointer;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #outline .oi:hover{background:var(--card2);color:var(--txt)}
   #outline .oi.on{color:var(--accent)}
   #outline .l2{padding-left:20px}
-  #outline .l3{padding-left:32px;font-size:12px}
+  #outline .l3{padding-left:32px;font-size:var(--fs-body-s, 12px)}
   #texcPanel{display:none;position:absolute;top:6px;right:8px;z-index:70;width:300px;max-height:70%;
     background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
     box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
   #texcPanel.open{display:block}
   #texcPanel .tp-head{display:flex;align-items:center;gap:6px;padding:4px 8px 8px}
-  #texcPanel .tp-head .tp-title{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:1}
+  #texcPanel .tp-head .tp-title{font-size:var(--fs-caption, 10px);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:1}
   #texcPanel .tp-head button{background:transparent;border:1px solid var(--border);border-radius:6px;
-    color:var(--muted);font:11px -apple-system,sans-serif;padding:2px 8px;cursor:pointer;white-space:nowrap}
+    color:var(--muted);font:var(--fs-label, 11px) var(--ui-font);padding:2px 8px;cursor:pointer;white-space:nowrap}
   #texcPanel .tp-head button:hover{color:var(--txt);background:var(--card2)}
   #texcPanel .tp-head .tp-delall:hover{color:#e0726a}
   #texcPanel .tp-item{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:transparent;
@@ -323,24 +324,24 @@
   #texcPanel .tp-item:hover{background:var(--card2)}
   #texcPanel .tp-dot{width:8px;height:8px;border-radius:999px;flex-shrink:0;margin-top:4px}
   #texcPanel .tp-body{min-width:0}
-  #texcPanel .tp-quote{font:italic 11px/1.4 -apple-system,sans-serif;color:var(--muted);
+  #texcPanel .tp-quote{font:italic var(--fs-label, 11px)/1.4 var(--ui-font);color:var(--muted);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #texcPanel .tp-note{font:12px/1.4 -apple-system,sans-serif;color:var(--txt);margin-top:1px}
+  #texcPanel .tp-note{font:var(--fs-body-s, 12px)/1.4 var(--ui-font);color:var(--txt);margin-top:1px}
   #texcPanel .tp-x{background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 4px;
     border-radius:6px;margin-left:auto;flex-shrink:0}
   #texcPanel .tp-x:hover{color:#e0726a}
-  #texcPanel .tp-empty{font:12px -apple-system,sans-serif;color:var(--muted);padding:6px 8px}
+  #texcPanel .tp-empty{font:var(--fs-body-s, 12px) var(--ui-font);color:var(--muted);padding:6px 8px}
   /* ===== console de compilation ===== */
   #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
     flex-direction:column;min-height:120px}
   #texlog.open{display:flex}
   #texlog .tl-head{display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);
-    font-size:12px;color:var(--muted);flex-shrink:0}
+    font-size:var(--fs-body-s, 12px);color:var(--muted);flex-shrink:0}
   #texlog .tl-head b{color:var(--txt);font-weight:600}
   #texlog .tl-close{margin-left:auto;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px}
   #texlog .tl-close:hover{background:var(--border);color:var(--txt)}
   #texlog .tl-chat{margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--muted);
-    cursor:pointer;padding:2px 8px;border-radius:6px;font:11px var(--font,system-ui)}
+    cursor:pointer;padding:2px 8px;border-radius:6px;font:var(--fs-label, 11px) var(--ui-font)}
   #texlog .tl-chat:hover{background:var(--border);color:var(--txt)}
   #texlog .tl-chat+.tl-close{margin-left:6px}
   #texlog pre{flex:1;overflow:auto;margin:0;padding:10px 14px;font:11.5px/1.55 var(--code-font,"SF Mono",Menlo,monospace);
@@ -370,10 +371,10 @@
 
   #texreadFs button{width:22px;height:22px;padding:0;border:none;border-radius:999px;
     display:inline-flex;align-items:center;justify-content:center;
-    background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
+    background:transparent;color:var(--muted);font-size:var(--fs-body-s, 12px);cursor:pointer}
   #texreadFs button:hover{color:var(--txt);background:var(--border)}
   #texreadFs button:disabled{color:color-mix(in srgb,var(--muted) 40%,transparent);background:none;cursor:default}
-  #texreadFs .fs-val{min-width:24px;text-align:center;font-size:10px;color:var(--muted);
+  #texreadFs .fs-val{min-width:24px;text-align:center;font-size:var(--fs-caption, 10px);color:var(--muted);
     font-variant-numeric:tabular-nums;user-select:none}
 
   /* Trois fonds de lecture (sombre, sépia, clair) : toutes les couleurs de la
@@ -461,7 +462,7 @@
      place — invisible mais dans le flux, sa largeur poussait les traits hors
      de l'écran. */
   .tr-mark-label{flex:1 1 0;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap;font:10px/1.4 var(--ui-font,sans-serif);font-weight:500;
+    white-space:nowrap;font:var(--fs-caption, 10px)/1.4 var(--ui-font,sans-serif);font-weight:500;
     letter-spacing:.08em;text-transform:uppercase;color:var(--muted);opacity:0;
     transition:opacity 140ms ease}
   .tr-marge:hover .tr-mark-label,.tr-marge:focus-within .tr-mark-label{
@@ -471,7 +472,7 @@
      rail déplié, au survol ou au focus de la rangée. */
   .tr-mk-more{flex:none;display:none;align-items:center;justify-content:center;
     width:16px;height:16px;border-radius:6px;cursor:pointer;color:var(--muted);
-    font:10px/1 var(--ui-font,sans-serif);letter-spacing:.05em;opacity:0;
+    font:var(--fs-caption, 10px)/1 var(--ui-font,sans-serif);letter-spacing:.05em;opacity:0;
     transition:opacity 140ms ease,background 140ms ease,color 140ms ease}
   .tr-marge:hover .tr-mk-more,.tr-marge:focus-within .tr-mk-more{display:flex}
   .tr-marge:hover .tr-mark:hover .tr-mk-more,.tr-mark:focus-within .tr-mk-more,
@@ -524,7 +525,7 @@
   /* compteur ⌥↓/⌥↑ transitoire (la barre d'état de l'hôte est masquée en Lecture) */
   .tr-navpill{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:6;
     padding:4px 12px;border-radius:999px;background:var(--card);box-shadow:0 4px 16px rgba(0,0,0,.25);
-    font-size:11px;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums;
+    font-size:var(--fs-label, 11px);font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums;
     opacity:0;pointer-events:none;transition:opacity .15s}
   .tr-navpill.show{opacity:1}
   @media (prefers-reduced-motion: reduce){.tr-navpill{transition:none}}

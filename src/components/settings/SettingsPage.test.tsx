@@ -76,7 +76,7 @@ describe("SettingsPage — navigation et fermeture", () => {
     // Panneau chargé en lazy depuis le refactor : attendre la RÉSOLUTION du
     // champ de recherche avant d'agir dessus, plutôt que d'agir puis
     // d'espérer — sous charge, l'import du chunk peut dépasser le défaut.
-    const search = await screen.findByPlaceholderText(t("settings.search-theme"), {}, { timeout: 5000 });
+    const search = await screen.findByPlaceholderText(t("settings.search"), {}, { timeout: 5000 });
     search.focus();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(p.onClose).not.toHaveBeenCalled();
@@ -121,6 +121,28 @@ describe("SettingsPage — actions destructives confirmées", () => {
     fireEvent.click(screen.getByText(t("action.restore-defaults")));
     await vi.waitFor(() => expect(tauriConfirm).toHaveBeenCalled());
     expect(p.onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsPage — recherche", () => {
+  it("ouvre le repli contenant un réglage trouvé et lui donne le focus", async () => {
+    renderUi(<SettingsPage {...props()} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: t("settings.search") }), { target: { value: "interligne" } });
+    fireEvent.click(screen.getByRole("button", { name: /Interligne.*Apparence/ }));
+    const slider = await screen.findByRole("slider", { name: "Interligne" });
+    await vi.waitFor(() => expect(slider).toHaveFocus());
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "dossiers" } });
+    fireEvent.click(screen.getByRole("button", { name: /Dossiers Codex globaux/ }));
+    const field = await screen.findByRole("textbox", { name: /Dossiers Codex globaux/ });
+    await vi.waitFor(() => expect(field).toHaveFocus());
+  });
+  it("permet de sortir d'une recherche vide par la navigation", async () => {
+    renderUi(<SettingsPage {...props()} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "xyznonexistent" } });
+    expect(screen.getByText(t("settings.search-empty"))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apparence" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(await screen.findByRole("slider", { name: "Interligne" })).toBeInTheDocument();
   });
 });
 

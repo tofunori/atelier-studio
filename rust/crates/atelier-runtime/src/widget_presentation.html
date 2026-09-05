@@ -1,0 +1,157 @@
+<!-- atelier-widget-presentation-v1 -->
+<style>
+  :root {
+    font-size: var(--widget-font-size, 13.5px);
+    --widget-label-size: max(12px, .9rem);
+    --widget-value-size: 1.2rem;
+  }
+  html, body { height: auto !important; min-height: 0 !important; }
+  body { display: flow-root; box-sizing: border-box; font-size: 1rem !important;
+    line-height: var(--widget-line-height, 1.6); overflow-wrap: anywhere; }
+  button, input, select, textarea { box-sizing: border-box; max-width: 100%; font: inherit; }
+  button, select, textarea, input:not([type=checkbox]):not([type=radio]) { min-height: 32px; }
+  button { white-space: normal; }
+  input[type=range] { width: 100%; accent-color: var(--accent, #e77f3e); }
+  input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
+  :where(button, input, select, textarea):focus-visible { outline: 2px solid var(--accent, #e77f3e); outline-offset: 2px; }
+  @media (max-width: 420px) {
+    button, select, textarea, input:not([type=checkbox]):not([type=radio]) { min-height: 36px; }
+  }
+</style>
+<script>
+(function () {
+  var failed = false;
+  function reportError(event) {
+    // A deferred ResizeObserver delivery is a browser scheduling notice, not
+    // an exception from the widget's interaction code.
+    if (event && (event.message === "ResizeObserver loop completed with undelivered notifications." ||
+        event.message === "ResizeObserver loop limit exceeded")) return;
+    if (failed) return;
+    failed = true;
+    // No stack or user data crosses the boundary; the source view remains available.
+    parent.postMessage({ source: "atelier-widget", type: "error" }, "*");
+  }
+  window.addEventListener("error", reportError);
+  window.addEventListener("unhandledrejection", reportError);
+  var scheduled = false;
+  var lastHeight = -1;
+  var lastViewportHeight = -1;
+  var lastWidth = -1;
+  function scheduleMeasure() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(function () {
+      scheduled = false;
+      // documentElement.scrollHeight is at least the viewport height: using it
+      // would prevent a panel from shrinking after content is collapsed.
+      var height = Math.ceil(document.body.getBoundingClientRect().height);
+      var viewportHeight = window.innerHeight;
+      var width = window.innerWidth;
+      // Legacy fragments may contain 100vh children. A host height change
+      // that produces the same content-height delta is feedback, not growth.
+      var feedback = lastHeight > 0 && width === lastWidth &&
+        viewportHeight !== lastViewportHeight &&
+        Math.abs((height - lastHeight) - (viewportHeight - lastViewportHeight)) <= 1;
+      var changed = Math.abs(height - lastHeight) > 1;
+      lastHeight = height;
+      lastViewportHeight = viewportHeight;
+      lastWidth = width;
+      if (height > 0 && changed && !feedback) {
+        parent.postMessage({ source: "atelier-widget", type: "resize", height: height }, "*");
+      }
+    });
+  }
+  window.addEventListener("DOMContentLoaded", function () {
+    new ResizeObserver(scheduleMeasure).observe(document.body);
+    scheduleMeasure();
+  });
+  window.addEventListener("resize", scheduleMeasure);
+  window.addEventListener("message", function (event) {
+    if (event.source === parent && event.data && event.data.source === "atelier-host") scheduleMeasure();
+  });
+})();
+</script>
+<style>
+  input[type=range].atelier-range { display:inline-block !important;width:calc(100% - 9ch) !important;vertical-align:middle;margin-right:1ch !important;appearance:none !important; -webkit-appearance:none !important; height:32px !important; padding:0 !important; border:0 !important; border-radius:0 !important; background:repeating-linear-gradient(90deg, var(--muted,#9299a1) 0 1px,transparent 1px 5%) center / 100% 9px no-repeat !important; cursor:ew-resize; box-shadow:none !important; }
+  input[type=range].atelier-range::-webkit-slider-runnable-track { height:1px;background:transparent;border:0; }
+  input[type=range].atelier-range::-webkit-slider-thumb { appearance:none;-webkit-appearance:none;width:3px;height:23px;margin-top:-11px;border:0;border-radius:1px;background:var(--accent,#e88b50);box-shadow:0 0 0 3px var(--bg,#24282d); }
+  input[type=range].atelier-range::-moz-range-track { height:1px;background:transparent;border:0; }
+  input[type=range].atelier-range::-moz-range-thumb { width:3px;height:23px;border:0;border-radius:1px;background:var(--accent,#e88b50); }
+  input[type=range].atelier-range-hidden { display:none !important; }
+  input.atelier-number { display:inline-block;width:7ch !important;max-width:100%;min-height:30px !important;padding:3px 5px !important;border:0 !important;border-bottom:1px dotted var(--muted,#9299a1) !important;border-radius:3px !important;background:transparent !important;color:inherit !important;font:inherit !important;font-variant-numeric:tabular-nums;text-align:right;cursor:ew-resize;touch-action:none;appearance:textfield;-moz-appearance:textfield;box-shadow:none !important; }
+  input.atelier-number::-webkit-inner-spin-button,input.atelier-number::-webkit-outer-spin-button { -webkit-appearance:none;margin:0; }
+  input.atelier-number:hover { border-bottom-color:var(--accent,#e88b50) !important;background:color-mix(in srgb,var(--accent,#e88b50) 6%,transparent) !important; }
+  input.atelier-number:focus { cursor:text; }
+  input.atelier-number:disabled,input.atelier-range:disabled { opacity:.45;cursor:default; }
+</style>
+<script>
+(function () {
+  // Keep each original range as the source of truth, including its handlers.
+  var controls = new Map();
+  function enhance(range) {
+    if (controls.has(range)) return;
+    var number = document.createElement('input');
+    number.type = 'number'; number.className = 'atelier-number';
+    number.title = 'Glisser pour ajuster · cliquer pour saisir';
+    var labels = Array.from(range.labels || []);
+    number.setAttribute('aria-label', range.getAttribute('aria-label') || labels.map(function (l) { return l.textContent.trim(); }).join(' ') || range.name || 'Valeur du paramètre');
+    if (range.hasAttribute('aria-labelledby')) number.setAttribute('aria-labelledby',range.getAttribute('aria-labelledby'));
+    if (range.hasAttribute('aria-describedby')) number.setAttribute('aria-describedby',range.getAttribute('aria-describedby'));
+    var min, max, step, dragging = null;
+    function sync() {
+      min = range.min === '' ? 0 : Number(range.min); max = range.max === '' ? 100 : Number(range.max);
+      if (!Number.isFinite(min)) min=0; if (!Number.isFinite(max)) max=100;
+      step = range.step === 'any' ? 0 : Number(range.step || 1); if (!Number.isFinite(step) || step < 0) step=1;
+      number.min=String(min); number.max=String(max); number.step=range.step || '1'; number.disabled=range.matches(':disabled');
+      if (document.activeElement !== number || dragging) number.value=range.value;
+      var mode=range.getAttribute('data-atelier-control');
+      var ruler=mode==='ruler' || (mode!=='scrub' && min===0 && max===100);
+      range.classList.add('atelier-range'); range.classList.toggle('atelier-range-hidden',!ruler);
+    }
+    function apply(value, commit) {
+      if (range.matches(':disabled') || !Number.isFinite(value)) return;
+      if (step>0) value=min+Math.round((value-min)/step)*step;
+      value=Math.max(min,Math.min(max,Number(value.toPrecision(12))));
+      range.value=String(value);
+      range.dispatchEvent(new Event('input',{bubbles:true}));
+      if (commit) range.dispatchEvent(new Event('change',{bubbles:true}));
+      sync();
+    }
+    range.insertAdjacentElement('afterend',number);
+    controls.set(range,{number:number,sync:sync});
+    range.addEventListener('input',function(){if(document.activeElement!==number || dragging)number.value=range.value;sync();});
+    range.addEventListener('change',function(){if(document.activeElement!==number || dragging)number.value=range.value;sync();});
+    // A widget may restore state by setting .value without dispatching an event.
+    var descriptor=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+    if (!Object.getOwnPropertyDescriptor(range,'value')) Object.defineProperty(range,'value',{
+      configurable:true,get:function(){return descriptor.get.call(this);},
+      set:function(value){descriptor.set.call(this,value);if(document.activeElement!==number) number.value=this.value;}
+    });
+    number.addEventListener('input',function(e){e.stopPropagation();if(number.value!=='' && number.validity.valid)apply(number.valueAsNumber,false);});
+    number.addEventListener('change',function(e){e.stopPropagation();apply(number.valueAsNumber,true);number.value=range.value;});
+    number.addEventListener('blur',function(){number.value=range.value;});
+    number.addEventListener('keydown',function(e){if(e.key==='Escape'){number.value=range.value;number.blur();}if(e.key==='Enter'){apply(number.valueAsNumber,true);number.value=range.value;number.blur();}});
+    number.addEventListener('pointerdown',function(e){
+      if(e.button!==0 || number.disabled || document.activeElement===number) return;
+      dragging={x:e.clientX,value:Number(range.value),moved:false};number.setPointerCapture(e.pointerId);e.preventDefault();
+    });
+    number.addEventListener('pointermove',function(e){if(!dragging)return;var dx=e.clientX-dragging.x;if(Math.abs(dx)>3)dragging.moved=true;if(dragging.moved)apply(dragging.value+dx*(max-min)/240,false);});
+    number.addEventListener('pointerup',function(){if(!dragging)return;var moved=dragging.moved;dragging=null;if(moved){range.dispatchEvent(new Event('change',{bubbles:true}));number.value=range.value;}else{number.focus();number.select();}});
+    number.addEventListener('pointercancel',function(){if(dragging && dragging.moved)range.dispatchEvent(new Event('change',{bubbles:true}));dragging=null;});
+    labels.forEach(function(label){label.addEventListener('click',function(e){if(range.classList.contains('atelier-range-hidden') && e.target!==number){e.preventDefault();number.focus();}});});
+    sync();
+  }
+  function scan() {
+    controls.forEach(function(control,range){if(!range.isConnected){control.number.remove();controls.delete(range);}else control.sync();});
+    document.querySelectorAll('input[type=range]').forEach(enhance);
+  }
+  function start(){scan();new MutationObserver(function(records){
+    if(records.some(function(record){
+      if(record.type==='attributes')return record.target.matches('input[type=range],fieldset');
+      return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node){return node.nodeType===1 && (node.matches('input[type=range]') || node.querySelector('input[type=range]'));});
+    }))scan();
+  }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['min','max','step','disabled','value','data-atelier-control']});document.addEventListener('reset',function(){setTimeout(scan,0);});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
+<!-- /atelier-widget-presentation -->

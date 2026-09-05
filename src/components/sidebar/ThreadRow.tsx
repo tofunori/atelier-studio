@@ -207,7 +207,7 @@ export function ThreadRow(p: {
           <IconButton
             size="s"
             label={p.favorite ? t("action.remove-favorite") : t("action.add-favorite")}
-            className={cx("pnav-act", p.favorite && "on")}
+            className={cx("pnav-act pnav-favorite", p.favorite && "on")}
             onClick={p.onToggleFavorite}
           >
             <StarGlyph filled={p.favorite} />

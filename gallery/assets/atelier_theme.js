@@ -67,6 +67,7 @@
     Object.keys(LEGACY).forEach(function (semantic) {
       if (vars[semantic]) root.style.setProperty(LEGACY[semantic], vars[semantic]);
     });
+    if (vars["--ui-base-size"]) root.style.fontSize = vars["--ui-base-size"];
     applyShadcnAliases(root);
     root.dataset.atelierTheme = String(message.version || 1);
     root.style.colorScheme = message.colorScheme === "light" ? "light" : "dark";

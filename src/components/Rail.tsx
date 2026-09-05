@@ -45,6 +45,7 @@ export default function Rail(p: {
   onAddProject: () => void;
   onExpand: () => void;
   onSettings: () => void;
+  onProjectSettings?: (root: string) => void;
   onSetMeta: (root: string, meta: ProjMeta) => void;
   onRemoveProject: (root: string) => void;
   onReorder: (from: string, to: string) => void;
@@ -174,6 +175,7 @@ export default function Rail(p: {
           root={menu.root}
           meta={p.meta[menu.root]}
           onSetMeta={p.onSetMeta}
+          onProjectSettings={p.onProjectSettings}
           onRemove={p.onRemoveProject}
           onClose={() => setMenu(null)}
           anchor={{ x: 56, y: menu.y }}

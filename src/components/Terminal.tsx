@@ -63,7 +63,7 @@ export default function Terminal(p: {
       // (par ex. ⌥É → /). Le mode Meta de xterm avale ces compositions.
       macOptionIsMeta: false,
       allowProposedApi: true,
-      theme: xtermThemeFor(loadSettings().themePreset),
+      theme: xtermThemeFor(loadSettings(), window.matchMedia("(prefers-color-scheme: dark)").matches),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -143,8 +143,8 @@ export default function Terminal(p: {
       tryOpen();
     }, 500);
 
-    const onTheme = (e: Event) => {
-      term.options.theme = xtermThemeFor((e as CustomEvent).detail as string);
+    const onTheme = () => {
+      term.options.theme = xtermThemeFor(loadSettings(), window.matchMedia("(prefers-color-scheme: dark)").matches);
       webgl?.clearTextureAtlas();
     };
     window.addEventListener("app-theme-changed", onTheme);

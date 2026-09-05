@@ -14,6 +14,18 @@ accent orange réservé aux actions et états transitoires ». La qualité
 vient du rythme, de la typographie, des surfaces et des états — jamais d'effets
 spectaculaires.
 
+## Mise à jour du 5 septembre 2026 — sobriété et raffinement
+
+Les tokens actuels de `src/styles/tokens.css` et `src/App.css` font autorité sur les valeurs historiques ci-dessous. Les panneaux partagent le même fond et se séparent par les gouttières de 4 px. La sélection conserve son signal discret actuel.
+
+- Libellés et menus en 400 ; titres locaux en 500. Réserver 600 au gras sémantique de la prose ou du code, pas aux commandes.
+- Composeur neutre au repos ; accent au focus de saisie. Boutons secondaires sans cadre permanent lorsque fond et survol suffisent.
+- Gris désactivé réservé aux contrôles indisponibles. Placeholder et métadonnées nécessaires utilisent le gris secondaire lisible.
+- Échelle typographique de l’interface ajustable, avec planchers de lisibilité ; chat et éditeurs conservent leurs réglages propres.
+- Galerie : noms complets accessibles, fin distinctive et extension préservées à la largeur réelle, métadonnées compactes au repos. Les images scientifiques restent intactes.
+- Les vues intégrées reçoivent les valeurs effectives du shell, y compris la réduction du mouvement. Aucun second jeu de valeurs numériques pour les contrôles et menus.
+- Sous-menus d’action compacts, graisse normale, contour et ombre légers. Les inspecteurs contenant des documents conservent la place nécessaire à leur lecture.
+
 ## 1. Promesse
 
 « Reprendre une recherche, comprendre son état, agir. » Chaque écran doit

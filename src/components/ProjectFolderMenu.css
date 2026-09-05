@@ -1,0 +1,6 @@
+.project-folder-menu [role^="menuitem"] { cursor:pointer; }
+.project-folder-menu [role^="menuitem"]:is(:hover,:focus-visible,[data-highlighted]) { background:color-mix(in srgb,var(--foreground) 12%,transparent);color:var(--foreground); }
+.project-folder-menu [role^="menuitem"]:active { background:color-mix(in srgb,var(--foreground) 18%,transparent); }
+[data-project-folder-menu] { width:44px;flex:none;gap:4px; }
+[data-project-folder-menu] svg:last-child { width:11px; }
+[data-project-folder-menu][data-popup-open] { color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent); }

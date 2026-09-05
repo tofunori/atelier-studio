@@ -1,6 +1,6 @@
 // Test unitaire du plugin rehype de fondu par mots (rehypeWordFade.ts).
 // Task 5 (perf lot 2) : borne le nombre de <span class="sw"> animés aux
-// FADE_WINDOW (40) DERNIERS mots du bloc — au-delà, texte nu inchangé.
+// FADE_WINDOW (40) DERNIERS mots du bloc — au-delà, spans sans animation.
 // Appelle directement le transformer sur un arbre HAST minimal (pas besoin
 // du pipeline unified complet, cf. src/components/chat/md.wordFade.test.tsx
 // pour la couverture d'intégration via MdBody/ReactMarkdown).
@@ -60,10 +60,11 @@ describe("rehypeWordFade — fenêtre bornée aux 40 derniers mots", () => {
     expect(swWords(tree).length).toBe(40);
   });
 
-  it("seuls les 40 DERNIERS mots (ordre document) reçoivent un span — les précédents restent du texte nu", () => {
+  it("seuls les 40 DERNIERS mots sont animés, les spans précédents restent en place", () => {
     const words = Array.from({ length: 50 }, (_, i) => `mot${i + 1}`);
     const tree = transform(textTree(words.join(" ")));
     expect(swWords(tree)).toEqual(words.slice(10)); // indices 10..49 = les 40 derniers
+    expect(tree.children?.filter((child) => child.tagName === "span")).toHaveLength(50);
   });
 
   it("ordre et texte intégral inchangés après bornage (sélection/copier-coller stables)", () => {

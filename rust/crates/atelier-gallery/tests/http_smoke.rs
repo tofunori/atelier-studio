@@ -502,6 +502,27 @@ fn le_favori_bascule_sans_effacer_le_reste_de_l_etat() {
     }
 }
 
+#[test]
+fn gallery_presentation_and_saved_view_survive_partial_writes() {
+    let srv = start_server();
+    let payload = r#"{"presentation":{"mode":"list","size":240,"rows":"compact","widths":{"name":340}},"filePresets":[{"id":"view-1","label":"Brouillons","extensions":["png"],"view":{"favorites":true,"status":"draft","collection":"Figures","folder":"figs","query":"albedo","sort":"name","rate":0,"archive":false,"hidden":false}}]}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(payload)).0, 200);
+    assert_eq!(http(srv.port, "POST", "/state", Some(r#"{"favs":["plot.png"]}"#)).0, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["presentation"]["mode"], "list");
+    assert_eq!(state["presentation"]["widths"]["name"].as_f64(), Some(340.0));
+    assert_eq!(state["filePresets"][0]["view"]["query"], "albedo");
+    assert_eq!(state["filePresets"][0]["view"]["favorites"], true);
+    let bounds=r#"{"presentation":{"mode":"bad","size":99999,"rows":"bad","widths":{"name":-1}},"filePresets":[]}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(bounds)).0, 200);
+    let (_,body)=http(srv.port,"GET","/state",None);
+    let state:serde_json::Value=serde_json::from_str(&body).unwrap();
+    assert_eq!(state["presentation"]["size"].as_f64(),Some(320.0));
+    assert_eq!(state["presentation"]["widths"]["name"].as_f64(),Some(70.0));
+    assert_eq!(state["filePresets"].as_array().unwrap().len(),0);
+}
+
 /// Filtre de types par PROJET (2026-08-24). Le panneau Filtres ne gardait son
 /// état que dans le localStorage du WebView, qui ne survit pas au redémarrage
 /// de l'app (PIEGES_CONNUS §1) : « pas de PNG dans FRQNT » était perdu à chaque

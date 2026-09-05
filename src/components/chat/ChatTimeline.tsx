@@ -292,6 +292,22 @@ export function ChatTimeline(p: {
   }, [quote?.x, quote?.y, quote?.text, messagesRef]);
   // éditeur de commentaire : ouvert par « Annoter » ou par un clic sur une pastille
   const [noteDraft, setNoteDraft] = React.useState<{ x: number; y: number; text: string; note: string } | null>(null);
+  const annoEditorRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!noteDraft) return;
+    const editor = annoEditorRef.current;
+    if (!editor) return;
+    const place = () => {
+      const { width, height } = editor.getBoundingClientRect();
+      editor.style.left = `${Math.max(width / 2 + 12, Math.min(window.innerWidth - width / 2 - 12, noteDraft.x))}px`;
+      editor.style.top = `${Math.max(12, Math.min(window.innerHeight - height - 12, noteDraft.y - 44))}px`;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(editor);
+    window.addEventListener("resize", place);
+    return () => { observer.disconnect(); window.removeEventListener("resize", place); };
+  }, [noteDraft?.x, noteDraft?.y, noteDraft?.text]);
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
@@ -1322,10 +1338,12 @@ export function ChatTimeline(p: {
         </RowButton>
       ))}
       {noteDraft && (
-        <div className="anno-editor" style={{ left: noteDraft.x, top: noteDraft.y - 44 }}>
-          <div className="anno-editor-src">{noteDraft.text}</div>
+        <div className="anno-editor" ref={annoEditorRef} role="dialog" aria-label={t("chat.annotate")} onKeyDown={e => {if(e.key === "Escape") {e.stopPropagation();setNoteDraft(null);setQuote(null);}}} style={{ left: noteDraft.x, top: noteDraft.y - 44 }}>
+          <div className="anno-editor-heading"><span>{t("chat.annotate")}</span><IconButton size="s" label={t("action.close")} onClick={() => {setNoteDraft(null);setQuote(null);}}><CloseIcon/></IconButton></div>
+          <blockquote className="anno-editor-src" tabIndex={0}>{noteDraft.text}</blockquote>
           <textarea
             className="anno-editor-note"
+            aria-label={t("chat.annotation-placeholder")}
             autoFocus
             value={noteDraft.note}
             placeholder={t("chat.annotation-placeholder")}

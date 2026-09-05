@@ -26,9 +26,12 @@ Deux widgets d'affilée ne doivent pas se ressembler. Si ton dernier panneau
 - Les données sont écrites en dur dans le fragment. RÈGLE SCIENTIFIQUE : si tu
   n'as pas les vraies valeurs, dis-le dans le panneau (« illustratif ») — ne
   présente jamais des nombres inventés comme des résultats réels.
-- `height` obligatoire, 120-900 px. Budget : ~40 px par rangée de contrôles,
-  ~90-150 px par graphique, ~30 px par rangée de stats. Ce qui dépasse scrolle
-  DANS le panneau.
+- `height` obligatoire, 120-900 px : c’est la place réservée pendant le chargement.
+  Ensuite Atelier mesure le contenu et ajuste la hauteur, plafonnée à 900 px.
+  Au-delà, le contenu défile dans le panneau ; le plein écran reste disponible.
+  Garde le contenu dans le flux normal : pas de hauteur `100vh`, `100%` ou
+  `min-height` liée à la hauteur du panneau. Sinon sa mesure dépend d’elle-même.
+  Prévois une colonne à petite largeur, sans largeur minimale fixe.
 
 ## 2. Budgets de complexité
 
@@ -77,9 +80,23 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
 
 ### Typographie et espacement
 
-- Tailles : 10 px (graduations), 11 px (libellés), 12-13 px (corps),
-  15 px (la grande valeur qui change). Rien entre, rien au-delà : c'est
-  l'échelle de l'app, un panneau qui en sort se repère au premier coup d'œil.
+- Le corps hérite de la taille de lecture du chat : `1rem` (13,5 px par défaut).
+  Ne fixe pas une taille en pixels sur le conteneur du widget.
+  Libellés et graduations : `var(--widget-label-size)` (au moins 12 px).
+  Valeur principale : `var(--widget-value-size)` (1,2 rem). Le thème et ces
+  tailles se mettent à jour sans rechargement lorsque les réglages changent.
+- Les `input[type=range]` reçoivent le style commun d’Atelier : valeur à
+  glisser et à saisir ; les plages 0–100 gardent aussi une réglette graduée.
+  Utilise `data-atelier-control="ruler"` lorsque les bornes sont utiles à lire,
+  ou `data-atelier-control="scrub"` pour une valeur seule. Garde `min`, `max`,
+  `step` et les handlers `input`/`change` sur le champ d’origine ; n’ajoute pas
+  de deuxième slider. Les unités restent dans le libellé accessible.
+- Les contrôles héritent de cette police et ont une hauteur minimale de 32 px
+  (36 px dans un panneau étroit). Ne réduis pas ces cibles. Les groupes de
+  contrôles utilisent `flex-wrap: wrap` ou une grille qui passe en une colonne.
+- Pour le texte SVG, utilise aussi `font-size:var(--widget-label-size)`.
+  Pour le canvas, mesure `getComputedStyle(document.documentElement).fontSize`
+  et redessine lors du redimensionnement ou d’un message de thème.
 - **Dans un SVG, ces tailles ne valent que si le viewBox est mesuré** (§4).
   Un `viewBox` fixe étiré à `width:100%` multiplie toute la figure — une
   étiquette écrite 8 arrive à 15 px au milieu d'une interface en 11 px.
@@ -117,8 +134,8 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
   avec `<svg id="g" style="width:100%;height:180px"></svg>`. Le panneau
   change de largeur (fenêtre, marge, épinglage) : sans `ResizeObserver` la
   figure se déforme au premier redimensionnement.
-- **Axes toujours étiquetés** : unité et grandeur, en 10-11 px
-  `var(--muted2)`. Un graphique sans axes est une décoration.
+- **Axes toujours étiquetés** : unité et grandeur, avec `font-size:var(--widget-label-size)`
+  et `var(--muted2)`. Un graphique sans axes est une décoration.
 - **Grille discrète** : lignes 1 px `var(--border)`, 3-5 lignes maximum.
 - **Échelle honnête** : commence à zéro pour des barres ; si tu tronques un
   axe, dis-le. Passe en logarithmique quand les valeurs couvrent plusieurs
@@ -134,6 +151,12 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
 
 ## 4bis. Finition (ce qui sépare « correct » de « pro »)
 
+- **Composition** : valeur principale et graphique d’abord, contrôles regroupés
+  ensuite, courte explication en dernier. Évite les cadres imbriqués : le chat
+  fournit déjà le cadre et le titre. Ne répète pas ce titre dans le fragment.
+- **Panneau étroit** : pas de libellé tronqué ni de contrôle hors champ.
+  Préfère des groupes qui se replient ; garde 12-16 px entre les sections.
+
 - **Nombres à la française** : espace fine pour les milliers (15 787), virgule
   décimale (0,139), unité collée au chiffre avec espace insécable (22 %,
   4,9 σ). Une précision UTILE : 2-3 chiffres significatifs, pas 6 décimales.
@@ -141,9 +164,9 @@ La sémantique ok/warn/hot ne compte pas comme accent — elle encode un état.
   `var(--muted)`), pas dans une légende séparée que l'œil doit aller chercher.
 - **Annote le point remarquable** : le creux, le croisement, le seuil — une
   courte étiquette avec un trait fin vaut mieux qu'un paragraphe.
-- **Hiérarchie dans le panneau** : la grande valeur qui change (15 px, 600,
-  accent) domine ; son libellé au-dessus en 10-11 px `var(--muted)` ; le
-  contexte en dessous en 10 px `var(--muted2)`. Trois niveaux, jamais plats.
+- **Hiérarchie dans le panneau** : la grande valeur qui change (`var(--widget-value-size)`, 600,
+  accent) domine ; son libellé au-dessus en `var(--widget-label-size)` et `var(--muted)` ; le
+  contexte en dessous en `var(--widget-label-size)` et `var(--muted2)`. Trois niveaux, jamais plats.
 - **États de survol** : un contrôle ou une zone cliquable réagit au survol
   (`opacity`, ou fond `var(--bg-card)`), transition 120-150 ms. Ce feedback
   discret est ce qui fait « vivant ».
@@ -175,8 +198,8 @@ mécaniques à adapter, pas des gabarits visuels à recopier.
 Quand la question est « qu'est-ce qui change si… entre 2-3 cas discrets ».
 ```html
 <div style="display:flex;gap:8px">
-  <label style="font-size:11px"><input type="radio" name="sc" value="a" checked> scénario A</label>
-  <label style="font-size:11px"><input type="radio" name="sc" value="b"> scénario B</label>
+  <label style="font-size:var(--widget-label-size)"><input type="radio" name="sc" value="a" checked> scénario A</label>
+  <label style="font-size:var(--widget-label-size)"><input type="radio" name="sc" value="b"> scénario B</label>
 </div>
 <svg id="g" style="width:100%;height:120px"></svg>
 <script>
@@ -193,9 +216,9 @@ new ResizeObserver(mesure).observe(g); mesure();
 Quand le TEMPS porte le sens : convergence, échantillonnage, accumulation.
 ```html
 <div style="display:flex;gap:8px;align-items:center">
-  <button id="run" style="font-size:11px">lancer</button>
-  <button id="rst" style="font-size:11px">réinitialiser</button>
-  <span id="n" style="font-size:11px;color:var(--muted,#90969d)">n = 0</span>
+  <button id="run" style="font-size:var(--widget-label-size)">lancer</button>
+  <button id="rst" style="font-size:var(--widget-label-size)">réinitialiser</button>
+  <span id="n" style="font-size:var(--widget-label-size);color:var(--muted,#90969d)">n = 0</span>
 </div>
 <canvas id="c" style="width:100%;height:150px"></canvas>
 <script>
@@ -214,21 +237,21 @@ document.getElementById("rst").addEventListener("click",function(){on=false;n=0;
 #### Exemple complet poli (forme simulation)
 
 ```html
-<div style="display:flex;flex-direction:column;gap:12px;font-size:13px;color:var(--fg,#dadee3)">
+<div style="display:flex;flex-direction:column;gap:12px;font-size:1rem;color:var(--fg,#dadee3)">
   <div style="display:flex;align-items:center;gap:12px">
-    <button id="run" style="font-size:11px;padding:4px 12px;border:1px solid var(--border,#34393f);border-radius:6px;background:transparent;color:var(--fg,#dadee3);cursor:pointer">lancer</button>
-    <span style="font-size:11px;color:var(--muted,#90969d)">ν</span>
+    <button id="run" style="font-size:var(--widget-label-size);padding:4px 12px;border:1px solid var(--border,#34393f);border-radius:6px;background:transparent;color:var(--fg,#dadee3);cursor:pointer">lancer</button>
+    <span style="font-size:var(--widget-label-size);color:var(--muted,#90969d)">ν</span>
     <input id="nu" type="range" min="1" max="30" value="2" style="flex:1;accent-color:var(--accent,#e77f3e)">
     <b id="nuv" style="font-variant-numeric:tabular-nums;min-width:22px;text-align:right">2</b>
   </div>
   <div style="display:flex;gap:24px">
-    <div><div style="font-size:10px;color:var(--muted2,#62666c)">moyenne courante</div>
-      <div id="m" style="font-size:15px;font-weight:600;color:var(--accent,#e77f3e);font-variant-numeric:tabular-nums">—</div></div>
-    <div><div style="font-size:10px;color:var(--muted2,#62666c)">n tirages</div>
-      <div id="n" style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">0</div></div>
+    <div><div style="font-size:var(--widget-label-size);color:var(--muted2,#62666c)">moyenne courante</div>
+      <div id="m" style="font-size:var(--widget-value-size);font-weight:600;color:var(--accent,#e77f3e);font-variant-numeric:tabular-nums">—</div></div>
+    <div><div style="font-size:var(--widget-label-size);color:var(--muted2,#62666c)">n tirages</div>
+      <div id="n" style="font-size:var(--widget-value-size);font-weight:600;font-variant-numeric:tabular-nums">0</div></div>
   </div>
   <canvas id="c" style="width:100%;height:120px"></canvas>
-  <div style="font-size:10px;color:var(--muted2,#62666c)">trajectoire de la moyenne — ν petit : les sauts des queues lourdes cassent la convergence</div>
+  <div style="font-size:var(--widget-label-size);color:var(--muted2,#62666c)">trajectoire de la moyenne — ν petit : les sauts des queues lourdes cassent la convergence</div>
 </div>
 <script>
 var cv=document.getElementById("c"),dpr=devicePixelRatio||1;
@@ -285,7 +308,7 @@ net en Retina, et le ν qui repart proprement à zéro tirage.
 ```html
 <svg id="g" style="width:100%;height:140px;cursor:crosshair"></svg>
 <!-- viewBox mesuré au démarrage ET au ResizeObserver (§4), sinon tout grossit -->
-<div id="lect" style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">—</div>
+<div id="lect" style="font-size:1rem;font-weight:600;font-variant-numeric:tabular-nums">—</div>
 <script>
 var g=document.getElementById("g");
 g.addEventListener("mousemove",function(e){
@@ -297,7 +320,7 @@ g.addEventListener("mousemove",function(e){
 
 ### 6d. Avant/après
 ```html
-<label style="font-size:11px"><input id="sw" type="checkbox"> avec correction</label>
+<label style="font-size:var(--widget-label-size)"><input id="sw" type="checkbox"> avec correction</label>
 <svg id="g" style="width:100%;height:120px"><g id="A"></g><g id="B" style="opacity:0;transition:opacity 140ms"></g></svg>
 <!-- viewBox mesuré au démarrage ET au ResizeObserver (§4), sinon tout grossit -->
 <script>
@@ -328,7 +351,7 @@ Quand TU as besoin de choix de l'utilisateur pour continuer (paramètres d'une
 analyse, options d'un run). Le widget recueille, compose UNE demande claire,
 et `sendPrompt` la propose — l'utilisateur relit et valide dans le composeur.
 ```html
-<div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+<div style="display:flex;flex-direction:column;gap:8px;font-size:1rem">
   <label>Région :
     <select id="reg"><option>saskatchewan</option><option>peyto</option></select></label>
   <label><input type="checkbox" id="dyn" checked> fraction glacier dynamique</label>
@@ -376,7 +399,7 @@ Un nombre DANS une phrase de prose est glissable horizontalement ; tout le
 panneau se recalcule en direct. Souligné pointillé + `cursor: ew-resize`
 signalent l'affordance. Parfait pour éliciter un prior sans un seul curseur.
 ```html
-<p style="font-size:13px">Si le prior met <span id="dn" style="border-bottom:1px dashed var(--accent,#e77f3e);cursor:ew-resize;color:var(--accent,#e77f3e);font-weight:600;font-variant-numeric:tabular-nums">26</span> % de masse sous ν = 10, alors <span id="cons">…</span></p>
+<p style="font-size:1rem">Si le prior met <span id="dn" style="border-bottom:1px dashed var(--accent,#e77f3e);cursor:ew-resize;color:var(--accent,#e77f3e);font-weight:600;font-variant-numeric:tabular-nums">26</span> % de masse sous ν = 10, alors <span id="cons">…</span></p>
 <script>
 var v=26,drag=null;
 var dn=document.getElementById("dn");
@@ -463,7 +486,7 @@ d'être décorative : elle devient la légende.
 
 1. La forme choisie rend-elle la CHOSE À COMPRENDRE tangible ?
 2. Fragment sans `<html>` ; aucune requête réseau ; données en dur.
-3. Couleurs = variables avec replis ; accent unique ; tailles 10/11/12/13/15 px.
+3. Couleurs = variables avec replis ; accent unique ; tailles liées au chat (`1rem`, `--widget-label-size`, `--widget-value-size`).
 4. `tabular-nums` sur tout chiffre mobile ; axes étiquetés ; référence en
    pointillé.
 5. `saveState` à chaque changement + `onRestore` implémenté.

@@ -1,3 +1,5 @@
+import ProjectGallery from "./ProjectGallery";
+import type { ProjectFolders } from "../lib/projectFolders";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EllipsisIcon, GripVerticalIcon } from "lucide-react";
 import Explorer from "./Explorer";
@@ -163,6 +165,11 @@ export default function AtelierPane({
   agentEvents,
   onCloseAgent,
   overlayOpen = false,
+  projectFolders,
+  galleryDir,
+  galleryExts,
+  onProjectSettings,
+  onOpenSourceFile,
 }: {
   url: string;
   projectRoot: string;
@@ -203,6 +210,11 @@ export default function AtelierPane({
       par-dessus l'app : les webviews natives enfants (navigateur, terminal)
       doivent se cacher, car aucun z-index HTML ne peut les couvrir. */
   overlayOpen?: boolean;
+  projectFolders?: ProjectFolders;
+  galleryDir?: string;
+  galleryExts?: string;
+  onProjectSettings?: () => void;
+  onOpenSourceFile?: (root: string, rel: string) => Promise<void>;
 }) {
   const documentTabs = useMemo(() => tabs.filter((tab) => tab.kind !== "term"), [tabs]);
   const documentIdsKey = useMemo(() => documentTabs.map((tab) => tab.id).join("\u0000"), [documentTabs]);
@@ -866,8 +878,7 @@ export default function AtelierPane({
       );
     }
     if (ref.surface === "atelier") {
-      return (
-        <div key="surface:atelier" className="workspace-tab-content" style={{ display }}>
+      const nativeGallery = <>
           {active && !galleryLoaded && <GallerySkeleton />}
           {url && (
             <iframe
@@ -877,12 +888,16 @@ export default function AtelierPane({
               className="atelier"
               style={{ display: active && galleryLoaded ? "block" : "none" }}
               src={gallerySrc}
-              title="atelier"
+              aria-label="Galerie"
+              title=""
               onLoad={() => setGalleryLoaded(true)}
             />
           )}
-        </div>
-      );
+
+      </>;
+      return <div key="surface:atelier" className="workspace-tab-content" style={{ display }}>
+        {onProjectSettings && onOpenSourceFile ? <ProjectGallery galleryDir={galleryDir} galleryExts={galleryExts} root={projectRoot} config={projectFolders} ws={ws} onManage={onProjectSettings} onOpen={onOpenSourceFile} reloadKey={reloadKey} mainGallery={nativeGallery}/> : nativeGallery}
+      </div>;
     }
     if (ref.surface === "browser") {
       return (

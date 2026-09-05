@@ -102,6 +102,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let e2 = Arc::clone(&events);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t".into(),
             turn_id: "turn".into(),
             prompt: "hi".into(),

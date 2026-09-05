@@ -1509,6 +1509,7 @@ mod tests {
         let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
         let sink = Arc::clone(&events);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-kimi-test".into(),
             turn_id: "turn-1".into(),
             prompt: prompt.into(),
@@ -1818,6 +1819,7 @@ mod tests {
         let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
         let sink = Arc::clone(&events);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-kimi-mcp".into(),
             turn_id: "turn-1".into(),
             prompt: prompt.into(),
@@ -1902,6 +1904,7 @@ mod tests {
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let cancelled2 = Arc::clone(&cancelled);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-cancel".into(),
             turn_id: "turn-1".into(),
             prompt: "[cancel]".into(),
@@ -2103,6 +2106,7 @@ mod tests {
         let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
         let sink = Arc::clone(&events);
         let req = SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "t-img".into(),
             turn_id: "turn-1".into(),
             prompt: "regarde [image]".into(),

@@ -1,3 +1,4 @@
+import type { ProjectFolders } from "./projectFolders";
 import { CONSIGNES_LIVREES, type Consigne } from "./consignes";
 
 export type ProviderId = string;
@@ -61,6 +62,7 @@ export type Settings = {
   favoriteModels: Record<string, string[]>; // provider -> ids visibles dans le picker compact
   webSearch: boolean;
   additionalDirectories: string;
+  projectFolders: Record<string, ProjectFolders>;
   providerOrder: ProviderId[]; // ordre du picker ([] = ordre du catalogue)
   hiddenProviders: ProviderId[]; // masqués du picker (le provider du thread actif reste visible)
   activeView: ViewId;
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   favoriteModels: {},
   webSearch: false,
   additionalDirectories: "",
+  projectFolders: {},
   providerOrder: [],
   hiddenProviders: [],
   activeView: "chats",

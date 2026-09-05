@@ -135,6 +135,7 @@ export default function Sidebar(p: {
   onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
   projMeta: Record<string, { color?: string; label?: string }>;
+  onProjectSettings?: (root: string) => void;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
   linkProviders?: { id: string; label: string }[];
   onContinueWith?: (thread: Thread, provider: string) => void;
@@ -508,6 +509,7 @@ export default function Sidebar(p: {
               const root = p.activeProject;
               if (root) revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
             }}
+            onProjectSettings={() => { if (p.activeProject) p.onProjectSettings?.(p.activeProject); }}
             onCustomize={(at) => {
               if (p.activeProject) setProjMenu({ root: p.activeProject, x: at.x, y: at.y });
             }}
@@ -637,7 +639,7 @@ export default function Sidebar(p: {
         </Popover>
 
       {projMenu && (
-        <ProjectStyleMenu
+        <ProjectStyleMenu onProjectSettings={p.onProjectSettings}
           key={projMenu.root}
           root={projMenu.root}
           meta={p.projMeta[projMenu.root]}

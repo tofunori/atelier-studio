@@ -6,7 +6,7 @@ import React from "react";
 import { Button as ShadcnButton } from "../shadcn/button";
 import { cx } from "./internal";
 
-export const IconButton = React.forwardRef<HTMLButtonElement, {
+export const IconButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & {
   /** Nom accessible (aria-label). Obligatoire. */
   label: string;
   children: React.ReactNode;
@@ -23,10 +23,11 @@ export const IconButton = React.forwardRef<HTMLButtonElement, {
   "aria-haspopup"?: React.AriaAttributes["aria-haspopup"];
   "aria-pressed"?: boolean;
 }>((props, ref) => {
-  const { label, size = "m", hit40, disabled, onClick, title, className, children } = props;
+  const { label, size = "m", hit40, disabled, onClick, title, className, children, ...rest } = props;
   const shadcnSize = size === "s" ? "icon-xs" : size === "l" ? "icon-lg" : "icon-sm";
   return (
     <ShadcnButton
+      {...rest}
       ref={ref}
       type="button"
       variant="ghost"

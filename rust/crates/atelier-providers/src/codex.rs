@@ -167,6 +167,9 @@ fn thread_opts(req: &SendRequest) -> Value {
             .insert("model".into(), json!(model));
     }
     let mut config = serde_json::Map::new();
+    if sandbox == "workspace-write" {
+        config.insert("sandbox_workspace_write".into(), json!({"writable_roots": req.additional_directories}));
+    }
     if let Some(effort) = req.effort.as_ref().filter(|e| !e.is_empty()) {
         let declares = req
             .model
@@ -539,29 +542,35 @@ fn native_open_opts(cwd: &str, sandbox: &str, params: &Value) -> Value {
     opts
 }
 
-async fn open_thread(
-    server: &CodexAppServer,
-    session_id: Option<&str>,
-    opts: Value,
-) -> Result<String, String> {
-    if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
-        let mut params = opts;
-        params
-            .as_object_mut()
-            .unwrap()
-            .insert("threadId".into(), json!(sid));
-        let resp = server.request("thread/resume", params).await?;
-        Ok(resp
-            .pointer("/thread/id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(sid)
-            .to_string())
-    } else {
-        let resp = server.request("thread/start", opts).await?;
-        resp.pointer("/thread/id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "thread/start sans id".into())
+async fn open_thread(server: &CodexAppServer, session_id: Option<&str>, opts: Value) -> Result<String, String> {
+    open_thread_settings(server, session_id, opts).await.map(|(id, _)| id)
+}
+
+async fn open_thread_settings(server: &CodexAppServer, session_id: Option<&str>, mut opts: Value) -> Result<(String, Value), String> {
+    let method = if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
+        opts.as_object_mut().unwrap().insert("threadId".into(), json!(sid));
+        "thread/resume"
+    } else { "thread/start" };
+    let resp = server.request(method, opts).await?;
+    let id = resp.pointer("/thread/id").and_then(Value::as_str).or(session_id)
+        .ok_or_else(|| format!("{method} sans id"))?.to_string();
+    Ok((id, resp.get("sandbox").cloned().unwrap_or(Value::Null)))
+}
+
+fn folder_sandbox(req: &SendRequest, actual: &Value) -> Value {
+    let (mode, _) = codex_safety(req.permission_mode.as_deref());
+    match mode {
+        "workspace-write" => {
+            let mut policy = if actual["type"] == "workspaceWrite" { actual.clone() } else {
+                json!({"type":"workspaceWrite","networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false})
+            };
+            let mut roots = req.additional_directories.clone();
+            if !req.project_root.is_empty() { roots.insert(0, req.project_root.clone()); }
+            policy["writableRoots"] = json!(roots);
+            policy
+        },
+        "danger-full-access" => json!({"type":"dangerFullAccess"}),
+        _ => if actual["type"] == "readOnly" { actual.clone() } else { json!({"type":"readOnly","networkAccess":false}) },
     }
 }
 
@@ -893,8 +902,8 @@ impl Provider for CodexProvider {
         }
 
         let opts = thread_opts(&req);
-        let codex_id = match open_thread(&self.server, req.session_id.as_deref(), opts).await {
-            Ok(id) => id,
+        let (codex_id, actual_sandbox) = match open_thread_settings(&self.server, req.session_id.as_deref(), opts).await {
+            Ok(result) => result,
             Err(e) => {
                 (req.on_event)(json!({"kind":"error","message": e}));
                 return SendResult {
@@ -1038,6 +1047,8 @@ impl Provider for CodexProvider {
         let mut turn_params = json!({
             "threadId": codex_id,
             "input": build_input(&req),
+            "sandboxPolicy": folder_sandbox(&req, &actual_sandbox),
+            "approvalPolicy": codex_safety(req.permission_mode.as_deref()).1,
         });
         turn_params
             .as_object_mut()
@@ -1442,6 +1453,7 @@ mod service_tier_tests {
 
     fn request(effort: &str, fast_mode: bool) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "thread-1".into(),
             turn_id: "turn-1".into(),
             prompt: "ping".into(),
@@ -1509,6 +1521,33 @@ mod service_tier_tests {
             // le modèle non plus
             assert_eq!(standard["model"], fast["model"]);
         }
+    }
+
+    #[test]
+    fn project_roots_reset_without_changing_network_or_tmp_policy() {
+        let mut req = request("medium", false);
+        req.permission_mode = Some("acceptEdits".into());
+        req.project_root = "/project".into();
+        req.additional_directories = vec!["/data".into()];
+        let actual = json!({"type":"workspaceWrite","writableRoots":["/stale"],"networkAccess":true,"excludeTmpdirEnvVar":true,"excludeSlashTmp":true});
+        let policy = folder_sandbox(&req, &actual);
+        assert_eq!(policy["writableRoots"], json!(["/project","/data"]));
+        assert_eq!(policy["networkAccess"], true);
+        assert_eq!(policy["excludeSlashTmp"], true);
+        req.additional_directories.clear();
+        assert_eq!(folder_sandbox(&req, &policy)["writableRoots"], json!(["/project"]));
+        assert_eq!(thread_opts(&req)["config"]["sandbox_workspace_write"]["writable_roots"], json!([]));
+    }
+
+    #[test]
+    fn read_only_and_full_access_are_not_broadened_by_folder_options() {
+        let mut req = request("medium", false);
+        req.additional_directories = vec!["/data".into()];
+        req.permission_mode = Some("plan".into());
+        assert_eq!(folder_sandbox(&req, &Value::Null), json!({"type":"readOnly","networkAccess":false}));
+        assert!(thread_opts(&req)["config"]["sandbox_workspace_write"].is_null());
+        req.permission_mode = Some("bypassPermissions".into());
+        assert_eq!(folder_sandbox(&req, &Value::Null), json!({"type":"dangerFullAccess"}));
     }
 
     /// `thread/resume` ignore l'override de modèle d'un thread existant
@@ -1777,6 +1816,7 @@ mod steer_mcp_repli_tests {
 
     fn request(mcp: Option<AtelierMcpLaunch>) -> SendRequest {
         SendRequest {
+            additional_directories: Vec::new(),
             thread_id: "thread-1".into(),
             turn_id: "turn-1".into(),
             prompt: "bifurque".into(),

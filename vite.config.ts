@@ -44,6 +44,8 @@ export default defineConfig(async () => ({
         // cacheable chunk so the application entry remains within Atelier's
         // 950 KB critical-path budget as the migration grows.
         manualChunks(id) {
+          // Shared palette data is cacheable independently from application code.
+          if (id.endsWith("/src/lib/themes.ts")) return "themes";
           if (id.includes("/node_modules/@base-ui/react/")) return "base-ui";
           if (
             id.includes("/node_modules/react/")

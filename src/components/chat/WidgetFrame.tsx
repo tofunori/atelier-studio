@@ -12,7 +12,8 @@ import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { getSidecarInfo, sidecarHeaders } from "../../lib/sidecarInfo";
 import { forgetWidgetState, recallWidgetState, rememberWidgetState } from "./widgetState";
-import { Button, IconButton } from "../ui";
+import { Button, IconButton, InlineNotice } from "../ui";
+import { Spinner } from "../shadcn/spinner";
 import { CopyIcon } from "../icons";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../shadcn/dialog";
 import { highlightCode } from "./md";
@@ -20,8 +21,11 @@ import { highlightCode } from "./md";
 export type WidgetEvent = Extract<AgentEvent, { kind: "widget" }>;
 export const WIDGET_READY_TIMEOUT_MS = 3000;
 export const WIDGET_PROMPT_MAX = 2000;
+export const WIDGET_FETCH_TIMEOUT_MS = 10000;
+const MIN_HEIGHT = 120;
+const MAX_HEIGHT = 900;
 
-type Phase = "loading" | "live" | "mute" | "missing";
+type Phase = "loading" | "live" | "mute" | "missing" | "error" | "unavailable";
 
 // tokens poussés au widget : la seule palette qu'il aura
 const THEME_TOKENS = [
@@ -35,6 +39,8 @@ function currentThemeMessage() {
   const styles = getComputedStyle(document.documentElement);
   const tokens: Record<string, string> = {};
   for (const name of THEME_TOKENS) tokens[name] = styles.getPropertyValue(name).trim();
+  tokens["--widget-font-size"] = styles.getPropertyValue("--chat-fs").trim() || "13.5px";
+  tokens["--widget-line-height"] = styles.getPropertyValue("--chat-lh").trim() || "1.6";
   tokens["--ui-font"] = styles.getPropertyValue("font-family").trim();
   return { source: "atelier-host", type: "theme", tokens };
 }
@@ -47,6 +53,9 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [height, setHeight] = useState(event.height);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const failedRef = useRef(false);
   // Change de valeur pour REMONTER l'iframe (clé React). `setPhase("loading")`
   // ne suffit pas : même srcDoc, même élément — le widget garderait ses
   // curseurs alors qu'on vient justement d'oublier son état.
@@ -63,35 +72,53 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   // directement à « introuvable » plutôt que de construire une URL avec
   // « null » dedans.
   useEffect(() => {
+    setShell(null);
+    setPhase("loading");
+    failedRef.current = false;
     if (threadId == null) {
       setPhase("missing");
       return;
     }
     const info = getSidecarInfo();
     if (info == null) {
-      setPhase("missing");
+      setPhase("unavailable");
       return;
     }
     let alive = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      if (alive) { alive = false; setPhase("unavailable"); controller.abort(); }
+    }, WIDGET_FETCH_TIMEOUT_MS);
     const url = `http://127.0.0.1:${info.port}/widgets/${encodeURIComponent(threadId)}/${event.id}`;
     setFrameUrl(url);
     // Le fetch ne sert plus qu'à la vue « source », au bouton copier et à la
     // détection « expiré » (404). L'iframe, elle, charge par src= : un
     // document srcdoc hériterait de la CSP de l'app (script-src 'self'), qui
     // bloquait tous les scripts inline de la coquille — widget muet.
-    fetch(url, { headers: sidecarHeaders(info) })
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
-      .then((html) => { if (alive) setShell(html); })
-      .catch(() => { if (alive) setPhase("missing"); });
-    return () => { alive = false; };
-  }, [event.id, threadId]);
+    fetch(url, { headers: sidecarHeaders(info), signal: controller.signal, cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) {
+          if (alive) setPhase(r.status === 404 ? "missing" : "unavailable");
+          return;
+        }
+        const html = await r.text();
+        if (alive) setShell(html);
+      })
+      .catch(() => { if (alive) setPhase("unavailable"); })
+      .finally(() => clearTimeout(timeout));
+    return () => { alive = false; clearTimeout(timeout); controller.abort(); };
+  }, [event.id, threadId, reloadNonce]);
 
   // Filet : une coquille qui ne dit jamais « ready » est déclarée muette.
   useEffect(() => {
-    if (shell == null || phase !== "loading") return;
-    const timer = setTimeout(() => setPhase((p) => (p === "loading" ? "mute" : p)), WIDGET_READY_TIMEOUT_MS);
+    if (shell == null || phase !== "loading" || (showSource && !expanded)) return;
+    const timer = setTimeout(() => {
+      expandedRef.current = false;
+      setExpanded(false);
+      setPhase((p) => (p === "loading" ? "mute" : p));
+    }, WIDGET_READY_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [shell, phase]);
+  }, [shell, phase, showSource, expanded]);
 
   useEffect(() => {
     function post(msg: unknown) {
@@ -100,6 +127,22 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
     function onMessage(e: MessageEvent) {
       if (e.source !== frameRef.current?.contentWindow) return;
       if (e.data?.source !== "atelier-widget") return;
+      if (e.data.type === "error") {
+        failedRef.current = true;
+        expandedRef.current = false;
+        setExpanded(false);
+        setPhase("error");
+        cardRef.current?.focus();
+        return;
+      }
+      if (failedRef.current) return;
+      if (e.data.type === "resize" && !expandedRef.current) {
+        const measured = e.data.height;
+        if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+          const next = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.ceil(measured)));
+          setHeight((old) => Math.abs(old - next) > 1 ? next : old);
+        }
+      }
       if (e.data.type === "ready") {
         post(currentThemeMessage());
         const frozen = recallWidgetState(event.id);
@@ -157,6 +200,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
         title={event.title}
         sandbox="allow-scripts"
         src={frameUrl}
+        onError={() => { failedRef.current = true; setExpanded(false); expandedRef.current = false; setPhase("unavailable"); }}
       />
     );
   }
@@ -168,7 +212,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   function toggleSource() {
     setShowSource((v) => {
       const next = !v;
-      if (!next && !expanded) setPhase("loading");
+      if (!next && !expanded && (phase === "live" || phase === "loading")) setPhase("loading");
       return next;
     });
   }
@@ -184,7 +228,17 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   // spec §F : la réinitialisation vit dans la barre du plein écran. Elle
   // oublie l'état gelé de CE panneau (jamais celui des autres) et remonte
   // l'iframe pour repartir des valeurs par défaut.
+  function retryWidget() {
+    failedRef.current = false;
+    setPhase("loading");
+    setShowSource(false);
+    setShell(null);
+    setMountNonce((n) => n + 1);
+    setReloadNonce((n) => n + 1);
+  }
+
   function resetWidget() {
+    failedRef.current = false;
     forgetWidgetState(event.id);
     setPhase("loading");
     setMountNonce((n) => n + 1);
@@ -218,12 +272,12 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
   // En état MUET la coquille EST chargée — c'est justement l'état où pouvoir
   // lire le code compte le plus (spec §E : « ligne sobre + action voir la
   // source »). En état INTROUVABLE il n'y a rien à lire : aucune action.
-  if (phase === "missing" || phase === "mute") {
+  if (phase === "missing" || phase === "mute" || phase === "error" || phase === "unavailable") {
     return (
-      <div className="codeblock widget-block not-typeset">
+      <div ref={cardRef} tabIndex={-1} className="codeblock widget-block not-typeset">
         <div className="codeblock-bar">
           {widgetLabel}
-          {phase === "mute" && shell != null && (
+          {shell != null && (
             <div className="codeblock-bar-actions">{sourceToggle}</div>
           )}
         </div>
@@ -235,8 +289,11 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
             />
           </pre>
         ) : (
-          <div className="widget-note">
-            {phase === "missing" ? t("chat.widget-missing") : t("chat.widget-mute")}
+          <div className="widget-feedback">
+            <InlineNotice tone={phase === "missing" ? "info" : "error"}>
+              {t(phase === "missing" ? "chat.widget-missing" : phase === "error" ? "chat.widget-error" : phase === "unavailable" ? "chat.widget-unavailable" : "chat.widget-mute")}
+            </InlineNotice>
+            <Button variant="secondary" onClick={retryWidget}>{t("chat.widget-retry")}</Button>
           </div>
         )}
       </div>
@@ -297,9 +354,12 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
       ) : (
         // la hauteur est posée ICI, dès le premier rendu : LegendList mesure
         // la bonne taille avant même que le HTML ne soit chargé
-        <div className="widget-body" style={{ height: `${event.height}px` }}>
+        <div className="widget-body" style={{ height: `${height}px` }} aria-busy={phase === "loading"}>
           {/* le plein écran porte SEUL l'iframe pendant qu'il est ouvert —
               jamais deux à la fois (voir renderIframe). */}
+          {!expanded && phase === "loading" && (
+            <div className="widget-loading" role="status"><Spinner aria-hidden="true" /><span>{t("chat.widget-loading")}</span></div>
+          )}
           {!expanded && renderIframe(phase === "live" ? "widget-frame live" : "widget-frame")}
         </div>
       )}
@@ -337,7 +397,8 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
                 </DialogClose>
               </span>
             </div>
-            {expanded && renderIframe("widget-fullscreen-frame")}
+            {phase === "loading" && <div className="widget-loading" role="status"><Spinner aria-hidden="true" /><span>{t("chat.widget-loading")}</span></div>}
+            {expanded && renderIframe(phase === "live" ? "widget-fullscreen-frame live" : "widget-fullscreen-frame")}
           </DialogContent>
         ) : null}
       </Dialog>

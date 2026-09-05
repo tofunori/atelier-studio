@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { SearchIcon, ZapIcon, PlusIcon } from "./icons";
-import { IconButton, RowButton, SegmentedControl } from "./ui";
+import { IconButton, RowButton, SegmentedControl, Tooltip } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import TopBarSurfaces from "./TopBarSurfaces";
 import TopBarTabs, { type PaneTab } from "./TopBarTabs";
@@ -190,14 +190,15 @@ export default function TopBar({
             clamp(280px, 32vw, 420px) pour annoncer un raccourci que tout
             utilisateur régulier tape sans regarder — cette largeur va aux
             onglets. Le ⌘K et la palette ne changent pas. */}
+        <Tooltip label={`${t("topbar.search")} (⌘K)`} placement="bottom">
         <IconButton
           label={t("topbar.search")}
-          title={`${t("topbar.search")} (⌘K)`}
           className="ghost topbar-qa"
           onClick={onOpenPalette}
         >
           <SearchIcon size={14} />
         </IconButton>
+        </Tooltip>
         <span className="topbar-div" />
         {/* pilote plan 016 : ex-.tb-seg (role=group) → SegmentedControl
             (radiogroup, flèches, roving tabindex) ; mêmes icônes, mêmes
@@ -213,9 +214,11 @@ export default function TopBar({
           ]}
         />
         <span className="topbar-div" />
-        <IconButton label={t("qa.open")} className="ghost topbar-qa" title={`${t("qa.open")} (⌥⌘K)`} onClick={onQuickAsk}>
+        <Tooltip label={`${t("qa.open")} (⌥⌘K)`} placement="bottom">
+        <IconButton label={t("qa.open")} className="ghost topbar-qa" onClick={onQuickAsk}>
           <ZapIcon size={14} />
         </IconButton>
+        </Tooltip>
       </div>
     </div>
   );

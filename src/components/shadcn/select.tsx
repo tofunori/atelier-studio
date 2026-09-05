@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ChevronDown, Check } from "lucide-react"
+import { Check } from "lucide-react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 
 import { cn } from "@/lib/utils"
@@ -35,9 +35,6 @@ function SelectTrigger({
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon data-icon="select-chevron" aria-hidden="true">
-        <ChevronDown />
-      </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
 }

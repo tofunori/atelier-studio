@@ -17,6 +17,7 @@ import {
 } from "../../lib/kbSources";
 import { useKbActions } from "./kbActions";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
+import { Checkbox, CheckboxIndicator } from "../shadcn/checkbox";
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
@@ -198,6 +199,7 @@ export function KbPickerPanel(p: {
   onBatchTag?: (ids: string[], slug: string) => void;
   onBatchArchive?: (ids: string[]) => void;
   onBatchAttach?: (ids: string[]) => void;
+  onCollectionToggle?: (ids: string[], attach: boolean) => void;
   onCollFilterChange?: (slug: string | null) => void;
   headerEnd?: ReactNode;
 }) {
@@ -519,15 +521,29 @@ export function KbPickerPanel(p: {
           >
             {t("kb.chips-all", { n: p.sources.length })}
           </RowButton>
-          {(p.collections ?? []).map((coll) => (
-            <RowButton
-              key={coll.slug}
-              className={`kb-chip-filter ${collFilter === coll.slug ? "on" : ""}`}
-              onClick={() => setCollFilter((current) => (current === coll.slug ? null : coll.slug))}
-            >
-              {coll.title} · {collCount(coll.slug)}
-            </RowButton>
-          ))}
+          {(p.collections ?? []).map((coll) => {
+            // Use the whole collection, not the filtered or paginated rows.
+            const ids = [...new Set(p.sources.filter(source => !source.archived && source.collections?.includes(coll.slug)).map(source => source.id))];
+            const count = ids.filter(id => p.attached.includes(id)).length;
+            const all = ids.length > 0 && count === ids.length;
+            const partial = count > 0 && !all;
+            return <span className="kb-collection-choice" key={coll.slug}>
+              {p.onCollectionToggle && <Checkbox
+                checked={count > 0} indeterminate={partial} disabled={!ids.length}
+                aria-label={t("kb.collection-include", {name:coll.title})}
+                title={t("kb.collection-selected", {selected:count,total:ids.length})}
+                onCheckedChange={() => p.onCollectionToggle?.(ids, !all)}>
+                <CheckboxIndicator>{partial ? "−" : "✓"}</CheckboxIndicator>
+              </Checkbox>}
+              <RowButton
+                className={`kb-chip-filter ${collFilter === coll.slug ? "on" : ""}`}
+                aria-pressed={collFilter === coll.slug}
+                onClick={() => setCollFilter((current) => (current === coll.slug ? null : coll.slug))}
+              >
+                {coll.title} · {collCount(coll.slug)}
+              </RowButton>
+            </span>;
+          })}
           {(p.archived?.count ?? 0) > 0 && (
             <RowButton
               className={`kb-chip-filter kb-chip-archived ${archivedView ? "on" : ""}`}
@@ -942,6 +958,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             attached={binding.attached}
             fullContent={binding.fullContent}
             error={actions.error}
+            onCollectionToggle={actions.toggleCollection}
             onToggle={actions.toggle}
             onToggleFull={actions.toggleFull}
             onRemoveSource={actions.removeSource}

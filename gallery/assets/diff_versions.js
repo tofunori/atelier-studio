@@ -195,7 +195,7 @@ window.DiffVersions = function(opts){
       "border-radius:3px;background:var(--accent,#e8823a)}" +
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
       "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
-      "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:10px}" +
+      "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:var(--fs-caption, 10px)}" +
       // Ruban de révisions : une colonne par intervention, ce qui entre au-dessus
       // de la médiane, ce qui sort en dessous. Canvas et non DOM — la barre ne
       // doit pas grossir avec l'historique.
@@ -209,11 +209,11 @@ window.DiffVersions = function(opts){
         "background:var(--popover,var(--card,#1a1d22));border:1px solid var(--border,#333a45);" +
         "box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap}" +
       ".dvPeek.on{display:flex}" +
-      ".dvPeek .dvPeekTop{font-size:11px;font-weight:500;color:var(--txt,#dbdfe5);font-variant-numeric:tabular-nums}" +
-      ".dvPeek .dvPeekNum{display:flex;gap:8px;font-size:11px;font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekTop{font-size:var(--fs-label, 11px);font-weight:500;color:var(--txt,#dbdfe5);font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekNum{display:flex;gap:8px;font-size:var(--fs-label, 11px);font-variant-numeric:tabular-nums}" +
       ".dvPeek .dvPeekNum .a{color:var(--dv-add,#34c98e);font-weight:500}" +
       ".dvPeek .dvPeekNum .r{color:var(--dv-del,#e06c75);font-weight:500}" +
-      ".dvPeek .dvPeekSrc{font-size:10px;color:var(--muted,#8b93a1)}" +
+      ".dvPeek .dvPeekSrc{font-size:var(--fs-caption, 10px);color:var(--muted,#8b93a1)}" +
       ".dvPeek.bad .dvPeekSrc{color:var(--dv-del,#e06c75)}" +
       // compositeur de commit ciblé : mêmes tokens que l'app Atelier, sans
       // palette bleue autonome ni changement de géométrie pendant l'IA.
@@ -222,10 +222,10 @@ window.DiffVersions = function(opts){
         "background:var(--popover,var(--surface-overlay,var(--surface-raised,var(--card,#1a1d22))));" +
         "color:var(--popover-foreground,var(--text-primary,var(--txt,#dbdfe5)));" +
         "border:1px solid var(--border-subtle,var(--border,#333a45));border-radius:10px;" +
-        "box-shadow:0 16px 44px rgba(0,0,0,.42);font:13px/1.4 var(--ui-font,-apple-system,sans-serif)}" +
+        "box-shadow:0 16px 44px rgba(0,0,0,.42);font:var(--fs-body, 13px)/1.4 var(--ui-font,-apple-system,sans-serif)}" +
       ".dvCommitHead{display:flex;align-items:center;min-width:0;gap:8px}" +
-      ".dvCommitTitle{display:flex;align-items:baseline;min-width:0;gap:7px;color:var(--text-tertiary,var(--muted));font-size:11px}" +
-      ".dvCommitTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,var(--txt));font:500 12px/1.3 var(--code-font,ui-monospace,monospace)}" +
+      ".dvCommitTitle{display:flex;align-items:baseline;min-width:0;gap:7px;color:var(--text-tertiary,var(--muted));font-size:var(--fs-label, 11px)}" +
+      ".dvCommitTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,var(--txt));font:500 var(--fs-body-s, 12px)/1.3 var(--code-font,ui-monospace,monospace)}" +
       ".dvCommitClose{margin-left:auto;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;padding:0;" +
         "border:0;border-radius:6px;background:transparent;color:var(--text-tertiary,var(--muted));cursor:pointer}" +
       ".dvCommitClose:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent);color:var(--text-primary,var(--txt))}" +
@@ -233,14 +233,14 @@ window.DiffVersions = function(opts){
       "#dvCommitText{box-sizing:border-box;width:100%;min-height:72px;max-height:150px;resize:vertical;padding:8px 10px;" +
         "border:1px solid var(--border-interactive,var(--border-strong,var(--border,#333a45)));border-radius:7px;outline:0;" +
         "background:var(--surface-inset,var(--card2,#1a1d22));color:var(--text-primary,var(--txt,#dbdfe5));" +
-        "font:12px/1.5 var(--ui-font,-apple-system,sans-serif)}" +
+        "font:var(--fs-body-s, 12px)/1.5 var(--ui-font,-apple-system,sans-serif)}" +
       "#dvCommitText::placeholder{color:var(--text-tertiary,var(--muted));opacity:.72}" +
       "#dvCommitText:focus{border-color:var(--ring,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--ring,var(--accent)) 22%,transparent)}" +
       ".dvCommitFoot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0}" +
-      ".dvCommitHint{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-tertiary,var(--muted));font-size:10px;white-space:nowrap}" +
+      ".dvCommitHint{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-tertiary,var(--muted));font-size:var(--fs-caption, 10px);white-space:nowrap}" +
       ".dvCommitActions{display:flex;align-items:center;gap:7px;flex:none}" +
       ".dvCommitBtn{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;" +
-        "border:1px solid transparent;border-radius:7px;font:500 11px/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
+        "border:1px solid transparent;border-radius:7px;font:500 var(--fs-label, 11px)/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
       ".dvCommitBtn svg{width:13px;height:13px;flex:none}" +
       ".dvCommitBtn:active:not(:disabled){transform:scale(.97)}" +
       ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:2px solid var(--ring,var(--accent));outline-offset:2px}" +
@@ -1541,7 +1541,7 @@ window.DiffVersions = function(opts){
     histPop = document.createElement("div");
     histPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;width:400px;max-height:60vh;"
       + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;"
-      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px";
+      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:var(--fs-body, 13px)";
     document.body.appendChild(histPop);
     if(!document.getElementById("dvHistStyles")){
       const st = document.createElement("style");
@@ -1550,13 +1550,13 @@ window.DiffVersions = function(opts){
         "#dvHistList{overflow-y:auto}"
         + ".dv-hrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}"
         + ".dv-hrow:hover{background:rgba(255,255,255,.05)}"
-        + ".dv-hrow .sha{font:10px ui-monospace,Menlo,monospace;opacity:.5;flex:none;width:54px}"
-        + ".dv-hrow .msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}"
-        + ".dv-hrow .when{font-size:10px;opacity:.45;flex:none;font-variant-numeric:tabular-nums}"
+        + ".dv-hrow .sha{font:var(--fs-caption, 10px) ui-monospace,Menlo,monospace;opacity:.5;flex:none;width:54px}"
+        + ".dv-hrow .msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-body-s, 12px)}"
+        + ".dv-hrow .when{font-size:var(--fs-caption, 10px);opacity:.45;flex:none;font-variant-numeric:tabular-nums}"
         + ".dv-hrow .act{display:none;gap:4px;flex:none}"
         + ".dv-hrow:hover .act{display:inline-flex}"
         + ".dv-hrow:hover .when{display:none}"
-        + ".dv-hrow .act button{font-size:10px;border:1px solid #3a4150;background:transparent;color:inherit;"
+        + ".dv-hrow .act button{font-size:var(--fs-caption, 10px);border:1px solid #3a4150;background:transparent;color:inherit;"
         + "border-radius:5px;padding:2px 7px;cursor:pointer;opacity:.75}"
         + ".dv-hrow .act button:hover{opacity:1}";
       document.head.appendChild(st);
@@ -1565,8 +1565,8 @@ window.DiffVersions = function(opts){
       if(histPop.style.display !== "none"){ histPop.style.display = "none"; return; }
       const name = path.split("/").pop();
       histPop.innerHTML =
-        '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.55;padding:6px 10px 4px">Historique — ' + name + '</div>'
-        + '<div id="dvHistList"><div style="padding:7px 10px;font-size:11px;opacity:.5">chargement…</div></div>';
+        '<div style="font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;opacity:.55;padding:6px 10px 4px">Historique — ' + name + '</div>'
+        + '<div id="dvHistList"><div style="padding:7px 10px;font-size:var(--fs-label, 11px);opacity:.5">chargement…</div></div>';
       const rc = histBtn.getBoundingClientRect();
       histPop.style.display = "flex";
       histPop.style.top = (rc.bottom + 8) + "px";
@@ -1598,7 +1598,7 @@ window.DiffVersions = function(opts){
         }});
       }
       if(!rows.length){
-        list.innerHTML = '<div style="padding:7px 10px;font-size:11px;opacity:.5">aucun commit ni sauvegarde pour ce fichier</div>';
+        list.innerHTML = '<div style="padding:7px 10px;font-size:var(--fs-label, 11px);opacity:.5">aucun commit ni sauvegarde pour ce fichier</div>';
         return;
       }
       list.innerHTML = "";

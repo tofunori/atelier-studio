@@ -11,6 +11,13 @@ import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
+import { Input } from "../shadcn/input";
+import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, RotateCcw, ChevronRight } from "lucide-react";
+import { searchSettings } from "./search";
+import { SettingsSearchTarget, type SearchTarget } from "./searchTarget";
+import "../../styles/settings-refined.css";
+
+const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, atelier: Images, consignes: FileText };
 
 // lazyWithRetry (pas React.lazy nu) : React.lazy mémorise un import rejeté,
 // donc un chunk de section en échec resterait mort jusqu'au redémarrage de
@@ -50,6 +57,16 @@ export default function SettingsPage(p: {
     typeof window !== "undefined" && window.matchMedia?.("(max-width: 880px)")?.matches === true);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const { visible: saved, flash } = useSavedFlash();
+  const [query, setQuery] = useState("");
+  const [target, setTarget] = useState<SearchTarget>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const chooseSection = (next: SectionId) => {
+    setQuery(""); setTarget(null); setSection(next);
+    bodyRef.current?.scrollTo?.({ top: 0 });
+  };
+  const results = searchSettings(query);
+  const searching = !!query.trim();
 
   // Conservé verbatim de l'ancien Settings.tsx:263-269 : abonnement matchMedia.
   // En mode embarqué la page vit dans une feuille flottante (`min(1100px,
@@ -97,51 +114,89 @@ export default function SettingsPage(p: {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [p.onClose, p.embedded]);
 
+  useEffect(() => {
+    const onFind = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault(); event.stopImmediatePropagation(); searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onFind, true);
+    return () => window.removeEventListener("keydown", onFind, true);
+  }, []);
+
   const set = (patch: Partial<S>) => p.onChange({ ...p.settings, ...patch });
   const Panel = PANELS[section];
 
+  const restore = async () => {
+    const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => false);
+    if (ok) { p.onChange({ ...DEFAULT_SETTINGS }); flash(); }
+  };
+  const searchField = (
+    <div className="set-search">
+      <Search aria-hidden="true" />
+      <Input ref={searchRef} type="search" aria-label={t("settings.search")}
+        placeholder={t("settings.search")} value={query}
+        onChange={event => setQuery(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === "Escape" && query) {
+            event.preventDefault(); event.stopPropagation(); setQuery("");
+          }
+        }} />
+    </div>
+  );
+  const close = <Button variant="ghost" className="set-close" aria-label={t("settings.back")} title={t("settings.back")} onClick={p.onClose}><ArrowLeft aria-hidden="true" /></Button>;
+
   return (
-    <div ref={rootRef} className={`settings-page ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
+    <div ref={rootRef} className={`settings-page settings-refined ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
       {narrow ? (
         <div className="set-nav-compact">
-          <Button variant="ghost" className="set-back" onClick={p.onClose}>{t("settings.back")}</Button>
-          <Select
-            compact
-            title={t("settings.section")}
-            value={section}
-            onChange={(value) => setSection(value as SectionId)}
-            options={SECTIONS.map((sec) => ({ value: sec.id, label: t(sec.labelKey) }))}
-          />
+          <div className="set-compact-heading">{close}<span>{t("settings.title")}</span>
+            <Select compact title={t("settings.section")} value={section}
+              onChange={value => chooseSection(value as SectionId)}
+              options={SECTIONS.map(sec => ({ value: sec.id, label: t(sec.labelKey) }))} />
+          </div>
+          {searchField}
         </div>
       ) : (
         <div className="set-nav">
-          <Button variant="ghost" className="set-back" onClick={p.onClose}>{t("settings.back")}</Button>
-          {SECTIONS.map((sec) => (
-            <RowButton
-              key={sec.id}
-              className={`set-nav-item ${section === sec.id ? "on" : ""}`}
-              aria-current={section === sec.id ? "true" : undefined}
-              onClick={() => setSection(sec.id)}
-            >
-              {t(sec.labelKey)}
-            </RowButton>
-          ))}
-          <span className="flex" />
-          <Button variant="ghost" className="set-restore" onClick={async () => {
-            // Conservé verbatim : confirmation obligatoire, et une PANNE du
-            // dialogue bloque l'action destructive (SettingsPage.test.tsx).
-            const ok = await tauriConfirm(t("settings.restore-confirm"), { kind: "warning" }).catch(() => false);
-            if (ok) { p.onChange({ ...DEFAULT_SETTINGS }); flash(); }
-          }}>{t("action.restore-defaults")}</Button>
+          <div className="set-identity"><div><strong>Atelier</strong><span>{t("settings.title")}</span></div>{close}</div>
+          {searchField}
+          <nav aria-label={t("settings.section")}>
+            {SECTIONS.map(sec => {
+              const Icon = SECTION_ICONS[sec.id];
+              return <RowButton key={sec.id} className={`set-nav-item ${section === sec.id ? "on" : ""}`}
+                aria-current={section === sec.id ? "true" : undefined} onClick={() => chooseSection(sec.id)}>
+                <Icon aria-hidden="true" />{t(sec.labelKey)}
+              </RowButton>;
+            })}
+          </nav>
+          <div className="set-nav-footer">
+            <span>{t("settings.autosave-note")}</span>
+            <Button variant="ghost" className="set-restore" onClick={restore}><RotateCcw aria-hidden="true" />{t("action.restore-defaults")}</Button>
+          </div>
         </div>
       )}
-
-      <div className="set-body">
+      <div ref={bodyRef} className="set-body" tabIndex={-1}>
         <div className="set-body-status"><SavedIndicator visible={saved} /></div>
-        <Suspense fallback={<p className="set-empty">{t("settings.checking")}</p>}>
-          <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects}
-            projectRoot={p.projectRoot} narrow={narrow} />
-        </Suspense>
+        {searching ? <div className="set-search-results">
+          <h1>{t("settings.search-title")}</h1>
+          <p className="set-sub" role="status">{t(results.length === 1 ? "settings.search-one" : "settings.search-count", { count: results.length })}</p>
+          {results.length ? results.map((result, index) => <RowButton key={`${result.section}-${index}`} className="set-search-result" aria-label={`${result.label} — ${result.category}`}
+            onClick={() => {
+              setSection(result.section); setQuery("");
+              bodyRef.current?.focus({ preventScroll: true });
+              setTarget(result.target ? { label: result.target, request: Date.now() } : null);
+              bodyRef.current?.scrollTo?.({ top: 0 });
+            }}>
+            <span>{result.label}<small>{result.category}</small></span><ChevronRight aria-hidden="true" />
+          </RowButton>) : <p className="set-empty">{t("settings.search-empty")}</p>}
+        </div> : <SettingsSearchTarget.Provider value={target}>
+          <Suspense fallback={<p className="set-empty">{t("settings.checking")}</p>}>
+            <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects}
+              projectRoot={p.projectRoot} narrow={narrow} />
+          </Suspense>
+        </SettingsSearchTarget.Provider>}
+        {narrow && !searching && <div className="set-mobile-footer"><Button variant="ghost" className="set-restore" onClick={restore}>{t("action.restore-defaults")}</Button></div>}
       </div>
     </div>
   );

@@ -28,6 +28,25 @@ function renderBody(text: string, streaming: boolean) {
 }
 
 describe("MdBody — fade par mots du bloc de queue (plan 067)", () => {
+  it("conserve les éléments des mots quand la fenêtre de fondu avance", () => {
+    const words = Array.from({ length: 65 }, (_, i) => `mot${i}`);
+    const body = (count: number) => <MdBody text={words.slice(0, count).join(" ")}
+      streaming components={MD_COMPONENTS_STREAMING} remarkPlugins={REMARK} rehypePlugins={REHYPE} />;
+    const { container, rerender } = render(body(39));
+    for (let count = 40; count <= words.length; count++) {
+      const previous = new Map([...container.querySelectorAll("p > span")]
+        .map((node) => [node.textContent, node]));
+      rerender(body(count));
+      const animated = [...container.querySelectorAll("span.sw")];
+      expect(animated).toHaveLength(Math.min(count, 40));
+      for (const node of container.querySelectorAll("p > span")) {
+        if (previous.has(node.textContent)) expect(node).toBe(previous.get(node.textContent));
+      }
+      expect(animated.map((node) => node.textContent)).toEqual(words.slice(Math.max(0, count - 40), count));
+      expect(container.textContent).toBe(words.slice(0, count).join(" "));
+    }
+  });
+
   it("la queue en streaming enveloppe chaque mot dans span.sw, les blocs clos non", () => {
     const { container } = renderBody("Bloc déjà clos.\n\nLa queue en cours de frappe", true);
     const blocks = [...container.children];

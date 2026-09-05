@@ -95,6 +95,16 @@ describe("popover d'annotation — annoter et envoyer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("fermer l’annotation abandonne le brouillon sans envoyer", async () => {
+    const onSubmit=vi.fn();
+    renderUi(<Chat {...chatProps({onSubmit})}/>);
+    const field=await openEditor("seuil hypsométrique");
+    fireEvent.change(field,{target:{value:"brouillon"}});
+    fireEvent.click(within(screen.getByRole("dialog",{name:t("chat.annotate")})).getByRole("button",{name:t("action.close")}));
+    expect(document.querySelector(".anno-editor")).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("le bouton d'envoi part avec le commentaire qu'on vient d'écrire", async () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({ onSubmit })} />);

@@ -26,6 +26,16 @@ afterEach(() => {
 });
 
 describe("Tooltip", () => {
+  it("reçoit le focus et conserve le clic lorsque le déclencheur est un IconButton", async () => {
+    const click = vi.fn();
+    render(<Tooltip label="Ouvrir la recherche"><IconButton label="Recherche" onClick={click}><span aria-hidden="true">⌕</span></IconButton></Tooltip>);
+    const target = screen.getByRole("button", { name: "Recherche" });
+    act(() => target.focus());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Ouvrir la recherche");
+    fireEvent.click(target);
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   const hover = (target: HTMLElement) => {
     const pointer = new MouseEvent("pointerover", { bubbles: true });
     Object.defineProperty(pointer, "pointerType", { value: "mouse" });

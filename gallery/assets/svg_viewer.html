@@ -5,21 +5,22 @@
 <meta charset="utf-8">
 <title>SVG editor</title>
 <style>
+  button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 84px 8px 14px;
-         display:flex;gap:8px;align-items:center;font-size:13px;flex-shrink:0;flex-wrap:wrap}
+         display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0;flex-wrap:wrap}
   #fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;min-width:0;flex:1 1 0}
-  #msinfo{color:#22c55e;font-size:12px;white-space:nowrap}
-  #zoominfo{color:var(--muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  #msinfo{color:#22c55e;font-size:var(--fs-body-s, 12px);white-space:nowrap}
+  #zoominfo{color:var(--muted);font-size:var(--fs-body-s, 12px);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* space-held pan: grab cursor, grabbing while dragging (wins over the move/crosshair rules) */
   body.panready #stagewrap, body.panready #stagewrap *{cursor:grab}
   body.panning #stagewrap, body.panning #stagewrap *{cursor:grabbing}
   /* uniform "pro" toolbar: every control the same height + style */
   header button,header select{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;
         background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 13px;
-        font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
+        font-size:var(--fs-body, 13px);font-family:inherit;cursor:pointer;white-space:nowrap}
   header button:hover{background:#52525b}
   header select{padding:0 8px}
   header button svg{display:block}
@@ -60,21 +61,21 @@
   @media (prefers-reduced-motion: reduce){ #ctxbar{transition:none} }
   body.fs-mode #ctxbar{display:none}
   #ctxbar .cgroup{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
-  #ctxbar .lbl{font-size:11px;color:var(--muted);white-space:nowrap}
-  #ctxbar input{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+  #ctxbar .lbl{font-size:var(--fs-label, 11px);color:var(--muted);white-space:nowrap}
+  #ctxbar input{font-size:var(--fs-body-s, 12px);height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
          border:1px solid var(--border);color:var(--txt);font-family:inherit}
   #ctxbar input[type=number]{width:60px;padding:0 6px;font-variant-numeric:tabular-nums}
   #ctxbar input[type=color]{width:34px;padding:1px;cursor:pointer}
   #ctxbar input[type=range]{width:88px;padding:0}
   #ctxbar .pnone{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
-         font-size:13px;line-height:1}
+         font-size:var(--fs-body, 13px);line-height:1}
   #ctxbar .pnone:hover{color:var(--txt)}
-  #ctxbar select{font-size:12px;height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
+  #ctxbar select{font-size:var(--fs-body-s, 12px);height:24px;box-sizing:border-box;border-radius:6px;background:var(--bg);
          border:1px solid var(--border);color:var(--txt);font-family:inherit;max-width:130px;padding:0 4px}
   #ctxbar .ptog{height:24px;width:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
-         font-size:12px;line-height:1;font-family:inherit}
+         font-size:var(--fs-body-s, 12px);line-height:1;font-family:inherit}
   #ctxbar .ptog:hover{color:var(--txt)}
   #ctxbar .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
   #ctxbar .ptog[data-prop="font-style"]{font-style:italic}

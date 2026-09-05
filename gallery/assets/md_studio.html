@@ -38,16 +38,17 @@
 })();</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <style>
+  button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dbdfe5;--muted:#868d9a;--radius-control:4px}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
     font-family:var(--ui-font)}
   #bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bar);
-    border-bottom:1px solid var(--border);font-size:13px}
+    border-bottom:1px solid var(--border);font-size:var(--fs-body, 13px)}
   #fname{font-weight:600}
-  #state{color:var(--muted);font-size:12px}
+  #state{color:var(--muted);font-size:var(--fs-body-s, 12px)}
   #state.dirty{color:#ffd54a}
   #bar button{background:var(--surface-inset,#2c313a);border:1px solid var(--border);border-radius:var(--radius-control);
-    color:var(--fg);padding:4px 12px;cursor:pointer;font-size:13px}
+    color:var(--fg);padding:4px 12px;cursor:pointer;font-size:var(--fs-body, 13px)}
   #bar button:hover{border-color:#4a5462}
   #ed{height:calc(100vh - 41px)}
   .toastui-editor-dark .toastui-editor-defaultUI{border:none}
@@ -70,7 +71,7 @@
     background:var(--border)}
   .toastui-editor-defaultUI-toolbar button{border:none}
   .toastui-editor-dark .toastui-editor-mode-switch{background:var(--bar);
-    border-top:1px solid var(--border);font-size:11px}
+    border-top:1px solid var(--border);font-size:var(--fs-label, 11px)}
 </style>
 </head>
 <body>

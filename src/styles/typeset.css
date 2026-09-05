@@ -508,7 +508,7 @@
      * to --fs-body. Remap that resolved token locally so user prompts and
      * assistant prose follow the same chat-size setting. */
     --fs-body: var(--typeset-size);
-    --typeset-leading: 1.65;
+    --typeset-leading: var(--chat-lh, 1.7);
     --typeset-flow: 0.75em;
   }
 }

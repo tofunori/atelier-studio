@@ -1,3 +1,4 @@
+import { nomConsigne, consignesSelectionnees, basculerConsigne } from "../../lib/consignes";
 import { useState } from "react";
 import { DropdownMenuSurface } from "../ui/DropdownMenuSurface";
 import { RowButton } from "../ui/RowButton";
@@ -54,7 +55,7 @@ export function ConsigneMenu(p: {
   const connue = p.actif ? p.consignes.find((c) => c.id === p.actif?.id) : undefined;
   // Une consigne retirée du catalogue laisse le fil fonctionnel : on le dit
   // au lieu d'afficher un nom vide ou de perdre l'état.
-  const nom = p.actif ? (connue?.nom ?? t("chat.consigne-deleted")) : "";
+  const nom = (p.actif?.composition || p.actif?.selection) ? nomConsigne(p.actif, p.consignes) : p.actif ? (connue?.nom ?? t("chat.consigne-deleted")) : "";
   const pied = PIED_KEYS[p.provider as keyof typeof PIED_KEYS]
     ? t(PIED_KEYS[p.provider as keyof typeof PIED_KEYS])
     : undefined;
@@ -64,6 +65,10 @@ export function ConsigneMenu(p: {
   // ça, ouvrir le menu ne disait pas laquelle est en vigueur.
   const rangee = (actif: boolean) => (actif ? "consigne-item on" : "consigne-item");
 
+  const selection = consignesSelectionnees(p.actif);
+  const catalogue = [...p.consignes, ...selection.filter(c => !p.consignes.some(rule => rule.id === c.id)).map(c => ({
+    ...c, nom:c.id === "atelier-anglais" ? t("consigne.english") : t("consigne.personal"), description:c.texte,
+  }))];
   const items = [
     {
       key: "aucune",
@@ -76,9 +81,10 @@ export function ConsigneMenu(p: {
       ),
       onSelect: () => p.onChoisir(null),
     },
-    ...p.consignes.map((c) => ({
+    ...catalogue.map((c) => ({
       key: c.id,
-      className: rangee(p.actif?.id === c.id),
+      checked: selection.some(rule => rule.id === c.id),
+      className: rangee(selection.some(rule => rule.id === c.id)),
       label: (
         <>
           <span className="consigne-option">
@@ -89,10 +95,9 @@ export function ConsigneMenu(p: {
               {c.description}
             </span>
           </span>
-          {p.actif?.id === c.id && <CocheConsigne />}
         </>
       ),
-      onSelect: () => p.onChoisir({ id: c.id, texte: c.texte }),
+      onSelect: () => p.onChoisir(basculerConsigne(p.actif, c)),
     })),
     {
       key: "reglages",
@@ -107,7 +112,7 @@ export function ConsigneMenu(p: {
       open={open}
       onOpenChange={setOpen}
       label={t("consigne.menu-title")}
-      footer={pied}
+      footer={<>{t("consigne.combine")}<br />{pied}</>}
       align="start"
       items={items}
       trigger={

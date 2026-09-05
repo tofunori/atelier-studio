@@ -4,6 +4,8 @@ import {
   refreshSidecarInfo,
 } from "./sidecarInfo";
 import { markBootMetric } from "./bootMetrics";
+import type { ConsigneDuFil } from "./consignes";
+import type { TurnContext } from "./turnContext";
 
 /** Metadata harnais (plan 025, schema v1) portée par tout événement sidecar durable. */
 export type HarnessEventMeta = {
@@ -28,6 +30,7 @@ export type ProvisionalEventMeta = { provisional: true; messageId: string };
 // meta par intersection : une seule déclaration pour toutes les branches de l'union
 type AgentEventBody =
   | { kind: "user"; text: string; imageUrl?: string; label?: string;
+      context?: TurnContext;
       /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines seulement */
       pastes?: { name: string; text?: string; lines?: number }[];
       /* sources KB attachées AU MOMENT de l'envoi (plan 049) — méta fidèle à l'historique */
@@ -269,7 +272,7 @@ export type Thread = {
   kbFullContent?: string[];
   /** Consigne de réponse (plan 2026-09-01) — copie {id, texte} portée par le
    *  fil ; `null`/absent = aucune consigne active. */
-  consigne?: { id: string; texte: string } | null;
+  consigne?: ConsigneDuFil | null;
 };
 
 export type AgentMessageEvent = {

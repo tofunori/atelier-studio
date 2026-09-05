@@ -48,6 +48,7 @@ export function ProjectHeader(p: {
   /** ouvre le popover couleur/icône, ancré sous le bouton overflow */
   onCustomize?: (anchor: { x: number; y: number }) => void;
   onRemoveProject?: () => void;
+  onProjectSettings?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   // triggerRef transmis au menu Base UI (dismiss et retour focus gérés là)
@@ -143,6 +144,11 @@ export function ProjectHeader(p: {
                     label: t("project.reveal-finder"),
                     onSelect: () => p.onRevealFinder?.(),
                     separatorBefore: true,
+                  },
+                  {
+                    key: "project-settings",
+                    label: t("project.settings"),
+                    onSelect: () => p.onProjectSettings?.(),
                   },
                   {
                     key: "customize",

@@ -194,3 +194,30 @@
     }
   }
 }
+
+/* Menu surfaces share a quiet edge and shadow. Content browsers/popovers
+ * retain their own width; only cascading action menus use this compact cap. */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="context-menu-content"],
+[data-slot="context-menu-sub-content"] {
+  box-shadow: var(--elev-soft, var(--elevation-overlay));
+  outline: 1px solid var(--border-subtle);
+  outline-offset: -1px;
+  font-weight: 400;
+}
+[data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-sub-content"] {
+  max-width: min(260px, var(--available-width));
+}
+[data-slot="dropdown-menu-label"], [data-slot="context-menu-label"] {
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+[data-slot="dropdown-menu-sub-trigger"], [data-slot="context-menu-sub-trigger"] {
+  font-weight: 400;
+}
+
+/* Selection marks and cascading navigation must never inherit Lucide's 24px default. */
+[data-slot="select-item"] [data-icon="select-check"] { width: 11px; height: 11px; stroke-width: 1.5; }
+[data-slot="dropdown-menu-sub-trigger"] > svg:last-child,
+[data-slot="context-menu-sub-trigger"] > svg:last-child { width: 11px; height: 11px; stroke-width: 1.5; }

@@ -4,6 +4,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -16,6 +17,7 @@ export type DropdownMenuSurfaceItem = {
   key: string
   label: ReactNode
   onSelect?: () => void
+  checked?: boolean
   children?: DropdownMenuSurfaceItem[]
   destructive?: boolean
   disabled?: boolean
@@ -50,6 +52,11 @@ export function DropdownMenuSurface(props: {
             </DropdownMenuGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+      ) : item.checked !== undefined ? (
+        <DropdownMenuCheckboxItem checked={item.checked} closeOnClick={false}
+          disabled={item.disabled} className={item.className} onCheckedChange={item.onSelect}>
+          {item.label}
+        </DropdownMenuCheckboxItem>
       ) : (
         <DropdownMenuItem
           variant={item.destructive ? "destructive" : "default"}

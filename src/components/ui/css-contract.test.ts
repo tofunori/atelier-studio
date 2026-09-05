@@ -686,11 +686,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
 
   it("modifier un message conserve exactement sa typographie de bulle", () => {
     expect(appCss).toMatch(/\.user-bubble\s*\{[^}]*font-size:\s*var\(--chat-fs, var\(--fs-xl\)\)/s);
-    expect(appCss).toMatch(/\.user-bubble\s*\{[^}]*line-height:\s*1\.55/s);
+    expect(appCss).toMatch(/\.user-bubble\s*\{[^}]*line-height:\s*var\(--chat-lh, 1\.7\)/s);
     expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*font-size:\s*var\(--chat-fs, var\(--fs-xl\)\)/s);
     expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*font-weight:\s*inherit/s);
     expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*letter-spacing:\s*inherit/s);
-    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*line-height:\s*1\.55/s);
+    expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*line-height:\s*var\(--chat-lh, 1\.7\)/s);
   });
 
   it("le bouton de fermeture Mermaid reste transparent dans tous ses états", () => {

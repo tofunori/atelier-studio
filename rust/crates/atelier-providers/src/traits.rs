@@ -26,6 +26,8 @@ pub struct SendRequest {
     /// Provider-native structured inputs (images, skills, mentions).
     pub inputs: Option<Vec<Value>>,
     pub project_root: String,
+    /// Additional writable roots for Codex workspace-write. Empty explicitly clears previous roots.
+    pub additional_directories: Vec<String>,
     pub session_id: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,

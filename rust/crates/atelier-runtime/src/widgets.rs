@@ -7,6 +7,8 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+const PRESENTATION: &str = include_str!("widget_presentation.html");
+
 pub const HTML_MAX: usize = 128 * 1024;
 pub const TITLE_MAX: usize = 80;
 pub const HEIGHT_MIN: i64 = 120;
@@ -185,6 +187,7 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
   @media (prefers-reduced-motion: reduce) {{ * {{ animation: none !important; transition: none !important; }} }}
 </style>
 </head><body>
+{presentation}
 <script>
 (function () {{
   var parentWin = window.parent;
@@ -227,7 +230,7 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
       for (var k in d.tokens) document.documentElement.style.setProperty(k, d.tokens[k]);
     }}
     if (d.type === "restore" && typeof window.onRestore === "function") {{
-      try {{ window.onRestore(d.state); }} catch (err) {{ }}
+      try {{ window.onRestore(d.state); }} catch (err) {{ post({{ source: "atelier-widget", type: "error" }}); }}
     }}
   }});
   // Sortie clavier. Un keydown produit DANS une frame d'origine opaque ne
@@ -245,6 +248,7 @@ pub fn wrap_shell(input: &WidgetInput) -> String {
 </script>
 {html}
 </body></html>"#,
+        presentation = PRESENTATION,
         title = escape_html(&input.title),
         html = input.html,
     )
@@ -357,7 +361,33 @@ pub fn purge_thread_widgets(app_dir: &Path, thread_id: &str) -> bool {
 
 /// Cœur pur du handler : ce qui est servi, ou rien.
 pub fn serve_body(app_dir: &Path, thread_id: &str, id: &str) -> Option<String> {
-    read_widget(app_dir, thread_id, id)
+    read_widget(app_dir, thread_id, id).map(|shell| {
+        // Upgrade only our known legacy envelope, in memory. Stored fragments
+        // and exported histories remain unchanged.
+        // Refresh our presentation layer for already saved widgets as well.
+        // Only the known shell prefix is eligible; user HTML is never rewritten.
+        let prefix = "</head><body>\n<!-- atelier-widget-presentation-v1 -->";
+        if let Some(start) = shell.find(prefix).map(|at| at + "</head><body>\n".len()) {
+            let tail = &shell[start..];
+            let end_marker = "<!-- /atelier-widget-presentation -->";
+            let end = tail.find(end_marker).map(|at| at + end_marker.len())
+                .or_else(|| tail.find("</script>").map(|at| at + "</script>".len()));
+            if let Some(end) = end {
+                return format!("{}{}{}", &shell[..start], PRESENTATION.trim_end(), &tail[end..]);
+            }
+        }
+        let body = "</head><body>\n<script>\n(function () {";
+        if shell.contains(body) && !shell.contains("<!-- atelier-widget-presentation-v1 -->") {
+            shell.replacen(body, &format!("</head><body>\n{PRESENTATION}\n<script>\n(function () {{"), 1)
+                .replacen(
+                    "try { window.onRestore(d.state); } catch (err) { }",
+                    "try { window.onRestore(d.state); } catch (err) { post({ source: \"atelier-widget\", type: \"error\" }); }",
+                    1,
+                )
+        } else {
+            shell
+        }
+    })
 }
 
 /// Handler HTTP pour servir le HTML du widget.
@@ -580,6 +610,36 @@ mod tests {
         assert!(!shell.contains("font-src"), "aucune police distante");
         assert!(shell.contains("<p>salut</p>"), "le contenu de l'agent est présent");
         assert!(shell.contains("sendPrompt"), "le pont est injecté");
+    }
+
+    #[test]
+    fn legacy_shell_gets_presentation_without_rewriting_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = new_widget_id();
+        let input = parse_widget_input(&req("<p>legacy</p>", "t", 420)).unwrap();
+        let current = wrap_shell(&input);
+        let legacy = current.replace(&format!("{PRESENTATION}\n"), "")
+            .replace("catch (err) { post({ source: \"atelier-widget\", type: \"error\" }); }", "catch (err) { }");
+        write_widget(dir.path(), "t1", &id, &legacy).unwrap();
+        let served = serve_body(dir.path(), "t1", &id).unwrap();
+        assert_eq!(served, current);
+        assert_eq!(read_widget(dir.path(), "t1", &id).unwrap(), legacy);
+        write_widget(dir.path(), "t1", &id, &current).unwrap();
+        assert_eq!(serve_body(dir.path(), "t1", &id).unwrap(), current);
+    }
+
+    #[test]
+    fn saved_presentation_is_refreshed_without_changing_widget_or_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = new_widget_id();
+        let input = parse_widget_input(&req("<input type=\"range\" id=\"x\">", "t", 420)).unwrap();
+        let current = wrap_shell(&input);
+        let old = current.replace(PRESENTATION, "<!-- atelier-widget-presentation-v1 -->\n<style>/* old */</style>\n<script>/* old */</script>\n");
+        write_widget(dir.path(), "t1", &id, &old).unwrap();
+        assert_eq!(serve_body(dir.path(), "t1", &id).unwrap(), current);
+        assert_eq!(read_widget(dir.path(), "t1", &id).unwrap(), old);
+        write_widget(dir.path(), "t1", &id, &current).unwrap();
+        assert_eq!(serve_body(dir.path(), "t1", &id).unwrap(), current);
     }
 
     #[test]

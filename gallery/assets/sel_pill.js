@@ -37,7 +37,7 @@
       });
       pill.style.cssText += ";background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto";
       go.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-      go.style.cssText = "width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:13px;white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer";
+      go.style.cssText = "width:auto;min-width:0;height:auto;border-radius:999px;padding:7px 14px;font-size:var(--fs-body, 13px);white-space:nowrap;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer";
       goHTML = go.innerHTML;
       if (opts.embedExtras) opts.embedExtras(go);
     }

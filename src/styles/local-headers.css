@@ -22,7 +22,7 @@
 }
 .atelier-document-meta .source {
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 400 var(--fs-caption)/1.3 var(--font-code); color: var(--text-disabled);
+  font: 400 var(--fs-caption)/1.3 var(--font-code); color: var(--text-muted);
 }
 .atelier-document-meta .kind {
   font: 400 var(--fs-caption)/1.3 var(--font-chrome); color: var(--text-muted);

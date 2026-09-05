@@ -88,6 +88,25 @@ describe("composer — caractérisation", () => {
     expect(ta().value).toContain("/recherche");
   });
 
+  it.each(["mouse", "keyboard"])("joindre un dossier (%s) ferme les suggestions et retire le token", (interaction) => {
+    const onAttachFolder = vi.fn();
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...chatProps({
+      onAttachFolder, onSubmit,
+      files: ["documentation/methodes/ERA5.md", "documentation/methodes/PIPELINE.md"],
+    })} />);
+    fireEvent.change(ta(), { target: { value: "Analyse @method" } });
+    if (interaction === "mouse") {
+      fireEvent.mouseDown(screen.getAllByRole("option")[0]);
+    } else {
+      fireEvent.keyDown(ta(), { key: "Enter" });
+    }
+    expect(onAttachFolder).toHaveBeenCalledExactlyOnceWith("documentation/methodes");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(ta().value).toBe("Analyse ");
+    expect(screen.queryByRole("listbox", { name: "Suggestions" })).toBeNull();
+  });
+
   it("@Agent apparaît avant les références et s'insère au clavier", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({

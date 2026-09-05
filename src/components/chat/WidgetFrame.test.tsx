@@ -419,3 +419,128 @@ describe("WidgetFrame — actions de barre", () => {
     expect(screen.getByRole("button", { name: t("chat.output-copy") })).toBeDisabled();
   });
 });
+
+describe("WidgetFrame — adaptation et reprise", () => {
+  beforeEach(() => {
+    resetSidecarInfo();
+    setSidecarInfo({ port: 4123 });
+    clearWidgetStates();
+    mockFetch(async () => new Response("<html>widget</html>"));
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  function message(frame: HTMLIFrameElement, data: Record<string, unknown>) {
+    act(() => window.dispatchEvent(new MessageEvent("message", {
+      source: frame.contentWindow, data: { source: "atelier-widget", ...data },
+    })));
+  }
+
+  it("réduit ou agrandit le panneau sans remonter l'iframe, avec un plafond", async () => {
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const frame = container.querySelector("iframe")!;
+    const body = container.querySelector(".widget-body") as HTMLElement;
+    message(frame, { type: "resize", height: 180 });
+    expect(body.style.height).toBe("180px");
+    message(frame, { type: "resize", height: 560.2 });
+    expect(body.style.height).toBe("561px");
+    message(frame, { type: "resize", height: 2400 });
+    expect(body.style.height).toBe("900px");
+    message(frame, { type: "resize", height: 2 });
+    expect(body.style.height).toBe("120px");
+    for (const height of [NaN, Infinity, -10, "400", null]) message(frame, { type: "resize", height });
+    expect(body.style.height).toBe("120px");
+    expect(container.querySelector("iframe")).toBe(frame);
+  });
+
+  it("ignore les mesures et erreurs d'une autre fenêtre", async () => {
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    for (const type of ["resize", "error"]) act(() => window.dispatchEvent(new MessageEvent("message", {
+      source: window, data: { source: "atelier-widget", type, height: 800 },
+    })));
+    expect((container.querySelector(".widget-body") as HTMLElement).style.height).toBe("420px");
+    expect(screen.queryByText(t("chat.widget-error"))).toBeNull();
+  });
+
+  it("les mesures du plein écran ne changent pas la hauteur réservée dans le fil", async () => {
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    message(container.querySelector("iframe")!, { type: "resize", height: 220 });
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-expand") }));
+    const expanded = document.querySelector("iframe")!;
+    message(expanded, { type: "resize", height: 880 });
+    expect((container.querySelector(".widget-body") as HTMLElement).style.height).toBe("220px");
+    message(expanded, { type: "escape" });
+    expect(container.querySelector("iframe")).toBeTruthy();
+    expect((container.querySelector(".widget-body") as HTMLElement).style.height).toBe("220px");
+  });
+
+  it("annonce le chargement puis l'enlève quand le widget est prêt", async () => {
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    expect(screen.getByText(t("chat.widget-loading"))).toBeTruthy();
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    message(container.querySelector("iframe")!, { type: "ready" });
+    expect(screen.queryByText(t("chat.widget-loading"))).toBeNull();
+  });
+
+  it("une erreur suivie de ready reste en erreur ; Réessayer recharge et restaure l'état", async () => {
+    rememberWidgetState(EVENT.id, { value: 7 });
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const first = container.querySelector("iframe")!;
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: first.contentWindow, data: { source: "atelier-widget", type: "error" } }));
+      window.dispatchEvent(new MessageEvent("message", { source: first.contentWindow, data: { source: "atelier-widget", type: "ready" } }));
+    });
+    expect(screen.getByRole("alert").textContent).toContain(t("chat.widget-error"));
+    expect(container.querySelector("iframe")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-view-source") }));
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-view-panel") }));
+    expect(screen.getByRole("alert").textContent).toContain(t("chat.widget-error"));
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-retry") }));
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const next = container.querySelector("iframe")!;
+    expect(next).not.toBe(first);
+    const post = vi.spyOn(next.contentWindow!, "postMessage");
+    message(next, { type: "ready" });
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "restore", state: { value: 7 } }), "*");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("une panne réseau est réessayable et n'est pas présentée comme un widget supprimé", async () => {
+    mockFetch(async () => { throw new Error("network"); });
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(screen.getByText(t("chat.widget-unavailable"))).toBeTruthy());
+    expect(screen.queryByText(t("chat.widget-missing"))).toBeNull();
+    mockFetch(async () => new Response("<html>recovered</html>"));
+    fireEvent.click(screen.getByRole("button", { name: t("chat.widget-retry") }));
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+  });
+
+  it("une requête bloquée expire et sa réponse tardive ne réactive pas le panneau", async () => {
+    vi.useFakeTimers();
+    let resolve!: (r: Response) => void;
+    mockFetch(() => new Promise<Response>((r) => { resolve = r; }));
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await act(async () => { vi.advanceTimersByTime(10001); });
+    expect(screen.getByText(t("chat.widget-unavailable"))).toBeTruthy();
+    await act(async () => { resolve(new Response("late")); });
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("transmet la taille de lecture et ses changements sans remonter le widget", async () => {
+    document.documentElement.style.setProperty("--chat-fs", "17px");
+    const { container } = render(<WidgetFrame event={EVENT} threadId="t1" />);
+    await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
+    const frame = container.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    message(frame, { type: "ready" });
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "theme", tokens: expect.objectContaining({ "--widget-font-size": "17px" }) }), "*");
+    document.documentElement.style.setProperty("--chat-fs", "19px");
+    act(() => window.dispatchEvent(new CustomEvent("app-theme-changed")));
+    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: "theme", tokens: expect.objectContaining({ "--widget-font-size": "19px" }) }), "*");
+    expect(container.querySelector("iframe")).toBe(frame);
+    document.documentElement.style.removeProperty("--chat-fs");
+  });
+});

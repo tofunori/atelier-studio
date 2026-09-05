@@ -69,7 +69,7 @@ jobs:
             printf '\n---\n\n'
             echo '**Platform:** macOS on Apple Silicon.'
             printf '\n'
-            echo 'The packaged app includes Node.js 22 and the gallery runtime. No'
+            echo 'The packaged app includes the Rust backend and gallery runtime. No'
             echo 'separate Node.js or Python installation is required for the app.'
             echo 'Claude Code CLI (2.1.139 or newer) and Codex CLI remain external'
             echo 'prerequisites for their respective providers.'

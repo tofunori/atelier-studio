@@ -153,7 +153,7 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('.brand .stat')).toContainText('4 files');
 
-    await page.getByRole('button', { name: 'Search files' }).click();
+    await page.getByRole('button', { name: 'Rechercher' }).click();
     await expect(page.locator('[data-gallery-command="search"]')).toBeVisible();
     const searchGroup = page.locator('[data-gallery-command-group="search"]');
     await expect(searchGroup).toHaveAttribute('data-slot', 'input-group');
@@ -177,12 +177,12 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     await page.locator('[data-gallery-command="filters"]').click();
     const typePanel = page.locator('[data-gallery-file-type-panel]');
     await expect(typePanel).toBeVisible();
-    await typePanel.getByRole('button', { name: 'All file types' }).click();
+    await typePanel.getByRole('button', { name: 'Plus…' }).click();
     await expect(typePanel.locator('[data-gallery-file-type="py"]')).toContainText('Python');
     await typePanel.locator('[data-gallery-file-type="svg"]').click();
 
     // Un type désactivé explicitement se combine avec la requête texte.
-    await page.getByRole('button', { name: /Search files/ }).click();
+    await page.getByRole('button', { name: /Rechercher/ }).click();
     await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
   });
@@ -200,7 +200,7 @@ test('browse: repeated rerenders release detached code preview observers', async
       };
     });
     await page.goto(url);
-    await page.getByRole('button', { name: 'Search files' }).click();
+    await page.getByRole('button', { name: 'Rechercher' }).click();
     const search = page.locator('[data-gallery-command="search"]');
 
     for (let i = 0; i < 30; i += 1) {
@@ -262,7 +262,7 @@ test('chat bridge: show focuses known figures and reports missing paths', async 
     await expect(page.locator('#activeChips')).toContainText('Chat focus: 2');
     // Arrêter les chargements de miniatures avant que withGallery supprime le
     // projet temporaire; sinon macOS peut recréer .fig_thumbs pendant rmSync.
-    await page.goto('about:blank');
+    await page.goto(url);
   });
 });
 
@@ -321,7 +321,7 @@ test('chat bridge: open, compare and reset drive the existing gallery surfaces',
     await expect(page.locator('#cmp')).not.toHaveClass(/show/);
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('#activeChips')).not.toContainText('Chat focus');
-    await page.goto('about:blank');
+    await page.goto(url);
   });
 });
 
@@ -448,15 +448,16 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await page.goto(url);
     await expect(page.locator('#grid .card')).toHaveCount(3);
 
-    await page.locator('[data-gallery-command="status"]').click();
-    await page.locator('[data-gallery-status="draft"]').click();
+    await page.locator('[data-gallery-command="filters"]').click();
+    await page.getByRole('combobox', {name:'Filtrer par statut'}).click();
+    await page.getByRole('option', {name:'Brouillon',exact:true}).click();
 
     await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
-    await expect(page.locator('[data-gallery-command="filters"]')).toContainText('Filters 1');
+    await expect(page.locator('[data-gallery-command="filters"]')).toHaveAttribute('aria-label','Filtres, 1 actifs');
     await expect(page.locator('#grid .empty')).toContainText('No matching files');
 
     // suppression via la chip → grille restaurée, compteur remis à zéro
-    await page.locator('[data-gallery-filter-chip="wf"]').click();
+    await page.getByRole('button',{name:'Réinitialiser',exact:true}).click();
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('[data-gallery-command="filters"]')).not.toContainText(' 1');
   });
@@ -466,21 +467,22 @@ test('file types: quick types and custom presets persist only for the project', 
   await withGallery(async ({ root, url }) => {
     await page.goto(url);
     await page.locator('[data-gallery-command="filters"]').click();
-    const dialog = page.getByRole('dialog', { name: 'File types' });
+    const dialog = page.getByRole('dialog', { name: 'Filtres' });
     await expect(dialog).toBeVisible();
     await expect(dialog).not.toContainText(/\b\d+ files?\b/i);
 
-    await dialog.getByRole('button', { name: 'Customize' }).click();
-    const shell = dialog.locator('[data-gallery-customize-type="sh"]');
+    await dialog.getByRole('button', {name:'Plus…'}).click();
+    await dialog.locator('summary').click();
+    const shell = dialog.getByRole('group',{name:'Formats épinglés'}).getByRole('button',{name:'Shell',exact:true});
     await expect(shell).toHaveAttribute('aria-pressed', 'false');
     await shell.click();
-    await dialog.getByRole('button', { name: 'Done' }).click();
+    await dialog.getByRole('button', {name:'Moins',exact:true}).click();
     await expect(dialog.locator('[data-gallery-quick-type="sh"]')).toBeVisible();
 
     await dialog.locator('[data-gallery-new-preset]').click();
-    await dialog.getByRole('textbox', { name: 'New preset name' }).fill('Manuscript');
-    await dialog.getByRole('button', { name: 'Save' }).click();
-    await expect(dialog.getByRole('button', { name: 'Manuscript', exact: true })).toBeVisible();
+    await dialog.getByRole('textbox', { name: 'Nom de la vue' }).fill('Manuscript');
+    await dialog.getByRole('button', { name: 'Enregistrer', exact:true }).click();
+    await expect(dialog.getByRole('combobox', {name:'Vue enregistrée'})).toBeVisible();
 
     const scopedKeys = await page.evaluate(projectRoot => Object.keys(localStorage).filter(key => key.includes(projectRoot)), root);
     expect(scopedKeys.some(key => key.startsWith('galleryPinnedFileTypesV1:'))).toBe(true);
@@ -489,7 +491,7 @@ test('file types: quick types and custom presets persist only for the project', 
     await page.reload();
     await page.locator('[data-gallery-command="filters"]').click();
     await expect(page.locator('[data-gallery-quick-type="sh"]')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'File types' }).getByRole('button', { name: 'Manuscript', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', {name:'Vue enregistrée'})).toBeVisible();
   });
 });
 
@@ -524,7 +526,7 @@ test('file types: compact popover stays inside narrow gallery viewports', async 
 
       const geometry = await page.locator('[data-slot="popover-content"]').evaluate(element => {
         const panel = element.getBoundingClientRect();
-        const footer = element.querySelector('.gallery-filter-panel-foot').getBoundingClientRect();
+        const footer = element.querySelector('[data-gallery-new-preset]').getBoundingClientRect();
         return {
           panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom, width: panel.width },
           footerBottom: footer.bottom,
@@ -537,51 +539,59 @@ test('file types: compact popover stays inside narrow gallery viewports', async 
       expect(geometry.panel.right).toBeLessThanOrEqual(geometry.viewport.width);
       expect(geometry.panel.bottom).toBeLessThanOrEqual(geometry.viewport.height);
       expect(geometry.panel.width).toBeLessThanOrEqual(360);
-      expect(geometry.panel.bottom - geometry.panel.top).toBeLessThanOrEqual(360);
+      expect(geometry.panel.bottom - geometry.panel.top).toBeLessThanOrEqual(500);
       expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.viewport.height);
       expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewport.width);
-      await expect(page.getByRole('button', { name: 'Reset filters' })).toBeVisible();
+      await expect(page.getByRole('button', { name:'Réinitialiser',exact:true })).toBeVisible();
     }
   });
 });
 
-// Trois groupes — chercher/filtrer, trier, afficher — posés à gauche et
-// séparés par un filet, seul trait de la barre depuis le passage en fantôme.
-test('command bar: three left-aligned groups parted by a hairline', async ({ page }) => {
+test('command bar: direct icon controls remain separate at narrow and wide widths', async ({ page }) => {
   await withGallery(async ({ url }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(url);
-
-    const groups = ['Search and filter gallery', 'Sort gallery', 'Display and gallery tools'];
-    const boxes = await Promise.all(
-      groups.map((name) => page.getByRole('group', { name }).boundingBox()),
-    );
-    boxes.forEach((box) => expect(box).not.toBeNull());
-
-    // Chaque groupe suit le précédent, à la largeur d'un filet et de ses marges.
-    for (let index = 1; index < boxes.length; index += 1) {
-      const gap = boxes[index].x - (boxes[index - 1].x + boxes[index - 1].width);
-      expect(gap).toBeGreaterThanOrEqual(0);
-      expect(gap).toBeLessThanOrEqual(24);
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      const buttons = page.locator('.gallery-command-bar[data-gallery-toolbar-state="normal"] button');
+      await expect(buttons).toHaveCount(9);
+      const boxes = await buttons.evaluateAll(elements => elements.map(el => {
+        const r = el.getBoundingClientRect(); return { x: r.x, right: r.right, y: r.y, bottom: r.bottom };
+      }));
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i].x).toBeGreaterThanOrEqual(boxes[i - 1].right);
+      for (const box of boxes) { expect(box.x).toBeGreaterThanOrEqual(0); expect(box.right).toBeLessThanOrEqual(width); }
     }
+    await page.getByRole('button', { name: 'Présentation',exact:true }).click();
+    await expect(page.getByRole('button',{name:'Petites',exact:true})).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Autres actions' }).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button',{name:'Rescanner la galerie',exact:true})).toBeVisible();
+  });
+});
 
-    const separators = page.locator('.gallery-command-sep');
-    await expect(separators).toHaveCount(groups.length - 1);
-    const separatorBox = await separators.first().boundingBox();
-    expect(separatorBox.width).toBeGreaterThan(0);
+test('embedded command bar: folder and controls never overlap', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.setContent(`<body style="margin:0"><iframe title="gallery" src="${url}${url.includes('?') ? '&' : '?'}embedded=atelier" style="border:0;width:100vw;height:100vh"></iframe></body>`);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('.gallery-command-bar')).toBeVisible();
+    await page.evaluate(() => document.querySelector('iframe').contentWindow.postMessage({ type:'atelier-folder-state', state:{ folders:[{path:'/chapter',name:'Chapitre1-Albedo'}], selected:'/chapter', label:'Dossiers', manageLabel:'Gérer les dossiers' } }, '*'));
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      const controls = frame.locator('.gallery-command-bar[data-gallery-toolbar-state="normal"] button');
+      await expect(controls).toHaveCount(10);
+      const boxes = await controls.evaluateAll(elements => elements.map(el => { const r=el.getBoundingClientRect();return {x:r.x,right:r.right}; }));
+      for(let i=1;i<boxes.length;i++) expect(boxes[i].x).toBeGreaterThanOrEqual(boxes[i-1].right);
+      for(const b of boxes){expect(b.x).toBeGreaterThanOrEqual(0);expect(b.right).toBeLessThanOrEqual(width);}
+    }
+    await frame.getByRole('button', {name:'Dossiers'}).click();
+    const manage = frame.getByRole('menuitem', {name:'Gérer les dossiers…'});
+    const before = await manage.evaluate(el => getComputedStyle(el).backgroundColor);
+    await manage.hover();
+    await expect.poll(() => manage.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(before);
+    await manage.click();
+    await expect(frame.getByRole('menu')).toBeHidden();
 
-    // Aucune bordure de contrôle au repos : le filet est le seul trait.
-    const bordered = await page.evaluate(() => [...document.querySelectorAll(
-      '.gallery-command-bar[data-gallery-toolbar-state="normal"] button',
-    )].filter((element) => {
-      const color = getComputedStyle(element).borderTopColor;
-      return !/rgba\(0, 0, 0, 0\)|transparent/.test(color);
-    }).length);
-    expect(bordered).toBe(0);
-
-    const sort = page.getByRole('combobox', { name: /Sort project files:/ });
-    await expect(sort).toBeVisible();
-    await expect(sort.locator('[data-icon="select-chevron"]')).toBeHidden();
   });
 });
 
@@ -750,26 +760,26 @@ test('shadcn command bar: popover returns focus and view menu controls density',
     const filters = page.locator('[data-gallery-command="filters"]');
     await filters.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog', { name: 'File types' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filtres' })).toBeVisible();
     await page.locator('#grid').click({ position: { x: 2, y: 2 } });
-    await expect(page.getByRole('dialog', { name: 'File types' })).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'Filtres' })).toBeHidden();
 
     // La fermeture extérieure ne casse pas le retour de focus au trigger.
     await filters.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog', { name: 'File types' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filtres' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(filters).toBeFocused();
 
-    const tools = page.getByRole('button', { name: 'Gallery tools' });
+    const tools = page.getByRole('button', { name: 'Autres actions' });
     await tools.hover();
-    await expect(page.getByRole('tooltip', { name: 'Gallery tools' })).toBeVisible();
+    await expect(page.getByRole('tooltip', { name: 'Autres actions' })).toBeVisible();
     await tools.click();
     await expect(page.getByRole('menu')).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Gallery settings…' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Réglages de la galerie…' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    const rescan = page.getByRole('button', { name: 'Rescan project' });
+    const rescan = page.getByRole('button', { name: 'Rescanner la galerie',exact:true });
     await expect(rescan).toHaveAttribute('data-gallery-command', 'rescan');
     await rescan.click();
     await expect.poll(() => rescanRequests).toBe(1);
@@ -780,16 +790,11 @@ test('shadcn command bar: popover returns focus and view menu controls density',
     await favorites.click();
     await expect(favorites).toHaveAttribute('aria-pressed', 'true');
 
-    const sort = page.getByRole('combobox', { name: 'Sort project files' });
-    await sort.click();
-    const openSelect = page.locator('[data-slot="select-content"][data-open]');
-    await expect(openSelect).toBeVisible();
-    await page.locator('#grid').click({ position: { x: 2, y: 2 } });
-    await expect(openSelect).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
-    await page.getByRole('button', { name: 'View options' }).click();
-    await page.getByRole('menuitemcheckbox', { name: 'Large' }).click();
-    await expect(page.locator('#densitySeg [data-d="l"]')).toHaveClass(/on/);
+    await page.getByRole('button',{name:'Présentation',exact:true}).click();
+    await page.getByRole('button',{name:'Grandes',exact:true}).click();
+    await expect.poll(()=>page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--card-min'))).toBe('320px');
   });
 });
 
@@ -828,5 +833,83 @@ test('missing file: viewer opens and the grid stays intact', async ({ page }) =>
     await missingPreview.click();
     await expect(page.locator('#lb')).toHaveClass(/show/);
     await expect(page.locator('#grid .card')).toHaveCount(3);
+  });
+});
+
+test('detailed list: real files, shared selection, sorting, resizing and presentation persistence', async ({page}) => {
+  await withGallery(async ({url}) => {
+    await page.goto(url);
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+    const rels=await page.locator('#grid .card').evaluateAll(els=>els.map(el=>el.dataset.card).sort());
+    await page.getByRole('button',{name:'Liste détaillée',exact:true}).click();
+    await expect(page.locator('#grid')).toHaveClass('gallery-detail-list');
+    expect(await page.locator('#grid .card').evaluateAll(els=>els.map(el=>el.dataset.card).sort())).toEqual(rels);
+    await expect(page.getByRole('columnheader')).toHaveCount(5);
+    const resize=page.getByRole('separator',{name:'Largeur : Nom'});
+    await resize.focus();await page.keyboard.press('ArrowRight');
+    await expect(resize).toHaveAttribute('aria-valuenow','310');
+    await page.locator('[data-detail-sort="name"]').click();
+    expect(await page.locator('#grid .card').evaluateAll(els=>els.map(el=>el.dataset.card))).toEqual([...rels].sort());
+    await expect(resize).toHaveAttribute('aria-valuenow','310');
+    await page.locator('#grid .card').first().locator('[data-act="sel"]').click();
+    await expect(page.locator('[data-gallery-toolbar-state="selection"]')).toBeVisible();
+    await page.getByRole('button',{name:'Grille',exact:true}).click();
+    await expect(page.locator('#grid .selbox.on')).toHaveCount(1);
+    await page.getByRole('button',{name:'Liste détaillée',exact:true}).click();
+    await expect(page.locator('#grid .bulk-selected')).toHaveCount(1);
+    await page.getByRole('button',{name:'Clear selection',exact:true}).click();
+    await page.getByRole('button',{name:'Présentation',exact:true}).click();
+    await page.getByRole('button',{name:'Compacte',exact:true}).click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#grid .card').first()).toHaveCSS('min-height','34px');
+    await expect.poll(async()=> (await (await page.request.get(new URL('/state',url).href)).json()).presentation?.rows).toBe('compact');
+    await page.reload();
+    await expect(page.locator('#grid')).toHaveClass('gallery-detail-list');
+    await expect(page.getByRole('separator',{name:'Largeur : Nom'})).toHaveAttribute('aria-valuenow','310');
+    await page.locator('#grid [data-act="lb"][data-rel="preview-alpha.png"]').click();
+    await expect(page.locator('#lb')).toHaveClass(/show/);
+  });
+});
+
+
+test('saved views: restores filters and nested Escape keeps the filter panel open', async ({page}) => {
+  await withGallery(async ({url}) => {
+    await page.goto(url);
+    await page.locator('[data-gallery-command="filters"]').click();
+    await page.getByRole('combobox',{name:'Filtrer par statut'}).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog',{name:'Filtres'})).toBeVisible();
+    await page.getByRole('combobox',{name:'Filtrer par statut'}).click();
+    await page.getByRole('option',{name:'Brouillon',exact:true}).click();
+    await page.locator('[data-gallery-new-preset]').click();
+    await page.getByRole('textbox',{name:'Nom de la vue'}).fill('Brouillons');
+    await page.getByRole('button',{name:'Enregistrer',exact:true}).click();
+    await expect(page.getByRole('combobox',{name:'Vue enregistrée'})).toContainText('Brouillons');
+    await page.getByRole('button',{name:'Réinitialiser',exact:true}).click();
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+    await expect.poll(async()=> (await (await page.request.get(new URL('/state',url).href)).json()).filePresets?.[0]?.view?.status).toBe('draft');
+    await page.reload();
+    await page.locator('[data-gallery-command="filters"]').click();
+    await page.getByRole('combobox',{name:'Vue enregistrée'}).click();
+    await page.getByRole('option',{name:'Brouillons',exact:true}).click();
+    await expect(page.locator('#grid .empty')).toBeVisible();
+    await expect(page.getByRole('combobox',{name:'Filtrer par statut'})).toContainText('Brouillon');
+    await page.getByRole('button',{name:'Supprimer cette vue',exact:true}).click();
+    await page.getByRole('combobox',{name:'Vue enregistrée'}).click();
+    await expect(page.getByRole('option',{name:'Brouillons',exact:true})).toHaveCount(0);
+  });
+});
+
+test('detailed list: favorite action remains available in the row menu', async ({page}) => {
+  await withGallery(async ({url}) => {
+    await page.goto(url);
+    await page.getByRole('button',{name:'Liste détaillée',exact:true}).click();
+    const row=page.locator('.gallery-detail-row[data-card="preview-alpha.png"]');
+    await row.getByRole('button',{name:'Actions pour preview-alpha.png'}).click();
+    await page.getByRole('button',{name:'Ajouter aux favoris',exact:true}).click();
+    await expect(row.locator('.fv')).toContainText('★');
+    await row.getByRole('button',{name:'Actions pour preview-alpha.png'}).click();
+    await page.getByRole('button',{name:'Retirer des favoris',exact:true}).click();
+    await expect(row.locator('.fv')).toHaveCount(0);
   });
 });

@@ -23,16 +23,29 @@ describe("Section Apparence", () => {
 
   it("les vignettes de thème restent de vrais boutons focusables", () => {
     renderUi(<Appearance {...props()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Personnaliser l’interface" }));
     const vignettes = screen.getAllByRole("button").filter((b) => b.classList.contains("theme-row"));
     expect(vignettes.length).toBeGreaterThan(0);
     vignettes[0].focus();
     expect(document.activeElement).toBe(vignettes[0]);
   });
 
-  it("le fondu du streaming est sous le repli « Avancé »", () => {
+  it("garde le thème courant visible et permet de rechercher les autres sans perdre son choix", () => {
+    const set = vi.fn();
+    renderUi(<Appearance {...props({ set })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Personnaliser l’interface" }));
+    expect(screen.queryByRole("button", { name: /Nord/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Autres thèmes" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Rechercher un thème…" }), { target: { value: "Nord" } });
+    expect(screen.getByRole("button", { name: /Atelier \(défaut\)/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Nord/ }));
+    expect(set).toHaveBeenCalledWith({ themePreset: "nord", theme: "dark" });
+  });
+
+  it("le fondu est accessible dans Affichage des conversations", () => {
     renderUi(<Appearance {...props()} />);
     expect(screen.queryByText("Fondu du texte en streaming")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Affichage des conversations" }));
     expect(screen.getByText("Fondu du texte en streaming")).toBeInTheDocument();
   });
 
@@ -44,8 +57,9 @@ describe("Section Apparence", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("le format d'heure reste dans le groupe essentiel (non masqué sous Avancé, comme dans Settings.tsx:759)", () => {
+  it("le format d'heure est disponible dans Affichage des conversations", () => {
     renderUi(<Appearance {...props()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Affichage des conversations" }));
     expect(screen.getByText(/Format d'heure/)).toBeInTheDocument();
   });
 });

@@ -8,6 +8,21 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Keep runtime context when the provider uses structured image/skill inputs.
+fn enrich_structured_inputs(inputs: Option<Vec<Value>>, raw: &str, enriched: &str) -> Option<Vec<Value>> {
+    inputs.map(|mut items| {
+        let matched = items.iter_mut().find(|item| item.get("type").and_then(Value::as_str) == Some("text")
+            && item.get("text").and_then(Value::as_str).is_some_and(|text| text.starts_with(raw)));
+        if let Some(item) = matched {
+            let tail = item["text"].as_str().unwrap_or("")[raw.len()..].to_string();
+            item["text"] = json!(format!("{enriched}{tail}"));
+        } else {
+            items.insert(0, json!({"type":"text", "text":enriched}));
+        }
+        items
+    })
+}
+
 fn with_file_scope_instruction(prompt: String) -> String {
     format!(
         "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Never modify, stage, commit, restore, or delete it.\n- Modify only files directly required by the user's current request. Before expanding scope, stop and ask for approval with the exact paths and reason.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes.\n- Do not include a file-change summary or mention whether files were modified in the final response.\n</atelier-file-scope>"
@@ -858,6 +873,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let folder_settings = atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null);
+    let additional_directories = crate::project_folders::writable(&project_root, &folder_settings, msg.get("additionalDirectories"));
     let title = msg
         .get("title")
         .and_then(|v| v.as_str())
@@ -948,6 +965,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .filter(|context| !context.is_empty())
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
+    let provider_prompt = format!("{}{}", provider_prompt, crate::project_folders::context(&project_root, &folder_settings));
     let provider_prompt = with_file_scope_instruction(provider_prompt);
     // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
     // message alors que l'historique natif du provider les conserve tous — une
@@ -977,12 +995,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
     let pre_kb = provider_prompt.clone();
-    let kb_enriched = crate::kb_block::with_kb_block_for_thread(
-        provider_prompt,
+    let prepared_kb = crate::kb_block::prepare_knowledge(
         state.app_dir(),
         state.server_dir(),
         previous.as_ref().map(|thread| &thread.extra),
     );
+    let kb_enriched = format!("{provider_prompt}{}", prepared_kb.block);
     let mut turn_kb_hash: Option<String> = None;
     let provider_prompt = if kb_enriched.len() > pre_kb.len() {
         use std::hash::{Hash, Hasher};
@@ -998,11 +1016,24 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         if inject {
             kb_enriched
         } else {
-            pre_kb
+            pre_kb.clone()
         }
     } else {
         kb_enriched
     };
+    let kb_injected = provider_prompt.len() > pre_kb.len();
+    let consigne_deferred = provider == "claude"
+        && msg.get("mode").and_then(Value::as_str) != Some("queue")
+        && state.harness().is_running(&thread_id).await;
+    let context_receipt = json!({
+        "version":1,
+        "provider":provider,
+        "consigne":if matches!(provider.as_str(), "codex" | "claude") && !consigne_deferred { consigne_du_fil(previous.as_ref()) } else { None },
+        "consigneDeferred":consigne_deferred,
+        "sources":prepared_kb.sources,
+        "delivery":if prepared_kb.block.is_empty() { "none" } else if kb_injected { "this_turn" } else { "session" },
+        "knowledgeText":if kb_injected { prepared_kb.block.trim_start() } else { "" },
+    });
 
     // Plan 057: first-turn envelope for linked child (not shown in user bubble).
     let needs_agent_seed = previous
@@ -1022,6 +1053,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     } else {
         provider_prompt
     };
+
+    let inputs = enrich_structured_inputs(inputs, &prompt, &provider_prompt);
 
     // Provider change while running: refuse
     if state.harness().is_running(&thread_id).await {
@@ -1071,11 +1104,13 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let running = state.harness().is_running(&thread_id).await;
     let origin_agent = msg.get("origin").and_then(|v| v.as_str()) == Some("agent_link");
     // Linked-agent deliveries must not create a second user bubble.
-    let user_event = if origin_agent {
+    let mut user_event = if origin_agent {
         json!({"kind":"agent_message","text": prompt, "status":"delivering", "direction":"received"})
     } else {
         normalize_display_event(msg)
     };
+    // Server-authored snapshot: never accept a client's claim of delivery.
+    if !origin_agent { user_event["context"] = context_receipt; }
     let client_mid = msg
         .get("clientMessageId")
         .and_then(|v| v.as_str())
@@ -1132,9 +1167,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             )
             .await;
             let req = SendRequest {
+                additional_directories: additional_directories.clone(),
                 thread_id: thread_id.clone(),
                 turn_id: turn_id.clone(),
-                prompt: with_file_scope_instruction(prompt.clone()),
+                prompt: provider_prompt.clone(),
                 inputs: inputs.clone(),
                 project_root: project_root.clone(),
                 session_id,
@@ -1445,6 +1481,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let prov_fallback = prov_turn;
         let interaction = make_interaction_relay(state2.clone(), tid.clone(), ev_tx.clone());
         let req = SendRequest {
+            additional_directories: additional_directories.clone(),
             thread_id: tid.clone(),
             turn_id: turn_id.clone(),
             prompt: provider_prompt,
@@ -1855,6 +1892,20 @@ mod steer_capacite_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn structured_inputs_keep_runtime_context_and_skill_tail() {
+        let items = super::enrich_structured_inputs(Some(vec![
+            serde_json::json!({"type":"text","text":"question\n\nskill instruction"}),
+            serde_json::json!({"type":"local_image","path":"/tmp/image.png"}),
+        ]), "question", "fork question knowledge").unwrap();
+        assert_eq!(items[0]["text"], "fork question knowledge\n\nskill instruction");
+        assert_eq!(items[1]["path"], "/tmp/image.png");
+        assert!(super::enrich_structured_inputs(None, "q", "q context").is_none());
+        let image_only = super::enrich_structured_inputs(Some(vec![serde_json::json!({"type":"local_image","path":"/tmp/a.png"})]), "q", "q context").unwrap();
+        assert_eq!(image_only[0]["text"], "q context");
+        assert_eq!(image_only.len(), 2);
+    }
+
     use super::*;
     use crate::paths::AppPaths;
     use tempfile::tempdir;
@@ -1932,6 +1983,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn claude_steer_receipt_defers_instructions_with_explicit_or_implicit_mode() {
+        for mode in [Some("steer"), None] {
+            let dir = tempdir().unwrap();
+            let state = AppState::new(AppPaths::from_app_dir(dir.path().to_path_buf()), None,
+                "t".into(), "0.1.0".into(), "h".into(), "/tmp".into())
+                .with_slow_test_provider("claude", 250);
+            let first = json!({"type":"send","threadId":"t-deferred","provider":"claude","prompt":"first",
+                "projectRoot":dir.path().to_string_lossy()});
+            handle_send(&state, &first).await;
+            assert!(state.harness().is_running("t-deferred").await);
+            state.threads().lock().await.upsert(json!({"id":"t-deferred",
+                "consigne":{"id":"new","texte":"Nouvelle règle"}}), false).unwrap();
+            let mut next = first.clone();
+            next["prompt"] = json!("follow-up");
+            if let Some(mode) = mode { next["mode"] = json!(mode); }
+            handle_send(&state, &next).await;
+            let events = state.journal().materialize("t-deferred");
+            let receipt = &events.iter().find(|e| e["kind"] == "user" && e["text"] == "follow-up").unwrap()["context"];
+            assert_eq!(receipt["consigneDeferred"], true);
+            assert_eq!(receipt["consigne"], Value::Null);
+            handle_interrupt(&state, &json!({"type":"interrupt","threadId":"t-deferred"})).await;
+        }
+    }
+
+    #[tokio::test]
     async fn interrupt_arrete_le_tour_en_cours() {
         // Régression : « je clique sur stop, rien ne s'arrête », tous providers
         // confondus. Le chemin complet (handle_send → set_running → watcher
@@ -2006,6 +2082,7 @@ mod tests {
         let msg = json!({
             "type": "send",
             "threadId": "t-send",
+            "displayEvent": {"kind":"user","text":"hello","context":{"version":99,"consigne":"forged"}},
             "provider": "fake",
             "prompt": "hello",
             "projectRoot": dir.path().to_string_lossy(),
@@ -2021,6 +2098,10 @@ mod tests {
         }
         assert!(!state.harness().is_running("t-send").await);
         let events = state.harness().journal().materialize("t-send");
+        let receipt = &events.iter().find(|e| e["kind"] == "user").unwrap()["context"];
+        assert_eq!(receipt["version"], 1);
+        assert_eq!(receipt["consigne"], Value::Null);
+        assert_eq!(receipt["delivery"], "none");
         assert!(
             events.iter().any(|e| e["kind"] == "user"),
             "user event missing: {events:?}"

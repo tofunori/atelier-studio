@@ -253,10 +253,10 @@ mod tests {
         let node_cases = include_str!("../../../../sidecar/router.mjs");
         for t in crate::ws_router::ALL_MESSAGE_TYPES {
             // each type should appear as a case in Node router (or be documented rust-only)
-            if matches!(*t, "upsertThread") {
-                continue; // rust convenience alias
+            if matches!(*t, "upsertThread" | "projectFolderCatalog") {
+                continue; // Rust convenience alias and asynchronous project-folder catalog
             }
-            if matches!(*t, "pinPassage" | "listPins" | "unpinPassage") {
+            if matches!(*t, "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview") {
                 continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
             }
             assert!(

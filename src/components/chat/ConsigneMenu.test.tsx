@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConsigneMenu } from "./ConsigneMenu";
-import { CONSIGNES_LIVREES } from "../../lib/consignes";
+import { CONSIGNES_LIVREES, composerConsigne, COMPOSITION_VIDE, basculerConsigne, consignesSelectionnees } from "../../lib/consignes";
 import { setLanguage } from "../../lib/i18n";
 
 // Sans cleanup explicite, les rendus des `it` précédents restent dans le DOM
@@ -82,7 +82,7 @@ describe("ConsigneMenu", () => {
     rerender(<ConsigneMenu {...base} actif={{ id: "rigueur", texte: "x" }} />);
     expect(actives()).toHaveLength(1);
     expect(actives()[0].textContent).toContain("Rigueur scientifique");
-    expect(actives()[0].querySelector(".consigne-coche")).toBeTruthy();
+    expect(actives()[0]).toHaveAttribute("aria-checked", "true");
   });
 
   it("garde le fil fonctionnel quand la consigne a disparu du catalogue", () => {
@@ -101,5 +101,40 @@ describe("ConsigneMenu", () => {
     expect(screen.getByText(/invisible dans le fil/)).toBeTruthy();
     rerender(<ConsigneMenu {...base} provider="codex" actif={null} />);
     expect(screen.getByText(/en tête de chaque message/)).toBeTruthy();
+  });
+});
+
+
+describe("consignes combinées dans le menu existant", () => {
+  it("ajoute une langue sans perdre la consigne active", () => {
+    const onChoisir = vi.fn();
+    render(<ConsigneMenu {...base} actif={{id:"concis",texte:"Mon texte édité"}} onChoisir={onChoisir}/>);
+    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    expect(screen.queryByText("Composer les consignes…")).toBeNull();
+    fireEvent.click(screen.getByText("Français québécois"));
+    expect(screen.getByRole("menuitemcheckbox", {name:/Français québécois/})).toBeTruthy();
+    expect(onChoisir.mock.calls[0][0].selection).toEqual([
+      {id:"concis",texte:"Mon texte édité"},
+      {id:"quebecois",texte:CONSIGNES_LIVREES[3].texte},
+    ]);
+  });
+  it("retire une règle sans retirer les autres", () => {
+    const combined = basculerConsigne({id:"concis",texte:"Concis"}, CONSIGNES_LIVREES[3]);
+    expect(basculerConsigne(combined, CONSIGNES_LIVREES[0])?.selection).toEqual([{id:"quebecois",texte:CONSIGNES_LIVREES[3].texte}]);
+  });
+  it("évite les deux styles contradictoires", () => {
+    expect(basculerConsigne({id:"concis",texte:"Concis"}, CONSIGNES_LIVREES[1])).toEqual({id:"pedagogique",texte:CONSIGNES_LIVREES[1].texte});
+  });
+  it("conserve une règle partielle quand elle reste seule", () => {
+    const composed = composerConsigne({...COMPOSITION_VIDE,langue:"quebecois",citer:true});
+    const remaining = basculerConsigne(composed, CONSIGNES_LIVREES[3]);
+    expect(remaining?.selection).toEqual([{id:"rigueur",texte:"Cite les sources utilisées et indique les passages qui soutiennent tes affirmations."}]);
+    expect(remaining?.texte).not.toContain("corrélation");
+  });
+  it("reprend sans perte les choix faits dans l'ancien panneau", () => {
+    const composed = composerConsigne({...COMPOSITION_VIDE,style:"concis",langue:"quebecois",citer:true,personnel:"Conserver ma règle"});
+    const selected = consignesSelectionnees(composed);
+    expect(selected.map(c => c.id)).toEqual(["concis","quebecois","rigueur","atelier-personnelle"]);
+    expect(selected.map(c => c.texte).join("\n")).toBe(composed?.texte);
   });
 });

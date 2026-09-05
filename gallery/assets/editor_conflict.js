@@ -16,7 +16,7 @@
           background:var(--surface-panel,var(--card,#1a1d22));
           border-bottom:1px solid var(--border-subtle,var(--border,#333a45));
           color:var(--text-primary,var(--txt,#dbdfe5));
-          font:12px/1.35 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);
+          font:var(--fs-body-s, 12px)/1.35 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);
           box-shadow:0 5px 18px rgba(0,0,0,.22);z-index:120}
         .atelier-conflict-copy{min-width:180px;flex:1}
         .atelier-conflict-title{font-weight:700;color:var(--text-primary,var(--txt,#dbdfe5));margin-bottom:2px}
@@ -24,7 +24,7 @@
         .atelier-conflict-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
         .atelier-conflict button{border:1px solid var(--border-subtle,var(--border,#333a45));border-radius:var(--radius-control,4px);
           background:transparent;color:var(--text-muted,var(--muted,#868d9a));
-          padding:6px 10px;font:600 11px/1 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);cursor:pointer}
+          padding:6px 10px;font:600 var(--fs-label, 11px)/1 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);cursor:pointer}
         .atelier-conflict button:hover{border-color:var(--border-default,var(--border-strong,#3f4652));
           background:var(--surface-inset,var(--border,#333a45));color:var(--text-primary,var(--txt,#dbdfe5))}
         .atelier-conflict button:focus-visible{outline:2px solid var(--text-muted,var(--muted,#868d9a));outline-offset:2px}

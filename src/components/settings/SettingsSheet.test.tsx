@@ -150,12 +150,11 @@ describe("SettingsSheet", () => {
     // pourrait le rendre translucide.
     const dialogSource = readFileSync(join(__dirname, "..", "shadcn", "dialog.tsx"), "utf8");
     expect(dialogSource).toContain("var(--scrim)");
-    // La feuille des réglages ne doit pas passer overlayClassName pour
-    // remplacer ce voile partagé par quelque chose d'opaque.
-    const sheetSource = readFileSync(join(__dirname, "SettingsSheet.tsx"), "utf8");
-    expect(sheetSource, "SettingsSheet ne doit pas surcharger le voile partagé").not.toMatch(
-      /overlayClassName/,
-    );
+    // La refonte supprime seulement le flou ; le voile partagé reste inchangé.
+    const refinedCss = readFileSync(join(__dirname, "..", "..", "styles", "settings-refined.css"), "utf8");
+    const overlay = refinedCss.match(/\.settings-sheet-overlay\s*\{([^}]*)\}/)?.[1];
+    expect(overlay).toContain("backdrop-filter: none");
+    expect(overlay).not.toMatch(/background|opacity/);
   });
 
   // Piège documenté du dépôt (voir MEMORY.md « App.css : règles écrasées
