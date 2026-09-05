@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "noUnusedLocals": false, "noUnusedParameters": false },
+  "include": ["main.tsx", "../../src/vite-env.d.ts"],
+  "exclude": []
+}

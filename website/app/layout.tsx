@@ -5,7 +5,7 @@ import "./globals.css";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f2f5f1",
+  themeColor: "#191a1c",
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,16 +30,16 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       type: "website",
       url: origin,
-      title: "Atelier Studio — Research, with every tool in reach.",
+      title: "Atelier Studio — Your research, in one workspace.",
       description,
       siteName: "Atelier Studio",
-      images: [{ url: `${origin}/og.png`, width: 1536, height: 1024, alt: "Atelier Studio native research workspace" }],
+      images: [{ url: `${origin}/media/workspace.png`, width: 1600, height: 1000, alt: "Atelier Studio native research workspace" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Atelier Studio — Research, with every tool in reach.",
+      title: "Atelier Studio — Your research, in one workspace.",
       description,
-      images: [`${origin}/og.png`],
+      images: [`${origin}/media/workspace.png`],
     },
   };
 }
