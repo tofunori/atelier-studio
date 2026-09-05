@@ -807,6 +807,42 @@ describe("anatomie du tour — header d'activité", () => {
   });
 });
 
+describe("figure annotée envoyée depuis la galerie", () => {
+  // 2026-09-04 : le fil n'affichait que le nom du fichier généré (horodaté)
+  // au-dessus d'une bulle vide — vignette absente, notes jamais rendues.
+  it("montre la vignette, la figure source et les badges numérotés", () => {
+    const evenements: AgentEvent[] = [
+      {
+        kind: "user",
+        text: "",
+        ts: FIXED_TS,
+        imageUrl: "data:image/png;base64,iVBORw0KGgo=",
+        label: "fig3_regional_years.png",
+        notes: [
+          { n: 1, text: "déplacer la carte" },
+          { n: 2, text: "l'axe des années déborde" },
+        ],
+      } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evenements })} />);
+    expect(document.querySelector(".user-img")).toBeTruthy();
+    expect(screen.getByText("fig3_regional_years.png")).toBeTruthy();
+    expect(screen.getByText("déplacer la carte")).toBeTruthy();
+    expect(screen.getByText("l'axe des années déborde")).toBeTruthy();
+    const badges = [...document.querySelectorAll(".user-annot-badge")].map((b) => b.textContent);
+    expect(badges).toEqual(["1", "2"]);
+  });
+
+  it("un message image sans notes garde le rendu d'avant", () => {
+    const evenements: AgentEvent[] = [
+      { kind: "user", text: "regarde", ts: FIXED_TS,
+        imageUrl: "data:image/png;base64,iVBORw0KGgo=" } as AgentEvent,
+    ];
+    renderUi(<Chat {...chatProps({ events: evenements })} />);
+    expect(document.querySelector(".user-annots")).toBeNull();
+  });
+});
+
 describe("capsule résultat — honnêteté et actions", () => {
   it("tour ok : garde le statut et masque tokens et coût", () => {
     renderUi(<Chat {...chatProps({ events: finishedTurn() })} />);

@@ -149,6 +149,18 @@ export const UserTurn = memo(function UserTurn(p: {
     <MessageContent className="user-wrap">
       {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
       {e.label && <div className="user-label">{e.label}</div>}
+      {/* Figure annotée : les badges dessinés sur l'image, en clair. Sans eux,
+          le fil ne montrait que le nom du fichier généré (2026-09-04). */}
+      {e.notes && e.notes.length > 0 && (
+        <ul className="user-annots">
+          {e.notes.map((note) => (
+            <li key={note.n}>
+              <span className="user-annot-badge">{note.n}</span>
+              <span>{note.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {e.kb && e.kb.count > 0 && (
         <div className="user-kb-meta">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">

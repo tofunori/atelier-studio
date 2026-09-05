@@ -104,6 +104,7 @@ import {
 } from "./lib/chatDraftStore";
 import { localImagePathsForAttachments } from "./lib/chatAttachments";
 import { createStreamCoalescer, STREAM_COALESCE_KINDS } from "./lib/streamCoalesce";
+import { parseAnnotationNotes } from "./lib/annotationNotes";
 import {
   appSnapPreviewUrl,
   appSnapContextText,
@@ -179,6 +180,8 @@ function buildZoteroReferenceText(
 // « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
 function parseAttachment(text: string): Attachment {
   const first = text.split("\n")[0].trim();
+  // Figure annotée : les badges numérotés deviennent des notes affichables.
+  const notes = parseAnnotationNotes(text);
   // format viewer : <chemin> (p.LX-Y|p.N) : « … »   — chemin peut contenir des espaces
   let m = /^(.+?)\s*\((?:p\.)?(L?[\d:.,\-–]+)\)\s*:?/.exec(first);
   if (m) {
@@ -191,7 +194,7 @@ function parseAttachment(text: string): Attachment {
   // format annotation image : <chemin.png> …
   if (first.includes("/")) {
     const tok = first.split(/\s+/).find((t) => t.includes("/")) ?? first;
-    return { name: tok.split("/").pop() || tok, lines: null, text };
+    return { name: tok.split("/").pop() || tok, lines: null, text, ...(notes ? { notes } : {}) };
   }
   return { name: first.slice(0, 60) || "citation", lines: null, text };
 }
@@ -3461,13 +3464,18 @@ export default function App() {
       ...(attachments.some((a) => a.imageUrl)
         ? { imageUrl: attachments.find((a) => a.imageUrl)!.imageUrl }
         : {}),
-      ...(attachments.some((a) => !a.imageUrl && a.kind !== "paste")
+      // Une figure annotée a une vignette ET un nom : sans cette exception, le
+      // nom de la figure source disparaissait dès qu'une vignette existait.
+      ...(attachments.some((a) => (!a.imageUrl || a.notes?.length) && a.kind !== "paste")
         ? {
             label: attachments
-              .filter((a) => !a.imageUrl && a.kind !== "paste")
+              .filter((a) => (!a.imageUrl || a.notes?.length) && a.kind !== "paste")
               .map((a) => `${a.name}${a.lines ? ` (lines ${a.lines})` : ""}`)
               .join(" · "),
           }
+        : {}),
+      ...(attachments.some((a) => a.notes?.length)
+        ? { notes: attachments.find((a) => a.notes?.length)!.notes }
         : {}),
       ...(attachments.some((a) => a.kind === "paste")
         ? {

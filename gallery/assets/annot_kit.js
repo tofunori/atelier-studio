@@ -319,7 +319,20 @@
           target: getTarget(), embed: EMBEDDED,
           notes: strokes.filter(function(s){ return s.note; }).map(function(s){ return {n: s.n, text: s.note}; })})});
       var j = await r.json();
-      if (EMBEDDED && j && j.message) __atelierPost({type: 'atelier-add-to-chat', text: j.message});
+      // Chemin + figure source + vignette : sans eux, le chat n'affichait que le
+      // nom du fichier genere (horodate) au-dessus d'une bulle vide. Le contrat
+      // IPC (src/lib/ipc.ts) accepte deja ces trois champs.
+      if (EMBEDDED && j && j.message) {
+        var msg = {type: 'atelier-add-to-chat', text: j.message};
+        if (j.path) {
+          msg.path = j.path;
+          var source = String(host.name() || '').split('/').pop();
+          if (source) msg.name = source;
+          try { msg.previewUrl = new URL(j.path, location.origin + '/').href; }
+          catch (err) { /* chemin inattendu : la carte reste sans vignette */ }
+        }
+        __atelierPost(msg);
+      }
       return j;
     }
 

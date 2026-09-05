@@ -31,7 +31,10 @@ type AgentEventBody =
       /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines seulement */
       pastes?: { name: string; text?: string; lines?: number }[];
       /* sources KB attachées AU MOMENT de l'envoi (plan 049) — méta fidèle à l'historique */
-      kb?: { count: number; titles: string[] }; ts?: number }
+      kb?: { count: number; titles: string[] };
+      /* figure annotée (galerie) : badges numérotés dessinés sur l'image, rendus
+         sous la vignette — sans eux, le fil n'affichait qu'un nom de fichier */
+      notes?: { n: number; text: string }[]; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }

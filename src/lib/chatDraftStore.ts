@@ -11,6 +11,8 @@ export type DraftAttachment = {
   imageUrl?: string;
   path?: string;
   kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap";
+  /** Figure annotée depuis la galerie : badges numérotés de l'image. */
+  notes?: { n: number; text: string }[];
   preview?: { title: string; rows: { label: string; value: string }[] };
 };
 

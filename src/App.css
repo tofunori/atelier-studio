@@ -1310,6 +1310,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: 1px solid var(--border2); object-fit: cover; }
 .user-label { font-size: var(--fs-s); color: var(--text-muted); background: transparent;
   border: none; padding: 0 2px; }
+/* Figure annotée envoyée depuis la galerie : les badges numérotés de l'image
+   reprennent le même chiffre, à droite comme la bulle (2026-09-04). */
+.user-annots { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0;
+  list-style: none; max-width: 320px; }
+.user-annots li { display: grid; grid-template-columns: 1fr 16px; gap: 8px;
+  align-items: start; font-size: var(--fs-m); color: var(--text-secondary); text-align: right; }
+.user-annot-badge { display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--fg);
+  color: var(--bg); font-size: var(--fs-xs); font-weight: 500;
+  font-variant-numeric: tabular-nums; }
 /* demande utilisateur : identifiable par le fond léger et l'alignement, sans
    grande bulle saturée (plan 020, étape 2) */
 .user-bubble-shell { max-width: 85%; }
