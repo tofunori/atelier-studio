@@ -825,7 +825,10 @@ describe("figure annotée envoyée depuis la galerie", () => {
       } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evenements })} />);
-    expect(document.querySelector(".user-img")).toBeTruthy();
+    // vignette discrète, jamais l'image en grand : Thierry a la figure sous
+    // les yeux dans la galerie, le fil n'a besoin que du rappel
+    expect(document.querySelector(".user-annot-thumb")).toBeTruthy();
+    expect(document.querySelector(".user-img")).toBeNull();
     expect(screen.getByText("fig3_regional_years.png")).toBeTruthy();
     expect(screen.getByText("déplacer la carte")).toBeTruthy();
     expect(screen.getByText("l'axe des années déborde")).toBeTruthy();

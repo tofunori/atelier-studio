@@ -1312,10 +1312,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border: none; padding: 0 2px; }
 /* Figure annotée envoyée depuis la galerie : les badges numérotés de l'image
    reprennent le même chiffre, à droite comme la bulle (2026-09-04). */
+.user-annot { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px;
+  align-items: start; width: 320px; max-width: 100%; text-align: left; }
+.user-annot-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: var(--r-s);
+  background: var(--bg-ctl); }
+.user-annot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.user-annot-title { font-size: var(--fs-m); font-weight: 500; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-annots { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0;
-  list-style: none; max-width: 320px; }
-.user-annots li { display: grid; grid-template-columns: 1fr 16px; gap: 8px;
-  align-items: start; font-size: var(--fs-m); color: var(--text-secondary); text-align: right; }
+  list-style: none; }
+.user-annots li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px;
+  align-items: start; font-size: var(--fs-m); color: var(--text-secondary);
+  overflow-wrap: anywhere; }
 .user-annot-badge { display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--text-primary);
   color: var(--surface-app); font-size: var(--fs-xs); font-weight: 500;

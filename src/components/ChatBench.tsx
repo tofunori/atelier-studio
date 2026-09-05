@@ -47,6 +47,13 @@ function tool(id: string, name: string, detail: string, output: string, dur: num
 
 const RICH: AgentEvent[] = [
   { kind: "user", text: "Reproduis la validation Williamson & Menounos sur les régions RGI ouest, puis mets à jour la figure 3.", ts: ts(400), label: "albedo_trends.csv · fig3_spatial.svg" } as AgentEvent,
+  // figure annotée depuis la galerie (2026-09-04) : vignette 56 px + badges
+  { kind: "user", text: "", ts: ts(398), label: "fig3_regional_years.png",
+    imageUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#2c2f34"/><path d="M14 92 40 70 62 78 90 44 108 52" fill="none" stroke="#b9bec4" stroke-width="4"/><circle cx="62" cy="78" r="12" fill="#dadee3"/><text x="62" y="83" text-anchor="middle" font-size="14" font-family="sans-serif" fill="#1e2124">1</text></svg>'),
+    notes: [
+      { n: 1, text: "déplacer la carte — elle recouvre le creux de 2012" },
+      { n: 2, text: "l'axe des années déborde, garder une étiquette sur deux" },
+    ] } as AgentEvent,
   { kind: "thinking", text: "Je dois d'abord relire la méthodologie de W&M 2021, vérifier les seuils par région, puis recalculer les tendances avant de régénérer la figure.", ts: ts(395) } as AgentEvent,
   tool("t1", "Read", "analysis/albedo_trends.py", "240 lignes", 900, 390),
   tool("t2", "Bash", "python analysis/albedo_trends.py --regions west", "Tendance moyenne : −0,35 %/an (vs −0,33 attendu)", 8200, 380),

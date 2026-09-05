@@ -147,19 +147,30 @@ export const UserTurn = memo(function UserTurn(p: {
   return (
     <Message id={`msg-${i}`} align="end" className="chat-message user-message">
     <MessageContent className="user-wrap">
-      {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
-      {e.label && <div className="user-label">{e.label}</div>}
-      {/* Figure annotée : les badges dessinés sur l'image, en clair. Sans eux,
-          le fil ne montrait que le nom du fichier généré (2026-09-04). */}
-      {e.notes && e.notes.length > 0 && (
-        <ul className="user-annots">
-          {e.notes.map((note) => (
-            <li key={note.n}>
-              <span className="user-annot-badge">{note.n}</span>
-              <span>{note.text}</span>
-            </li>
-          ))}
-        </ul>
+      {e.notes && e.notes.length > 0 ? (
+        // Figure annotée : vignette DISCRÈTE (Thierry a déjà la figure sous les
+        // yeux dans la galerie), nom de la figure source, et les badges dessinés
+        // sur l'image en clair. Largeur explicite : dans une bulle en
+        // shrink-to-fit, une liste sans largeur s'empilait lettre par lettre.
+        <div className="user-annot">
+          {e.imageUrl && <img className="user-annot-thumb" src={e.imageUrl} alt="" />}
+          <div className="user-annot-body">
+            {e.label && <div className="user-annot-title">{e.label}</div>}
+            <ul className="user-annots">
+              {e.notes.map((note) => (
+                <li key={note.n}>
+                  <span className="user-annot-badge">{note.n}</span>
+                  <span>{note.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : (
+        <>
+          {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
+          {e.label && <div className="user-label">{e.label}</div>}
+        </>
       )}
       {e.kb && e.kb.count > 0 && (
         <div className="user-kb-meta">
