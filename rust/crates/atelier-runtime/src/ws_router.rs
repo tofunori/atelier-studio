@@ -1,6 +1,6 @@
 //! WebSocket message routing (plan 033 — full Node case inventory, Porte 9).
 
-use crate::codex_history::{list_codex_sessions, load_codex_history};
+use crate::codex_history::{history_revision, list_codex_sessions, load_codex_history};
 use crate::evidence;
 use crate::grok_history::{load_grok_history, prefer_richer_dialogue};
 use crate::state::{AppState, QaLine, QaSession};
@@ -361,6 +361,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .collect::<Vec<_>>();
             vec![json_msg(json!({
                 "type": "agentHistory",
+                "revision": history_revision(&events),
                 "parentThreadId": parent_thread_id,
                 "agentThreadId": msg.get("agentThreadId").and_then(|v| v.as_str()).unwrap_or(""),
                 "events": events,
@@ -638,18 +639,19 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "listPlugins" => {
             let root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            let response = |plugins: Value, error: Option<String>| json_msg(json!({
+                "type": "plugins", "plugins": plugins, "error": error,
+                "projectRoot": root, "requestId": msg.get("requestId"),
+            }));
             let Some(provider) = state.provider("codex") else {
-                return vec![err("plugins: provider Codex absent")];
+                return vec![response(json!([]), Some("provider Codex absent".into()))];
             };
             match provider
                 .native_command("pluginsInstalled", json!({"projectRoot": root}))
                 .await
             {
-                Ok(value) => vec![json_msg(json!({
-                    "type": "plugins",
-                    "plugins": value.get("plugins").cloned().unwrap_or_else(|| json!([])),
-                }))],
-                Err(error) => vec![err(format!("plugins: {error}"))],
+                Ok(value) => vec![response(value.get("plugins").cloned().unwrap_or_else(|| json!([])), None)],
+                Err(error) => vec![response(json!([]), Some(error))],
             }
         }
         "listPasted" => {

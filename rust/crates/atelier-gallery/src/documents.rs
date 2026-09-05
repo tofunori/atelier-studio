@@ -425,8 +425,7 @@ pub async fn get_pdfannot(
     let store = read_pdf_store(&shared);
     let mut annots = store.get(&rel).cloned().unwrap_or_else(|| json!([]));
     // rien dans le store partagé : reprendre l'ancien store du projet
-    let empty = annots.as_array().map(|a| a.is_empty()).unwrap_or(true);
-    if empty {
+    if store.get(&rel).is_none() {
         let legacy = legacy_pdf_annots_path(&state.root);
         if legacy != shared {
             if let Some(old) = read_pdf_store(&legacy).get(&rel).cloned() {
@@ -450,11 +449,7 @@ pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoRespons
         && let Value::Object(legacy) = read_pdf_store(&legacy_path)
     {
         for (rel, annots) in legacy {
-            let missing = shared
-                .get(&rel)
-                .and_then(|v| v.as_array())
-                .map(|a| a.is_empty())
-                .unwrap_or(true);
+            let missing = !shared.contains_key(&rel);
             if missing && annots.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
                 shared.insert(rel, annots);
             }
@@ -489,9 +484,24 @@ pub async fn post_pdfannot(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let new_annots = body.get("annots").cloned().unwrap_or_else(|| json!([]));
     let store_path = pdf_annots_path(&state.root);
     let mut store = read_pdf_store(&store_path);
+    let new_annots = if let Some(ids) = body.get("removeIds") {
+        if rel_key.is_empty() { return json_error(StatusCode::BAD_REQUEST, "rel required"); }
+        let Some(ids) = ids.as_array().filter(|ids| ids.iter().all(Value::is_string)) else {
+            return json_error(StatusCode::BAD_REQUEST, "removeIds must be an array of strings");
+        };
+        let existing = store.get(&rel_key).cloned().unwrap_or_else(|| {
+            read_pdf_store(&legacy_pdf_annots_path(&state.root)).get(&rel_key).cloned().unwrap_or_else(|| json!([]))
+        });
+        json!(existing.as_array().into_iter().flatten().filter(|a| {
+            if a.get("id").is_none_or(Value::is_null) { return true; }
+            let id = a.get("id").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
+            !ids.iter().any(|remove| remove.as_str() == Some(id.as_str()))
+        }).collect::<Vec<_>>())
+    } else {
+        body.get("annots").cloned().unwrap_or_else(|| json!([]))
+    };
     if new_annots.as_array().is_some_and(|a| a.is_empty())
         && store
             .get(&rel_key)

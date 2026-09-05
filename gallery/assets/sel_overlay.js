@@ -75,6 +75,11 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   // comportement partagé de la pilule (restyle Studio « Add to chat », picker
   // de cible, /quote direct, Entrée/Échap) : SelPill, chargé depuis la galerie
   // comme annot_kit — les rapports vivent n'importe où dans l'arbre projet
+  var sharedUiReady=new Promise(function(resolve,reject){
+    var css=document.createElement('link');css.rel='stylesheet';css.href='/.fig_thumbs/annotation_ui.css';document.head.appendChild(css);
+    if(window.AtelierAnnotationUI){resolve();return;}
+    var script=document.createElement('script');script.src='/.fig_thumbs/annotation_ui.bundle.js';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);
+  });
   function initPill(){
     api = window.SelPill.attach({
       pill: pill, menu: tgMenu,
@@ -188,7 +193,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   }
 
   akBtn.addEventListener('click', function(){
-    loadKit().then(function(){
+    sharedUiReady.then(loadKit).then(function(){
       if (!annot){
         sizeOverlay();
         annot = window.AnnotKit.create(makeHost());

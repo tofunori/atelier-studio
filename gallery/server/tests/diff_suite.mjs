@@ -1429,7 +1429,7 @@ function commitComposerContractTests() {
   const latexStatus = fs.readFileSync(path.join(GALLERY, "src", "studio", "features", "latex", "status_bar.ts"), "utf8");
   const diffController = fs.readFileSync(path.join(GALLERY, "src", "studio", "core", "diff_controller.ts"), "utf8");
   contractOk("commentaire LaTeX utilise une largeur extérieure responsive",
-    /#texcPop\{[^}]*box-sizing:border-box;[^}]*width:min\(326px,calc\(100vw - 16px\)\)/s.test(latexCss));
+    /\.atelier-note\{[^}]*box-sizing:border-box;[^}]*max-width:calc\(100vw - 16px\)/s.test(fs.readFileSync(path.join(ASSETS,"annotation_ui.css"),"utf8")));
   contractOk("commentaire LaTeX se place avec sa largeur réelle",
     /const width = options\.popover\.getBoundingClientRect\(\)\.width;/.test(latexAnnotations)
     && /win\.innerWidth - width - margin/.test(latexAnnotations)
@@ -1599,7 +1599,12 @@ async function latexStudioTests() {
       getEditor: () => ({getCursor: () => ({line: cursorLine})}), right, marker: {style: {}},
       pdfjs: {getDocument: () => ({promise: Promise.resolve({numPages: 0, getPage() {}})})},
       channel: null, setState() {}, revealLine() {}, wallNow: () => now,
-      document: {addEventListener() {}}, window: fakeWindow,
+      document: {
+        addEventListener() {},
+        getElementById: () => null,
+        createElement: () => ({style: {}, setAttribute() {}, replaceChildren() {}, appendChild() {}}),
+        createTextNode: (text) => ({textContent: text}),
+      }, window: fakeWindow,
     });
     await api.loadPdf();
     requests = []; cursorLine = 5; api.autoForwardSync(); flush();

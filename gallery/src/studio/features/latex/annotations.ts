@@ -1,3 +1,4 @@
+import {createNoteEditor} from "../annotation_ui";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
 interface AnnotationEditor extends StudioEditor {
@@ -11,12 +12,15 @@ export interface LatexAnnotation {
   text: string;
   comment: string;
   color?: string;
+  kind?: "comment" | "hl";
+  number?: number;
 }
 
 export interface LatexAnnotationSelection {
   from: StudioPosition;
   to: StudioPosition;
   text: string;
+  anchor?: {left: number; top: number; bottom: number};
 }
 
 export interface LatexAnnotationsOptions {
@@ -37,6 +41,7 @@ export interface LatexAnnotationsController {
   bind(): void;
   load(): Promise<void>;
   open(selection: LatexAnnotationSelection): void;
+  highlight(selection: LatexAnnotationSelection, color: string): void;
   anchorAll(): void;
   syncFromMarks(): void;
   togglePanel(force?: boolean): void;
@@ -47,7 +52,7 @@ export interface LatexAnnotationsController {
   setColor(id: string, color: string): void;
   drop(id: string): void;
   /** Ouvre le popover d'un commentaire EXISTANT (`open` en crée un nouveau). */
-  focus(id: string): void;
+  focus(id: string, anchor?: {left: number; top: number; bottom: number}): void;
 }
 
 const SWATCHES: Readonly<Record<string, string>> = {
@@ -120,16 +125,18 @@ export function createLatexAnnotationsController(
 ): LatexAnnotationsController {
   const doc = options.document || document;
   const win = options.window || window;
-  const quote = required<HTMLElement>(options.popover, ".tc-quote");
-  const textarea = required<HTMLTextAreaElement>(options.popover, "textarea");
-  const saveButton = required<HTMLButtonElement>(options.popover, ".tc-save");
-  const deleteButton = required<HTMLButtonElement>(options.popover, ".tc-del");
-  const resolveButton = required<HTMLButtonElement>(options.popover, ".tc-ok");
-  const chatButton = required<HTMLButtonElement>(options.popover, ".tc-claude");
-  const colorButtons = [...options.popover.querySelectorAll<HTMLButtonElement>(".tc-colors button")];
+  const noteUI = createNoteEditor(options.popover, {onSubmit(){}, onDelete(){}});
+  const quote = doc.createElement("div");
+  const textarea = noteUI.input;
+  const saveButton = options.popover.querySelector<HTMLButtonElement>(".send2")!;
+  const chatButton = saveButton;
+  const deleteButton = options.popover.querySelector<HTMLButtonElement>(".delete-note")!;
+  const resolveButton = doc.createElement("button");
+  const colorButtons: HTMLButtonElement[] = [];
   const relation = `tex-comments:${options.path}`;
   let all: LatexAnnotation[] = [];
   let marks: Record<string, StudioTextMarker> = {};
+  const badges:Record<string,{clear():void}>={};
   let current: LatexAnnotation | null = null;
   let openedAt = 0;
   let reanchorTimer: number | null = null;
@@ -138,30 +145,43 @@ export function createLatexAnnotationsController(
   let localMutation = 0;
 
   const editor = (): AnnotationEditor | null => options.getEditor();
-  const save = (): void => {
+  let saveQueue: Promise<boolean> = Promise.resolve(true);
+  const save = (): Promise<boolean> => {
     localMutation += 1;
-    void win.fetch("/pdfannot", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({rel: relation, annots: all}),
-    }).catch(() => {});
-    // La vue Lecture dessine ses propres surlignages : elle doit savoir quand
-    // le jeu d'annotations change (ajout, édition, suppression, ré-ancrage).
+    const body = JSON.stringify({rel:relation, annots:all});
     options.onMutated?.();
+    saveQueue = saveQueue.then(async () => {
+      try {
+        const response=await win.fetch("/pdfannot",{method:"POST",headers:{"Content-Type":"application/json"},body});
+        const result=await response.json();
+        if(!response.ok || result.error) throw new Error("save failed");
+        return true;
+      } catch {noteUI.status.textContent="Enregistrement impossible. Ta note reste disponible.";return false;}
+    });
+    return saveQueue;
   };
   const mark = (annotation: LatexAnnotation): void => {
     const activeEditor = editor();
     if (!activeEditor) return;
     try {
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
-        className: `texc-hl texc-c-${annotation.color || "amber"}`,
+        className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}` : "texc-hl texc-comment",
         attributes: {"data-texc": annotation.id},
       });
+      if(annotation.kind!=="hl" && typeof activeEditor.setBookmark==="function") {
+        const badge=doc.createElement("button");badge.type="button";
+        badge.className="atelier-annotation-number";
+        badge.textContent=String(annotation.number || all.filter(a=>a.kind!=="hl").indexOf(annotation)+1);
+        badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
+        badge.onclick=event=>{event.stopPropagation();if(saving)return;current=annotation;show(annotation,false,badge.getBoundingClientRect());};
+        badges[annotation.id]=activeEditor.setBookmark(annotation.from,{widget:badge,insertLeft:true});
+      }
     } catch { /* stale range; next anchor pass retries */ }
   };
   const clearMark = (id: string): void => {
     try { marks[id]?.clear(); } catch { /* already cleared */ }
     delete marks[id];
+    badges[id]?.clear();delete badges[id];
   };
   const anchorAll = (): void => {
     const activeEditor = editor();
@@ -202,7 +222,7 @@ export function createLatexAnnotationsController(
       const text = activeEditor.getRange(range.from, range.to);
       if (text.trim() && (text !== annotation.text || range.from.line !== annotation.from.line
         || range.from.ch !== annotation.from.ch || range.to.ch !== annotation.to.ch)) {
-        annotation.text = text.slice(0, 300);
+        annotation.text = text;
         annotation.from = {...range.from};
         annotation.to = {...range.to};
         changed = true;
@@ -239,61 +259,74 @@ export function createLatexAnnotationsController(
     options.popover.style.display = "none";
     current = null;
   };
-  const show = (annotation: LatexAnnotation, isNew: boolean): void => {
+  const show = (annotation: LatexAnnotation, isNew: boolean, anchor?: {left:number;top:number;bottom:number}): void => {
     const activeEditor = editor();
     if (!activeEditor) return;
+    noteUI.status.textContent="";
     openedAt = Date.now();
     quote.textContent = `« ${annotation.text.slice(0, 140)}${annotation.text.length > 140 ? "…" : ""} »`;
     textarea.value = annotation.comment || "";
-    deleteButton.style.display = isNew ? "none" : "";
+    deleteButton.style.display = "";
     resolveButton.style.display = isNew ? "none" : "";
     colorButtons.forEach((button) => button.classList.toggle("on", button.dataset.color === (annotation.color || "amber")));
-    const coordinates = activeEditor.charCoords(annotation.to, "window");
+    const coordinates = anchor || activeEditor.charCoords(annotation.to, "window");
     options.popover.style.display = "block";
     const margin = 8;
     const width = options.popover.getBoundingClientRect().width;
     const maxLeft = Math.max(margin, win.innerWidth - width - margin);
     options.popover.style.left = `${Math.min(Math.max(margin, coordinates.left - width / 2), maxLeft)}px`;
     options.popover.style.top = `${Math.min(coordinates.bottom + 8, win.innerHeight - options.popover.offsetHeight - 8)}px`;
-    textarea.focus();
+    noteUI.focus();
   };
   const open = (selection: LatexAnnotationSelection): void => {
+    if(saving)return;
     current = {
       id: `c${Date.now()}`, from: {...selection.from}, to: {...selection.to},
-      text: String(selection.text).slice(0, 300), comment: "",
+      text: String(selection.text), comment: "", kind:"comment",
+      number:1 + Math.max(0,...all.map(a=>a.number || 0)),
     };
-    show(current, true);
+    show(current, true, selection.anchor);
   };
-  const persistCurrent = (): void => {
-    if (!current) return;
-    current.comment = textarea.value.trim();
-    if (!all.some((annotation) => annotation.id === current?.id)) {
-      all.push(current);
-      mark(current);
-    }
-    save();
-    options.popover.style.display = "none";
-    current = null;
+  let saving = false;
+  const persistCurrent = async (): Promise<void> => {
+    if(!current || saving) return;
+    const annotation=current;
+    annotation.comment=textarea.value.trim();
+    annotation.kind="comment";
+    annotation.number ||= 1 + Math.max(0,...all.map(a=>a.number || 0));
+    if(!all.some(a=>a.id===annotation.id)) all.push(annotation);
+    clearMark(annotation.id);mark(annotation);
+    saving=true;noteUI.busy(true);
+    const saved=await save();
+    saving=false;noteUI.busy(false);
+    if(!saved) return;
+    options.postToHost({type:"atelier-add-to-chat",
+      text:`${options.path} (L${annotation.from.line+1}-${annotation.to.line+1}) : « ${annotation.text} »\nCommentaire : ${annotation.comment || "(voir passage)"}`,
+      pdfAnnotation:{rel:relation,id:annotation.id}});
+    if(current===annotation){options.popover.style.display="none";current=null;}
   };
-
-  textarea.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      saveButton.click();
-    }
+  textarea.onkeydown=event=>{
+    event.stopPropagation();
+    if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void persistCurrent();}
+    if(event.key==="Escape"){event.preventDefault();options.popover.style.display="none";current=null;}
+  };
+  chatButton.onclick=()=>{void persistCurrent();};
+  deleteButton.onclick=async()=>{
+    if(!current || saving) return;
+    const annotation=current, index=all.findIndex(a=>a.id===annotation.id);
+    all=all.filter(a=>a.id!==annotation.id);saving=true;noteUI.busy(true);
+    const saved=await save();saving=false;noteUI.busy(false);
+    if(!saved){if(index>=0)all.splice(index,0,annotation);options.onMutated?.();return;}
+    clearMark(annotation.id);current=null;options.popover.style.display="none";buildPanel();
+  };
+  win.addEventListener("message",event=>{
+    const data=event.data;
+    if(event.source!==win.parent || data?.type!=="atelier-pdf-annotation-consumed" || data.rel!==relation ||
+      data.nonce!==(win as Window & {__atelierNonce?:string}).__atelierNonce) return;
+    all=all.filter(a=>a.id!==data.id);clearMark(data.id);
+    if(current?.id===data.id){current=null;options.popover.style.display="none";}
+    void save();buildPanel();
   });
-  saveButton.onclick = persistCurrent;
-  resolveButton.onclick = () => { if (current) remove(current.id); };
-  deleteButton.onclick = () => { if (current) remove(current.id); };
-  chatButton.onclick = () => {
-    if (!current) return;
-    current.comment = textarea.value.trim();
-    options.postToHost({
-      type: "atelier-add-to-chat",
-      text: `${options.path} (L${current.from.line + 1}-${current.to.line + 1}) : « ${current.text.slice(0, 200)} »\nCommentaire : ${current.comment || "(voir passage)"}`,
-    });
-    persistCurrent();
-  };
   colorButtons.forEach((button) => {
     button.onclick = () => {
       if (!current) return;
@@ -311,14 +344,17 @@ export function createLatexAnnotationsController(
     const highlight = target?.closest(".texc-hl");
     if (highlight) {
       const annotation = all.find((item) => item.id === highlight.getAttribute("data-texc"));
-      if (annotation) {
+      if (annotation && !saving) {
         current = annotation;
         show(annotation, false);
         return;
       }
     }
     if (Date.now() - openedAt < 350) return;
-    if (target && !options.popover.contains(target) && !target.closest("#selPill")) options.popover.style.display = "none";
+    if (target && !options.popover.contains(target) && !target.closest("#selPill") && current) {
+      if(textarea.value.trim() && textarea.value.trim() !== (current.comment || "")) void persistCurrent();
+      else {options.popover.style.display="none";current=null;}
+    }
   });
   options.button.onclick = () => togglePanel();
   options.panel.addEventListener("click", (event) => {
@@ -330,13 +366,9 @@ export function createLatexAnnotationsController(
       return;
     }
     if (target?.closest(".tp-sendall")) {
-      const items = sorted();
-      if (!items.length) return;
-      const text = `${options.path} — ${items.length} commentaire${items.length > 1 ? "s" : ""} :\n`
-        + items.map((annotation, index) => `${index + 1}. (L${annotation.from.line + 1}`
-          + `${annotation.to.line !== annotation.from.line ? `-${annotation.to.line + 1}` : ""}) « `
-          + `${annotation.text.slice(0, 200)} » — Commentaire : ${annotation.comment || "(voir passage)"}`).join("\n");
-      options.postToHost({type: "atelier-add-to-chat", text});
+      for(const annotation of sorted().filter(a=>a.kind!=="hl")) options.postToHost({
+        type:"atelier-add-to-chat",text:`${options.path} (L${annotation.from.line+1}-${annotation.to.line+1}) : « ${annotation.text} »\nCommentaire : ${annotation.comment || "(voir passage)"}`,
+        pdfAnnotation:{rel:relation,id:annotation.id}});
       togglePanel(false);
       return;
     }
@@ -407,13 +439,17 @@ export function createLatexAnnotationsController(
     mark(annotation);
     save();
   };
-  const focus = (id: string): void => {
+  const focus = (id: string, anchor?: {left:number;top:number;bottom:number}): void => {
     const found = all.find((annotation) => annotation.id === id);
-    if (!found) return;
+    if (!found || saving) return;
     current = found;
-    show(found, false);
+    show(found, false, anchor);
   };
   return {
+    highlight(selection, color){
+      const annotation:LatexAnnotation={id:crypto.randomUUID(),from:{...selection.from},to:{...selection.to},text:selection.text,comment:"",kind:"hl",color};
+      all.push(annotation);mark(annotation);void save();
+    },
     bind,
     load,
     open,

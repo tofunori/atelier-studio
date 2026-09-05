@@ -6,7 +6,7 @@
 // part réellement dans le contexte — pas le fichier sur le disque. L'écart
 // entre les deux est la raison d'être de ce lecteur : un CSV de 68 ko y entre
 // sous forme de profil de 2 ko, et rien d'autre ne le dit.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { MD_COMPONENTS, useMdPlugins } from "./md";
 import { mineruTablesToMarkdown, splitFrontMatter } from "../../lib/mineruTables";
@@ -14,84 +14,18 @@ import { t } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
+import { normalizeMathDelimiters } from "../../lib/markdown";
+import { Input } from "../shadcn/input";
+import { findDocumentRanges, highlightDocumentRanges, clearDocumentHighlights } from "../../lib/documentSearch";
 import { wsSend } from "../../lib/wsBus";
 
 // ---- surlignage d'une citation (tâche 6) -----------------------------------
 // Custom Highlight API si `CSS.highlights` existe (mêmes classes que
-// ::highlight(chat-hl), Chat.tsx), sinon repli DOM `<mark class="reader-quote">`
+// ::highlight(chat-hl), Chat.tsx), sinon classe sur les éléments existants
 // (jsdom, et tout navigateur sans le support). Le match est normalisé (NFKD,
 // minuscules, espaces réduits) sur les ~80 premiers caractères de la citation
 // — le texte RENDU (markdown → DOM) peut différer légèrement de la citation
 // telle qu'émise (espaces, accents perdus au copier-coller, casse).
-
-const DIACRITIC = /[\u0300-\u036f]/;
-const WORD_CHAR = /[a-z0-9]/;
-
-/** Normalise `raw` pour la comparaison, en gardant pour chaque caractère
- * normalisé conservé l'index du caractère d'ORIGINE dont il provient — la
- * seule façon de reconstruire ensuite un Range DOM valide (offsets dans le
- * texte réel, accents/casse intacts). */
-function normalizeWithMap(raw: string): { text: string; map: number[] } {
-  const text: string[] = [];
-  const map: number[] = [];
-  let lastWasSpace = true; // pas d'espace de tête
-  for (let i = 0; i < raw.length; i++) {
-    for (const ch of raw[i].normalize("NFKD")) {
-      if (DIACRITIC.test(ch)) continue;
-      const lower = ch.toLowerCase();
-      const isWord = WORD_CHAR.test(lower);
-      const outCh = isWord ? lower : " ";
-      if (outCh === " ") {
-        if (lastWasSpace) continue;
-        lastWasSpace = true;
-      } else {
-        lastWasSpace = false;
-      }
-      text.push(outCh);
-      map.push(i);
-    }
-  }
-  while (text.length && text[text.length - 1] === " ") {
-    text.pop();
-    map.pop();
-  }
-  return { text: text.join(""), map };
-}
-
-const normalizeQuote = (quote: string) => normalizeWithMap(quote.slice(0, 80)).text;
-
-/** Première occurrence normalisée de `quote` dans un nœud texte descendant de
- * `root`, comme Range dans le texte D'ORIGINE — `null` si introuvable. Un seul
- * nœud texte à la fois (comme le surlignage des citations du chat, Chat.tsx) :
- * couvre l'immense majorité des passages, qui vivent dans un seul paragraphe. */
-function findQuoteRange(root: HTMLElement, quote: string): Range | null {
-  const needle = normalizeQuote(quote);
-  if (!needle) return null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const { text, map } = normalizeWithMap(node.textContent ?? "");
-    const idx = text.indexOf(needle);
-    if (idx < 0) continue;
-    const range = document.createRange();
-    range.setStart(node, map[idx]);
-    range.setEnd(node, map[idx + needle.length - 1] + 1);
-    return range;
-  }
-  return null;
-}
-
-/** Retire un éventuel repli `<mark class="reader-quote">` précédent en le
- * dépliant dans son parent (texte compris), pour ne jamais empiler deux
- * surlignages quand la citation change sans démonter le lecteur. */
-function clearFallbackMark(root: HTMLElement) {
-  const prev = root.querySelector("mark.reader-quote");
-  const parent = prev?.parentNode;
-  if (!prev || !parent) return;
-  while (prev.firstChild) parent.insertBefore(prev.firstChild, prev);
-  parent.removeChild(prev);
-  parent.normalize();
-}
 
 /** Page du dépôt, ou source de la base. */
 export type ReaderTarget =
@@ -121,8 +55,23 @@ type Etat =
 
 const nb = (n: number) => n.toLocaleString("fr-CA");
 
+// Search and outline controls must not reparse an unchanged full article.
+const ArticleMarkdown = memo(function ArticleMarkdown({text}: {text: string}) {
+  const plugins = useMdPlugins();
+  return <ReactMarkdown remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype} components={MD_COMPONENTS as never}>{text}</ReactMarkdown>;
+});
+
 export default function SourceReader(p: SourceReaderProps) {
   const [etat, setEtat] = useState<Etat>({ phase: "chargement" });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [matchCount, setMatchCount] = useState(0);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [headings, setHeadings] = useState<Array<{title: string; id: string}>>([]);
+  const [reload, setReload] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [vue, setVue] = useState<"rendu" | "source">("rendu");
   const plugins = useMdPlugins();
   const cible = p.target;
@@ -131,12 +80,15 @@ export default function SourceReader(p: SourceReaderProps) {
   useEffect(() => {
     setEtat({ phase: "chargement" });
     setVue("rendu");
+    setQuery(""); setMatchIndex(0);
     const attendu = cible.kind === "gbrain" ? "gbrain-page" : "source-text";
+    let timeout: ReturnType<typeof setTimeout>;
     const onReponse = (event: Event) => {
       const d = (event as CustomEvent).detail as Record<string, unknown> | undefined;
       if (!d) return;
       const recu = String(cible.kind === "gbrain" ? d.slug ?? "" : d.id ?? "");
       if (recu !== clef) return;
+      clearTimeout(timeout);
       if (d.error) { setEtat({ phase: "erreur", message: String(d.error) }); return; }
       setEtat({
         phase: "prete",
@@ -149,16 +101,18 @@ export default function SourceReader(p: SourceReaderProps) {
       });
     };
     window.addEventListener(attendu, onReponse);
-    wsSend(cible.kind === "gbrain"
+    const sent = wsSend(cible.kind === "gbrain"
       ? { type: "kbGbrainPage", slug: cible.slug }
       : { type: "kbSourceText", id: cible.id });
-    return () => window.removeEventListener(attendu, onReponse);
-  }, [cible.kind, clef]);
+    if (!sent) setEtat({phase: "erreur", message: "Connexion indisponible. Réessaie après la reconnexion."});
+    else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 15000);
+    return () => { clearTimeout(timeout); window.removeEventListener(attendu, onReponse); };
+  }, [cible.kind, clef, reload]);
 
   const page = useMemo(() => {
     if (etat.phase !== "prete") return null;
     const { meta, body } = splitFrontMatter(etat.markdown);
-    return { meta, body, rendu: mineruTablesToMarkdown(body) };
+    return { meta, body, rendu: normalizeMathDelimiters(mineruTablesToMarkdown(body)) };
   }, [etat]);
 
   const dossier = etat.phase === "prete" && etat.kind === "folder" ? etat.files ?? [] : null;
@@ -169,33 +123,52 @@ export default function SourceReader(p: SourceReaderProps) {
     || clef;
 
   const docRef = useRef<HTMLDivElement>(null);
+  const positionKey = `atelier.reader.position:${cible.kind}:${clef}:${vue}`;
   useEffect(() => {
-    const registry = (CSS as any).highlights as
-      | { set(name: string, hl: unknown): void; delete(name: string): void }
-      | undefined;
     const root = docRef.current;
-    registry?.delete("reader-quote");
-    if (root) clearFallbackMark(root);
-    if (!root || !p.highlightQuote || etat.phase !== "prete" || dossier || vue !== "rendu") return;
-    const range = findQuoteRange(root, p.highlightQuote);
+    if (!root || etat.phase !== "prete") { setHeadings([]); return; }
+    const titles = Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"));
+    titles.forEach((heading, index) => { heading.id = `reader-section-${index}`; });
+    setHeadings(titles.map(h => ({title: h.textContent || "", id: h.id})));
+  }, [etat, vue, plugins]);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || etat.phase !== "prete") return;
+    try { scroller.scrollTop = Number(localStorage.getItem(positionKey) || 0); } catch { /* private storage */ }
+    return () => { try { localStorage.setItem(positionKey, String(scroller.scrollTop)); } catch { /* private storage */ } };
+  }, [positionKey, etat.phase]);
+  useEffect(() => {
+    const root = docRef.current;
+    if (!root || etat.phase !== "prete" || dossier || vue !== "rendu") return;
+    clearDocumentHighlights(root, "reader-quote");
+    if (!p.highlightQuote) return;
+    const range = findDocumentRanges(root, p.highlightQuote, 1)[0];
     if (!range) return;
-    const HighlightCtor = (window as any).Highlight;
-    if (HighlightCtor && registry) {
-      registry.set("reader-quote", new HighlightCtor(range));
-    } else {
-      const mark = document.createElement("mark");
-      mark.className = "reader-quote";
-      range.surroundContents(mark);
-    }
-    const target = range.startContainer.nodeType === Node.TEXT_NODE
-      ? range.startContainer.parentElement
-      : (range.startContainer as Element);
-    target?.scrollIntoView({ block: "center" });
-    return () => { registry?.delete("reader-quote"); };
-  }, [p.highlightQuote, etat, vue, dossier]);
+    const target = range.startContainer.parentElement;
+    highlightDocumentRanges(root, "reader-quote", [range]);
+    target?.scrollIntoView?.({block: "center"});
+    return () => clearDocumentHighlights(root, "reader-quote");
+  }, [p.highlightQuote, etat, vue, dossier, plugins]);
+  useEffect(() => {
+    const root = docRef.current;
+    if (!root) { setMatchCount(0); return; }
+    clearDocumentHighlights(root, "reader-search");
+    const ranges = searchOpen ? findDocumentRanges(root, query) : [];
+    setMatchCount(ranges.length);
+    const active = ranges.length ? ranges[matchIndex % ranges.length] : null;
+    const target = active?.startContainer.parentElement;
+    highlightDocumentRanges(root, "reader-search", active ? [active] : []);
+    target?.scrollIntoView?.({block: "center"});
+    return () => clearDocumentHighlights(root, "reader-search");
+  }, [query, matchIndex, searchOpen, etat, vue, plugins]);
 
   return (
-    <div className="gbr">
+    <div className="gbr" onKeyDown={(event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault(); setSearchOpen(true); requestAnimationFrame(() => inputRef.current?.focus());
+      }
+      if (event.key === "Escape") { setSearchOpen(false); setOutlineOpen(false); }
+    }}>
       <div className="gbr-bar">
         <RowButton className="gbr-back" onClick={p.onClose}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -206,6 +179,10 @@ export default function SourceReader(p: SourceReaderProps) {
         </RowButton>
         <span className="gbr-slug" title={clef}>{clef}</span>
         <span className="gbr-spacer" />
+        {page && !dossier && <>
+          <RowButton className="gbr-tool" aria-label="Rechercher dans l’article" aria-expanded={searchOpen} onClick={() => { setSearchOpen(v => !v); requestAnimationFrame(() => inputRef.current?.focus()); }}>Rechercher</RowButton>
+          {vue === "rendu" && headings.length > 0 && <RowButton className="gbr-tool" aria-expanded={outlineOpen} onClick={() => setOutlineOpen(v => !v)}>Plan</RowButton>}
+        </>}
         {/* Un dossier n'a pas de « source » à montrer : il a des fichiers. */}
         {page && !dossier && (
           <span className="gbr-seg" role="tablist" aria-label={t("gbr.views")}>
@@ -249,9 +226,16 @@ export default function SourceReader(p: SourceReaderProps) {
         )}
       </div>
 
+      {searchOpen && <div className="gbr-search" role="search">
+        <Input ref={inputRef} aria-label="Rechercher dans l’article" placeholder="Mot ou passage…" value={query} onChange={event => {setQuery(event.target.value); setMatchIndex(0);}} onKeyDown={event => {if (event.key === "Enter") {event.preventDefault(); setMatchIndex(i => matchCount ? (i + (event.shiftKey ? matchCount - 1 : 1)) % matchCount : 0);}}} />
+        <span role="status">{matchCount ? `${matchIndex % matchCount + 1}/${matchCount}` : query ? "Aucun résultat" : ""}</span>
+        <RowButton disabled={!matchCount} aria-label="Résultat précédent" onClick={() => setMatchIndex(i => (i + matchCount - 1) % matchCount)}>↑</RowButton>
+        <RowButton disabled={!matchCount} aria-label="Résultat suivant" onClick={() => setMatchIndex(i => (i + 1) % matchCount)}>↓</RowButton>
+      </div>}
+      {outlineOpen && vue === "rendu" && <nav className="gbr-outline" aria-label="Plan de l’article">{headings.map(h => <RowButton key={h.id} onClick={() => {docRef.current?.querySelector(`#${h.id}`)?.scrollIntoView?.({block:"start"}); setOutlineOpen(false);}}>{h.title}</RowButton>)}</nav>}
       {etat.phase === "chargement" && <div className="gbr-empty">{t("gbr.loading")}</div>}
       {etat.phase === "erreur" && (
-        <div className="kb-error"><span className="kb-error-text">{etat.message}</span></div>
+        <div className="kb-error"><span className="kb-error-text">{etat.message}</span><Button variant="ghost" onClick={() => setReload(v => v + 1)}>Réessayer</Button></div>
       )}
 
       {etat.phase === "prete" && (
@@ -272,7 +256,7 @@ export default function SourceReader(p: SourceReaderProps) {
             </div>
           </div>
 
-          <div className="gbr-doc">
+          <div className="gbr-doc" ref={scrollRef}>
             {dossier ? (
               // 103 000 caractères collés bout à bout ne se lisent pas : un
               // dossier se parcourt par ses fichiers.
@@ -286,16 +270,10 @@ export default function SourceReader(p: SourceReaderProps) {
               </div>
             ) : vue === "rendu" ? (
               <div className="gbr-md msg typeset" ref={docRef}>
-                <ReactMarkdown
-                  remarkPlugins={plugins.remark}
-                  rehypePlugins={plugins.rehype}
-                  components={MD_COMPONENTS as never}
-                >
-                  {page?.rendu ?? ""}
-                </ReactMarkdown>
+                <ArticleMarkdown text={page?.rendu ?? ""} />
               </div>
             ) : (
-              <pre className="gbr-src">{etat.markdown}</pre>
+              <pre className="gbr-src" ref={docRef as never}>{etat.markdown}</pre>
             )}
           </div>
         </>

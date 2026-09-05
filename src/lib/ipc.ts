@@ -35,6 +35,7 @@ export type AtelierAddToChatMessage = {
   name?: string;
   previewUrl?: string;
   requestId?: string;
+  pdfAnnotation?: { rel: string; id: string };
 };
 
 /** Sélection envoyée au Quick Ask depuis un éditeur galerie (studio
@@ -185,7 +186,11 @@ export function isTrustedAtelierMessage(
       );
     case "atelier-add-to-chat":
       return (
-        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl", "requestId"]) &&
+        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl", "requestId", "pdfAnnotation"]) &&
+        (data.pdfAnnotation === undefined || (isRecord(data.pdfAnnotation) &&
+          hasOnlyKeys(data.pdfAnnotation, ["rel", "id"]) &&
+          isBoundedString(data.pdfAnnotation.rel, MAX_URL_LENGTH) &&
+          isBoundedString(data.pdfAnnotation.id, MAX_TITLE_LENGTH))) &&
         isBoundedString(data.text, MAX_TEXT_LENGTH) &&
         isOptionalBoundedString(data.path, MAX_URL_LENGTH) &&
         isOptionalBoundedString(data.name, MAX_TITLE_LENGTH) &&

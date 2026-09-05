@@ -16,7 +16,12 @@ import { Button, EmptyState, InlineNotice, RowButton, StatusBadge } from "./ui";
 import "../styles/research-home.css";
 
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
-export type ResearchHomeBundle = { model: ResearchHomeModel; actions: ResearchHomeActions };
+export type ResearchHomeBundle = {
+  model: ResearchHomeModel;
+  actions: ResearchHomeActions;
+  /** Le shell affiche déjà l'état de connexion ; l'accueil ne le répète pas. */
+  connectionNoticeHandled?: boolean;
+};
 
 export type ResearchHomeActions = {
   onNewChat: () => void;
@@ -185,7 +190,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
   );
 }
 
-export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHomeActions }) {
+export function ResearchHome(p: ResearchHomeBundle) {
   const { model, actions } = p;
 
   if (model.state === "no-project") {
@@ -261,17 +266,9 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
   return (
     <div className="research-home">
       <div className="rh">
-        <header className="rh-head">
-          {/* identité projet = crumb TopBar uniquement (demande Thierry) ;
-              le h1 reste pour la structure, invisible à l'écran */}
-          <h1 className="rh-title sr-only">{model.projectName}</h1>
-          <div className="spacer" />
-          <div className="actions">
-            {/* demande Thierry (2026-07-10) : pas de Nouveau chat ici —
-                la section Démarrer et le panneau Projets le portent déjà */}
-            {model.degraded && <StatusBadge status="warning">{t("home.degraded")}</StatusBadge>}
-          </div>
-        </header>
+        {/* L'identité visible reste dans la TopBar. L'état de connexion est
+            annoncé une seule fois, par le shell ou la notice ci-dessous. */}
+        <h1 className="rh-title sr-only">{model.projectName}</h1>
 
         <div className="rh-grid">
           <div className="rh-col">
@@ -290,7 +287,12 @@ export function ResearchHome(p: { model: ResearchHomeModel; actions: ResearchHom
             {artefacts}
           </div>
           <div className="rh-col">
-            <AttentionList items={model.attention} onResume={actions.onResume} />
+            <AttentionList
+              items={p.connectionNoticeHandled
+                ? model.attention.filter((item) => item.kind !== "sidecar")
+                : model.attention}
+              onResume={actions.onResume}
+            />
             {starters}
           </div>
         </div>

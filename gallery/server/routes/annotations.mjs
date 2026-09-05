@@ -302,7 +302,13 @@ export async function handleAnnotationPost(req, res, url) {
       const storePath = pdfAnnotStore();
       const store = readJson(storePath, {});
       const relKey = payload.rel || "";
-      const newAnnots = payload.annots || [];
+      if (payload.removeIds !== undefined && (!Array.isArray(payload.removeIds) || payload.removeIds.some(id => typeof id !== "string"))) {
+        return sendJson(res, 400, {error: "removeIds must be an array of strings"});
+      }
+      if (payload.removeIds !== undefined && (typeof payload.rel !== "string" || !payload.rel)) return sendJson(res, 400, {error: "rel required"});
+      const newAnnots = payload.removeIds !== undefined
+        ? (store[relKey] || []).filter(a => a.id == null || !payload.removeIds.includes(String(a.id)))
+        : payload.annots || [];
       if ((!newAnnots || (Array.isArray(newAnnots) && newAnnots.length === 0)) && store[relKey]) {
         try {
           fs.writeFileSync(`${storePath}.bak`, JSON.stringify(store));

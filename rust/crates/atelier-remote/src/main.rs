@@ -42,6 +42,14 @@ fn contains_long_hex_run(text: &str) -> bool {
     false
 }
 
+// HTTPS proxy peers appear local: never expose administration through this adapter.
+async fn deny_admin_on_relay(request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    if request.uri().path().starts_with("/remote/admin") {
+        return axum::response::IntoResponse::into_response(axum::http::StatusCode::NOT_FOUND);
+    }
+    next.run(request).await
+}
+
 #[tokio::main]
 async fn main() {
     atelier_fdlimit::raise_nofile_limit();
@@ -53,12 +61,80 @@ async fn main() {
         .init();
 
     let config = config_from_env();
+    let loopback_hosts = config.allowed_hosts.clone();
+    let loopback_mobile = config.mobile_dir.clone();
+    let local_socket = config.data_dir.join("pair.sock");
     let log_path = config.data_dir.join("gateway.log");
     let rotation_marker = config.data_dir.join(".sec062_admin_rotated");
     let migration_pending = !rotation_marker.exists();
 
     match serve(config).await {
         Ok(handle) => {
+            // Tailscale Serve dials the local adapter, avoiding a hairpin through its own IP.
+            if !handle.addr.ip().is_loopback() {
+                let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, handle.port)).await;
+                match listener {
+                    Ok(listener) => {
+                        let mut app = atelier_remote::app_router(handle.state.clone(), loopback_hosts);
+                        if let Some(dir) = loopback_mobile {
+                            let index = dir.join("index.html");
+                            app = app.fallback_service(tower_http::services::ServeDir::new(dir)
+                                .fallback(tower_http::services::ServeFile::new(index)));
+                        }
+                        let app = app.layer(axum::middleware::from_fn(deny_admin_on_relay));
+                        tokio::spawn(async move {
+                            let _ = axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await;
+                        });
+                    }
+                    Err(error) => eprintln!("adaptateur HTTPS local indisponible: {error}"),
+                }
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if local_socket.exists() { let _ = std::fs::remove_file(&local_socket); }
+                match tokio::net::UnixListener::bind(&local_socket) {
+                    Ok(listener) => {
+                        if std::fs::set_permissions(&local_socket, std::fs::Permissions::from_mode(0o600)).is_ok() {
+                            let state = handle.state.clone();
+                            tokio::spawn(async move {
+                                use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+                                while let Ok((stream, _)) = listener.accept().await {
+                                    let state = state.clone();
+                                    tokio::spawn(async move {
+                                        let (read, mut write) = stream.into_split();
+                                        let mut line = String::new();
+                                        let mut reader = BufReader::new(read);
+                                        let read = tokio::time::timeout(std::time::Duration::from_secs(5), reader.read_line(&mut line)).await;
+                                        if !matches!(read, Ok(Ok(_))) || line.len() > 512 { return; }
+                                        let mut g = state.inner.lock().await;
+                                        let result = match line.trim() {
+                                            "pair" => g.auth.start_pairing(Some("Atelier iOS".into()))
+                                                .map(|p| serde_json::json!({"code":p.code,"expiresAt":p.expires_at})),
+                                            "devices" => {
+                                                let devices: Vec<_> = g.auth.list_devices().into_iter().map(|d| serde_json::json!({
+                                                    "deviceId": d.device_id, "name": d.name, "scopes": d.scopes,
+                                                    "createdAt": d.created_at, "lastSeenAt": d.last_seen_at,
+                                                    "revoked": d.revoked_at.is_some(), "revokedAt": d.revoked_at
+                                                })).collect();
+                                                Ok(serde_json::json!({"devices": devices}))
+                                            },
+                                            command if command.starts_with("revoke ") => g.auth.revoke_device(&command[7..])
+                                                .map(|_| serde_json::json!({"ok":true})),
+                                            _ => return,
+                                        };
+                                        let body = match result { Ok(value) => value, Err(_) => serde_json::json!({"error":"Association indisponible"}) };
+                                        drop(g);
+                                        let _ = write.write_all(body.to_string().as_bytes()).await;
+                                    });
+                                }
+                            });
+                        }
+                    }
+                    Err(error) => eprintln!("canal local d’association indisponible: {error}"),
+                }
+            }
+
             if migration_pending {
                 // Correctif SEC-03 : un jeton admin en clair a pu être écrit
                 // dans gateway.log par une version antérieure (log non 0600,
@@ -96,6 +172,21 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn https_relay_never_exposes_admin_routes() {
+        use tower::ServiceExt;
+        let app = axum::Router::new()
+            .route("/remote/admin/devices", axum::routing::get(|| async { "secret" }))
+            .route("/remote/health", axum::routing::get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(deny_admin_on_relay));
+        let denied = app.clone().oneshot(axum::http::Request::builder().uri("/remote/admin/devices")
+            .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(denied.status(), axum::http::StatusCode::NOT_FOUND);
+        let health = app.oneshot(axum::http::Request::builder().uri("/remote/health")
+            .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(health.status(), axum::http::StatusCode::OK);
+    }
 
     #[test]
     fn detects_a_leaked_hex_token_in_log_text() {

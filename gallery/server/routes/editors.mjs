@@ -246,12 +246,12 @@ export function findTexRoot(p) {
   } catch {
     return p;
   }
-  if (txt.includes("\\documentclass")) return p;
   const directive = /%\s*!TEX\s+root\s*=\s*(.+)/i.exec(txt);
   if (directive) {
     const cand = realpathOrResolve(path.join(path.dirname(p), directive[1].trim()));
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
   }
+  if (txt.split("\n").some(line => !line.trimStart().startsWith("%") && line.includes("\\documentclass"))) return p;
   const stem = path.basename(p, path.extname(p));
   const dir = path.dirname(p);
   for (const folder of [dir, path.dirname(dir)]) {

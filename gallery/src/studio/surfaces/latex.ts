@@ -5,6 +5,8 @@ import {
   createLatexPdfControls,
   createLatexPdfSyncController,
   createLatexReadingController,
+  loadReadingContext,
+  type ReadingContext,
   createLatexReadingMarge,
   createLatexSelectionPill,
   createRewrapController,
@@ -69,6 +71,7 @@ interface LatexCodeResponse {
 }
 
 interface TexRootResponse {
+  root?: string;
   pdf?: string;
 }
 
@@ -158,6 +161,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     ? new BroadcastChannel(`latexstudio:${path}`)
     : null;
   let pdfPath = path ? path.replace(/\.tex$/, ".pdf") : null;
+  let pdfCandidates: string[] = [];
   let editor: LatexSurfaceEditor | null = null;
   let session: ReturnType<typeof createDocumentSession> | null = null;
   let pdfSync: LatexPdfSyncController | null = null;
@@ -282,6 +286,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const ensurePdfControls = (): LatexPdfControls => {
     if (pdfControls) return pdfControls;
     pdfControls = createLatexPdfControls({
+      onSelectSplit: () => reader?.setRead(false),
       path,
       isPdfMode,
       getPdfPath: () => pdfPath,
@@ -303,6 +308,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       isPdfMode,
       getPdfPath: () => pdfPath,
       getZoom: () => ensurePdfControls().getZoom(),
+      getPdfCandidates: () => pdfCandidates,
+      selectPdf: (selected) => {
+        pdfPath = selected;
+        try {win.localStorage.setItem(`atelier.latex.pdf:${readingRoot || path}`, selected);} catch { /* private storage */ }
+        void refreshReadingContext();
+      },
       getEditor: () => editor,
       right: doc.getElementById("right") as HTMLElement,
       marker: doc.getElementById("marker") as HTMLElement,
@@ -317,10 +328,47 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     return pdfSync;
   };
   const loadPdf = (): Promise<void> => ensurePdfSync().loadPdf();
+  let readingContext: ReadingContext = {};
+  let readingRoot: string | null = null;
+  let readingContextGeneration = 0;
+  const refreshReadingContext = async (): Promise<void> => {
+    if (!readingRoot) return;
+    const generation = ++readingContextGeneration;
+    const context = await loadReadingContext(readingRoot, async (file) => {
+      try {
+        const response = await win.fetch(`/code?path=${encodeURIComponent(file)}`, {signal: AbortSignal.timeout(5000)});
+        if (!response.ok) return "";
+        return String((await response.json()).text || "");
+      } catch { return ""; }
+    }, pdfPath?.replace(/\.pdf$/, ".aux"));
+    if (generation !== readingContextGeneration) return;
+    readingContext = context;
+    win.dispatchEvent(new CustomEvent("atelier-latex-context", {detail: readingContext}));
+    if (reader?.isReading()) reader.render();
+  };
   const ensureReader = (): LatexReadingController | null => {
     if (!isTex) return null;
     if (reader) return reader;
     reader = createLatexReadingController({
+      getContext: () => readingContext,
+      openPdfAtLine: (line, destination) => {
+        if (destination?.external) {
+          setState("hint", `Ce renvoi appartient à ${destination.path.split("/").at(-1)} — ouvre son PDF pour le consulter.`);
+          return;
+        }
+        const sync = ensurePdfSync();
+        if (!destination || destination.path === path) {
+          if (editor) revealLineRange(editor, {fromLine: line - 1, margin: 100, focus: false});
+          void sync.loadPdf().then(() => sync.synctexView());
+        } else {
+          void sync.loadPdf().then(async () => {
+            const response = await win.fetch("/synctex", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({dir:"view", tex:destination.path, pdf:pdfPath, line})});
+            const result = await response.json();
+            if (result.page) sync.showMarker(result.page, result.y || 0);
+            else setState("hint", "Renvoi non localisé dans le PDF — recompile le document.");
+          }).catch(() => setState("err", "Le renvoi PDF est indisponible."));
+        }
+      },
       getEditor: () => editor,
       right: doc.getElementById("right") as HTMLElement,
       splitButton: doc.getElementById("togglePdf") as HTMLElement,
@@ -333,6 +381,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
         .show(selection.from, selection.to, selection.text, selection.anchor),
       onProseSelectionCleared: () => ensureSelectionPill().hide(),
       getAnnotations: () => ensureAnnotations().annotations(),
+      onAnnotationClick: (id, anchor) => ensureAnnotations().focus(id, anchor),
       // Édition d'un paragraphe depuis la Lecture : même chemin de sauvegarde
       // que ⌘S (rewrap auto compris), pour ne pas laisser un buffer dirty
       // invisible derrière une vue qui masque l'éditeur.
@@ -381,6 +430,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       getEditor: () => editor,
       adapter: dependencies.selectionPill,
       openComment: (selection) => ensureAnnotations().open(selection),
+      highlight: (selection, color) => ensureAnnotations().highlight(selection, color),
       postToHost: dependencies.postToHost,
       clearMarker: () => {
         win._clMark?.clear();
@@ -648,6 +698,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     renderLog: renderCompileLog,
     onCompiled: (response) => {
       if (response.pdf) pdfPath = response.pdf;
+      void refreshReadingContext();
       void loadPdf();
       channel?.postMessage({t: "compiled"});
     },
@@ -826,8 +877,27 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   if (path) {
     void win.fetch(`/texroot?path=${encodeURIComponent(path)}`)
       .then((response) => response.json() as Promise<TexRootResponse>)
-      .then((result) => {
+      .then(async (result) => {
         if (result.pdf) pdfPath = result.pdf;
+        readingRoot = result.root || path;
+        if (pdfPath) {
+          try {
+            const exists = await win.fetch(`/statfile?path=${encodeURIComponent(pdfPath)}`);
+            if (!exists.ok) {
+              const found = await win.fetch(`/findfile?name=${encodeURIComponent(pdfPath.split("/").at(-1)!)}`);
+              const {hits} = await found.json();
+              if (Array.isArray(hits)) {
+                pdfCandidates = hits.filter((hit): hit is string => typeof hit === "string" && hit.endsWith(".pdf"));
+                let saved: string | null = null;
+                try {saved = win.localStorage.getItem(`atelier.latex.pdf:${readingRoot}`);} catch { /* private storage */ }
+                if (saved && pdfCandidates.includes(saved)) pdfPath = saved;
+                else if (pdfCandidates.length === 1) pdfPath = pdfCandidates[0]!;
+                else if (pdfCandidates.length > 1) pdfPath = null;
+              }
+            }
+          } catch { /* the PDF pane owns the visible loading/error state */ }
+        }
+        void refreshReadingContext();
         if (isTex) return loadPdf().then(() => { if (isPdfMode) ensurePdfSync().requestView(); });
         return undefined;
       })

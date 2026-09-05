@@ -14,6 +14,8 @@
 })();</script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="sel_pill.js"></script>
+<script src="annotation_ui.bundle.js"></script>
+<link rel="stylesheet" href="annotation_ui.css">
 <script src="pdf_passage.js"></script>
 <script src="pdf_selection.js"></script>
 <style>
@@ -62,20 +64,6 @@
   #pdftools .cdot{width:13px;height:13px;border-radius:6px;cursor:pointer;margin:0 1px;
     border:1px solid rgba(255,255,255,.15)}
   #pdftools .cdot.con{outline:2px solid #5b9dff}
-  #annotPop{position:fixed;z-index:9999;display:none;background:#1b1f26;border:1px solid #333a45;
-    border-radius:10px;padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.55);
-    font-family:var(--ui-font);font-size:var(--fs-body, 13px);color:#dbdfe5;width:230px}
-  #annotPop input{width:100%;box-sizing:border-box;background:#2c313a;border:1px solid #3a414d;
-    border-radius:6px;color:inherit;padding:5px 8px;font-size:var(--fs-body, 13px);outline:none;margin-bottom:8px}
-  #annotPop .row{display:flex;gap:6px;align-items:center}
-  #annotPop .sw{width:16px;height:16px;border-radius:6px;cursor:pointer}
-  #annotPop button{background:#2c313a;border:1px solid #3a414d;border-radius:6px;color:#dbdfe5;
-    padding:4px 10px;cursor:pointer;font-size:var(--fs-body-s, 12px)}
-  #annotPop .del{color:#ff8a8a;margin-left:auto}
-  #annotPop .cpy.ok{color:#7ACB8A;border-color:#3f6b4a}
-  #annotPop .serr{margin-top:8px;color:#ff8a8a;font-size:calc(var(--ui-base-size, 15px) * 0.76666667);line-height:1.4}
-  #annotPop .row button{display:inline-flex;align-items:center;justify-content:center;
-    width:28px;height:26px;padding:0}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
            border-radius:10px;padding:8px 14px;font-size:var(--fs-body, 13px);cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
@@ -87,7 +75,7 @@
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
   #selPill textarea::placeholder{color:#6d7480}
-  #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #selPill > button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
   #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
   #selPill .del:hover{color:#ff7a76}
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
@@ -112,6 +100,11 @@
   @media (prefers-reduced-motion: reduce){ #selPill .sw{transition:none} #selPill .sw:hover{transform:none} }
   #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
   #selPill .go:hover{background:#e0714a}
+  #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;white-space:nowrap;font-family:inherit;font-size:13px}
+  #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
+  .pdfcomment{position:absolute;z-index:8;background:#f7f7f5;color:#41454a}
+  .pdfcomment-line{position:absolute;z-index:7;height:0;border-bottom:1px solid #73777d99;pointer-events:none}
+  #annotPop{position:fixed;z-index:9999;display:none}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
       box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:var(--fs-body, 13px)}
@@ -386,13 +379,15 @@ async function main(){
   // en page). `onVisibleReady` est appelé dès que les pages À L'ÉCRAN sont
   // nettes — c'est là que l'appelant peut retirer le transform de suivi.
   let _renderGen = 0;
+  let _pageObserver = null;
   async function renderAll(onVisibleReady){
     clearHl();
     selHide();
     const gen = ++_renderGen;
+    if (_pageObserver) _pageObserver.disconnect();
     RENDER_W = availW();
     RENDER_Z = ZOOM;
-    const scale = Math.max(0.3, ((RENDER_W - 28) / 612) * ZOOM);
+
     wrap.innerHTML = "";
     // 1) squelette : chaque page à sa taille finale, sans canvas. La hauteur
     //    totale est juste immédiatement (le scroll ne saute pas) et le rendu
@@ -404,6 +399,7 @@ async function main(){
     // corrigées à la peinture, quand leur vraie page est chargée.
     const page1 = await pdf.getPage(1);
     if (gen !== _renderGen) return;
+    const scale = Math.max(0.3, ((RENDER_W - 28) / page1.getViewport({scale:1}).width) * ZOOM);
     const vp1 = page1.getViewport({scale});
     const slots = [];
     for(let n = 1; n <= pdf.numPages; n++){
@@ -412,12 +408,14 @@ async function main(){
       div.dataset.vscale = vp1.scale;  // px CSS par unité PDF — requis par le synctex
       div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
       wrap.appendChild(div);
-      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false });
+      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false, rendering: false, visible: false });
     }
     // 2) peinture d'une page : canvas + couche texte + annotations
-    const paint = async function(slot){
-      if (slot.painted || gen !== _renderGen) return;
-      slot.painted = true;
+    const paint = async function(slot, wantCanvas = true){
+      if (slot.rendering || gen !== _renderGen) return;
+      if (slot.painted && (!wantCanvas || slot.div.querySelector("canvas"))) return;
+      slot.rendering = true;
+      try {
       // page chargée seulement maintenant (le gabarit n'en connaissait qu'une)
       if (!slot.page) {
         slot.page = await pdf.getPage(slot.n);
@@ -432,21 +430,30 @@ async function main(){
         slot.vp = real;
       }
       const vp = slot.vp;
-      const cv = document.createElement("canvas");
-      cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
-      cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
-      slot.div.appendChild(cv);
-      const tl = document.createElement("div");
-      tl.className = "textLayer";
-      slot.div.appendChild(tl);
-      const ctx = cv.getContext("2d");
-      ctx.scale(devicePixelRatio, devicePixelRatio);
-      await slot.page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
-      if (gen !== _renderGen) return;
-      const tc = await slot.page.getTextContent();
-      buildTextLayer(tc, tl, vp);
-      tl._order = readingOrder(tl, vp.width);
-      drawAnnots(slot.div, slot.n);
+      let tl = slot.div.querySelector(".textLayer");
+      if (!tl) {
+        tl = document.createElement("div"); tl.className = "textLayer";
+        const tc = await slot.page.getTextContent();
+        if (gen !== _renderGen) return;
+        buildTextLayer(tc, tl, vp); tl._order = readingOrder(tl, vp.width);
+        slot.div.appendChild(tl); drawAnnots(slot.div, slot.n);
+        slot.painted = true;
+      }
+      // Search and annotations keep their text layer; only nearby pages
+      // hold the expensive Retina canvas.
+      if (wantCanvas || slot.visible) {
+        const cv = document.createElement("canvas");
+        cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
+        cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+        const ctx = cv.getContext("2d"); ctx.scale(devicePixelRatio, devicePixelRatio);
+        await slot.page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
+        if (gen !== _renderGen || (!slot.visible && _pageObserver)) { cv.width = cv.height = 0; return; }
+        slot.div.prepend(cv);
+      }
+      } catch (error) {
+        if (gen === _renderGen) console.warn("PDF page", slot.n, error);
+      } finally { slot.rendering = false; }
+
     };
     // 3) l'écran d'abord (avec une hauteur de marge de part et d'autre), le
     //    reste ensuite : le net revient sans attendre les pages hors vue.
@@ -458,6 +465,18 @@ async function main(){
       return y + s.vp.height >= from && y <= to;
     });
     const first = onScreen.length ? onScreen : slots.slice(0, 2);
+    for (const slot of first) slot.visible = true;
+    if (typeof IntersectionObserver === "function") {
+      _pageObserver = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          const slot = slots[Number(entry.target.dataset.page) - 1];
+          slot.visible = entry.isIntersecting;
+          if (slot.visible) void paint(slot);
+          else for (const cv of slot.div.querySelectorAll("canvas")) { cv.remove(); cv.width = cv.height = 0; }
+        }
+      }, {rootMargin: "100% 0px"});
+      for (const slot of slots) _pageObserver.observe(slot.div);
+    }
     for (const s of first) { await paint(s); if (gen !== _renderGen) return; }
     if (onVisibleReady) onVisibleReady();
     // Peinture de fond : CÉDER LA MAIN entre chaque page. Sans ça, les 40+
@@ -469,7 +488,7 @@ async function main(){
       else setTimeout(r, 0);
     });
     for (const s of slots) {
-      await paint(s);
+      await paint(s, !_pageObserver);
       if (gen !== _renderGen) return;
       await yieldToUi();
       if (gen !== _renderGen) return;
@@ -809,6 +828,22 @@ const selApi = SelPill.attach({
   pill: selPill,
   menu: document.getElementById("tgMenu"),
   getQuote(){ const text = hlText(); return text ? {rel, page: selPage, text} : null; },
+  embedExtras(go){
+    go.style.display = "none";
+    const actions = document.createElement("div");
+    go.before(actions);
+    const legacyColors = selPill.querySelector(".hlbar");
+    if(legacyColors) legacyColors.style.display = "none";
+    AtelierAnnotationUI.createSelectionActions(actions, {
+      onColor: (_name, color) => addHighlightFromSel("hl", color),
+      onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
+      onAsk: () => {
+        const text = hlText(); if(!text) return;
+        __atelierPost({type:"atelier-quick-ask",text,path:rel,page:String(selPage)});
+        selApi.hide();
+      }
+    });
+  },
   onCancel(){
     clearHl();
     fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -1116,7 +1151,10 @@ const annPane = (function(){
     document.addEventListener("mouseup", up);
   });
   pane.querySelector(".pclose").onclick = toggle;
-  return { refresh, toggle };
+  return { refresh, toggle, consumed(relX, id){
+    if(LIB && Array.isArray(LIB[relX])) LIB[relX] = LIB[relX].filter(a => String(a.id) !== id);
+    refresh();
+  } };
 })();
 
 // ---- recherche dans le document (Cmd+F) -----------------------------------
@@ -1138,10 +1176,13 @@ const annPane = (function(){
     clearFind();
     const needle = String(q || "").trim().toLowerCase();
     if (needle.length < 2) return;
-    for (const span of document.querySelectorAll(".textLayer span")) {
-      if ((span.textContent || "").toLowerCase().includes(needle)) {
-        span.classList.add("find-hit");
-        hits.push(span);
+    for (const layer of document.querySelectorAll(".textLayer")) {
+      const spans = Array.from(layer.querySelectorAll("span"));
+      const matches = window.AtelierPdfPassage.findAllSpanRanges(spans.map(s => s.textContent), needle);
+      for (const match of matches) {
+        const group = spans.slice(match.start, match.end + 1);
+        group.forEach(span => span.classList.add("find-hit"));
+        hits.push(group);
       }
     }
     cnt.textContent = hits.length ? "0/" + hits.length : "aucun";
@@ -1149,10 +1190,10 @@ const annPane = (function(){
   }
   function step(dir){
     if (!hits.length) return;
-    if (cur >= 0 && hits[cur]) hits[cur].classList.remove("find-cur");
+    if (cur >= 0 && hits[cur]) hits[cur].forEach(span => span.classList.remove("find-cur"));
     cur = (cur + dir + hits.length) % hits.length;
-    const el = hits[cur];
-    el.classList.add("find-cur");
+    const group = hits[cur], el = group[0];
+    group.forEach(span => span.classList.add("find-cur"));
     cnt.textContent = (cur + 1) + "/" + hits.length;
     const pg = el.closest(".pg");
     const sc = document.scrollingElement || document.documentElement;
@@ -1183,9 +1224,10 @@ if(rel) main();
 
 // ---- surlignages persistants (sidecar JSON via /pdfannot) ----
 let PDF_ANNOTS = [];
+let ANNOT_SAVE = Promise.resolve(true);
 let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un GET réussi
 function loadAnnots(attempt){
-  fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>r.json())
+  fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
       document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
       annPane.refresh();
@@ -1207,20 +1249,81 @@ function revealTargetAnnot(){
   const y = (a.rects && a.rects[0] && a.rects[0][1]) || (a.pin && a.pin[1]) || 0;
   const sc = document.scrollingElement || document.documentElement;
   sc.scrollTo({ top: pg.offsetTop + y * pg.offsetHeight - 90 });
-  const els = [...pg.querySelectorAll(".pdfhl, .pdfarea")].filter(el => el.dataset.aid === String(a.id));
+  const els = [...pg.querySelectorAll(".pdfhl, .pdfarea, .pdfcomment")].filter(el => el.dataset.aid === String(a.id));
   els.forEach(el => el.classList.add("flash"));
   setTimeout(() => els.forEach(el => el.classList.remove("flash")), 1600);
 }
 function saveAnnots(){
-  annPane.refresh();   // la liste suit chaque ajout/suppression/changement de couleur
-  if(!ANNOTS_LOADED) return;  // le store contient peut-être des annots pas encore chargées
-  fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel, annots: PDF_ANNOTS})}).catch(()=>{});
+  annPane.refresh();
+  if(!ANNOTS_LOADED) return Promise.resolve(false);
+  // Snapshot and serialize writes: an older request must not overwrite a
+  // newer note, even when the user saves and immediately adds it to chat.
+  const body = JSON.stringify({rel, annots: PDF_ANNOTS});
+  ANNOT_SAVE = ANNOT_SAVE.then(async () => {
+    try {
+      const response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
+      if(!response.ok) throw new Error("HTTP " + response.status);
+      const result = await response.json();
+      if(result.error) throw new Error(result.error);
+      return true;
+    } catch(error) {
+      document.getElementById("status").textContent = "Annotation non enregistrée — réessaie depuis la note.";
+      return false;
+    }
+  });
+  return ANNOT_SAVE;
 }
 function drawAnnots(pgDiv, n){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea").forEach(el => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line").forEach(el => el.remove());
+  // Keep adjacent margin numbers separately clickable, without moving the
+  // stored text anchor. Spread collisions down, then fit the group upward.
+  const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
+    .slice().sort((a,b) => a.rects[0][1] - b.rects[0][1]);
+  const height = pgDiv.clientHeight || pgDiv.getBoundingClientRect().height || 1000;
+  const tops = comments.map(a => Math.max(0, a.rects[0][1] * height));
+  for(let i=1;i<tops.length;i++) tops[i] = Math.max(tops[i], tops[i-1] + 22);
+  if(tops.length && tops[tops.length-1] > height-22){
+    tops[tops.length-1] = height-22;
+    for(let i=tops.length-2;i>=0;i--) tops[i] = Math.min(tops[i], tops[i+1]-22);
+  }
+  const commentTops = new Map(comments.map((a,i) => [a.id, tops[i]]));
   for(const a of PDF_ANNOTS){
     if(+a.page !== +n) continue;
+    if(a.kind === "comment" && a.rects && a.rects.length){
+      for(const rect of a.rects){
+        const line = document.createElement("div");
+        line.className = "pdfcomment-line";
+        line.dataset.aid = String(a.id);
+        line.setAttribute("aria-hidden", "true");
+        line.style.left = rect[0] * 100 + "%";
+        line.style.top = (rect[1] + rect[3]) * 100 + "%";
+        line.style.width = rect[2] * 100 + "%";
+        pgDiv.appendChild(line);
+      }
+      const rc = a.rects[0];
+      const marker = document.createElement("button");
+      marker.className = "pdfcomment atelier-annotation-number";
+      marker.dataset.aid = String(a.id);
+      marker.textContent = String(a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1);
+      marker.setAttribute("aria-label", "Annotation " + marker.textContent + (a.note ? " : " + a.note : ""));
+      marker.title = a.note || "Ajouter une note";
+      // Position beside the text line, not at the edge of the PDF sheet.
+      // Prefer the text span containing the selection's first fragment.
+      const pageBox = pgDiv.getBoundingClientRect();
+      const anchorX = pageBox.left + rc[0] * pageBox.width;
+      const anchorY = pageBox.top + (rc[1] + rc[3] / 2) * pageBox.height;
+      const lineSpan = [...pgDiv.querySelectorAll(".textLayer span")].find(span => {
+        const box = span.getBoundingClientRect();
+        return box.width > 0 && anchorY >= box.top - 2 && anchorY <= box.bottom + 2
+          && anchorX >= box.left - 2 && anchorX <= box.right + 2;
+      });
+      const lineLeft = lineSpan ? lineSpan.getBoundingClientRect().left - pageBox.left : rc[0] * pageBox.width;
+      marker.style.left = Math.max(3, lineLeft - 25) + "px";
+      marker.style.top = commentTops.get(a.id) + "px";
+      marker.onclick = e => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(marker);
+      continue;
+    }
     // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage
     for(const rc of (a.kind === "area" ? [] : a.rects)){
       const el = document.createElement("div");
@@ -1264,6 +1367,7 @@ function drawAnnots(pgDiv, n){
 }
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
 function addHighlightFromSel(kind, color){
+  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   kind = kind || "hl"; color = color || HL_COLORS[0];
   const model = selectionModel();
   const entries = selectionClientRects(model);
@@ -1285,6 +1389,7 @@ function addHighlightFromSel(kind, color){
     const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
       text: text,
       kind: kind, color: color, note: ""};
+    if(kind === "comment") a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0));
     PDF_ANNOTS.push(a);
     drawAnnots(g.pg, +pgNum);
     lastA = a;
@@ -1295,8 +1400,8 @@ function addHighlightFromSel(kind, color){
   saveAnnots();
   clearHl(); selHide();
   try{ window.getSelection().removeAllRanges(); }catch(e){}
-  // popup d'édition immédiat sur la dernière annotation créée (note/couleur/chat/suppr)
-  if (lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
+  // Only an explicit comment opens the note editor; colors mark the text directly.
+  if (kind === "comment" && lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
 }
 // Barre d'annotation à la sélection : chaque pastille surligne DIRECTEMENT
 // dans sa couleur. Positions FIXES (la dernière utilisée porte un anneau) —
@@ -1368,53 +1473,54 @@ function copyWithCitation(a, relOverride){
 }
 const annotPop = document.getElementById("annotPop");
 /** Suppression d'une annotation — partagée par le menu et le panneau. */
-function removeAnnot(a){
+async function removeAnnot(a){
+  const index = PDF_ANNOTS.findIndex(x => x.id === a.id);
   PDF_ANNOTS = PDF_ANNOTS.filter(x => x.id !== a.id);
-  saveAnnots();   // rafraîchit aussi la liste du panneau
+  if(!(await saveAnnots())) {
+    if(index >= 0 && !PDF_ANNOTS.some(x => x.id === a.id)) PDF_ANNOTS.splice(index, 0, a);
+    annPane.refresh();
+    return false;
+  }
   document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if(annotationEditor?.a.id === a.id) annotationEditor = null;
   annotPop.style.display = "none";
+  return true;
 }
 /** Envoi au chat — partagé par le menu et le panneau. Une ZONE part en image
  *  via /save (seul chemin que l'app hôte sait attacher) ; un passage de texte
  *  part en citation via /quote. `onFail` reçoit la raison quand ça échoue. */
-function sendAnnot(a, onFail, relOverride){
+async function sendAnnot(a, onFail, relOverride, fromEditor){
+  if(!fromEditor && annotationEditor && annotationEditor.a.id === a.id && (!relOverride || relOverride === rel))
+    return annotationEditor.commit(false, "force");
   const fail = onFail || sendFail;
   const r = relOverride || rel;
   const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
-  if (a.kind === "area") {
-    if (relOverride && relOverride !== rel) { fail("ouvre l'article pour envoyer sa zone"); return; }
+  let url = "/quote";
+  let payload = {rel:r, page:String(a.page), text:a.text, comment:a.note || "", direct:true, embed:true, target};
+  if(a.kind === "area") {
+    if(relOverride && relOverride !== rel) { fail("ouvre l’article pour envoyer sa zone"); return false; }
     const dataUrl = areaDataUrl(a);
-    if (!dataUrl) { fail("capture impossible (page non rendue ?)"); return; }
-    const stem = (r ? r.split("/").pop().replace(/\.pdf$/i, "") : "pdf");
-    fetch("/save", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ name: stem + "-p" + a.page + "-zone", dataURL: dataUrl,
-        direct: true, embed: true, target: target,
-        notes: a.note ? [{n: 1, text: a.note}] : [] })})
-      .then(r=>r.json())
-      .then(j => {
-        if (j && j.message && window.self !== window.top) {
-          __atelierPost({type:"atelier-add-to-chat", text:j.message});
-          annotPop.style.display = "none";
-        } else fail((j && j.error) || "réponse vide");
-      })
-      .catch(e => fail(String(e && e.message || e)));
-    return;
+    if(!dataUrl) { fail("capture impossible (page non rendue ?)"); return false; }
+    const stem = r ? r.split("/").pop().replace(/\.pdf$/i, "") : "pdf";
+    url = "/save";
+    payload = {name:stem + "-p" + a.page + "-zone", dataURL:dataUrl, direct:true, embed:true, target,
+      notes:a.note ? [{n:1,text:a.note}] : []};
   }
-  fetch("/quote", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({rel: r, page: String(a.page), text: a.text, comment: a.note || "",
-      direct: true, embed: true, target: target})})
-    .then(r=>r.json())
-    .then(j => {
-      if(j && j.message && window.self !== window.top){
-        __atelierPost({type:"atelier-add-to-chat", text:j.message});
-        annotPop.style.display = "none";
-      } else fail((j && j.error) || "réponse vide");
-    })
-    .catch(e => fail(String(e && e.message || e)));
+  try {
+    const response = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+    if(!response.ok) throw new Error("HTTP " + response.status);
+    const result = await response.json();
+    if(!result.message || result.error || window.self === window.top) throw new Error(result.error || "réponse vide");
+    __atelierPost({type:"atelier-add-to-chat", text:result.message,
+      ...(a.kind === "comment" ? {pdfAnnotation: {rel:r, id:String(a.id)}} : {})});
+    document.getElementById("status").textContent = "Annotation ajoutée au chat";
+    return true;
+  } catch(error) { fail(String(error && error.message || error)); return false; }
 }
 /** Un envoi au chat qui échoue ne doit JAMAIS être muet : la raison s'affiche
  *  dans le menu (le .catch silencieux d'avant cachait « file not found »). */
 function sendFail(why){
+  document.getElementById("status").textContent = "Ajout au chat impossible : " + String(why || "").slice(0,90);
   let box = annotPop.querySelector(".serr");
   if (!box) {
     box = document.createElement("div");
@@ -1423,30 +1529,93 @@ function sendFail(why){
   }
   box.textContent = "Envoi impossible : " + String(why || "").slice(0, 90);
 }
-function annotMenu(a, x, y){
-  annotPop.innerHTML = '<input placeholder="Note… (Entrée)" value="' +
-      String(a.note||"").replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '">' +
-    '<div class="row">' +
-    HL_COLORS.map(c => '<span class="sw" style="background:'+c.replace(",.40",",.85")+'" data-c="'+c+'"></span>').join("") +
-    '<button class="cpy" title="Copier la citation et sa référence"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg></button>' +
-    '<button class="send2" title="Envoyer au chat"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></button>' +
-    '<button class="del" title="Supprimer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg></button></div>';
-  annotPop.style.left = Math.min(x, window.innerWidth-250)+"px";
-  annotPop.style.top = (y+10)+"px";
-  annotPop.style.display = "block";
-  const inp = annotPop.querySelector("input");
-  inp.onkeydown = (e) => { if(e.key==="Enter"){ a.note = inp.value; saveAnnots(); annotPop.style.display="none"; } };
-  annotPop.querySelectorAll(".sw").forEach(sw => sw.onclick = () => {
-    a.color = sw.dataset.c; saveAnnots();
-    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
-  });
-  annotPop.querySelector(".cpy").onclick = () => copyWithCitation(a);
-  annotPop.querySelector(".send2").onclick = () => sendAnnot(a);
-  annotPop.querySelector(".del").onclick = () => removeAnnot(a);
-}
-document.addEventListener("click", (e) => {
-  if(!annotPop.contains(e.target) && !e.target.classList.contains("pdfhl"))
+let annotationEditor = null;
+window.addEventListener("message", e => {
+  const data = e.data;
+  if(e.source !== window.parent || !data || data.nonce !== window.__atelierNonce ||
+    data.type !== "atelier-pdf-annotation-consumed") return;
+  annPane.consumed?.(data.rel, data.id);
+  if(data.rel !== rel) return;
+  if(annotationEditor?.a.id === data.id) {
+    annotationEditor = null;
     annotPop.style.display = "none";
+  }
+  PDF_ANNOTS = PDF_ANNOTS.filter(a => String(a.id) !== data.id);
+  // Serialize behind any note edit already being persisted by this viewer.
+  saveAnnots();
+  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+});
+async function annotMenu(a, x, y){
+  if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
+  AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){}});
+  const inp = annotPop.querySelector("textarea");
+  inp.value = a.note || "";
+  const status = annotPop.querySelector(".annotation-status");
+  const editor = { a, commit: null };
+  annotationEditor = editor;
+  let saving = false;
+  let attachedNote = a.note || "";
+  editor.commit = async (close, send) => {
+    if(saving) return false;
+    saving = true;
+    inp.disabled = true;
+    annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    a.note = inp.value;
+    status.textContent = "Enregistrement…";
+    const saved = await saveAnnots();
+    if(annotationEditor !== editor) { saving = false; return saved; }
+    let attached = true;
+    if(saved && send && (send === "force" || (a.note.trim() && a.note !== attachedNote))) {
+      status.textContent = "Ajout au chat…";
+      attached = await sendAnnot(a, why => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true);
+      if(attached) attachedNote = a.note;
+    }
+    saving = false;
+    if(annotationEditor !== editor) return saved && attached;
+    inp.disabled = false;
+    annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+    if(!attached) return false;
+    status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
+    if(!saved) return false;
+    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    if(close) { annotPop.style.display = "none"; annotationEditor = null; }
+    return true;
+  };
+  function fitNote(){ inp.style.height = "24px"; inp.style.height = Math.min(88, inp.scrollHeight) + "px"; }
+  inp.oninput = () => { status.textContent = ""; fitNote(); };
+  inp.onkeydown = e => {
+    e.stopPropagation();
+    if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, "force"); }
+    if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
+  };
+  annotPop.querySelector(".send2").onclick = () => editor.commit(true, "force");
+  annotPop.querySelector(".delete-note").onclick = async () => {
+    if(saving) return;
+    saving = true;
+    inp.disabled = true;
+    annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    status.textContent = "Suppression…";
+    const deleted = await removeAnnot(a);
+    saving = false;
+    if(!deleted && annotationEditor === editor) {
+      inp.disabled = false;
+      annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+      status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
+    }
+  };
+  annotPop.style.display = "block";
+  fitNote();
+  annotPop.style.left = Math.max(8, Math.min(x, innerWidth - annotPop.offsetWidth - 8)) + "px";
+  annotPop.style.top = Math.max(8, Math.min(y + 10, innerHeight - annotPop.offsetHeight - 8)) + "px";
+  inp.focus({preventScroll:true});
+}
+// Leaving the note saves its draft instead of silently discarding it.
+// The menu stays open on failure, so the user can retry or copy their note.
+document.addEventListener("click", e => {
+  if(!annotPop.contains(e.target) && !e.target.closest(".pdfhl, .pdfnote, .pdfarea, .pdfcomment")) {
+    if(annotationEditor) annotationEditor.commit(true, true);
+    else annotPop.style.display = "none";
+  }
 });
 
 // mode Studio : barre d'outils compacte et sobre + outils d'annotation

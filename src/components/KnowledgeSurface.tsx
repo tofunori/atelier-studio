@@ -6,11 +6,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { openArticleDialog } from "../lib/articleImports";
 import { t } from "../lib/i18n";
-import { wsSend } from "../lib/wsBus";
+import { wsSend, wsReady } from "../lib/wsBus";
 import {
   kbArchivedSnapshot,
   kbCollectionsSnapshot,
   kbSourcesSnapshot,
+  kbSourcesLoaded,
   requestKbSources,
   subscribeKbSources,
   type KbBinding,
@@ -39,6 +40,9 @@ export default function KnowledgeSurface(p: {
   paneControls?: ReactNode;
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
+  const sourcesLoaded = useSyncExternalStore(subscribeKbSources, kbSourcesLoaded);
+  const [sourcesStatus, setSourcesStatus] = useState<string | null>("Chargement des sources…");
+  const [corpusStatus, setCorpusStatus] = useState<string | null>("Chargement des articles…");
   const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
   // Les dossiers existaient dans le registre depuis le plan 051 ; la surface
   // ne les recevait simplement pas — c'est ce qui les rendait invisibles.
@@ -73,13 +77,26 @@ export default function KnowledgeSurface(p: {
   // la surface pendant une conversion ne l'interrompt pas.
 
   useEffect(() => {
-    if (p.visible) requestKbSources();
-    if (p.visible) wsSend({ type: "articleList", limit: 20 });
+    if (!p.visible) return;
+    let sent = false;
+    const request = () => {
+      if (sent) return;
+      if (!wsReady()) {setCorpusStatus("Articles indisponibles — reconnexion en cours."); setSourcesStatus("Sources indisponibles — reconnexion en cours."); return;}
+      setSourcesStatus("Chargement des sources…");
+      requestKbSources();
+      sent = wsSend({type: "articleList", limit: 20});
+      setCorpusStatus(sent ? "Chargement des articles…" : "Connexion indisponible.");
+    };
+    request();
+    const retry = setInterval(request, 2000);
+    const timeout = setTimeout(() => {clearInterval(retry); setSourcesStatus("Les sources ne répondent pas. Rouvre ce volet pour réessayer."); setCorpusStatus(value => value ? "Les articles ne répondent pas. Rouvre ce volet pour réessayer." : null);}, 15000);
+    return () => {clearInterval(retry); clearTimeout(timeout);};
   }, [p.visible]);
 
   useEffect(() => {
     const onListed = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { articles?: ArticleRow[] } | undefined;
+      const detail = (e as CustomEvent).detail as { articles?: ArticleRow[]; error?: string } | undefined;
+      setCorpusStatus(detail?.error || null);
       setArticles(Array.isArray(detail?.articles) ? detail.articles : []);
     };
     const onWritten = () => {
@@ -187,6 +204,8 @@ export default function KnowledgeSurface(p: {
         attached={binding.attached}
         fullContent={binding.fullContent}
         articles={articles}
+        corpusStatus={corpusStatus}
+        sourcesStatus={!sourcesLoaded ? sourcesStatus : null}
         error={actions.error}
         onDismissError={() => actions.setError(null)}
         onToggle={actions.toggle}

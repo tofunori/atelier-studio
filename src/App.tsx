@@ -66,7 +66,7 @@ import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { RowButton } from "./components/ui";
 import UsagePopover, { worstOf } from "./components/UsagePopover";
-import { pluginSkillsForPrompt, type PluginCatalogEntry } from "./lib/plugins";
+import { pluginSkillsForPrompt, revalidateQueuedPluginSkills, type PluginCatalogEntry } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
 import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
@@ -107,6 +107,7 @@ import {
   type QueuedTurn,
 } from "./lib/chatDraftStore";
 import { localImagePathsForAttachments } from "./lib/chatAttachments";
+import { PdfAnnotationDelivery } from "./lib/pdfAnnotationDelivery";
 import { createStreamCoalescer, STREAM_COALESCE_KINDS } from "./lib/streamCoalesce";
 import { parseAnnotationNotes } from "./lib/annotationNotes";
 import {
@@ -204,6 +205,12 @@ function parseAttachment(text: string): Attachment {
 }
 
 function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
+  if (a.pdfAnnotation) {
+    const source = a.pdfAnnotation;
+    const existing = list.findIndex(item => item.pdfAnnotation?.id === source.id &&
+      item.pdfAnnotation.rel === source.rel && item.pdfAnnotation.origin === source.origin);
+    return existing < 0 ? [...list, a] : list.map((item, index) => index === existing ? a : item);
+  }
   return list.some((x) => x.text === a.text) ? list : [...list, a];
 }
 
@@ -501,14 +508,14 @@ export default function App() {
   // handleMessage est déclaré plus bas (function hissée, corps inchangé).
   const onSidecarStatus = (status: SidecarStatus, sock: WebSocket | null) => {
     if (status === "connected" || status === "reconnected") {
-      setAppBanner((b) => b?.text === t("app.sidecar-disconnected") ? null : b);
+      setAppBanner((b) => b?.kind === "connection" ? null : b);
       if (status === "connected" && sock) {
         sock.send(JSON.stringify({ type: "getSettings" }));
         sock.send(JSON.stringify({ type: "listHighlights" }));
       }
       if (sock) sock.send(JSON.stringify({ type: "listAutomations" }));
     } else {
-      setAppBanner({ text: t("app.sidecar-disconnected") });
+      setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected") });
     }
   };
   const { wsRef: ws, wsReady, mock } = useSidecarConnection(handleMessage, onSidecarStatus);
@@ -580,7 +587,7 @@ export default function App() {
   // envois getHistory (rejeu complet et sans danger via mergeHarnessHistory).
   const mruThreadsRef = useRef<string[]>([]);
   const evictedThreadsRef = useRef<Set<string>>(new Set());
-  // empreinte (nb:seq:eventId) du dernier agentHistory appliqué par fil
+  // révision serveur du dernier agentHistory appliqué par fil
   // d'agent — évite de rematérialiser un transcript inchangé (voir handler)
   const agentHistoryFps = useRef<Map<string, string>>(new Map());
   // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
@@ -598,12 +605,14 @@ export default function App() {
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
   const [appBanner, setAppBanner] = useState<{
+    kind?: "connection";
     text: string;
     actionLabel?: string;
     onAction?: () => void;
     closable?: boolean;
   } | null>(null);
   const lastInjected = useRef<string | null>(null);
+  const pdfAnnotationDelivery = useRef(new PdfAnnotationDelivery());
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
   const pendingPaste = useRef<string | null>(null); // dataURL en attente de sauvegarde
   // Qui a collé : le composeur du chat ou celui du Quick Ask. Le protocole
@@ -769,6 +778,22 @@ export default function App() {
   usageOpenRef.current = usageOpen;
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [plugins, setPlugins] = useState<PluginCatalogEntry[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginsError, setPluginsError] = useState<string | null>(null);
+  const pluginRequestId = useRef(0);
+  const pluginCatalogsByProject = useRef(new Map<string, PluginCatalogEntry[]>());
+  const requestPlugins = useCallback((projectRoot: string) => {
+    const requestId = ++pluginRequestId.current;
+    setPlugins([]);
+    setPluginsError(null);
+    if (ws.current?.readyState !== 1) {
+      setPluginsLoading(false);
+      setPluginsError(t("plugins.disconnected"));
+      return;
+    }
+    setPluginsLoading(true);
+    ws.current.send(JSON.stringify({ type: "listPlugins", projectRoot, requestId }));
+  }, [ws]);
   const [dragging, setDragging] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
@@ -1619,7 +1644,7 @@ export default function App() {
 
   function attachContextToChat(
     text: string,
-    file?: { path?: string; name?: string; previewUrl?: string },
+    file?: { path?: string; name?: string; previewUrl?: string; pdfAnnotation?: Attachment["pdfAnnotation"] },
   ) {
     const parsed = parseAttachment(text);
     const attachment: Attachment = file?.path
@@ -1631,6 +1656,7 @@ export default function App() {
           imageUrl: file.previewUrl,
         }
       : parsed;
+    if (file?.pdfAnnotation) attachment.pdfAnnotation = file.pdfAnnotation;
     const threadId = ensureThreadForContext(attachment.name || t("app.context-chat-title"));
     lastInjected.current = text;
     updateComposerDraft(composerDraftKey(threadId, activeProjectRef.current), (draft) => ({
@@ -1813,6 +1839,20 @@ export default function App() {
           return;
         }
         if (msg.event.kind === "user") {
+          const deliveredId = msg.event.meta?.messageId;
+          if (deliveredId) void pdfAnnotationDelivery.current.acknowledge(deliveredId, async annotation => {
+            const endpoint = new URL("/pdfannot", annotation.origin);
+            if (!["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)) throw new Error("Invalid gallery origin");
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...(galleryTokenRef.current ? { "x-atelier-token": galleryTokenRef.current } : {}) },
+              body: JSON.stringify({ rel: annotation.rel, removeIds: [annotation.id] }),
+            });
+            if (!response.ok || (await response.json()).error) throw new Error("Annotation cleanup failed");
+            document.querySelectorAll("iframe").forEach(frame => frame.contentWindow?.postMessage({
+              type: "atelier-pdf-annotation-consumed", nonce: atelierNonce, rel: annotation.rel, id: annotation.id,
+            }, annotation.origin));
+          }).catch(error => { void showError(String(error)); });
           // Ack serveur d'un tour qui démarre (steer compris) : re-pose l'état
           // « au travail » si le terminal du tour PRÉCÉDENT vient de l'effacer.
           // Au steer Claude, l'« interrupted » du vieux tour arrive APRÈS le
@@ -1959,8 +1999,9 @@ export default function App() {
       if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
         // Les rollouts natifs ne portent pas tous la meta durable des events
         // harnais : le transcript reçu REMPLACE le fil de l'agent dès qu'il a
-        // changé. « Changé » se détecte sur (nb d'événements, meta du dernier)
-        // — un rollout ne fait qu'append — et jamais en re-sérialisant tout :
+        // changé. Le serveur révise le contenu, y compris un résultat d'outil
+        // remplaçant son état en cours, sans changer le nombre d'événements.
+        // Ne jamais re-sérialiser le transcript complet dans WebKit :
         // avec un enfant figé « working », l'ancien double JSON.stringify du
         // transcript complet toutes les 2,5 s gonflait le WebContent WKWebView
         // de dizaines de Mo/min (mesure 2026-08-31, banc bench_realapp).
@@ -1968,7 +2009,8 @@ export default function App() {
         const lastMeta = incoming.length
           ? (incoming[incoming.length - 1] as { meta?: { sequence?: number; eventId?: string } }).meta
           : undefined;
-        const fp = `${incoming.length}:${lastMeta?.sequence ?? "-"}:${lastMeta?.eventId ?? "-"}`;
+        const fp = typeof msg.revision === "string" ? msg.revision
+          : `${incoming.length}:${lastMeta?.sequence ?? "-"}:${lastMeta?.eventId ?? "-"}`;
         // Inchangé → ne PAS appeler setEvents du tout : un updater en
         // bail-out (retour de prev) reste empilé dans la file du hook avec sa
         // closure (le transcript entier) tant qu'aucun render ne la vide —
@@ -2268,7 +2310,15 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
       }
       if (msg.type === "commands") setCommands(msg.commands);
-      if (msg.type === "plugins") setPlugins(Array.isArray(msg.plugins) ? msg.plugins : []);
+      if (msg.type === "plugins" && msg.requestId === pluginRequestId.current) {
+        const catalog = Array.isArray(msg.plugins) ? msg.plugins : [];
+        setPlugins(catalog);
+        if (!msg.error && typeof msg.projectRoot === "string") {
+          pluginCatalogsByProject.current.set(msg.projectRoot, catalog);
+        }
+        setPluginsError(typeof msg.error === "string" ? msg.error : null);
+        setPluginsLoading(false);
+      }
       if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
         setFiles(Array.isArray(msg.files) ? msg.files : []);
         setFilesTruncated(msg.truncated === true);
@@ -2511,6 +2561,17 @@ export default function App() {
     }
   }, [activeProject, wsReady, activeProviderId]);
 
+  useEffect(() => {
+    if (activeProviderId === "codex" && activeProject && wsReady) {
+      requestPlugins(activeProject);
+    } else {
+      ++pluginRequestId.current;
+      setPlugins([]);
+      setPluginsLoading(false);
+      setPluginsError(wsReady ? null : t("plugins.disconnected"));
+    }
+  }, [activeProject, activeProviderId, wsReady, requestPlugins]);
+
   // Rattrapage après désynchronisation (2026-08-25). Les cinq autres appels à
   // getHistory sont gardés par `!events[threadId]?.length` : un fil coupé en
   // plein tour garde donc ses événements partiels À VIE, et le rouvrir ne le
@@ -2718,7 +2779,9 @@ export default function App() {
         }));
       }
       if (data.type === "atelier-add-to-chat") {
-        attachContextToChat(data.text, data);
+        attachContextToChat(data.text, { ...data,
+          pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
+        });
         if (data.requestId && e.source) {
           (e.source as Window).postMessage({
             type: "atelier-add-to-chat-ack",
@@ -3201,7 +3264,7 @@ export default function App() {
       return;
     }
     if (ws.current?.readyState !== 1) {
-      setAppBanner({ text: t("app.sidecar-disconnected"), closable: true });
+      setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected"), closable: true });
       return;
     }
     const target = providerList.find((entry) => entry.id === targetProvider);
@@ -3261,9 +3324,7 @@ export default function App() {
         return;
       }
       setPluginsOpen(true);
-      if (ws.current?.readyState === 1) {
-        ws.current.send(JSON.stringify({ type: "listPlugins", projectRoot: threadRoot }));
-      }
+      requestPlugins(threadRoot);
       return;
     }
     if (nativeCommand?.name === "diff") {
@@ -3294,7 +3355,7 @@ export default function App() {
         return;
       }
       if (ws.current?.readyState !== 1) {
-        setAppBanner({ text: t("app.sidecar-disconnected"), closable: true });
+        setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected"), closable: true });
         return;
       }
       const targetText = agentMention.task;
@@ -3320,6 +3381,7 @@ export default function App() {
         ],
       }));
       setAttachments([]);
+      pdfAnnotationDelivery.current.track(requestId, attachments);
       ws.current.send(JSON.stringify({
         type: "mentionAgent",
         sourceThreadId: activeId,
@@ -3687,6 +3749,7 @@ export default function App() {
         mode,
         ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
       });
+      if (envoye) pdfAnnotationDelivery.current.track(clientMessageId, attachments);
       if (!envoye) {
         // Rien n'est parti : le brouillon local DOIT survivre, le sidecar n'a
         // pas pris le relais.
@@ -3734,7 +3797,8 @@ export default function App() {
       : queued.prompt;
     const clientMessageId = crypto.randomUUID();
     const imagePaths = localImagePathsForAttachments(queuedAttachments, thread.projectRoot ?? "");
-    const pluginSkills = queued.pluginSkills;
+    const pluginSkills = revalidateQueuedPluginSkills(queued.pluginSkills,
+      pluginCatalogsByProject.current.get(thread.projectRoot ?? ""));
     const queuedCapabilities = providerList.find((entry) => entry.id === queued.provider)?.capabilities;
     const queuedSupportsInputs =
       (queuedCapabilities?.imageInput ?? queued.provider === "codex") ||
@@ -3792,6 +3856,7 @@ export default function App() {
       ...current,
       [targetThreadId]: current[targetThreadId] ?? Date.now(),
     }));
+    pdfAnnotationDelivery.current.track(clientMessageId, queuedAttachments);
     sendPrompt(ws.current, {
       ...(queued.autoReview ? { autoReview: queued.autoReview } : {}),
       threadId: targetThreadId,
@@ -4064,6 +4129,7 @@ export default function App() {
   // « disconnected » = connexion perdue → vraie condition À traiter
   if (wsReady) sidecarEverConnected.current = true;
   const homeBundle: ResearchHomeBundle | null = activeId ? null : {
+    connectionNoticeHandled: appBanner?.kind === "connection",
     model: deriveResearchHomeModel({
       activeProject,
       projectName: projLabelRaw && !projLabelRaw.startsWith("icon:") ? projLabelRaw : null,
@@ -4519,11 +4585,12 @@ export default function App() {
         </LazyBoundary>
       )}
       <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
-      {pluginsOpen && <div className="plugin-overlay" onClick={() => setPluginsOpen(false)}>
+      {pluginsOpen &&
         <LazyBoundary fallback={null}>
-          <PluginPanel plugins={plugins} onClose={() => setPluginsOpen(false)} />
+          <PluginPanel plugins={plugins} loading={pluginsLoading} error={pluginsError}
+            onRetry={() => requestPlugins(activeProject ?? "")} onClose={() => setPluginsOpen(false)} />
         </LazyBoundary>
-      </div>}
+      }
     </>
   );
 
@@ -4531,7 +4598,7 @@ export default function App() {
     <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
-      <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
+      <Panel id="chat" order={2} defaultSize={58} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (
           <div className="annot-banner">
@@ -4551,7 +4618,8 @@ export default function App() {
         )}
         {appBanner && (
           <Banner
-            text={appBanner.text}
+            text={appBanner.kind === "connection" ? t("app.sidecar-disconnected") : appBanner.text}
+            connection={appBanner.kind === "connection"}
             actionLabel={appBanner.actionLabel}
             onAction={appBanner.onAction}
             onClose={appBanner.closable ? () => setAppBanner(null) : undefined}
@@ -4854,7 +4922,7 @@ export default function App() {
       {showAtelier && activeProject && (
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
-          <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
+          <Panel id="atelier" order={3} defaultSize={42} minSize={20}>
             <div className="atelier-host">
             <AtelierPane
               key={activeProject}

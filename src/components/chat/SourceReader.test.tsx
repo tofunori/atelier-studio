@@ -128,9 +128,9 @@ describe("SourceReader — highlightQuote (tâche 6)", () => {
     renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="aerosol deposition" />);
     repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
     await waitFor(() => {
-      expect((window as any).CSS?.highlights?.has?.("reader-quote") || document.querySelector("mark.reader-quote")).toBeTruthy();
+      expect((window as any).CSS?.highlights?.has?.("reader-quote") || document.querySelector(".reader-quote")).toBeTruthy();
     });
-    const mark = document.querySelector("mark.reader-quote");
+    const mark = document.querySelector(".reader-quote");
     expect(mark?.textContent?.toLowerCase()).toContain("aerosol deposition");
   });
 
@@ -138,20 +138,20 @@ describe("SourceReader — highlightQuote (tâche 6)", () => {
     renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="texte totalement absent du corps" />);
     repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
     await screen.findByText(/fire aerosol deposition/);
-    expect(document.querySelector("mark.reader-quote")).toBeNull();
+    expect(document.querySelector(".reader-quote")).toBeNull();
   });
 
   it("citation robuste à un accent manquant (normalisation NFKD)", async () => {
     renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} highlightQuote="EPAISSEUR de 500 m" />);
     repond(SLUG, { markdown: "Une épaisseur de 500 m a été mesurée." });
-    await waitFor(() => expect(document.querySelector("mark.reader-quote")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".reader-quote")).toBeTruthy());
   });
 
   it("sans highlightQuote : aucun mark posé", async () => {
     renderUi(<SourceReader target={{ kind: "gbrain", slug: SLUG }} onClose={() => {}} />);
     repond(SLUG, { markdown: "Le fire aerosol deposition réduit l'albédo." });
     await screen.findByText(/fire aerosol deposition/);
-    expect(document.querySelector("mark.reader-quote")).toBeNull();
+    expect(document.querySelector(".reader-quote")).toBeNull();
   });
 });
 
@@ -224,5 +224,27 @@ describe("SourceReader — source de la base", () => {
       }));
     });
     expect(screen.getByText("Lecture de la page…")).toBeTruthy();
+  });
+});
+
+describe("SourceReader — long reading", () => {
+  it("searches across inline markup and exposes the section plan", () => {
+    renderUi(<SourceReader target={{kind:"gbrain",slug:"long"}} onClose={() => {}} />);
+    repond("long", {markdown:"## Methods\n\nSurface **albedo** decreases.\n\n## Results\n\nSurface albedo decreases again."});
+    fireEvent.click(screen.getByRole("button", {name:"Rechercher dans l’article"}));
+    fireEvent.change(screen.getByRole("textbox", {name:"Rechercher dans l’article"}), {target:{value:"surface albedo decreases"}});
+    expect(screen.getByRole("status").textContent).toBe("1/2");
+    fireEvent.click(screen.getByRole("button", {name:"Résultat suivant"}));
+    expect(screen.getByRole("status").textContent).toBe("2/2");
+    fireEvent.click(screen.getByRole("button", {name:"Plan"}));
+    expect(screen.getByRole("navigation", {name:"Plan de l’article"})).toBeTruthy();
+  });
+  it("restores the scroll position when reopening a source", () => {
+    const props = {target:{kind:"gbrain" as const,slug:"resume"},onClose:()=>{}};
+    const first = renderUi(<SourceReader {...props} />); repond("resume");
+    const scroller = first.container.querySelector(".gbr-doc") as HTMLElement; scroller.scrollTop = 540;
+    first.unmount();
+    const second = renderUi(<SourceReader {...props} />); repond("resume");
+    expect((second.container.querySelector(".gbr-doc") as HTMLElement).scrollTop).toBe(540);
   });
 });

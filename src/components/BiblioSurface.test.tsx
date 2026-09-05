@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
@@ -53,6 +53,22 @@ describe("BiblioSurface — passage zotero pending (finding 1, revue finale de b
   afterEach(() => {
     cleanup();
     resetPendingPassageOpenForTests();
+  });
+
+  it("attend la réponse avant d’annoncer une bibliothèque vide", () => {
+    const ws = {readyState: WebSocket.OPEN, send: vi.fn()} as unknown as WebSocket;
+    renderUi(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="" />);
+    expect(screen.getByText("Chargement des références…")).toBeTruthy();
+    expect(screen.queryByText("Aucune référence.")).toBeNull();
+    act(() => window.dispatchEvent(new CustomEvent("zotero-items", {detail: {items: []}})));
+    expect(screen.queryByText("Chargement des références…")).toBeNull();
+    expect(screen.getByText("Aucune référence.")).toBeTruthy();
+  });
+
+  it("distingue une déconnexion d’une bibliothèque vide", () => {
+    renderUi(<BiblioSurface ws={null} projectRoot="/proj" galleryUrl="" />);
+    expect(screen.getByText("Bibliothèque indisponible — reconnexion en cours.")).toBeTruthy();
+    expect(screen.queryByText("Aucune référence.")).toBeNull();
   });
 
   it("un passage pending (event perdu avant montage) rouvre le lecteur au montage", () => {

@@ -326,7 +326,7 @@ async function main() {
       rootRes = await request(nodePort, "/");
     }
     assert.equal(rootRes.status, 200, "node / serves the boot-built index");
-    assert.equal(initialIndexReady(), true, "node initial index build converges");
+    assert.equal(initialIndexReady(), true, `node initial index build converges: ${childDiagnostics(node)}`);
     const bundledReactCss = fs.readFileSync(reactStyles);
     for (let attempt = 0; attempt < 50; attempt++) {
       if (fs.existsSync(cachedReactCss) && fs.readFileSync(cachedReactCss).equals(bundledReactCss)) break;
@@ -409,6 +409,14 @@ async function main() {
       body: { rel: "doc.pdf", annots: [{ page: 1, text: "keep" }] },
     });
     assert.equal(r.status, 200, "POST /pdfannot save");
+    await request(nodePort, "/pdfannot", {method:"POST", body:{rel:"consume.pdf",annots:[{id:"one"},{id:"two"}]}});
+    r = await request(nodePort, "/pdfannot", {method:"POST",body:{rel:"consume.pdf",removeIds:"one"}});
+    assert.equal(r.status,400,"invalid removeIds rejected");
+    r = await request(nodePort, "/pdfannot?rel=consume.pdf");
+    assert.equal(JSON.parse(r.body.toString()).annots.length,2,"invalid removal preserves annotations");
+    await request(nodePort, "/pdfannot", {method:"POST",body:{rel:"consume.pdf",removeIds:["one"]}});
+    r = await request(nodePort, "/pdfannot?rel=consume.pdf");
+    assert.deepEqual(JSON.parse(r.body.toString()).annots,[{id:"two"}],"remove only sent annotation");
     r = await request(nodePort, "/pdfannot", {
       method: "POST",
       body: { rel: "doc.pdf", annots: [] },

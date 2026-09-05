@@ -1,0 +1,83 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 540 790] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 600 >>
+stream
+BT /F1 12 Tf 48 740 Td
+(ATELIER / DOCUMENT DE DEMONSTRATION) Tj
+0 -30 Td
+(Notes de travail) Tj
+0 -30 Td
+(1. Une question, un document) Tj
+0 -30 Td
+(Un espace de travail rassemble une conversation,) Tj
+0 -30 Td
+(un document et les observations qui les accompagnent.) Tj
+0 -30 Td
+(Passer de l'un a l'autre ne devrait pas interrompre) Tj
+0 -30 Td
+(le fil de la reflexion.) Tj
+0 -30 Td
+() Tj
+0 -30 Td
+(Ce PDF fixe sert a essayer la lecture sur mobile.) Tj
+0 -30 Td
+(Ouvrez la source pour selectionner un passage.) Tj
+0 -30 Td
+() Tj
+0 -30 Td
+(Aucun resultat scientifique ne figure dans cet exemple.) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 540 790] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 390 >>
+stream
+BT /F1 12 Tf 48 740 Td
+(ATELIER / DOCUMENT DE DEMONSTRATION) Tj
+0 -30 Td
+(Relecture) Tj
+0 -30 Td
+(2. Garder le contexte) Tj
+0 -30 Td
+(Changez de page, puis revenez au chat.) Tj
+0 -30 Td
+(Votre position de lecture reste disponible.) Tj
+0 -30 Td
+() Tj
+0 -30 Td
+(Les modifications de la source restent temporaires.) Tj
+0 -30 Td
+(La compilation LaTeX n'est pas connectee dans cet apercu.) Tj
+ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000317 00000 n 
+0000000968 00000 n 
+0000001094 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1535
+%%EOF

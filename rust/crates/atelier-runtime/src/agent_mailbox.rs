@@ -407,7 +407,7 @@ pub async fn drain_mailbox(state: &AppState) {
                     let _ = mb.update_status(
                         &msg.id,
                         "paused",
-                        Some(err::BUDGET_EXHAUSTED.into()),
+                        Some(if link.paused { err::LINK_PAUSED } else { err::BUDGET_EXHAUSTED }.into()),
                         &now,
                     );
                     update_agent_message_status(state, &msg, "paused").await;

@@ -156,7 +156,7 @@
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
   #selPill textarea::placeholder{color:#6d7480}
-  #selPill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #selPill > button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
   #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
   #selPill .del:hover{color:#ff7a76}
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
@@ -270,10 +270,10 @@
   /* ===== commentaires ancrés (mode Review sobre) ===== */
   /* option B (trait plein) : le repérage vient du trait, le fond reste discret */
   .texc-hl{background:rgba(224,183,74,.20);border-bottom:1.5px solid rgba(224,183,74,.9);cursor:pointer}
-  .texc-c-amber{background:rgba(224,183,74,.20);border-bottom-color:rgba(224,183,74,.9)}
-  .texc-c-red{background:rgba(240,125,115,.20);border-bottom-color:rgba(240,125,115,.9)}
-  .texc-c-blue{background:rgba(91,157,255,.20);border-bottom-color:rgba(91,157,255,.9)}
-  .texc-c-green{background:rgba(126,192,120,.20);border-bottom-color:rgba(126,192,120,.9)}
+  .texc-c-amber{background:rgba(255,213,74,.40);border-bottom-color:rgba(224,183,74,.9)}
+  .texc-c-red{background:rgba(255,140,160,.40);border-bottom-color:rgba(240,125,115,.9)}
+  .texc-c-blue{background:rgba(120,170,255,.40);border-bottom-color:rgba(91,157,255,.9)}
+  .texc-c-green{background:rgba(120,220,140,.40);border-bottom-color:rgba(126,192,120,.9)}
   .texc-c-purple{background:rgba(170,140,224,.20);border-bottom-color:rgba(170,140,224,.9)}
   #texcPop .tc-colors{display:flex;gap:6px;margin-top:8px}
   #texcPop .tc-colors button{width:14px;height:14px;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:0}
@@ -283,17 +283,8 @@
   #texcPop .tc-colors .sw-blue{background:rgba(91,157,255,.85)}
   #texcPop .tc-colors .sw-green{background:rgba(126,192,120,.85)}
   #texcPop .tc-colors .sw-purple{background:rgba(170,140,224,.85)}
-  #texcPop{position:fixed;z-index:310;display:none;box-sizing:border-box;width:min(326px,calc(100vw - 16px));background:var(--card);
-    border:1px solid var(--border-strong,#3f4652);border-radius:10px;box-shadow:0 10px 34px rgba(0,0,0,.45);padding:10px 12px}
-  #texcPop .tc-quote{font:italic calc(var(--ui-base-size, 15px) * 0.76666667)/1.4 var(--ui-font);color:var(--muted);
-    border-left:2px solid var(--border);padding-left:8px;margin-bottom:7px;max-height:60px;overflow:hidden}
-  #texcPop textarea{width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);
-    border-radius:7px;color:var(--txt);font:calc(var(--ui-base-size, 15px) * 0.83333333)/1.5 var(--ui-font);padding:6px 8px;resize:vertical;min-height:52px;outline:none}
-  #texcPop .tc-row{display:flex;gap:4px;margin-top:8px;align-items:center}
-  #texcPop .tc-sp{flex:1}
-  #texcPop .tc-row button{border:none;background:transparent;color:var(--muted);width:26px;height:26px;
-    border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}
-  #texcPop .tc-row button:hover{color:var(--txt);background:var(--card2)}
+  #texcPop{position:fixed;z-index:310;display:none}
+
   #texcPop .tc-row .tc-claude:hover{color:var(--accent)}
   #texcPop .tc-row .tc-del:hover{color:#e0726a}
   /* ===== plan du document ===== */
@@ -536,10 +527,10 @@
   ::highlight(texc-read-green),::highlight(texc-read-purple){
     text-decoration:underline;text-decoration-thickness:2px;
     text-underline-offset:3px;text-decoration-skip-ink:none}
-  ::highlight(texc-read-amber){background:rgba(230,186,74,.34);text-decoration-color:rgba(240,196,90,.95)}
-  ::highlight(texc-read-red){background:rgba(240,125,115,.32);text-decoration-color:rgba(245,140,130,.95)}
-  ::highlight(texc-read-blue){background:rgba(91,157,255,.32);text-decoration-color:rgba(120,175,255,.95)}
-  ::highlight(texc-read-green){background:rgba(126,192,120,.32);text-decoration-color:rgba(145,205,140,.95)}
+  ::highlight(texc-read-amber){background:rgba(255,213,74,.40);text-decoration-color:rgba(240,196,90,.95)}
+  ::highlight(texc-read-red){background:rgba(255,140,160,.40);text-decoration-color:rgba(245,140,130,.95)}
+  ::highlight(texc-read-blue){background:rgba(120,170,255,.40);text-decoration-color:rgba(120,175,255,.95)}
+  ::highlight(texc-read-green){background:rgba(120,220,140,.40);text-decoration-color:rgba(145,205,140,.95)}
   ::highlight(texc-read-purple){background:rgba(170,140,224,.34);text-decoration-color:rgba(185,158,235,.95)}
   /* Édition sur place d'un paragraphe (double-clic) : le bloc rendu cède sa
      place à son source. Monospace — c'est du LaTeX, pas de la prose. */
@@ -568,3 +559,35 @@
   body.csvtable #statusbar{display:none}
   body.csvtable #toolbarActions{display:none}
   body.csvtable #state{display:none}
+
+/* Reading and writing share clear controls, while prose keeps its own rhythm. */
+header button:not(:disabled){color:var(--text-secondary,var(--txt))}
+.modeseg button{width:auto;min-width:28px;gap:5px;padding:0 7px}
+.mode-label{font-size:11px}
+@media(max-width:720px){.mode-label{display:none}}
+#texread{max-width:68ch;padding-inline:clamp(22px,4vw,48px);line-height:1.72}
+#texreadFs{opacity:.85}
+#texreadFs button{width:26px;height:26px;color:var(--txt)}
+#texread .tex-cite{color:var(--tr-head2,#b5becb);font-variant:normal;font-size:.92em;text-decoration:none;cursor:pointer;border-bottom:1px dotted var(--tr-line,#626975)}
+#texread .tex-cite:hover,#texread .tex-cite:focus-visible{color:var(--tr-accent,var(--accent));text-decoration:underline}
+#texread .tex-ref{display:inline;padding:0;border:0;background:none;font:inherit;color:var(--tr-accent,var(--accent));cursor:pointer}
+#texread .tex-unsupported{white-space:normal;overflow-wrap:anywhere;color:var(--tr-fg,#e6e8ec);font-size:.85em}
+#texread .tex-env{margin:20px 0;padding:14px 18px;border-left:2px solid var(--tr-line,var(--border));background:none;text-align:left}
+#texread .tex-env button{display:block;margin-top:8px;padding:4px 0;background:none;border:0;color:var(--tr-accent,var(--accent));cursor:pointer}
+#texread .katex-display{overflow-x:auto;overflow-y:hidden;padding:5px 0}
+.pdf-load-status{padding:28px;color:var(--txt);font:14px/1.6 var(--ui-font)}
+.pdf-load-status[hidden],#right.reading .pdf-load-status{display:none}
+.pdf-load-status button{display:block;margin-top:12px;border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:inherit;background:var(--card);cursor:pointer}
+.pdfpage{position:relative}
+.pdfpage .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2}
+.pdfpage .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
+.pdfpage .textLayer ::selection{background:rgba(94,149,232,.35)}
+@media(max-width:760px){#split:not(:has(#right.reading)){flex-direction:column}#split:not(:has(#right.reading)) #left{width:100%!important;min-height:52%;flex:1}#split:not(:has(#right.reading)) #right{min-height:40%;flex:1;border-top:1px solid var(--border)}}
+.pdf-load-status select{display:block;max-width:100%;min-width:0;margin-top:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--txt);font:12px var(--ui-font)}
+.pdf-variants{border-top:1px solid var(--border);margin-top:4px;padding-top:4px}
+.pdf-variants[hidden]{display:none}
+#morePop .pdf-variants [data-pdf-path]{white-space:normal;overflow-wrap:anywhere;max-width:320px}
+
+.texc-hl.texc-comment{background:transparent;border-bottom:1px solid #969ca599}
+::highlight(texc-read-comment){background:transparent;text-decoration:underline;text-decoration-color:#969ca599;text-decoration-thickness:1px}
+.texread-annotation-number{position:absolute;z-index:6}

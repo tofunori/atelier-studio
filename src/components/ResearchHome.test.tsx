@@ -4,8 +4,9 @@
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ResearchHome, focusComposer, type ResearchHomeActions } from "./ResearchHome";
+import Banner from "./Banner";
 import { deriveResearchHomeModel, type ResearchHomeInputs } from "../lib/researchHome";
-import { setLanguage } from "../lib/i18n";
+import { setLanguage, t } from "../lib/i18n";
 import type { Thread } from "../lib/ws";
 
 afterEach(cleanup);
@@ -111,9 +112,33 @@ describe("ResearchHome", () => {
     expect(screen.getByRole("button", { name: "Revenir au thread" })).toBeInTheDocument();
   });
 
-  it("sidecar hors ligne : badge dégradé + notice erreur (role=alert)", () => {
+  it("sidecar hors ligne sans bannière hôte : une seule notice, sans badge répété", () => {
     render(<ResearchHome model={model({ sidecar: "disconnected" })} actions={actions()} />);
-    expect(screen.getByText("connexion dégradée")).toBeInTheDocument();
+    expect(screen.queryByText("connexion dégradée")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("Sidecar déconnecté");
+  });
+
+  it("la bannière du shell annonce seule la coupure ; les autres erreurs restent visibles", () => {
+    render(<>
+      <Banner connection text={t("app.sidecar-disconnected")} />
+      <ResearchHome
+        model={model({ sidecar: "disconnected", atelierError: "Galerie indisponible" })}
+        actions={actions()}
+        connectionNoticeHandled
+      />
+    </>);
+    expect(screen.getAllByText(/Sidecar déconnecté/)).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent(t("app.sidecar-disconnected"));
+    expect(screen.queryByText("connexion dégradée")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("Galerie indisponible");
+  });
+
+  it("ne laisse pas de section À traiter vide quand le shell affiche déjà la connexion", () => {
+    const offline = model({ sidecar: "disconnected" });
+    const { rerender } = render(<ResearchHome model={offline} actions={actions()} connectionNoticeHandled />);
+    expect(screen.queryByRole("region", { name: "À traiter" })).toBeNull();
+    // Si la bannière est fermée, l'accueil reprend l'annonce de la coupure.
+    rerender(<ResearchHome model={offline} actions={actions()} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Sidecar déconnecté");
   });
 

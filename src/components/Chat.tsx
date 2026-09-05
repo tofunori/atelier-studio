@@ -449,6 +449,14 @@ export default function Chat(p: {
     setMarks(next);
     if (p.threadId) localStorage.setItem("atelier-studio.marks." + p.threadId, JSON.stringify(next));
   }
+  const pendingAnnotations = useRef<Array<{threadId:string|null; block:string; marks:Mark[]; seen:number}>>([]);
+  useEffect(()=>{
+    const accepted=(block:string)=>p.events.filter(e=>e.kind==="user" && !(e.meta && "provisional" in e.meta && e.meta.provisional) && e.text?.includes(block)).length;
+    const delivered=pendingAnnotations.current.filter(item=>item.threadId===p.threadId && accepted(item.block)>item.seen);
+    if(!delivered.length)return;
+    pendingAnnotations.current=pendingAnnotations.current.filter(item=>!delivered.includes(item));
+    saveMarks(marks.filter(mark=>mark.color || !delivered.some(item=>item.marks.some(sent=>sent.text===mark.text && sent.note===mark.note))));
+  },[p.events,p.threadId]);
   // texte du message (user ou agent) qui contient le passage — sert à
   // photographier le contexte ~280 caractères de la fiche durable
   function findEventTextContaining(needle: string): string {
@@ -481,6 +489,10 @@ export default function Chat(p: {
         provider: p.threadProvider ?? "",
       },
     });
+  }
+  function addTextHighlight(text:string,color:string){
+    const txt=text.trim();if(!txt)return;
+    saveMarks([...marks.filter(m=>m.text!==txt),{text:txt,kind:"an",color}]);
   }
   // « Annoter et envoyer » : le ✓ range le commentaire et attend le prochain
   // message ; ce geste-ci le pose à l'agent tout de suite. On ne rejoue PAS
@@ -516,9 +528,12 @@ export default function Chat(p: {
     // nœud d'origine ne trouvait que les sélections d'un seul nœud texte.
     const find = (needle: string) => findTextRanges(messagesRef.current!, needle);
     const an = new H();
-    for (const m of marks) for (const r of find(m.text)) an.add(r);
+    const colors=["amber","green","blue","red"];
+    const colored=Object.fromEntries(colors.map(color=>[color,new H()]));
+    for (const m of marks) for (const r of find(m.text)) (m.color&&colored[m.color]?colored[m.color]:an).add(r);
     reg.set("chat-an", an);
-    return () => { reg.delete("chat-an"); };
+    for(const color of colors)reg.set(`chat-highlight-${color}`,colored[color]);
+    return () => { reg.delete("chat-an");for(const color of colors)reg.delete(`chat-highlight-${color}`); };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
@@ -1032,7 +1047,7 @@ export default function Chat(p: {
         working={{ onStop: p.onStop }}
         chapters={{ pinMenu, setPinMenu, onStylePin: p.onStylePin }}
         empty={{ onNewChat: p.onNewChat, onOpenProject: p.onOpenProject, home: p.home ?? null }}
-        selection={{ quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, annotateAndSend, removeAnnotation, marks }}
+        selection={{ quote, setQuote, quoteAnnotated, quoteCtx, addAnnotation, addTextHighlight, annotateAndSend, removeAnnotation, marks }}
       />
       <QueuedTurns
         turns={p.queuedTurns ?? []}
@@ -1082,8 +1097,9 @@ export default function Chat(p: {
           // la conversation garde la trace, le fil se nettoie (spec 2026-08-22)
           onSubmit: (prompt, ...rest) => {
             const block = buildAnnotationBlock(marks);
+            if(block) pendingAnnotations.current.push({threadId:p.threadId,block,marks:marks.filter(mark=>!mark.color),seen:p.events.filter(e=>e.kind==="user" && !(e.meta && "provisional" in e.meta && e.meta.provisional) && e.text?.includes(block)).length});
             p.onSubmit(block ? `${block}\n\n${prompt}` : prompt, ...rest);
-            if (block) saveMarks([]);
+
           },
           onOpenModelSettings: p.onOpenModelSettings,
           followUpMode: p.followUpMode ?? "queue",

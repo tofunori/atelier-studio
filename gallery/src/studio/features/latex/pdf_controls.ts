@@ -8,6 +8,8 @@ export interface LatexPdfControlsOptions {
   reloadPdf(): void;
   handleResize(width: number): void;
   onVisibilityChange?(): void;
+  /** In the three-mode studio this button selects Split instead of toggling. */
+  onSelectSplit?(): void;
   postMessage(message: unknown): void;
   document?: Document;
   window?: Window;
@@ -53,7 +55,10 @@ export function createLatexPdfControls(options: LatexPdfControlsOptions): LatexP
     storage.setItem("texZoom", String(zoom));
     options.reloadPdf();
   };
-  toggle.onclick = () => setVisible(right.style.display === "none");
+  toggle.onclick = () => {
+    if (options.onSelectSplit) {options.onSelectSplit(); setVisible(true);}
+    else setVisible(right.style.display === "none");
+  };
   const zoomIn = doc.getElementById("zoomIn");
   const zoomOut = doc.getElementById("zoomOut");
   const zoomFit = doc.getElementById("zoomFit");

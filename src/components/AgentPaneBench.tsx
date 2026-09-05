@@ -13,6 +13,12 @@ import {
 } from "./chat/AgentActivity";
 
 const ACTIONS: AgentToolAction[] = [
+  ...["analyse", "validation", "synthese"].map((name, index): AgentToolAction => ({
+    kind: "tool_update", id: `spawn-${name}`, name: "agent:spawnAgent", output: "", status: "completed", source: "codex",
+    agentActivity: { tool: "spawnAgent", receiverThreadIds: [`agent-${name}`],
+      agentThreadId: `agent-${name}`, agentPath: `/root/${name}`,
+      agentsStates: { [`agent-${name}`]: { status: ["completed", "interrupted", "failed"][index], message: null } } },
+  })),
   {
     kind: "tool_update", id: "spawn-editorial", name: "agent:spawnAgent", output: "", status: "completed", source: "codex",
     agentActivity: {
@@ -50,6 +56,7 @@ const ACTIONS: AgentToolAction[] = [
 const TRANSCRIPT = [
   { kind: "text" as const, text: "Je vérifie les recommandations éditoriales et les contraintes statistiques des figures.", ts: 5 },
   { kind: "thinking" as const, text: "Je prépare une synthèse exploitable dans R…", ts: 6 },
+  { kind: "tool_update" as const, id: "bench-tool", name: "exec", detail: "Vérifier les dimensions des figures", output: "figure-1.png : 1800 × 1200\nfigure-2.png : 1800 × 1200", status: "completed" as const },
 ];
 
 export function AgentPaneBench() {

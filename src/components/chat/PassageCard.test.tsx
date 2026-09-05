@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReactMarkdown from "react-markdown";
 import { PassageCard } from "./PassageCard";
@@ -72,8 +72,8 @@ describe("PassageCard", () => {
     expect(document.querySelector(".passage-card.open")).toBeNull();
   });
 
-  it("dépliée au clic : citation complète + actions", () => {
-    render(<PassageCard refData={REF} />);
+  it("un extrait long se déplie sans ouvrir sa source", () => {
+    render(<PassageCard refData={{ ...REF, quote: REF.quote.repeat(5) }} />);
     fireEvent.click(screen.getByRole("button", { name: /déplier|expand/i }));
     expect(document.querySelector(".passage-card.open")).toBeTruthy();
   });
@@ -164,8 +164,7 @@ describe("PassageCard", () => {
     const handler = vi.fn();
     window.addEventListener("kb-open-gbrain-passage", handler);
     render(<PassageCard refData={GBRAIN_REF} />);
-    fireEvent.click(screen.getByRole("button", { name: /déplier|expand/i }));
-    fireEvent.click(screen.getByRole("button", { name: /lire|read/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ouvrir dans la source|open in source/i }));
     expect(handler).toHaveBeenCalledOnce();
     const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
     expect(detail).toEqual({ slug: GBRAIN_REF.slug, quote: GBRAIN_REF.quote });
@@ -226,8 +225,40 @@ describe("PassageCard", () => {
     const { container } = render(<PassageCard refData={emptyQuoteRef} />);
     const quoteEl = container.querySelector(".passage-card-quote");
     expect(quoteEl?.classList.contains("is-absent")).toBe(true);
-    expect(quoteEl?.textContent).toMatch(/Williamson et al\. 2021/);
+    expect(quoteEl?.textContent).toMatch(/aucun extrait|no excerpt/i);
     expect(quoteEl?.textContent?.trim()).not.toBe("");
     expect(document.querySelector(".passage-card.open")).toBeNull();
   });
+  it("ouvre le PDF depuis l'action visible avec page et citation exactes", () => {
+    const handler = vi.fn();
+    window.addEventListener("chat-open-zotero-passage", handler);
+    render(<PassageCard refData={REF} />);
+    fireEvent.click(screen.getByRole("button", { name: /ouvrir dans la source|open in source/i }));
+    expect(handler).toHaveBeenCalledOnce();
+    expect((handler.mock.calls[0][0] as CustomEvent).detail).toMatchObject({
+      pdfKey: REF.pdfKey, page: REF.page, quote: REF.quote,
+    });
+    window.removeEventListener("chat-open-zotero-passage", handler);
+  });
+
+  it("rend les maths sans altérer la citation envoyée à la source", async () => {
+    const quote = "Fine-resolution $(0.5\\mathrm{m})$ imagery and \\(x^2\\).";
+    const handler = vi.fn();
+    window.addEventListener("kb-open-gbrain-passage", handler);
+    const { container } = render(<PassageCard refData={{ ...GBRAIN_REF, quote }} />);
+    await waitFor(() => expect(container.querySelectorAll(".katex")).toHaveLength(2), { timeout: 3000 });
+    expect(container.querySelector(".katex-error")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /ouvrir dans la source|open in source/i }));
+    expect((handler.mock.calls[0][0] as CustomEvent).detail.quote).toBe(quote);
+    window.removeEventListener("kb-open-gbrain-passage", handler);
+  });
+
+  it("une référence citée reste du texte et ne crée pas une carte imbriquée", () => {
+    const quote = "[texte](#atelier-gbrain-passage?slug=nested&quote=hello)";
+    const { container } = render(<PassageCard refData={{ ...GBRAIN_REF, quote }} />);
+    expect(container.querySelectorAll(".passage-card")).toHaveLength(1);
+    expect(container.querySelectorAll(".passage-card-quote button, .passage-card-quote a")).toHaveLength(0);
+    expect(container.querySelector(".passage-card-quote")?.textContent).toBe("texte");
+  });
+
 });

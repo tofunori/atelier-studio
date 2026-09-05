@@ -622,7 +622,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // le menu se lit à l'échelle de la barre dont il sort, pas à celle du fil
     expect(appCss).toMatch(/\.permission-select \.custom-select-option[\s\S]{0,140}font-size:\s*var\(--fs-m\)/);
     // déclencheur sans libellé : plus de typo à régler, une icône et un chevron
-    expect(appCss).toMatch(/\.permission-select \.custom-select-trigger-icon\s*\{[^}]*color:\s*var\(--text-muted\)/);
+    expect(appCss).toMatch(/\.permission-select \.custom-select-trigger-icon\s*\{[^}]*color:\s*var\(--text-secondary\)/);
   });
 
   it("la barre du composer désigne qui cède quand la place manque", () => {
@@ -648,7 +648,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   it("la barre du composer tient sur UNE assise et DEUX gouttières", () => {
     // une seule hauteur pour tous les contrôles : 24/24/auto/auto/30 ne donnait
     // aucune ligne d'assise et la barre se lisait comme huit objets isolés
-    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*--composer-ctl-h:\s*26px/);
+    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*--composer-ctl-h:\s*28px/);
     for (const sel of [
       "\\.composer-bar \\.ghost",
       "\\.composer-bar \\.send",

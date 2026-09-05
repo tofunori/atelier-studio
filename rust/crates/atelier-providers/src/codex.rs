@@ -312,7 +312,7 @@ fn build_input(req: &SendRequest) -> Value {
     Value::Array(items)
 }
 
-const ATELIER_PLUGIN_MVP: &[&str] = &[
+const ATELIER_PLUGIN_ORDER: &[&str] = &[
     "visualize",
     "latex",
     "documents",
@@ -326,6 +326,10 @@ const ATELIER_PLUGIN_MVP: &[&str] = &[
 ];
 
 fn preferred_skill(plugin: &str, skills: &[Value]) -> Option<Value> {
+    let skills = skills.iter().filter(|skill| {
+        skill.get("enabled").and_then(Value::as_bool) != Some(false)
+            && skill.get("path").and_then(Value::as_str).is_some_and(|path| !path.is_empty())
+    }).collect::<Vec<_>>();
     let preferred = match plugin {
         "latex" => "latex-compile",
         "build-web-data-visualization" => "data-visualization",
@@ -342,7 +346,7 @@ fn preferred_skill(plugin: &str, skills: &[Value]) -> Option<Value> {
                 .unwrap_or(false)
         })
         .or_else(|| skills.first())
-        .cloned()
+        .map(|skill| (**skill).clone())
 }
 
 fn hydrate_cached_skill_paths(marketplace: &str, plugin: &str, skills: &mut [Value]) {
@@ -385,6 +389,22 @@ fn hydrate_cached_skill_paths(marketplace: &str, plugin: &str, skills: &mut [Val
     }
 }
 
+#[cfg(test)]
+mod plugin_catalog_tests {
+    use super::*;
+
+    #[test]
+    fn preferred_skill_ignores_disabled_or_unattachable_entries() {
+        let skills = vec![
+            json!({"name":"latex-compile", "path":"/disabled/SKILL.md", "enabled":false}),
+            json!({"name":"missing", "path":""}),
+            json!({"name":"fallback", "path":"/enabled/SKILL.md"}),
+        ];
+        assert_eq!(preferred_skill("latex", &skills).unwrap()["name"], "fallback");
+        assert!(preferred_skill("latex", &skills[..2]).is_none());
+    }
+}
+
 async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Value, String> {
     let installed = server
         .request(
@@ -415,13 +435,8 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
             .flatten()
         {
             let name = summary.get("name").and_then(Value::as_str).unwrap_or("");
-            if !ATELIER_PLUGIN_MVP.contains(&name)
-                || !summary
+            if name.is_empty() || !summary
                     .get("installed")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                || !summary
-                    .get("enabled")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
             {
@@ -439,7 +454,10 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
             } else if !marketplace_name.is_empty() {
                 read_params["remoteMarketplaceName"] = json!(marketplace_name);
             }
-            let detail = server.request("plugin/read", read_params).await?;
+            let (detail, detail_error) = match server.request("plugin/read", read_params).await {
+                Ok(detail) => (detail, None),
+                Err(error) => (Value::Null, Some(error)),
+            };
             let plugin = detail.get("plugin").unwrap_or(&detail);
             let mut skills = plugin
                 .get("skills")
@@ -457,7 +475,8 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
                 "displayName": interface.get("displayName").and_then(Value::as_str).unwrap_or(name),
                 "description": interface.get("shortDescription").and_then(Value::as_str).unwrap_or(""),
                 "version": summary.get("localVersion").cloned().unwrap_or(Value::Null),
-                "enabled": true,
+                "enabled": summary.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+                "detailError": detail_error,
                 "icon": interface.get("composerIcon").or_else(|| interface.get("composerIconUrl")).cloned().unwrap_or(Value::Null),
                 "skills": skills,
                 "primarySkill": preferred_skill(name, &skills),
@@ -465,15 +484,15 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
         }
     }
     plugins.sort_by(|a, b| {
-        let ai = ATELIER_PLUGIN_MVP
+        let ai = ATELIER_PLUGIN_ORDER
             .iter()
             .position(|name| Some(*name) == a.get("name").and_then(Value::as_str))
             .unwrap_or(usize::MAX);
-        let bi = ATELIER_PLUGIN_MVP
+        let bi = ATELIER_PLUGIN_ORDER
             .iter()
             .position(|name| Some(*name) == b.get("name").and_then(Value::as_str))
             .unwrap_or(usize::MAX);
-        ai.cmp(&bi)
+        ai.cmp(&bi).then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
     });
     Ok(json!({"plugins": plugins}))
 }

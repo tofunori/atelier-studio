@@ -1,9 +1,9 @@
 import { ChevronLeftIcon } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { useState } from "react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
-import { normalizeMathDelimiters, hardenPartialMarkdown } from "../../lib/markdown";
+import { normalizeMathDelimiters } from "../../lib/markdown";
 import { Badge } from "../shadcn/badge";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Button } from "../shadcn/button";
@@ -11,7 +11,7 @@ import { Message, MessageContent, MessageGroup } from "../shadcn/message";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
 import { RowButton } from "../ui";
-import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
+import { MdBody, MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { ToolGlyph, activityIconForAction } from "./toolPresentation";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
@@ -161,10 +161,11 @@ export function AgentActivityGroup({
   actions: AgentToolAction[];
   onOpenAgent: (agent: AgentDisplay) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const agents = agentsFromActions(actions);
   if (agents.length === 0) return null;
-  const visible = agents.slice(0, 3);
-  const hidden = agents.length - visible.length;
+  const visible = expanded ? agents : agents.slice(0, 3);
+  const hidden = agents.length - 3;
   return (
     <div className="agent-activity-group" data-testid="subagent-activity-inline-group">
       {visible.map((agent) => (
@@ -178,7 +179,10 @@ export function AgentActivityGroup({
           <span>{agent.displayName}</span>
         </RowButton>
       ))}
-      {hidden > 0 ? <span className="agent-group-status">{t("chat.subagents-more", { count: hidden })} </span> : null}
+      {hidden > 0 ? <RowButton className="agent-group-status" aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}>
+        {expanded ? t("chat.subagents-less") : t("chat.subagents-more", { count: hidden })}
+      </RowButton> : null}
       <span className="agent-group-status">{groupStatus(agents)}</span>
     </div>
   );
@@ -246,14 +250,27 @@ export function AgentDetailPanel({
               {transcript.map((event, index) => {
                 if (event.kind === "tool" || event.kind === "tool_update") {
                   const failed = event.kind === "tool_update" && event.status === "failed";
+                  const output = event.kind === "tool_update" ? event.output : "";
+                  const completed = event.kind === "tool_update" && event.status === "completed";
+                  const line = <>
+                    <ToolGlyph icon={activityIconForAction(event)} />
+                    <span className="agent-tool-line-text">{event.detail || event.name}</span>
+                    <span className="agent-tool-status">{t(failed ? "agent-tool.failed" : completed ? "agent-tool.done" : "agent-tool.pending")}</span>
+                  </>;
+                  const key = `tool-${("id" in event ? event.id : null) ?? "legacy"}-${index}`;
+                  if (output) return (
+                    <details key={key} className="agent-tool-result" data-testid="agent-tool-line">
+                      <summary className={cn("agent-tool-line", failed && "is-failed")}>{line}</summary>
+                      <pre className="agent-tool-output">{output}</pre>
+                    </details>
+                  );
                   return (
                     <div
-                      key={`tool-${("id" in event ? event.id : null) ?? index}-${index}`}
+                      key={key}
                       className={cn("agent-tool-line", failed && "is-failed")}
                       data-testid="agent-tool-line"
                     >
-                      <ToolGlyph icon={activityIconForAction(event)} />
-                      <span className="agent-tool-line-text">{event.detail || event.name}</span>
+                      {line}
                     </div>
                   );
                 }
@@ -263,26 +280,18 @@ export function AgentDetailPanel({
                 const text = isError ? event.message : event.text;
                 const eventTs = "ts" in event ? event.ts : undefined;
                 return (
-                  <Message key={`${event.kind}-${eventTs ?? index}-${index}`}>
+                  <Message key={`${isThinking ? "thinking" : isError ? "error" : "text"}-${eventTs ?? index}-${index}`}>
                     <MessageContent>
                       <Bubble variant={isError ? "destructive" : isThinking ? "ghost" : "outline"}>
                         <BubbleContent className={isThinking ? "agent-transcript-thinking" : "msg typeset typeset-chat"}>
-                          {event.kind === "text" ? (
-                            <ReactMarkdown
+                          {event.kind === "text" || isStreaming ? (
+                            <MdBody
+                              text={normalizeMathDelimiters(text)}
+                              streaming={isStreaming}
                               remarkPlugins={plugins.remark}
                               rehypePlugins={plugins.rehype}
-                              components={MD_COMPONENTS as any}
-                            >
-                              {normalizeMathDelimiters(text)}
-                            </ReactMarkdown>
-                          ) : isStreaming ? (
-                            <ReactMarkdown
-                              remarkPlugins={plugins.remark}
-                              rehypePlugins={plugins.rehype}
-                              components={MD_COMPONENTS_STREAMING as any}
-                            >
-                              {normalizeMathDelimiters(hardenPartialMarkdown(text))}
-                            </ReactMarkdown>
+                              components={isStreaming ? MD_COMPONENTS_STREAMING : MD_COMPONENTS}
+                            />
                           ) : (
                             text
                           )}
@@ -294,7 +303,7 @@ export function AgentDetailPanel({
               })}
             </MessageGroup>
           ) : (
-            <p className="agent-detail-empty" data-testid="agent-transcript-empty">{t("chat.subagent-waiting")}</p>
+            <p className="agent-detail-empty" data-testid="agent-transcript-empty">{t(agent.status === "working" ? "chat.subagent-waiting" : "chat.subagent-no-transcript")}</p>
           )}
         </div>
       </ScrollArea>

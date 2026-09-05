@@ -9,6 +9,7 @@ export type DraftAttachment = {
   lines: string | null;
   text: string;
   imageUrl?: string;
+  pdfAnnotation?: { origin: string; rel: string; id: string };
   path?: string;
   kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap";
   /** Figure annotée depuis la galerie : badges numérotés de l'image. */

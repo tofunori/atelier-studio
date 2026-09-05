@@ -189,9 +189,6 @@ pub fn find_tex_root(path: &Path) -> PathBuf {
     let Ok(txt) = fs::read_to_string(path) else {
         return path.to_path_buf();
     };
-    if txt.contains("\\documentclass") {
-        return path.to_path_buf();
-    }
     for line in txt.lines() {
         // % !TEX root = <path>  (case-insensitive, as in Python)
         let lower = line.to_ascii_lowercase();
@@ -223,6 +220,9 @@ pub fn find_tex_root(path: &Path) -> PathBuf {
                 }
             }
         }
+    }
+    if txt.lines().any(|line| !line.trim_start().starts_with('%') && line.contains("\\documentclass")) {
+        return path.to_path_buf();
     }
     let stem = path
         .file_stem()
@@ -548,6 +548,18 @@ mod tests {
         .unwrap();
         assert_eq!(find_tex_root(&path), path);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tex_root_directive_wins_over_documentclass_in_comment() {
+        let dir = std::env::temp_dir().join(format!("atelier-root-directive-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let main = dir.join("main.tex");
+        let section = dir.join("methods.tex");
+        fs::write(&main, "\\documentclass{article}").unwrap();
+        fs::write(&section, "% !TEX root = main.tex\n% keep \\documentclass here\nMethods.").unwrap();
+        assert_eq!(find_tex_root(&section), fs::canonicalize(&main).unwrap());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

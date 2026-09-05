@@ -1,7 +1,7 @@
 // WorkspaceShell (plan 015, slice 3) : frontière de COMPOSITION du shell —
 // TopBar + rail + panneau de vue + surface principale. Aucun redesign :
 // mêmes classes (`app-row`, `side-fixed`, `handle side-handle`, `main-card`),
-// même ordre DOM, mêmes bornes de redimensionnement (180–420 px) et même
+// même ordre DOM, bornes de redimensionnement (240–420 px) et même
 // persistance `atelier-studio.sideW` que l'implémentation historique d'App.
 // Le shell ne route rien et ne connaît aucun état produit : il reçoit des
 // slots déjà construits.
@@ -26,7 +26,9 @@ export default function WorkspaceShell(p: {
   // quand le panneau atelier passe en pleine largeur
   const [sideW, setSideW] = useState(() => {
     const v = Number(localStorage.getItem("atelier-studio.sideW"));
-    return v >= 180 && v <= 420 ? v : 250;
+    // Remonter aussi les anciennes largeurs enregistrées : le titre partage
+    // sa ligne avec le provider et les actions, pas avec toute la sidebar.
+    return v >= 180 && v <= 420 ? Math.max(240, v) : 280;
   });
   useEffect(() => { localStorage.setItem("atelier-studio.sideW", String(sideW)); }, [sideW]);
 
@@ -49,7 +51,7 @@ export default function WorkspaceShell(p: {
               const startW = sideW;
               p.onDraggingChange(true);
               const move = (ev: MouseEvent) => {
-                setSideW(Math.min(420, Math.max(180, startW + ev.clientX - startX)));
+                setSideW(Math.min(420, Math.max(240, startW + ev.clientX - startX)));
               };
               const up = () => {
                 p.onDraggingChange(false);

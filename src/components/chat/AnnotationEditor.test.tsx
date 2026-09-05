@@ -52,9 +52,9 @@ async function openEditor(fragment: string): Promise<HTMLTextAreaElement> {
     await new Promise((r) => setTimeout(r, 0)); // le handler diffère d'un tick
   });
 
-  fireEvent.mouseDown(await screen.findByText(t("chat.annotate")));
+  fireEvent.click(await screen.findByRole("button",{name:"Annoter"}));
   return await waitFor(() => {
-    const field = document.querySelector(".anno-editor-note") as HTMLTextAreaElement | null;
+    const field = document.querySelector(".atelier-chat-note textarea") as HTMLTextAreaElement | null;
     if (!field) throw new Error("éditeur d'annotation absent");
     return field;
   });
@@ -100,51 +100,26 @@ describe("popover d'annotation — annoter et envoyer", () => {
     renderUi(<Chat {...chatProps({onSubmit})}/>);
     const field=await openEditor("seuil hypsométrique");
     fireEvent.change(field,{target:{value:"brouillon"}});
-    fireEvent.click(within(screen.getByRole("dialog",{name:t("chat.annotate")})).getByRole("button",{name:t("action.close")}));
-    expect(document.querySelector(".anno-editor")).toBeNull();
+    fireEvent.click(within(screen.getByRole("dialog",{name:t("chat.annotate")})).getByRole("button",{name:"Supprimer l’annotation"}));
+    expect(document.querySelector(".atelier-chat-note")).toBeNull();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("le bouton d'envoi part avec le commentaire qu'on vient d'écrire", async () => {
-    const onSubmit = vi.fn();
-    renderUi(<Chat {...chatProps({ onSubmit })} />);
-
-    const field = await openEditor("seuil hypsométrique");
-    fireEvent.change(field, { target: { value: "précise la référence" } });
-    fireEvent.click(screen.getByTitle(t("chat.annotation-send")));
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    const [prompt, provider, , , permissionMode, mode] = onSubmit.mock.calls[0];
-    // le piège de la refonte : `marks` n'est à jour qu'après le rendu — un
-    // envoi dans le même tour partirait SANS ce commentaire
-    expect(prompt).toContain("précise la référence");
-    expect(prompt).toContain("seuil hypsométrique");
-    // le composer reste seul juge du provider et du mode de suivi
-    expect(provider).toBe("claude");
-    expect(permissionMode).toBe("bypassPermissions");
-    expect(mode).toBe("steer");
+  it("la flèche ajoute la note au brouillon sans lancer de tour", async()=>{
+    const onSubmit=vi.fn();renderUi(<Chat {...chatProps({onSubmit})}/>);
+    const field=await openEditor("seuil hypsométrique");fireEvent.input(field,{target:{value:"précise la référence"}});
+    fireEvent.click(screen.getByRole("button",{name:"Ajouter l’annotation au chat"}));
+    await waitFor(()=>expect(document.querySelector(".anno-pill-dot")).toBeTruthy());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(localStorage.getItem("atelier-studio.marks.thread-A")).toContain("précise la référence");
+  });
+  it("la saisie utilise les mêmes actions compactes que les documents",async()=>{
+    renderUi(<Chat {...chatProps()}/>);await openEditor("seuil hypsométrique");
+    expect(screen.getByRole("button",{name:"Supprimer l’annotation"})).toBeTruthy();
+    expect(screen.getByRole("button",{name:"Ajouter l’annotation au chat"})).toBeTruthy();
+    expect(document.querySelector(".atelier-note-row")).toBeTruthy();
   });
 
-  it("⌘⏎ fait le même envoi que le bouton", async () => {
-    const onSubmit = vi.fn();
-    renderUi(<Chat {...chatProps({ onSubmit })} />);
-
-    const field = await openEditor("seuil hypsométrique");
-    fireEvent.change(field, { target: { value: "trop vague" } });
-    fireEvent.keyDown(field, { key: "Enter", metaKey: true });
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0][0]).toContain("trop vague");
-  });
-
-  it("la consigne écrite a disparu — elle vit en infobulle des actions", async () => {
-    renderUi(<Chat {...chatProps()} />);
-    await openEditor("seuil hypsométrique");
-
-    expect(document.querySelector(".anno-editor-hint")).toBeNull();
-    expect(screen.getByTitle(t("chat.annotate-hint"))).toBeTruthy();
-    expect(screen.getByTitle(t("chat.annotation-send"))).toBeTruthy();
-  });
 });
 
 // Une fois envoyée, l'annotation efface le surlignage du passage (saveMarks([]))
@@ -189,4 +164,20 @@ describe("bulle d'un tour annoté", () => {
     expect(document.querySelector(".anno-said")).toBeNull();
     expect(bubble.textContent).toBe("Reprends la méthode à partir du seuil.");
   });
+});
+
+it("conserve l'annotation pendant un envoi provisoire et retire seulement la note confirmée",async()=>{
+  const onSubmit=vi.fn();const props=chatProps({onSubmit});
+  const view=renderUi(<Chat {...props}/>);
+  const field=await openEditor("seuil hypsométrique");
+  fireEvent.input(field,{target:{value:"À préciser"}});fireEvent.keyDown(field,{key:"Enter"});
+  const composer=document.querySelector('.composer textarea') as HTMLTextAreaElement;
+  fireEvent.change(composer,{target:{value:"Examine ceci"}});fireEvent.submit(composer.closest('form')!);
+  await waitFor(()=>expect(onSubmit).toHaveBeenCalledTimes(1));
+  const text=onSubmit.mock.calls[0][0];
+  expect(localStorage.getItem('atelier-studio.marks.thread-A')).toContain('À préciser');
+  view.rerender(<Chat {...props} events={[...props.events,{kind:'user',text,meta:{provisional:true,messageId:'test'}}]}/>);
+  expect(localStorage.getItem('atelier-studio.marks.thread-A')).toContain('À préciser');
+  view.rerender(<Chat {...props} events={[...props.events,{kind:'user',text}]}/>);
+  await waitFor(()=>expect(JSON.parse(localStorage.getItem('atelier-studio.marks.thread-A')!)).toEqual([]));
 });

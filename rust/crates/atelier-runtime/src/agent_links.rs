@@ -570,6 +570,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn paused_exchange_survives_restart_and_resumes_with_report() {
+        let s = state();
+        let project = tempdir().unwrap();
+        s.threads().lock().await.upsert(json!({"id":"parent", "projectRoot":project.path(), "provider":"codex", "title":"Parent", "status":"idle"}), false).unwrap();
+        handle_create_linked_thread(&s, &json!({"sourceThreadId":"parent", "targetThreadId":"child", "targetProvider":"codex", "autoDeliveryLimit":4})).await;
+        s.threads().lock().await.upsert(json!({"id":"child", "status":"running"}), true).unwrap();
+        let request = json!({"targetThreadId":"child", "requestId":"pause-smoke", "text":"Isolated test"});
+        let queued = crate::agent_mailbox::action_send_message(&s, "parent", &request).await.unwrap();
+        assert_eq!(queued["status"], "queued");
+        handle_set_link_paused(&s, &json!({"threadId":"child", "paused":true})).await;
+        s.threads().lock().await.upsert(json!({"id":"child", "status":"idle"}), true).unwrap();
+        crate::agent_mailbox::drain_mailbox(&s).await;
+        assert_eq!(s.mailbox().lock().await.get(queued["messageId"].as_str().unwrap()).unwrap().error_code.as_deref(), Some(mcp_err::LINK_PAUSED));
+        let duplicate = crate::agent_mailbox::action_send_message(&s, "parent", &request).await.unwrap();
+        assert_eq!(queued["messageId"], duplicate["messageId"]);
+        assert_eq!(s.mailbox().lock().await.list_for_link("parent", "child").len(), 1);
+        let paths = AppPaths::from_app_dir(s.app_dir().to_path_buf());
+        drop(s);
+        let restarted = AppState::new(paths, None, "t".into(), "0.1.0".into(), "hash".into(), "/tmp".into()).with_test_provider("codex");
+        // Même réception/acquittement que le worker lancé par serve_once.
+        let mut deliveries = restarted.take_delivery_rx().await.unwrap();
+        let worker_state = restarted.clone();
+        let worker = tokio::spawn(async move {
+            while let Some(delivery) = deliveries.recv().await {
+                let replies = crate::send::handle_send(&worker_state, &delivery.payload).await;
+                assert!(!replies.iter().any(|reply| serde_json::from_str::<Value>(reply).unwrap()["type"] == "error"), "{replies:?}");
+                let _ = delivery.accepted.send(Ok(()));
+            }
+        });
+        assert!(restarted.threads().lock().await.get("child").unwrap().agent_link.as_ref().unwrap().paused);
+        handle_set_link_paused(&restarted, &json!({"threadId":"child", "paused":false})).await;
+        let message_id = queued["messageId"].as_str().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let message = restarted.mailbox().lock().await.get(message_id).unwrap().clone();
+                assert_ne!(message.status, "failed", "delivery failed: {:?}", message.error_code);
+                if message.status == "delivered" { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("queued message delivered after resume");
+        let report = crate::agent_mailbox::action_report_to_parent(&restarted, "child", &json!({"requestId":"report-smoke", "report":{"summary":"Child result"}})).await.unwrap();
+        assert!(report["messageId"].is_string());
+        let messages = restarted.mailbox().lock().await.list_for_link("parent", "child");
+        assert!(messages.iter().any(|message| message.kind == "report" && message.text == "Child result"));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if restarted.mailbox().lock().await.get(report["messageId"].as_str().unwrap()).unwrap().status == "delivered" { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("report delivered to parent");
+        handle_unlink_thread(&restarted, &json!({"threadId":"child"})).await;
+        assert!(crate::agent_mcp::authorize_target(&restarted, "parent", "child").await.is_err());
+        worker.abort();
+    }
+
+    #[tokio::test]
     async fn create_and_unlink_link() {
         let s = state();
         {

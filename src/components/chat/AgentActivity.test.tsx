@@ -34,6 +34,26 @@ beforeEach(() => { resetTestState(); setLanguage("en"); });
 afterEach(cleanup);
 
 describe("Codex subagent activity", () => {
+  it("opens every agent beyond the three-chip preview", () => {
+    const onOpenAgent = vi.fn();
+    renderUi(<AgentActivityGroup actions={Array.from({ length: 5 }, (_, i) => action({
+      id: `spawn-${i}`, agentActivity: { tool: "spawnAgent", receiverThreadIds: [`child-${i}`],
+        agentThreadId: `child-${i}`, agentPath: `/root/reviewer_${i}`,
+        agentsStates: { [`child-${i}`]: { status: "running", message: null } } },
+    }))} onOpenAgent={onOpenAgent} />);
+    expect(screen.queryByRole("button", { name: "Open Reviewer 4 subagent" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "and 2 other subagent(s)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Reviewer 4 subagent" }));
+    expect(onOpenAgent).toHaveBeenCalledWith(expect.objectContaining({ threadId: "child-4" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByRole("button", { name: "Open Reviewer 4 subagent" })).toBeNull();
+  });
+
+  it("does not promise a pending response after an agent has stopped", () => {
+    renderUi(<AgentDetailPanel agent={{ threadId: "done", displayName: "Done", status: "interrupted",
+      statusMessage: null, prompt: null, model: null, reasoningEffort: null, agentPath: null }} onClose={() => {}} />);
+    expect(screen.getByTestId("agent-transcript-empty")).toHaveTextContent("No transcript was recorded");
+  });
   it("merges the spawn state with the later agent path", () => {
     const agents = agentsFromActions([
       action(),
@@ -104,6 +124,8 @@ describe("Codex subagent activity", () => {
     />);
     const ligne = screen.getByTestId("agent-tool-line");
     expect(ligne.textContent).toContain("wc -l a.py");
+    expect(ligne.querySelector("summary")).toHaveTextContent("Completed");
+    expect(ligne.querySelector("pre")).toHaveTextContent("42 a.py");
     expect(screen.getByText("Fini.")).toBeTruthy();
   });
 });

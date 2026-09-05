@@ -24,3 +24,16 @@ test("a damaged PDF symbol still highlights the complete focused sentence", () =
     { start: 0, end: 3 },
   );
 });
+
+
+test("search finds each whole phrase across PDF spans without matching only its prefix", () => {
+  const spans = ["Surface", "albedo decreases.", "Surface albedo", "decreases again."];
+  assert.deepEqual(passage.findAllSpanRanges(spans, "surface albedo decreases"), [{start:0,end:1},{start:2,end:3}]);
+  assert.deepEqual(passage.findAllSpanRanges(spans, "surface albedo increases"), []);
+});
+
+
+test("search tolerates glyph runs splitting words and line-end hyphenation", () => {
+  assert.deepEqual(passage.findAllSpanRanges(["precipi", "tation"], "precipitation"), [{start:0,end:1}]);
+  assert.deepEqual(passage.findAllSpanRanges(["precipi-", "tation"], "precipitation"), [{start:0,end:1}]);
+});

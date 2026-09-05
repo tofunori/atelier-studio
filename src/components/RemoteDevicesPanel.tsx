@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 /**
  * Appareils distants, présentés comme un réglage produit.
  * Les détails opérateur restent disponibles dans le diagnostic avancé.
@@ -86,6 +87,8 @@ export function RemoteDevicesPanel(p: Props) {
   const [admin, setAdmin] = useState(() => localStorage.getItem(LS_ADMIN) || "");
   const [devices, setDevices] = useState<DeviceRow[] | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingUrl, setPairingUrl] = useState("");
+  const native = isTauri();
   const [pairingExpires, setPairingExpires] = useState<number | null>(null);
   const [pairingOpen, setPairingOpen] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -106,13 +109,18 @@ export function RemoteDevicesPanel(p: Props) {
   }, [admin]);
 
   const refresh = useCallback(async (quiet = false) => {
-    if (!admin) {
+    if (!admin && !native) {
       setDevices(null);
       return;
     }
     setError(null);
     if (!quiet) setBusy(true);
     try {
+      if (native) {
+        const body = await invoke<{ devices: DeviceRow[] }>("remote_device_action", { action: "devices" });
+        setDevices(body.devices ?? []);
+        return;
+      }
       const res = await fetch(`${url.replace(/\/$/, "")}/remote/admin/devices`, {
         headers: headers(),
       });
@@ -129,7 +137,7 @@ export function RemoteDevicesPanel(p: Props) {
     } finally {
       if (!quiet) setBusy(false);
     }
-  }, [admin, headers, url]);
+  }, [admin, headers, url, native]);
 
   useEffect(() => {
     void refresh();
@@ -160,6 +168,14 @@ export function RemoteDevicesPanel(p: Props) {
     setError(null);
     setBusy(true);
     try {
+      if (native) {
+        const body = await invoke<{ code: string; expiresAt: number; gatewayUrl: string; error?: string }>("remote_device_action", { action: "pair" });
+        if (body.error) throw new Error(body.error);
+        setPairingCode(body.code);
+        setPairingExpires(body.expiresAt);
+        setPairingUrl(`atelier-native://pair?address=${encodeURIComponent(body.gatewayUrl)}&code=${encodeURIComponent(body.code)}`);
+        return;
+      }
       const res = await fetch(`${url.replace(/\/$/, "")}/remote/admin/pairing/start`, {
         method: "POST",
         headers: headers(),
@@ -185,6 +201,11 @@ export function RemoteDevicesPanel(p: Props) {
     setBusy(true);
     setError(null);
     try {
+      if (native) {
+        await invoke("remote_device_action", { action: `revoke ${deviceId}` });
+        await refresh();
+        return;
+      }
       const res = await fetch(
         `${url.replace(/\/$/, "")}/remote/admin/devices/${encodeURIComponent(deviceId)}/revoke`,
         { method: "POST", headers: headers() },
@@ -214,7 +235,7 @@ export function RemoteDevicesPanel(p: Props) {
             </div>
           </div>
         </div>
-        <Button size="sm" disabled={busy || !admin} onClick={() => void startPairing()}>
+        <Button size="sm" disabled={busy || (!native && !admin)} onClick={() => void startPairing()}>
           {busy ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
           Ajouter
         </Button>
@@ -226,7 +247,7 @@ export function RemoteDevicesPanel(p: Props) {
         <Alert variant="destructive" className="tw:mx-1 tw:my-3 tw:w-auto">
           <WifiOffIcon />
           <AlertDescription>
-            Connexion impossible. Vérifie le diagnostic avancé ci-dessous.
+            {error}
           </AlertDescription>
         </Alert>
       )}
@@ -333,7 +354,7 @@ export function RemoteDevicesPanel(p: Props) {
               />
               <FieldDescription>Conservé uniquement sur ce Mac.</FieldDescription>
             </Field>
-            <Button variant="outline" size="sm" disabled={busy || !admin} onClick={() => void refresh()}>
+            <Button variant="outline" size="sm" disabled={busy || (!native && !admin)} onClick={() => void refresh()}>
               {busy ? <Spinner data-icon="inline-start" /> : <CheckCircle2Icon data-icon="inline-start" />}
               Vérifier la connexion
             </Button>
@@ -346,7 +367,7 @@ export function RemoteDevicesPanel(p: Props) {
           <DialogHeader>
             <DialogTitle>Ajouter un appareil</DialogTitle>
             <DialogDescription>
-              Ouvre Atelier sur l’iPhone, puis saisis ce code d’appairage.
+              Copie le lien, puis dans la galerie iOS choisis « Coller le lien du Mac ».
             </DialogDescription>
           </DialogHeader>
           <div className="tw:flex tw:flex-col tw:items-center tw:gap-3 tw:rounded-[var(--radius-control)] tw:bg-muted tw:px-4 tw:py-5">
@@ -356,6 +377,7 @@ export function RemoteDevicesPanel(p: Props) {
                   {pairingCode}
                 </div>
                 <Badge variant="secondary">Expire dans {secondsLeft} s</Badge>
+                {pairingUrl && <Button onClick={() => void navigator.clipboard.writeText(pairingUrl)}>Copier le lien de connexion</Button>}
               </>
             ) : (
               <Spinner />

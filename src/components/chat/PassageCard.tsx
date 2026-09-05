@@ -1,17 +1,18 @@
 // Carte passage dans le chat (plan Preuves, tâche 5 + 6) — un lien
 // #atelier-zotero-passage OU #atelier-gbrain-passage SEUL dans son
-// paragraphe (cf. lonePassageRef, md.tsx) se rend ici : repliée sur une
-// ligne, dépliable au clic, épinglable via WS (pinPassage/unpinPassage,
+// paragraphe (cf. lonePassageRef, md.tsx) se rend ici : source en tête,
+// extrait sélectionnable, épinglable via WS (pinPassage/unpinPassage,
 // contrat tâche 2). Deux sources, même carte : Zotero ouvre le PDF à la
 // page citée ; gbrain ouvre le SourceReader défilé/surligné sur la citation.
-import { useSyncExternalStore, useState } from "react";
+import { useMemo, useSyncExternalStore, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { normalizeMathDelimiters } from "../../lib/markdown";
 import { t } from "../../lib/i18n";
 import { wsSend } from "../../lib/wsBus";
 import { evidencePinsSnapshot, isPinned, subscribeEvidencePins } from "../../lib/evidencePins";
 import { citeLabel } from "./turnParts";
-import { Tick } from "./toolPresentation";
 import { IconButton, RowButton, Tooltip } from "../ui";
-import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, type PassageRef } from "./md";
+import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, useMdPlugins, type PassageRef } from "./md";
 
 function DocIcon({ size = 15 }: { size?: number }) {
   return (
@@ -35,6 +36,10 @@ function PinIcon({ size = 12 }: { size?: number }) {
 
 export function PassageCard({ refData }: { refData: PassageRef }) {
   const [open, setOpen] = useState(false);
+  const plugins = useMdPlugins();
+  const quote = useMemo(() => normalizeMathDelimiters(refData.quote), [refData.quote]);
+  const hasQuote = Boolean(refData.quote.trim());
+  const isLong = refData.quote.length > 420;
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
   const isGbrain = refData.kind === "gbrain";
   // Deux libellés : le COURT tient dans la ligne méta (« Stroeve 2006 »), le
@@ -80,53 +85,14 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const openPassage = () => (isGbrain ? openGbrainPassage(refData) : openZoteroPassage(refData));
   const openLabel = isGbrain ? t("passage.open-gbrain") : t("passage.open-pdf", { page: refData.page });
 
-  if (!open) {
-    const hasQuote = Boolean(refData.quote.trim());
-    return (
-      <div className={pin ? "passage-card has-pin" : "passage-card"}>
-        <RowButton
-          className="passage-card-row"
-          aria-label={t("passage.expand")}
-          onClick={() => setOpen(true)}
-        >
-          <span className={hasQuote ? "passage-card-quote" : "passage-card-quote is-absent"}>
-            {hasQuote ? refData.quote : t("preuves.open-source", { source: label })}
-          </span>
-          <span className="passage-card-meta">
-            {/* titre complet en title natif : la rangée EST déjà un bouton,
-                un Tooltip imbriquerait un déclencheur dans un déclencheur */}
-            <span className="evidence-meta-src" title={fullLabel}>{label}</span>
-            {!isGbrain && <span className="evidence-meta-page">p. {refData.page}</span>}
-          </span>
-        </RowButton>
-        <Tick open={false} />
-        <IconButton
-          className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
-          label={pin ? t("passage.unpin") : t("passage.pin")}
-          aria-pressed={Boolean(pin)}
-          onClick={togglePin}
-        >
-          <PinIcon />
-        </IconButton>
-      </div>
-    );
-  }
-
-  // Variante A (artefact « Actions de la carte passage ») : les actions
-  // rejoignent la ligne de citation en icônes — une rangée de moins, même
-  // grammaire que l'état replié, la page vit déjà dans la citation.
   return (
-    <div className={pin ? "passage-card open has-pin" : "passage-card open"}>
-      <p className="passage-card-quote-full">{refData.quote}</p>
+    <div className={`passage-card${open ? " open" : ""}${pin ? " has-pin" : ""}`}>
       <div className="passage-card-meta">
-        <Tooltip label={fullLabel}>
-          <span className="passage-card-cite">{isGbrain ? label : `${label} · p. ${refData.page}`}</span>
-        </Tooltip>
-        <Tooltip label={openLabel}>
-          <IconButton label={openLabel} onClick={openPassage}>
-            <DocIcon />
-          </IconButton>
-        </Tooltip>
+        <RowButton className="passage-card-source" onClick={openPassage} title={fullLabel}>
+          <DocIcon />
+          <span className="evidence-meta-src" title={fullLabel}>{label}</span>
+        </RowButton>
+        {!isGbrain && <span className="evidence-meta-page">p. {refData.page}</span>}
         <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
           <IconButton
             className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
@@ -137,13 +103,32 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
             <PinIcon size={15} />
           </IconButton>
         </Tooltip>
-        <IconButton
-          className="passage-card-collapse"
-          label={t("passage.collapse")}
-          onClick={() => setOpen(false)}
-        >
-          <Tick open />
-        </IconButton>
+      </div>
+      {hasQuote ? (
+        <div className={`passage-card-quote${isLong && !open ? " is-clamped" : ""}`}>
+          {/* Isolated prose renderer: a quoted link must not become a nested
+              PassageCard or an executable file/source action. */}
+          <ReactMarkdown remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype}
+            components={{ a: ({ children }) => <span>{children}</span> }}>
+            {quote}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <p className="passage-card-quote is-absent">{t("passage.no-excerpt")}</p>
+      )}
+      <div className="passage-card-actions">
+        <RowButton className="passage-card-open" onClick={openPassage} title={openLabel}>
+          {t("passage.open-source")}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+            strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 8h10M9 4l4 4-4 4" />
+          </svg>
+        </RowButton>
+        {isLong && (
+          <RowButton className="passage-card-collapse" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? t("passage.collapse") : t("passage.expand")}
+          </RowButton>
+        )}
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import * as annotationUI from "../annotation_ui";
 interface AnnotationKitInstance {
   enabled: boolean;
   redraw(): void;
@@ -96,6 +97,10 @@ export function createMarkdownAnnotationsController(
   const annotationKit = (): AnnotationKitFactory | undefined =>
     (win as Window & {AnnotKit?: AnnotationKitFactory}).AnnotKit;
   const loadKit = (): Promise<void> => new Promise((resolve, reject) => {
+    Object.assign(win,{AtelierAnnotationUI:annotationUI});
+    if(!doc.querySelector('link[data-annotation-ui]')){
+      const css=doc.createElement("link");css.rel="stylesheet";css.href="/.fig_thumbs/annotation_ui.css";css.dataset.annotationUi="true";doc.head.appendChild(css);
+    }
     if (annotationKit()) {
       resolve();
       return;

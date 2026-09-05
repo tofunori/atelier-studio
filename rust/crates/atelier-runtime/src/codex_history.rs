@@ -394,9 +394,18 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
     }
     // appels restés sans sortie (rollout coupé) : les rendre quand même
     for (id, name, input) in pending_calls {
-        events.push(tool_update_event(&id, &name, &input, "", "completed"));
+        events.push(tool_update_event(&id, &name, &input, "", "inProgress"));
     }
     events
+}
+
+// Un appel sans sortie devient un résultat sans changer le nombre d'événements.
+// Réviser le contenu côté serveur évite de sérialiser le transcript dans WebKit.
+pub(crate) fn history_revision(events: &[Value]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    events.hash(&mut hash);
+    format!("{:016x}", hash.finish())
 }
 
 pub(crate) fn load_codex_history(session_id: &str) -> Vec<Value> {
@@ -410,6 +419,25 @@ pub(crate) fn load_codex_history(session_id: &str) -> Vec<Value> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn pending_tool_result_changes_revision_without_growing_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "{}", json!({"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec","arguments":"pwd"}})).unwrap();
+        let pending = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["status"], "inProgress");
+        writeln!(file, "{}", json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"/tmp/project"}})).unwrap();
+        let completed = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(completed.len(), pending.len());
+        assert_eq!(completed[0]["status"], "completed");
+        assert_eq!(completed[0]["output"], "/tmp/project");
+        assert_ne!(history_revision(&pending), history_revision(&completed));
+        assert_eq!(history_revision(&completed), history_revision(&load_codex_history_from_base(dir.path(), id)));
+    }
 
     fn rollout_path(base: &Path, id: &str) -> PathBuf {
         let dir = base.join("2026/07/14");

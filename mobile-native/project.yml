@@ -1,0 +1,58 @@
+name: AtelierNative
+options:
+  bundleIdPrefix: com.tofunori.atelier
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  AtelierUI:
+    path: .
+targets:
+  AtelierNative:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: Atelier Pairing
+            CFBundleURLSchemes: [atelier-native]
+        NSLocalNetworkUsageDescription: Accéder aux artefacts de vos projets sur votre Mac.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    dependencies:
+      - package: AtelierUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tofunori.atelier.swiftui.preview
+        PRODUCT_NAME: AtelierNative
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Atelier
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        TARGETED_DEVICE_FAMILY: '1,2'
+        SWIFT_VERSION: '6.0'
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "-"
+  AtelierNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: AtelierNative
+      - package: AtelierUI
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.tofunori.atelier.swiftui.tests
+        SWIFT_VERSION: '6.0'
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "-"
+schemes:
+  AtelierNative:
+    build:
+      targets:
+        AtelierNative: all
+        AtelierNativeTests: [test]
+    test:
+      targets: [AtelierNativeTests]

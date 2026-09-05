@@ -1,3 +1,4 @@
+import {createSelectionActions} from "../annotation_ui";
 import type {StudioEditor, StudioPosition} from "../../core/editor_contract";
 
 interface SelectionPillEditor extends StudioEditor {
@@ -16,6 +17,7 @@ export interface SelectionPillAdapter {
 export interface LatexPillSelection {
   text: string;
   page: string;
+  anchor?: {left:number;top:number;bottom:number};
   from: StudioPosition;
   to: StudioPosition;
 }
@@ -25,6 +27,7 @@ export interface LatexSelectionPillOptions {
   getEditor(): SelectionPillEditor | null;
   adapter: SelectionPillAdapter;
   openComment(selection: LatexPillSelection): void;
+  highlight?(selection: LatexPillSelection, color: string): void;
   clearMarker(): void;
   /** Canal vers la fenêtre hôte — sert au Quick Ask. */
   postToHost?(payload: Record<string, unknown>): void;
@@ -109,46 +112,26 @@ export function createLatexSelectionPill(
       }).catch(() => undefined);
     },
     embedExtras: (go: HTMLButtonElement) => {
-      const comment = doc.createElement("button");
-      comment.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg>&nbsp; Commenter';
-      comment.style.cssText = go.style.cssText;
-      comment.onmousedown = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (lastSelection) options.openComment(lastSelection);
-        api.hide();
-      };
-      go.insertAdjacentElement("afterend", comment);
-
-      // Quick Ask : même moule, en tête de pilule — le chat place déjà
-      // l'éclair avant « Annoter » et « Ajouter au chat ».
-      if (!options.postToHost) return;
-      const ask = doc.createElement("button");
-      ask.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M8.8 1.8L3.6 9h3.6l-.9 5.2L11.5 7H7.9l.9-5.2z"/></svg>&nbsp; Quick Ask';
-      ask.style.cssText = go.style.cssText;
-      ask.onmousedown = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!lastSelection) return;
-        const editor = options.getEditor();
-        options.postToHost?.({
-          type: "atelier-quick-ask",
-          text: lastSelection.text,
-          around: editor
-            ? surroundingLines(editor, lastSelection.from, lastSelection.to)
-            : undefined,
-          path: options.path,
-          page: lastSelection.page,
-        });
-        api.hide();
-      };
-      go.insertAdjacentElement("beforebegin", ask);
+      go.style.display="none";
+      const actions=doc.createElement("div");go.before(actions);
+      createSelectionActions(actions, {
+        onColor: options.highlight ? color=>{if(lastSelection) options.highlight?.(lastSelection,color);win.getSelection()?.removeAllRanges();api.hide();} : undefined,
+        onAnnotate: ()=>{if(lastSelection) options.openComment(lastSelection);api.hide();},
+        onAsk: options.postToHost ? ()=>{
+          if(!lastSelection)return;
+          const editor=options.getEditor();
+          options.postToHost?.({type:"atelier-quick-ask",text:lastSelection.text,
+            around:editor?surroundingLines(editor,lastSelection.from,lastSelection.to):undefined,
+            path:options.path,page:lastSelection.page});api.hide();
+        } : undefined,
+      });
     },
   });
   const show = (from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void => {
     if (pill.style.display === "flex" && (doc.activeElement === textarea || textarea.value)) return;
     lastSelection = {
       text,
+      anchor: anchor?.caret,
       page: `L${from.line + 1}-${to.line + 1}`,
       from: {...from},
       to: {...to},

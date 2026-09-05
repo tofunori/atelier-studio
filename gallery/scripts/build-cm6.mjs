@@ -54,6 +54,7 @@ await build({
   outfile: `${root}/assets/latex_features.bundle.js`,
   globalName: "AtelierStudioLatex",
 });
+await build({...common, entryPoints:[`${root}/src/studio/features/annotation_ui.ts`], outfile:`${root}/assets/annotation_ui.bundle.js`, globalName:"AtelierAnnotationUI"});
 
 await build({
   ...common,

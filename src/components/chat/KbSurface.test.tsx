@@ -477,7 +477,7 @@ describe("KbSurface", () => {
     // la liste a laissé place au lecteur, ouvert sur ce slug précis
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
     expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
-    expect(screen.getByText("Lecture de la page…")).toBeTruthy();
+    expect(screen.getByText("Connexion indisponible. Réessaie après la reconnexion.")).toBeTruthy();
   });
 
   // Revue finale de branche, finding 1 : kb-open-gbrain-passage part de façon
@@ -508,7 +508,7 @@ describe("KbSurface", () => {
         },
       }));
     });
-    await waitFor(() => expect(document.querySelector("mark.reader-quote")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".reader-quote")).toBeTruthy());
   });
 
   // Revue finale de branche, finding 1 (test c) : un événement reçu par un

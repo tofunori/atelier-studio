@@ -154,6 +154,8 @@ export default function KbSurface(p: {
   attached: string[];
   fullContent: string[];
   articles?: ArticleRow[];
+  corpusStatus?: string | null;
+  sourcesStatus?: string | null;
   threadTitle?: string;
   error: string | null;
   onDismissError?: () => void;
@@ -965,7 +967,7 @@ export default function KbSurface(p: {
             {tab === "brain" && live.map(renderJob)}
             {tab === "brain" && corpusVisible.map(renderRow)}
             {tab === "brain" && corpusVisible.length === 0 && live.length === 0 && (
-              <div className="kb-empty">{t(needle ? "kbs.empty-search" : "kbs.empty-brain")}</div>
+              <div className="kb-empty" role="status">{p.corpusStatus || t(needle ? "kbs.empty-search" : "kbs.empty-brain")}</div>
             )}
             {tab === "brain" && corpusRows.length > 0 && (
               <div className="kbs-foot">{t("kbs.brain-cap", { n: corpusRows.length })}</div>
@@ -973,7 +975,7 @@ export default function KbSurface(p: {
             {tab === "base" && visible.map(renderRow)}
             {tab === "base" && visible.length === 0 && (
               <div className="kb-empty">
-                {t(needle
+                {p.sourcesStatus || t(needle
                   ? "kbs.empty-search"
                   : view.startsWith("coll:")
                     ? "kbs.empty-folder"

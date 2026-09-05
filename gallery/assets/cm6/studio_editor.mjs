@@ -10,7 +10,7 @@ import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView} from "@codemirror/merge";
-import {closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
+import {autocompletion, startCompletion, closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
 import {python} from "@codemirror/lang-python";
 import {markdown} from "@codemirror/lang-markdown";
 import {javascript} from "@codemirror/lang-javascript";
@@ -94,6 +94,20 @@ const THEME_PALETTES = {
   "material-ocean": {bg: "#2e3235", fg: "#bdbdbd", gutter: "#777777", gutterActive: "#cfd8dc", accent: "#a0a4ae", selection: "#d7d4f063", active: "#545b6130", panel: "#25282a", surface: "#343a3e", border: "#4f5b66"},
   "solarized-dark": {bg: "#002b36", fg: "#839496", gutter: "#586e75", gutterActive: "#eee8d5", accent: "#d30102", selection: "#004454aa", active: "#00cafe11", panel: "#00232c", surface: "#073642", border: "#586e75"},
 };
+
+let bibliographyContext = {};
+if (typeof window !== "undefined") window.addEventListener("atelier-latex-context", event => { bibliographyContext = event.detail || {}; });
+function bibliographyCompletion(ctx) {
+  const before = ctx.state.sliceDoc(Math.max(0, ctx.pos - 160), ctx.pos);
+  const match = /\\(cite[a-z]*|ref|eqref|cref|Cref)\{[^}]*?([^,{}\s]*)$/.exec(before);
+  if (!match) return null;
+  const cite = match[1].startsWith("cite");
+  const known = cite ? bibliographyContext.citations || {} : bibliographyContext.references || {};
+  const local = [...ctx.state.doc.toString().matchAll(/\\(?:label|bibitem)\{([^}]+)\}/g)].map(m => m[1]);
+  return {from: ctx.pos - match[2].length, validFor: /^[^},\s]*$/, options: [...new Set([...Object.keys(known), ...local])].map(label => ({
+    label, type: "constant", detail: cite ? known[label]?.label || "" : String(known[label] || ""), info: cite ? known[label]?.title || "" : undefined,
+  }))};
+}
 
 const MAINTAINED_THEME_EXTENSIONS = {
   "vscode-dark": vscodeDark,
@@ -434,6 +448,7 @@ export function createStudioEditor(parent, opts) {
     state: EditorState.create({
       doc: opts.value || "",
       extensions: [
+        ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}])] : []),
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
         indentUnit.of(opts.ext === "py" ? "    " : "  "),

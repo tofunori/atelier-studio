@@ -774,6 +774,34 @@ describe("orchestration App — caractérisation", () => {
     }, "http://127.0.0.1:18790");
   });
 
+  it("retire une annotation PDF seulement après l’ack du message envoyé", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(10); });
+    const iframe = document.querySelector("iframe")!;
+    const nonce = new URLSearchParams(new URL(iframe.src).hash.slice(1)).get("atelier_nonce");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const removalCalls = () => fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/pdfannot") && init?.method === "POST");
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { origin:"http://127.0.0.1:18790", source:iframe.contentWindow,
+        data:{type:"atelier-add-to-chat",nonce,text:"Passage annoté",pdfAnnotation:{rel:"paper.pdf",id:"a1"}} }));
+      await flushMicrotasks(4);
+    });
+    expect(removalCalls()).toHaveLength(0);
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea,{target:{value:"Examine cette note"}});
+    fireEvent.submit(textarea.closest("form")!);
+    await act(async () => { await flushMicrotasks(4); });
+    expect(removalCalls()).toHaveLength(0);
+    const sentMessages = sock.sent.map(value=>JSON.parse(value)).filter(m=>m.type==="send");
+    const sent = sentMessages[sentMessages.length - 1];
+    expect(sent).toBeTruthy();
+    await push(sock,{type:"event",threadId:"thread-A",event:{kind:"user",text:"Examine cette note",meta:{messageId:sent.clientMessageId}}});
+    expect(removalCalls()).toHaveLength(1);
+    expect(JSON.parse(String(removalCalls()[0][1]?.body))).toEqual({rel:"paper.pdf",removeIds:["a1"]});
+  });
+
   it("garde un fichier TEX comme contexte Read sans l'envoyer comme image", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);

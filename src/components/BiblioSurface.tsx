@@ -133,6 +133,8 @@ export default function BiblioSurface({
   const persisted = useMemo(loadState, []);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [items, setItems] = useState<ZoteroItem[]>([]);
   const [collections, setCollections] = useState<ZoteroCollection[]>([]);
   const [filter, setFilter] = useState<FilterMode>(persisted.filter);
@@ -248,6 +250,8 @@ export default function BiblioSurface({
   useEffect(() => {
     const onItems = (e: Event) => {
       const msg = (e as CustomEvent).detail as { items: ZoteroItem[]; error?: string };
+      if (requestTimer.current) clearTimeout(requestTimer.current);
+      setLoading(false);
       setError(msg.error ?? null);
       setItems(msg.items ?? []);
     };
@@ -306,12 +310,19 @@ export default function BiblioSurface({
   }, [ws]);
 
   useEffect(() => {
-    const activeCollection = filter === "collection" ? collectionId : null;
-    send(ws, {
-      type: "zoteroSearch",
-      query: passageTarget?.key ?? query,
-      collectionId: activeCollection,
-    });
+    const request = () => {
+      if (requestTimer.current) clearTimeout(requestTimer.current);
+      if (ws?.readyState !== WebSocket.OPEN) {
+        setLoading(false); setError(t("biblio.offline")); return;
+      }
+      setLoading(true); setError(null);
+      send(ws, {type: "zoteroSearch", query: passageTarget?.key ?? query,
+        collectionId: filter === "collection" ? collectionId : null});
+      requestTimer.current = setTimeout(() => {setLoading(false); setError(t("biblio.timeout"));}, 15000);
+    };
+    const disconnected = () => {setLoading(false); setError(t("biblio.offline"));};
+    request(); ws?.addEventListener?.("open", request); ws?.addEventListener?.("close", disconnected);
+    return () => {if (requestTimer.current) clearTimeout(requestTimer.current); ws?.removeEventListener?.("open", request); ws?.removeEventListener?.("close", disconnected);};
   }, [ws, query, filter, collectionId, passageTarget]);
 
   const modeItems = filter === "fav" ? items.filter((item) => item.fav) : items;
@@ -481,7 +492,8 @@ export default function BiblioSurface({
         {addNote && <div className="biblio-add-note">{addNote}</div>}
         {error && <div className="biblio-empty">{error}</div>}
         <div className="biblio-list">
-          {!error && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
+          {loading && <div className="biblio-empty" role="status">{t("biblio.loading")}</div>}
+          {!error && !loading && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
           {visibleItems.map((item) => (
             <div
               key={item.key}

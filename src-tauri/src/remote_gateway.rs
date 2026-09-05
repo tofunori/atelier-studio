@@ -441,3 +441,29 @@ mod tests {
         assert_eq!(schedule.status, Some(GatewayStatus::Starting));
     }
 }
+
+/// Privileged gateway actions stay on a user-only Unix socket, never in web credentials.
+#[tauri::command]
+pub async fn remote_device_action(action: String) -> Result<serde_json::Value, String> {
+    if action != "pair" && action != "devices" && !(action.starts_with("revoke ") && action.len() < 100 && !action.contains('\n')) {
+        return Err("Action inconnue".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+        let root = app_dir().ok_or("Dossier Atelier introuvable")?;
+        let mut stream = UnixStream::connect(root.join("remote/pair.sock"))
+            .map_err(|_| "La passerelle n’est pas prête. Vérifiez que Tailscale est connecté.")?;
+        stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+        stream.write_all(format!("{action}\n").as_bytes()).map_err(|e| e.to_string())?;
+        let mut body = String::new();
+        stream.take(1024 * 1024).read_to_string(&mut body).map_err(|e| e.to_string())?;
+        let mut value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if let Some(error) = value.get("error").and_then(|v| v.as_str()) { return Err(error.to_owned()); }
+        if action == "pair" {
+            let dns = tailscale_dns_name().ok_or("Adresse Tailscale introuvable")?;
+            value["gatewayUrl"] = serde_json::json!(format!("https://{dns}:8443"));
+        }
+        Ok(value)
+    }).await.map_err(|e| e.to_string())?
+}

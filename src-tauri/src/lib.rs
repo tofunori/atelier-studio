@@ -63,6 +63,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             atelier::start_atelier,
+            remote_gateway::remote_device_action,
             atelier::gallery_token,
             appsnap::appsnap_get_state,
             appsnap::appsnap_read_capture,

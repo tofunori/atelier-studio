@@ -4,12 +4,13 @@ import { Button, IconButton } from "./ui";
 
 export default function Banner(p: {
   text: string;
+  connection?: boolean;
   actionLabel?: string;
   onAction?: () => void;
   onClose?: () => void;
 }) {
   return (
-    <div role="status" className="top-banner">
+    <div role="status" className={`top-banner${p.connection ? " connection-banner" : ""}`}>
       <span className="top-banner-text">{p.text}</span>
       {p.actionLabel && p.onAction && (
         <Button variant="ghost" onClick={p.onAction}>

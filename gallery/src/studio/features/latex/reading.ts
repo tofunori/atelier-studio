@@ -18,7 +18,16 @@ interface ReadingBlock {
   name?: string;
 }
 
+export interface ReadingContext {
+  citations?: Record<string, {label: string; title: string; url?: string}>;
+  references?: Record<string, string>;
+  referenceTargets?: Record<string, {path: string; line: number; external?: boolean}>;
+  macros?: Record<string, string>;
+}
+
 export interface LatexReadingOptions {
+  getContext?(): ReadingContext;
+  openPdfAtLine?(line: number, target?: {path: string; line: number; external?: boolean}): void;
   getEditor(): StudioEditor | null;
   right: HTMLElement;
   splitButton: HTMLElement;
@@ -38,7 +47,8 @@ export interface LatexReadingOptions {
   onProseSelectionCleared?(): void;
   /** Annotations du fichier (texte source + couleur) : la Lecture les surligne
    *  dans la prose rendue. Absent = pas de surlignage. */
-  getAnnotations?(): readonly {text: string; from: StudioPosition; color?: string}[];
+  getAnnotations?(): readonly {id?:string; text: string; from: StudioPosition; color?: string;kind?:string;number?:number}[];
+  onAnnotationClick?(id:string, anchor:{left:number;top:number;bottom:number}):void;
   /** Un paragraphe édité sur place vient d'être appliqué au buffer : l'hôte
    *  déclenche sa sauvegarde habituelle. Absent = pas d'édition en Lecture. */
   onBlockEdited?(): void;
@@ -71,13 +81,15 @@ export interface LatexReadingController {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export function renderLatexReadingHtml(source: string, katex: KatexRenderer): string {
+export function renderLatexReadingHtml(source: string, katex: KatexRenderer, context: ReadingContext = {}): string {
   const fullSource = String(source || "");
   const documentMatch = /\\begin\{document\}([\s\S]*?)\\end\{document\}/.exec(fullSource);
-  let body = documentMatch?.[1] || fullSource;
+  let body = documentMatch
+    ? fullSource.slice(0, documentMatch.index + "\\begin{document}".length).replace(/[^\n]/g, "") + documentMatch[1]
+    : fullSource;
   body = body.replace(/(^|[^\\])%.*$/gm, "$1");
   // Plomberie TeX : entre \makeatletter et \makeatother vivent des définitions
   // de macros, jamais de la prose. Sans ce retrait, un fragment sans
@@ -92,16 +104,23 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   body = body.replace(/^[ \t]*\\(?:ifdefined|ifx|else|fi|expandafter|endinput|input|include|def|makeatletter|makeatother)\b.*$/gm, "");
 
   const math: Array<{source: string; display: boolean}> = [];
-  const stash = (tex: string, display: boolean): string => {
+  const stash = (tex: string, display: boolean, original: string): string => {
     math.push({source: tex.trim(), display});
-    return `\x00M${math.length - 1}\x00`;
+    // Continuation markers retain physical source lines without creating
+    // paragraph boundaries inside an equation or an inline formula.
+    return `\x00M${math.length - 1}\x00` + "\n\x00C\x00".repeat((original.match(/\n/g) || []).length);
   };
-  body = body.replace(/\$\$([\s\S]+?)\$\$/g, (_match, text: string) => stash(text, true));
-  body = body.replace(/\\\[([\s\S]+?)\\\]/g, (_match, text: string) => stash(text, true));
-  body = body.replace(/\\begin\{(equation|align|equation\*|align\*|gather|gather\*)\}([\s\S]*?)\\end\{\1\}/g,
-    (_match, _environment: string, text: string) => stash(text, true));
-  body = body.replace(/\$([^$]+?)\$/g, (_match, text: string) => stash(text, false));
-  body = body.replace(/\\\(([\s\S]+?)\\\)/g, (_match, text: string) => stash(text, false));
+  body = body.replace(/\$\$([\s\S]+?)\$\$/g, (whole, text: string) => stash(text, true, whole));
+  body = body.replace(/\\\[([\s\S]+?)\\\]/g, (whole, text: string) => stash(text, true, whole));
+  body = body.replace(/\\begin\{(equation\*?|align\*?|gather\*?|multline\*?)\}([\s\S]*?)\\end\{\1\}/g,
+    (whole, environment: string, text: string) => {
+      const name = environment.replace("*", "");
+      const inner = text.replace(/\\label\{[^}]*\}/g, "");
+      const wrapper = name === "align" ? "aligned" : name === "gather" || name === "multline" ? "gathered" : "";
+      return stash(wrapper ? `\\begin{${wrapper}}${inner}\\end{${wrapper}}` : inner, true, whole);
+    });
+  body = body.replace(/(?<!\\)\$([^$]+?)(?<!\\)\$/g, (whole, text: string) => stash(text, false, whole));
+  body = body.replace(/\\\(([\s\S]+?)\\\)/g, (whole, text: string) => stash(text, false, whole));
 
   const lines = body.split("\n");
   const blocks: ReadingBlock[] = [];
@@ -119,7 +138,9 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   };
 
   for (let index = 0; index < lines.length; index += 1) {
-    const line = (lines[index] || "").trim();
+    const rawLine = (lines[index] || "").trim();
+    if (rawLine === "\x00C\x00") { if (paragraph.length) paragraphEnd = index + 1; continue; }
+    const line = rawLine.replace(/\x00C\x00/g, "");
     const sourceLine = index + 1;
     let match: RegExpExecArray | null;
     if (!line) {
@@ -159,7 +180,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
       }
       let end = index + 1;
       while (end < lines.length && !new RegExp(`\\\\end\\{${environment}`).test(lines[end] || "")) end += 1;
-      if (environment !== "thebibliography") blocks.push({type: "env", name: environment, line: sourceLine});
+      if (environment !== "thebibliography") blocks.push({type: "env", name: environment, text: lines.slice(index, end + 1).join("\n"), line: sourceLine});
       index = end;
       continue;
     }
@@ -176,8 +197,18 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
   flushParagraph();
   flushList();
 
+  const renderUnit = (unit: string): string => {
+    const symbols: Record<string, string> = {metre:"m", meter:"m", second:"s", gram:"g", kilogram:"kg", kelvin:"K", celsius:"°C", degreeCelsius:"°C", joule:"J", watt:"W", pascal:"Pa", mole:"mol", percent:"%", kilo:"k", milli:"m", micro:"µ", nano:"n", per:"/", squared:"²", cubed:"³"};
+    return unit.replace(/\\([a-zA-Z]+)/g, (full, name: string) => symbols[name] ?? full);
+  };
   const inline = (value: string): string => {
+    const generated: string[] = [];
+    const protect = (html: string): string => {generated.push(html); return `\x00H${generated.length - 1}\x00`;};
     let output = escapeHtml(value)
+      .replace(/\{,\}/g, ",")
+      .replace(/\\(?:SI|qty)(?:\[[^\]]*\])?\{([^{}]*)\}\{([^{}]*)\}/g, (_m, n: string, unit: string) => `${n} ${renderUnit(unit)}`)
+      .replace(/\\(?:si|unit)(?:\[[^\]]*\])?\{([^{}]*)\}/g, (_m, unit: string) => renderUnit(unit))
+      .replace(/\\[,;:]/g, " ").replace(/\\!/g, "")
       .replace(/---/g, "—").replace(/--/g, "–")
       .replace(/``/g, "“").replace(/''/g, "”").replace(/`/g, "‘")
       .replace(/~/g, " ")
@@ -193,20 +224,46 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
         .replace(/\\texttt\{([^{}]*)\}/g, "<code>$1</code>")
         .replace(/\\underline\{([^{}]*)\}/g, "<u>$1</u>");
     }
-    output = output.replace(/\\(cite[a-z]*|citep|citet)\{([^}]*)\}/g, '<span class="tex-cite">[$2]</span>')
-      .replace(/\\(eqref|ref|autoref|cref|Cref)\{([^}]*)\}/g, '<span class="tex-ref">§$2</span>')
+    output = output.replace(/\\(cite[a-z]*)(?:\[([^\]]*)\])?(?:\[([^\]]*)\])?\{([^}]*)\}/g,
+      (_match, command: string, first: string, second: string, keys: string) => {
+        const refs = keys.split(",").map(key => {
+          const entry = context.citations?.[key.trim()];
+          const label = entry?.label || key.trim();
+          const title = entry?.title || `Référence non résolue : ${key.trim()}`;
+          const href = entry?.url && /^https?:\/\//i.test(entry.url) ? ` href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer"` : "";
+          const tag = href ? "a" : "span";
+          return protect(`<${tag} class="tex-cite"${href} tabindex="0" title="${escapeHtml(title)}">${escapeHtml(label)}</${tag}>`);
+        }).join("; ");
+        return `${second ? first + " " : ""}${command === "citet" ? refs : "(" + refs + ")"}${first ? ", " + (second || first) : ""}`;
+      })
+      .replace(/\\(eqref|ref|autoref|cref|Cref)\{([^}]*)\}/g, (_m, kind: string, key: string) => {
+        const label = context.references?.[key];
+        return protect(`<button type="button" class="tex-ref" data-tex-ref="${escapeHtml(key)}" title="Voir dans le PDF">${escapeHtml(label ? (kind === "eqref" ? `(${label})` : label) : `§${key}`)}</button>`);
+      })
       .replace(/\\label\{[^}]*\}/g, "")
-      .replace(/\\footnote\{([\s\S]*?)\}/g, '<sup class="tex-fn" title="$1">*</sup>')
-      .replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, '<a href="$1">$2</a>')
-      .replace(/\\url\{([^}]*)\}/g, '<a href="$1">$1</a>');
-    for (let pass = 0; pass < 4; pass += 1) output = output.replace(/\\[a-zA-Z]+\*?\{([^{}]*)\}/g, "$1");
-    return output.replace(/\\[a-zA-Z]+\*?/g, "").replace(/[{}]/g, "");
+      .replace(/\\footnote\{([^{}]*)\}/g, (_m, note: string) => {
+        // Input text is already HTML-escaped. Resolve embedded citations and
+        // math to text before placing it in an attribute, never KaTeX HTML.
+        const title = note.replace(/\x00H(\d+)\x00/g, (_h, index: string) => generated[Number(index)] || "")
+          .replace(/<[^>]*>/g, "")
+          .replace(/\x00M(\d+)\x00/g, (_h, index: string) => escapeHtml(math[Number(index)]?.source || ""));
+        return protect(`<sup class="tex-fn" title="${title}">*</sup>`);
+      })
+      .replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, (_m, url: string, label: string) => /^https?:\/\//i.test(url) ? protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`) : label)
+      .replace(/\\url\{([^}]*)\}/g, (_m, url: string) => /^https?:\/\//i.test(url) ? protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) : url);
+    // Unsupported commands remain legible and inspectable, never discarded.
+    output = output.replace(/\\([a-zA-Z]+)\*?(?:\{[^{}]*\})*/g, (command, name: string) => {
+      const macro = context.macros?.[`\\${name}`];
+      return macro && !macro.includes("\\") ? escapeHtml(macro) + command.slice(name.length + 1).replace(/[{}]/g, "") : `<code class="tex-unsupported" title="Commande LaTeX — consulter le PDF pour le rendu exact">${command}</code>`;
+    });
+    return output.replace(/\x00H(\d+)\x00/g, (_m, index: string) => generated[Number(index)] || "");
+
   };
   const withMath = (html: string): string => html.replace(/\x00M(\d+)\x00/g, (_match, rawIndex: string) => {
     const item = math[Number(rawIndex)];
     if (!item) return "";
     try {
-      return katex.renderToString(item.source, {displayMode: item.display, throwOnError: false, errorColor: "#e0726a"});
+      return katex.renderToString(item.source, {displayMode: item.display, throwOnError: false, errorColor: "#e0726a", macros: context.macros || {}});
     } catch {
       return `<span class="tex-matherr">${escapeHtml(item.source)}</span>`;
     }
@@ -219,7 +276,8 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
       const items = (block.items || []).map((item) => `<li data-line="${item.line}">${withMath(inline(item.text))}</li>`).join("");
       return `<${tag}>${items}</${tag}>`;
     }
-    return `<div class="tex-env" data-line="${block.line}">[ ${block.name} ]</div>`;
+    const caption = /\\caption(?:\[[^\]]*\])?\{([^{}]*)\}/.exec(block.text || "")?.[1];
+    return `<figure class="tex-env" data-line="${block.line}"><figcaption>${caption ? withMath(inline(caption)) : block.name}</figcaption><button type="button" data-pdf-line="${block.line}">Voir ${block.name === "figure" ? "la figure" : "le tableau"} dans le PDF</button></figure>`;
   }).join("\n");
 }
 
@@ -231,6 +289,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer): st
  *  sélectionner « 500 m » ne retrouvait jamais « 500~m » (48 tildes dans un
  *  chapitre de méthodes réel : le cas n'est pas marginal). */
 const RENDER_SUBSTITUTIONS: ReadonlyArray<[string, string]> = [
+  ["{,}", ","],
   ["---", "—"], ["--", "–"], ["``", "“"], ["''", "”"], ["`", "‘"],
   ["\\%", "%"], ["\\&", "&"], ["\\_", "_"], ["\\#", "#"], ["\\$", "$"],
   ["\\ ", " "], ["~", " "],
@@ -517,17 +576,26 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   segment.appendChild(editButton);
   segment.appendChild(options.splitButton);
   segment.appendChild(readButton);
+  for (const [button, label] of [[editButton, "Écrire"], [options.splitButton, "PDF"], [readButton, "Lire"]] as const) {
+    const caption = doc.createElement("span"); caption.className = "mode-label"; caption.textContent = label; button.appendChild(caption);
+  }
   let enabled = false;
   let frame = 0;
   let bound = false;
 
   const render = (): void => {
     frame = 0;
-    try { reading.innerHTML = renderLatexReadingHtml(options.getEditor()?.getValue() || "", options.katex); }
+    const viewportTop = options.right.getBoundingClientRect().top;
+    const anchor = Array.from(reading.querySelectorAll<HTMLElement>("[data-line]")).find(el => el.getBoundingClientRect().bottom > viewportTop);
+    const anchorLine = anchor?.dataset.line;
+    const offset = anchor ? anchor.getBoundingClientRect().top - viewportTop : 0;
+    try { reading.innerHTML = renderLatexReadingHtml(options.getEditor()?.getValue() || "", options.katex, options.getContext?.()); }
     catch (error) { reading.innerHTML = `<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`; }
     applyAnnotationHighlights();
     applyDiffMarks();   // le rendu est reconstruit à chaque frappe : repeindre
     options.onRendered?.();
+    const restored = anchorLine && reading.querySelector<HTMLElement>(`[data-line="${anchorLine}"]`);
+    if (restored) options.right.scrollTop += restored.getBoundingClientRect().top - viewportTop - offset;
   };
   const syncMode = (): void => {
     editButton.classList.toggle("on", options.right.style.display === "none" && !enabled);
@@ -559,9 +627,19 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     options.setPdfVisible(false);
     syncMode();
   };
-  options.splitButton.addEventListener("click", () => { if (enabled) setRead(false); });
   options.popPdfButton?.addEventListener("click", () => { if (enabled) setRead(false); });
   reading.addEventListener("click", (event) => {
+    const target = event.target as Element | null;
+    if (target?.closest("a")) return;
+    const pdfTarget = target?.closest<HTMLElement>("[data-pdf-line], [data-tex-ref]");
+    if (pdfTarget) {
+      event.preventDefault();
+      const line = Number(pdfTarget.dataset.pdfLine || pdfTarget.closest<HTMLElement>("[data-line]")?.dataset.line || 1);
+      const reference = pdfTarget.dataset.texRef;
+      const destination = reference ? options.getContext?.().referenceTargets?.[reference] : undefined;
+      if (destination?.external) { options.openPdfAtLine?.(destination.line, destination); return; }
+      setRead(false); options.setPdfVisible(true); options.openPdfAtLine?.(destination?.line || line, destination); return;
+    }
     // Une sélection en cours n'est pas un clic de navigation : sans ça, finir
     // de surligner un passage renverrait aussitôt vers la source.
     if (!win.getSelection()?.isCollapsed) return;
@@ -649,7 +727,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // API CSS Custom Highlight : aucun nœud ajouté, donc les ancres `data-line`
   // et le calcul de sélection restent intacts. Les couleurs répondent à celles
   // des marques de l'éditeur (SWATCHES d'annotations.ts, alpha adouci).
-  const HIGHLIGHT_COLORS: readonly string[] = ["amber", "red", "blue", "green", "purple"];
+  const HIGHLIGHT_COLORS: readonly string[] = ["amber", "red", "blue", "green", "purple", "comment"];
   const blockForLine = (line: number): HTMLElement | null => {
     let best: HTMLElement | null = null;
     for (const el of reading.querySelectorAll<HTMLElement>("[data-line]")) {
@@ -702,6 +780,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     return block ? locateText(block, annotation.text) : null;
   };
   const applyAnnotationHighlights = (): void => {
+    reading.querySelectorAll(".texread-annotation-number").forEach(node=>node.remove());
     const registry = (win as unknown as {CSS?: {highlights?: Map<string, unknown>}}).CSS?.highlights;
     const HighlightCtor = (win as unknown as {Highlight?: new (...ranges: Range[]) => unknown}).Highlight;
     if (!registry || !HighlightCtor) return;
@@ -711,13 +790,34 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     for (const annotation of options.getAnnotations()) {
       const span = locateAnnotation(annotation);
       if (!span) continue;
-      const color = HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber";
+      const color = annotation.kind === "hl" ? (HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber") : "comment";
       const list = byColor.get(color) || [];
       list.push(span);
       byColor.set(color, list);
+      if(annotation.id && annotation.kind !== "hl") {
+        const rect=span.getBoundingClientRect(), box=reading.getBoundingClientRect();
+        const badge=doc.createElement("button");
+        badge.className="atelier-annotation-number texread-annotation-number";
+        badge.textContent=String(annotation.number || options.getAnnotations().filter(a=>a.kind!=="hl").indexOf(annotation)+1);
+        badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
+        reading.style.position="relative";
+        badge.style.left=Math.max(0,rect.left-box.left-25)+"px";badge.style.top=(rect.top-box.top)+"px";
+        badge.onclick=event=>{event.stopPropagation();options.onAnnotationClick?.(annotation.id!,badge.getBoundingClientRect());};
+        reading.appendChild(badge);
+      }
     }
     for (const [color, list] of byColor) registry.set(`texc-read-${color}`, new HighlightCtor(...list));
   };
+  reading.addEventListener("click",event=>{
+    if(win.getSelection()?.toString().trim()) return;
+    for(const annotation of options.getAnnotations?.() || []) {
+      if(!annotation.id) continue;
+      const range=locateAnnotation(annotation);
+      const hit=range && [...range.getClientRects()].find(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom);
+      if(hit){event.stopPropagation();options.onAnnotationClick?.(annotation.id,hit);return;}
+    }
+  });
+  if(typeof ResizeObserver!=="undefined") new ResizeObserver(()=>{if(enabled)applyAnnotationHighlights();}).observe(reading);
   // ---- édition sur place : double-clic sur un paragraphe -------------------
   // Le rendu est irréversible mot à mot (citations, math, commandes) : on
   // n'édite donc jamais la prose rendue, mais le SOURCE du bloc, que le rendu
@@ -773,6 +873,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   reading.addEventListener("dblclick", (event) => {
     const holder = (event.target as Element | null)?.closest<HTMLElement>("p[data-line-end]");
     if (!holder || !enabled) return;
+    if ((event.target as Element | null)?.closest("a, button, .katex, .tex-unsupported")) return;
     event.preventDefault();
     win.getSelection()?.removeAllRanges();
     options.onProseSelectionCleared?.();

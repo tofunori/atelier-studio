@@ -11,6 +11,7 @@ interface PdfViewport {
 }
 
 interface PdfPage {
+  getTextContent?(): Promise<unknown>;
   getViewport(options: {scale: number}): PdfViewport;
   render(options: {canvasContext: CanvasRenderingContext2D; viewport: PdfViewport; intent: string}): {promise: Promise<unknown>};
 }
@@ -21,6 +22,7 @@ interface PdfDocument {
 }
 
 export interface PdfJs {
+  renderTextLayer?(options: Record<string, unknown>): {promise: Promise<unknown>};
   getDocument(options: Record<string, unknown>): {promise: Promise<PdfDocument>};
 }
 
@@ -39,6 +41,8 @@ export interface LatexPdfSyncOptions {
   path: string;
   isPdfMode: boolean;
   getPdfPath(): string | null;
+  getPdfCandidates?(): readonly string[];
+  selectPdf?(path: string): void;
   getZoom(): number;
   getEditor(): SyncEditor | null;
   right: HTMLElement;
@@ -77,6 +81,20 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   // évincé au-delà de MAX_LIVE_PAGES — un article de 40 pages ne garde plus
   // des centaines de Mo de canvas résidents (audit perf 2026-08-28).
   const MAX_LIVE_PAGES = 6;
+  const status = doc.createElement("div");
+  status.className = "pdf-load-status";
+  status.setAttribute("role", "status");
+  options.right.appendChild(status);
+  const pdfVariants = doc.createElement("section"); pdfVariants.className = "pdf-variants"; pdfVariants.hidden = true;
+  doc.getElementById("morePop")?.appendChild(pdfVariants);
+  const showStatus = (message: string, retry = false): void => {
+    status.replaceChildren(); status.hidden = !message;
+    status.appendChild(doc.createTextNode(message));
+    if (retry) {
+      const button = doc.createElement("button"); button.textContent = "Réessayer";
+      button.onclick = () => { void loadPdf(); }; status.appendChild(button);
+    }
+  };
   let pdfDocument: PdfDocument | null = null;
   let pages: Array<HTMLElement | undefined> = [];
   let viewports: Array<{scale: number; height: number} | undefined> = [];
@@ -170,7 +188,30 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   const loadPdf = async (): Promise<void> => {
     const token = ++loadToken;
     const pdfPath = options.getPdfPath();
-    if (!pdfPath) return;
+    const candidates = options.getPdfCandidates?.() || [];
+    pdfVariants.replaceChildren(); pdfVariants.hidden = candidates.length < 2;
+    if (candidates.length > 1) {
+      for (const path of candidates) {
+        const item = doc.createElement("div"); item.dataset.act = "pdfvariant"; item.dataset.pdfPath = path;
+        item.setAttribute("role", "menuitemradio"); item.setAttribute("aria-checked", String(path === pdfPath)); item.tabIndex = 0;
+        item.textContent = `${path === pdfPath ? "✓ " : ""}${path}`; item.title = "Afficher ce PDF compilé";
+        item.onclick = () => {options.selectPdf?.(path); void loadPdf();};
+        item.onkeydown = event => {if (event.key === "Enter" || event.key === " ") {event.preventDefault(); item.click();}};
+        pdfVariants.appendChild(item);
+      }
+    }
+    if (!pdfPath && candidates.length) {
+      showStatus("Plusieurs PDF compilés existent. Choisis celui à afficher.");
+      const select = doc.createElement("select"); select.setAttribute("aria-label", "PDF compilé à afficher");
+      const placeholder = doc.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choisir un PDF…"; select.appendChild(placeholder);
+      for (const path of candidates) { const option = doc.createElement("option"); option.value = path; option.textContent = path; select.appendChild(option); }
+      select.value = pdfPath || "";
+      select.onchange = () => {if (select.value) {options.selectPdf?.(select.value); void loadPdf();}};
+      status.appendChild(select);
+      return;
+    }
+    if (!pdfPath) { showStatus("Compile le document pour afficher son PDF."); return; }
+    showStatus("Chargement du PDF…");
     try {
       const loaded = await options.pdfjs.getDocument({
         url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}&t=${Date.now()}`,
@@ -180,6 +221,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       }).promise;
       if (token !== loadToken) return;
       pdfDocument = loaded;
+      showStatus("");
       const scroll = options.right.scrollTop;
       // Rechargement (compilation) : plus d'observer résident sur les gabarits
       // détruits, plus de canvas vivant pointant vers du DOM disparu.
@@ -244,6 +286,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
           element.prepend(canvas);
           liveCanvases.set(pageNumber, canvas);
           if (liveCanvases.size > MAX_LIVE_PAGES) evictFarthest(pageNumber);
+          if (!element.querySelector(".textLayer") && page.getTextContent && options.pdfjs.renderTextLayer) {
+            const layer = doc.createElement("div"); layer.className = "textLayer";
+            layer.style.setProperty("--scale-factor", String(info.scale));
+            element.appendChild(layer);
+            try {
+              const text = await page.getTextContent();
+              if (token !== loadToken) return;
+              await options.pdfjs.renderTextLayer({textContentSource: text, container: layer, viewport}).promise;
+            } catch { layer.remove(); /* a text extraction failure never discards the page image */ }
+          }
         } finally {
           // Toujours libérer — y compris sur l'abandon `token !== loadToken` —
           // sinon une page reste marquée "en cours" à vie après un rechargement
@@ -269,6 +321,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         // Coordonnées lues sur le gabarit (toujours présent), jamais sur le
         // canvas — la page peut ne pas encore être rendue au moment du clic.
         element.onclick = (event) => {
+          if (win.getSelection && !win.getSelection()?.isCollapsed) return;
           const rect = element.getBoundingClientRect();
           const info = viewports[pageNumber];
           if (!info) return;
@@ -308,6 +361,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
 
       options.right.scrollTop = scroll;
     } catch (error) {
+      if (token === loadToken) showStatus("PDF indisponible. Compile le document, puis réessaie.", true);
       console.warn("loadPdf:", error);
     }
   };

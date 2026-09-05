@@ -36,22 +36,7 @@
     +'.akBar button:hover{background:#2c313a;color:var(--txt,#dbdfe5)}'
     +'.akBar button.sel{background:#2c313a;color:var(--txt,#dbdfe5);border:none}'
     +'.akBar input[type=color]{width:30px;height:28px;border:none;background:none;cursor:pointer;padding:0}'
-    +'.akNote{position:fixed;z-index:903;display:none;align-items:stretch;gap:0;min-width:340px;max-width:480px;overflow:hidden;'
-    +'background:var(--card,#1a1d22);border:1px solid var(--border,#333a45);border-radius:10px;padding:0;'
-    +'box-shadow:0 12px 36px rgba(0,0,0,.45);font:var(--fs-body, 13px) var(--ui-font,-apple-system,system-ui,sans-serif);color:var(--txt,#e6e7ea)}'
-    +'.akNote .nb{color:var(--muted,#868d9a);font-size:var(--fs-body-s, 12px);font-weight:600;flex:none;display:flex;align-items:center;padding:0 12px;background:#262b31;border-right:1px solid var(--border,#333a45)}'
-    +'.akNote textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt,#e6e7ea);'
-    +'font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}'
-    +'.akNote textarea::placeholder{color:var(--muted,#6d7480)}'
-    +'.akNote .del{width:36px;border-radius:0;background:none;border:none;border-left:1px solid var(--border,#333a45);color:var(--muted,#646d7b);'
-    +'cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}'
-    +'.akNote .del:hover{background:#2c313a;color:#ff8a8a}'
-    +'.akNote .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;'
-    +'stroke-linecap:round;stroke-linejoin:round}'
-    +'.akNote .anSave{width:36px;border-radius:0;background:none;color:var(--muted,#b6bdc7);border:none;border-left:1px solid var(--border,#333a45);'
-    +'font-size:var(--fs-body, 13px);font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;'
-    +'flex:none;font-family:inherit}'
-    +'.akNote .anSave:hover{background:#2c313a;color:#fff}'
+    +'.akNote{position:fixed;z-index:903;display:none}'
     +'.akPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:902;display:none;'
     +'align-items:center;gap:12px;background:var(--card,rgba(24,27,34,.97));border:1px solid var(--border,#3a4150);border-radius:999px;'
     +'padding:7px 7px 7px 18px;box-shadow:0 10px 36px rgba(0,0,0,.5);color:var(--txt,#dbdfe5);font:calc(var(--ui-base-size, 15px) * 13.5 / 15) var(--ui-font,-apple-system,system-ui,sans-serif)}'
@@ -89,6 +74,14 @@
     ensureStyle();
     var overlay = host.overlay;
     var strokes = [], cur = null, tool = 'ellipse', enabled = false;
+    var pendingNotes = new Map();
+    var noteRelation = 'figure-comments:' + host.name();
+    window.addEventListener('message',function(event){
+      var d=event.data;
+      if(event.source!==window.top || d?.type!=='atelier-pdf-annotation-consumed' || d.rel!==noteRelation || d.nonce!==window.__atelierNonce)return;
+      var sent=pendingNotes.get(d.id);if(!sent)return;
+      strokes=strokes.filter(function(s){return !sent.some(function(a){return a.stroke===s && a.note===s.note;});});pendingNotes.delete(d.id);renumber();redraw();pillUpdate();
+    });
 
     var bar = el('<div class="akBar">'
       +'<button data-tool="ellipse" class="sel" title="Encercler (1)">&#9711;</button>'
@@ -98,13 +91,10 @@
       +'<button class="akUndo" title="Annuler le dernier tracé">&#8630;</button>'
       +'<button class="akClear" title="Tout effacer">&#10006;</button>'
       +'</div>');
-    var note = el('<div class="akNote">'
-      +'<span class="nb">1</span>'
-      +'<textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea>'
-      +'<button class="del" title="Supprimer cette annotation (Échap : annuler)">'
-      +'<svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3'
-      +'M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button>'
-      +'<button class="anSave" title="Enregistrer (Entrée)">&#10003;</button></div>');
+    var note = el('<div class="akNote"></div>');
+    window.AtelierAnnotationUI.createNoteEditor(note,{onSubmit:function(){},onDelete:function(){}});
+    note.querySelector('.delete-note').classList.add('del');
+    note.querySelector('.send2').classList.add('anSave');
     var pill = el('<div class="akPill"><span>&#128172;</span><span class="n"></span>'
       +'<button class="tg" title="Choisir la session Claude cible">&#9678;</button>'
       +'<button class="x" title="Supprimer les commentaires sans envoyer">&#10005;</button>'
@@ -186,8 +176,8 @@
       var inp = note.querySelector('textarea');
       var isEdit = !!stroke.note;
       if (!stroke.n) stroke.n = strokes.filter(function(s){ return s.n; }).length + 1;
-      note.querySelector('.nb').textContent = stroke.n;
-      note.style.display = 'flex';
+
+      note.style.display = 'block';
       // positionnement adaptatif : sous le point par défaut, basculé à gauche /
       // au-dessus quand la place manque (la carte grandit avec le textarea)
       var place = function(){
@@ -314,16 +304,20 @@
       var x = out.getContext('2d');
       x.drawImage(base.src, 0, 0, base.w, base.h);
       redraw(x, base.w / overlay.width);
+      var sentNotes=strokes.filter(function(s){return s.note;}).map(function(s){return {stroke:s,note:s.note,n:s.n};});
       var r = await fetch('/save', {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: host.name(), dataURL: out.toDataURL('image/png'), direct: !!direct,
           target: getTarget(), embed: EMBEDDED,
-          notes: strokes.filter(function(s){ return s.note; }).map(function(s){ return {n: s.n, text: s.note}; })})});
+          notes: sentNotes.map(function(s){ return {n:s.n,text:s.note}; })})});
+      if(!r.ok)throw new Error("save "+r.status);
       var j = await r.json();
       // Chemin + figure source + vignette : sans eux, le chat n'affichait que le
       // nom du fichier genere (horodate) au-dessus d'une bulle vide. Le contrat
       // IPC (src/lib/ipc.ts) accepte deja ces trois champs.
       if (EMBEDDED && j && j.message) {
-        var msg = {type: 'atelier-add-to-chat', text: j.message};
+        var noteId=crypto.randomUUID();
+        pendingNotes.set(noteId,sentNotes);
+        var msg = {type: 'atelier-add-to-chat', text: j.message,pdfAnnotation:{rel:noteRelation,id:noteId}};
         if (j.path) {
           msg.path = j.path;
           var source = String(host.name() || '').split('/').pop();
@@ -351,7 +345,7 @@
       try{
         await send(true);
         go.textContent = '✓';
-        strokes = []; setTimeout(function(){ go.textContent = '↑'; shutdown(); }, 1500);
+        if(!EMBEDDED)strokes = []; setTimeout(function(){ go.textContent = '↑'; if(!EMBEDDED)shutdown(); }, 1500);
       }catch(e){
         go.textContent = '!';
         setTimeout(function(){ go.textContent = '↑'; }, 1800);

@@ -140,6 +140,19 @@ describe("polling getAgentHistory", () => {
     vi.useRealTimers();
   });
 
+  it("applique une révision à taille constante sans rematérialiser les doublons", async () => {
+    const { sock } = await mountApp();
+    await openAgentPane(sock);
+    const message = { type: "agentHistory", parentThreadId: THREAD_A.id, agentThreadId: AGENT_ID };
+    await push(sock, { ...message, revision: "pending", events: [{ kind: "text", text: "En cours" }] });
+    const first = harnessSpies.materialize.mock.calls.length;
+    await push(sock, { ...message, revision: "completed", events: [{ kind: "text", text: "Résultat final" }] });
+    expect(harnessSpies.materialize.mock.calls.length).toBe(first + 1);
+    expect(document.querySelector(".agent-transcript")).toHaveTextContent("Résultat final");
+    await push(sock, { ...message, revision: "completed", events: [{ kind: "text", text: "Résultat final" }] });
+    expect(harnessSpies.materialize.mock.calls.length).toBe(first + 1);
+  });
+
   it("interroge pendant le tour parent puis s'arrête au done", async () => {
     const { sock } = await mountApp();
     await openAgentPane(sock);

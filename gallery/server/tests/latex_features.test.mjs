@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import katex from "katex";
+import {JSDOM} from "jsdom";
 
 const source = await readFile(new URL("../../assets/latex_features.bundle.js", import.meta.url), "utf8");
 const context = {};
@@ -401,4 +403,219 @@ test("rail : l encoche « ici » suit le defilement, et le bas du document est d
   // sinon la fin n est jamais designee
   assert.equal(latex.activeMargeIndex(tops, 0, true), 3);
   assert.equal(latex.activeMargeIndex([], 100, false), -1);
+});
+
+
+test("reading keeps physical lines through preambles and multiline equations", () => {
+  const text = String.raw`\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+Before.
+
+\begin{align}
+x &= 1 \\
+y &= 2
+\end{align}
+
+\section{After}
+The paragraph to edit.
+\end{document}`;
+  const html = latex.renderLatexReadingHtml(text, katex);
+  assert.match(html, /<p data-line="4" data-line-end="4">Before/);
+  assert.match(html, /data-line="6" data-line-end="9"/);
+  assert.match(html, /<h2 data-line="11">After/);
+  assert.match(html, /<p data-line="12" data-line-end="12">The paragraph to edit/);
+  assert.doesNotMatch(html, /katex-error/);
+});
+
+test("reading preserves units and exposes unsupported commands rather than deleting them", () => {
+  const html = latex.renderLatexReadingHtml(String.raw`50\,\% at \SI{10}{\metre\per\second}; \custom{important}.`, katex);
+  assert.match(html, /50 %/);
+  assert.match(html, /10 m\/s/);
+  assert.match(html, /tex-unsupported/);
+  assert.match(html, /custom\{important\}/);
+});
+
+test("BibTeX nested fields and compiled references become readable context", () => {
+  const context = latex.parseReadingContext(String.raw`\newcommand{\SFrobustness}{S3}`,
+    String.raw`@article{test, title={A {nested} title}, author={Smith, Jane and Jones, Amy}, year={2024}, doi={10.1234/test}}`,
+    String.raw`\newlabel{eq:model}{{3}{7}{Title}{equation.3}{}}`);
+  assert.equal(context.citations.test.label, "Smith & Jones, 2024");
+  assert.equal(context.citations.test.title, "A nested title");
+  assert.equal(context.references["eq:model"], "3");
+  const html = latex.renderLatexReadingHtml(String.raw`See \citep{test}, \eqref{eq:model}, Fig.\SFrobustness.`, katex, context);
+  assert.match(html, /Smith &amp; Jones, 2024/);
+  assert.match(html, /https:\/\/doi.org\/10.1234\/test/);
+  assert.match(html, />\(3\)<\/button>/);
+  assert.match(html, /Fig.S3/);
+});
+
+test("reading context follows bibliography resources relative to the root", async () => {
+  const files = {"/project/main.tex": String.raw`\bibliography{refs} \input{sections/methods}`,
+    "/project/refs.bib": "@article{a,author={Doe, Jane},year={2025},title={Result}}",
+    "/project/sections/methods.tex": "Text", "/project/main.aux": String.raw`\newlabel{f}{{2}{4}}`};
+  const result = await latex.loadReadingContext("/project/main.tex", async p => files[p] || "");
+  assert.equal(result.citations.a.label, "Doe, 2025");
+  assert.equal(result.references.f, "2");
+});
+
+test("figure captions render math and zero-argument macros retain following groups", () => {
+  const html = latex.renderLatexReadingHtml(String.raw`\begin{figure}
+\caption{Effect on $\alpha$ over time.}
+\end{figure}
+
+Value \foo{ kg} in prose.`, katex, {macros:{"\\foo":"10"}});
+  assert.match(html, /<figcaption>Effect on <span class="katex"/);
+  assert.doesNotMatch(html, /\x00M/);
+  assert.match(html, /Value 10 kg in prose/);
+});
+
+test("external document prefixes keep local numbers and navigation together", async () => {
+  const files = {
+    "/doc/main.tex": String.raw`\externaldocument[ext-]{other} \label{fig:a}`,
+    "/doc/other.tex": String.raw`\label{fig:a}`,
+    "/doc/main.aux": String.raw`\newlabel{fig:a}{{1}{1}}`,
+    "/doc/other.aux": String.raw`\newlabel{fig:a}{{2}{1}}`,
+  };
+  const result = await latex.loadReadingContext("/doc/main.tex", async p => files[p] || "");
+  assert.equal(result.references["fig:a"], "1");
+  assert.equal(result.references["ext-fig:a"], "2");
+  assert.equal(result.referenceTargets["fig:a"].path, "/doc/main.tex");
+  assert.equal(result.referenceTargets["ext-fig:a"].external, true);
+});
+
+test("compiled aux children retain project-relative paths", async () => {
+  const files = {"manuscrit/main.tex": "", "build/main.aux": String.raw`\@input{sections/methods.aux}`, "build/sections/methods.aux": String.raw`\newlabel{sec:methods}{{3}{2}}`};
+  const result = await latex.loadReadingContext("manuscrit/main.tex", async p => files[p] || "", "build/main.aux");
+  assert.equal(result.references["sec:methods"], "3");
+});
+
+test("ambiguous compiled PDFs require a choice before loading", async () => {
+  const dom = new JSDOM('<div id="morePop"></div><div id="right"></div><div id="marker"></div>');
+  let selected = null;
+  const loaded = [];
+  const controller = latex.createLatexPdfSyncController({
+    path: "main.tex", isPdfMode: false, getPdfPath: () => selected,
+    getPdfCandidates: () => ["build/main.pdf", "archive/main.pdf"], selectPdf: p => {selected = p;},
+    getZoom: () => 1, getEditor: () => null,
+    right: dom.window.document.getElementById("right"), marker: dom.window.document.getElementById("marker"),
+    pdfjs: {getDocument: options => {loaded.push(options.url); return {promise: Promise.resolve({numPages: 0})};}},
+    channel: null, setState() {}, revealLine() {}, document: dom.window.document, window: dom.window,
+  });
+  await controller.loadPdf();
+  assert.equal(loaded.length, 0);
+  const select = dom.window.document.querySelector('select[aria-label="PDF compilé à afficher"]');
+  assert.equal(select.options.length, 3);
+  select.value = "build/main.pdf"; select.dispatchEvent(new dom.window.Event("change"));
+  await Promise.resolve();
+  assert.equal(selected, "build/main.pdf");
+  assert.match(loaded[0], /build%2Fmain.pdf/);
+  assert.equal(dom.window.document.querySelector('select[aria-label="PDF compilé à afficher"]'), null);
+  assert.equal(dom.window.document.querySelector('.pdf-file-choice'), null);
+  const change = dom.window.document.querySelector('#morePop [data-pdf-path="archive/main.pdf"]');
+  change.click();
+  await Promise.resolve();
+  assert.equal(selected, "archive/main.pdf");
+  assert.match(loaded[1], /archive%2Fmain.pdf/);
+  dom.window.close();
+});
+
+test("bibliographic TeX cannot become markup inside citation attributes", () => {
+  const context = latex.parseReadingContext("", String.raw`@article{a,author={Vehtari, Aki},year={2021},title={An improved $\widehat{R}$},doi={10.1214/test}}
+@misc{b,author={{RGI Consortium}},year={2023},title={Inventory}}
+@article{c,author={Mu\~noz-Sabater, Joaquin},year={2021},title={Climate}}`, "");
+  const html = latex.renderLatexReadingHtml(String.raw`333{,}126 pixels. \citep{a,b,c}`, katex, context);
+  const dom = new JSDOM(html);
+  const links = dom.window.document.querySelectorAll(".tex-cite");
+  assert.equal(links[0].textContent, "Vehtari, 2021");
+  assert.equal(links[0].getAttribute("title"), String.raw`An improved $\widehatR$`);
+  assert.equal(links[1].textContent, "RGI Consortium, 2023");
+  assert.equal(links[2].textContent, "Muñoz-Sabater, 2021");
+  assert.equal(dom.window.document.querySelectorAll(".tex-unsupported").length, 0);
+  assert.match(dom.window.document.body.textContent, /333,126 pixels/);
+  dom.window.close();
+});
+
+test("footnote tooltips keep formulas and nested citations as plain text", () => {
+  const html = latex.renderLatexReadingHtml(String.raw`Text\footnote{Score $\widehat{R}$; see \cite{a} and \ref{f}.}.`, katex,
+    {citations:{a:{label:"Smith, 2024",title:"Result"}}, references:{f:"2"}});
+  const dom = new JSDOM(html);
+  assert.equal(dom.window.document.querySelector("sup").getAttribute("title"), String.raw`Score \widehat{R}; see (Smith, 2024) and 2.`);
+  assert.equal(dom.window.document.body.textContent, "Text*.");
+  assert.doesNotMatch(html, /\x00/);
+  dom.window.close();
+});
+
+test("the reading and PDF controllers select Split in one click without toggling it closed", () => {
+  const dom = new JSDOM('<header><button id="togglePdf"></button></header><div id="left"></div><div id="right"></div>', {url:"http://localhost"});
+  const {document} = dom.window;
+  dom.window.fetch = async () => ({json: async () => ({})});
+  let controls;
+  const reader = latex.createLatexReadingController({
+    getEditor: () => null, right: document.getElementById("right"), splitButton: document.getElementById("togglePdf"),
+    setPdfVisible: visible => controls.setVisible(visible), revealLine() {}, katex, document, window: dom.window,
+  });
+  controls = latex.createLatexPdfControls({
+    path:"main.tex", isPdfMode:false, getPdfPath:()=>"main.pdf", getEditor:()=>null,
+    reloadPdf() {}, handleResize() {}, postMessage() {}, onVisibilityChange:()=>reader.syncMode(), onSelectSplit:()=>reader.setRead(false),
+    document, window:dom.window,
+  });
+  reader.setRead(true);
+  document.getElementById("togglePdf").click();
+  assert.equal(reader.isReading(), false);
+  assert.equal(controls.isVisible(), true);
+  document.getElementById("togglePdf").click();
+  assert.equal(controls.isVisible(), true);
+  document.getElementById("editBtn").click();
+  assert.equal(controls.isVisible(), false);
+  document.getElementById("togglePdf").click();
+  assert.equal(controls.isVisible(), true);
+  controls.destroy(); dom.window.close();
+});
+
+test("reading annotation opens the shared editor and deletes without switching to source", async()=>{
+  const dom=new JSDOM('<header><button id="togglePdf"></button></header><div id="left"></div><div id="right"></div><div id="pop"></div><div id="panel"></div><button id="annotations"></button>',{url:'http://localhost'});
+  const win=dom.window, doc=win.document;
+  const text='Un passage scientifique à annoter.';
+  const annotation={id:'a1',from:{line:0,ch:0},to:{line:0,ch:text.length},text,comment:'',kind:'hl',color:'blue'};
+  const writes=[], cleared=[];
+  win.fetch=async(_url,options)=>{if(options){writes.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};}return {ok:true,json:async()=>({annots:[annotation]})};};
+  win.CSS={highlights:new Map()};win.Highlight=class{constructor(...ranges){this.ranges=ranges;}};
+  const rect={left:40,right:400,top:100,bottom:125,width:360,height:25};
+  win.Range.prototype.getBoundingClientRect=()=>rect;win.Range.prototype.getClientRects=()=>[rect];
+  const editor={getValue:()=>text,getRange:()=>text,refresh(){},charCoords(){throw new Error('hidden source coordinates used');},markText:()=>({clear(){cleared.push(true);},find:()=>({from:annotation.from,to:annotation.to})})};
+  let reader;
+  const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('annotations'),postToHost(){},onMutated:()=>reader?.render(),document:doc,window:win});
+  reader=latex.createLatexReadingController({getEditor:()=>editor,right:doc.getElementById('right'),splitButton:doc.getElementById('togglePdf'),setPdfVisible(){},revealLine(){},katex,document:doc,window:win,getAnnotations:()=>notes.annotations(),onAnnotationClick:(id,anchor)=>notes.focus(id,anchor)});
+  await notes.load();reader.setRead(true);
+  doc.getElementById('texread').dispatchEvent(new win.MouseEvent('click',{bubbles:true,clientX:60,clientY:110}));
+  assert.equal(doc.getElementById('pop').style.display,'block');
+  assert.ok(doc.querySelector('.atelier-note-row'));
+  doc.querySelector('.delete-note').click();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(reader.isReading(),true);assert.equal(notes.annotations().length,0);
+  assert.deepEqual(writes.at(-1).annots,[]);assert.ok(cleared.length);dom.window.close();
+});
+
+test("LaTeX notes persist exact passages, keep their mark until authenticated delivery and retain failed drafts", async()=>{
+  const dom=new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>',{url:'http://localhost'});
+  const win=dom.window,doc=win.document,sends=[],writes=[];
+  win.__atelierNonce='test-nonce';let fail=false;
+  win.fetch=async(_url,options)=>{writes.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'disk'}:{ok:true}};};
+  const passage='Un passage très long '.repeat(40), from={line:4,ch:2},to={line:8,ch:5};
+  const editor={charCoords:()=>({left:40,top:80,bottom:100}),markText:()=>({clear(){},find:()=>({from,to})})};
+  const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost:p=>sends.push(p),document:doc,window:win});
+  notes.open({text:passage,from,to});
+  const input=doc.querySelector('textarea');input.value='Pourquoi ce seuil?\nAvec sa référence.';
+  input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true}));assert.equal(writes.length,0);
+  input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(sends.length,1);assert.ok(sends[0].text.includes(passage));assert.equal(notes.annotations().length,1);
+  const identity=sends[0].pdfAnnotation;
+  win.dispatchEvent(new win.MessageEvent('message',{source:win,data:{type:'atelier-pdf-annotation-consumed',...identity,nonce:'wrong'}}));
+  assert.equal(notes.annotations().length,1);
+  win.dispatchEvent(new win.MessageEvent('message',{source:win,data:{type:'atelier-pdf-annotation-consumed',...identity,nonce:'test-nonce'}}));
+  assert.equal(notes.annotations().length,0);await new Promise(r=>setTimeout(r,0));
+  fail=true;notes.open({text:passage,from,to});input.value='Garder ce brouillon';doc.querySelector('.send2').click();await new Promise(r=>setTimeout(r,0));
+  assert.equal(sends.length,1);assert.equal(input.value,'Garder ce brouillon');assert.equal(doc.getElementById('pop').style.display,'block');assert.match(doc.querySelector('[role=status]').textContent,/impossible/);
+  dom.window.close();
 });

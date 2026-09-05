@@ -4,7 +4,7 @@
 // remplace les anciennes marques « hl » / « ul » : une annotation sans
 // commentaire fait exactement le travail d'un surlignage, en mieux ancré.
 
-export type Mark = { text: string; kind: "an"; note?: string };
+export type Mark = { text: string; kind: "an"; note?: string; color?: string };
 
 // Les fils déjà ouverts portent des marques hl/ul dans localStorage : on les
 // relit comme des annotations muettes plutôt que de les jeter.
@@ -13,9 +13,10 @@ export function migrateMarks(raw: unknown): Mark[] {
   const out: Mark[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
-    const { text, note } = entry as { text?: unknown; note?: unknown };
+    const { text, note, color } = entry as { text?: unknown; note?: unknown; color?:unknown };
     if (typeof text !== "string" || !text.trim()) continue;
     out.push(typeof note === "string" && note ? { text, kind: "an", note } : { text, kind: "an" });
+    if(typeof color==="string") out[out.length-1]!.color=color;
   }
   return out;
 }
@@ -28,6 +29,7 @@ export const ANNOTATION_NO_NOTE = "(sans commentaire)";
 
 // Bloc unique envoyé à l'agent, en tête du contexte du prochain message.
 export function buildAnnotationBlock(marks: Mark[]): string {
+  marks=marks.filter(mark=>!mark.color);
   if (!marks.length) return "";
   const lines = [ANNOTATION_BLOCK_HEADER];
   marks.forEach((mark, i) => {

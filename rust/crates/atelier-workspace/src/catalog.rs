@@ -263,17 +263,16 @@ pub struct CommandEntry {
 }
 
 pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    list_commands_from_roots(home.as_deref(), project_root.filter(|s| !s.is_empty()).map(Path::new))
+}
+
+fn list_commands_from_roots(home: Option<&Path>, project_root: Option<&Path>) -> Vec<CommandEntry> {
     use std::collections::BTreeMap;
     let mut out: BTreeMap<String, CommandEntry> = BTreeMap::new();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let scan = |dir: &Path, kind: &str, map: &mut BTreeMap<String, CommandEntry>| {
+    let scan = |dir: &Path, kind: &str, source: &str, map: &mut BTreeMap<String, CommandEntry>| {
         let Ok(rd) = std::fs::read_dir(dir) else {
             return;
-        };
-        let source = if home.as_ref().is_some_and(|h| dir.starts_with(h)) {
-            "user"
-        } else {
-            "project"
         };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -283,9 +282,10 @@ pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
             let p = e.path();
             if kind == "skills" && p.is_dir() {
                 let skill_md = p.join("SKILL.md");
-                let path = skill_md
-                    .is_file()
-                    .then(|| skill_md.to_string_lossy().into_owned());
+                if !skill_md.is_file() {
+                    continue;
+                }
+                let path = Some(skill_md.to_string_lossy().into_owned());
                 map.entry(name.clone()).or_insert(CommandEntry {
                     name,
                     source: source.into(),
@@ -301,17 +301,18 @@ pub fn list_commands(project_root: Option<&str>) -> Vec<CommandEntry> {
             }
         }
     };
-    if let Some(ref h) = home {
-        scan(&h.join(".claude/skills"), "skills", &mut out);
-        scan(&h.join(".claude/commands"), "commands", &mut out);
-    }
-    if let Some(pr) = project_root.filter(|s| !s.is_empty()) {
-        let root = Path::new(pr);
-        scan(&root.join(".claude/skills"), "skills", &mut out);
-        scan(&root.join(".claude/commands"), "commands", &mut out);
+    // La portée est explicite : un projet sous HOME reste un projet.
+    // Projet avant utilisateur ; .agents (partagé) avant les catalogues historiques.
+    for (root, source) in [(project_root, "project"), (home, "user")] {
+        if let Some(root) = root {
+            for folder in [".agents/skills", ".codex/skills", ".claude/skills"] {
+                scan(&root.join(folder), "skills", source, &mut out);
+            }
+            scan(&root.join(".claude/commands"), "commands", source, &mut out);
+        }
     }
     for name in BUILTINS {
-        out.entry((*name).into()).or_insert(CommandEntry {
+        out.insert((*name).into(), CommandEntry {
             name: (*name).into(),
             source: "builtin".into(),
             path: None,
@@ -437,8 +438,7 @@ mod tests {
             skill.path.as_deref(),
             Some(skills.join("SKILL.md").to_str().unwrap())
         );
-        let sans_md = out.iter().find(|c| c.name == "skill-vide").unwrap();
-        assert!(sans_md.path.is_none(), "pas de SKILL.md ⇒ pas de path");
+        assert!(!out.iter().any(|c| c.name == "skill-vide"), "pas de SKILL.md ⇒ non invocable");
         let cmd = out.iter().find(|c| c.name == "ma-commande").unwrap();
         assert_eq!(
             cmd.path.as_deref(),
@@ -446,5 +446,29 @@ mod tests {
         );
         let builtin = out.iter().find(|c| c.source == "builtin").unwrap();
         assert!(builtin.path.is_none());
+    }
+
+    #[test]
+    fn project_skills_override_user_skills_with_explicit_scope() {
+        let home = tempdir().unwrap();
+        let project = home.path().join("Documents/project");
+        for root in [home.path(), project.as_path()] {
+            for (folder, name) in [(".agents/skills", "shared"), (".codex/skills", "codex-only"), (".claude/skills", "claude-only")] {
+                let path = root.join(folder).join(name);
+                std::fs::create_dir_all(&path).unwrap();
+                std::fs::write(path.join("SKILL.md"), "instructions").unwrap();
+            }
+        }
+        let user = home.path().join(".agents/skills/user-only");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(user.join("SKILL.md"), "user").unwrap();
+        let out = list_commands_from_roots(Some(home.path()), Some(&project));
+        for name in ["shared", "codex-only", "claude-only"] {
+            let matches = out.iter().filter(|entry| entry.name == name).collect::<Vec<_>>();
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0].source, "project");
+            assert!(Path::new(matches[0].path.as_ref().unwrap()).starts_with(&project));
+        }
+        assert_eq!(out.iter().find(|entry| entry.name == "user-only").unwrap().source, "user");
     }
 }

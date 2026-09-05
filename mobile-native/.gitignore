@@ -1,0 +1,4 @@
+.build/
+DerivedData/
+AtelierNative.xcodeproj/
+__pycache__/
