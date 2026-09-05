@@ -99,30 +99,11 @@ for i, (name, title) in enumerate(extra_figures):
     fig.savefig(root / (name + '.png'), dpi=150)
     plt.close(fig)
 
-(root / 'analysis.py').write_text('''"""Observation windows — a synthetic demonstration."""
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Generate an illustrative signal. No empirical data is used.
-window = np.linspace(0, 12, 150)
-pattern = 0.45 * np.sin(window)
-variation = 0.09 * np.sin(4 * window)
-observations = pattern + variation
-
-fig, ax = plt.subplots(figsize=(9, 5))
-ax.plot(window, observations, color="#b8bec2", label="Observations")
-ax.plot(window, pattern, color="#a37555", label="Broad pattern")
-ax.set(
-    title="One signal, two observation windows",
-    xlabel="Observation window",
-    ylabel="Relative signal",
-)
-ax.legend(frameon=False)
-fig.tight_layout()
-fig.savefig("observation-windows.png", dpi=150)
-''')
-(root / 'project-brief.md').write_text('# Observatory\n\nA fictional project for demonstrating Atelier.\n\n## Research question\n\nHow does the observation window affect the patterns visible in a time series?\n\n## Scope\n\nAll data is synthetic. The example illustrates a workflow and makes no empirical claim.\n\n## Next steps\n\n1. Compare observation windows.\n2. Review the figure and its caption.\n3. Draft an introduction with explicit limits.\n')
+# Use the same runnable source in the editor and for the public hero figure.
+from research_figure import generate
+generate(root)
+(root / 'analysis.py').write_text(Path(__file__).with_name('research_figure.py').read_text())
+(root / 'project-brief.md').write_text('# Observatory\n\nA fictional project for demonstrating Atelier.\n\n## Research question\n\nHow can a seasonal model separate a broad trend from periodic variation?\n\n## Scope\n\nAll data is synthetic. The example illustrates a workflow and makes no empirical claim.\n\n## Next steps\n\n1. Fit a seasonal regression to synthetic observations.\n2. Review the figure and its caption.\n3. Draft an introduction with explicit limits.\n')
 (root / 'manuscript.tex').write_text(r'''\documentclass[11pt]{article}
 \usepackage{amsmath}
 \title{Observation windows and visible patterns}
@@ -144,6 +125,14 @@ Here, the observation coordinate is denoted by $t$. Both components are generate
 We average the same signal over a short window and a long window. The longer window smooths local variation while preserving part of the broad cycle. The comparison uses the same axes and units in both cases.
 
 The accompanying gallery presents the signal, its distribution, and several complementary views. Figure annotations record specific editorial changes before the next revision.
+\section{Seasonal regression}
+The four-panel summary uses a separate synthetic series with 240 observations over 24 months. We fit a linear model with a trend and two seasonal components:
+\[
+y_i = \beta_0 + \beta_1(t_i/24) + \beta_2\sin(2\pi t_i/12)
++ \beta_3\cos(2\pi t_i/12) + \epsilon_i,
+\qquad \epsilon_i \sim \mathcal{N}(0, 0.12^2).
+\]
+The noise standard deviation is known by construction. The figure shows pointwise 95 percent confidence intervals for the fitted mean and for the coefficients. Observed versus fitted values describe in-sample agreement, not predictive validation.
 \section{Interpretation and limits}
 A smooth curve is easier to read, but smoothing also removes detail. The choice of window should therefore follow the question being asked.
 

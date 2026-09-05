@@ -6,6 +6,7 @@ import net from 'node:net';
 const repo=process.cwd(), root=realpathSync('/tmp/atelier-public-demo/Observatory');
 const output=path.join(repo,'docs/media/public'), web=path.join(repo,'website/public/media');
 mkdirSync(output,{recursive:true});mkdirSync(web,{recursive:true});
+for (const extension of ['png','pdf']) copyFileSync(path.join(root,'observation-windows.'+extension),path.join(output,'research-figure.'+extension));
 const port=await new Promise((resolve,reject)=>{const socket=net.createServer();socket.on('error',reject);socket.listen(0,'127.0.0.1',()=>{const p=socket.address().port;socket.close(()=>resolve(p));});});
 const origin=`http://127.0.0.1:${port}`;
 const gallery=spawn(path.join(repo,'rust/target/debug/atelier-gallery-server'),['--root',root,'--port',String(port)],{cwd:root,env:{...process.env,ATELIER_ASSETS_DIR:path.join(repo,'gallery/assets'),ATELIER_TOOL_ROOT:path.join(repo,'gallery')},stdio:'ignore'});
@@ -43,20 +44,22 @@ async function demonstrate(page, scene){
   await f.locator('[data-act="lb"][data-rel="observation-windows.png"]').click();
   await f.locator('#lbImg').waitFor({state:'visible'});
   await f.locator('#lbAnnot').click();
+  await f.locator('#annotCv').waitFor({state:'visible'});
+  await page.waitForTimeout(700);
   const box=await f.locator('#annotCv').boundingBox();
   if(!box) throw new Error('Missing annotation canvas');
   await page.mouse.move(box.x+box.width*.52,box.y+box.height*.30);
   await page.mouse.down();
   await page.mouse.move(box.x+box.width*.76,box.y+box.height*.60,{steps:18});
   await page.mouse.up();
-  await f.locator('#annotNote textarea').fill('Label the two observation windows directly on the curves.');
+  await f.locator('#annotNote textarea').fill('Clarify that observed versus fitted agreement is in-sample, not predictive validation.');
  }
  await page.waitForTimeout(700);
 }
 async function settle(page){
  await page.locator('iframe').waitFor();
  const frame=page.frameLocator('iframe');
- if(!(await page.getByRole('dialog').count()) && await frame.locator('#zOut').count()) {await frame.locator('#zOut').click();}
+ if(!(await page.getByRole('dialog').count()) && await frame.locator('#zOut').count()) {await frame.locator('#zOut').click(); await frame.locator('#zOut').click();}
  await page.waitForTimeout(1700);
 }
 try{
@@ -74,7 +77,7 @@ try{
  const ctx=await context(), page=await ctx.newPage(), log=[];
  page.on('pageerror',error=>console.log('Demo browser error:',error.message));
  page.on('response',async r=>{if(r.url().includes('/versions')&&r.status()>=400) console.log('Demo version persistence:',r.status(),await r.text());});
- for(const [name,scene,theme='graphite'] of scenes){
+ for(const [name,scene,theme='graphite'] of (process.env.CAPTURE_TOUR_ONLY ? [] : scenes)){
   await page.goto(`${base}&scene=${scene}&theme=${theme}`,{waitUntil:'networkidle'});await settle(page);
   await demonstrate(page,scene);
   const visibleText=await check(page,name);
@@ -84,6 +87,8 @@ try{
  await ctx.close();
  const tourCtx=await context({recordVideo:{dir:'/tmp/atelier-public-demo/tour',size:{width:1600,height:1000}}});
  const tour=await tourCtx.newPage();
+ // Leaving the fictional annotation draft triggers the real beforeunload guard.
+ tour.on('dialog', dialog => dialog.type()==='beforeunload' ? dialog.accept() : dialog.dismiss());
  await tour.goto(base+'&scene=reading',{waitUntil:'networkidle'});await settle(tour);await check(tour,'reading');await tour.waitForTimeout(2500);
  for(const title of ['analysis.py','Atelier','manuscript.tex','observation-windows.pdf']){
   if(title==='Atelier') { await tour.getByRole('button',{name:'More surfaces',exact:true}).click(); await tour.locator('.topbar-menu-name').getByText('Atelier',{exact:true}).click(); await tour.keyboard.press('Escape'); } else await tour.getByText(title,{exact:true}).first().click();await tour.waitForTimeout(1800);await settle(tour);await demonstrate(tour,title==='Atelier'?'annotation':title==='manuscript.tex'?'latex':'');await check(tour,title);await tour.waitForTimeout(2200);
@@ -93,6 +98,6 @@ try{
  execFileSync('ffmpeg',['-y','-i',source,'-an','-c:v','libx264','-crf','23','-pix_fmt','yuv420p','-movflags','+faststart',path.join(output,'atelier-tour.mp4')],{stdio:'ignore'});
  execFileSync('ffmpeg',['-y','-i',source,'-vf','fps=6,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse','-loop','0',path.join(output,'atelier-tour.gif')],{stdio:'ignore'});
  copyFileSync(path.join(output,'atelier-tour.mp4'),path.join(web,'atelier-tour.mp4'));
- writeFileSync(path.join(output,'manifest.json'),JSON.stringify({capturedAt:new Date().toISOString(),fixtures:'scripts/public-demo/fixtures.py',scenes:log},null,2));
+ if(log.length) writeFileSync(path.join(output,'manifest.json'),JSON.stringify({capturedAt:new Date().toISOString(),fixtures:'scripts/public-demo/fixtures.py',scenes:log},null,2));
  console.log('Captured eleven full-panel views and a continuous navigation tour.');
 }finally{await browser?.close();gallery.kill('SIGTERM');}

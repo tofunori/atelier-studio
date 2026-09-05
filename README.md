@@ -43,7 +43,7 @@ Atelier is a native macOS workspace for scientific research, built for master’
 | --- | --- |
 | ![A region marked for feedback in a synthetic figure](docs/media/public/annotation.png) | ![Rendered LaTeX prose and equations beside a conversation](docs/media/public/latex.png) |
 
-These panel views keep the conversation beside the research material. The gallery shows twelve synthetic figures; the annotation view marks a detail for revision; the LaTeX view renders prose and equations in reading mode. Open any image to inspect it at full size.
+These panel views keep the conversation beside the research material. The main figure combines a seasonal regression, confidence intervals, coefficient estimates, and residual diagnostics from one synthetic dataset ([view the figure](docs/media/public/research-figure.pdf)). The gallery shows twelve synthetic figures; the annotation view marks a detail for revision; the LaTeX view renders prose and equations in reading mode. Open any image to inspect it at full size.
 
 The workspace also includes terminals, Git tools, a browser, and reference management.
 

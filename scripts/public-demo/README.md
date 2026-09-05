@@ -12,6 +12,6 @@ The capture script starts and stops its own gallery Rust server on a dynamically
 
 The React harness is outside `src/` and is not imported by the packaged desktop app. Gallery captures use the Rust server with current production assets. The fixture generator initializes a local Git history under the fictional identity Atelier Demo so the editor has a valid revision baseline. No remote repository is configured.
 
-The gallery contains 12 synthetic figures: time series, distributions, a scatter plot, a correlation matrix, grouped violins, an uncertainty band, a cumulative curve, residuals, a frequency spectrum, and a seasonal comparison. The random seed is fixed at 42.
+The gallery contains 12 synthetic figures: time series, distributions, a scatter plot, a correlation matrix, grouped violins, an uncertainty band, a cumulative curve, residuals, a frequency spectrum, and a seasonal comparison. The supplementary figures use seed 42. The main four-panel regression figure uses seed 2026 and 240 synthetic observations. Its fitted mean, coefficient intervals, in-sample agreement, and residuals come from the same model. Gaussian noise is known by construction; intervals are calculated from that model, not drawn by hand. `research_figure.py` generates the main PNG/PDF and is copied into the fictional editor as `analysis.py`.
 
 The tour also draws a region on a figure and enters an annotation draft, then opens the fictional manuscript in the production LaTeX reading view. The draft is shown before sending; no agent or simulated delivery acknowledgement is used.
