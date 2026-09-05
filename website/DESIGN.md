@@ -1,7 +1,7 @@
 # Atelier — quiet editorial
 
 ## 1. Atmosphere
-Graphite, warm copper, and generous space. The product imagery is the visual anchor; the page introduces three research workflows without turning into a feature catalogue.
+Graphite, warm copper, and generous space. The product imagery is the visual anchor. Position Atelier for scientific research, master’s theses, and PhD dissertations. Lead with literature, analysis, and scientific writing; present AI agents as assistance within those workflows. Show actual split panels, figure annotation, and rendered LaTeX using fictional content.
 
 ## 2. Palette
 Canvas #191a1c; raised surface #202123; primary text #e9e6e0; secondary text #aaa8a4; accent #ca926b; dividers #ffffff16. The accent marks the central promise and download action.

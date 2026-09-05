@@ -21,11 +21,15 @@ test("server-renders the finished Atelier Studio site", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Atelier Studio — Native research workspace<\/title>/i);
-  assert.match(html, /Your research,/);
+  assert.match(html, /<title>Atelier Studio — A workspace for scientific research<\/title>/i);
+  assert.match(html, /Your thesis,/);
   assert.match(html, /in one workspace/);
-  assert.match(html, /A place for every/);
+  assert.match(html, /From research question/);
   assert.match(html, /A few things to know/);
+  assert.match(html, /PhD candidates/);
+  assert.match(html, /Read the literature/);
+  assert.match(html, /Develop the analysis/);
+  assert.match(html, /thesis chapters/);
   assert.match(html, /Claude Code/);
   assert.match(html, /Zotero library/);
   assert.match(html, /og:image[^>]+\/media\/workspace\.png/i);

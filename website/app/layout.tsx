@@ -13,14 +13,14 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const description = "A native macOS workspace for papers, figures, terminals, references, and AI sessions — connected by project context.";
+  const description = "A native macOS workspace for scientific research, master’s theses, and PhD dissertations. Read papers, develop analyses, inspect figures, and write in LaTeX.";
 
   return {
     metadataBase: new URL(origin),
-    title: "Atelier Studio — Native research workspace",
+    title: "Atelier Studio — A workspace for scientific research",
     description,
     applicationName: "Atelier Studio",
-    keywords: ["research workspace", "macOS", "Claude Code", "Codex", "scientific figures", "Zotero", "Tauri"],
+    keywords: ["scientific research", "master’s thesis", "PhD dissertation", "LaTeX", "research workspace", "macOS", "Claude Code", "Codex", "scientific figures", "Zotero", "Tauri"],
     authors: [{ name: "Atelier Studio" }],
     icons: {
       icon: "/atelier-icon.png",
@@ -30,14 +30,14 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       type: "website",
       url: origin,
-      title: "Atelier Studio — Your research, in one workspace.",
+      title: "Atelier Studio — Your thesis, in one workspace.",
       description,
       siteName: "Atelier Studio",
       images: [{ url: `${origin}/media/workspace.png`, width: 1600, height: 1000, alt: "Atelier Studio native research workspace" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Atelier Studio — Your research, in one workspace.",
+      title: "Atelier Studio — Your thesis, in one workspace.",
       description,
       images: [`${origin}/media/workspace.png`],
     },

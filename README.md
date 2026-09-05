@@ -2,9 +2,9 @@
 
 # Atelier Studio
 
-### Your research, in one workspace.
+### Your thesis, in one workspace.
 
-Work with AI agents, read papers, edit manuscripts, and inspect figures—without losing project context. Atelier is a native macOS workspace that brings the conversation and the work together.
+Atelier is a native macOS workspace for scientific research, built for master’s students, PhD candidates, and researchers. Bring your literature, analysis scripts, figures, and thesis chapters together, with AI assistance in context.
 
 [Download for Mac](https://github.com/tofunori/atelier-studio/releases/latest) · [Release notes](https://github.com/tofunori/atelier-studio/releases) · [Installation](#installation) · [Website source](website/)
 
@@ -12,24 +12,24 @@ Work with AI agents, read papers, edit manuscripts, and inspect figures—withou
 
 *Current interface components, captured with a fictional demonstration project. No personal files, conversations, or research data are shown.*
 
-## From a question to a result
+## From research question to manuscript
 
-**Think with an agent.** Work with Claude Code or Codex in project conversations. Add context, review activity, and steer the next step.
+**Read the literature.** Read papers in the PDF viewer and work with your Zotero library. Bring selected context into conversations as you develop your research question.
 
-**Write beside your sources.** Read PDFs, use your Zotero library, and work on Markdown or LaTeX within the same project.
+**Develop the analysis.** Work on scripts, use the terminal, and inspect outputs in the figure gallery. Mark a region and draft precise feedback for the next revision.
 
-**Look closely at the result.** Browse figures, annotate an area that needs attention, and bring that feedback into the conversation.
+**Write and revise.** Edit thesis chapters and scientific manuscripts in LaTeX or Markdown. Read rendered prose and equations, and work through revisions with Claude Code or Codex.
 
 <details>
 <summary>Watch the workspace tour</summary>
 
-![A silent tour of conversations, the code editor, PDF reader, gallery, and settings](docs/media/public/atelier-tour.gif)
+![A silent research workflow tour with analysis scripts, figures, annotation, and rendered LaTeX](docs/media/public/atelier-tour.gif)
 
 [Download the MP4 tour](docs/media/public/atelier-tour.mp4). All example content and data are fictional.
 
 </details>
 
-## A surface for each part of the work
+## Papers, analysis, and writing side by side
 
 | Code editor | PDF reader |
 | --- | --- |
@@ -43,7 +43,9 @@ Work with AI agents, read papers, edit manuscripts, and inspect figures—withou
 | --- | --- |
 | ![A region marked for feedback in a synthetic figure](docs/media/public/annotation.png) | ![Rendered LaTeX prose and equations beside a conversation](docs/media/public/latex.png) |
 
-Open any image to inspect it at full size. The workspace also includes terminals, Git tools, a browser, and reference management.
+These panel views keep the conversation beside the research material. The gallery shows twelve synthetic figures; the annotation view marks a detail for revision; the LaTeX view renders prose and equations in reading mode. Open any image to inspect it at full size.
+
+The workspace also includes terminals, Git tools, a browser, and reference management.
 
 ## Quiet by design
 
