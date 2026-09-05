@@ -834,6 +834,8 @@ describe("figure annotée envoyée depuis la galerie", () => {
     expect(screen.getByText("l'axe des années déborde")).toBeTruthy();
     const badges = [...document.querySelectorAll(".user-annot-badge")].map((b) => b.textContent);
     expect(badges).toEqual(["1", "2"]);
+    // texte vide → aucune bulle vide sous la carte (Thierry, 2026-09-04)
+    expect(document.querySelector(".user-bubble")).toBeNull();
   });
 
   it("un message image sans notes garde le rendu d'avant", () => {

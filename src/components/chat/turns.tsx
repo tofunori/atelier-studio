@@ -251,13 +251,13 @@ export const UserTurn = memo(function UserTurn(p: {
             </div>
           </form>
         </div>
-      ) : (
+      ) : e.text.trim() ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-2xl">
             {p.renderBubbleText(e.text)}
           </BubbleContent>
         </Bubble>
-      )}
+      ) : null /* pièce jointe seule (figure annotée) : pas de bulle vide */}
       {p.editingText == null && <MessageFooter className="msg-actions tw:px-0">
         {e.ts && (
           <span className="msg-time">
