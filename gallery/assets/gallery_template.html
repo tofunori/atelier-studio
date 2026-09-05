@@ -2927,7 +2927,19 @@ function annotInit(){
     // Même contrat que le bouton « Chat » d'une carte : sans ACK de l'hôte le
     // message se perd en silence (nonce périmé, hôte pas encore à l'écoute) et
     // la pilule mentait avec « Added to chat ✓ ». On attend l'accusé réel.
-    if(ANNOT_EMBEDDED&&j&&j.message) await postChatPayload({text:j.message});
+    // Chemin + figure source + vignette (même contrat qu'annot_kit.js) : sans
+    // eux le chat n'affichait que le nom du fichier généré, horodaté, au-dessus
+    // d'une bulle vide (2026-09-04). Le contrat IPC accepte déjà ces champs.
+    if(ANNOT_EMBEDDED&&j&&j.message){
+      const base={text:j.message};
+      if(j.path){
+        base.path=j.path;
+        const source=String(f.name||f.rel||'').split('/').pop();
+        if(source) base.name=source;
+        try{ base.previewUrl=new URL(j.path, location.origin+'/').href; }catch(e){ /* sans vignette */ }
+      }
+      await postChatPayload(base);
+    }
     return j;
   }
   document.getElementById('annotPillCancel').onclick=async function(){
