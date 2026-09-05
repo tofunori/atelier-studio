@@ -60,7 +60,9 @@ test("keeps interactive islands focused and removes starter artifacts", async ()
 
 test("public media is complete, mirrored, and uses reviewed demo content", async () => {
   const manifest = JSON.parse(await readFile(new URL("../../docs/media/public/manifest.json", import.meta.url), "utf8"));
-  assert.equal(manifest.scenes.length, 9);
+  assert.equal(manifest.scenes.length, 11);
+  const galleryText = manifest.scenes.find(scene => scene.name === 'gallery').visibleText;
+  assert.equal(new Set(galleryText.replace(/\s/g, "").match(/[a-z]+(?:-[a-z]+)*\.png/g) ?? []).size, 12, 'The public gallery must show all twelve demo figures');
   for (const scene of manifest.scenes) {
     assert.doesNotMatch(scene.visibleText, /tofunori|Thierry|UTQR|FRQNT|\/Users\/|échec de persistance|failed to load/i);
     const filename = `${scene.name}.png`;

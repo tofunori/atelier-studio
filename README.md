@@ -39,6 +39,10 @@ Work with AI agents, read papers, edit manuscripts, and inspect figures—withou
 | --- | --- |
 | ![Gallery of fictional demonstration figures](docs/media/public/gallery.png) | ![Atelier appearance settings](docs/media/public/settings.png) |
 
+| Figure annotation | LaTeX reading view |
+| --- | --- |
+| ![A region marked for feedback in a synthetic figure](docs/media/public/annotation.png) | ![Rendered LaTeX prose and equations beside a conversation](docs/media/public/latex.png) |
+
 Open any image to inspect it at full size. The workspace also includes terminals, Git tools, a browser, and reference management.
 
 ## Quiet by design

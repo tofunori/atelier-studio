@@ -1,6 +1,8 @@
 "use client";
 import { useState } from 'react';
 const surfaces = [
+    { id: 'annotation', name: 'Figure annotation', description: 'Mark a region and write precise feedback before sending it to the conversation.' },
+    { id: 'latex', name: 'LaTeX reading view', description: 'Read the rendered prose and equations beside the conversation.' },
     { id: 'workspace', name: 'Conversations', description: 'Plan a question and develop it with an agent, inside the project.' },
     { id: 'editor', name: 'Code editor', description: 'Read and edit the scripts behind your work.' },
     { id: 'reading', name: 'PDF reader', description: 'Keep documents and figures close to the conversation.' },

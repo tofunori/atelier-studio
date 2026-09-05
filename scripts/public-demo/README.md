@@ -11,3 +11,7 @@ This harness imports current production React components and serves the current 
 The capture script starts and stops its own gallery Rust server on a dynamically assigned loopback port, using only `/tmp/atelier-public-demo/Observatory`. Synthetic plots are generated from explicit mathematical functions. Public captures and the recording are written to `docs/media/public/` and mirrored into `website/public/media/` (the GIF is README-only). The manifest records visible text and capture time.
 
 The React harness is outside `src/` and is not imported by the packaged desktop app. Gallery captures use the Rust server with current production assets. The fixture generator initializes a local Git history under the fictional identity Atelier Demo so the editor has a valid revision baseline. No remote repository is configured.
+
+The gallery contains 12 synthetic figures: time series, distributions, a scatter plot, a correlation matrix, grouped violins, an uncertainty band, a cumulative curve, residuals, a frequency spectrum, and a seasonal comparison. The random seed is fixed at 42.
+
+The tour also draws a region on a figure and enters an annotation draft, then opens the fictional manuscript in the production LaTeX reading view. The draft is shown before sending; no agent or simulated delivery acknowledgement is used.
