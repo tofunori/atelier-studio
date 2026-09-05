@@ -495,7 +495,7 @@ test('file types: quick types and custom presets persist only for the project', 
   });
 });
 
-test('file types: an explicit type selection filters favorites too', async ({ page }) => {
+test('file types: favorites remain visible despite an explicit type filter', async ({ page }) => {
   await withGallery(async ({ url }) => {
     await page.goto(url);
 
@@ -511,9 +511,9 @@ test('file types: an explicit type selection filters favorites too', async ({ pa
     const typePanel = page.locator('[data-gallery-file-type-panel]');
     await typePanel.locator('[data-gallery-quick-type="svg"]').click();
 
-    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(page.locator('#grid .card')).toHaveCount(2);
     await expect(page.locator('#grid')).toContainText('preview-alpha.png');
-    await expect(page.locator('#grid')).not.toContainText('plot-alpha.svg');
+    await expect(page.locator('#grid')).toContainText('plot-alpha.svg');
   });
 });
 
@@ -640,7 +640,7 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
     await expect(chat).toBeVisible();
     await chat.click();
     await chat.click(); // double activation rapide — bloquée par data-add-state
-    await expect(chat).toContainText('✓');
+    await expect(chat).toHaveAttribute('data-add-state', 'added');
 
     await expect.poll(() => page.evaluate(() => window.__msgs.filter(m => m.type === 'atelier-add-to-chat').length)).toBe(1);
     const msg = await page.evaluate(() => window.__msgs.find(m => m.type === 'atelier-add-to-chat'));
@@ -721,7 +721,7 @@ test('add-to-chat retries when the host misses the first postMessage during star
     await chat.click();
 
     await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBe(2);
-    await expect(chat).toContainText('✓');
+    await expect(chat).toHaveAttribute('data-add-state', 'added');
     const ids = await page.evaluate(() => window.__msgs.map(m => m.requestId));
     expect(new Set(ids).size).toBe(1);
   });
@@ -877,7 +877,9 @@ test('saved views: restores filters and nested Escape keeps the filter panel ope
     await page.goto(url);
     await page.locator('[data-gallery-command="filters"]').click();
     await page.getByRole('combobox',{name:'Filtrer par statut'}).click();
+    await expect(page.getByRole('option',{name:'Brouillon',exact:true})).toBeVisible();
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('option',{name:'Brouillon',exact:true})).not.toBeVisible();
     await expect(page.getByRole('dialog',{name:'Filtres'})).toBeVisible();
     await page.getByRole('combobox',{name:'Filtrer par statut'}).click();
     await page.getByRole('option',{name:'Brouillon',exact:true}).click();

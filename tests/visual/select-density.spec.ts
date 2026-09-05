@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 
 test('settings selection stays compact and usable without decorative arrows', async ({ page }) => {
   await page.goto('/#setbench-opencode');
-  await page.getByRole('button', { name: 'Models', exact: true }).click();
-  const trigger = page.getByRole('combobox', { name: 'Default provider', exact: true });
+  await page.getByRole('button', { name: 'Modèles', exact: true }).click();
+  const trigger = page.getByRole('combobox', { name: 'Provider par défaut', exact: true });
   await expect(trigger).toBeVisible();
   expect(await trigger.locator('svg').count()).toBe(0);
   const box = await trigger.boundingBox();
