@@ -33,7 +33,7 @@ Atelier is a native macOS workspace for scientific research, built for master’
 
 | Code editor | PDF reader |
 | --- | --- |
-| ![Python editor with a synthetic-data example](docs/media/public/editor.png) | ![PDF reader displaying a synthetic figure](docs/media/public/reading.png) |
+| ![Python editor with a synthetic-data example](docs/media/public/editor.png) | ![PDF reader displaying a fictional scientific article with prose and equations](docs/media/public/reading.png) |
 
 | Figure gallery | Appearance settings |
 | --- | --- |

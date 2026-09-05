@@ -141,6 +141,15 @@ All figures in this demonstration use synthetic data. A real analysis would requ
 ''')
 print(root)
 
+# Keep the reading document outside the indexed figure gallery.
+import subprocess
+papers = root / '.fig_thumbs'
+papers.mkdir(exist_ok=True)
+subprocess.run(['pdflatex', '-interaction=nonstopmode', '-halt-on-error',
+                '-output-directory=' + str(papers),
+                str(Path(__file__).with_name('research-note.tex').resolve())],
+               check=True, stdout=subprocess.DEVNULL)
+
 # The editor's revision view needs a real base commit, even for a demo.
 import subprocess
 import os

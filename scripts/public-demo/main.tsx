@@ -52,9 +52,9 @@ function Demo() {
     const port = params.get('port');
     const origin = 'http://127.0.0.1:' + (/^\d+$/.test(port ?? '') ? port : '4201');
     const root = '/private/tmp/atelier-public-demo/Observatory';
-    const urls = { latex: origin + '/.fig_thumbs/latex_studio.html?path=' + encodeURIComponent(root + '/manuscript.tex') + '&embedded=atelier', annotation: origin + '/figures_index.html', gallery: origin + '/figures_index.html', editor: origin + '/.fig_thumbs/code_editor.html?path=' + encodeURIComponent(root + '/analysis.py'), reading: origin + '/.fig_thumbs/pdf_viewer.html?file=observation-windows.pdf' };
+    const urls = { paper: origin + '/.fig_thumbs/pdf_viewer.html?file=.fig_thumbs/research-note.pdf', latex: origin + '/.fig_thumbs/latex_studio.html?path=' + encodeURIComponent(root + '/manuscript.tex') + '&embedded=atelier', annotation: origin + '/figures_index.html', gallery: origin + '/figures_index.html', editor: origin + '/.fig_thumbs/code_editor.html?path=' + encodeURIComponent(root + '/analysis.py'), reading: origin + '/.fig_thumbs/pdf_viewer.html?file=observation-windows.pdf' };
     const surface = scene in urls ? scene as keyof typeof urls : 'reading';
-    const tabs = [{ id: 'latex', title: 'manuscript.tex', kind: 'document' as const }, { id: 'reading', title: 'observation-windows.pdf', kind: 'document' as const }, { id: 'editor', title: 'analysis.py', kind: 'document' as const }, { id: 'gallery', title: 'Gallery', kind: 'surface' as const, surface: 'atelier' as const }];
+    const tabs = [{ id: 'paper', title: 'research-note.pdf', kind: 'document' as const }, { id: 'latex', title: 'manuscript.tex', kind: 'document' as const }, { id: 'reading', title: 'observation-windows.pdf', kind: 'document' as const }, { id: 'editor', title: 'analysis.py', kind: 'document' as const }, { id: 'gallery', title: 'Gallery', kind: 'surface' as const, surface: 'atelier' as const }];
     const [settings, setSettings] = useState<Settings>({ ...DEFAULT_SETTINGS, language: 'en' as const, themePreset: params.get('theme') ?? 'graphite' });
     const theme = presetById(settings.themePreset);
     const frameRef = useRef<HTMLIFrameElement>(null);

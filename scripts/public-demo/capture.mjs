@@ -12,7 +12,7 @@ const origin=`http://127.0.0.1:${port}`;
 const gallery=spawn(path.join(repo,'rust/target/debug/atelier-gallery-server'),['--root',root,'--port',String(port)],{cwd:root,env:{...process.env,ATELIER_ASSETS_DIR:path.join(repo,'gallery/assets'),ATELIER_TOOL_ROOT:path.join(repo,'gallery')},stdio:'ignore'});
 let startupError, browser;gallery.on('error',e=>startupError=e);
 const base=`http://127.0.0.1:4199/scripts/public-demo/index.html?port=${port}`;
-const scenes=[['workspace','reading'],['writing','editor'],['graphite','reading','graphite'],['pierre','reading','pierre'],['monokai','reading','monokai'],['settings','settings'],['gallery','gallery'],['annotation','annotation'],['latex','latex'],['editor','editor'],['reading','reading']];
+const scenes=[['workspace','reading'],['writing','editor'],['graphite','reading','graphite'],['pierre','reading','pierre'],['monokai','reading','monokai'],['settings','settings'],['gallery','gallery'],['annotation','annotation'],['latex','latex'],['editor','editor'],['reading','paper']];
 async function context(options={}){
  const ctx=await browser.newContext({viewport:{width:1600,height:1000},locale:'en-US',deviceScaleFactor:1,...options});
  await ctx.route('**/*',route=>{
@@ -59,7 +59,7 @@ async function demonstrate(page, scene){
 async function settle(page){
  await page.locator('iframe').waitFor();
  const frame=page.frameLocator('iframe');
- if(!(await page.getByRole('dialog').count()) && await frame.locator('#zOut').count()) {await frame.locator('#zOut').click(); await frame.locator('#zOut').click();}
+ if(!(await page.getByRole('dialog').count()) && !(await page.locator('iframe').getAttribute('src'))?.includes('research-note.pdf') && await frame.locator('#zOut').count()) {await frame.locator('#zOut').click(); await frame.locator('#zOut').click();}
  await page.waitForTimeout(1700);
 }
 try{
@@ -90,7 +90,7 @@ try{
  // Leaving the fictional annotation draft triggers the real beforeunload guard.
  tour.on('dialog', dialog => dialog.type()==='beforeunload' ? dialog.accept() : dialog.dismiss());
  await tour.goto(base+'&scene=reading',{waitUntil:'networkidle'});await settle(tour);await check(tour,'reading');await tour.waitForTimeout(2500);
- for(const title of ['analysis.py','Atelier','manuscript.tex','observation-windows.pdf']){
+ for(const title of ['analysis.py','Atelier','manuscript.tex','research-note.pdf']){
   if(title==='Atelier') { await tour.getByRole('button',{name:'More surfaces',exact:true}).click(); await tour.locator('.topbar-menu-name').getByText('Atelier',{exact:true}).click(); await tour.keyboard.press('Escape'); } else await tour.getByText(title,{exact:true}).first().click();await tour.waitForTimeout(1800);await settle(tour);await demonstrate(tour,title==='Atelier'?'annotation':title==='manuscript.tex'?'latex':'');await check(tour,title);await tour.waitForTimeout(2200);
  }
  await tour.getByRole('button',{name:'Settings',exact:true}).click();await tour.waitForTimeout(1500);await check(tour,'settings');await tour.waitForTimeout(2500);

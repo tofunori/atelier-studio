@@ -7,7 +7,7 @@ const surfaces = [
     { id: 'latex', name: 'LaTeX reading view', description: 'Review thesis prose and equations in reading mode, beside the conversation.' },
     { id: 'workspace', name: 'Conversations', description: 'Develop a research question with an agent and context from your project.' },
     { id: 'editor', name: 'Code editor', description: 'Read and edit the analysis scripts behind your figures.' },
-    { id: 'reading', name: 'PDF reader', description: 'Read papers and inspect PDF figures beside your research conversation.' },
+    { id: 'reading', name: 'PDF reader', description: 'Read a scientific paper with prose, equations, and source notes beside the conversation.' },
     { id: 'gallery', name: 'Figure gallery', description: 'Compare analysis outputs in a gallery, shown here with twelve synthetic figures.' },
     { id: 'settings', name: 'Settings', description: 'Choose the appearance and tools that fit your way of working.' },
 ];
