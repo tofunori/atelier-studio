@@ -29,7 +29,16 @@ test("buildReadingDom : titres, paragraphes, légendes, listes, figures", () => 
   assert.equal(p.textContent, "Surface albedo controls the energy bal- ance of glaciers.", "le DOM montre le texte des lignes (offsets stables), la césure est masquée par CSS/rendu ultérieur");
   assert.equal(root.querySelector("figure[data-block='2'] canvas").dataset.crop, "2");
   assert.equal(root.querySelector("p.caption[data-block='3']").textContent, "Figure 1. A figure.");
-  assert.equal(root.querySelectorAll("ul > li").length, 2);
+  const lis = [...root.querySelectorAll("ul > li")];
+  assert.equal(lis.length, 2);
+  // ruling a du fix 1 : le marqueur reste dans le texte — textContent d'un
+  // bloc vaut EXACTEMENT readingText(block), les offsets en dépendent.
+  assert.equal(lis[0].textContent, "- one");
+  for (const el of root.querySelectorAll("[data-block]")) {
+    const b = DOC.blocks.find(x => String(x.id) === el.dataset.block);
+    if (b.kind === "figure" || b.kind === "table" || b.kind === "math") continue;
+    assert.equal(el.textContent, R.readingText(b), "bloc " + b.id);
+  }
   assert.equal(root.querySelector("figure[data-block='6']").dataset.page, "2");
 });
 
@@ -77,6 +86,17 @@ test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {
   assert.equal(anchored[0].blockId, 1);
   const t = R.readingText(DOC.blocks[1]);
   assert.equal(t.slice(anchored[0].start, anchored[0].end), "energy bal- ance of glaciers");
+});
+
+test("anchorAnnotations : pas d'espace en tête après affinage (fix 1, ruling b)", () => {
+  const doc = {version: 1, pages: [{w: 600, h: 800}], blocks: [
+    {id: 0, page: 1, kind: "paragraph", bbox: [60, 80, 300, 110], text: "",
+      lines: [{bbox: [60, 80, 300, 92], text: "Surface albedo"}, {bbox: [60, 94, 300, 106], text: "controls the"}]},
+  ]};
+  const anchored = R.anchorAnnotations(doc, [{id: "q", kind: "comment", page: 1, text: "albedo controls"}]);
+  assert.equal(anchored.length, 1);
+  const t = R.readingText(doc.blocks[0]);
+  assert.equal(t.slice(anchored[0].start, anchored[0].end), "albedo controls");
 });
 
 test("blockAtScrollTop et pageForBlock", () => {
@@ -138,4 +158,32 @@ test("contrat lecteur : recherche, passage et annotations câblés au mode lectu
   assert.match(html, /__readingMode\.isOn\(\)\s*\?/);
   // le passage ?quote est résolu dans la colonne en mode lecture
   assert.match(html, /function revealReadingPassage\(/);
+});
+
+test("contrat lecteur (fix 1) : marques en flux, ordre du scroll, rect du menu", () => {
+  // constat n°1 — la règle des pages est scopée, la colonne redéclare
+  // position/mix-blend-mode : une marque de lecture reste du texte en flux.
+  assert.match(html, /\.pg \.pdfhl\{position:absolute/);
+  assert.doesNotMatch(html, /^\s*\.pdfhl\{/m, "règle .pdfhl non scopée interdite");
+  const markRule = css.match(/#reading mark\.pdfhl\{[^}]*\}/);
+  assert.ok(markRule, "règle #reading mark.pdfhl présente");
+  assert.match(markRule[0], /position:static/);
+  assert.match(markRule[0], /mix-blend-mode:normal/);
+  // ruling a — la puce du navigateur est éteinte, le marqueur vit dans le texte
+  assert.match(css, /#reading ul\{[^}]*list-style:none/);
+  // constat n°2 — l'évènement part APRÈS la restauration de position
+  const enterBody = html.slice(html.indexOf("async function enter(){"), html.indexOf("function leave(){"));
+  assert.ok(enterBody.indexOf("scrollToBlockOfPage(page)") <
+    enterBody.indexOf('dispatchEvent(new CustomEvent("atelier-reading-rendered"))'),
+    "atelier-reading-rendered émis après scrollToBlockOfPage");
+  assert.doesNotMatch(html.slice(html.indexOf("function render(){"), html.indexOf("function topPage(){")),
+    /atelier-reading-rendered/, "render() n'émet plus l'évènement");
+  // constat n°3 — le rect du menu est mesuré avant toute mutation du DOM
+  const addBody = html.slice(html.indexOf("function addHighlightFromReadingSel("), html.indexOf("// PDF marks live"));
+  assert.ok(addBody.indexOf("rng.getBoundingClientRect()") < addBody.indexOf("PDF_ANNOTS.push"),
+    "getBoundingClientRect mesuré avant PDF_ANNOTS.push");
+  // gardes une ligne
+  assert.match(addBody, /const dim = doc\.pages\[block\.page - 1\]; if\(!dim\) return;/);
+  assert.match(html, /function readingBlockOf\(n\)/);
+  assert.match(html, /let readingPassageRevealed = false;/);
 });

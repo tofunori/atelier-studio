@@ -94,7 +94,7 @@
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
   .pdfsel{position:absolute;background:rgba(91,157,255,.45);border-radius:2px;pointer-events:none}
   .textLayer span.auto-hl{background:rgba(255,196,71,.58);border-radius:2px;box-shadow:0 0 0 1px rgba(184,126,20,.22)}
-  .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
+  .pg .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
   #pdftools{display:flex;align-items:center;gap:2px}
@@ -500,12 +500,16 @@ window.__readingMode = (function(){
     }, {rootMargin: "100% 0px"});
     for (const {canvas} of crops.values()) cropObserver.observe(canvas);
   }
+  /** Rend la colonne. N'ÉMET PAS `atelier-reading-rendered` : ses auditeurs
+   *  (passage ?quote, relance de recherche) défilent, et enter() restaure la
+   *  position juste après — l'évènement part donc APRÈS scrollToBlockOfPage
+   *  (revue plan 078 T6 fix 1, constat n°2). Renvoie false si rien n'est rendu. */
   function render(){
     host.innerHTML = ""; crops.clear();
-    if (!doc.blocks.length) { const p = document.createElement("p"); p.className = "err"; p.textContent = "Ce PDF n'a pas de couche texte : rien à recomposer."; host.appendChild(p); return; }
+    if (!doc.blocks.length) { const p = document.createElement("p"); p.className = "err"; p.textContent = "Ce PDF n'a pas de couche texte : rien à recomposer."; host.appendChild(p); return false; }
     host.appendChild(R.buildReadingDom(doc, {document, makeFigure}));
     observeCrops();
-    document.dispatchEvent(new CustomEvent("atelier-reading-rendered"));
+    return true;
   }
   function topPage(){
     const sc = document.scrollingElement || document.documentElement;
@@ -541,7 +545,11 @@ window.__readingMode = (function(){
       // __reloadPdf) : ne pas peindre dans une section qu'on a quittée
       // (revue plan 078 T5 fix 1, constat n°3).
       if (gen !== g || !on) return;
-      render(); scrollToBlockOfPage(page);
+      const rendered = render();
+      scrollToBlockOfPage(page);
+      // après la restauration de position : un passage ?quote ou un résultat
+      // de recherche l'emporte sur elle au lieu d'être écrasé.
+      if (rendered) document.dispatchEvent(new CustomEvent("atelier-reading-rendered"));
     }
     catch(e){
       if (gen !== g || !on) return;
@@ -939,13 +947,18 @@ function revealLinkedPassage(shouldScroll){
 
 /** Même lien ?page=&quote= résolu dans la colonne de lecture : l'ancrage
  *  passe par les blocs recomposés, pas par la couche texte des pages. */
+let readingPassageRevealed = false;
 function revealReadingPassage(){
+  // une seule fois, comme `targetRevealed` côté pages : le passage se révèle
+  // à la première colonne rendue, pas à chaque re-rendu (fix 1, garde 3).
+  if(readingPassageRevealed) return false;
   if(!targetQuote || !window.__readingMode.isOn()) return false;
   const doc = window.__readingMode.doc(); if(!doc) return false;
   const hit = window.AtelierPdfReading.anchorAnnotations(doc, [{id:"__q", kind:"comment", page:targetPage, text:targetQuote}])[0];
   if(!hit) return false;
   const el = document.querySelector('#readBody [data-block="' + hit.blockId + '"]');
   if(!el) return false;
+  readingPassageRevealed = true;
   el.scrollIntoView({block:"center"});
   el.classList.add("find-cur"); setTimeout(() => el.classList.remove("find-cur"), 2000);
   document.getElementById("status").textContent = "Passage retrouvé — p. " + doc.blocks.find(b => b.id === hit.blockId).page;
@@ -1171,11 +1184,16 @@ document.addEventListener("pointerup", e => {
   updateSelInfo();
   selPillShow(entries);
 });
+/** Bloc de la colonne contenant un nœud de plage : `parentElement` est nul
+ *  quand l'ancre est l'élément <p>/<li> lui-même (fix 1, garde 2). */
+function readingBlockOf(n){
+  return n ? (n.nodeType === 1 ? n : n.parentElement)?.closest("#readBody [data-block]") || null : null;
+}
 function readingSelText(){
   if(!window.__readingMode.isOn()) return "";
   const sel = window.getSelection();
   if(!sel || sel.isCollapsed || !sel.rangeCount) return "";
-  const el = sel.getRangeAt(0).startContainer.parentElement?.closest("#readBody [data-block]");
+  const el = readingBlockOf(sel.getRangeAt(0).startContainer);
   return el ? sel.toString().replace(/\s+/g, " ").trim() : "";
 }
 function hlText(){
@@ -1251,7 +1269,7 @@ document.addEventListener("mouseup", (e) => {
   const text = readingSelText();
   if(!text){ selApi.hide(); return; }
   const sel = window.getSelection(), rng = sel.getRangeAt(0);
-  const el = rng.startContainer.parentElement?.closest("#readBody [data-block]");
+  const el = readingBlockOf(rng.startContainer);
   if(el) selPage = el.dataset.page;
   const b = rng.getBoundingClientRect();
   selApi.placeAt({left: b.left, width: b.width, top: b.top, bottom: b.bottom});
@@ -1903,12 +1921,16 @@ function addHighlightFromReadingSel(kind, color){
   const doc = window.__readingMode.doc(); const sel = window.getSelection();
   if(!doc || !sel || sel.isCollapsed) return;
   const rng = sel.getRangeAt(0);
-  const el = rng.startContainer.parentElement?.closest("#readBody [data-block]");
-  if(!el || el !== (rng.endContainer.parentElement?.closest("#readBody [data-block]"))) { document.getElementById("status").textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  const el = readingBlockOf(rng.startContainer);
+  if(!el || el !== readingBlockOf(rng.endContainer)) { document.getElementById("status").textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  // rect mesuré AVANT toute mutation du DOM sous la plage (drawReadingAnnots
+  // réécrit les nœuds de texte) — sinon annotMenu s'ouvre n'importe où
+  // (revue plan 078 T6 fix 1, constat n°3), cf. `lastRect` côté pages.
+  const r = rng.getBoundingClientRect();
   const block = doc.blocks.find(b => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
   const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(rng.startContainer, rng.startOffset);
   const start = pre.toString().length, end = start + rng.toString().length;
-  const dim = doc.pages[block.page - 1];
+  const dim = doc.pages[block.page - 1]; if(!dim) return;
   const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, dim);
   if(!built.rects.length) return;
   const a = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
@@ -1916,7 +1938,7 @@ function addHighlightFromReadingSel(kind, color){
   PDF_ANNOTS.push(a); saveAnnots();
   const pg = document.querySelector('.pg[data-page="' + a.page + '"]'); if(pg) drawAnnots(pg, a.page);
   drawReadingAnnots(); selHide(); sel.removeAllRanges();
-  const r = rng.getBoundingClientRect(); if(a.kind === "comment") annotMenu(a, r.left, r.bottom);
+  if(a.kind === "comment") annotMenu(a, r.left, r.bottom);
 }
 // PDF marks live in the reader toolbar; selection capsules only target chat.
 let LAST_COLOR = HL_COLORS[0];

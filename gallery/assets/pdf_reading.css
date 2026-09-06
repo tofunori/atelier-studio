@@ -15,7 +15,10 @@ body.read-mode #reading{display:block}
 #reading p{margin:0 0 1em}
 #reading p.caption{font-size:.9em;color:var(--fg);margin:.4em 0 1.4em}
 #reading p.footnote{font-size:.85em;color:var(--muted)}
-#reading ul{padding-left:1.4em;margin:0 0 1em}
+/* La puce/le numéro reste DANS le texte du li (offsets d'annotation stables,
+   fix 1 ruling a) : on éteint le marqueur du navigateur pour ne pas le voir
+   deux fois. */
+#reading ul{list-style:none;padding-left:0;margin:0 0 1em}
 #reading figure{margin:1.2em 0 .4em;text-align:center}
 #reading figure canvas{max-width:100%;height:auto;border-radius:6px;background:var(--card)}
 #reading figure.math{margin:.6em 0}
@@ -24,7 +27,10 @@ body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
 #reading .skeleton{height:12px;margin:0 0 12px;border-radius:6px;background:var(--card2);opacity:.6}
 #reading .skeleton.w60{width:60%}
 #reading .err{color:var(--destructive, var(--fg));padding:20px 0}
-#reading mark.pdfhl{background:rgba(255,213,74,.4);color:inherit;border-radius:2px;cursor:pointer}
+/* Dans la colonne, une marque est du texte EN FLUX : elle ne doit hériter ni
+   du position:absolute ni du mix-blend-mode:multiply de la règle des pages
+   (.pg .pdfhl dans pdf_viewer.html) — revue plan 078 T6 fix 1, constat n°1. */
+#reading mark.pdfhl{position:static;mix-blend-mode:normal;background:rgba(255,213,74,.4);color:inherit;border-radius:2px;cursor:pointer}
 #reading .find-hit{background:rgba(120,170,255,.42);border-radius:2px}
 #reading .find-cur{outline:1px solid var(--ring);outline-offset:2px;border-radius:6px}
 /* top : hauteur du <header> collant du lecteur (44-46px), posée en JS via

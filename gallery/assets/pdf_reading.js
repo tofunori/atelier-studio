@@ -19,7 +19,11 @@
       if (b.kind === "list") {
         if (!list) { list = d.createElement("ul"); frag.appendChild(list); }
         el = d.createElement("li");
-        el.textContent = readingText(b).replace(/^\s*(?:[•\-–]|\d+[.)])\s+/, "");
+        // Le marqueur de puce/numéro RESTE dans le texte : textContent doit
+        // valoir readingText(block) pour tout bloc, les offsets d'annotation
+        // en dépendent (revue plan 078 T6 fix 1, ruling a). La puce du
+        // navigateur est masquée côté CSS (#reading ul{list-style:none}).
+        el.textContent = readingText(b);
         list.appendChild(el);
       } else {
         list = null;
@@ -78,6 +82,10 @@
         for (var s = 0; s < slice.length; s++) {
           if (norm(slice.slice(s)).replace(/ /g, "").indexOf(target) === 0) { lo = s; break; }
         }
+        // La forme compacte ignore les espaces : `lo` tombe un caractère trop
+        // tôt quand le passage suit une espace (revue plan 078 T6 fix 1,
+        // ruling b). On avance sur les espaces de tête.
+        while (lo < slice.length && slice[lo] === " ") lo++;
         for (var e = lo + 1; e <= slice.length; e++) {
           if (norm(slice.slice(lo, e)).replace(/ /g, "") === target) { hi = e; break; }
         }
