@@ -389,7 +389,7 @@ function sameGhost(current, next) {
   const curText = current?.text || "";
   const nextText = next?.text || "";
   if (!curText && !nextText) return true;
-  return curText === nextText && current.pos === next.pos;
+  return curText === nextText && current?.pos === next?.pos;
 }
 
 export function refreshGhost(v) {
