@@ -12,6 +12,7 @@
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
 })();</script>
+<script src="/.fig_thumbs/pdfjs_compat.js"></script>
 <!-- pdf.js >= 4 est ESM seul. Le script inline de cette page reste CLASSIQUE
      (ses globales sont extraites par vm dans les tests) : on charge donc pdf.js
      par un shim module qui le republie sur window.pdfjsLib. Les modules sont

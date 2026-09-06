@@ -387,6 +387,9 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
   (`! … l.N`) sont les seules « erreurs », posées via `cm.setDiagnostics` dans
   un champ dédié que le linter relit (sinon la première frappe les effaçait).
 
+## pdf.js ≥ 4 et le WebKit système (vécu 2026-09-06)
+- **`getTextContent()` de pdf.js 6 itère un `ReadableStream` avec `for await`** ; le WebKit livré avec macOS (Safari/WKWebView `Version/26.6`) n'a pas `ReadableStream.prototype[Symbol.asyncIterator]` → `TypeError` avalé par le pipeline, **aucune couche texte, aucune sélection dans l'app**, alors que Playwright WebKit (trunk) passe. La variante `legacy` de pdf.js a le même `for await`. Correctif : `gallery/assets/pdfjs_compat.js` (polyfill `values()`/`[Symbol.asyncIterator]`) chargé AVANT le shim module dans `pdf_viewer.html` et `latex_studio.html` (contrat : `pdfjs_compat.test.mjs`). Toute nouvelle page qui charge pdf.js doit l'inclure. Leçon : un test WebKit Playwright ne prouve pas le WebKit système — bissecter avec Safari (`open -a Safari`) et une page de diagnostic qui POSTe sur `/selinfo`.
+
 ## Mode lecture PDF (plan 078)
 - Les offsets de sélection et d'ancrage se calculent sur `readingText(block)` — la jointure DÉ-CÉSURÉE des lignes, égale à `block.text` produit par `join_lines` en Rust — via `lineOffsets(block)`, jamais sur une jointure naïve par espaces : le DOM affiche `readingText`. Changer la règle d'un côté sans l'autre décale tous les surlignages ; le test de parité `readingText(b) === b.text` la verrouille.
 - Un trait d'union absorbé reste PEINT sur la page : la ligne a une longueur affichée (sans le `-`) et une longueur peinte (avec). `selectionToAnnotation` interpole les x sur la longueur peinte, sinon le rect s'arrête un caractère trop tôt.

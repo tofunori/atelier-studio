@@ -8,6 +8,7 @@
 <script>AtelierStudioRuntime.bootstrap({tokenFetch:true,hostBridge:true,latexDisplayPolicy:true,legacyTheme:"orange"});</script>
 <script src="/.fig_thumbs/studio_core.bundle.js"></script>
 <script src="/.fig_thumbs/latex_features.bundle.js"></script>
+<script src="/.fig_thumbs/pdfjs_compat.js"></script>
 <!-- pdf.js >= 4 est ESM seul : shim module qui le republie sur window.pdfjsLib
      (voir pdf_viewer.html). Le bootstrap en bas de page attend __pdfjsReady. -->
 <script>window.__pdfjsReady = new Promise(function(res, rej){ window.__pdfjsResolve = res; window.__pdfjsReject = rej; });</script>
