@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">
+
+<pdf2xml producer="poppler" version="26.03.0">
+<page number="1" position="absolute" top="0" left="0" height="841" width="595">
+	<fontspec id="0" size="14" family="VDIZOC+CMR12" color="#000000"/>
+	<fontspec id="1" size="12" family="VDIZOC+CMR12" color="#000000"/>
+	<fontspec id="2" size="14" family="MHXOIY+CMBX12" color="#000000"/>
+	<fontspec id="3" size="10" family="QJWKZK+CMR10" color="#000000"/>
+	<fontspec id="4" size="10" family="JMOAZS+CMMI10" color="#000000"/>
+	<fontspec id="5" size="7" family="RNZPUV+CMMI7" color="#000000"/>
+	<fontspec id="6" size="7" family="REOFEC+CMR7" color="#000000"/>
+	<fontspec id="7" size="10" family="FXXUVH+CMSY10" color="#000000"/>
+<text top="85" left="188" width="219" height="13" font="0">Albedo decline of mountain glaciers</text>
+<text top="115" left="219" width="54" height="11" font="1">A. Fixture</text>
+<text top="115" left="323" width="53" height="11" font="1">B. Sample</text>
+<text top="153" left="57" width="8" height="13" font="2">1</text>
+<text top="153" left="81" width="89" height="13" font="2">Introduction</text>
+<text top="179" left="57" width="236" height="9" font="3">Surface albedo controls the energy balance of glaciers</text>
+<text top="191" left="57" width="236" height="9" font="3">and its long-term decrease is a measurable driver of</text>
+<text top="203" left="57" width="236" height="9" font="3">mass loss. Lorem ipsum dolor sit amet, consectetuer</text>
+<text top="215" left="57" width="236" height="9" font="3">adipiscing elit. Ut purus elit, vestibulum ut, placerat</text>
+<text top="227" left="57" width="236" height="9" font="3">ac, adipiscing vitae, felis. Curabitur dictum gravida</text>
+<text top="239" left="57" width="236" height="9" font="3">mauris. Nam arcu libero, nonummy eget, consectetuer</text>
+<text top="251" left="57" width="236" height="9" font="3">id, vulputate a, magna. Donec vehicula augue eu ne-</text>
+<text top="262" left="57" width="236" height="9" font="3">que. Pellentesque habitant morbi tristique senectus et</text>
+<text top="274" left="57" width="236" height="9" font="3">netus et malesuada fames ac turpis egestas. Mauris ut</text>
+<text top="286" left="57" width="236" height="9" font="3">leo. Cras viverra metus rhoncus sem. Nulla et lectus</text>
+<text top="298" left="57" width="236" height="9" font="3">vestibulum urna fringilla ultrices. Phasellus eu tellus</text>
+<text top="310" left="57" width="236" height="9" font="3">sit amet tortor gravida placerat. Integer sapien est, ia-</text>
+<text top="322" left="57" width="236" height="9" font="3">culis in, pretium quis, viverra ac, nunc. Praesent eget</text>
+<text top="334" left="57" width="236" height="9" font="3">sem vel leo ultrices bibendum. Aenean faucibus. Morbi</text>
+<text top="346" left="57" width="236" height="9" font="3">dolor nulla, malesuada eu, pulvinar at, mollis ac, nulla.</text>
+<text top="358" left="57" width="236" height="9" font="3">Curabitur auctor semper nulla. Donec varius orci eget</text>
+<text top="370" left="57" width="236" height="9" font="3">risus. Duis nibh mi, congue eu, accumsan eleifend, sa-</text>
+<text top="382" left="57" width="236" height="9" font="3">gittis quis, diam. Duis eget orci sit amet orci dignissim</text>
+<text top="394" left="57" width="34" height="9" font="3">rutrum.</text>
+<text top="407" left="67" width="226" height="9" font="3">Nam dui ligula, fringilla a, euismod sodales, sollici-</text>
+<text top="419" left="57" width="236" height="9" font="3">tudin vel, wisi. Morbi auctor lorem non justo. Nam</text>
+<text top="431" left="57" width="236" height="9" font="3">lacus libero, pretium at, lobortis vitae, ultricies et, tel-</text>
+<text top="443" left="57" width="15" height="9" font="3">lus.</text>
+<text top="443" left="81" width="212" height="9" font="3">Donec aliquet, tortor sed accumsan bibendum,</text>
+<text top="454" left="57" width="236" height="9" font="3">erat ligula aliquet magna, vitae ornare odio metus a</text>
+<text top="466" left="57" width="236" height="9" font="3">mi. Morbi ac orci et nisl hendrerit mollis. Suspendisse</text>
+<text top="478" left="57" width="236" height="9" font="3">ut massa. Cras nec ante. Pellentesque a nulla. Cum</text>
+<text top="490" left="57" width="236" height="9" font="3">sociis natoque penatibus et magnis dis parturient mon-</text>
+<text top="502" left="57" width="236" height="9" font="3">tes, nascetur ridiculus mus. Aliquam tincidunt urna.</text>
+<text top="514" left="57" width="236" height="9" font="3">Nulla ullamcorper vestibulum turpis. Pellentesque cur-</text>
+<text top="526" left="57" width="78" height="9" font="3">sus luctus mauris.</text>
+<text top="539" left="67" width="226" height="9" font="3">Nulla malesuada porttitor diam. Donec felis erat,</text>
+<text top="551" left="57" width="236" height="9" font="3">congue non, volutpat at, tincidunt tristique, libero. Vi-</text>
+<text top="563" left="57" width="236" height="9" font="3">vamus viverra fermentum felis. Donec nonummy pel-</text>
+<text top="575" left="57" width="236" height="9" font="3">lentesque ante. Phasellus adipiscing semper elit. Proin</text>
+<text top="587" left="57" width="236" height="9" font="3">fermentum massa ac quam. Sed diam turpis, molestie</text>
+<text top="599" left="57" width="236" height="9" font="3">vitae, placerat a, molestie nec, leo. Maecenas lacinia.</text>
+<text top="611" left="57" width="236" height="9" font="3">Nam ipsum ligula, eleifend at, accumsan nec, suscipit</text>
+<text top="623" left="57" width="236" height="9" font="3">a, ipsum. Morbi blandit ligula feugiat magna. Nunc</text>
+<text top="635" left="57" width="236" height="9" font="3">eleifend consequat lorem. Sed lacinia nulla vitae enim.</text>
+<text top="647" left="57" width="236" height="9" font="3">Pellentesque tincidunt purus vel magna. Integer non</text>
+<text top="658" left="57" width="236" height="9" font="3">enim. Praesent euismod nunc eu purus. Donec biben-</text>
+<text top="670" left="57" width="236" height="9" font="3">dum quam in tellus. Nullam cursus pulvinar lectus.</text>
+<text top="682" left="57" width="236" height="9" font="3">Donec et mi. Nam vulputate metus eu enim. Vestibu-</text>
+<text top="694" left="57" width="139" height="9" font="3">lum pellentesque felis eu massa.</text>
+<text top="728" left="57" width="8" height="13" font="2">2</text>
+<text top="728" left="81" width="62" height="13" font="2">Methods</text>
+<text top="754" left="57" width="236" height="9" font="3">Nulla malesuada porttitor diam. Donec felis erat, con-</text>
+<text top="766" left="57" width="236" height="9" font="3">gue non, volutpat at, tincidunt tristique, libero. Viva-</text>
+<text top="778" left="57" width="236" height="9" font="3">mus viverra fermentum felis. Donec nonummy pellen-</text>
+<text top="253" left="303" width="235" height="9" font="3">Figure 1: A synthetic vector figure drawn with a rule.</text>
+<text top="283" left="303" width="236" height="9" font="3">tesque ante. Phasellus adipiscing semper elit. Proin</text>
+<text top="295" left="303" width="236" height="9" font="3">fermentum massa ac quam. Sed diam turpis, molestie</text>
+<text top="307" left="303" width="236" height="9" font="3">vitae, placerat a, molestie nec, leo. Maecenas lacinia.</text>
+<text top="319" left="303" width="236" height="9" font="3">Nam ipsum ligula, eleifend at, accumsan nec, suscipit</text>
+<text top="331" left="303" width="236" height="9" font="3">a, ipsum. Morbi blandit ligula feugiat magna. Nunc</text>
+<text top="343" left="303" width="236" height="9" font="3">eleifend consequat lorem. Sed lacinia nulla vitae enim.</text>
+<text top="355" left="303" width="236" height="9" font="3">Pellentesque tincidunt purus vel magna. Integer non</text>
+<text top="367" left="303" width="236" height="9" font="3">enim. Praesent euismod nunc eu purus. Donec biben-</text>
+<text top="379" left="303" width="236" height="9" font="3">dum quam in tellus. Nullam cursus pulvinar lectus.</text>
+<text top="391" left="303" width="236" height="9" font="3">Donec et mi. Nam vulputate metus eu enim. Vestibu-</text>
+<text top="403" left="303" width="139" height="9" font="3">lum pellentesque felis eu massa.</text>
+<text top="415" left="313" width="167" height="9" font="3">Quisque ullamcorper placerat ipsum.</text>
+<text top="415" left="491" width="48" height="9" font="3">Cras nibh.</text>
+<text top="427" left="303" width="236" height="9" font="3">Morbi vel justo vitae lacus tincidunt ultrices. Lorem</text>
+<text top="439" left="303" width="236" height="9" font="3">ipsum dolor sit amet, consectetuer adipiscing elit. In</text>
+<text top="450" left="303" width="236" height="9" font="3">hac habitasse platea dictumst. Integer tempus conval-</text>
+<text top="462" left="303" width="236" height="9" font="3">lis augue. Etiam facilisis. Nunc elementum fermentum</text>
+<text top="474" left="303" width="236" height="9" font="3">wisi. Aenean placerat. Ut imperdiet, enim sed gra-</text>
+<text top="486" left="303" width="236" height="9" font="3">vida sollicitudin, felis odio placerat quam, ac pulvinar</text>
+<text top="498" left="303" width="236" height="9" font="3">elit purus eget enim. Nunc vitae tortor. Proin tem-</text>
+<text top="510" left="303" width="236" height="9" font="3">pus nibh sit amet nisl. Vivamus quis tortor vitae risus</text>
+<text top="522" left="303" width="65" height="9" font="3">porta vehicula.</text>
+<text top="534" left="313" width="226" height="9" font="3">Fusce mauris. Vestibulum luctus nibh at lectus. Sed</text>
+<text top="546" left="303" width="236" height="9" font="3">bibendum, nulla a faucibus semper, leo velit ultricies</text>
+<text top="558" left="303" width="236" height="9" font="3">tellus, ac venenatis arcu wisi vel nisl. Vestibulum diam.</text>
+<text top="570" left="303" width="236" height="9" font="3">Aliquam pellentesque, augue quis sagittis posuere, tur-</text>
+<text top="582" left="303" width="236" height="9" font="3">pis lacus congue quam, in hendrerit risus eros eget felis.</text>
+<text top="594" left="303" width="236" height="9" font="3">Maecenas eget erat in sapien mattis porttitor. Vesti-</text>
+<text top="606" left="303" width="236" height="9" font="3">bulum porttitor. Nulla facilisi. Sed a turpis eu lacus</text>
+<text top="618" left="303" width="236" height="9" font="3">commodo facilisis. Morbi fringilla, wisi in dignissim in-</text>
+<text top="630" left="303" width="236" height="9" font="3">terdum, justo lectus sagittis dui, et vehicula libero dui</text>
+<text top="642" left="303" width="236" height="9" font="3">cursus dui. Mauris tempor ligula sed lacus. Duis cur-</text>
+<text top="654" left="303" width="236" height="9" font="3">sus enim ut augue. Cras ac magna. Cras nulla. Nulla</text>
+<text top="666" left="303" width="236" height="9" font="3">egestas. Curabitur a leo. Quisque egestas wisi eget</text>
+<text top="678" left="303" width="236" height="9" font="3">nunc. Nam feugiat lacus vel est. Curabitur consecte-</text>
+<text top="690" left="303" width="21" height="9" font="3">tuer.</text>
+<text top="702" left="392" width="6" height="9" font="4">α</text>
+<text top="705" left="399" width="3" height="6" font="5">t</text>
+<text top="702" left="405" width="8" height="9" font="3">=</text>
+<text top="702" left="415" width="6" height="9" font="4">α</text>
+<text top="705" left="422" width="4" height="6" font="6">0</text>
+<text top="701" left="428" width="8" height="9" font="7">−</text>
+<text top="702" left="438" width="11" height="9" font="4">k t</text>
+<text top="702" left="526" width="13" height="9" font="3">(1)</text>
+<text top="719" left="303" width="172" height="9" font="3">Quisque ullamcorper placerat ipsum.</text>
+<text top="719" left="489" width="49" height="9" font="3">Cras nibh.</text>
+<text top="730" left="303" width="236" height="9" font="3">Morbi vel justo vitae lacus tincidunt ultrices. Lorem</text>
+<text top="742" left="303" width="236" height="9" font="3">ipsum dolor sit amet, consectetuer adipiscing elit. In</text>
+<text top="754" left="303" width="236" height="9" font="3">hac habitasse platea dictumst. Integer tempus conval-</text>
+<text top="766" left="303" width="236" height="9" font="3">lis augue. Etiam facilisis. Nunc elementum fermentum</text>
+<text top="778" left="303" width="236" height="9" font="3">wisi. Aenean placerat. Ut imperdiet, enim sed gra-</text>
+<text top="808" left="295" width="5" height="9" font="3">1</text>
+</page>
+<page number="2" position="absolute" top="0" left="0" height="841" width="595">
+	<fontspec id="8" size="12" family="MHXOIY+CMBX12" color="#000000"/>
+<text top="21" left="57" width="122" height="9" font="3">Reflow fixture running head</text>
+<text top="60" left="57" width="236" height="9" font="3">vida sollicitudin, felis odio placerat quam, ac pulvinar</text>
+<text top="72" left="57" width="236" height="9" font="3">elit purus eget enim. Nunc vitae tortor. Proin tem-</text>
+<text top="84" left="57" width="236" height="9" font="3">pus nibh sit amet nisl. Vivamus quis tortor vitae risus</text>
+<text top="96" left="57" width="65" height="9" font="3">porta vehicula.</text>
+<text top="108" left="67" width="226" height="9" font="3">Fusce mauris. Vestibulum luctus nibh at lectus. Sed</text>
+<text top="120" left="57" width="236" height="9" font="3">bibendum, nulla a faucibus semper, leo velit ultricies</text>
+<text top="132" left="57" width="236" height="9" font="3">tellus, ac venenatis arcu wisi vel nisl. Vestibulum diam.</text>
+<text top="144" left="57" width="236" height="9" font="3">Aliquam pellentesque, augue quis sagittis posuere, tur-</text>
+<text top="156" left="57" width="236" height="9" font="3">pis lacus congue quam, in hendrerit risus eros eget felis.</text>
+<text top="168" left="57" width="236" height="9" font="3">Maecenas eget erat in sapien mattis porttitor. Vesti-</text>
+<text top="180" left="57" width="236" height="9" font="3">bulum porttitor. Nulla facilisi. Sed a turpis eu lacus</text>
+<text top="191" left="57" width="236" height="9" font="3">commodo facilisis. Morbi fringilla, wisi in dignissim in-</text>
+<text top="203" left="57" width="236" height="9" font="3">terdum, justo lectus sagittis dui, et vehicula libero dui</text>
+<text top="215" left="57" width="236" height="9" font="3">cursus dui. Mauris tempor ligula sed lacus. Duis cur-</text>
+<text top="227" left="57" width="236" height="9" font="3">sus enim ut augue. Cras ac magna. Cras nulla. Nulla</text>
+<text top="239" left="57" width="236" height="9" font="3">egestas. Curabitur a leo. Quisque egestas wisi eget</text>
+<text top="251" left="57" width="236" height="9" font="3">nunc. Nam feugiat lacus vel est. Curabitur consecte-</text>
+<text top="263" left="57" width="21" height="9" font="3">tuer.</text>
+<text top="275" left="67" width="226" height="9" font="3">Suspendisse vel felis. Ut lorem lorem, interdum eu,</text>
+<text top="287" left="57" width="236" height="9" font="3">tincidunt sit amet, laoreet vitae, arcu. Aenean fau-</text>
+<text top="299" left="57" width="89" height="9" font="3">cibus pede eu ante.</text>
+<text top="299" left="155" width="138" height="9" font="3">Praesent enim elit, rutrum at,</text>
+<text top="311" left="57" width="236" height="9" font="3">molestie non, nonummy vel, nisl. Ut lectus eros, male-</text>
+<text top="323" left="57" width="236" height="9" font="3">suada sit amet, fermentum eu, sodales cursus, magna.</text>
+<text top="335" left="57" width="236" height="9" font="3">Donec eu purus. Quisque vehicula, urna sed ultricies</text>
+<text top="347" left="57" width="236" height="9" font="3">auctor, pede lorem egestas dui, et convallis elit erat</text>
+<text top="359" left="57" width="236" height="9" font="3">sed nulla. Donec luctus. Curabitur et nunc. Aliquam</text>
+<text top="371" left="57" width="236" height="9" font="3">dolor odio, commodo pretium, ultricies non, pharetra</text>
+<text top="383" left="57" width="236" height="9" font="3">in, velit. Integer arcu est, nonummy in, fermentum</text>
+<text top="395" left="57" width="115" height="9" font="3">faucibus, egestas vel, odio.</text>
+<text top="407" left="67" width="226" height="9" font="3">Sed commodo posuere pede. Mauris ut est. Ut quis</text>
+<text top="419" left="57" width="236" height="9" font="3">purus. Sed ac odio. Sed vehicula hendrerit sem. Duis</text>
+<text top="431" left="57" width="236" height="9" font="3">non odio. Morbi ut dui. Sed accumsan risus eget odio.</text>
+<text top="443" left="57" width="236" height="9" font="3">In hac habitasse platea dictumst. Pellentesque non elit.</text>
+<text top="455" left="57" width="236" height="9" font="3">Fusce sed justo eu urna porta tincidunt. Mauris fe-</text>
+<text top="467" left="57" width="236" height="9" font="3">lis odio, sollicitudin sed, volutpat a, ornare ac, erat.</text>
+<text top="479" left="57" width="236" height="9" font="3">Morbi quis dolor. Donec pellentesque, erat ac sagittis</text>
+<text top="491" left="57" width="236" height="9" font="3">semper, nunc dui lobortis purus, quis congue purus me-</text>
+<text top="503" left="57" width="236" height="9" font="3">tus ultricies tellus. Proin et quam. Class aptent taciti</text>
+<text top="515" left="57" width="236" height="9" font="3">sociosqu ad litora torquent per conubia nostra, per in-</text>
+<text top="527" left="57" width="236" height="9" font="3">ceptos hymenaeos. Praesent sapien turpis, fermentum</text>
+<text top="539" left="57" width="176" height="9" font="3">vel, eleifend faucibus, vehicula eu, lacus.</text>
+<text top="551" left="67" width="226" height="9" font="3">Pellentesque habitant morbi tristique senectus et ne-</text>
+<text top="563" left="57" width="236" height="9" font="3">tus et malesuada fames ac turpis egestas. Donec odio</text>
+<text top="575" left="57" width="236" height="9" font="3">elit, dictum in, hendrerit sit amet, egestas sed, leo.</text>
+<text top="587" left="57" width="236" height="9" font="3">Praesent feugiat sapien aliquet odio. Integer vitae ju-</text>
+<text top="599" left="57" width="236" height="9" font="3">sto. Aliquam vestibulum fringilla lorem. Sed neque</text>
+<text top="611" left="57" width="236" height="9" font="3">lectus, consectetuer at, consectetuer sed, eleifend ac,</text>
+<text top="623" left="57" width="236" height="9" font="3">lectus. Nulla facilisi. Pellentesque eget lectus. Proin</text>
+<text top="635" left="57" width="236" height="9" font="3">eu metus. Sed porttitor. In hac habitasse platea dictu-</text>
+<text top="647" left="57" width="236" height="9" font="3">mst. Suspendisse eu lectus. Ut mi mi, lacinia sit amet,</text>
+<text top="658" left="57" width="236" height="9" font="3">placerat et, mollis vitae, dui. Sed ante tellus, tristi-</text>
+<text top="670" left="57" width="236" height="9" font="3">que ut, iaculis eu, malesuada ac, dui. Mauris nibh leo,</text>
+<text top="682" left="57" width="190" height="9" font="3">facilisis non, adipiscing quis, ultrices a, dui.</text>
+<text top="710" left="57" width="17" height="11" font="8">2.1</text>
+<text top="710" left="87" width="29" height="11" font="8">Data</text>
+<text top="730" left="57" width="236" height="9" font="3">Sed commodo posuere pede. Mauris ut est. Ut quis pu-</text>
+<text top="742" left="57" width="236" height="9" font="3">rus. Sed ac odio. Sed vehicula hendrerit sem. Duis non</text>
+<text top="754" left="57" width="236" height="9" font="3">odio. Morbi ut dui. Sed accumsan risus eget odio. In</text>
+<text top="766" left="57" width="236" height="9" font="3">hac habitasse platea dictumst. Pellentesque non elit.</text>
+<text top="778" left="57" width="236" height="9" font="3">Fusce sed justo eu urna porta tincidunt. Mauris fe-</text>
+<text top="60" left="303" width="236" height="9" font="3">lis odio, sollicitudin sed, volutpat a, ornare ac, erat.</text>
+<text top="72" left="303" width="236" height="9" font="3">Morbi quis dolor. Donec pellentesque, erat ac sagittis</text>
+<text top="84" left="303" width="236" height="9" font="3">semper, nunc dui lobortis purus, quis congue purus me-</text>
+<text top="96" left="303" width="236" height="9" font="3">tus ultricies tellus. Proin et quam. Class aptent taciti</text>
+<text top="108" left="303" width="236" height="9" font="3">sociosqu ad litora torquent per conubia nostra, per in-</text>
+<text top="120" left="303" width="236" height="9" font="3">ceptos hymenaeos. Praesent sapien turpis, fermentum</text>
+<text top="131" left="303" width="176" height="9" font="3">vel, eleifend faucibus, vehicula eu, lacus.</text>
+<text top="143" left="313" width="226" height="9" font="3">Pellentesque habitant morbi tristique senectus et ne-</text>
+<text top="155" left="303" width="236" height="9" font="3">tus et malesuada fames ac turpis egestas. Donec odio</text>
+<text top="167" left="303" width="236" height="9" font="3">elit, dictum in, hendrerit sit amet, egestas sed, leo.</text>
+<text top="179" left="303" width="236" height="9" font="3">Praesent feugiat sapien aliquet odio. Integer vitae ju-</text>
+<text top="191" left="303" width="236" height="9" font="3">sto. Aliquam vestibulum fringilla lorem. Sed neque</text>
+<text top="203" left="303" width="236" height="9" font="3">lectus, consectetuer at, consectetuer sed, eleifend ac,</text>
+<text top="215" left="303" width="236" height="9" font="3">lectus. Nulla facilisi. Pellentesque eget lectus. Proin</text>
+<text top="227" left="303" width="236" height="9" font="3">eu metus. Sed porttitor. In hac habitasse platea dictu-</text>
+<text top="239" left="303" width="236" height="9" font="3">mst. Suspendisse eu lectus. Ut mi mi, lacinia sit amet,</text>
+<text top="251" left="303" width="236" height="9" font="3">placerat et, mollis vitae, dui. Sed ante tellus, tristi-</text>
+<text top="263" left="303" width="236" height="9" font="3">que ut, iaculis eu, malesuada ac, dui. Mauris nibh leo,</text>
+<text top="275" left="303" width="190" height="9" font="3">facilisis non, adipiscing quis, ultrices a, dui.</text>
+<text top="287" left="313" width="226" height="9" font="3">Morbi luctus, wisi viverra faucibus pretium, nibh</text>
+<text top="299" left="303" width="236" height="9" font="3">est placerat odio, nec commodo wisi enim eget quam.</text>
+<text top="311" left="303" width="236" height="9" font="3">Quisque libero justo, consectetuer a, feugiat vitae,</text>
+<text top="323" left="303" width="90" height="9" font="3">porttitor eu, libero.</text>
+<text top="323" left="405" width="134" height="9" font="3">Suspendisse sed mauris vitae</text>
+<text top="335" left="303" width="236" height="9" font="3">elit sollicitudin malesuada. Maecenas ultricies eros sit</text>
+<text top="347" left="303" width="236" height="9" font="3">amet ante. Ut venenatis velit. Maecenas sed mi eget</text>
+<text top="359" left="303" width="236" height="9" font="3">dui varius euismod. Phasellus aliquet volutpat odio.</text>
+<text top="371" left="303" width="236" height="9" font="3">Vestibulum ante ipsum primis in faucibus orci luctus</text>
+<text top="383" left="303" width="236" height="9" font="3">et ultrices posuere cubilia Curae; Pellentesque sit amet</text>
+<text top="394" left="303" width="236" height="9" font="3">pede ac sem eleifend consectetuer. Nullam elementum,</text>
+<text top="406" left="303" width="236" height="9" font="3">urna vel imperdiet sodales, elit ipsum pharetra ligula,</text>
+<text top="418" left="303" width="236" height="9" font="3">ac pretium ante justo a nulla. Curabitur tristique arcu</text>
+<text top="430" left="303" width="236" height="9" font="3">eu metus. Vestibulum lectus. Proin mauris. Proin eu</text>
+<text top="442" left="303" width="236" height="9" font="3">nunc eu urna hendrerit faucibus. Aliquam auctor, pede</text>
+<text top="454" left="303" width="236" height="9" font="3">consequat laoreet varius, eros tellus scelerisque quam,</text>
+<text top="466" left="303" width="236" height="9" font="3">pellentesque hendrerit ipsum dolor sed augue. Nulla</text>
+<text top="478" left="303" width="42" height="9" font="3">nec lacus.</text>
+<text top="490" left="313" width="226" height="9" font="3">Suspendisse vitae elit. Aliquam arcu neque, ornare</text>
+<text top="502" left="303" width="236" height="9" font="3">in, ullamcorper quis, commodo eu, libero. Fusce sagit-</text>
+<text top="514" left="303" width="236" height="9" font="3">tis erat at erat tristique mollis. Maecenas sapien libero,</text>
+<text top="526" left="303" width="236" height="9" font="3">molestie et, lobortis in, sodales eget, dui. Morbi ultri-</text>
+<text top="538" left="303" width="236" height="9" font="3">ces rutrum lorem. Nam elementum ullamcorper leo.</text>
+<text top="550" left="303" width="236" height="9" font="3">Morbi dui. Aliquam sagittis. Nunc placerat. Pellen-</text>
+<text top="562" left="303" width="236" height="9" font="3">tesque tristique sodales est. Maecenas imperdiet laci-</text>
+<text top="574" left="303" width="236" height="9" font="3">nia velit. Cras non urna. Morbi eros pede, suscipit</text>
+<text top="586" left="303" width="236" height="9" font="3">ac, varius vel, egestas non, eros. Praesent malesuada,</text>
+<text top="598" left="303" width="236" height="9" font="3">diam id pretium elementum, eros sem dictum tortor,</text>
+<text top="610" left="303" width="151" height="9" font="3">vel consectetuer odio sem sed wisi.</text>
+<text top="808" left="295" width="5" height="9" font="3">2</text>
+</page>
+</pdf2xml>

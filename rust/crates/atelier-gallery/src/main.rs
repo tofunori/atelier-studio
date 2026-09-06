@@ -9,6 +9,7 @@ mod ranged;
 mod suggest;
 mod workspace;
 mod zotero;
+mod reflow;
 
 use agent::AgentStore;
 use atelier_core::{WatcherStatus, artifact_snapshot, is_artifact, is_excluded_dir};
