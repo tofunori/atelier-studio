@@ -86,3 +86,21 @@ export function createOperationBatcher(flush) {
     },
   };
 }
+
+export function languageKindFor(ext) {
+  switch (ext === "R" ? "r" : String(ext || "").toLowerCase()) {
+    case "py": return "python";
+    case "md": return "markdown";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "json": return "json";
+    case "tex": case "sty": return "latex";
+    case "bib": return "stex";
+    case "r": return "r";
+    case "jl": return "julia";
+    case "sh": case "bash": return "shell";
+    case "yaml": case "yml": return "yaml";
+    case "toml": return "toml";
+    default: return "plain";
+  }
+}

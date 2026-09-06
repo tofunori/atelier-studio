@@ -10,21 +10,24 @@ struct AnnotationSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(draft.passage.citation).font(.caption).foregroundStyle(.secondary)
+                    if let figure = draft.passage.figure { ArtifactThumbnail(item: figure, gallery: workspace.gallery).frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 12)) }
                     Text(draft.passage.text)
                         .font(.subheadline)
                         .textSelection(.enabled)
-                } header: {
-                    Text(draft.passage.citation)
-                }
-                Section("Votre note") {
+                }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Votre note").font(.caption).foregroundStyle(.secondary)
                     TextField("Que souhaitez-vous dire sur ce passage ?", text: $draft.note, axis: .vertical)
                         .lineLimit(4...10)
                         .focused($editing)
                         .disabled(sending)
                         .accessibilityIdentifier("annotationNote")
                 }
+                }.padding(20)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {
@@ -41,7 +44,7 @@ struct AnnotationSheet: View {
                         Task {
                             defer { sending = false }
                             let prompt = "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
-                            if await workspace.chat.send(prompt, using: workspace.gallery) {
+                            if await workspace.chat.send(prompt, using: workspace.gallery, explicitFiles: draft.passage.figure.map { [$0] } ?? []) {
                                 _ = workspace.sendAnnotation(draft)
                                 dismiss()
                             }
@@ -74,7 +77,7 @@ struct AnnotationSheet: View {
         .sheet(isPresented: $choosingConversation) {
             ConversationPicker(workspace: workspace, navigateToChat: false)
         }
-        .presentationDetents([.large])
+        .presentationDetents([.fraction(0.65), .large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(!draft.note.isEmpty)
     }

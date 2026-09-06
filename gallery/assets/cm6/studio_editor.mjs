@@ -30,28 +30,15 @@ import {solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.mjs";
 import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.mjs";
-import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, normalizeScrollTarget} from "./studio_compat.mjs";
+import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, languageKindFor, normalizeScrollTarget} from "./studio_compat.mjs";
 
 export const Pass = Symbol("CodeMirror.Pass");
 export { countColumn };
 
-export function languageKindFor(ext) {
-  switch (ext === "R" ? "r" : String(ext || "").toLowerCase()) {
-    case "py": return "python";
-    case "md": return "markdown";
-    case "js": return "javascript";
-    case "ts": return "typescript";
-    case "json": return "json";
-    case "tex": case "sty": return "latex";
-    case "bib": return "stex";
-    case "r": return "r";
-    case "jl": return "julia";
-    case "sh": case "bash": return "shell";
-    case "yaml": case "yml": return "yaml";
-    case "toml": return "toml";
-    default: return "plain";
-  }
-}
+// `languageKindFor` vit dans studio_compat.mjs (sans dépendance lourde) pour
+// rester importable côté Node par les tests de contrat : la grammaire LaTeX
+// d'Overleaf n'est résoluble qu'à travers esbuild (imports ESM sans extension).
+export {languageKindFor};
 
 export function languageExtensionFor(ext) {
   switch (languageKindFor(ext)) {
@@ -63,7 +50,7 @@ export function languageExtensionFor(ext) {
     // .tex/.sty : parseur LR incrémental d'Overleaf (arbre syntaxique → pliage
     // par environnement/section, plan par nœuds, diagnostics). .bib garde le
     // mode flux stex, la grammaire LaTeX ne décrit pas BibTeX.
-    case "latex": return StreamLanguage.define(stex);
+    case "latex": return latex();
     case "stex": return StreamLanguage.define(stex);
     case "r": return StreamLanguage.define(r);
     case "julia": return StreamLanguage.define(julia);
@@ -564,7 +551,7 @@ export function createStudioEditor(parent, opts) {
     state: EditorState.create({
       doc: opts.value || "",
       extensions: [
-        ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}])] : []),
+        ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}]), latexDiagnosticsExtension()] : []),
         lineNumbers(), history(), highlightActiveLine(), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), restingSelectionMatches,
         indentUnit.of(opts.ext === "py" ? "    " : "  "),

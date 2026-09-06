@@ -27,11 +27,12 @@ const latexSurfaceSource = await readFile(new URL("../../src/studio/surfaces/lat
 const codeSurfaceSource = await readFile(new URL("../../src/studio/surfaces/code.ts", import.meta.url), "utf8");
 const markdownSurfaceSource = await readFile(new URL("../../src/studio/surfaces/markdown.ts", import.meta.url), "utf8");
 const ghostSource = await readFile(new URL("../../assets/cm6/ghost_ai.mjs", import.meta.url), "utf8");
+const compatSource = await readFile(new URL("../../assets/cm6/studio_compat.mjs", import.meta.url), "utf8");
 const latexLangSource = await readFile(new URL("../../assets/cm6/latex_lang/index.mjs", import.meta.url), "utf8");
 const outlineSource = await readFile(new URL("../../src/studio/features/latex/outline.ts", import.meta.url), "utf8");
 const latexStudioHtml = studioHtml;
 const latexStudioCss = latexCss;
-const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
+const {languageKindFor} = await import("../../assets/cm6/studio_compat.mjs");
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
   for (const method of [
@@ -98,8 +99,8 @@ test("latex_studio.html loads the CM6 engine only", () => {
 test("CM6 parses .tex with the Overleaf Lezer grammar and exposes tree-based outline and diagnostics", () => {
   assert.match(source, /from ["']\.\/latex_lang\/index\.mjs["']/);
   assert.match(source, /case "latex": return latex\(\);/);
-  assert.match(source, /case "tex": case "sty": return "latex";/);
-  assert.match(source, /case "bib": return "stex";/);
+  assert.match(compatSource, /case "tex": case "sty": return "latex";/);
+  assert.match(compatSource, /case "bib": return "stex";/);
   assert.match(source, /from ["']@codemirror\/lint["']/);
   assert.match(source, /latexDiagnosticsExtension\(\)/);
   assert.match(source, /compileDiagnosticsField/);
@@ -382,7 +383,7 @@ test("createEditor behavior routes every extension and unknown text safely", () 
 
 test("the real CM6 resolver selects syntax for every required extension", () => {
   const expected = {
-    tex: "stex", sty: "stex", bib: "stex", py: "python", md: "markdown",
+    tex: "latex", sty: "latex", bib: "stex", py: "python", md: "markdown",
     r: "r", R: "r", jl: "julia", sh: "shell", bash: "shell",
     js: "javascript", ts: "typescript", json: "json", yaml: "yaml",
     yml: "yaml", toml: "toml",

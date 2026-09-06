@@ -34,6 +34,7 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))
         .route("/remote/v1/send", post(send_msg))
         .route("/remote/v1/attachments/{name}", post(upload_attachment).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
+        .route("/remote/v1/document/{file_id}", post(save_document))
         .route("/remote/v1/interrupt", post(interrupt_msg))
         .route("/remote/v1/interaction", post(interaction_msg))
         .route("/remote/v1/gallery/{project_id}", get(gallery_index))
@@ -939,6 +940,52 @@ fn scan_gallery(proj: crate::path_policy::ProjectEntry) -> Vec<Value> {
         })
     });
     items
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDocumentBody { original: String, content: String }
+
+async fn save_document(
+    State(state): State<GatewayState>, headers: HeaderMap,
+    Path(file_id): Path<String>, Json(body): Json<SaveDocumentBody>,
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    require_device(&state, &headers, Scope::FilesWrite).await?;
+    require_device(&state, &headers, Scope::FilesRead).await?;
+    let g = state.inner.lock().await;
+    let (_, path, _) = g.projects.resolve_file_id(&file_id)?;
+    save_text_version(&path, &body.original, &body.content)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+fn save_text_version(path: &std::path::Path, original: &str, content: &str) -> ApiResult<()> {
+    use std::io::Write;
+    let ext = path.extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !["tex", "bib", "txt", "md"].contains(&ext.as_str()) || content.len() > 100_000 {
+        return Err(ApiError::bad_request("unsupported_document", "Sauvegarde limitée aux textes et LaTeX de 100 Ko."));
+    }
+    let current = std::fs::read_to_string(path).map_err(|_| ApiError::not_found("Document UTF-8 introuvable"))?;
+    if current != original {
+        return Err(ApiError::new(StatusCode::CONFLICT, "document_changed", "Le document a changé sur le Mac. Rechargez-le avant de réappliquer votre modification."));
+    }
+    let parent = path.parent().ok_or_else(|| ApiError::bad_request("invalid_path", "Document invalide"))?;
+    let temp = parent.join(format!(".atelier-edit-{}", uuid::Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        file.set_permissions(std::fs::metadata(path)?.permissions())?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        // Check again immediately before replacing: also catches edits made while preparing the new file.
+        if std::fs::read_to_string(path)? != original {
+            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "document changed"));
+        }
+        std::fs::rename(&temp, path)
+    })();
+    let _ = std::fs::remove_file(&temp);
+    result.map_err(|error| ApiError::new(
+        if error.kind() == std::io::ErrorKind::AlreadyExists { StatusCode::CONFLICT } else { StatusCode::INTERNAL_SERVER_ERROR },
+        "save_failed", "Le fichier n’a pas été enregistré. Conservez votre brouillon et rechargez le document."))
 }
 
 async fn trash_file_by_id(

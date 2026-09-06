@@ -218,6 +218,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         struct Uploaded: Decodable { let fileId: String }
         return try JSONDecoder().decode(Uploaded.self, from: await response(request)).fileId
     }
+    func invalidate(_ item: GalleryArtifact) { if let id = item.fileID { cache.removeValue(forKey: id) } }
     func chatRequest(_ components: [String], body: [String: Any]? = nil) async throws -> Data {
         guard let baseURL else { throw GalleryError.invalidAddress }
         var url = baseURL.appendingPathComponent("remote/v1")

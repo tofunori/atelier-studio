@@ -133,9 +133,24 @@ struct NativeChatView: View {
                 }.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
             }
             if !chat.attachments.isEmpty { ChatAttachmentBar(workspace: workspace) }
-            HStack(alignment: .bottom, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
                 TextField("Poursuivre la réflexion…", text: $workspace.draft, axis: .vertical)
                     .lineLimit(1...5).focused($composing).accessibilityIdentifier("chatDraft")
+            HStack(spacing: 6) {
+                ChatAttachMenu(workspace: workspace).frame(minWidth: 44, minHeight: 44).disabled(chat.sending || chat.running)
+                Menu {
+                    Picker("Modèle", selection: $chat.model) {
+                        if !chat.model.isEmpty && !(chat.provider?.models.contains(chat.model) ?? false) { Text(chat.model).tag(chat.model) }
+                        ForEach(chat.provider?.models ?? [], id: \.self) { model in Text(chat.provider?.modelLabels?[model] ?? model).tag(model) }
+                    }
+                } label: { Text(chat.provider?.modelLabels?[chat.model] ?? (chat.model.isEmpty ? "Modèle du Mac" : chat.model)).lineLimit(1) }
+                Spacer(minLength: 0)
+                Menu {
+                    Picker("Réflexion", selection: $chat.effort) {
+                        Text("Auto").tag("")
+                        ForEach(chat.provider?.efforts ?? [], id: \.self) { Text($0).tag($0) }
+                    }
+                } label: { Label(chat.effort.isEmpty ? "Auto" : chat.effort, systemImage: "brain") }
                 if chat.sending {
                     ProgressView("Envoi…").labelsHidden()
                 } else if chat.running {
@@ -154,23 +169,8 @@ struct NativeChatView: View {
                         .disabled(chat.sending || (workspace.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && chat.attachments.isEmpty && chat.quote == nil))
                         .accessibilityLabel("Envoyer au Mac")
                 }
-            }.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
-            HStack(spacing: 12) {
-                ChatAttachMenu(workspace: workspace)
-                Menu {
-                    Picker("Modèle", selection: $chat.model) {
-                        if !chat.model.isEmpty && !(chat.provider?.models.contains(chat.model) ?? false) { Text(chat.model).tag(chat.model) }
-                        ForEach(chat.provider?.models ?? [], id: \.self) { model in Text(chat.provider?.modelLabels?[model] ?? model).tag(model) }
-                    }
-                } label: { Text(chat.provider?.modelLabels?[chat.model] ?? (chat.model.isEmpty ? "Modèle du Mac" : chat.model)).lineLimit(1) }
-                Spacer(minLength: 0)
-                Menu {
-                    Picker("Réflexion", selection: $chat.effort) {
-                        Text("Auto").tag("")
-                        ForEach(chat.provider?.efforts ?? [], id: \.self) { Text($0).tag($0) }
-                    }
-                } label: { Label(chat.effort.isEmpty ? "Auto" : chat.effort, systemImage: "brain") }
-            }.font(.caption).foregroundStyle(.secondary).disabled(chat.sending || chat.running)
+            }.font(.caption).foregroundStyle(.secondary)
+            }.padding(12).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 20))
         }.padding(.horizontal, 16).padding(.vertical, 8).background(.background)
     }
 }

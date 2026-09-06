@@ -9,6 +9,8 @@ struct DocumentPassage: Identifiable {
     let location: String
     let text: String
     var regions: [Region] = []
+    var figureRegion: CGRect?
+    var figure: GalleryArtifact?
 
     var citation: String { "\(fileName) · \(location)" }
 }
@@ -24,7 +26,7 @@ final class AnnotationDraft: Identifiable {
 @MainActor @Observable
 final class WorkspaceModel {
     enum Surface: Hashable { case chat, document, gallery }
-    enum DocumentMode: String, CaseIterable { case source = "Source", pdf = "PDF" }
+    enum DocumentMode: String, CaseIterable { case reading = "Lecture", source = "Source", pdf = "PDF" }
     struct Message: Identifiable {
         let id = UUID()
         let text: String
@@ -49,6 +51,9 @@ final class WorkspaceModel {
     var chat = RemoteChatModel()
     var image: UIImage?
     var imageName = ""
+    var originalSources: [UUID: String] = [:]
+    var documentError: String?
+    var savingDocument = false
     var savedDocuments: [UUID: DocumentState] = [:]
     struct DocumentState {
         let source: String; let sourceName: String; let pdfName: String
@@ -68,6 +73,7 @@ final class WorkspaceModel {
         } else {
             try loadDocument(data: data, name: item.name)
         }
+        if originalSources[item.id] == nil && sourceAvailable { originalSources[item.id] = source }
         viewedArtifact = item
         documentID = item.id
         selection = nil; pdfPassage = nil; annotationDraft = nil
@@ -93,7 +99,7 @@ final class WorkspaceModel {
     var feedback = ""
     var pdfDocument = Bundle.module.url(forResource: "notes", withExtension: "pdf").flatMap(PDFDocument.init(url:))
 
-    var currentName: String { image != nil ? imageName : (documentMode == .source ? sourceName : pdfName) }
+    var currentName: String { image != nil ? imageName : (documentMode != .pdf ? sourceName : pdfName) }
     var activePassage: DocumentPassage? {
         if image != nil { return nil }
         if documentMode == .pdf { return pdfPassage }
@@ -105,6 +111,25 @@ final class WorkspaceModel {
         let lastLine = firstLine + text.dropLast().filter { $0.isNewline }.count
         let location = firstLine == lastLine ? "ligne \(firstLine)" : "lignes \(firstLine)–\(lastLine)"
         return DocumentPassage(documentID: documentID, fileName: sourceName, location: location, text: text)
+    }
+
+    var documentDirty: Bool { sourceAvailable && originalSources[documentID].map { $0 != source } == true }
+    func saveDocument() async {
+        guard let artifact = viewedArtifact, let original = originalSources[documentID], !savingDocument else { return }
+        let id = documentID, content = source
+        savingDocument = true; documentError = nil
+        defer { savingDocument = false }
+        do {
+            if artifact.fileID != nil {
+                let fileID = try await gallery.attachmentID(artifact)
+                _ = try await gallery.chatRequest(["document", fileID], body: ["original": original, "content": content])
+                gallery.invalidate(artifact)
+            } else if let index = gallery.localItems.firstIndex(where: { $0.id == artifact.id }) {
+                gallery.localItems[index].data = Data(content.utf8)
+            }
+            originalSources[id] = content
+            if documentID == id { feedback = artifact.fileID == nil ? "Copie locale enregistrée" : "Enregistré sur le Mac" }
+        } catch { documentError = error.localizedDescription }
     }
 
     func capturePDFSelection(_ selected: PDFSelection?) {
@@ -191,7 +216,7 @@ final class WorkspaceModel {
             sourceName = name
             sourceAvailable = true
             pdfDocument = nil
-            documentMode = .source
+            documentMode = (name as NSString).pathExtension.lowercased() == "tex" ? .reading : .source
         }
         if !["png", "jpg", "jpeg", "heic", "webp", "gif", "tiff"].contains((name as NSString).pathExtension.lowercased()) { image = nil }
         documentID = UUID()

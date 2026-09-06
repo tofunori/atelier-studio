@@ -519,11 +519,11 @@ Numérotation reprise à 069.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 069 | Filet d'inactivité pour Grok, Kimi et OpenCode (durée injectable, tests « CLI muet ») | P1 | M | — | TODO |
+| 069 | Filet d'inactivité pour Grok, Kimi et OpenCode (durée injectable, tests « CLI muet ») | P1 | M | — | DONE (exécuteur sonnet, revue 2026-09-06 : APPROVE — branche `advisor/069-filet-inactivite-acp` [1cc97c59, fdde3e20, df7b7a35, a9d07b8c] **basée sur 52c4d4b0, à rebaser sur main avant fusion** ; 4 fichiers in scope ; `with_idle_timeout` + `bump()` dans le handler de session des trois providers, durée figée à la construction, messages « X muet depuis N min » ; 264 tests providers verts (+5 : muet/bavard × 3, kimi adapté), env lu seulement dans turn_idle.rs ; déviation documentée acceptée : `agent_args`/`with_command` sur OpenCodeProvider pour pointer la fixture ACP partagée) |
 | 070 | Reprise des messages d'agents liés coincés en « delivering » après un crash | P2 | S | — | TODO |
 | 071 | Caractérisation : parité i18n FR/EN et câblage de `Chat.tsx` | P2 | M | — | TODO |
 | 072 | Caractérisation de `ws_router.rs` par famille de messages (prérequis au découpage) | P2 | L | — | TODO |
-| 073 | `getHistory` lit le journal hors du worker WebSocket | P1 | S | — | TODO |
+| 073 | `getHistory` lit le journal hors du worker WebSocket | P1 | S | — | DONE (exécuteur sonnet, revue 2026-09-06 : APPROVE — branche `advisor/073-gethistory-spawn-blocking` [5478cfc4] **basée sur 52c4d4b0, à rebaser** ; 1 fichier, `HarnessJournal` déjà `Clone` ; `has_journal`+`materialize` dans `spawn_blocking` ; 2 tests : fil inconnu → vide, 3 événements ajoutés dans le désordre → triés par `sequence` ; 189 tests runtime verts dans son worktree. Autres `journal().materialize` (getAgentHistory…) laissés pour 072) |
 | 074 | Passerelle distante fail-closed (pair inconnu, liste d'hôtes vide) | P1 | S | — | TODO |
 | 075 | DOMPurify versionné partout (galerie + mermaid), test anti-dérive | P1 | S | — | DONE (exécuteur sonnet, revue 2026-09-06 : APPROVE — branche `advisor/075-dompurify` [9489d324, 620a213c] **basée sur 52c4d4b0, à rebaser sur main avant fusion** ; mermaid ^11.17.2 + dompurify ^3.4.15 direct, purify.min.js 3.4.15 copié au build, test de version ; `npm audit` sans advisory dompurify/mermaid ; parity + diff suite ok, 523 tests chat ok ; le STOP « budget 1 028 Ko » est un artefact de la base ancienne — sur main (post-25a5a2af, composants paresseux) l'entrée est à 1 023 Ko et le bump ajoute 0 octet, vérifié) |
 | 076 | i18n par locale : l'entrée ne charge qu'une langue, budget retrouvé | P2 | M | 071 | TODO |

@@ -362,3 +362,27 @@ Causes, toutes dans le code Atelier, aucune dans CM6 lui-même :
 - Après toute modification du chemin sélection/frappe : `node
   gallery/scripts/bench_editor.mjs` avant/après (référence post-correctif :
   ≈ 2 ms/pas de drag, ≈ 3,7 ms/caractère en WebKit).
+
+## 16. `@overleaf/lezer-latex` : ESM sans extensions — importable seulement à travers esbuild
+
+Symptôme (2026-09-06) : après le passage de `.tex` au parseur LR d'Overleaf,
+`studio_editor_contract.test.mjs` cassait au chargement : Node ne résout pas
+`import "./latex"` (sans `.js`) dans `node_modules/@overleaf/lezer-latex/dist/`.
+Tout module qui importe `studio_editor.mjs` directement sous Node meurt de la
+même façon ; les bundles, eux, passent (esbuild résout sans extension).
+
+**Règles** :
+- Les helpers purs dont les tests Node ont besoin (`languageKindFor`,
+  `countColumn`…) vivent dans `cm6/studio_compat.mjs`, sans dépendance
+  lourde ; `studio_editor.mjs` les réexporte. Les tests importent le compat.
+- Pour sonder le parseur côté Node (types de nœuds, arbre d'un extrait) :
+  fichier temporaire DANS `gallery/assets/cm6/latex_lang/` (résolution
+  `node_modules` de la galerie), `npx esbuild … --bundle --platform=node`,
+  puis exécuter le bundle. Ne pas laisser le fichier temporaire.
+- Le paquet est sous AGPL-3.0 (grammaire de production d'Overleaf). Le câblage
+  CM6 (styleTags, pliage, plan, diagnostics) est à nous, dans
+  `latex_lang/index.mjs` ; `.bib` reste sur le mode flux `stex`.
+- La grammaire ne connaît pas tout TeX : les diagnostics de structure sont des
+  AVERTISSEMENTS ancrés sur l'ouverture orpheline ; les erreurs de compilation
+  (`! … l.N`) sont les seules « erreurs », posées via `cm.setDiagnostics` dans
+  un champ dédié que le linter relit (sinon la première frappe les effaçait).

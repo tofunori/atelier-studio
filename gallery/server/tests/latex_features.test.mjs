@@ -734,7 +734,10 @@ test("parseLatexLogDiagnostics anchors errors on l.N and warnings on 'on input l
     "! Emergency stop.",
     "l.12 \\foo",
   ].join("\n");
-  const diagnostics = latex.parseLatexLogDiagnostics(log);
+  // Le bundle tourne dans un contexte vm : ses tableaux n'ont pas le prototype
+  // Array de ce module, d'où le passage par JSON avant deepEqual.
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const diagnostics = plain(latex.parseLatexLogDiagnostics(log));
   assert.deepEqual(diagnostics.map((d) => [d.severity, d.line, d.message]), [
     ["error", 12, "Undefined control sequence."],
     ["error", 30, "Missing $ inserted."],
@@ -742,8 +745,8 @@ test("parseLatexLogDiagnostics anchors errors on l.N and warnings on 'on input l
     ["warning", 60, "Token not allowed in a PDF string (Unicode): (hyperref) removing `\\emph'"],
     ["error", 12, "Emergency stop."],
   ]);
-  assert.deepEqual(latex.parseLatexLogDiagnostics(""), []);
-  assert.deepEqual(latex.parseLatexLogDiagnostics("Output written on main.pdf (3 pages)."), []);
+  assert.deepEqual(plain(latex.parseLatexLogDiagnostics("")), []);
+  assert.deepEqual(plain(latex.parseLatexLogDiagnostics("Output written on main.pdf (3 pages).")), []);
 });
 
 test("compile coordinator publishes log diagnostics after every compile, empty when clean", async () => {
@@ -757,5 +760,5 @@ test("compile coordinator publishes log diagnostics after every compile, empty w
   });
   await make({ok: false, log: "! Undefined control sequence.\nl.3 \\foo"}).compile();
   await make({ok: true, log: "Output written on main.pdf (1 page)."}).compile();
-  assert.deepEqual(published.map((list) => list.map((d) => [d.severity, d.line])), [[["error", 3]], []]);
+  assert.deepEqual(JSON.parse(JSON.stringify(published.map((list) => list.map((d) => [d.severity, d.line])))), [[["error", 3]], []]);
 });

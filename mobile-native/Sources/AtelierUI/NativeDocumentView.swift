@@ -3,19 +3,23 @@ import PDFKit
 
 struct NativeDocumentView: View {
     @Bindable var workspace: WorkspaceModel
+    @State private var annotatingFigure = false
+    @State private var pendingFigure: DocumentPassage?
 
     var body: some View {
         VStack(spacing: 0) {
-            if workspace.sourceAvailable && workspace.pdfDocument != nil {
+            if workspace.sourceAvailable {
                 Picker("Vue du document", selection: $workspace.documentMode) {
                     ForEach(WorkspaceModel.DocumentMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        if mode != .pdf || workspace.pdfDocument != nil { Text(mode.rawValue).tag(mode) }
                     }
                 }
                 .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 8)
             }
             if let image = workspace.image {
                 ZoomableArtifactImage(image: image)
+            } else if workspace.documentMode == .reading {
+                LatexReadingView(workspace: workspace)
             } else if workspace.documentMode == .source {
                 SyntaxSourceEditor(workspace: workspace)
             } else {
@@ -25,7 +29,7 @@ struct NativeDocumentView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 6) {
                 if workspace.image != nil {
-                    Text("Pincez pour zoomer").font(.caption).foregroundStyle(.secondary)
+                    Button("Annoter la figure", systemImage: "highlighter") { annotatingFigure = true }.frame(minHeight: 44)
                 } else if let passage = workspace.activePassage {
                     HStack {
                         Text(passage.location).font(.caption).foregroundStyle(.secondary)
@@ -45,13 +49,22 @@ struct NativeDocumentView: View {
             }
             .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(.background)
         }
+        .alert("Sauvegarde impossible", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if workspace.documentDirty {
+                    Button("Enregistrer", systemImage: "checkmark") { Task { await workspace.saveDocument() } }.disabled(workspace.savingDocument)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if let item = workspace.viewedArtifact {
                     Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
                 }
             }
         }
+        .sheet(isPresented: $annotatingFigure, onDismiss: {
+            if let passage = pendingFigure { workspace.annotationDraft = AnnotationDraft(passage: passage); pendingFigure = nil }
+        }) { if let image = workspace.image { FigureAnnotationView(workspace: workspace, image: image) { pendingFigure = $0 } } }
         .sheet(item: $workspace.annotationDraft) { draft in
             AnnotationSheet(workspace: workspace, draft: draft)
         }

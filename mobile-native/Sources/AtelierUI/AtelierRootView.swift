@@ -6,6 +6,7 @@ public struct AtelierRootView: View {
     @AppStorage("atelier.lastTab") private var lastTab = "chat"
     @State private var restoredTab = false
     @State private var showAbout = false
+    @AppStorage("atelier.appearance") private var appearance = "system"
     @State private var importError: String?
     @State private var connecting = false
     @Environment(\.scenePhase) private var scenePhase
@@ -15,7 +16,8 @@ public struct AtelierRootView: View {
 
     public var body: some View {
         workbench
-        .tint(.orange)
+        .tint(AtelierTheme.accent)
+        .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .onChange(of: workspace.surface) { _, surface in
             lastTab = surface == .chat ? "chat" : "gallery"
         }
@@ -59,21 +61,7 @@ public struct AtelierRootView: View {
             Button("OK") { importError = nil }
         } message: { Text(importError ?? "") }
         .sheet(isPresented: $showAbout) {
-            NavigationStack {
-                Form {
-                    Section("Prototype SwiftUI") {
-                        Text("Interface native iPhone et iPad, lecteur PDFKit et source LaTeX.")
-                        Text("Les conversations sont transmises au Mac. Les éditions et surlignages des documents restent en mémoire sur cet appareil.")
-                    }
-                    Section("À venir") {
-                        Text("Sauvegarde des documents et compilation LaTeX sur le Mac.")
-                    }
-                }
-                .navigationTitle("À propos")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { showAbout = false } } }
-            }
-            .presentationDetents([.medium, .large])
+            AtelierSettingsView()
         }
     }
 
@@ -142,7 +130,7 @@ public struct AtelierRootView: View {
         Menu {
             Button { workspace.surface = .gallery } label: { Label("Galerie", systemImage: "square.grid.2x2") }
             Button { workspace.importRequested = true } label: { Label("Importer un fichier", systemImage: "folder") }
-            Button { showAbout = true } label: { Label("À propos du prototype", systemImage: "info.circle") }
+            Button { showAbout = true } label: { Label("Réglages", systemImage: "gearshape") }
         } label: { Image(systemName: "ellipsis") }
         .accessibilityLabel("Options d’Atelier")
     }
