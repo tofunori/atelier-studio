@@ -199,14 +199,26 @@ pub fn format_rfc3339(time: SystemTime) -> String {
 }
 
 /// Analyse tolérante d'une date : RFC 3339 avec décalage, format docker
-/// (`2026-09-04 08:12:33 -0400 EDT`), ou naïf `YYYY-MM-DDTHH:MM[:SS]`
-/// (interprété en UTC, faute de mieux). `None` si rien ne colle.
+/// (`2026-09-04 08:12:33 -0400 EDT`), format systemd
+/// (`Sat 2026-09-06 12:24:23 EDT` — jour de semaine ignoré, abréviation de
+/// fuseau sans décalage → naïf), ou naïf `YYYY-MM-DDTHH:MM[:SS]` (interprété
+/// en UTC, faute de mieux). `None` si rien ne colle.
 pub fn parse_datetime(raw: &str) -> Option<SystemTime> {
     use chrono::{DateTime, NaiveDateTime};
     let raw = raw.trim();
     if raw.is_empty() {
         return None;
     }
+    // systemd : `Sat 2026-09-06 …` → on retire le jour de semaine
+    let raw = raw
+        .split_once(' ')
+        .filter(|(day, rest)| {
+            day.len() == 3
+                && day.chars().all(|c| c.is_ascii_alphabetic())
+                && rest.starts_with(|c: char| c.is_ascii_digit())
+        })
+        .map(|(_, rest)| rest.trim_start())
+        .unwrap_or(raw);
     if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
         return Some(to_system_time(dt.timestamp()));
     }
@@ -316,7 +328,17 @@ mod tests {
             normalize_datetime("2026-07-15T09:58"),
             "2026-07-15T09:58:00Z"
         );
+        assert_eq!(
+            normalize_datetime("Sat 2026-09-06 12:24:23 EDT"),
+            "2026-09-06T12:24:23Z",
+            "systemd : jour de semaine ignoré, abréviation sans décalage → naïf UTC"
+        );
+        assert_eq!(
+            normalize_datetime("Sat 2026-09-06 12:24:23 -0400 EDT"),
+            "2026-09-06T16:24:23Z"
+        );
         assert_eq!(normalize_datetime("Unknown"), "Unknown");
+        assert_eq!(normalize_datetime("n/a"), "n/a");
         assert!(parse_datetime("").is_none());
     }
 

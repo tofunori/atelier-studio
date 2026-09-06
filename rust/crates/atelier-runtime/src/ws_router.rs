@@ -20,7 +20,8 @@ use atelier_workspace::{
     revert_file, save_image, scan_local, stage_files, status as git_status,
     switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files,
     zotero_add_pdfs, zotero_available, zotero_collections, zotero_load_favs, zotero_search,
-    zotero_toggle_fav, ComputeConfig, ComputeHost, ComputeHostError, NarvalError, SystemExec,
+    zotero_toggle_fav, ComputeConfig, ComputeHost, ComputeHostError, ComputeSnapshot, NarvalError,
+    SystemExec,
     TermEvent,
 };
 use serde::Deserialize;
@@ -623,22 +624,41 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "computeSnapshot" => {
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            let hosts = msg
+            // `hosts` absent ou vide → tous ; fourni mais aucun nom connu →
+            // instantané vide + erreur `invalid_hosts` (jamais de repli sur
+            // tous les hôtes, qui déclencherait des ssh non demandés).
+            let requested: Option<Vec<&str>> = msg
                 .get("hosts")
                 .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(Value::as_str)
-                        .filter_map(ComputeHost::parse)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|list| !list.is_empty())
-                .unwrap_or_else(|| ComputeHost::ALL.to_vec());
+                .map(|list| list.iter().filter_map(Value::as_str).collect())
+                .filter(|list: &Vec<&str>| !list.is_empty());
+            let hosts: Vec<ComputeHost> = match &requested {
+                Some(list) => list.iter().copied().filter_map(ComputeHost::parse).collect(),
+                None => ComputeHost::ALL.to_vec(),
+            };
             let days = msg
                 .get("days")
                 .and_then(Value::as_u64)
                 .unwrap_or(7)
                 .clamp(1, 30) as u32;
+            if hosts.is_empty() {
+                let unknown = requested.unwrap_or_default().join(", ");
+                let snapshot = ComputeSnapshot {
+                    observed_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                    runs: Vec::new(),
+                    errors: vec![ComputeHostError::new(
+                        "?",
+                        "invalid_hosts",
+                        format!("aucun hôte connu parmi : {unknown}"),
+                    )],
+                };
+                return workspace_reply_with::<_, ComputeHostError>(
+                    "computeSnapshot",
+                    request_id,
+                    json!({}),
+                    Ok(Ok(snapshot)),
+                );
+            }
             workspace_reply_with::<_, ComputeHostError>(
                 "computeSnapshot",
                 request_id,
@@ -4766,6 +4786,25 @@ mod tests {
         assert!(v["data"]["observedAt"].as_str().unwrap().ends_with('Z'));
         assert!(v["data"]["runs"].is_array());
         assert_eq!(v["data"]["errors"], json!([]));
+        assert!(v.get("error").is_none());
+
+        // `hosts` fourni mais aucun nom connu → vide + invalid_hosts, jamais
+        // de repli sur tous les hôtes (aucun ssh vers le NAS ici)
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeSnapshot","hosts":["pluton","mars"],"requestId":"c-1b"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["requestId"], "c-1b");
+        assert_eq!(v["data"]["runs"], json!([]));
+        assert_eq!(v["data"]["errors"][0]["host"], "?");
+        assert_eq!(v["data"]["errors"][0]["code"], "invalid_hosts");
+        assert!(v["data"]["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("pluton"));
+        assert!(v["data"]["observedAt"].as_str().unwrap().ends_with('Z'));
         assert!(v.get("error").is_none());
     }
 

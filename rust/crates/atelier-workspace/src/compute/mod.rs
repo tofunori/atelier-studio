@@ -110,14 +110,19 @@ fn valid_ssh_alias(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'@'))
 }
 
-/// Identifiants de run acceptés : `[A-Za-z0-9_.:-]`, jamais vide. Vérifié
-/// AVANT toute construction de commande distante.
+/// Identifiants de run acceptés : `[A-Za-z0-9_.:-]`, jamais vide, et chaque
+/// segment (séparé par `:`) commence par un alphanumérique — ce qui exclut
+/// `local:..` (remontée de chemin) et `nas:docker:--help` (injection
+/// d'option). Vérifié AVANT toute construction de commande distante.
 pub fn valid_run_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 256
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+        && id
+            .split(':')
+            .all(|segment| segment.starts_with(|c: char| c.is_ascii_alphanumeric()))
 }
 
 /// Instantané multi-hôtes : les adaptateurs demandés tournent en parallèle,
@@ -405,6 +410,15 @@ mod tests {
         for bad in [
             "",
             "local:../etc/passwd",
+            "local:..",
+            "local:.",
+            "local:...",
+            "local:",
+            "nas:docker:--help",
+            "nas:docker:-f",
+            "nas:unit:.hidden",
+            "nas::x",
+            ":nas:docker:a",
             "nas:docker:a;rm -rf /",
             "nas:docker:$(id)",
             "other:x",
@@ -469,6 +483,24 @@ mod tests {
             snap["errors"][0],
             serde_json::json!({"host":"nas","code":"unavailable","message":"x"})
         );
+    }
+
+    #[test]
+    fn run_ids_reject_traversal_and_option_injection() {
+        assert!(valid_run_id("local:aaaa0001"));
+        assert!(valid_run_id("nas:docker:albedo-trends"));
+        assert!(valid_run_id("nas:unit:albedo-sync.service"));
+        assert!(valid_run_id("nas:local:7788aabbccdd"));
+        assert!(valid_run_id("slurm:65659021"));
+        assert!(valid_run_id("nas:docker:a.b-c_d"), "points et tirets internes ok");
+        assert!(!valid_run_id("local:.."), "remontée de chemin");
+        assert!(!valid_run_id("local:."));
+        assert!(!valid_run_id("nas:docker:--help"), "injection d'option");
+        assert!(!valid_run_id("nas:docker:-rm"));
+        assert!(!valid_run_id("nas:unit:_x"), "premier caractère alphanumérique");
+        assert!(!valid_run_id("nas::x"), "segment vide");
+        assert!(!valid_run_id("nas:docker:x:"), "segment final vide");
+        assert!(!valid_run_id(&format!("local:{}", "a".repeat(300))));
     }
 
     #[test]

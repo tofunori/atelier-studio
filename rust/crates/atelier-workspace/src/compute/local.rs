@@ -50,8 +50,8 @@ pub fn parse_manifest(raw: &str) -> Option<Manifest> {
 /// Vivacité d'un PID par `kill(pid, 0)` : ESRCH → mort, EPERM → vivant
 /// (le processus existe, il appartient à un autre compte).
 pub fn pid_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false; // 0 = groupe courant ; > i32::MAX = pid_t négatif
     }
     // SAFETY : signal 0 ne délivre rien, il ne fait que vérifier l'existence.
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
@@ -403,6 +403,8 @@ mod tests {
         assert!(pid_alive(std::process::id()));
         assert!(!pid_alive(999_999));
         assert!(!pid_alive(0));
+        assert!(!pid_alive(u32::MAX), "déborderait en pid_t négatif");
+        assert!(!pid_alive(i32::MAX as u32 + 1));
     }
 
     #[test]

@@ -31,12 +31,13 @@ fn run_from_job(profile: &str, job: &SlurmJob, observed: SystemTime) -> Run {
     let now = format_rfc3339(observed);
     // Les dates sacct sont en heure locale de la grappe, sans décalage : on les
     // renormalise telles quelles (UTC supposé) plutôt que d'inventer un fuseau.
-    let started_at = known(&job.started_at)
-        .map(normalize_datetime)
-        .unwrap_or_else(|| now.clone());
+    let known_start = known(&job.started_at).map(normalize_datetime);
+    let started_at = known_start.clone().unwrap_or_else(|| now.clone());
     let ended_at = known(&job.ended_at).map(normalize_datetime);
+    // Une rangée vivante ne bouge pas d'un sondage à l'autre : ancrée sur le
+    // début quand il est connu ; `observed` seulement à défaut (squeue).
     let last_activity_at = if state.is_live() {
-        now
+        known_start.unwrap_or(now)
     } else {
         ended_at.clone().unwrap_or_else(|| started_at.clone())
     };
@@ -113,11 +114,32 @@ mod tests {
              __ATELIER_RECENT__\n\
              65648210|M40-final|COMPLETED|04:18:02|16|cpubase|2026-07-14T22:17|2026-07-15T02:35|/home/u/m40\n\
              65658211|M41-newer|OUT_OF_MEMORY|00:18:02|16|cpubase|2026-07-15T07:17|2026-07-15T07:35|/home/u/m41\n\
-             65658212|M41-odd|WEIRD|00:18:02|16|cpubase|2026-07-15T07:17|Unknown|/home/u/m41\n",
+             65658212|M41-odd|WEIRD|00:18:02|16|cpubase|2026-07-15T07:17|Unknown|/home/u/m41\n\
+             65658213|M43-live|RUNNING|00:18:02|16|cpubase|2026-07-15T11:17|Unknown|/home/u/m43\n",
         );
         let observed = parse_datetime("2026-07-15T12:00:00Z").unwrap();
         let runs = runs_from_snapshot("narval", &snapshot, observed);
-        assert_eq!(runs.len(), 5);
+        assert_eq!(runs.len(), 6);
+        let live = runs.iter().find(|r| r.id == "slurm:65658213").unwrap();
+        assert_eq!(live.state, RunState::Running);
+        assert_eq!(
+            live.last_activity_at, "2026-07-15T11:17:00Z",
+            "vivant avec début connu : ancré sur le début, pas sur observed"
+        );
+        // deux sondages à des instants différents → mêmes rangées vivantes
+        // (sauf celles dont le début est inconnu, ancrées sur observed)
+        let later = runs_from_snapshot(
+            "narval",
+            &snapshot,
+            parse_datetime("2026-07-15T13:00:00Z").unwrap(),
+        );
+        let live_known = |runs: &[Run]| -> Vec<Run> {
+            runs.iter()
+                .filter(|r| r.state.is_live() && r.id == "slurm:65658213")
+                .cloned()
+                .collect()
+        };
+        assert_eq!(live_known(&runs), live_known(&later));
         let queued = &runs[0];
         assert_eq!(queued.id, "slurm:65659188");
         assert_eq!(queued.state, RunState::Queued);

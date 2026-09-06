@@ -1,12 +1,36 @@
 {"Command":"\"python3 scripts/albedo_trends.py\"","CreatedAt":"2026-09-04 08:12:33 -0400 EDT","ID":"9f1c2a7b","Image":"albedo-pipeline:latest","Labels":"","LocalVolumes":"1","Mounts":"","Names":"albedo-trends","Networks":"bridge","Ports":"","RunningFor":"2 days ago","Size":"0B","State":"running","Status":"Up 2 days"}
 {"Command":"\"/jellyfin/jellyfin\"","CreatedAt":"2026-06-01 10:00:00 -0400 EDT","ID":"11111111","Image":"jellyfin/jellyfin:latest","Labels":"","LocalVolumes":"2","Mounts":"","Names":"jellyfin","Networks":"host","Ports":"","RunningFor":"3 months ago","Size":"0B","State":"running","Status":"Up 3 weeks (healthy)"}
 ::SEP
-[{"unit":"albedo-sync.service","load":"loaded","active":"active","sub":"running","description":"Synchronisation Drive vers NAS"},{"unit":"gbrain-mcp.service","load":"loaded","active":"active","sub":"running","description":"Serveur MCP gbrain"}]
+Result=success
+ExecMainPID=41233
+ExecStart={ path=/usr/bin/rclone ; argv[]=/usr/bin/rclone sync gdrive:albedo /volume1/albedo ; ignore_errors=no ; start_time=[Sat 2026-09-06 12:24:23 EDT] ; stop_time=[n/a] ; pid=41233 ; code=(null) ; status=0/0 }
+Id=albedo-sync.service
+TriggeredBy=albedo-sync.timer
+Description=Synchronisation Drive vers NAS
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Sat 2026-09-06 12:24:23 EDT
+InactiveEnterTimestamp=Fri 2026-09-05 12:31:02 EDT
+Transient=no
+
+Result=success
+ExecMainPID=1201
+Id=gbrain-mcp.service
+TriggeredBy=
+Description=Serveur MCP gbrain
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Sat 2026-09-06 08:00:00 EDT
+InactiveEnterTimestamp=
+Transient=yes
 ::SEP
 ::FILE /home/thierry/.atelier/runs/7788aabbccdd/run.json
 {"version": 1, "id": "7788aabbccdd", "label": "fit.py", "command": "python3 fit.py", "work_dir": "/home/thierry/models", "host": "nas", "pid": 9001, "state": "running", "started_at": "2026-09-06T10:00:00Z", "ended_at": null, "exit_code": null, "progress": {"current": 3, "total": 9, "unit": "modèles"}, "tags": {}}
 ::META mtime=1788700000 alive=1
 ::TAIL
-epoch 2 done
-epoch 3 done
+::L epoch 2 done
+::L ::END
+::L ::SEP
+::L ::FILE /tmp/piege/run.json
+::L epoch 3 done
 ::END
