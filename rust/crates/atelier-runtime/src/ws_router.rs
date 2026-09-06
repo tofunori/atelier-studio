@@ -12,14 +12,16 @@ use atelier_workspace::{
     create_branch as git_create_branch, create_branch_at as git_create_branch_at,
     delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
     diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands, list_file_catalog, list_pasted, log as git_log,
-    merge_branch as git_merge_branch, narval_inspect_job, narval_list_directory, narval_read_text,
+    compute_read_log, compute_snapshot, merge_branch as git_merge_branch, narval_inspect_job,
+    narval_list_directory, narval_read_text,
     narval_run_files, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
     reset_to_commit as git_reset_to_commit, restore as git_restore,
     restore_file_from_commit as git_restore_file_from_commit, revert_commit as git_revert_commit,
     revert_file, save_image, scan_local, stage_files, status as git_status,
     switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files,
     zotero_add_pdfs, zotero_available, zotero_collections, zotero_load_favs, zotero_search,
-    zotero_toggle_fav, NarvalError, TermEvent,
+    zotero_toggle_fav, ComputeConfig, ComputeHost, ComputeHostError, NarvalError, SystemExec,
+    TermEvent,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -58,6 +60,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "narvalInspectJob",
     "narvalRunFiles",
     "narvalReadText",
+    "computeSnapshot",
+    "computeReadLog",
     "listCommands",
     "listPlugins",
     "listPasted",
@@ -156,7 +160,7 @@ fn narval_reply<T: serde::Serialize>(
     request_id: Value,
     result: Result<Result<T, NarvalError>, tokio::task::JoinError>,
 ) -> Vec<String> {
-    narval_reply_with(response_type, request_id, json!({}), result)
+    workspace_reply_with(response_type, request_id, json!({}), result)
 }
 
 fn narval_reply_with<T: serde::Serialize>(
@@ -164,6 +168,25 @@ fn narval_reply_with<T: serde::Serialize>(
     request_id: Value,
     extra: Value,
     result: Result<Result<T, NarvalError>, tokio::task::JoinError>,
+) -> Vec<String> {
+    workspace_reply_with(response_type, request_id, extra, result)
+}
+
+/// Configuration de la surface Calculs, résolue une fois par processus
+/// (`ATELIER_RUNS_DIR`, alias NAS, profil Slurm) ; exécuteur système partagé.
+fn compute_runtime() -> (&'static ComputeConfig, &'static SystemExec) {
+    static CONFIG: std::sync::OnceLock<ComputeConfig> = std::sync::OnceLock::new();
+    static EXEC: SystemExec = SystemExec;
+    (CONFIG.get_or_init(ComputeConfig::default), &EXEC)
+}
+
+/// Enveloppe commune des réponses « atelier » (Narval, Calculs) :
+/// `{type, requestId, ...extra, data | error}`.
+fn workspace_reply_with<T: serde::Serialize, E: serde::Serialize>(
+    response_type: &str,
+    request_id: Value,
+    extra: Value,
+    result: Result<Result<T, E>, tokio::task::JoinError>,
 ) -> Vec<String> {
     let mut base = extra.as_object().cloned().unwrap_or_default();
     base.insert("type".into(), json!(response_type));
@@ -184,7 +207,7 @@ fn narval_reply_with<T: serde::Serialize>(
         Err(error) => {
             base.insert(
                 "error".into(),
-                json!({"code":"internal", "message": format!("tâche Narval interrompue: {error}")}),
+                json!({"code":"internal", "message": format!("tâche atelier interrompue: {error}")}),
             );
         }
     }
@@ -596,6 +619,59 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 request_id,
                 tokio::task::spawn_blocking(move || narval_read_text(&profile, &path, tail_lines))
                     .await,
+            )
+        }
+        "computeSnapshot" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let hosts = msg
+                .get("hosts")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .filter_map(ComputeHost::parse)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|list| !list.is_empty())
+                .unwrap_or_else(|| ComputeHost::ALL.to_vec());
+            let days = msg
+                .get("days")
+                .and_then(Value::as_u64)
+                .unwrap_or(7)
+                .clamp(1, 30) as u32;
+            workspace_reply_with::<_, ComputeHostError>(
+                "computeSnapshot",
+                request_id,
+                json!({}),
+                tokio::task::spawn_blocking(move || {
+                    let (cfg, exec) = compute_runtime();
+                    Ok(compute_snapshot(cfg, &hosts, days, exec))
+                })
+                .await,
+            )
+        }
+        "computeReadLog" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let run_id = msg
+                .get("runId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let tail_lines = msg
+                .get("tailLines")
+                .and_then(Value::as_u64)
+                .unwrap_or(200)
+                .clamp(1, 400) as u32;
+            let run_id_out = run_id.clone();
+            workspace_reply_with(
+                "computeLog",
+                request_id,
+                json!({"runId": run_id_out}),
+                tokio::task::spawn_blocking(move || {
+                    let (cfg, exec) = compute_runtime();
+                    compute_read_log(cfg, &run_id, tail_lines, exec)
+                })
+                .await,
             )
         }
         "listCommands" => {
@@ -4672,6 +4748,51 @@ mod tests {
         assert_eq!(v["requestId"], "narval-1");
         assert_eq!(v["error"]["code"], "invalid_profile");
         assert!(v.get("data").is_none());
+    }
+
+    #[tokio::test]
+    async fn compute_snapshot_preserves_request_id() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // hôte inconnu ignoré, `mac` seul → aucun ssh, réponse locale immédiate
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeSnapshot","hosts":["mac","pluton"],"days":1,"requestId":"c-1"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "computeSnapshot");
+        assert_eq!(v["requestId"], "c-1");
+        assert!(v["data"]["observedAt"].as_str().unwrap().ends_with('Z'));
+        assert!(v["data"]["runs"].is_array());
+        assert_eq!(v["data"]["errors"], json!([]));
+        assert!(v.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn compute_read_log_routes_errors_with_run_id() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeReadLog","runId":"slurm:1","tailLines":9000,"requestId":"c-2"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "computeLog");
+        assert_eq!(v["requestId"], "c-2");
+        assert_eq!(v["runId"], "slurm:1");
+        assert_eq!(v["error"]["code"], "unsupported");
+        assert!(v.get("data").is_none());
+
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeReadLog","runId":"nas:docker:a;rm -rf /","requestId":"c-3"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["error"]["code"], "invalid_run");
+        assert_eq!(v["runId"], "nas:docker:a;rm -rf /");
     }
 
     #[tokio::test]
