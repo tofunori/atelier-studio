@@ -60,7 +60,7 @@ impl Default for NasAdapter {
 fn collect_script() -> String {
     format!(
         "docker ps -a --no-trunc --format '{{{{json .}}}}' 2>/dev/null || true; echo {SEP}; \
-         systemctl --user show --all --no-pager --property={UNIT_PROPERTIES} '*.service' 2>/dev/null || true; echo {SEP}; \
+         TZ=UTC systemctl --user show --all --no-pager --property={UNIT_PROPERTIES} '*.service' 2>/dev/null || true; echo {SEP}; \
          for f in \"$HOME\"/.atelier/runs/*/run.json; do [ -f \"$f\" ] || continue; \
          echo \"::FILE $f\"; cat \"$f\"; echo; d=$(dirname \"$f\"); \
          m=$(stat -c %Y \"$d/log.txt\" 2>/dev/null); \
@@ -802,7 +802,7 @@ mod tests {
         assert!(calls[0].contains(" -- nas "));
         assert!(calls[0].contains("systemctl --user show --all --no-pager --property=Id,"));
         assert!(calls[0].contains("Transient,TriggeredBy,ExecStart '*.service' 2>/dev/null || true; echo ::SEP"));
-        assert!(calls[0].contains("2>/dev/null || true; echo ::SEP; systemctl"));
+        assert!(calls[0].contains("2>/dev/null || true; echo ::SEP; TZ=UTC systemctl"));
         assert!(
             calls[0].contains(r#"sed -n 's/^  "pid": *\([0-9][0-9]*\).*/\1/p' "$f" | head -n1"#),
             "pid lu sur la seule ligne indentée de deux espaces : {}",
