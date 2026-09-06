@@ -1930,8 +1930,10 @@ function addHighlightFromReadingSel(kind, color){
   const block = doc.blocks.find(b => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
   const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(rng.startContainer, rng.startOffset);
   const start = pre.toString().length, end = start + rng.toString().length;
-  const dim = doc.pages[block.page - 1]; if(!dim) return;
-  const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, dim);
+  // `doc.pages` en entier : un paragraphe fusionné d'une page à l'autre fait
+  // choisir la page à selectionToAnnotation, qui normalise avec la sienne.
+  if(!doc.pages || !doc.pages[block.lines[0].page - 1]) return;
+  const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, doc.pages);
   if(!built.rects.length) return;
   const a = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
   if(a.kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }

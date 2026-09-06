@@ -9,14 +9,14 @@ const R = globalThis.AtelierPdfReading;
 const DOC = {
   version: 1, pages: [{w: 600, h: 800}, {w: 600, h: 800}],
   blocks: [
-    {id: 0, page: 1, kind: "heading", level: 1, bbox: [60, 80, 300, 100], text: "1 Introduction", lines: [{bbox: [60, 80, 300, 100], text: "1 Introduction"}]},
+    {id: 0, page: 1, kind: "heading", level: 1, bbox: [60, 80, 300, 100], text: "1 Introduction", lines: [{page: 1, bbox: [60, 80, 300, 100], text: "1 Introduction"}]},
     {id: 1, page: 1, kind: "paragraph", bbox: [60, 110, 300, 150], text: "Surface albedo controls the energy balance of glaciers.",
-      lines: [{bbox: [60, 110, 300, 122], text: "Surface albedo controls the"}, {bbox: [60, 124, 300, 136], text: "energy bal-"}, {bbox: [60, 138, 200, 150], text: "ance of glaciers."}]},
+      lines: [{page: 1, bbox: [60, 110, 300, 122], text: "Surface albedo controls the"}, {page: 1, bbox: [60, 124, 300, 136], text: "energy bal-"}, {page: 1, bbox: [60, 138, 200, 150], text: "ance of glaciers."}]},
     {id: 2, page: 1, kind: "figure", bbox: [60, 160, 300, 320], text: "", lines: []},
-    {id: 3, page: 1, kind: "caption", bbox: [60, 324, 300, 336], text: "Figure 1. A figure.", lines: [{bbox: [60, 324, 300, 336], text: "Figure 1. A figure."}]},
-    {id: 4, page: 2, kind: "list", bbox: [60, 80, 300, 92], text: "- one", lines: [{bbox: [60, 80, 300, 92], text: "- one"}]},
-    {id: 5, page: 2, kind: "list", bbox: [60, 94, 300, 106], text: "- two", lines: [{bbox: [60, 94, 300, 106], text: "- two"}]},
-    {id: 6, page: 2, kind: "math", bbox: [60, 120, 300, 140], text: "", lines: [{bbox: [60, 120, 300, 140], text: "α = 1 (1)"}]},
+    {id: 3, page: 1, kind: "caption", bbox: [60, 324, 300, 336], text: "Figure 1. A figure.", lines: [{page: 1, bbox: [60, 324, 300, 336], text: "Figure 1. A figure."}]},
+    {id: 4, page: 2, kind: "list", bbox: [60, 80, 300, 92], text: "- one", lines: [{page: 2, bbox: [60, 80, 300, 92], text: "- one"}]},
+    {id: 5, page: 2, kind: "list", bbox: [60, 94, 300, 106], text: "- two", lines: [{page: 2, bbox: [60, 94, 300, 106], text: "- two"}]},
+    {id: 6, page: 2, kind: "math", bbox: [60, 120, 300, 140], text: "", lines: [{page: 2, bbox: [60, 120, 300, 140], text: "α = 1 (1)"}]},
   ],
 };
 
@@ -71,7 +71,7 @@ test("cropViewport : viewport décalé sur le bloc, taille en px CSS", () => {
 test("selectionToAnnotation : rects par ligne, x interpolé aux extrémités", () => {
   const text = R.readingText(DOC.blocks[1]);
   const start = text.indexOf("controls"), end = text.indexOf("ance") + "ance".length;
-  const a = R.selectionToAnnotation(DOC.blocks[1], start, end, {w: 600, h: 800});
+  const a = R.selectionToAnnotation(DOC.blocks[1], start, end, DOC.pages);
   assert.equal(a.page, 1);
   assert.equal(a.text, "controls the energy balance");
   assert.equal(a.rects.length, 3);
@@ -86,6 +86,26 @@ test("selectionToAnnotation : rects par ligne, x interpolé aux extrémités", (
   // ligne 3 : finit après "ance" (4/17 des caractères de "ance of glaciers.")
   assert.ok(Math.abs(r3[0] * 600 - 60) < 0.01);
   assert.ok(Math.abs((r3[0] + r3[2]) * 600 - (60 + 140 * 4 / 17)) < 2);
+});
+
+test("selectionToAnnotation : un paragraphe fusionné rend les rects d'UNE page", () => {
+  // Bloc à cheval sur deux pages (fusion inter-pages côté Rust) : la
+  // sélection porte sur la 2e ligne → page 2, un seul rect, normalisé avec
+  // les dimensions de la page 2.
+  const block = {id: 9, page: 1, kind: "paragraph", bbox: [60, 700, 300, 760],
+    text: "fin de page suite en haut",
+    lines: [{page: 1, bbox: [60, 700, 300, 712], text: "fin de page"}, {page: 2, bbox: [60, 60, 300, 72], text: "suite en haut"}]};
+  const doc = {pages: [{w: 600, h: 800}, {w: 600, h: 400}]};
+  const t = R.readingText(block);
+  const a = R.selectionToAnnotation(block, t.indexOf("suite"), t.length, doc.pages);
+  assert.equal(a.page, 2);
+  assert.equal(a.rects.length, 1);
+  assert.ok(Math.abs(a.rects[0][1] * 400 - 60) < 0.01, "normalisé avec la hauteur de la page 2");
+  // sélection à cheval sur la coupure : seules les lignes de la page de la
+  // PREMIÈRE ligne couverte sont gardées.
+  const b2 = R.selectionToAnnotation(block, 0, t.length, doc.pages);
+  assert.equal(b2.page, 1);
+  assert.equal(b2.rects.length, 1);
 });
 
 test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {
@@ -105,7 +125,7 @@ test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {
 test("anchorAnnotations : pas d'espace en tête après affinage (fix 1, ruling b)", () => {
   const doc = {version: 1, pages: [{w: 600, h: 800}], blocks: [
     {id: 0, page: 1, kind: "paragraph", bbox: [60, 80, 300, 110], text: "",
-      lines: [{bbox: [60, 80, 300, 92], text: "Surface albedo"}, {bbox: [60, 94, 300, 106], text: "controls the"}]},
+      lines: [{page: 1, bbox: [60, 80, 300, 92], text: "Surface albedo"}, {page: 1, bbox: [60, 94, 300, 106], text: "controls the"}]},
   ]};
   const anchored = R.anchorAnnotations(doc, [{id: "q", kind: "comment", page: 1, text: "albedo controls"}]);
   assert.equal(anchored.length, 1);
@@ -197,7 +217,8 @@ test("contrat lecteur (fix 1) : marques en flux, ordre du scroll, rect du menu",
   assert.ok(addBody.indexOf("rng.getBoundingClientRect()") < addBody.indexOf("PDF_ANNOTS.push"),
     "getBoundingClientRect mesuré avant PDF_ANNOTS.push");
   // gardes une ligne
-  assert.match(addBody, /const dim = doc\.pages\[block\.page - 1\]; if\(!dim\) return;/);
+  assert.match(addBody, /if\(!doc\.pages \|\| !doc\.pages\[block\.lines\[0\]\.page - 1\]\) return;/);
+  assert.match(addBody, /selectionToAnnotation\(block, start, end, doc\.pages\)/);
   assert.match(html, /function readingBlockOf\(n\)/);
   assert.match(html, /let readingPassageRevealed = false;/);
 });

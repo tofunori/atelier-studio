@@ -363,6 +363,10 @@ pub(crate) enum Kind {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BlockLine {
+    /// Page de la ligne. Redondant avec `Block.page` SAUF pour un paragraphe
+    /// fusionné d'une page à l'autre : le front en a besoin pour normaliser
+    /// les rectangles d'une sélection avec les bonnes dimensions de page.
+    pub page: u16,
     pub bbox: [f32; 4],
     pub text: String,
 }
@@ -395,7 +399,8 @@ pub(crate) struct ReflowDoc {
 
 // 2 : vague finale du plan 078 — ordre de lecture de la manchette, titres en
 // gras, fragments d'exposant supprimés, numéro d'équation à 3 chiffres max.
-pub(crate) const REFLOW_VERSION: u32 = 2;
+// 3 : chaque ligne porte sa page (`BlockLine.page`).
+pub(crate) const REFLOW_VERSION: u32 = 3;
 
 fn norm_text(t: &str) -> String {
     t.chars()
@@ -590,6 +595,7 @@ pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
             .lines
             .iter()
             .map(|l| BlockLine {
+                page: l.page,
                 bbox: l.bbox,
                 text: l.text.clone(),
             })
@@ -1490,6 +1496,24 @@ mod tests {
     }
 
     #[test]
+    fn un_paragraphe_fusionne_garde_la_page_de_chaque_ligne() {
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let doc = analyze(&p);
+        let cross = doc
+            .blocks
+            .iter()
+            .find(|b| {
+                b.lines
+                    .iter()
+                    .any(|l| l.page != b.lines.first().map(|f| f.page).unwrap_or(0))
+            })
+            .expect("un paragraphe fusionné d'une page à l'autre");
+        assert_eq!(cross.kind, Kind::Paragraph);
+        let pages: std::collections::BTreeSet<u16> = cross.lines.iter().map(|l| l.page).collect();
+        assert_eq!(pages.len(), 2, "lignes des deux pages: {pages:?}");
+    }
+
+    #[test]
     fn json_du_document_est_stable() {
         let p = parse_pdftohtml_xml(FIXTURE).unwrap();
         let doc = analyze(&p);
@@ -1497,6 +1521,10 @@ mod tests {
         assert_eq!(v["version"], REFLOW_VERSION);
         assert!(v["blocks"][0]["kind"].is_string());
         assert!(v["blocks"][0]["lines"].is_array());
+        assert!(
+            v["blocks"][0]["lines"][0]["page"].is_number(),
+            "chaque ligne porte sa page (paragraphe fusionné d'une page à l'autre)"
+        );
         assert_eq!(
             v["blocks"][0]["kind"].as_str().unwrap(),
             v["blocks"][0]["kind"].as_str().unwrap().to_lowercase()

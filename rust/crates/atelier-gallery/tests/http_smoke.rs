@@ -947,7 +947,7 @@ fn reflow_analyse_un_pdf_du_projet_et_le_met_en_cache() {
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     // REFLOW_VERSION courant (à monter avec la constante de reflow.rs :
     // c'est elle qui périme les caches quand une heuristique change).
-    assert_eq!(v["version"], 2);
+    assert_eq!(v["version"], 3);
     assert!(v["blocks"].as_array().unwrap().len() >= 8);
     assert!(
         v["blocks"]

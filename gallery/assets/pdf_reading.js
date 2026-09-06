@@ -71,24 +71,32 @@
     return {viewport: viewport, width: width, height: height, canvasWidth: Math.round(width * dpr), canvasHeight: Math.round(height * dpr)};
   }
 
-  /** Offsets [start,end) dans readingText(block) → {page, text, rects normalisés}. */
-  function selectionToAnnotation(block, start, end, pageDim){
+  /** Offsets [start,end) dans readingText(block) → {page, text, rects normalisés}.
+   *  `pages` = `doc.pages`. Un bloc peut être un paragraphe FUSIONNÉ d'une
+   *  page à l'autre : une annotation n'ayant qu'une page, on ne garde que les
+   *  lignes de la page de la première ligne couverte et on normalise avec les
+   *  dimensions de CETTE page (sinon les rects de la suite atterrissaient sur
+   *  la page du début, à une échelle qui n'est même pas la sienne). */
+  function selectionToAnnotation(block, start, end, pages){
     var lines = block.lines || [], info = layout(blockTexts(block)), rects = [];
-    var text = info.text.slice(start, end);
+    var text = info.text.slice(start, end), page = 0, dim = null;
     lines.forEach(function(l, i){
       // longueur PEINTE (avec le trait d'union) vs longueur AFFICHÉE (sans).
       var len = l.text.length, vis = len - (info.absorbed[i] ? 1 : 0);
       var ls = info.offs[i], le = ls + vis;
       if (le <= start || ls >= end) return;
+      var lp = l.page || block.page;
+      if (!page) { page = lp; dim = (pages || [])[page - 1]; }
+      if (lp !== page || !dim) return;
       var a = Math.max(start, ls) - ls, b = Math.min(end, le) - ls;
       // sélection jusqu'au bout d'une ligne césurée : le `-` est le dernier
       // caractère peint, le rect doit l'englober.
       if (info.absorbed[i] && b >= vis) b = len;
       var w = l.bbox[2] - l.bbox[0], h = l.bbox[3] - l.bbox[1];
       var x = l.bbox[0] + w * (len ? a / len : 0), xe = l.bbox[0] + w * (len ? b / len : 1);
-      rects.push([x / pageDim.w, l.bbox[1] / pageDim.h, (xe - x) / pageDim.w, h / pageDim.h]);
+      rects.push([x / dim.w, l.bbox[1] / dim.h, (xe - x) / dim.w, h / dim.h]);
     });
-    return {page: block.page, text: text, rects: rects};
+    return {page: page || block.page, text: text, rects: rects};
   }
 
   function anchorAnnotations(doc, annots){
