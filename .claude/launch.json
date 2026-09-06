@@ -83,12 +83,6 @@
         "--strictPort"
       ],
       "port": 4185
-    },
-    {
-      "name": "reading-078",
-      "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-reading-server.sh",
-      "runtimeArgs": [],
-      "port": 8799
     }
   ]
 }
