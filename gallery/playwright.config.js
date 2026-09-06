@@ -17,6 +17,11 @@ export default defineConfig({
       use: {browserName: 'webkit'},
     },
     {
+      name: 'webkit-lezer',
+      testMatch: /latex_lezer\.spec\.js/,
+      use: {browserName: 'webkit'},
+    },
+    {
       name: 'webkit-rewrap',
       testMatch: /editor_cm6\.spec\.js/,
       grep: /latex auto rewrap/,

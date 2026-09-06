@@ -696,6 +696,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     setState,
     setChip: compileChip,
     renderLog: renderCompileLog,
+    onDiagnostics: (list) => editor?.setDiagnostics?.(list),
     onCompiled: (response) => {
       if (response.pdf) pdfPath = response.pdf;
       void refreshReadingContext();

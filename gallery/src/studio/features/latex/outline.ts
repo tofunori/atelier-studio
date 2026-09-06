@@ -23,11 +23,18 @@ export function createLatexOutlineController(options: LatexOutlineOptions): Late
     const editor = options.getEditor();
     if (!editor) return;
     const items: Array<{level: number; title: string; line: number}> = [];
+    // Moteur cm6 + grammaire LaTeX : le plan vient de l'arbre syntaxique
+    // (titres multi-lignes, accolades imbriquées, commandes en milieu de
+    // ligne). Repli regex ligne à ligne pour l'ancien moteur.
+    const fromTree = editor.getOutline?.();
+    if (fromTree) {
+      for (const item of fromTree) items.push({level: Math.min(3, Math.max(1, item.level)), title: item.title, line: item.line});
+    }
     // Tous les niveaux de sectionnement de LaTeX, pas seulement les trois du
     // milieu : un mémoire à \chapter ou une annexe à \paragraph avaient un
     // plan vide alors que le document en est plein.
     const pattern = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^{}]*)\}/;
-    editor.getValue().split("\n").forEach((line, index) => {
+    if (!fromTree) editor.getValue().split("\n").forEach((line, index) => {
       const match = pattern.exec(line);
       if (!match) return;
       const levels: Record<string, number> = {

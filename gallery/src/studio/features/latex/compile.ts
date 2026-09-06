@@ -15,6 +15,57 @@ export interface LatexCompileLog {
   warnings: number;
 }
 
+export interface LatexLogDiagnostic {
+  line: number;
+  message: string;
+  severity: "error" | "warning";
+  source: "latexmk";
+}
+
+/**
+ * Diagnostics ligne à ligne tirés du log de latexmk : erreurs `! …` suivies
+ * de `l.N`, avertissements `LaTeX Warning: … on input line N` (et Package …
+ * Warning). Les avertissements sans ligne sont ignorés — ils n'ont pas
+ * d'ancre dans la source.
+ */
+export function parseLatexLogDiagnostics(log: string): LatexLogDiagnostic[] {
+  const lines = String(log || "").split("\n");
+  const out: LatexLogDiagnostic[] = [];
+  const seen = new Set<string>();
+  const push = (line: number, message: string, severity: "error" | "warning"): void => {
+    const text = message.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!Number.isFinite(line) || line < 1 || !text) return;
+    const key = `${severity}:${line}:${text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({line, message: text, severity, source: "latexmk"});
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i] || "";
+    if (raw.startsWith("! ")) {
+      const message = raw.slice(2);
+      for (let j = i + 1; j < Math.min(lines.length, i + 12); j += 1) {
+        const at = /^l\.(\d+)/.exec(lines[j] || "");
+        if (at) { push(Number(at[1]), message, "error"); break; }
+        if ((lines[j] || "").startsWith("! ")) break;
+      }
+      continue;
+    }
+    const warning = /^(?:LaTeX|Package [^ ]+|Class [^ ]+) Warning: (.*)$/.exec(raw);
+    if (warning) {
+      // Le message peut continuer sur la ligne suivante avant « on input line N ».
+      let text = warning[1] || "";
+      let at = /on input line (\d+)/.exec(text);
+      if (!at && i + 1 < lines.length) {
+        at = /on input line (\d+)/.exec(lines[i + 1] || "");
+        if (at) text += " " + (lines[i + 1] || "").trim();
+      }
+      if (at) push(Number(at[1]), text.replace(/\s*on input line \d+\.?$/, ""), "warning");
+    }
+  }
+  return out;
+}
+
 export type CompileChipKind = "run" | "ok" | "err";
 export type CompileStateKind = "dirty" | "ok" | "err";
 
@@ -29,6 +80,8 @@ export interface LatexCompileCoordinatorOptions {
   setChip(kind: CompileChipKind, message: string): void;
   renderLog(log: LatexCompileLog): void;
   onCompiled(response: LatexCompileResponse): void;
+  /** Diagnostics du log (vide quand la compilation réussit sans avertissement ancré). */
+  onDiagnostics?(list: LatexLogDiagnostic[]): void;
   now?: () => number;
   clockLabel?: () => string;
   startInterval?: (callback: () => void, milliseconds: number) => number;
@@ -144,6 +197,7 @@ export function createLatexCompileCoordinator(
       const duration = ((now() - startedAt) / 1000).toFixed(1).replace(".", ",");
       const log = analyzeCompileResponse(response);
       options.renderLog(log);
+      options.onDiagnostics?.(parseLatexLogDiagnostics(log.log));
       if (!response.ok) {
         // La pastille de la barre d'état porte déjà le résultat, en plus
         // précis (nombre d'erreurs et de warnings). Le répéter dans la barre

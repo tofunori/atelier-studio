@@ -27,6 +27,8 @@ const latexSurfaceSource = await readFile(new URL("../../src/studio/surfaces/lat
 const codeSurfaceSource = await readFile(new URL("../../src/studio/surfaces/code.ts", import.meta.url), "utf8");
 const markdownSurfaceSource = await readFile(new URL("../../src/studio/surfaces/markdown.ts", import.meta.url), "utf8");
 const ghostSource = await readFile(new URL("../../assets/cm6/ghost_ai.mjs", import.meta.url), "utf8");
+const latexLangSource = await readFile(new URL("../../assets/cm6/latex_lang/index.mjs", import.meta.url), "utf8");
+const outlineSource = await readFile(new URL("../../src/studio/features/latex/outline.ts", import.meta.url), "utf8");
 const latexStudioHtml = studioHtml;
 const latexStudioCss = latexCss;
 const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
@@ -91,6 +93,31 @@ test("latex_studio.html loads the CM6 engine only", () => {
   assert.match(latexStudioHtml, /cm6\/studio_cm6\.bundle\.js/);
   assert.doesNotMatch(latexStudioCss, /\.CodeMirror|cm-s-material-darker|cm-clsel|cm-selectionLayer/);
   assert.match(editorFactorySource, /CM5 not loaded on this page; using CM6/);
+});
+
+test("CM6 parses .tex with the Overleaf Lezer grammar and exposes tree-based outline and diagnostics", () => {
+  assert.match(source, /from ["']\.\/latex_lang\/index\.mjs["']/);
+  assert.match(source, /case "latex": return latex\(\);/);
+  assert.match(source, /case "tex": case "sty": return "latex";/);
+  assert.match(source, /case "bib": return "stex";/);
+  assert.match(source, /from ["']@codemirror\/lint["']/);
+  assert.match(source, /latexDiagnosticsExtension\(\)/);
+  assert.match(source, /compileDiagnosticsField/);
+  assert.match(source, /getOutline:/);
+  assert.match(source, /setDiagnostics:/);
+  assert.match(latexLangSource, /from ["']@overleaf\/lezer-latex["']/);
+  assert.match(latexLangSource, /foldNodeProp\.add\(/);
+  assert.match(latexLangSource, /\$Environment/);
+  assert.match(latexLangSource, /\$Section/);
+  assert.match(latexLangSource, /export function latexOutline/);
+  assert.match(latexLangSource, /export function latexStructureDiagnostics/);
+  assert.match(latexLangSource, /ensureSyntaxTree\(/);
+  assert.equal(languageKindFor("tex"), "latex");
+  assert.equal(languageKindFor("sty"), "latex");
+  assert.equal(languageKindFor("bib"), "stex");
+  assert.match(outlineSource, /editor\.getOutline\?\.\(\)/);
+  assert.match(latexSurfaceSource, /onDiagnostics: \(list\) => editor\?\.setDiagnostics\?\.\(list\)/);
+  assert.ok(pkg.dependencies["@overleaf/lezer-latex"] || pkg.devDependencies["@overleaf/lezer-latex"]);
 });
 
 test("CM6 uses native tracked decorations, readOnly compartments, and gutter markers", () => {

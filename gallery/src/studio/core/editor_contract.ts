@@ -41,8 +41,25 @@ export type StudioEvent =
   | "gutterClick"
   | "scroll";
 
+export interface StudioOutlineItem {
+  level: number;
+  title: string;
+  line: number;
+}
+
+export interface StudioLineDiagnostic {
+  line: number;
+  message: string;
+  severity?: "error" | "warning" | "info";
+  source?: string;
+}
+
 export interface StudioEditor {
   readonly hasNativeGhost: boolean;
+  /** Moteur cm6 + grammaire LaTeX : plan et diagnostics par arbre syntaxique. */
+  readonly hasSyntaxTree?: boolean;
+  getOutline?(): StudioOutlineItem[] | null;
+  setDiagnostics?(list: StudioLineDiagnostic[]): void;
   readonly hasNativeSelectionHighlight: boolean;
   readonly hasNativeMergeDiff?: boolean;
   getValue(): string;

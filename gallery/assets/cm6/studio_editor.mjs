@@ -27,7 +27,9 @@ import {monokai} from "@uiw/codemirror-theme-monokai";
 import {gruvboxDark} from "@uiw/codemirror-theme-gruvbox-dark";
 import {materialDark} from "@uiw/codemirror-theme-material";
 import {solarizedDark} from "@uiw/codemirror-theme-solarized";
+import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.mjs";
+import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.mjs";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, normalizeScrollTarget} from "./studio_compat.mjs";
 
 export const Pass = Symbol("CodeMirror.Pass");
@@ -40,7 +42,8 @@ export function languageKindFor(ext) {
     case "js": return "javascript";
     case "ts": return "typescript";
     case "json": return "json";
-    case "tex": case "sty": case "bib": return "stex";
+    case "tex": case "sty": return "latex";
+    case "bib": return "stex";
     case "r": return "r";
     case "jl": return "julia";
     case "sh": case "bash": return "shell";
@@ -57,6 +60,10 @@ export function languageExtensionFor(ext) {
     case "javascript": return javascript();
     case "typescript": return javascript({typescript: true});
     case "json": return javascript({json: true});
+    // .tex/.sty : parseur LR incrémental d'Overleaf (arbre syntaxique → pliage
+    // par environnement/section, plan par nœuds, diagnostics). .bib garde le
+    // mode flux stex, la grammaire LaTeX ne décrit pas BibTeX.
+    case "latex": return StreamLanguage.define(stex);
     case "stex": return StreamLanguage.define(stex);
     case "r": return StreamLanguage.define(r);
     case "julia": return StreamLanguage.define(julia);
@@ -364,6 +371,48 @@ const restingSelectionMatches = [
   EditorView.baseTheme({".cm-selectionMatch": {backgroundColor: "rgba(140, 160, 190, .18)"}}),
 ];
 
+// ---- diagnostics : structure (arbre) + compilation (log latexmk) ----------
+// @codemirror/lint remplace l'ensemble des diagnostics à chaque passe du
+// linter ; les erreurs de compilation vivent donc dans un champ que la source
+// unique relit, sinon la première frappe après ⌘B les effacerait.
+const setCompileDiagnostics = StateEffect.define();
+const compileDiagnosticsField = StateField.define({
+  create: () => [],
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setCompileDiagnostics)) return e.value;
+    if (!tr.docChanged || value.length === 0) return value;
+    return value.map((d) => {
+      const from = tr.changes.mapPos(d.from, 1);
+      const to = Math.max(from, tr.changes.mapPos(d.to, -1));
+      return {...d, from, to};
+    });
+  },
+});
+function latexDiagnosticsExtension() {
+  return [
+    compileDiagnosticsField,
+    lintGutter(),
+    linter((view) => [
+      ...view.state.field(compileDiagnosticsField),
+      ...latexStructureDiagnostics(view.state),
+    ], {delay: 600}),
+  ];
+}
+function compileDiagnosticsToRanges(state, list) {
+  const out = [];
+  for (const item of list || []) {
+    const lineNo = Math.max(1, Math.min(state.doc.lines, Number(item.line) || 1));
+    const line = state.doc.line(lineNo);
+    out.push({
+      from: line.from, to: Math.max(line.to, line.from + 1),
+      severity: item.severity === "warning" || item.severity === "info" ? item.severity : "error",
+      source: item.source || "latexmk",
+      message: String(item.message || ""),
+    });
+  }
+  return out;
+}
+
 function captureScrollableState(view) {
   const elements = [];
   const seen = new Set();
@@ -624,6 +673,18 @@ export function createStudioEditor(parent, opts) {
 
   const facade = {
     hasNativeGhost: opts.ext === "tex",
+    hasSyntaxTree: languageKindFor(opts.ext) === "latex",
+    // --- arbre syntaxique (LaTeX) ---
+    getOutline: () => languageKindFor(opts.ext) === "latex" ? latexOutline(view.state) : null,
+    setDiagnostics: (list) => {
+      if (opts.ext !== "tex") return;
+      // `forceLinting` ne relance rien quand aucune passe n'est en attente :
+      // poser l'ensemble complet (compilation + structure) dans la même
+      // transaction que le champ, sans attendre le linter.
+      const compiled = compileDiagnosticsToRanges(view.state, list);
+      const spec = setLintDiagnostics(view.state, [...compiled, ...latexStructureDiagnostics(view.state)]);
+      view.dispatch({...spec, effects: [setCompileDiagnostics.of(compiled), ...(Array.isArray(spec.effects) ? spec.effects : [spec.effects])]});
+    },
     hasNativeMergeDiff: true,
     hasNativeSelectionHighlight: true,
     Pass,

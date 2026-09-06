@@ -525,7 +525,7 @@ Numérotation reprise à 069.
 | 072 | Caractérisation de `ws_router.rs` par famille de messages (prérequis au découpage) | P2 | L | — | TODO |
 | 073 | `getHistory` lit le journal hors du worker WebSocket | P1 | S | — | TODO |
 | 074 | Passerelle distante fail-closed (pair inconnu, liste d'hôtes vide) | P1 | S | — | TODO |
-| 075 | DOMPurify versionné partout (galerie + mermaid), test anti-dérive | P1 | S | — | TODO |
+| 075 | DOMPurify versionné partout (galerie + mermaid), test anti-dérive | P1 | S | — | DONE (exécuteur sonnet, revue 2026-09-06 : APPROVE — branche `advisor/075-dompurify` [9489d324, 620a213c] **basée sur 52c4d4b0, à rebaser sur main avant fusion** ; mermaid ^11.17.2 + dompurify ^3.4.15 direct, purify.min.js 3.4.15 copié au build, test de version ; `npm audit` sans advisory dompurify/mermaid ; parity + diff suite ok, 523 tests chat ok ; le STOP « budget 1 028 Ko » est un artefact de la base ancienne — sur main (post-25a5a2af, composants paresseux) l'entrée est à 1 023 Ko et le bump ajoute 0 octet, vérifié) |
 | 076 | i18n par locale : l'entrée ne charge qu'une langue, budget retrouvé | P2 | M | 071 | TODO |
 | 077 | État galerie : fusion par présence + version, refus des snapshots périmés (409) | P2 | M | — | TODO |
 
