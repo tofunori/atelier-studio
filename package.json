@@ -17,6 +17,10 @@
     "rust:cache:status": "bash scripts/rust-cache-status.sh",
     "rust:targets:prune": "bash scripts/prune-worktree-targets.sh",
     "typecheck": "tsc --noEmit",
+    "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
+    "typecheck:gallery": "npm --prefix gallery run typecheck:studio",
+    "typecheck:protocol": "npm --prefix packages/atelier-protocol run typecheck",
+    "typecheck:all": "npm run typecheck && npm run typecheck:gallery && npm run mobile:typecheck && npm run typecheck:protocol",
     "build:web": "vite build",
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",
@@ -37,7 +41,7 @@
     "verify:mobile": "npm run test:protocol && npm run test:remote && npm run mobile:typecheck && npm run mobile:test && npm run mobile:build && npm run mobile:check-secrets",
     "check:backend-policy": "node scripts/check-backend-policy.mjs",
     "soak:sidecar": "bash scripts/soak-rust-sidecar.sh",
-    "verify": "npm run typecheck && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",
+    "verify": "npm run typecheck:all && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",
     "verify:e2e": "npm --prefix gallery run test:e2e"
   },
   "dependencies": {
@@ -89,7 +93,7 @@
     "jsdom": "^29.1.1",
     "react-doctor": "0.7.7",
     "shadcn": "^4.13.0",
-    "typescript": "~5.8.3",
+    "typescript": "7.0.2",
     "vite": "^7.0.4",
     "vitest": "^4.1.10"
   }

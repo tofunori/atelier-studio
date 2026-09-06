@@ -14,7 +14,8 @@
     "export-fixtures": "node --experimental-strip-types scripts/export-fixtures.ts"
   },
   "devDependencies": {
-    "typescript": "~5.8.3",
+    "@types/ws": "^8.5.14",
+    "typescript": "7.0.2",
     "vitest": "^4.1.10",
     "ws": "^8.18.3"
   },

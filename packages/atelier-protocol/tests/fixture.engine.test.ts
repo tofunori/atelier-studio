@@ -3,6 +3,19 @@ import { FixtureEngine } from "../src/fixture/engine.ts";
 import { applyEventBatch, emptyCursor, detectSequenceGaps } from "../src/sequence.ts";
 import { smallTranscript, stressTranscript } from "../src/transcripts/build.ts";
 import { PROTOCOL_VERSION } from "../src/version.ts";
+import type { HistoryMessage, ServerWireMessage } from "../src/envelopes.ts";
+
+function isHistoryMessage(message: ServerWireMessage | undefined): message is HistoryMessage {
+  return message?.type === "history" && Array.isArray(message.events);
+}
+
+function expectHistoryMessage(message: ServerWireMessage | undefined): HistoryMessage {
+  expect(isHistoryMessage(message)).toBe(true);
+  if (!isHistoryMessage(message)) {
+    throw new Error("Expected a history message with an events array");
+  }
+  return message;
+}
 
 describe("FixtureEngine — handshake", () => {
   it("exige clientHello avant listThreads", () => {
@@ -65,12 +78,10 @@ describe("FixtureEngine — history / stream / gap / reconnect", () => {
       s,
       JSON.stringify({ type: "getHistory", threadId: t.threadId }),
     );
-    expect(hist[0].type).toBe("history");
-    if (hist[0].type === "history") {
-      expect(hist[0].events.length).toBe(t.events.length);
-      expect(hist[0].complete).toBe(true);
-      expect(hist[0].toSequence).toBe(t.lastSequence);
-    }
+    const first = expectHistoryMessage(hist[0]);
+    expect(first.events.length).toBe(t.events.length);
+    expect(first.complete).toBe(true);
+    expect(first.toSequence).toBe(t.lastSequence);
   });
 
   it("reprend depuis lastSequence (afterSequence)", () => {
@@ -86,17 +97,16 @@ describe("FixtureEngine — history / stream / gap / reconnect", () => {
       s,
       JSON.stringify({ type: "getHistory", threadId: t.threadId, afterSequence: mid }),
     );
-    if (hist[0].type === "history") {
-      expect(hist[0].events.every((e) => e.meta!.sequence > mid)).toBe(true);
-      const applied = applyEventBatch(emptyCursor(), t.events.slice(0, mid));
-      // After applying first mid sequences-worth via full events with seq<=mid:
-      const first = t.events.filter((e) => e.meta!.sequence <= mid);
-      const cur = applyEventBatch(emptyCursor(), first);
-      const resume = applyEventBatch(cur.cursor, hist[0].events);
-      expect(resume.gaps).toEqual([]);
-      expect(resume.cursor.lastSequence).toBe(t.lastSequence);
-      void applied;
-    }
+    const historyMessage = expectHistoryMessage(hist[0]);
+    expect(historyMessage.events.every((e) => e.meta!.sequence > mid)).toBe(true);
+    const applied = applyEventBatch(emptyCursor(), t.events.slice(0, mid));
+    // After applying first mid sequences-worth via full events with seq<=mid:
+    const initialEvents = t.events.filter((e) => e.meta!.sequence <= mid);
+    const cur = applyEventBatch(emptyCursor(), initialEvents);
+    const resume = applyEventBatch(cur.cursor, historyMessage.events);
+    expect(resume.gaps).toEqual([]);
+    expect(resume.cursor.lastSequence).toBe(t.lastSequence);
+    void applied;
   });
 
   it("détecte les événements dupliqués (reconnexion qui rejoue)", () => {
@@ -118,13 +128,12 @@ describe("FixtureEngine — history / stream / gap / reconnect", () => {
     );
     const threadId = smallTranscript().threadId;
     const hist = eng.handleRaw(s, JSON.stringify({ type: "getHistory", threadId }));
-    if (hist[0].type === "history") {
-      const gaps = detectSequenceGaps(hist[0].events, 0);
-      expect(gaps).toEqual([3, 4]);
-      const batch = applyEventBatch(emptyCursor(), hist[0].events);
-      expect(batch.gaps).toEqual([3, 4]);
-      expect(batch.cursor.lastSequence).toBe(2);
-    }
+    const first = expectHistoryMessage(hist[0]);
+    const gaps = detectSequenceGaps(first.events, 0);
+    expect(gaps).toEqual([3, 4]);
+    const batch = applyEventBatch(emptyCursor(), first.events);
+    expect(batch.gaps).toEqual([3, 4]);
+    expect(batch.cursor.lastSequence).toBe(2);
   });
 
   it("reload pendant streaming: partial + resume sans doublon", () => {
@@ -152,12 +161,11 @@ describe("FixtureEngine — history / stream / gap / reconnect", () => {
       s,
       JSON.stringify({ type: "getHistory", threadId: "thread-interaction" }),
     );
-    if (hist[0].type === "history") {
-      const pending = hist[0].events.filter(
-        (e) => e.kind === "interaction" && (e as { state?: string }).state === "pending",
-      );
-      expect(pending).toHaveLength(1);
-    }
+    const first = expectHistoryMessage(hist[0]);
+    const pending = first.events.filter(
+      (e) => e.kind === "interaction" && (e as { state?: string }).state === "pending",
+    );
+    expect(pending).toHaveLength(1);
   });
 
   it("historique incomplet (fenêtre expirée) → snapshotRequired", () => {
