@@ -154,6 +154,16 @@ describe("polling getAgentHistory", () => {
       await flushMicrotasks(4);
     });
     expect(document.querySelector(".agent-detail-panel")).toBeVisible();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", code: "Digit1", metaKey: true }));
+      await flushMicrotasks(4);
+    });
+    expect(document.querySelector(".agent-detail-panel")).toBeNull();
+    await act(async () => {
+      (document.querySelector(".agent-chip") as HTMLButtonElement).click();
+      await flushMicrotasks(4);
+    });
+    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
   });
 
   it("applique une révision à taille constante sans rematérialiser les doublons", async () => {

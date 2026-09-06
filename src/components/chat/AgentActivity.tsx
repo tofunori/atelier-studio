@@ -130,6 +130,7 @@ export function agentWithTranscriptState(agent: AgentDisplay, events: AgentEvent
     if (event.kind !== "done" && event.kind !== "started") continue;
     // A follow-up request must not inherit the previous turn's completion.
     if (agent.statusTs != null && event.ts != null && event.ts < agent.statusTs) return agent;
+    if (agent.status !== "working" && (agent.statusTs == null || event.ts == null)) return agent;
     const status = event.kind === "started" ? "working" : event.ok ? "done" : "failed";
     return status === agent.status ? agent : { ...agent, status };
   }
@@ -255,6 +256,8 @@ export function AgentDetailPanel({
         && !opaqueAgentText(event.detail)
         && !(event.kind === "tool_update" && opaqueAgentText(event.output));
     }
+    if (event.kind === "error" && opaqueAgentText(event.message)) return false;
+    if ("text" in event && opaqueAgentText(event.text)) return false;
     return event.kind === "text"
       || event.kind === "streaming"
       || event.kind === "thinking"
@@ -274,8 +277,8 @@ export function AgentDetailPanel({
       <Separator />
       <ScrollArea className="agent-detail-scroll">
         <div className="agent-detail-body">
-          <Badge variant={statusVariant(agent)}>{statusLabel(agent)}</Badge>
-          {agent.prompt ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
+          <Badge variant={statusVariant(agent)} role="status">{statusLabel(agent)}</Badge>
+          {agent.prompt && !opaqueAgentText(agent.prompt) ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
           {(agent.model || agent.reasoningEffort) ? (
             <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>
           ) : null}

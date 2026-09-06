@@ -5,6 +5,7 @@
 //! l'identifiant natif, puis les prochains tours passent par `thread/resume`.
 
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -294,6 +295,13 @@ fn event_message(payload: &Value) -> Option<String> {
         .map(bound_output)
 }
 
+fn row_timestamp(row: &Value) -> Option<i64> {
+    row.get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.timestamp_millis())
+}
+
 pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec<Value> {
     let Some(path) = find_session_file(base, session_id) else {
         return Vec::new();
@@ -305,12 +313,14 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
     // call_id -> (name, input, namespace). Vec plutôt que HashMap pour garder
     // l'ordre d'insertion des appels restés sans sortie (< 10³ appels).
     let mut pending_calls: Vec<(String, String, String, Option<String>)> = Vec::new();
+    let mut seen_assistant_texts = HashSet::new();
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         let Ok(row) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         let payload = row.get("payload").unwrap_or(&row);
         let item_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+        let timestamp = row_timestamp(&row);
         let call_id = || {
             payload
                 .get("call_id")
@@ -359,27 +369,72 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
             }
             "message" => {
                 if let Some(text) = assistant_message_text(payload) {
-                    events.push(json!({"kind": "text", "text": bound_output(&text)}));
+                    let text = bound_output(&text);
+                    if seen_assistant_texts.insert(text.clone()) {
+                        let mut event = json!({"kind": "text", "text": text});
+                        if let Some(ts) = timestamp {
+                            event["ts"] = json!(ts);
+                        }
+                        events.push(event);
+                    }
                 }
                 continue;
             }
             "task_started" => {
-                events.push(json!({"kind": "started"}));
+                // Un rollout peut contenir plusieurs tours (resume). Le
+                // dédoublonnage ne doit couvrir qu'un tour : deux réponses
+                // identiques sur deux tours restent deux événements.
+                seen_assistant_texts.clear();
+                let mut event = json!({"kind": "started"});
+                if let Some(ts) = timestamp {
+                    event["ts"] = json!(ts);
+                }
+                events.push(event);
                 continue;
             }
             "task_complete" => {
-                events.push(json!({
+                let result = event_message(payload).unwrap_or_default();
+                // Certains rollouts ne matérialisent la réponse finale que
+                // dans task_complete.last_agent_message. La rendre visible,
+                // sans la doubler si response_item.message l'a déjà portée.
+                if !result.is_empty() && seen_assistant_texts.insert(result.clone()) {
+                    let mut text = json!({"kind": "text", "text": result.clone()});
+                    if let Some(ts) = timestamp {
+                        text["ts"] = json!(ts);
+                    }
+                    events.push(text);
+                }
+                let mut event = json!({
                     "kind": "done",
                     "ok": true,
-                    "result": event_message(payload).unwrap_or_default(),
-                }));
+                    "result": result,
+                });
+                if let Some(ts) = timestamp {
+                    event["ts"] = json!(ts);
+                }
+                events.push(event);
                 continue;
             }
             "turn_aborted" | "task_failed" => {
-                events.push(json!({
+                let message = event_message(payload)
+                    .unwrap_or_else(|| "Le sous-agent a été interrompu.".to_string());
+                let mut error = json!({
                     "kind": "error",
-                    "message": event_message(payload).unwrap_or_else(|| "Le sous-agent a été interrompu.".to_string()),
-                }));
+                    "message": message.clone(),
+                });
+                if let Some(ts) = timestamp {
+                    error["ts"] = json!(ts);
+                }
+                events.push(error);
+                let mut done = json!({
+                    "kind": "done",
+                    "ok": false,
+                    "result": message,
+                });
+                if let Some(ts) = timestamp {
+                    done["ts"] = json!(ts);
+                }
+                events.push(done);
                 continue;
             }
             "mcp_tool_call_end" => {
@@ -463,6 +518,9 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         if text.is_empty()
             || kind == "user" && (text.starts_with('<') || text.starts_with("# AGENTS"))
         {
+            continue;
+        }
+        if kind == "text" && !seen_assistant_texts.insert(text.to_string()) {
             continue;
         }
         events.push(json!({"kind": kind, "text": text}));
@@ -650,13 +708,19 @@ mod tests {
         writeln!(
             file,
             "{}",
-            json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}})
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:17:14.337Z","payload":{"type":"task_started","turn_id":"turn-1"}})
         )
         .unwrap();
         writeln!(
             file,
             "{}",
             json!({"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Lecture terminée."}]}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Résultat envoyé."}]}})
         )
         .unwrap();
         writeln!(
@@ -674,7 +738,7 @@ mod tests {
         writeln!(
             file,
             "{}",
-            json!({"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Résultat envoyé."}})
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:17:34.888Z","payload":{"type":"task_complete","last_agent_message":"Résultat envoyé."}})
         )
         .unwrap();
 
@@ -686,17 +750,102 @@ mod tests {
                 .count(),
             1
         );
+        assert!(events
+            .iter()
+            .find(|event| event["kind"] == "started")
+            .and_then(|event| event["ts"].as_i64())
+            .is_some());
         assert_eq!(
             events.iter().find(|event| event["kind"] == "text").unwrap()["text"],
             "Lecture terminée."
         );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["kind"] == "text")
+                .count(),
+            2
+        );
         let done = events.iter().find(|event| event["kind"] == "done").unwrap();
         assert_eq!(done["ok"], true);
         assert_eq!(done["result"], "Résultat envoyé.");
+        assert!(done["ts"].as_i64().is_some());
         assert!(!events
             .iter()
             .any(|event| event.to_string().contains("gAAAAA")));
         assert!(!events.iter().any(|event| event["name"] == "send_message"));
+    }
+
+    #[test]
+    fn maps_aborted_native_rollout_to_failed_terminal_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683acf";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:17:14.337Z","payload":{"type":"task_started","turn_id":"turn-1"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:17:15.337Z","payload":{"type":"turn_aborted","reason":"arrêt demandé"}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(events[1]["kind"], "error");
+        assert_eq!(events[1]["message"], "arrêt demandé");
+        assert_eq!(events[2]["kind"], "done");
+        assert_eq!(events[2]["ok"], false);
+        assert_eq!(events[2]["result"], "arrêt demandé");
+        assert!(events[2]["ts"].as_i64().is_some());
+    }
+
+    #[test]
+    fn keeps_repeated_assistant_text_when_a_new_turn_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad0";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        for turn in ["turn-1", "turn-2"] {
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"event_msg","payload":{"type":"task_started","turn_id":turn}})
+            )
+            .unwrap();
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Même réponse."}]}})
+            )
+            .unwrap();
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Même réponse."}})
+            )
+            .unwrap();
+        }
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["kind"] == "text")
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["kind"] == "done")
+                .count(),
+            2
+        );
     }
 
     #[test]

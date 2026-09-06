@@ -45,6 +45,8 @@ describe("Codex subagent activity", () => {
       { kind: "done", ok: true, result: "Previous turn", ts: 20 },
     ]).status).toBe("working");
     expect(agentWithTranscriptState(agent, [{ kind: "text", text: "Reading" }]).status).toBe("working");
+    expect(agentWithTranscriptState({ ...agent, status: "done" }, [{ kind: "started" }]).status).toBe("done");
+    expect(agentWithTranscriptState({ ...agent, status: "done", statusTs: 20 }, [{ kind: "started", ts: 30 }]).status).toBe("working");
     for (const status of ["done", "completed", "finished"]) {
       expect(agentsFromActions([action({ agentActivity: {
         ...action().agentActivity, agentsStates: { "child-1": { status } },
