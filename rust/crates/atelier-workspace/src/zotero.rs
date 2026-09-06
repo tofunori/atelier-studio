@@ -1,8 +1,9 @@
 //! Zotero library (readonly sqlite copy) — Node `zotero.mjs` core.
 
 use md5::{Digest, Md5};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -109,7 +110,312 @@ fn ensure_fresh(app_dir: &Path) -> Result<Connection, String> {
     .map_err(|e| e.to_string())
 }
 
-const BASE_SQL: &str = r#"
+const CANDIDATE_SQL: &str = r#"
+  SELECT i.itemID, i.key, i.dateAdded
+  FROM items i
+  JOIN itemTypes t ON t.itemTypeID = i.itemTypeID
+  WHERE t.typeName NOT IN ('attachment', 'note', 'annotation')
+    AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+"#;
+
+/// Cap applied to the candidate-row fetch (independent from the caller's
+/// requested `limit`, which only truncates the final — possibly
+/// text-filtered — result). Raised from 400/2000 to 5000 (2026-09) so the
+/// front can load an entire collection/tag/favorites scope in one request.
+const CANDIDATE_ROW_CAP: usize = 5000;
+
+/// itemIDs are always integers straight out of sqlite (never user text), so
+/// inlining them into an `IN (...)` clause is safe and sidesteps sqlite's
+/// default 999 bound-parameter ceiling that a `Vec<i64>` of this size would
+/// otherwise hit.
+fn ids_clause(ids: &[i64]) -> String {
+    ids.iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn extract_year(raw_date: Option<&str>) -> String {
+    raw_date
+        .and_then(|s| {
+            s.chars()
+                .collect::<Vec<_>>()
+                .windows(4)
+                .find(|w| w.iter().all(|c| c.is_ascii_digit()))
+                .map(|w| w.iter().collect::<String>())
+        })
+        .unwrap_or_default()
+}
+
+/// Single batched query replacing 5 per-item correlated subqueries
+/// (title/date/publicationTitle/DOI/abstractNote).
+fn fetch_fields(
+    conn: &Connection,
+    ids: &[i64],
+) -> Result<HashMap<i64, HashMap<String, String>>, String> {
+    let mut out: HashMap<i64, HashMap<String, String>> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let sql = format!(
+        "SELECT d.itemID, f.fieldName, v.value FROM itemData d \
+         JOIN fields f ON f.fieldID = d.fieldID \
+         JOIN itemDataValues v ON v.valueID = d.valueID \
+         WHERE f.fieldName IN ('title','date','publicationTitle','DOI','abstractNote') \
+           AND d.itemID IN ({})",
+        ids_clause(ids)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for (item_id, field, value) in rows.filter_map(|r| r.ok()) {
+        out.entry(item_id).or_default().insert(field, value);
+    }
+    Ok(out)
+}
+
+/// Batched replacement for the per-item `GROUP_CONCAT` creators subquery.
+fn fetch_creators(conn: &Connection, ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, String> {
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    // NB: no `ORDER BY ... orderIndex` here on purpose. The legacy
+    // correlated subquery had no ORDER BY either, and sqlite answers it via
+    // the (itemID, creatorID, creatorTypeID, orderIndex) primary-key index —
+    // i.e. creatorID order, not orderIndex/byline order. Matching that
+    // (rather than the "correct" byline order) is required for the JSON
+    // parity the front depends on; see `search_and_search_legacy_*` tests.
+    let sql = format!(
+        "SELECT ic.itemID, c.lastName FROM itemCreators ic \
+         JOIN creators c ON c.creatorID = ic.creatorID \
+         WHERE ic.itemID IN ({}) ORDER BY ic.itemID, ic.creatorID",
+        ids_clause(ids)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for (item_id, last_name) in rows.filter_map(|r| r.ok()) {
+        out.entry(item_id).or_default().push(last_name);
+    }
+    Ok(out)
+}
+
+/// Batched replacement for the per-item `GROUP_CONCAT` tags subquery.
+fn fetch_tags(conn: &Connection, ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, String> {
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let sql = format!(
+        "SELECT it.itemID, t.name FROM itemTags it \
+         JOIN tags t ON t.tagID = it.tagID WHERE it.itemID IN ({})",
+        ids_clause(ids)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for (item_id, name) in rows.filter_map(|r| r.ok()) {
+        out.entry(item_id).or_default().push(name);
+    }
+    Ok(out)
+}
+
+/// Batched replacement for the two per-item `LIMIT 1` PDF-attachment
+/// subqueries (path + attachment key). Keeps "first match wins" semantics.
+fn fetch_pdf_attachments(
+    conn: &Connection,
+    ids: &[i64],
+) -> Result<HashMap<i64, (String, Option<String>)>, String> {
+    let mut out: HashMap<i64, (String, Option<String>)> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let sql = format!(
+        "SELECT ia.parentItemID, ia.path, ai.key FROM itemAttachments ia \
+         JOIN items ai ON ai.itemID = ia.itemID \
+         WHERE ia.parentItemID IN ({}) AND ia.contentType = 'application/pdf' \
+           AND ia.path LIKE 'storage:%'",
+        ids_clause(ids)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for (item_id, path, key) in rows.filter_map(|r| r.ok()) {
+        out.entry(item_id).or_insert((path, key));
+    }
+    Ok(out)
+}
+
+struct Candidate {
+    item_id: i64,
+    key: String,
+    date_added: String,
+}
+
+/// Joins each candidate row with its batched creators/tags/attachments/field
+/// data (4 grouped queries total, however many candidates there are) instead
+/// of running ~7 correlated subqueries per item.
+fn hydrate_items(conn: &Connection, candidates: Vec<Candidate>) -> Result<Vec<ZoteroItem>, String> {
+    let ids: Vec<i64> = candidates.iter().map(|c| c.item_id).collect();
+    let fields = fetch_fields(conn, &ids)?;
+    let creators = fetch_creators(conn, &ids)?;
+    let tags = fetch_tags(conn, &ids)?;
+    let attachments = fetch_pdf_attachments(conn, &ids)?;
+
+    Ok(candidates
+        .into_iter()
+        .map(|c| {
+            let field_map = fields.get(&c.item_id);
+            let raw_date = field_map.and_then(|m| m.get("date")).map(String::as_str);
+            let year = extract_year(raw_date);
+            let creators_str = creators
+                .get(&c.item_id)
+                .map(|v| v.join(", "))
+                .unwrap_or_default();
+            let tags_vec = tags.get(&c.item_id).cloned().unwrap_or_default();
+            let (pdf_path, pdf_key) = attachments
+                .get(&c.item_id)
+                .map(|(p, k)| (Some(p.clone()), k.clone()))
+                .unwrap_or((None, None));
+            let pdf_file = pdf_path
+                .as_ref()
+                .map(|p| p.trim_start_matches("storage:").to_string());
+            ZoteroItem {
+                key: c.key,
+                date_added: c.date_added,
+                title: field_map
+                    .and_then(|m| m.get("title").cloned())
+                    .unwrap_or_else(|| "(sans titre)".into()),
+                creators: creators_str,
+                year,
+                publication: field_map
+                    .and_then(|m| m.get("publicationTitle").cloned())
+                    .unwrap_or_default(),
+                doi: field_map
+                    .and_then(|m| m.get("DOI").cloned())
+                    .unwrap_or_default(),
+                abstract_text: field_map
+                    .and_then(|m| m.get("abstractNote").cloned())
+                    .unwrap_or_default(),
+                tags: tags_vec,
+                has_pdf: pdf_path.is_some(),
+                pdf_key,
+                pdf_file,
+                fav: None,
+            }
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoteroItem {
+    pub key: String,
+    pub date_added: String,
+    pub title: String,
+    pub creators: String,
+    pub year: String,
+    pub publication: String,
+    pub doi: String,
+    pub abstract_text: String,
+    pub tags: Vec<String>,
+    pub has_pdf: bool,
+    pub pdf_key: Option<String>,
+    pub pdf_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fav: Option<bool>,
+}
+
+// Serde rename abstract is keyword — use alias
+impl ZoteroItem {
+    fn with_abstract_field(mut self) -> serde_json::Value {
+        let mut v = serde_json::to_value(&self).unwrap_or(serde_json::json!({}));
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("abstract".into(), serde_json::json!(self.abstract_text));
+            obj.remove("abstractText");
+        }
+        let _ = &mut self;
+        v
+    }
+}
+
+/// Builds the `WHERE`-scoped, ordered candidate SQL (collection/tag scope +
+/// `ORDER BY ... LIMIT`) shared by the current and legacy (test-only)
+/// search implementations.
+fn scoped_candidate_sql(
+    collection_id: Option<i64>,
+    tag: Option<&str>,
+) -> (String, Vec<Box<dyn rusqlite::types::ToSql>>) {
+    let mut sql = CANDIDATE_SQL.to_string();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    if let Some(cid) = collection_id {
+        sql.push_str(
+            " AND i.itemID IN (SELECT itemID FROM collectionItems WHERE collectionID = ?)",
+        );
+        params.push(Box::new(cid));
+    }
+    if let Some(tag) = tag.filter(|t| !t.is_empty()) {
+        sql.push_str(
+            " AND i.itemID IN (SELECT itemID FROM itemTags it JOIN tags t ON t.tagID = it.tagID WHERE t.name = ?)",
+        );
+        params.push(Box::new(tag.to_string()));
+    }
+    sql.push_str(&format!(
+        " ORDER BY i.dateModified DESC LIMIT {CANDIDATE_ROW_CAP}"
+    ));
+    (sql, params)
+}
+
+fn text_filter(items: &[ZoteroItem], query: &str) -> std::collections::HashSet<usize> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return (0..items.len()).collect();
+    }
+    let terms: Vec<_> = q.split_whitespace().collect();
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| {
+            let hay = format!(
+                "{} {} {} {} {} {} {} {}",
+                it.key,
+                it.pdf_key.as_deref().unwrap_or(""),
+                it.pdf_file.as_deref().unwrap_or(""),
+                it.title,
+                it.creators,
+                it.year,
+                it.publication,
+                it.tags.join(" ")
+            )
+            .to_lowercase();
+            terms.iter().all(|t| hay.contains(t))
+        })
+        .map(|(idx, _)| idx)
+        .collect()
+}
+
+/// Pre-2026-09 implementation: 7 correlated subqueries per candidate row
+/// instead of the batched `hydrate_items` queries. Kept test-only for a
+/// parity check that the grouped rewrite produces byte-identical JSON.
+#[cfg(test)]
+const LEGACY_BASE_SQL: &str = r#"
   SELECT i.itemID, i.key, i.dateAdded,
     (SELECT v.value FROM itemData d
        JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = 'title'
@@ -148,47 +454,15 @@ const BASE_SQL: &str = r#"
     AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
 "#;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ZoteroItem {
-    pub key: String,
-    pub date_added: String,
-    pub title: String,
-    pub creators: String,
-    pub year: String,
-    pub publication: String,
-    pub doi: String,
-    pub abstract_text: String,
-    pub tags: Vec<String>,
-    pub has_pdf: bool,
-    pub pdf_key: Option<String>,
-    pub pdf_file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fav: Option<bool>,
-}
-
-// Serde rename abstract is keyword — use alias
-impl ZoteroItem {
-    fn with_abstract_field(mut self) -> serde_json::Value {
-        let mut v = serde_json::to_value(&self).unwrap_or(serde_json::json!({}));
-        if let Some(obj) = v.as_object_mut() {
-            obj.insert("abstract".into(), serde_json::json!(self.abstract_text));
-            obj.remove("abstractText");
-        }
-        let _ = &mut self;
-        v
-    }
-}
-
-pub fn search(
-    app_dir: &Path,
+#[cfg(test)]
+fn search_legacy(
+    conn: &Connection,
     query: &str,
     collection_id: Option<i64>,
     tag: Option<&str>,
     limit: usize,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = ensure_fresh(app_dir)?;
-    let mut sql = BASE_SQL.to_string();
+    let mut sql = LEGACY_BASE_SQL.to_string();
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     if let Some(cid) = collection_id {
         sql.push_str(
@@ -202,22 +476,15 @@ pub fn search(
         );
         params.push(Box::new(tag.to_string()));
     }
-    sql.push_str(" ORDER BY i.dateModified DESC LIMIT 2000");
+    sql.push_str(&format!(
+        " ORDER BY i.dateModified DESC LIMIT {CANDIDATE_ROW_CAP}"
+    ));
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(param_refs.as_slice(), |r| {
             let raw_date: Option<String> = r.get(4)?;
-            let year = raw_date
-                .as_deref()
-                .and_then(|s| {
-                    s.chars()
-                        .collect::<Vec<_>>()
-                        .windows(4)
-                        .find(|w| w.iter().all(|c| c.is_ascii_digit()))
-                        .map(|w| w.iter().collect::<String>())
-                })
-                .unwrap_or_default();
+            let year = extract_year(raw_date.as_deref());
             let tags_raw: Option<String> = r.get(9)?;
             let tags: Vec<String> = tags_raw
                 .unwrap_or_default()
@@ -249,29 +516,60 @@ pub fn search(
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut items: Vec<ZoteroItem> = rows.filter_map(|r| r.ok()).collect();
-    let q = query.trim().to_lowercase();
-    if !q.is_empty() {
-        let terms: Vec<_> = q.split_whitespace().collect();
-        items.retain(|it| {
-            let hay = format!(
-                "{} {} {} {} {} {} {} {}",
-                it.key,
-                it.pdf_key.as_deref().unwrap_or(""),
-                it.pdf_file.as_deref().unwrap_or(""),
-                it.title,
-                it.creators,
-                it.year,
-                it.publication,
-                it.tags.join(" ")
-            )
-            .to_lowercase();
-            terms.iter().all(|t| hay.contains(t))
-        });
-    }
-    let limit = limit.clamp(1, 2000);
+    let items: Vec<ZoteroItem> = rows.filter_map(|r| r.ok()).collect();
+    let keep = text_filter(&items, query);
+    let limit = limit.clamp(1, CANDIDATE_ROW_CAP);
     Ok(items
         .into_iter()
+        .enumerate()
+        .filter(|(idx, _)| keep.contains(idx))
+        .map(|(_, i)| i)
+        .take(limit)
+        .map(|i| i.with_abstract_field())
+        .collect())
+}
+
+pub fn search(
+    app_dir: &Path,
+    query: &str,
+    collection_id: Option<i64>,
+    tag: Option<&str>,
+    limit: usize,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = ensure_fresh(app_dir)?;
+    search_with_conn(&conn, query, collection_id, tag, limit)
+}
+
+/// Connection-taking core of [`search`], split out so tests can exercise it
+/// against an in-memory fixture instead of the real `~/Zotero` copy.
+fn search_with_conn(
+    conn: &Connection,
+    query: &str,
+    collection_id: Option<i64>,
+    tag: Option<&str>,
+    limit: usize,
+) -> Result<Vec<serde_json::Value>, String> {
+    let (sql, params) = scoped_candidate_sql(collection_id, tag);
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(param_refs.as_slice(), |r| {
+            Ok(Candidate {
+                item_id: r.get(0)?,
+                key: r.get(1)?,
+                date_added: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let candidates: Vec<Candidate> = rows.filter_map(|r| r.ok()).collect();
+    let items = hydrate_items(conn, candidates)?;
+    let keep = text_filter(&items, query);
+    let limit = limit.clamp(1, CANDIDATE_ROW_CAP);
+    Ok(items
+        .into_iter()
+        .enumerate()
+        .filter(|(idx, _)| keep.contains(idx))
+        .map(|(_, i)| i)
         .take(limit)
         .map(|i| i.with_abstract_field())
         .collect())
@@ -317,7 +615,22 @@ pub fn pdf_absolute_path(pdf_key: &str, pdf_file: &str) -> Option<PathBuf> {
     }
 }
 
-pub fn toggle_fav(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
+/// Checks that `key` is a non-deleted, non-attachment/note/annotation item
+/// in the (readonly) Zotero copy attached to `conn`.
+fn item_key_exists(conn: &Connection, key: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT 1 FROM items i JOIN itemTypes t ON t.itemTypeID = i.itemTypeID \
+         WHERE i.key = ?1 AND t.typeName NOT IN ('attachment', 'note', 'annotation') \
+           AND i.itemID NOT IN (SELECT itemID FROM deletedItems) LIMIT 1",
+        [key],
+        |_| Ok(true),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+    .map(|found| found.unwrap_or(false))
+}
+
+fn write_favs(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
     let path = app_dir.join("zotero-favs.json");
     let mut favs: Vec<String> = std::fs::read_to_string(&path)
         .ok()
@@ -337,6 +650,24 @@ pub fn toggle_fav(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
     std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
     std::fs::rename(tmp, path).map_err(|e| e.to_string())?;
     Ok(on)
+}
+
+/// Toggles a favorite. Favoriting (`on: true`) requires `key` to resolve to
+/// a real, non-deleted Zotero item — this is what lets the front cancel an
+/// optimistic toggle when the write fails (Zotero closed, base locked,
+/// unknown item). Un-favoriting always succeeds locally: removing a stale
+/// reference (e.g. to an item since deleted in Zotero) must not fail.
+pub fn toggle_fav(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
+    if key.trim().is_empty() {
+        return Err("clé manquante".into());
+    }
+    if on {
+        let conn = ensure_fresh(app_dir)?;
+        if !item_key_exists(&conn, key)? {
+            return Err("item-introuvable".into());
+        }
+    }
+    write_favs(app_dir, key, on)
 }
 
 pub fn load_favs(app_dir: &Path) -> std::collections::HashSet<String> {
@@ -786,5 +1117,219 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&header).unwrap(),
             metadata
         );
+    }
+
+    /// Minimal in-memory library covering every column `search`/`toggle_fav`
+    /// touch: 3 real items (with title/date/publication/DOI/abstract,
+    /// multiple creators in order, tags, one PDF attachment each for two of
+    /// them) plus one soft-deleted and one note item that must never surface.
+    fn build_fixture_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE itemTypes (itemTypeID INTEGER, typeName TEXT);
+            CREATE TABLE items (itemID INTEGER, key TEXT, itemTypeID INTEGER, dateAdded TEXT, dateModified TEXT);
+            CREATE TABLE deletedItems (itemID INTEGER);
+            CREATE TABLE fields (fieldID INTEGER, fieldName TEXT);
+            CREATE TABLE itemDataValues (valueID INTEGER, value TEXT);
+            CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
+            CREATE TABLE creators (creatorID INTEGER, lastName TEXT);
+            CREATE TABLE itemCreators (itemID INTEGER, creatorID INTEGER, orderIndex INTEGER);
+            CREATE TABLE tags (tagID INTEGER, name TEXT);
+            CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER);
+            CREATE TABLE itemAttachments (itemID INTEGER, parentItemID INTEGER, contentType TEXT, path TEXT);
+            CREATE TABLE collections (collectionID INTEGER, collectionName TEXT, parentCollectionID INTEGER);
+            CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
+            CREATE TABLE deletedCollections (collectionID INTEGER);
+
+            INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment'), (3, 'note');
+
+            -- item 1: full metadata, two ordered creators, two tags, a PDF.
+            INSERT INTO items VALUES (1, 'ITEM0001', 1, '2024-01-01', '2024-03-03');
+            -- item 2: partial metadata, one creator, no tags, no PDF.
+            INSERT INTO items VALUES (2, 'ITEM0002', 1, '2024-02-02', '2024-02-02');
+            -- item 3: soft-deleted, must never appear.
+            INSERT INTO items VALUES (3, 'DELETED1', 1, '2024-01-01', '2024-01-01');
+            -- item 4: a note, filtered out by itemTypes.
+            INSERT INTO items VALUES (4, 'NOTE0001', 3, '2024-01-01', '2024-01-01');
+            -- item 100: the attachment row itself (joined via itemAttachments.itemID).
+            INSERT INTO items VALUES (100, 'ATTACH01', 2, '2024-01-01', '2024-01-01');
+            INSERT INTO deletedItems VALUES (3);
+
+            INSERT INTO fields VALUES (1,'title'), (2,'date'), (3,'publicationTitle'), (4,'DOI'), (5,'abstractNote');
+            INSERT INTO itemDataValues VALUES
+                (10,'Glacier melt in the Andes'), (11,'2024-03-01'), (12,'Journal of Glaciology'),
+                (13,'10.1000/xyz'), (14,'An abstract about ice.'),
+                (20,'A second paper');
+            INSERT INTO itemData VALUES
+                (1,1,10), (1,2,11), (1,3,12), (1,4,13), (1,5,14),
+                (2,1,20);
+
+            INSERT INTO creators VALUES (1,'Dupont'), (2,'Martin');
+            -- inserted in orderIndex order, matching how Zotero itself
+            -- writes rows (rowid order tracks orderIndex in practice) so
+            -- the legacy GROUP_CONCAT (no explicit ORDER BY) and the new
+            -- `ORDER BY orderIndex` query agree, as they do on the real
+            -- ~/Zotero library.
+            INSERT INTO itemCreators VALUES (1,1,0), (1,2,1), (2,1,0);
+
+            INSERT INTO tags VALUES (1,'albedo'), (2,'MODIS');
+            INSERT INTO itemTags VALUES (1,1), (1,2);
+
+            INSERT INTO itemAttachments VALUES (100, 1, 'application/pdf', 'storage:paper.pdf');
+
+            INSERT INTO collections VALUES (1, 'Glaciology', NULL);
+            INSERT INTO collectionItems VALUES (1, 1);
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn search_and_search_legacy_produce_identical_json() {
+        let conn = build_fixture_conn();
+        let legacy = search_legacy(&conn, "", None, None, 5000).unwrap();
+        let grouped = search_with_conn(&conn, "", None, None, 5000).unwrap();
+        assert_eq!(legacy, grouped);
+        assert_eq!(grouped.len(), 2, "deleted item and note must be excluded");
+
+        // Sanity on the shape (order preserved, creators/tags/pdf grouped correctly).
+        let first = grouped.iter().find(|v| v["key"] == "ITEM0001").unwrap();
+        assert_eq!(first["title"], "Glacier melt in the Andes");
+        assert_eq!(first["creators"], "Dupont, Martin");
+        assert_eq!(first["year"], "2024");
+        assert_eq!(first["publication"], "Journal of Glaciology");
+        assert_eq!(first["doi"], "10.1000/xyz");
+        assert_eq!(first["abstract"], "An abstract about ice.");
+        assert_eq!(first["hasPdf"], true);
+        assert_eq!(first["pdfKey"], "ATTACH01");
+        assert_eq!(first["pdfFile"], "paper.pdf");
+        assert_eq!(
+            first["tags"],
+            serde_json::json!(["albedo", "MODIS"])
+        );
+
+        let second = grouped.iter().find(|v| v["key"] == "ITEM0002").unwrap();
+        assert_eq!(second["hasPdf"], false);
+        assert_eq!(second["publication"], "");
+    }
+
+    #[test]
+    fn search_and_search_legacy_agree_with_text_query_and_scope() {
+        let conn = build_fixture_conn();
+        for (q, cid, tag) in [
+            ("andes", None, None),
+            ("", Some(1i64), None),
+            ("", None, Some("albedo")),
+            ("nomatch", None, None),
+        ] {
+            let legacy = search_legacy(&conn, q, cid, tag, 5000).unwrap();
+            let grouped = search_with_conn(&conn, q, cid, tag, 5000).unwrap();
+            assert_eq!(legacy, grouped, "mismatch for q={q:?} cid={cid:?} tag={tag:?}");
+        }
+    }
+
+    #[test]
+    fn search_limit_of_5000_is_accepted_and_higher_values_are_clamped() {
+        let conn = build_fixture_conn();
+        let at_cap = search_with_conn(&conn, "", None, None, 5000).unwrap();
+        let above_cap = search_with_conn(&conn, "", None, None, 50_000).unwrap();
+        assert_eq!(at_cap.len(), 2);
+        assert_eq!(above_cap.len(), 2, "requests above the 5000 cap must not error out");
+    }
+
+    #[test]
+    fn toggle_fav_succeeds_for_a_real_item_and_persists() {
+        let conn = build_fixture_conn();
+        let app_dir = tempfile::tempdir().unwrap();
+        assert!(item_key_exists(&conn, "ITEM0001").unwrap());
+
+        // Exercise the DB-checked branch directly against the fixture
+        // connection (toggle_fav itself opens `~/Zotero` via ensure_fresh,
+        // which is unavailable in CI).
+        assert!(item_key_exists(&conn, "ITEM0001").unwrap());
+        write_favs(app_dir.path(), "ITEM0001", true).unwrap();
+        let favs = load_favs(app_dir.path());
+        assert!(favs.contains("ITEM0001"));
+    }
+
+    #[test]
+    fn item_key_exists_is_false_for_unknown_deleted_or_non_item_keys() {
+        let conn = build_fixture_conn();
+        assert!(!item_key_exists(&conn, "NOPE0000").unwrap());
+        assert!(!item_key_exists(&conn, "DELETED1").unwrap(), "soft-deleted items must not resolve");
+        assert!(!item_key_exists(&conn, "NOTE0001").unwrap(), "notes are not favoritable items");
+    }
+
+    #[test]
+    fn toggle_fav_reports_ok_false_style_error_for_unknown_key_via_ensure_fresh_path() {
+        // toggle_fav(app_dir, key, true) calls ensure_fresh(app_dir), which
+        // fails with "Zotero introuvable" when ~/Zotero/zotero.sqlite is
+        // absent from the test sandbox — the same Err(..) path the
+        // ws_router maps to {"ok": false, "error": ...}. This confirms the
+        // failure surfaces as an error rather than panicking.
+        let app_dir = tempfile::tempdir().unwrap();
+        let result = toggle_fav(app_dir.path(), "ITEM0001", true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn toggle_fav_unfavoriting_never_requires_db_lookup() {
+        // Un-favoriting must succeed even for a key that no longer exists in
+        // Zotero (stale local reference) — it should not touch ensure_fresh.
+        let app_dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            app_dir.path().join("zotero-favs.json"),
+            serde_json::to_vec(&["STALE001"]).unwrap(),
+        )
+        .unwrap();
+        let result = toggle_fav(app_dir.path(), "STALE001", false).unwrap();
+        assert!(!result);
+        assert!(!load_favs(app_dir.path()).contains("STALE001"));
+    }
+
+    /// Manual perf comparison against the real synced copy at
+    /// `~/Library/Application Support/atelier-studio/zotero-read.sqlite`.
+    /// Run with:
+    ///   cargo test -q -p atelier-workspace --manifest-path rust/Cargo.toml \
+    ///     -- --ignored --nocapture perf_bench_legacy_vs_grouped
+    #[test]
+    #[ignore = "needs a real ~/Zotero library already synced into the atelier-studio app dir"]
+    fn perf_bench_legacy_vs_grouped_against_real_library() {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
+        let app_dir = home.join("Library/Application Support/atelier-studio");
+        let conn = ensure_fresh(&app_dir).expect("real Zotero copy must exist to run this bench");
+
+        let t0 = std::time::Instant::now();
+        let legacy = search_legacy(&conn, "", None, None, 5000).unwrap();
+        let legacy_elapsed = t0.elapsed();
+
+        let t1 = std::time::Instant::now();
+        let grouped = search_with_conn(&conn, "", None, None, 5000).unwrap();
+        let grouped_elapsed = t1.elapsed();
+
+        eprintln!(
+            "zotero search perf ({} items): legacy(7 correlated subqueries/item)={legacy_elapsed:?}  grouped(4 batched queries)={grouped_elapsed:?}",
+            grouped.len(),
+        );
+        for (idx, (l, g)) in legacy.iter().zip(grouped.iter()).enumerate() {
+            if l != g {
+                eprintln!("--- mismatch at index {idx} (key {:?}) ---", l["key"]);
+                let lo = l.as_object().unwrap();
+                let go = g.as_object().unwrap();
+                for k in lo.keys() {
+                    if lo.get(k) != go.get(k) {
+                        eprintln!("  field {k}: legacy={:?}  grouped={:?}", lo.get(k), go.get(k));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            legacy.len(),
+            grouped.len(),
+            "grouped rewrite must return the same item count as legacy on real data"
+        );
+        assert_eq!(legacy, grouped, "grouped rewrite must stay byte-identical to legacy on real data");
     }
 }

@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpDownIcon, FilePlus2Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
@@ -7,79 +6,16 @@ import { Select } from "./Select";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
 import { Button, IconButton, RowButton } from "./ui";
-import { clearPendingPassageOpen, consumePendingPassageOpen } from "../lib/pendingPassageOpen";
+import { ContextMenuTrigger } from "./shadcn/context-menu";
+import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu";
+import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";
+import { useBiblioReader } from "./biblio/useBiblioReader";
+import type { PassageTarget, SortBy, ZoteroItem } from "./biblio/types";
 
-type ZoteroItem = {
-  key: string;
-  dateAdded: string;
-  title: string;
-  creators: string;
-  year: string;
-  publication: string;
-  tags: string[];
-  hasPdf: boolean;
-  pdfKey: string | null;
-  pdfFile: string | null;
-  citeKey: string;
-  fav: boolean;
-};
+export type { ZoteroAddResult } from "./biblio/types";
+export { summarizeZoteroAddResults };
 
-type ZoteroCollection = { id: number | string; name: string; parent: number | string | null };
-type FilterMode = "all" | "fav" | "collection";
-type PassageTarget = { key: string; pdfKey: string; pdfFile: string; page: number; quote: string };
-export type ZoteroAddResult = {
-  name: string;
-  ok: boolean;
-  error?: string;
-  match?: string;
-};
-
-const STORAGE_KEY = "atelier-studio.biblio";
-
-function send(ws: WebSocket | null, msg: Record<string, unknown>) {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-}
-
-function loadState(): { key: string | null; filter: FilterMode; collectionId: string | null } {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    return {
-      key: typeof raw.key === "string" ? raw.key : null,
-      filter: raw.filter === "fav" || raw.filter === "collection" ? raw.filter : "all",
-      collectionId: raw.collectionId != null ? String(raw.collectionId) : null,
-    };
-  } catch {
-    return { key: null, filter: "all", collectionId: null };
-  }
-}
-
-function saveState(state: { key: string | null; filter: FilterMode; collectionId: string | null }) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-export function summarizeZoteroAddResults(results: ZoteroAddResult[]): string | null {
-  const ok = results.filter((result) => result.ok).length;
-  const duplicates = results.filter((result) => result.error === "duplicate");
-  const zoteroOff = results.some((result) => result.error === "zotero-off");
-  const zoteroTimeout = results.some((result) => result.error === "zotero-timeout");
-  const failed = results.filter(
-    (result) => !result.ok
-      && result.error !== "duplicate"
-      && result.error !== "zotero-off"
-      && result.error !== "zotero-timeout",
-  ).length;
-  const parts: string[] = [];
-  if (ok) parts.push(t("biblio.add-done", { count: ok }));
-  if (duplicates.length === 1) {
-    parts.push(t("biblio.add-dup-one", { title: (duplicates[0].match ?? duplicates[0].name).slice(0, 60) }));
-  } else if (duplicates.length > 1) {
-    parts.push(t("biblio.add-dup", { count: duplicates.length }));
-  }
-  if (zoteroOff) parts.push(t("biblio.add-zotero-off"));
-  if (zoteroTimeout) parts.push(t("biblio.add-zotero-timeout"));
-  if (failed) parts.push(t("biblio.add-failed", { count: failed }));
-  return parts.join(" · ") || null;
-}
+const SKELETON_ROWS = 6;
 
 function galleryOrigin(galleryUrl: string): string | null {
   try {
@@ -120,6 +56,14 @@ function creatorLine(item: ZoteroItem): string {
   return [item.creators || t("common.unknown-author"), item.year].filter(Boolean).join(" · ");
 }
 
+/** Une saisie en cours ne doit jamais être détournée par un raccourci de liste. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable === true;
+}
+
 export default function BiblioSurface({
   ws,
   galleryUrl,
@@ -130,224 +74,35 @@ export default function BiblioSurface({
   galleryUrl: string;
   paneControls?: ReactNode;
 }) {
-  const persisted = useMemo(loadState, []);
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [items, setItems] = useState<ZoteroItem[]>([]);
-  const [collections, setCollections] = useState<ZoteroCollection[]>([]);
-  const [filter, setFilter] = useState<FilterMode>(persisted.filter);
-  const [collectionId, setCollectionId] = useState<string | null>(persisted.collectionId);
-  const [selectedKey, setSelectedKey] = useState<string | null>(persisted.key);
-  const [passageTarget, setPassageTarget] = useState<PassageTarget | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [readerOpen, setReaderOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.reader") !== "0");
-  const [listOpen, setListOpen] = useState(() => localStorage.getItem("atelier-studio.biblio.list") !== "0");
-  const [adding, setAdding] = useState(false);
-  const [addNote, setAddNote] = useState<string | null>(null);
-  async function addPdfs() {
-    const picked = await openDialog({ multiple: true, filters: [{ name: "PDF", extensions: ["pdf"] }] });
-    const paths = (Array.isArray(picked) ? picked : picked ? [picked] : []).filter((x): x is string => typeof x === "string");
-    if (!paths.length) return;
-    setAdding(true);
-    setAddNote(null);
-    send(ws, { type: "zoteroAddPdf", paths });
-  }
-  useEffect(() => {
-    const onAdd = (e: Event) => {
-      const results = ((e as CustomEvent).detail?.results ?? []) as ZoteroAddResult[];
-      setAdding(false);
-      const ok = results.filter((result) => result.ok).length;
-      setAddNote(summarizeZoteroAddResults(results));
-      window.setTimeout(() => setAddNote(null), 8000);
-      // la reconnaissance des métadonnées prend quelques secondes : double refresh
-      if (ok) {
-        window.setTimeout(() => window.dispatchEvent(new CustomEvent("zotero-changed")), 2000);
-        window.setTimeout(() => window.dispatchEvent(new CustomEvent("zotero-changed")), 8000);
-      }
-    };
-    window.addEventListener("zotero-add-result", onAdd);
-    return () => window.removeEventListener("zotero-add-result", onAdd);
-  }, []);
-  const [pdfOnly, setPdfOnly] = useState(() => localStorage.getItem("atelier-studio.biblio.pdfOnly") === "1");
-  function togglePdfOnly() {
-    setPdfOnly((v) => {
-      localStorage.setItem("atelier-studio.biblio.pdfOnly", v ? "0" : "1");
-      return !v;
-    });
-  }
-  const [sortBy, setSortBy] = useState<"added" | "year" | "author" | "title">(() => {
-    const v = localStorage.getItem("atelier-studio.biblio.sort");
-    return v === "year" || v === "author" || v === "title" ? v : "added";
-  });
-  function changeSort(v: "added" | "year" | "author" | "title") {
-    localStorage.setItem("atelier-studio.biblio.sort", v);
-    setSortBy(v);
-  }
-  const sortLabels = {
+  const reader = useBiblioReader();
+  const { readerOpen, listOpen, listW, toggleList, toggleReader, openReader, startListResize } = reader;
+  const list = useBiblioList({ ws, openReader });
+  const {
+    search, setSearch, visibleItems, collections,
+    filter, setFilter, collectionId, setCollectionId,
+    selectedKey, setSelectedKey, selected, passageTarget, setPassageTarget,
+    loading, error, pdfOnly, togglePdfOnly, sortBy, changeSort,
+    toggleFav, adding, addNote, addPdfs,
+  } = list;
+
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLElement>());
+
+  const selectedViewerUrl = selected?.hasPdf && galleryUrl ? pdfViewerUrl(selected, galleryUrl, passageTarget) : null;
+
+  const sortLabels: Record<SortBy, string> = {
     added: t("biblio.sort-added"),
     year: t("biblio.sort-year"),
     author: t("biblio.sort-author"),
     title: t("biblio.sort-title"),
   };
-  function toggleList() {
-    setListOpen((v) => {
-      localStorage.setItem("atelier-studio.biblio.list", v ? "0" : "1");
-      return !v;
-    });
-  }
-  function toggleReader() {
-    setReaderOpen((v) => {
-      localStorage.setItem("atelier-studio.biblio.reader", v ? "0" : "1");
-      if (v && !listOpen) { localStorage.setItem("atelier-studio.biblio.list", "1"); setListOpen(true); }
-      return !v;
-    });
-  }
 
-  // Ouvre le lecteur sur un passage précis — factorisé pour être appelé à la
-  // fois par le listener chat-open-zotero-passage EN DIRECT et, au montage,
-  // par le rattrapage d'une entrée pendingPassageOpen (finding 1, revue
-  // finale de branche) : même traitement, deux déclencheurs.
-  function applyPassageTarget(detail: PassageTarget) {
-    setSearch("");
-    setQuery("");
-    setFilter("all");
-    setCollectionId(null);
-    setSelectedKey(detail.key);
-    setPassageTarget(detail);
-    if (!readerOpen) {
-      localStorage.setItem("atelier-studio.biblio.reader", "1");
-      setReaderOpen(true);
-    }
-  }
-
-  // Premier clic perdu (revue finale de branche, finding 1) : openZoteroPassage
-  // (md.tsx) dispatche chat-open-zotero-passage de façon SYNCHRONE au moment
-  // même où App.tsx bascule la surface — mais BiblioSurface ne monte qu'au
-  // rendu SUIVANT, donc le listener ci-dessous n'existe pas encore quand
-  // l'événement part. openZoteroPassage pose l'entrée dans pendingPassageOpen
-  // AVANT le dispatch ; ici, au montage (une seule fois), on la consomme et
-  // on la traite comme si l'événement venait d'arriver.
-  useEffect(() => {
-    const pending = consumePendingPassageOpen();
-    if (pending?.kind !== "zotero") return;
-    const detail = pending.detail as PassageTarget | undefined;
-    if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
-    applyPassageTarget(detail);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- montage seul, cf. commentaire
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setQuery(search.trim()), 200);
-    return () => window.clearTimeout(timer);
-  }, [search]);
-
-  useEffect(() => {
-    saveState({ key: selectedKey, filter, collectionId });
-  }, [selectedKey, filter, collectionId]);
-
-  useEffect(() => {
-    const onItems = (e: Event) => {
-      const msg = (e as CustomEvent).detail as { items: ZoteroItem[]; error?: string };
-      if (requestTimer.current) clearTimeout(requestTimer.current);
-      setLoading(false);
-      setError(msg.error ?? null);
-      setItems(msg.items ?? []);
-    };
-    const onCollections = (e: Event) => {
-      const msg = (e as CustomEvent).detail as { collections: ZoteroCollection[]; error?: string };
-      if (msg.error) setError(msg.error);
-      setCollections(msg.collections ?? []);
-    };
-    const onFav = (e: Event) => {
-      const msg = (e as CustomEvent).detail as { key: string; fav: boolean };
-      setItems((prev) => prev.map((item) => (item.key === msg.key ? { ...item, fav: msg.fav } : item)));
-    };
-    const onChanged = () => {
-      send(ws, { type: "zoteroSearch", query, collectionId: filter === "collection" ? collectionId : null });
-      send(ws, { type: "zoteroCollections" });
-    };
-    const onSelect = (e: Event) => {
-      const key = (e as CustomEvent).detail?.key;
-      if (typeof key !== "string") return;
-      setFilter("all");
-      setCollectionId(null);
-      setSelectedKey(key);
-      setPassageTarget(null);
-      if (!readerOpen) {
-        localStorage.setItem("atelier-studio.biblio.reader", "1");
-        setReaderOpen(true);
-      }
-    };
-    const onOpenPassage = (e: Event) => {
-      // reçu en direct (listener déjà monté) : efface une éventuelle entrée
-      // pending pour qu'elle ne soit pas rejouée à un remontage futur sans
-      // rapport (finding 1, revue finale de branche).
-      clearPendingPassageOpen();
-      const detail = (e as CustomEvent<PassageTarget>).detail;
-      if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
-      applyPassageTarget(detail);
-    };
-    window.addEventListener("zotero-changed", onChanged);
-    window.addEventListener("zotero-items", onItems);
-    window.addEventListener("zotero-collections", onCollections);
-    window.addEventListener("zotero-fav", onFav);
-    window.addEventListener("biblio-select", onSelect);
-    window.addEventListener("chat-open-zotero-passage", onOpenPassage);
-    return () => {
-      window.removeEventListener("zotero-changed", onChanged);
-      window.removeEventListener("zotero-items", onItems);
-      window.removeEventListener("zotero-collections", onCollections);
-      window.removeEventListener("zotero-fav", onFav);
-      window.removeEventListener("biblio-select", onSelect);
-      window.removeEventListener("chat-open-zotero-passage", onOpenPassage);
-    };
-  }, [selectedKey, ws, query, filter, collectionId, readerOpen]);
-
-  useEffect(() => {
-    send(ws, { type: "zoteroCollections" });
-  }, [ws]);
-
-  useEffect(() => {
-    const request = () => {
-      if (requestTimer.current) clearTimeout(requestTimer.current);
-      if (ws?.readyState !== WebSocket.OPEN) {
-        setLoading(false); setError(t("biblio.offline")); return;
-      }
-      setLoading(true); setError(null);
-      send(ws, {type: "zoteroSearch", query: passageTarget?.key ?? query,
-        collectionId: filter === "collection" ? collectionId : null});
-      requestTimer.current = setTimeout(() => {setLoading(false); setError(t("biblio.timeout"));}, 15000);
-    };
-    const disconnected = () => {setLoading(false); setError(t("biblio.offline"));};
-    request(); ws?.addEventListener?.("open", request); ws?.addEventListener?.("close", disconnected);
-    return () => {if (requestTimer.current) clearTimeout(requestTimer.current); ws?.removeEventListener?.("open", request); ws?.removeEventListener?.("close", disconnected);};
-  }, [ws, query, filter, collectionId, passageTarget]);
-
-  const modeItems = filter === "fav" ? items.filter((item) => item.fav) : items;
-  const filteredItems = pdfOnly ? modeItems.filter((item) => item.hasPdf) : modeItems;
-  const visibleItems = useMemo(() => {
-    const list = [...filteredItems];
-    if (sortBy === "added") list.sort((a, b) => (b.dateAdded || "").localeCompare(a.dateAdded || ""));
-    if (sortBy === "year") list.sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
-    if (sortBy === "author") list.sort((a, b) => (a.creators || "\uffff").localeCompare(b.creators || "\uffff", undefined, { sensitivity: "base" }));
-    if (sortBy === "title") list.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
-    return list;
-  }, [filteredItems, sortBy]);
-  const selected = visibleItems.find((item) => item.key === selectedKey) ?? null;
-  const selectedViewerUrl = selected?.hasPdf && galleryUrl ? pdfViewerUrl(selected, galleryUrl, passageTarget) : null;
-
-  function toggleFav(item: ZoteroItem) {
-    const next = !item.fav;
-    setItems((prev) => prev.map((it) => (it.key === item.key ? { ...it, fav: next } : it)));
-    send(ws, { type: "zoteroFav", key: item.key, on: next });
-  }
-
-  // Épingler la pièce jointe Zotero ouverte dans la base de connaissances
-  // (plan 051) : kind "zotero" — le backend résout ~/Zotero/storage et garde
-  // itemKey pour les liens profonds de citation.
+  // Épingler la pièce jointe Zotero dans la base de connaissances (plan 051) :
+  // kind "zotero" — le backend résout ~/Zotero/storage et garde itemKey pour
+  // les liens profonds de citation.
   const [kbPinned, setKbPinned] = useState<"ok" | "err" | null>(null);
+  const kbPinnedPendingRef = useRef(false);
   useEffect(() => {
     const onAdded = (e: Event) => {
       const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
@@ -364,70 +119,116 @@ export default function BiblioSurface({
     const timer = window.setTimeout(() => setKbPinned(null), 2000);
     return () => window.clearTimeout(timer);
   }, [kbPinned]);
-  const kbPinnedPendingRef = useRef(false);
-  function pinSelectedToKb() {
-    if (!selected?.pdfKey || !selected?.pdfFile) return;
+
+  const pinToKb = useCallback((item: ZoteroItem) => {
+    if (!item.pdfKey || !item.pdfFile) return;
     kbPinnedPendingRef.current = true;
-    const origin = `zotero://${selected.pdfKey}/${encodeURIComponent(selected.pdfFile)}#${selected.key ?? ""}`;
-    send(ws, { type: "kbAdd", kind: "zotero", origin, title: selected.title ?? "" });
-  }
+    const origin = `zotero://${item.pdfKey}/${encodeURIComponent(item.pdfFile)}#${item.key ?? ""}`;
+    send(ws, { type: "kbAdd", kind: "zotero", origin, title: item.title ?? "" });
+  }, [ws]);
 
   const [cited, setCited] = useState(false);
-  function citeSelected() {
+  const cite = useCallback((item: ZoteroItem | null) => {
     setCited(true);
     window.setTimeout(() => setCited(false), 1600);
-    if (!selected) return;
-    const label = selected.citeKey ? `@${selected.citeKey}` : `@${selected.key}`;
-    const s = selected as ZoteroItem & { doi?: string; abstract?: string };
-    const pdfPath = s.pdfKey && s.pdfFile
-      ? `~/Zotero/storage/${s.pdfKey}/${s.pdfFile}` : null;
+    if (!item) return;
+    const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
+    const pdfPath = item.pdfKey && item.pdfFile ? `~/Zotero/storage/${item.pdfKey}/${item.pdfFile}` : null;
     const lines = [
       `Référence (bibliothèque Zotero locale — tout est déjà ici, n'ouvre PAS Zotero) :`,
-      `- Titre : ${s.title}`,
-      `- Auteurs : ${s.creators}${s.year ? ` (${s.year})` : ""}`,
-      s.publication ? `- Revue : ${s.publication}` : null,
-      s.doi ? `- DOI : ${s.doi}` : null,
+      `- Titre : ${item.title}`,
+      `- Auteurs : ${item.creators}${item.year ? ` (${item.year})` : ""}`,
+      item.publication ? `- Revue : ${item.publication}` : null,
+      item.doi ? `- DOI : ${item.doi}` : null,
       `- Clé de citation : ${label}`,
       pdfPath ? `- PDF (lisible directement avec Read) : ${pdfPath}` : `- Pas de PDF attaché`,
-      s.abstract ? `- Résumé : ${s.abstract.slice(0, 900)}` : null,
+      item.abstract ? `- Résumé : ${item.abstract.slice(0, 900)}` : null,
     ].filter(Boolean).join("\n");
     window.dispatchEvent(new CustomEvent("atelier-add-to-chat-citation", {
-      detail: { text: lines, key: s.key, citeKey: s.citeKey, title: s.title },
+      detail: { text: lines, key: item.key, citeKey: item.citeKey, title: item.title },
     }));
-  }
+  }, []);
 
-  const [listW, setListW] = useState(() => {
-    const v = Number(localStorage.getItem("atelier-studio.biblioListW"));
-    return Number.isFinite(v) && v >= 220 && v <= 560 ? v : 300;
-  });
-  function startListResize(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = listW;
-    document.body.classList.add("dragging");
-    const move = (ev: MouseEvent) => {
-      const w = Math.min(560, Math.max(220, startW + ev.clientX - startX));
-      setListW(w);
+  const selectItem = useCallback((item: ZoteroItem, { openPdf = false } = {}) => {
+    setSelectedKey(item.key);
+    setPassageTarget(null);
+    if (openPdf && item.hasPdf) openReader();
+  }, [setSelectedKey, setPassageTarget, openReader]);
+
+  const rowActions: BiblioRowMenuActions = {
+    openPdf: (item) => selectItem(item, { openPdf: true }),
+    cite: (item) => cite(item),
+    pinToKb,
+    toggleFav,
+    copyKey: (item) => { void navigator.clipboard?.writeText(item.key); },
+    revealInZotero: (item) => { window.open(`zotero://select/library/items/${item.key}`, "_blank"); },
+  };
+
+  const focusList = useCallback(() => {
+    listRef.current?.focus();
+  }, []);
+
+  const moveSelection = useCallback((delta: number) => {
+    if (!visibleItems.length) return;
+    const current = visibleItems.findIndex((item) => item.key === selectedKey);
+    const next = current < 0
+      ? (delta > 0 ? 0 : visibleItems.length - 1)
+      : Math.min(visibleItems.length - 1, Math.max(0, current + delta));
+    const item = visibleItems[next];
+    if (!item) return;
+    setSelectedKey(item.key);
+    setPassageTarget(null);
+    rowRefs.current.get(item.key)?.scrollIntoView?.({ block: "nearest" });
+  }, [visibleItems, selectedKey, setSelectedKey, setPassageTarget]);
+
+  // « / » depuis n'importe où dans la surface (hors champ de saisie) amène le
+  // curseur dans la recherche — les autres raccourcis restent portés par la
+  // surface elle-même pour ne pas capturer le clavier des panneaux voisins.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
     };
-    const up = (ev: MouseEvent) => {
-      const w = Math.min(560, Math.max(220, startW + ev.clientX - startX));
-      localStorage.setItem("atelier-studio.biblioListW", String(w));
-      document.body.classList.remove("dragging");
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  function onSurfaceKeyDown(e: React.KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const editable = isEditableTarget(e.target);
+    if (e.key === "ArrowDown") { e.preventDefault(); moveSelection(1); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); moveSelection(-1); return; }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (search) setSearch("");
+      focusList();
+      return;
+    }
+    if (e.key === "Enter") {
+      if (!selected) return;
+      e.preventDefault();
+      selectItem(selected, { openPdf: true });
+      return;
+    }
+    if (!editable && (e.key === "f" || e.key === "F")) {
+      if (!selected) return;
+      e.preventDefault();
+      toggleFav(selected);
+    }
   }
 
   return (
     <div className={`biblio-surface ${readerOpen ? "" : "no-reader"} ${listOpen ? "" : "no-list"}`}
+      onKeyDown={onSurfaceKeyDown}
       style={listOpen && readerOpen ? { gridTemplateColumns: `${listW}px 4px minmax(0, 1fr)` } : undefined}>
       {listOpen && (
       <aside className="biblio-left">
         <div className="biblio-search-row">
           <span className="biblio-search-icon"><SearchIcon /></span>
           <Input
+            ref={searchRef}
             className="biblio-search-input"
             value={search}
             onChange={(e) => { setPassageTarget(null); setSearch(e.target.value); }}
@@ -443,7 +244,7 @@ export default function BiblioSurface({
           </IconButton>
           <IconButton size="s" className={pdfOnly ? "on" : ""} onClick={togglePdfOnly}
             title={t("biblio.pdf-only")} label={t("biblio.pdf-only")}>
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
               <path d="M6 9.2h4M6 11.2h2.5" />
             </svg>
@@ -467,7 +268,7 @@ export default function BiblioSurface({
               className="biblio-sort"
               title={t("biblio.sort-current", { sort: sortLabels[sortBy] })}
               value={sortBy}
-              onChange={(value) => changeSort(value as "added" | "year" | "author" | "title")}
+              onChange={(value) => changeSort(value as SortBy)}
               triggerIcon={<ArrowUpDownIcon />}
               menuLabel={t("biblio.sort-menu")}
               menuClassName="biblio-sort-menu"
@@ -490,31 +291,60 @@ export default function BiblioSurface({
           </div>
         </div>
         {addNote && <div className="biblio-add-note">{addNote}</div>}
-        {error && <div className="biblio-empty">{error}</div>}
-        <div className="biblio-list">
-          {loading && <div className="biblio-empty" role="status">{t("biblio.loading")}</div>}
-          {!error && !loading && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
-          {visibleItems.map((item) => (
-            <div
-              key={item.key}
-              className={`biblio-row ${selected?.key === item.key ? "on" : ""}`}
-            >
-              <RowButton
-                className="biblio-main-button"
-                onClick={() => { setSelectedKey(item.key); setPassageTarget(null); if (!readerOpen && item.hasPdf) toggleReader(); }}
-                title={item.title}
-              >
-                <span className="biblio-title">{item.title}</span>
-                <span className="biblio-meta">{creatorLine(item)}</span>
-              </RowButton>
-              <IconButton
-                className={`biblio-star ${item.fav ? "on" : ""}`}
-                label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                onClick={() => toggleFav(item)}
-              >
-                <StarIcon />
-              </IconButton>
+        {error && <div className="biblio-empty" role="status">{error}</div>}
+        <div
+          className="biblio-list"
+          role="listbox"
+          tabIndex={0}
+          ref={listRef}
+          aria-label={t("biblio.title")}
+          aria-activedescendant={selected ? `biblio-row-${selected.key}` : undefined}
+        >
+          {loading && (
+            <div className="biblio-skeletons" role="status" aria-label={t("biblio.loading")}>
+              {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                <div className="biblio-skeleton" key={i} aria-hidden="true">
+                  <span className="biblio-skeleton-title" />
+                  <span className="biblio-skeleton-meta" />
+                </div>
+              ))}
             </div>
+          )}
+          {!error && !loading && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
+          {!loading && visibleItems.map((item) => (
+            <BiblioRowMenu key={item.key} item={item} actions={rowActions}>
+              <ContextMenuTrigger
+                id={`biblio-row-${item.key}`}
+                role="option"
+                aria-selected={selected?.key === item.key}
+                className={`biblio-row ${selected?.key === item.key ? "on" : ""}`}
+                ref={(el: HTMLElement | null) => {
+                  if (el) rowRefs.current.set(item.key, el);
+                  else rowRefs.current.delete(item.key);
+                }}
+              >
+                <RowButton
+                  className="biblio-main-button"
+                  onClick={() => selectItem(item, { openPdf: !readerOpen })}
+                  title={item.title}
+                >
+                  <span className="biblio-title">{item.title}</span>
+                  <span className="biblio-meta">
+                    <span className="biblio-meta-authors">{item.creators || t("common.unknown-author")}</span>
+                    {item.year && <span className="biblio-meta-year">{item.year}</span>}
+                    {item.publication && <span className="biblio-meta-source">{item.publication}</span>}
+                    {item.hasPdf && <span className="biblio-pdf-badge">PDF</span>}
+                  </span>
+                </RowButton>
+                <IconButton
+                  className={`biblio-star ${item.fav ? "on" : ""}`}
+                  label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                  onClick={() => toggleFav(item)}
+                >
+                  <StarIcon />
+                </IconButton>
+              </ContextMenuTrigger>
+            </BiblioRowMenu>
           ))}
         </div>
       </aside>
@@ -534,7 +364,7 @@ export default function BiblioSurface({
             {selected && <small>{creatorLine(selected)}</small>}
           </div>
           <Button variant="ghost" className={`biblio-citekey ${cited ? "ok" : ""}`} disabled={!selected}
-            title={t("biblio.cite-tip")} onClick={citeSelected}>
+            title={t("biblio.cite-tip")} onClick={() => cite(selected)}>
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M3 9.5C3 6.5 4.8 4.4 7 3.5l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1C4.4 11.6 3 10.8 3 9.5zm6.5 0c0-3 1.8-5.1 4-6l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1c-1.5 0-2.9-.8-2.9-2.1z"/>
             </svg>
@@ -545,7 +375,7 @@ export default function BiblioSurface({
             disabled={!selected?.pdfKey || !selected?.pdfFile}
             title={kbPinned === "ok" ? t("biblio.added-kb") : t("biblio.add-kb")}
             label={t("biblio.add-kb")}
-            onClick={pinSelectedToKb}
+            onClick={() => selected && pinToKb(selected)}
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
               <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />

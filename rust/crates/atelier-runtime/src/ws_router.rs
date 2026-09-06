@@ -1076,21 +1076,53 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "zoteroSearch" => {
+            // requestId: contract requires an exact echo, success or error
+            // branch alike, so every returned message goes through
+            // `with_request_id` below rather than being built ad hoc.
+            let request_id = msg
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let with_request_id = |mut v: Value| {
+                if let (Some(rid), Some(obj)) = (request_id.as_ref(), v.as_object_mut()) {
+                    obj.insert("requestId".into(), json!(rid));
+                }
+                v
+            };
             if !zotero_available() {
-                return vec![json_msg(json!({
+                return vec![json_msg(with_request_id(json!({
                     "type": "zoteroItems",
                     "items": [],
                     "error": "zotero-introuvable",
-                }))];
+                })))];
             }
+            // "q" is the current contract field; "query" is kept for the
+            // in-flight front transition.
             let query = msg
-                .get("query")
+                .get("q")
+                .or_else(|| msg.get("query"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
             let tag = msg.get("tag").and_then(|v| v.as_str()).map(str::to_string);
-            let collection_id = msg.get("collectionId").and_then(|v| v.as_i64());
-            let limit = msg.get("limit").and_then(|v| v.as_u64()).unwrap_or(400) as usize;
+            // "collection" (contract) accepts a numeric or numeric-string
+            // collection id; "collectionId" is the legacy field name.
+            let collection_id = msg
+                .get("collection")
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+                })
+                .or_else(|| msg.get("collectionId").and_then(|v| v.as_i64()));
+            let fav_only = msg.get("fav").and_then(|v| v.as_bool()).unwrap_or(false);
+            // Cap raised 400/2000 -> 5000 so the front can load an entire
+            // collection/tag/favorites scope in one request and filter text
+            // client-side.
+            let limit = msg
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(400)
+                .min(5000) as usize;
             let app_dir = state.app_dir().to_path_buf();
             let items = tokio::task::spawn_blocking(move || {
                 zotero_search(&app_dir, &query, collection_id, tag.as_deref(), limit)
@@ -1107,11 +1139,18 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                             }
                         }
                     }
-                    vec![json_msg(json!({"type":"zoteroItems","items": items}))]
+                    if fav_only {
+                        items.retain(|it| {
+                            it.get("fav").and_then(|v| v.as_bool()).unwrap_or(false)
+                        });
+                    }
+                    vec![json_msg(with_request_id(
+                        json!({"type":"zoteroItems","items": items}),
+                    ))]
                 }
-                Err(e) => vec![json_msg(
+                Err(e) => vec![json_msg(with_request_id(
                     json!({"type":"zoteroItems","items": [], "error": e}),
-                )],
+                ))],
             }
         }
         "zoteroCollections" => {
@@ -1139,10 +1178,24 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "zoteroFav" => {
             let key = msg.get("key").and_then(|v| v.as_str()).unwrap_or("");
-            let on = msg.get("on").and_then(|v| v.as_bool()).unwrap_or(true);
+            // "fav" is the current contract field; "on" is kept for the
+            // in-flight front transition.
+            let on = msg
+                .get("fav")
+                .and_then(|v| v.as_bool())
+                .or_else(|| msg.get("on").and_then(|v| v.as_bool()))
+                .unwrap_or(true);
+            // Response now always carries "ok" (plus "error" on failure) so
+            // the front can roll back an optimistic toggle when the write
+            // fails (Zotero closed, base locked, unknown item) instead of
+            // the previous silent-failure/generic-error behavior.
             match zotero_toggle_fav(state.app_dir(), key, on) {
-                Ok(fav) => vec![json_msg(json!({"type":"zoteroFav","key": key, "fav": fav}))],
-                Err(e) => vec![err(e)],
+                Ok(fav) => vec![json_msg(
+                    json!({"type":"zoteroFav","key": key, "fav": fav, "ok": true}),
+                )],
+                Err(e) => vec![json_msg(
+                    json!({"type":"zoteroFav","key": key, "fav": on, "ok": false, "error": e}),
+                )],
             }
         }
         "zoteroDigest" => {
