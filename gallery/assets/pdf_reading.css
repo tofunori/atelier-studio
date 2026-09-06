@@ -5,6 +5,11 @@ body.read-mode #pages{display:none}
 body.read-mode #reading{display:block}
 #reading{
   --read-fs:15px; --read-width:80ch; --read-lh:1.6; --read-font:-apple-system,"Helvetica Neue",sans-serif;
+  /* Teintes de marquage : les surlignages persistants gardent les couleurs
+     du lecteur (HL_COLORS), la recherche a la sienne. Déclarées ICI pour que
+     rien ne soit écrit en dur dans une règle. */
+  --read-mark-bg:rgba(255,213,74,.4);
+  --read-hit-bg:rgba(120,170,255,.14);
   margin:0 auto; padding:24px 20px 80px; max-width:var(--read-width);
   font:400 var(--read-fs)/var(--read-lh) var(--read-font); color:var(--txt);
   transition:max-width 150ms ease, font-size 150ms ease;
@@ -30,8 +35,11 @@ body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
 /* Dans la colonne, une marque est du texte EN FLUX : elle ne doit hériter ni
    du position:absolute ni du mix-blend-mode:multiply de la règle des pages
    (.pg .pdfhl dans pdf_viewer.html) — revue plan 078 T6 fix 1, constat n°1. */
-#reading mark.pdfhl{position:static;mix-blend-mode:normal;background:rgba(255,213,74,.4);color:inherit;border-radius:2px;cursor:pointer}
-#reading .find-hit{background:rgba(120,170,255,.42);border-radius:2px}
+#reading mark.pdfhl{position:static;mix-blend-mode:normal;background:var(--read-mark-bg);color:inherit;border-radius:6px;cursor:pointer}
+/* Un « résultat » de recherche est ici un BLOC entier (la colonne n'a pas de
+   spans de mots) : un fond pleine largeur sur tout le paragraphe noyait le
+   texte. Repère discret en marge + voile très léger. */
+#reading .find-hit{box-shadow:inset 2px 0 0 var(--accent);background:var(--read-hit-bg);border-radius:6px}
 #reading .find-cur{outline:1px solid var(--ring);outline-offset:2px;border-radius:6px}
 /* top : hauteur du <header> collant du lecteur (44-46px), posée en JS via
    --read-top sur #reading à l'entrée — sinon la barre glisse sous l'en-tête

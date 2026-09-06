@@ -394,3 +394,4 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
 - `pdftohtml` doit être spawné avec `-zoom 1` et sans `-i` (zoom 1,5 par défaut fausse toutes les bbox ; `-i` supprime les `<image>`).
 - Le cache `/reflow` est invalidé par `REFLOW_VERSION` : l'incrémenter à tout changement d'heuristique, sinon les anciens JSON restent servis.
 - Cmd+/− en mode lecture changent la taille du texte (écouteur en capture) ; en vue pages ils zooment.
+- La recherche en mode lecture a le BLOC pour granularité (la colonne n'a pas de spans de mots comme la couche texte des pages) : le compteur « n/m » compte des blocs, pas des occurrences, et le repère est un filet en marge — pas un aplat sur tout le paragraphe.

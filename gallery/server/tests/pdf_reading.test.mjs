@@ -182,6 +182,15 @@ test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur 
   assert.match(css, /:disabled/, "boutons désactivés sans chrome UA — fix 1, aussi trivial du ruling");
 });
 
+test("contrat css : la recherche en lecture est un repère, pas un aplat", () => {
+  // Un résultat = un BLOC entier : pas de fond pleine largeur sur le
+  // paragraphe, un filet en marge et un voile très léger.
+  const hit = css.match(/#reading \.find-hit\{[^}]*\}/);
+  assert.ok(hit, "règle #reading .find-hit présente");
+  assert.match(hit[0], /box-shadow:inset 2px 0 0 var\(--accent\)/);
+  assert.match(hit[0], /background:var\(--read-hit-bg\)/);
+});
+
 test("contrat lecteur : recherche, passage et annotations câblés au mode lecture", () => {
   assert.match(html, /function drawReadingAnnots\(\)/);
   assert.match(html, /function addHighlightFromReadingSel\(/);
