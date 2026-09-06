@@ -853,13 +853,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
-  // Écarts 2026-09-06 : hex legacy des éditeurs galerie — cette assertion
-  // dépend d'un lot séparé (autre agent, gallery/**) encore en cours au
-  // moment où ce test est écrit. À ACTIVER (retirer .skip) une fois le lot 2
-  // (migration hex → tokens galerie) terminé — aujourd'hui elle échouerait
-  // sur gallery/assets/*.css et *.html (code_editor.css, latex_studio.css,
-  // pdf_viewer.html, etc.) et gallery/src/** si des occurrences y subsistent.
-  it.skip("gallery : aucun hex legacy hors bundles (activer après lot 2)", () => {
+  // 2026-09-06 : les éditeurs et viewers de la galerie démarraient sur une
+  // palette « Default » legacy (#202024, #e8823a…) différente d'App.css —
+  // flash à chaque ouverture avant le message atelier-theme. Migrée vers les
+  // jetons canoniques ; cette assertion interdit son retour (bundles exclus :
+  // ils se régénèrent depuis gallery/src).
+  it("gallery : aucun hex legacy des éditeurs hors bundles", () => {
     const legacyHex = /#(202024|27272a|1f1f23|dbdfe5|a1a1aa|e8823a|5b9dff|3f3f46)\b/i;
     const galleryRoot = join(root, "..", "gallery");
     const tsFiles = collectFiles(join(galleryRoot, "src"), [".ts"]);

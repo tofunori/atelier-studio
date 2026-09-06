@@ -341,8 +341,8 @@
   #lb.annot #annotBar{display:none}
   #annotBar button{padding:0;width:26px;height:24px;font-size:var(--fs-body-s, 12px);background:transparent;
       border:none;border-radius:6px;color:#868d9a;display:inline-flex;align-items:center;justify-content:center}
-  #annotBar button:hover{background:#2c313a;color:#dbdfe5;border:none}
-  #annotBar button.sel{background:#2c313a;color:#dbdfe5;border:none}
+  #annotBar button:hover{background:var(--card2);color:var(--txt);border:none}
+  #annotBar button.sel{background:var(--card2);color:var(--txt);border:none}
   #annotBar input[type=color]{width:15px;height:15px;border:1px solid rgba(255,255,255,.18);
       border-radius:6px;background:none;cursor:pointer;padding:0;-webkit-appearance:none}
   #annotBar input[type=color]::-webkit-color-swatch-wrapper{padding:0}
@@ -365,10 +365,10 @@
       color:#b6bdc7;font-size:var(--fs-body, 13px);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
   #annotPill button:hover{background:#2c313a;color:#fff}
   #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:#646d7b;font-size:var(--fs-body-s, 12px)}
-  #annotPill button.x:hover{background:#2c313a;border:none;color:#dbdfe5}
+  #annotPill button.x:hover{background:var(--card2);border:none;color:var(--txt)}
   #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
       color:#646d7b;font-size:var(--fs-body-s, 12px)}
-  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:#2c313a;border:none;color:#5b9dff}
+  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:var(--card2);border:none;color:#7aa2f7}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
   #tgMenu .it:hover{background:rgba(255,255,255,.06)}
   #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
@@ -1976,7 +1976,7 @@ async function lbShow(i){
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
     `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
-    (isSvg?` <span style="margin-left:8px;color:#5b9dff;font-size:12px">&#9672; click elements in the plot to select them</span>`:'');
+    (isSvg?` <span style="margin-left:8px;color:#7aa2f7;font-size:12px">&#9672; click elements in the plot to select them</span>`:'');
   document.getElementById('lbAnnot').style.display=(imgExt(f.ext)&&!isSvg)?'flex':'none';
   provSync();
   lb().classList.add('show');

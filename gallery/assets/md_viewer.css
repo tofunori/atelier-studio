@@ -1,4 +1,4 @@
-:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
        font-family:var(--ui-font);
@@ -57,7 +57,7 @@
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
   .cm-s-material-darker.CodeMirror{background:#1e2126;color:#d8d3c8}
-  .cm-s-material-darker .cm-keyword{color:#e8823a}
+  .cm-s-material-darker .cm-keyword{color:#e77f3e}
   .cm-s-material-darker .cm-def{color:#d8d3c8}
   .cm-s-material-darker .cm-variable{color:#d8d3c8}
   .cm-s-material-darker .cm-variable-2{color:#c9c3b6}

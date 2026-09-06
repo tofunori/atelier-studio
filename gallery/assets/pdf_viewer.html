@@ -20,22 +20,22 @@
 <script src="pdf_selection.js"></script>
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#202024;--card:#27272a;--card2:#1f1f23;--txt:#dbdfe5;--muted:#a1a1aa;--accent:#5b9dff;--border:#3f3f46}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
   body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
   .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:var(--fs-body-s, 12px);padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
-  .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
+  .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
   /* Icône seule : même gabarit que les autres boutons de barre. Aucun texte —
      l'infobulle porte le nom et, en cas d'échec, le log LaTeX. */
   #compileBtn{display:none;width:26px;height:24px;align-items:center;justify-content:center;
     position:relative;margin-left:8px;flex:none;background:transparent;border:none;border-radius:6px;
     color:var(--muted,#868d9a);cursor:pointer;padding:0;
     transition:color 140ms ease, background 140ms ease}
-  #compileBtn:hover:not(:disabled){background:var(--card2,#2c313a);color:var(--txt,#dbdfe5)}
+  #compileBtn:hover:not(:disabled){background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
   #compileBtn:disabled{cursor:default}
-  #compileBtn.busy{color:var(--txt,#dbdfe5)}
+  #compileBtn.busy{color:var(--txt,#dadee3)}
   #compileBtn.busy svg{animation:compileSpin 1s linear infinite}
-  #compileBtn.done{color:var(--accent,#5b9dff)}
+  #compileBtn.done{color:var(--accent,#e77f3e)}
   #compileBtn.err{color:#f07d73}
   /* pastille d'échec : le seul signal persistant, sans occuper de largeur */
   #compileBtn.err::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;
@@ -60,10 +60,10 @@
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
   #pdftools{display:flex;align-items:center;gap:2px}
   #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
-  #pdftools button.ton{background:#2c313a !important;color:#dbdfe5 !important}
+  #pdftools button.ton{background:#2c313a !important;color:var(--txt) !important}
   #pdftools .cdot{width:13px;height:13px;border-radius:6px;cursor:pointer;margin:0 1px;
     border:1px solid rgba(255,255,255,.15)}
-  #pdftools .cdot.con{outline:2px solid #5b9dff}
+  #pdftools .cdot.con{outline:2px solid #7aa2f7}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
            border-radius:10px;padding:8px 14px;font-size:var(--fs-body, 13px);cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
@@ -92,15 +92,15 @@
   #selPill .sw{width:17px;height:17px;border-radius:999px;cursor:pointer;flex:none;
     transition:transform 120ms ease-out}
   #selPill .sw:hover{transform:scale(1.14)}
-  #selPill .sw.on{box-shadow:0 0 0 2px #2c313a,0 0 0 3.5px #dbdfe5}
+  #selPill .sw.on{box-shadow:0 0 0 2px #2c313a,0 0 0 3.5px var(--txt)}
   #selPill .hsep{width:1px;height:16px;background:#3a414d;flex:none}
   #selPill .ulb{width:24px;height:24px;border-radius:6px;background:none;color:#b9b6ae;
     flex:none;padding:0}
-  #selPill .ulb:hover{color:#dbdfe5}
+  #selPill .ulb:hover{color:var(--txt)}
   @media (prefers-reduced-motion: reduce){ #selPill .sw{transition:none} #selPill .sw:hover{transform:none} }
   #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
   #selPill .go:hover{background:#e0714a}
-  #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;white-space:nowrap;font-family:inherit;font-size:13px}
+  #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:#2c313a;color:var(--txt);border:1px solid #3a414d;white-space:nowrap;font-family:inherit;font-size:13px}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
   .pdfcomment{position:absolute;z-index:8;background:#f7f7f5;color:#41454a}
   .pdfcomment-line{position:absolute;z-index:7;height:0;border-bottom:1px solid #73777d99;pointer-events:none}
@@ -125,7 +125,7 @@
   #findBar .cnt{color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
   #findBar button{background:none;border:none;color:#b9b6ae;cursor:pointer;width:24px;height:24px;
     border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
-  #findBar button:hover{color:#dbdfe5;background:#2c313a}
+  #findBar button:hover{color:var(--txt);background:#2c313a}
   .textLayer span.find-hit{background:rgba(120,170,255,.42);border-radius:2px}
   .textLayer span.find-cur{background:rgba(255,170,60,.62);border-radius:2px}
   /* Panneau des annotations (colonne de Zotero) : tout ce qu'on a marqué dans
@@ -161,7 +161,7 @@
   #annPane .hd button{background:none;border:none;color:#8b929e;cursor:pointer;width:24px;height:24px;
     border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;
     margin-right:-6px}  /* la croix s'aligne optiquement sur la gouttière */
-  #annPane .hd button:hover{color:#dbdfe5;background:#262a32}
+  #annPane .hd button:hover{color:var(--txt);background:#262a32}
   /* Portées : Article (document ouvert) | Bibliothèque (tous les articles
      annotés du store commun) — choix retenu d'une session à l'autre. */
   #annPane .scope{display:flex;padding:8px 16px;border-bottom:1px solid #2a2e36}
@@ -169,22 +169,22 @@
     font-size:var(--fs-body-s, 12px);font-family:inherit;padding:4px 12px;line-height:1.4}
   #annPane .scope button:first-child{border-radius:6px 0 0 6px}
   #annPane .scope button:last-child{border-radius:0 6px 6px 0;border-left:none}
-  #annPane .scope button.on{background:#2c313a;color:#dbdfe5}
+  #annPane .scope button.on{background:#2c313a;color:var(--txt)}
   /* section d'article (portée Bibliothèque) */
   #annPane .art{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;width:100%;
     background:none;border:none;color:inherit;font-family:inherit;text-align:left}
   #annPane .art:hover{background:#232730}
   #annPane .art .tick{color:#7d838d;flex:none;display:inline-flex}
-  #annPane .art .ttl{flex:1;color:#dbdfe5;font-size:var(--fs-body, 13px);font-weight:500;overflow:hidden;
+  #annPane .art .ttl{flex:1;color:var(--txt);font-size:var(--fs-body, 13px);font-weight:500;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #annPane .art .cnt{color:#7d838d;font-size:var(--fs-label, 11px);font-variant-numeric:tabular-nums;flex:none}
   #annPane .lib-row{padding-left:28px}
   #annPane .zone-ph{display:inline-flex;align-items:center;gap:6px;color:#9aa2ad;font-size:var(--fs-body-s, 12px)}
   /* clignotement d'arrivée après navigation croisée */
-  .pdfhl.flash,.pdfarea.flash{outline:2px solid #5b9dff;outline-offset:2px}
+  .pdfhl.flash,.pdfarea.flash{outline:2px solid #7aa2f7;outline-offset:2px}
   #annPane .filters{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid #2a2e36}
   #annPane .fdot{width:14px;height:14px;border-radius:999px;cursor:pointer;opacity:.42}
-  #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px #dbdfe5}
+  #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px #1b1e24,0 0 0 3.5px var(--txt)}
   #annPane .list{flex:1;overflow-y:auto;padding:8px}
   /* rangée : barre 3px + gap 8px + padding 8px → le texte tombe pile à 16px */
   #annPane .it{display:grid;grid-template-columns:3px 1fr;gap:8px;padding:8px;border-radius:8px;
@@ -206,7 +206,7 @@
     border-radius:6px;color:#8b929e;display:inline-flex;align-items:center;justify-content:center;
     padding:0;opacity:0;transition:opacity 130ms ease-out}
   #annPane .it:hover .foot .act,#annPane .it:focus-within .foot .act{opacity:1}
-  #annPane .foot .act:hover{color:#dbdfe5;background:#2c313a}
+  #annPane .foot .act:hover{color:var(--txt);background:#2c313a}
   #annPane .foot .act.danger:hover{color:#ff8a8a}
   @media (prefers-reduced-motion: reduce){ #annPane .foot .act{transition:none} }
   #annPane .empty{color:#6d7480;padding:22px 16px;text-align:center;line-height:1.5}
@@ -235,7 +235,7 @@
 header{flex-wrap:wrap}
 </style>
 <script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
 </head>
 <body>
 <header>
@@ -1788,7 +1788,7 @@ if(window.self !== window.top){
     header button{background:transparent !important;border:none !important;
       color:#868d9a !important;font-size:13px !important;padding:3px 8px !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
-    header button:hover{background:#2c313a !important;color:#dbdfe5 !important}
+    header button:hover{background:#2c313a !important;color:var(--txt) !important}
     header{flex-wrap:wrap !important;min-height:46px !important;height:auto !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
@@ -1880,7 +1880,7 @@ if(window.self !== window.top){
   const bc = new BroadcastChannel("latexstudio:" + texPath);
   const marker = document.createElement("div");
   marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
-    + "background:rgba(91,157,255,.18);border-left:3px solid #5b9dff;pointer-events:none;z-index:5";
+    + "background:rgba(91,157,255,.18);border-left:3px solid #7aa2f7;pointer-events:none;z-index:5";
   let mkT = null;
   function showMarker(page, y0){
     const pg = document.querySelector('.pg[data-page="' + page + '"]');

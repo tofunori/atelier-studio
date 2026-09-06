@@ -1,4 +1,4 @@
-:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dbdfe5;--muted:#868d9a;--accent:#e8823a;--border:#333a45;--border-strong:#3f4652;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dadee3;--muted:#868d9a;--accent:#e77f3e;--border:#333a45;--border-strong:#3f4652;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px}
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
@@ -191,7 +191,7 @@
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
   .cm-s-material-darker.CodeMirror{background:#1e2126;color:#d8d3c8}
-  .cm-s-material-darker .cm-keyword{color:#e8823a}
+  .cm-s-material-darker .cm-keyword{color:#e77f3e}
   .cm-s-material-darker .cm-def{color:#d8d3c8}
   .cm-s-material-darker .cm-variable{color:#d8d3c8}
   .cm-s-material-darker .cm-variable-2{color:#c9c3b6}
@@ -205,7 +205,7 @@
   .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
-  .cm-s-material-darker .cm-tag{color:#e8823a}                 /* \commandes */
+  .cm-s-material-darker .cm-tag{color:#e77f3e}                 /* \commandes */
   .cm-s-material-darker .cm-bracket{color:#e0b74a}             /* { } [ ] */
   .cm-s-material-darker .cm-atom{color:#7fbcb2}                /* noms d'environnements */
   .cm-s-material-darker .cm-string{color:#8fd3a7}              /* math $…$ */
@@ -252,9 +252,9 @@
 #statusbar #wrapMenu .wm-it:hover,#statusbar #wrapMenu .wm-it.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
 #statusbar #wrapMenu .wm-custom{border-color:var(--border);color:var(--txt)}
 #statusbar #wrapMenu .wm-custom input{background:var(--bg);color:var(--txt);border-color:var(--border-strong,var(--border))}
-#wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:#dbdfe5}
+#wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:var(--txt)}
 #wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #2c313a;margin-top:3px}
-#wrapMenu .wm-custom input{width:52px;background:#20242b;color:#dbdfe5;border:1px solid #3f3f46;
+#wrapMenu .wm-custom input{width:52px;background:#20242b;color:var(--txt);border:1px solid var(--border);
   border-radius:4px;padding:2px 5px;font-size:var(--fs-body-s, 12px);font-family:inherit}
 #sbLint.err{color:#e06c75}
 #sbLint.ok{color:#98c379}
@@ -272,7 +272,7 @@
 .CodeMirror-dialog{background:#1b1f26 !important;border-bottom:1px solid #333a45 !important;
   color:#b6bdc7 !important;padding:5px 10px !important;font-size:13px}
 .CodeMirror-dialog input{background:#2c313a !important;border:1px solid #3f4652 !important;
-  border-radius:6px !important;color:#dbdfe5 !important;padding:3px 8px !important;
+  border-radius:6px !important;color:var(--txt) !important;padding:3px 8px !important;
   font-family:inherit !important;outline:none}
 .CodeMirror-search-hint{color:#646d7b !important}
 .cm-matchhighlight{background:rgba(232,130,58,0.14)}
