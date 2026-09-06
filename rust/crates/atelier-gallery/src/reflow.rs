@@ -200,8 +200,10 @@ fn union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-/// Lignes consécutives (ordre du flux) de même page, même colonne, écart
-/// vertical < 0,6 × hauteur de ligne, même taille (± 0,5 pt) → un bloc.
+/// Lignes consécutives (ordre du flux) de même page, même colonne, même
+/// taille (± 0,5 pt), et soit écart vertical < 0,6 × hauteur de ligne, soit
+/// même rangée que la dernière ligne du bloc (écart de `top` < 0,3 × hauteur,
+/// p. ex. "2" et "Methods" sur la même ligne de base) → un bloc.
 pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
     let mut out: Vec<RawBlock> = Vec::new();
     for (idx, page) in parsed.pages.iter().enumerate() {
@@ -238,9 +240,11 @@ pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
             let col = column_of(l);
             let h = (l.bbox[3] - l.bbox[1]).max(1.0);
             let joinable = current.as_ref().is_some_and(|c| {
+                let last_line = c.lines.last().expect("block always has ≥1 line");
                 c.column == col
-                    && (l.bbox[1] - c.bbox[3]).abs() < 0.6 * h
                     && (l.size - c.size).abs() <= 0.5
+                    && ((l.bbox[1] - c.bbox[3]).abs() < 0.6 * h
+                        || (l.bbox[1] - last_line.bbox[1]).abs() < 0.3 * h)
             });
             if joinable {
                 let c = current.as_mut().unwrap();
@@ -287,6 +291,394 @@ pub(crate) fn join_lines(lines: &[Line]) -> String {
         }
     }
     out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Kind {
+    Heading,
+    Paragraph,
+    Caption,
+    Footnote,
+    Math,
+    Figure,
+    Table,
+    List,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BlockLine {
+    pub bbox: [f32; 4],
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Block {
+    pub id: u32,
+    pub page: u16,
+    pub kind: Kind,
+    pub bbox: [f32; 4],
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    pub lines: Vec<BlockLine>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub(crate) struct Source {
+    pub mtime: u64,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReflowDoc {
+    pub version: u32,
+    pub source: Source,
+    pub pages: Vec<PageDim>,
+    pub blocks: Vec<Block>,
+}
+
+pub(crate) const REFLOW_VERSION: u32 = 1;
+
+fn norm_text(t: &str) -> String {
+    t.chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn is_math_family(f: &str) -> bool {
+    let u = f.to_uppercase();
+    [
+        "CMMI", "CMSY", "CMEX", "MTMI", "MTSY", "MSAM", "MSBM", "MATH",
+    ]
+    .iter()
+    .any(|k| u.contains(k))
+}
+
+/// Taille du corps : médiane des tailles de ligne pondérée par le nombre de caractères.
+fn body_size(blocks: &[RawBlock]) -> f32 {
+    let mut samples: Vec<(f32, usize)> = blocks
+        .iter()
+        .flat_map(|b| b.lines.iter().map(|l| (l.size, l.text.chars().count())))
+        .collect();
+    if samples.is_empty() {
+        return 10.0;
+    }
+    samples.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let total: usize = samples.iter().map(|s| s.1).sum();
+    let mut acc = 0usize;
+    for (size, n) in &samples {
+        acc += n;
+        if acc * 2 >= total {
+            return *size;
+        }
+    }
+    samples.last().map(|s| s.0).unwrap_or(10.0)
+}
+
+pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
+    let raw = group_blocks(parsed);
+    let body = body_size(&raw);
+    let caption_re = |t: &str| {
+        let t = t.trim_start();
+        let lower = t.to_lowercase();
+        let prefix = ["fig.", "fig ", "figure", "table", "tableau"]
+            .iter()
+            .find(|p| lower.starts_with(**p));
+        prefix.is_some_and(|p| {
+            lower[p.len()..]
+                .trim_start()
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit())
+        })
+    };
+    let list_re = |t: &str| {
+        let mut it = t.trim_start().chars();
+        match it.next() {
+            Some('•') | Some('-') | Some('–') => it.next() == Some(' '),
+            Some(c) if c.is_ascii_digit() => {
+                let rest: String = it.collect();
+                let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+                rest.starts_with(". ") || rest.starts_with(") ")
+            }
+            _ => false,
+        }
+    };
+
+    // 1) en-têtes / pieds : bande de 6 % dont le texte normalisé se répète sur ≥ 2 pages
+    let mut band_counts: std::collections::HashMap<String, std::collections::BTreeSet<u16>> =
+        Default::default();
+    for b in &raw {
+        let ph = parsed.pages[(b.page - 1) as usize].h;
+        if b.bbox[1] < ph * 0.06 || b.bbox[3] > ph * 0.94 {
+            let key = norm_text(&join_lines(&b.lines));
+            let key = if key.chars().all(|c| c.is_ascii_digit()) {
+                "#pagenum".to_string()
+            } else {
+                key
+            };
+            band_counts.entry(key).or_default().insert(b.page);
+        }
+    }
+    let is_running = |b: &RawBlock| {
+        let ph = parsed.pages[(b.page - 1) as usize].h;
+        if !(b.bbox[1] < ph * 0.06 || b.bbox[3] > ph * 0.94) {
+            return false;
+        }
+        let key = norm_text(&join_lines(&b.lines));
+        let key = if key.chars().all(|c| c.is_ascii_digit()) {
+            "#pagenum".to_string()
+        } else {
+            key
+        };
+        band_counts.get(&key).is_some_and(|pages| pages.len() >= 2)
+    };
+
+    // 2) niveaux de titre : rang décroissant des tailles > 1,15 × corps
+    let mut heading_sizes: Vec<i32> = raw
+        .iter()
+        .filter(|b| b.size > body * 1.15 && b.lines.len() <= 3)
+        .map(|b| (b.size * 2.0).round() as i32)
+        .collect();
+    heading_sizes.sort_unstable_by(|a, b| b.cmp(a));
+    heading_sizes.dedup();
+    let level_of = |size: f32| -> u8 {
+        let key = (size * 2.0).round() as i32;
+        let rank = heading_sizes.iter().position(|s| *s == key).unwrap_or(2);
+        (rank.min(2) + 1) as u8
+    };
+
+    let mut blocks: Vec<Block> = Vec::new();
+    let mut next_id = 0u32;
+    let mut push = |blocks: &mut Vec<Block>,
+                    page: u16,
+                    kind: Kind,
+                    bbox: [f32; 4],
+                    text: String,
+                    level: Option<u8>,
+                    lines: Vec<BlockLine>| {
+        blocks.push(Block {
+            id: next_id,
+            page,
+            kind,
+            bbox,
+            text,
+            level,
+            lines,
+        });
+        next_id += 1;
+    };
+
+    for b in &raw {
+        if is_running(b) {
+            continue;
+        }
+        let text = join_lines(&b.lines);
+        let lines: Vec<BlockLine> = b
+            .lines
+            .iter()
+            .map(|l| BlockLine {
+                bbox: l.bbox,
+                text: l.text.clone(),
+            })
+            .collect();
+        let ph = parsed.pages[(b.page - 1) as usize].h;
+        let chars: usize = b
+            .lines
+            .iter()
+            .map(|l| l.text.chars().count())
+            .sum::<usize>()
+            .max(1);
+        let math_chars: usize = b
+            .lines
+            .iter()
+            .filter(|l| is_math_family(&l.family))
+            .map(|l| l.text.chars().count())
+            .sum();
+        let ends_with_eq_number = b.lines.len() <= 2
+            && text.trim_end().ends_with(')')
+            && text.rsplit('(').next().is_some_and(|t| {
+                t.trim_end_matches(')').chars().all(|c| c.is_ascii_digit())
+                    && !t.trim_end_matches(')').is_empty()
+            });
+        let kind = if caption_re(&text) {
+            Kind::Caption
+        } else if math_chars * 10 >= chars * 6 || ends_with_eq_number {
+            Kind::Math
+        } else if b.size > body * 1.15 && b.lines.len() <= 3 {
+            Kind::Heading
+        } else if b.size < body * 0.9 && b.bbox[1] > ph * 0.66 {
+            Kind::Footnote
+        } else if list_re(&text) {
+            Kind::List
+        } else {
+            Kind::Paragraph
+        };
+        match kind {
+            Kind::Math => push(
+                &mut blocks,
+                b.page,
+                kind,
+                b.bbox,
+                String::new(),
+                None,
+                lines,
+            ),
+            Kind::Heading => {
+                let lv = level_of(b.size);
+                push(&mut blocks, b.page, kind, b.bbox, text, Some(lv), lines)
+            }
+            _ => push(&mut blocks, b.page, kind, b.bbox, text, None, lines),
+        }
+    }
+
+    // 3) fusion des paragraphes coupés (colonne / page) : pas de ponctuation finale + suite en minuscule
+    let mut merged: Vec<Block> = Vec::with_capacity(blocks.len());
+    for b in blocks {
+        let joinable = merged.last().is_some_and(|p: &Block| {
+            p.kind == Kind::Paragraph
+                && b.kind == Kind::Paragraph
+                && !p.text.trim_end().ends_with(['.', '?', '!', ':'])
+                && b.text.chars().next().is_some_and(|c| c.is_lowercase())
+        });
+        if joinable {
+            let p = merged.last_mut().unwrap();
+            let glue = if p.text.ends_with('-')
+                && b.text.chars().next().is_some_and(|c| c.is_lowercase())
+            {
+                p.text.pop();
+                ""
+            } else {
+                " "
+            };
+            p.text.push_str(glue);
+            p.text.push_str(&b.text);
+            p.lines.extend(b.lines);
+            // bbox reste celle du premier fragment (page du début) — les lignes portent leurs propres bbox
+        } else {
+            merged.push(b);
+        }
+    }
+    let mut blocks = merged;
+
+    // 4) figures : images fusionnées entre elles (même si une composante est
+    // étroite), puis le résultat fusionné est filtré à ≥ 40×40 (sinon un
+    // logo isolé, ou un fragment étroit qui touche une grande image, se
+    // ferait exclure avant même la fusion) ; légende orpheline → figure
+    // synthétique.
+    let mut images: Vec<ImageBox> = parsed.images.clone();
+    let mut fused: Vec<ImageBox> = Vec::new();
+    while let Some(mut cur) = images.pop() {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let mut i = 0;
+            while i < images.len() {
+                let o = images[i];
+                let touch = o.page == cur.page
+                    && o.bbox[0] <= cur.bbox[2] + 2.0
+                    && o.bbox[2] >= cur.bbox[0] - 2.0
+                    && o.bbox[1] <= cur.bbox[3] + 2.0
+                    && o.bbox[3] >= cur.bbox[1] - 2.0;
+                if touch {
+                    cur.bbox = union(cur.bbox, o.bbox);
+                    images.swap_remove(i);
+                    changed = true;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        fused.push(cur);
+    }
+    fused.retain(|i| i.bbox[2] - i.bbox[0] >= 40.0 && i.bbox[3] - i.bbox[1] >= 40.0);
+    let mut extra: Vec<(usize, Block)> = Vec::new(); // (insérer avant l'index, bloc)
+    for (i, cap) in blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.kind == Kind::Caption)
+    {
+        let is_table = cap.text.to_lowercase().starts_with("tab");
+        let kind = if is_table { Kind::Table } else { Kind::Figure };
+        // image bitmap au-dessus de la légende, même page, chevauchement horizontal
+        let above = fused.iter().position(|img| {
+            img.page == cap.page
+                && img.bbox[3] <= cap.bbox[1] + 4.0
+                && img.bbox[2] > cap.bbox[0]
+                && img.bbox[0] < cap.bbox[2]
+        });
+        let bbox = if let Some(k) = above {
+            fused.remove(k).bbox
+        } else {
+            // zone entre le bloc texte précédent (même page, même colonne approx.) et la légende
+            let prev_bottom = blocks[..i]
+                .iter()
+                .rev()
+                .find(|b| {
+                    b.page == cap.page
+                        && b.kind != Kind::Caption
+                        && b.bbox[2] > cap.bbox[0]
+                        && b.bbox[0] < cap.bbox[2]
+                })
+                .map(|b| b.bbox[3])
+                .unwrap_or(parsed.pages[(cap.page - 1) as usize].h * 0.06);
+            if cap.bbox[1] - prev_bottom < 40.0 {
+                continue;
+            }
+            [
+                cap.bbox[0],
+                prev_bottom + 2.0,
+                cap.bbox[2],
+                cap.bbox[1] - 2.0,
+            ]
+        };
+        extra.push((
+            i,
+            Block {
+                id: 0,
+                page: cap.page,
+                kind,
+                bbox,
+                text: String::new(),
+                level: None,
+                lines: Vec::new(),
+            },
+        ));
+    }
+    for (offset, (i, b)) in extra.into_iter().enumerate() {
+        blocks.insert(i + offset, b);
+    }
+    // images restantes sans légende → figures placées avant le premier bloc qui les suit sur la page
+    for img in fused {
+        let pos = blocks
+            .iter()
+            .position(|b| b.page == img.page && b.bbox[1] >= img.bbox[3])
+            .unwrap_or(blocks.len());
+        blocks.insert(
+            pos,
+            Block {
+                id: 0,
+                page: img.page,
+                kind: Kind::Figure,
+                bbox: img.bbox,
+                text: String::new(),
+                level: None,
+                lines: Vec::new(),
+            },
+        );
+    }
+    for (i, b) in blocks.iter_mut().enumerate() {
+        b.id = i as u32;
+    }
+
+    ReflowDoc {
+        version: REFLOW_VERSION,
+        source: Source::default(),
+        pages: parsed.pages.clone(),
+        blocks,
+    }
 }
 
 #[cfg(test)]
@@ -386,6 +778,36 @@ mod tests {
     }
 
     #[test]
+    fn regroupement_fusionne_deux_runs_sur_la_meme_rangee() {
+        // "2" et "Methods" sur la même ligne de base (même top), colonnes de
+        // texte séparées par pdftohtml (numéro de section / titre) : même
+        // taille, écart de `top` nul → un seul bloc, joint par un espace.
+        let parsed = Parsed {
+            pages: vec![PageDim { w: 300.0, h: 800.0 }],
+            lines: vec![
+                Line {
+                    page: 1,
+                    bbox: [57.0, 728.0, 65.0, 741.0],
+                    text: "2".into(),
+                    size: 14.0,
+                    family: "T".into(),
+                },
+                Line {
+                    page: 1,
+                    bbox: [81.0, 728.0, 143.0, 741.0],
+                    text: "Methods".into(),
+                    size: 14.0,
+                    family: "T".into(),
+                },
+            ],
+            images: vec![],
+        };
+        let blocks = group_blocks(&parsed);
+        assert_eq!(blocks.len(), 1, "got {blocks:?}");
+        assert_eq!(join_lines(&blocks[0].lines), "2 Methods");
+    }
+
+    #[test]
     fn join_lines_decesure_et_joint_par_espace() {
         let mk = |t: &str| Line {
             page: 1,
@@ -404,5 +826,130 @@ mod tests {
         );
         assert_eq!(join_lines(&[mk("long-"), mk("Term")]), "long- Term"); // majuscule : trait conservé
         assert_eq!(join_lines(&[mk("end."), mk("Next")]), "end. Next");
+    }
+
+    #[test]
+    fn classification_titre_paragraphe_legende_equation() {
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let doc = analyze(&p);
+        assert_eq!(doc.version, 1);
+        let kinds = |k: Kind| doc.blocks.iter().filter(|b| b.kind == k).count();
+        assert!(
+            kinds(Kind::Heading) >= 3,
+            "Introduction, Methods, Data + titre"
+        );
+        let intro = doc
+            .blocks
+            .iter()
+            .find(|b| b.text == "1 Introduction" || b.text == "Introduction")
+            .expect("heading Introduction");
+        assert_eq!(intro.kind, Kind::Heading);
+        assert_eq!(intro.level, Some(1));
+        let data = doc
+            .blocks
+            .iter()
+            .find(|b| b.text.ends_with("Data"))
+            .unwrap();
+        assert_eq!(data.level, Some(2));
+        let cap = doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == Kind::Caption)
+            .expect("caption");
+        assert!(cap.text.starts_with("Figure 1"));
+        assert!(kinds(Kind::Paragraph) >= 5);
+        // dé-césure appliquée dans le texte des paragraphes
+        assert!(
+            doc.blocks
+                .iter()
+                .any(|b| b.text.contains("energy balance of glaciers"))
+        );
+        // l'équation numérotée est un bloc math sans texte, avec bbox
+        let math = doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == Kind::Math)
+            .expect("math block");
+        assert!(math.text.is_empty() && math.bbox[3] > math.bbox[1]);
+    }
+
+    #[test]
+    fn en_tete_et_pied_repetes_sont_supprimes() {
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let doc = analyze(&p);
+        assert!(
+            !doc.blocks.iter().any(|b| b.text.contains("running head")),
+            "running head kept"
+        );
+        assert!(
+            !doc.blocks
+                .iter()
+                .any(|b| b.text.trim() == "1" || b.text.trim() == "2"),
+            "page number kept"
+        );
+    }
+
+    #[test]
+    fn figure_vectorielle_synthetisee_avant_sa_legende() {
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let doc = analyze(&p);
+        let cap_i = doc
+            .blocks
+            .iter()
+            .position(|b| b.kind == Kind::Caption)
+            .unwrap();
+        let fig = &doc.blocks[cap_i - 1];
+        assert_eq!(fig.kind, Kind::Figure);
+        assert_eq!(fig.page, doc.blocks[cap_i].page);
+        assert!(
+            fig.bbox[3] <= doc.blocks[cap_i].bbox[1] + 1.0,
+            "figure sits above caption"
+        );
+        assert!(fig.bbox[3] - fig.bbox[1] > 40.0);
+    }
+
+    #[test]
+    fn images_bitmap_deviennent_des_figures_et_les_logos_sont_ignores() {
+        let mut p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        p.images.push(ImageBox {
+            page: 2,
+            bbox: [60.0, 100.0, 300.0, 280.0],
+        });
+        p.images.push(ImageBox {
+            page: 2,
+            bbox: [300.0, 100.0, 320.0, 280.0],
+        }); // touche la précédente → fusion
+        p.images.push(ImageBox {
+            page: 2,
+            bbox: [500.0, 20.0, 540.0, 35.0],
+        }); // logo 40×15 → ignoré
+        let doc = analyze(&p);
+        let figs: Vec<&Block> = doc
+            .blocks
+            .iter()
+            .filter(|b| b.kind == Kind::Figure && b.page == 2)
+            .collect();
+        assert!(
+            figs.iter().any(|f| f.bbox == [60.0, 100.0, 320.0, 280.0]),
+            "merged figure missing: {figs:?}"
+        );
+        assert!(
+            !figs.iter().any(|f| f.bbox[1] < 40.0),
+            "logo classified as figure"
+        );
+    }
+
+    #[test]
+    fn json_du_document_est_stable() {
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let doc = analyze(&p);
+        let v = serde_json::to_value(&doc).unwrap();
+        assert_eq!(v["version"], 1);
+        assert!(v["blocks"][0]["kind"].is_string());
+        assert!(v["blocks"][0]["lines"].is_array());
+        assert_eq!(
+            v["blocks"][0]["kind"].as_str().unwrap(),
+            v["blocks"][0]["kind"].as_str().unwrap().to_lowercase()
+        );
     }
 }
