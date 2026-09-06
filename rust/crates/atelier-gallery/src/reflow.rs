@@ -15,12 +15,15 @@
 //! explicite, car le zoom par défaut de pdftohtml est 1.5 et aurait donné
 //! une largeur de page de 892 au lieu de 595 pour du A4).
 
-// Ce module n'est pas encore câblé à une route HTTP (tâche 3) ni consommé
-// par la classification (tâche 2) : ses items publics au crate restent donc
-// sans appelant pour l'instant.
-#![allow(dead_code)]
-
-use serde::Serialize;
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::{HeaderMap, Method, StatusCode},
+    response::{IntoResponse, Response},
+};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub(crate) struct PageDim {
@@ -188,6 +191,9 @@ pub(crate) struct RawBlock {
     pub bbox: [f32; 4],
     pub lines: Vec<Line>,
     pub size: f32,
+    /// Police de la première ligne du bloc : conservée pour l'inspection en
+    /// tests mais pas encore consommée par `analyze` (héritage tâches 1-2).
+    #[allow(dead_code)]
     pub family: String,
 }
 
@@ -700,6 +706,146 @@ pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
     }
 }
 
+fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
+    (status, Json(serde_json::json!({"error": message.into()}))).into_response()
+}
+
+pub(crate) fn source_of(pdf: &Path) -> Option<Source> {
+    let md = std::fs::metadata(pdf).ok()?;
+    let mtime = md
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(Source {
+        mtime,
+        size: md.len(),
+    })
+}
+
+pub(crate) fn cache_path_for(pdf: &Path, project_root: &Path, is_zotero: bool) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let key = hex::encode(Sha256::digest(pdf.to_string_lossy().as_bytes()));
+    let dir = if is_zotero {
+        crate::zotero::zotero_cache_dir().join("reflow")
+    } else {
+        project_root.join(".fig_thumbs").join("reflow")
+    };
+    dir.join(format!("{key}.json"))
+}
+
+pub(crate) fn read_cache(path: &Path, expected: Source) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let ok = v["version"].as_u64() == Some(REFLOW_VERSION as u64)
+        && v["source"]["mtime"].as_u64() == Some(expected.mtime)
+        && v["source"]["size"].as_u64() == Some(expected.size);
+    ok.then_some(raw)
+}
+
+pub(crate) fn write_cache(path: &Path, doc: &ReflowDoc) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec(doc).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// Spawn `pdftohtml -xml -zoom 1 -stdout -q` : le zoom 1 explicite est
+/// obligatoire (le défaut de pdftohtml est 1.5 et mettrait à l'échelle
+/// toutes les bbox — la fixture `twocol.xml` et les tests d'analyse
+/// supposent le zoom 1). Ne JAMAIS ajouter `-i` : voir le commentaire de
+/// tête du module — `-i` fait disparaître les `<image>` du XML.
+/// Le binaire vient de `ATELIER_PDFTOHTML` (tests) ou du PATH.
+pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
+    let bin = std::env::var("ATELIER_PDFTOHTML").unwrap_or_else(|_| "pdftohtml".to_string());
+    let out = std::process::Command::new(&bin)
+        .args(["-xml", "-zoom", "1", "-stdout", "-q"])
+        .arg(pdf)
+        .output()
+        .map_err(|e| format!("pdftohtml introuvable ({bin}): {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "pdftohtml a échoué: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    String::from_utf8(out.stdout).map_err(|e| format!("pdftohtml: sortie non UTF-8: {e}"))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReflowQuery {
+    pub path: String,
+}
+
+/// `GET /reflow?path=<rel>` → JSON des blocs ; `HEAD` → 200 si le cache
+/// existe, 404 sinon (ne déclenche jamais l'analyse).
+pub async fn reflow(
+    State(state): State<crate::AppState>,
+    method: Method,
+    headers: HeaderMap,
+    Query(query): Query<ReflowQuery>,
+) -> Response {
+    if !crate::request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "forbidden");
+    }
+    let rel = query.path.trim();
+    let (pdf, is_zotero) = match crate::zotero::zotero_pdf_path(rel) {
+        Some(p) => (p, true),
+        None => match atelier_core::safe_project_path(&state.root, rel) {
+            Ok(p) => (p, false),
+            Err(_) => return json_error(StatusCode::FORBIDDEN, "outside the project"),
+        },
+    };
+    let Some(source) = source_of(&pdf) else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    if !pdf
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        return json_error(StatusCode::BAD_REQUEST, "not a pdf");
+    }
+    let cache = cache_path_for(&pdf, &state.root, is_zotero);
+    if let Some(raw) = read_cache(&cache, source) {
+        if method == Method::HEAD {
+            return StatusCode::OK.into_response();
+        }
+        return (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            raw,
+        )
+            .into_response();
+    }
+    if method == Method::HEAD {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let analysed = tokio::task::spawn_blocking(move || -> Result<ReflowDoc, String> {
+        let xml = run_pdftohtml(&pdf)?;
+        let parsed = parse_pdftohtml_xml(&xml)?;
+        let mut doc = analyze(&parsed);
+        doc.source = source;
+        Ok(doc)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+    match analysed {
+        Ok(doc) => {
+            let _ = write_cache(&cache, &doc); // un cache non écrit n'empêche pas la réponse
+            Json(doc).into_response()
+        }
+        Err(msg) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({"error": msg})),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1036,5 +1182,45 @@ mod tests {
             v["blocks"][0]["kind"].as_str().unwrap(),
             v["blocks"][0]["kind"].as_str().unwrap().to_lowercase()
         );
+    }
+
+    #[test]
+    fn cache_valide_seulement_si_version_mtime_taille_correspondent() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("a.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4 fixture").unwrap();
+        let cache = cache_path_for(&pdf, dir.path(), false);
+        assert!(cache.starts_with(dir.path().join(".fig_thumbs/reflow")));
+        assert!(cache.extension().is_some_and(|e| e == "json"));
+        let src = source_of(&pdf).unwrap();
+        let doc = ReflowDoc {
+            version: REFLOW_VERSION,
+            source: src,
+            pages: vec![],
+            blocks: vec![],
+        };
+        write_cache(&cache, &doc).unwrap();
+        assert!(read_cache(&cache, src).is_some());
+        assert!(
+            read_cache(
+                &cache,
+                Source {
+                    mtime: src.mtime + 1,
+                    ..src
+                }
+            )
+            .is_none()
+        );
+        let mut stale = serde_json::to_value(&doc).unwrap();
+        stale["version"] = serde_json::json!(0);
+        std::fs::write(&cache, stale.to_string()).unwrap();
+        assert!(read_cache(&cache, src).is_none());
+    }
+
+    #[test]
+    fn cache_zotero_va_dans_application_support() {
+        let pdf = std::path::Path::new("/tmp/x/storage/ABCD1234/a.pdf");
+        let cache = cache_path_for(pdf, std::path::Path::new("/tmp/proj"), true);
+        assert!(cache.starts_with(crate::zotero::zotero_cache_dir().join("reflow")));
     }
 }

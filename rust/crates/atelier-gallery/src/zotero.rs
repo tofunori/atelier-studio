@@ -80,7 +80,7 @@ fn zotero_src() -> PathBuf {
     zotero_dir().join("zotero.sqlite")
 }
 
-fn zotero_cache_dir() -> PathBuf {
+pub(crate) fn zotero_cache_dir() -> PathBuf {
     home()
         .join("Library")
         .join("Application Support")
