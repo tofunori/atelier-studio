@@ -36,3 +36,17 @@ export function stabilizeVirtualRows(
     return old && sameVirtualRow(old, rowItem) ? old : rowItem;
   });
 }
+
+
+// LegendList apprend une hauteur moyenne par type. Une commande compacte
+// ne doit pas hériter de la moyenne des longues réponses Markdown.
+export function virtualRowType(row: TimelineVirtualItem): string {
+  if (row.type !== "rendered") return row.type;
+  const item = row.item;
+  if (item.type === "fold") return item.open ? "fold-open" : "fold";
+  if (item.type !== "event") return item.type;
+  const kind = item.event.kind;
+  if (kind === "thinking_live" || kind === "thinking") return "thinking";
+  if (kind === "streaming" || kind === "text") return "assistant-text";
+  return kind;
+}

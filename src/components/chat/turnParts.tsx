@@ -609,8 +609,8 @@ export function ThinkingShimmer({ text = t("chat.thinking") }: { text?: string }
 
 export function LiveThinking(
   { thought, collapsedByDefault = false, quietSeconds = null, showElapsed = true,
-    collapsed = null, onToggleCollapsed }:
-    { thought?: string | null; collapsedByDefault?: boolean;
+    collapsed = null, onToggleCollapsed, live = true }:
+    { thought?: string | null; collapsedByDefault?: boolean; live?: boolean;
       /** silence depuis le dernier progrès — ≥ 2 s remplace le shimmer muet
        * par « en attente · Ns » (une ligne, jamais de narration en double) */
       quietSeconds?: number | null;
@@ -630,8 +630,8 @@ export function LiveThinking(
   // Phase 2 du lissage (2026-08-24) : Grok livre ses pensées par blocs de
   // ~100 caractères d'un coup — même moteur que la réponse streamée. Les
   // gardes (en-tête, chrono) suivent la CIBLE ; seul le flux affiché est
-  // lissé. LiveThinking n'est monté que pendant le tour → working=true.
-  const lisse = useSmoothedStream(texte, true);
+  // lissé. Le même composant reste monté lorsque la pensée devient durable.
+  const lisse = useSmoothedStream(texte, live);
   // Repli contrôlé quand l'appelant le porte (ActiveTurnTail) : sinon l'état
   // mourait à chaque appel d'outil, qui démonte l'indicateur — Thierry
   // dépliait la pensée et elle se refermait toute seule (audit 2026-08-21).
@@ -641,17 +641,15 @@ export function LiveThinking(
     if (onToggleCollapsed) onToggleCollapsed(next);
     else setReplieLocal(next);
   };
-  // Chrono du bloc de pensée : depuis la première pensée non vide de ce
-  // montage (un passage par les outils démonte/remonte l'indicateur, ce qui
-  // borne naturellement le compteur au bloc courant).
+  // Le chrono démarre à la première pensée et ne tourne que pendant le direct.
   const penseeDepuisRef = useRef<number | null>(null);
   if (texte && penseeDepuisRef.current == null) penseeDepuisRef.current = Date.now();
   const [, tick] = useState(0);
   useEffect(() => {
-    if (!texte) return;
+    if (!texte || !live) return;
     const timer = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(timer);
-  }, [texte !== ""]);
+  }, [texte !== "", live]);
   const penseeSecs = penseeDepuisRef.current != null
     ? Math.max(0, Math.floor((Date.now() - penseeDepuisRef.current) / 1000))
     : 0;
@@ -676,16 +674,16 @@ export function LiveThinking(
     return null;
   }
   return (
-    <div className="thinking-live-indicator has-text" role="status" aria-live="polite">
+    <div className={`thinking-live-indicator has-text${live ? " is-arriving" : ""}`} role="status" aria-live="polite">
       <RowButton
         className="thinking-live-head"
         aria-expanded={!replie}
         onClick={() => setReplie(!replie)}
       >
         <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
-        <span className="thinking-label">{t("chat.thinking-live")}</span>
+        <span className="thinking-label">{t(live ? "chat.thinking-live" : "chat.thinking")}</span>
         <Tick open={!replie} />
-        {showElapsed && penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
+        {live && showElapsed && penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}
       </RowButton>
       {/* Réduit = petite fenêtre de quelques lignes calée sur la fin (demande
           Thierry 2026-08-21) ; déplié = flux complet façon Hermes. */}

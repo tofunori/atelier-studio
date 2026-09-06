@@ -14,7 +14,7 @@ import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
-import { ToolOutputLine, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import { ToolOutputLine, turnToolActivity, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
@@ -603,6 +603,7 @@ export default function Chat(p: {
   // dismiss (clic extérieur, Escape, retour focus) : géré par Base UI dans
   // les Popover/DropdownMenu du composer — plus aucun listener window ici
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const [toolDetails, setToolDetails] = useState<Record<string, boolean>>({});
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
   // plis « A travaillé Xm Ys » : tours terminés dont le détail est déplié
   const [openFolds, setOpenFolds] = useState<Set<string>>(new Set());
@@ -901,8 +902,13 @@ export default function Chat(p: {
     const isStandaloneTool = (event: ToolAction) =>
       toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image" ||
       isAgentActivityAction(event);
-    for (let offset = 0; offset < projectedTimeline.length; offset += 1) {
-      const row = projectedTimeline[offset];
+    const grouped = new Set<ToolAction>();
+    for (const turn of turnViewModels.filter(turn => turn.activeHeaderIndex != null)) {
+      for (const action of turnToolActivity(turn).routed) grouped.add(action);
+    }
+    const visibleTimeline = projectedTimeline.filter(row => !(row.type === "event" && grouped.has(row.event as ToolAction)));
+    for (let offset = 0; offset < visibleTimeline.length; offset += 1) {
+      const row = visibleTimeline[offset];
       if (row.type !== "event") {
         rows.push(row);
         continue;
@@ -923,8 +929,8 @@ export default function Chat(p: {
       if (isAgentActivityAction(event)) {
         const actionRows = [{ action: event, index: row.index }];
         let nextOffset = offset + 1;
-        while (nextOffset < projectedTimeline.length) {
-          const next = projectedTimeline[nextOffset];
+        while (nextOffset < visibleTimeline.length) {
+          const next = visibleTimeline[nextOffset];
           if (next.type !== "event" || !isAgentActivityAction(next.event)) break;
           actionRows.push({ action: next.event, index: next.index });
           nextOffset += 1;
@@ -942,14 +948,14 @@ export default function Chat(p: {
       }
       const actionRows = [{ action: event, index: row.index }];
       let nextOffset = offset + 1;
-      while (!isStandaloneTool(event) && nextOffset < projectedTimeline.length) {
-        const next = projectedTimeline[nextOffset];
+      while (!isStandaloneTool(event) && nextOffset < visibleTimeline.length) {
+        const next = visibleTimeline[nextOffset];
         if (next.type !== "event" || !isSummarizableTool(next.event)) break;
         if (isStandaloneTool(next.event)) break;
         if (!suppressDuplicateEditTool(next)) actionRows.push({ action: next.event, index: next.index });
         nextOffset += 1;
       }
-      const actions = actionRows.map(({ action }) => action);
+      const actions = distinctToolActions(actionRows.map(({ action }) => action));
       const firstIdentity = actionId(actionRows[0].action, actionRows[0].index);
       const lastAction = actionRows[actionRows.length - 1];
       const lastIdentity = actionId(lastAction.action, lastAction.index);
@@ -962,7 +968,7 @@ export default function Chat(p: {
       offset = nextOffset - 1;
     }
     return rows;
-  }, [editTurns, mergedEdits, projectedTimeline]);
+  }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
 
   // Copie + reverse O(n) du fil : mémoïsé, sinon chaque delta du stream
   // re-parcourt tout l'historique pour retrouver le dernier goal.
@@ -997,7 +1003,15 @@ export default function Chat(p: {
         </div>
       );
     }
-    return <ToolOutputLine key={key} event={e} />;
+    const detailKey = `${p.threadId}:${actionId(e, Number(key) || 0)}`;
+    return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
+      onExpandedChange={(expanded) => {
+        setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
+        if (expanded) {
+          const turn = turnViewModels.find(turn => turn.actionGroups.some(group => group.actions.includes(e)));
+          if (turn) setOpenFolds(prev => new Set(prev).add(`fold:${turn.key}`));
+        }
+      }} />;
   }
 
   // demande Thierry (2026-07-10) : AUCUN badge d'état dans l'en-tête —
@@ -1035,7 +1049,7 @@ export default function Chat(p: {
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
         list={{
-          renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+          renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
           renderToolLine, fmtWorkDur, plugins: p.plugins ?? [], onOpenAgent: openAgent,
         }}
         msg={{

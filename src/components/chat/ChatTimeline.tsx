@@ -6,8 +6,8 @@ import {createNoteEditor,createSelectionActions} from "../../../gallery/src/stud
 // noms locaux d'origine pour garantir l'équivalence pixel.
 import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { stabilizeVirtualRows } from "./virtualRows";
-import { isWebSearchName, Tick } from "./toolPresentation";
+import { stabilizeVirtualRows, virtualRowType } from "./virtualRows";
+import { isWebSearchName, isSummarizableTool, distinctToolActions, Tick } from "./toolPresentation";
 import { SourcesCard } from "./SourcesCard";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
@@ -25,7 +25,7 @@ import {
   type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { ThinkingBlock, EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
+import { EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { deriveChangedFiles } from "./changedFiles";
 import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
@@ -98,6 +98,7 @@ export type TimelineReview = {
 };
 export type TimelineList = {
   renderedEvents: RenderedItem[];
+  toolDetails?: Readonly<Record<string, boolean>>;
   openFolds: Set<string>; setOpenFolds: React.Dispatch<React.SetStateAction<Set<string>>>;
   openToolGroups: Set<string>; setOpenToolGroups: React.Dispatch<React.SetStateAction<Set<string>>>;
   renderToolLine: (e: ToolAction, key: React.Key) => ReactNode;
@@ -229,6 +230,18 @@ export function ChatTimeline(p: {
   // Identité référentielle : ce scan ne dépend que de `events` — le mémoïser
   // évite un parcours O(n) du fil À CHAQUE rendu (chaque delta du stream fait
   // re-rendre ce composant ; même discipline que les dérivés ci-dessus).
+  const [thinkingCollapsed, setThinkingCollapsed] = React.useState<Record<string, boolean>>({});
+  // Le provider peut remplacer un bloc par un cumul après un outil. Le choix
+  // de lecture appartient au tour, même si le dédoublonnage change sa rangée.
+  const thinkingTurnStarts = React.useMemo(() => {
+    let start = "orphan";
+    return events.map((event, index) => {
+      const turnId = event.meta && "turnId" in event.meta ? event.meta.turnId : null;
+      const eventId = event.meta && "eventId" in event.meta ? event.meta.eventId : null;
+      if (event.kind === "user") start = turnId || `user:${eventId ?? event.ts ?? index}`;
+      return turnId || start;
+    });
+  }, [events]);
   const lastThinkingIndex = React.useMemo(() => {
     // Instant réel : le réducteur recolle les morceaux dans le bloc existant
     // sans bouger son `ts`, mais remplace son `meta` — un bloc placé AVANT la
@@ -260,7 +273,7 @@ export function ChatTimeline(p: {
 
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
-    renderedEvents, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+    renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent,
   } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
@@ -408,11 +421,14 @@ export function ChatTimeline(p: {
   // réutilise l'identité de la rangée et fige la lecture (thought périmé).
   const listExtraData = React.useMemo(() => ({
     editing,
+    openFolds,
+    toolDetails,
+    thinkingCollapsed,
     openToolGroups,
     pins,
     reviewOpen,
     workingSince,
-  }), [editing, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail, lastThinkingIndex]);
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail, lastThinkingIndex]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -549,11 +565,9 @@ export function ChatTimeline(p: {
   }
   const finalAnswerVirtualIndex = finalAnswerIndex >= 0 ? virtualIndexForEvent(finalAnswerIndex) : -1;
 
-  // LegendList aligne les conversations courtes en bas avec un spacer calculé
-  // depuis estimatedItemSize, puis le recalcule après la mesure réelle. Lors du
-  // tout premier envoi, cette correction faisait bouger le tour d'une frame à
-  // l'autre. On laisse la liste mesurer hors vue et on la révèle dès que son
-  // dernier élément est stable pendant deux frames consécutives.
+  // Au premier envoi, la liste remplace la vue vide par plusieurs rangées
+  // encore estimées. On la révèle après deux frames de géométrie stable ;
+  // les événements suivants arrivent sans remonter le premier message.
   const hasTimelineEvents = events.length > 0;
   React.useLayoutEffect(() => {
     const hadTimelineEvents = hadTimelineEventsRef.current;
@@ -825,12 +839,16 @@ export function ChatTimeline(p: {
         // sans itemsAreEqual, LegendList updateData() même à identité égale
         itemsAreEqual={(a, b) => a === b}
         keyExtractor={(row) => row.key}
+        getItemType={virtualRowType}
         estimatedItemSize={90}
         estimatedListSize={{ height: 800, width: 760 }}
         alwaysRender={{ bottom: 12 }}
         recycleItems={false}
         initialScrollAtEnd
-        alignItemsAtEnd
+        // Une conversation courte reste ancrée en haut : le spacer de
+        // alignItemsAtEnd déplaçait tout le premier tour à chaque nouvelle
+        // narration, même avec scrollToEnd animé (le scroll vaut alors 0).
+        alignItemsAtEnd={false}
         // animated : le suivi du bas s'interpole au lieu de téléporter le fil
         // d'une hauteur de ligne à chaque wrap — mesuré au banc
         // #chatbench-livestream (12 pas instantanés de 20-63 px sans,
@@ -912,6 +930,8 @@ export function ChatTimeline(p: {
               <ActivityFold
                 key={fold.key}
                 fold={fold}
+                actions={events.slice(fold.start, fold.end).filter(isSummarizableTool)}
+                plugins={plugins}
                 open={open}
                 duration={fold.ms != null ? fmtWorkDur(fold.ms) : null}
                 onToggle={() =>
@@ -926,24 +946,16 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-header") {
-            const cumulativeKey = `cumulative:${item.turn.key}`;
-            // Nombre de lignes de travail RÉELLEMENT déposées pour ce tour :
-            // c'est ce que l'œil voit, alors que `turn.actionGroups` compte les
-            // appels d'outil (cinq lectures d'affilée = une seule ligne). Le
-            // cumul ne s'affiche qu'au-dessus de PLUSIEURS lignes, sinon il
-            // répète mot pour mot celle qui suit (doublon signalé trois fois).
-            const lignesDeposees = renderedEvents.filter((row) => (
-              row.type === "actions" && row.index >= item.turn.startIndex
-            )).length;
+            const cumulativeKey = `fold:${item.turn.key}`;
             return (
               <ActiveTurnHeader
-                visibleRuns={lignesDeposees}
+                plugins={plugins}
                 key={item.key}
                 turn={item.turn}
                 since={workingSince ?? Date.now()}
                 tokens={liveTokens}
-                open={openToolGroups.has(cumulativeKey)}
-                onToggle={() => setOpenToolGroups((prev) => {
+                open={openFolds.has(cumulativeKey)}
+                onToggle={() => setOpenFolds((prev) => {
                   const next = new Set(prev);
                   if (next.has(cumulativeKey)) next.delete(cumulativeKey);
                   else next.add(cumulativeKey);
@@ -959,11 +971,31 @@ export function ChatTimeline(p: {
                 key={item.key}
                 turn={item.turn}
                 events={events}
+                plugins={plugins}
+                openToolGroups={openToolGroups}
+                expandedByDefault={vue === "detaille"}
+                onToggleTool={(key) => setOpenToolGroups(prev => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key); else next.add(key);
+                  return next;
+                })}
+                renderToolLine={renderToolLine}
                 onStop={onStop}
               />
             );
           }
           if (item.type === "actions") {
+            const insideOpenFold = renderedEvents.some(row => row.type === "fold" && row.open &&
+              item.index >= row.fold.start && item.index < row.fold.end);
+            if (insideOpenFold && !item.actions.some(action => /view_image|image_view|open_image/.test(action.name))) {
+              const actions = distinctToolActions(item.actions);
+              const timestamps = actions.flatMap(action => "ts" in action && action.ts != null ? [action.ts] : []);
+              return <div className="tool-group-list turn-completed-detail">
+                {defaults.displayTimestamps && timestamps.length > 0 && <TimelineStamp startMs={Math.min(...timestamps)} endMs={timestamps.length > 1 ? Math.max(...timestamps) : null} fmt={defaults.timeFormat} />}
+                {actions.map((action, offset) => renderToolLine(action, offset))}
+              </div>;
+            }
+
             // Vue Détaillé : les lignes d'outils s'ouvrent d'office — le Set
             // devient alors « écarts au défaut » (un clic referme quand même).
             const open = vue === "detaille"
@@ -973,7 +1005,7 @@ export function ChatTimeline(p: {
             // vivante : elle tique à chaque nouvelle action au lieu d'afficher
             // un résumé figé. C'est le seul endroit où l'action courante
             // s'affiche — donc jamais de doublon avec une queue.
-            const live = workingSince != null && item.index === derniereLigneTravail;
+            const live = workingSince != null && item.actions.some(action => action.kind === "tool_update" && /^(running|pending|in[-_]?progress)$/i.test(action.status ?? ""));
             const tss = item.actions.map((a) => ("ts" in a ? a.ts : undefined)).filter((v): v is number => v != null);
             const stamp = defaults.displayTimestamps && tss.length
               ? <TimelineStamp startMs={Math.min(...tss)} endMs={tss.length > 1 ? Math.max(...tss) : null} fmt={defaults.timeFormat} />
@@ -1080,24 +1112,15 @@ export function ChatTimeline(p: {
             // les ~100 caractères. C'est le tour qui tourne encore, et le fait
             // d'être le dernier bloc de pensée, qui font le direct.
             const live = workingSince != null && i === lastThinkingIndex;
-            if (live) {
-              // À SA PLACE dans le fil, donc au-dessus de la réponse qu'il a
-              // servi à écrire — et monté une fois pour tout le tour, ce qui
-              // fait survivre le dépliage aux appels d'outil.
-              return (
-                <LiveThinking
-                  key={`live-thinking:${i}`}
-                  thought={liveThought}
-                  collapsedByDefault={penseeRepliee}
-                />
-              );
-            }
+            const thinkingKey = `${threadId}:turn:${thinkingTurnStarts[i]}`;
             return (
-              <ThinkingBlock
-                key={i}
-                text={e.text}
-                live={false}
+              <LiveThinking
+                key={item.key}
+                thought={live ? liveThought || e.text : e.text}
+                live={live}
                 collapsedByDefault={penseeRepliee}
+                collapsed={thinkingCollapsed[thinkingKey] ?? null}
+                onToggleCollapsed={(next) => setThinkingCollapsed(prev => ({ ...prev, [thinkingKey]: next }))}
               />
             );
           }

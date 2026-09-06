@@ -578,6 +578,7 @@ export function projectChatTimeline(
   // Le n-ième bloc texte d'un tour garde donc la même clé de la frappe au
   // final. Les autres kinds gardent l'identité d'événement (stable aux splices).
   const textOrdinals = new Map<string, number>();
+  const thinkingOrdinals = new Map<string, number>();
   for (let index = 0; index <= events.length; index += 1) {
     const activeHeader = activeHeaderByInsert.get(index);
     if (activeHeader) {
@@ -604,8 +605,13 @@ export function projectChatTimeline(
         // tour se terminait — et au rechargement de session aussi
         // (relecture finale 2026-08-28).
         for (let inner = index; inner < fold.end; inner += 1) {
-          const innerKind = events[inner]?.kind;
-          if (innerKind !== "todos" && innerKind !== "widget") continue;
+          const innerEvent = events[inner];
+          const innerKind = innerEvent?.kind;
+          const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || (innerEvent.kind === "tool_update" && (
+            /^(failed|interrupted|cancelled|canceled|declined|denied|stopped)$/i.test(innerEvent.status ?? "") ||
+            (innerEvent.exitCode != null && innerEvent.exitCode !== 0)
+          ));
+          if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",
@@ -650,6 +656,10 @@ export function projectChatTimeline(
       const ordinal = textOrdinals.get(turnKey) ?? 0;
       textOrdinals.set(turnKey, ordinal + 1);
       suffix = `txt:${ordinal}`;
+    } else if (event.kind === "thinking" || event.kind === "thinking_live") {
+      const ordinal = thinkingOrdinals.get(turnKey) ?? 0;
+      thinkingOrdinals.set(turnKey, ordinal + 1);
+      suffix = `thinking:${ordinal}`;
     } else {
       suffix = eventKey(event, index);
     }

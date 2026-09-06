@@ -17,8 +17,8 @@ import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnParts";
 import type { ChangedFile } from "./changedFiles";
 import {
-  activityIconForAction, activitySegments,
-  distinctToolActions, summarizeActivity, Tick, tickerRows, turnProgressSignature,
+  activityIconForAction, completedTurnActions, turnToolActivity, toolOutcome,
+  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature, toolCategory,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
@@ -425,8 +425,11 @@ export function ActivityFold(p: {
   open: boolean;
   /** durée formatée du travail (fmtWorkDur) — null si non mesurable */
   duration: string | null;
+  actions?: ToolAction[];
+  plugins?: PluginCatalogEntry[];
   onToggle: () => void;
 }) {
+  const activity = p.actions?.length ? summarizeActivity(p.actions, p.plugins) : null;
   const label = p.duration != null
     ? t(
         p.fold.status === "stopped" ? "chat.stopped-after" : p.fold.status === "failed" ? "chat.failed-after" : "chat.worked-for",
@@ -446,7 +449,9 @@ export function ActivityFold(p: {
       open={p.open}
       onToggle={p.onToggle}
       status={p.fold.status === "failed" ? "failed" : "completed"}
-      label={<span className="turn-fold-label">{label}</span>}
+      icon={activity?.icon}
+      meta={activity ? label : undefined}
+      label={<span className="turn-fold-label">{activity?.label ?? label}</span>}
     />
   );
 }
@@ -511,8 +516,7 @@ function findLast<T, U extends T>(items: T[], is: (item: T) => item is U): U | u
   return undefined;
 }
 
-/** Une seule ligne d'activité courante, comme Codex. Les segments terminés
- * restent à leur place dans le transcript au lieu d'être aspirés ici. */
+/** Le travail réussi se regroupe dans un seul volet, conservé à la fin. */
 export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
   since: number;
@@ -520,43 +524,23 @@ export function ActiveTurnHeader(p: {
   open?: boolean;
   onToggle?: () => void;
   renderToolLine?: (action: ToolAction, key: React.Key) => ReactNode;
-  /** lignes de travail déjà déposées à l'écran pour ce tour (pas les appels
-   * d'outil : cinq lectures d'affilée n'en forment qu'une) */
-  visibleRuns?: number;
+  plugins?: PluginCatalogEntry[];
 }) {
-  // Bilan cumulatif du tour ENTIER (toutes tranches, pas seulement l'active) :
-  // il vit sous le chrono pendant toute la durée du tour, pensée comprise —
-  // le travail déjà fait ne disparaît jamais de l'écran (parti pris Hermes).
-  // La ligne est un disclosure : clic → la liste des appels du tour.
-  const groups = p.turn.actionGroups.filter((group) => group.actions.length > 0);
-  const actions = groups.flatMap((group) => group.actions);
-  const segments = activitySegments(actions);
-  const open = p.open ?? false;
+  const actions = completedTurnActions(p.turn);
+  const summary = summarizeActivity(actions, p.plugins);
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      {/* Une seule ligne déposée = le cumul la répète mot pour mot ; il ne
-          devient une vue d'ensemble qu'à partir de deux (doublon signalé trois
-          fois par Thierry le 2026-08-21 — les deux premières corrections
-          comptaient les APPELS d'outil, pas les lignes affichées). */}
-      {(p.visibleRuns ?? 0) >= 2 && segments.length > 0 && (
-        <>
-          <RowButton className="turn-cumulative" onClick={p.onToggle} aria-expanded={open}>
-            {segments.map((segment, i) => (
-              <span key={i} className={segment.live ? "turn-cumulative-live" : undefined}>
-                {i > 0 && <span className="turn-cumulative-sep" aria-hidden> · </span>}
-                {segment.text}
-              </span>
-            ))}
-            <Tick open={open} />
-          </RowButton>
-          {open && p.renderToolLine && (
-            <div className="tool-group-list turn-cumulative-detail">
-              {distinctToolActions(actions).map((action, offset) => p.renderToolLine!(action, offset))}
-            </div>
-          )}
-        </>
+      <div className="turn-summary-slot">
+      {actions.length > 0 && (
+        <ActivityDisclosure summary open={p.open ?? false} onToggle={p.onToggle ?? (() => {})}
+          icon={summary.icon} label={summary.label}>
+          <div className="tool-group-list turn-completed-detail">
+            {actions.map((action, offset) => p.renderToolLine?.(action, action.kind === "tool_update" ? action.id : offset))}
+          </div>
+        </ActivityDisclosure>
       )}
+      </div>
     </div>
   );
 }
@@ -596,12 +580,15 @@ export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
   onStop: () => void;
+  plugins?: PluginCatalogEntry[];
+  openToolGroups: Set<string>;
+  expandedByDefault?: boolean;
+  onToggleTool: (key: string) => void;
+  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
 }) {
   const state = p.turn.activeState;
-  // La queue ne narre plus RIEN du travail : chaque run vit à sa place dans le
-  // fil et c'est SA ligne qui tique (parti pris Hermes, 2026-08-21). Il ne
-  // reste ici que le silence chronométré — quand ni outil, ni pensée, ni
-  // réponse ne parle — et le rappel d'interruption.
+  // Slot permanent : les appels ouverts et le dernier résultat restent au
+  // bas du fil. Le silence partage la ligne d’interruption sans la déplacer.
   const lastStreamingEvent = findLast(p.events, (e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
   const answerLength = lastStreamingEvent?.text.length ?? 0;
   const actions = p.turn.actionGroups.flatMap((group) => group.actions);
@@ -634,6 +621,16 @@ export function ActiveTurnTail(p: {
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
+      <div className="turn-current-tools">
+        {turnToolActivity(p.turn).current.filter(action => !(toolCategory(action.name, "detail" in action ? action.detail : undefined) === "edit" && p.events.slice(p.turn.startIndex, p.turn.endIndex).some(event => event.kind === "edit"))).map((action, offset) => {
+          const meta = action.meta && "itemId" in action.meta ? action.meta : null;
+          const key = `current:${p.turn.key}:${meta?.itemId ?? ("id" in action ? action.id : offset)}`;
+          return <ActivityGroup key={key} actions={[action]} plugins={p.plugins}
+            open={p.expandedByDefault ? !p.openToolGroups.has(key) : p.openToolGroups.has(key)} onToggle={() => p.onToggleTool(key)}
+            live={action.kind === "tool" || toolOutcome(action) === "running"}
+            renderToolLine={p.renderToolLine} />;
+        })}
+      </div>
       {/* Le silence chronométré vit SUR la ligne d'interruption, jamais sur une
           ligne à lui : montée puis démontée, elle poussait tout le fil vers le
           haut et le relâchait à chaque aller-retour (le fil est ancré en bas —
@@ -674,8 +671,9 @@ export function ActivityGroup(p: {
   const distinctActions = distinctToolActions(p.actions);
   const summary = summarizeActivity(distinctActions, p.plugins);
   const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
-  const failed = updates.some((a) => a.status === "failed" || (a.exitCode != null && a.exitCode !== 0));
-  const status = failed ? "failed" : p.live ? "running" : "completed";
+  const failed = updates.some((a) => toolOutcome(a) === "failed");
+  const running = (p.live && distinctActions.some(a => a.kind === "tool")) || updates.some((a) => toolOutcome(a) === "running");
+  const status = failed ? "failed" : running ? "running" : "completed";
   // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
   // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
   return (

@@ -979,3 +979,57 @@ async fn document_save_checks_version_scope_and_path() {
     assert_eq!(request(file_id, "révision", "interdit").send().await.unwrap().status(), 401);
     h.shutdown().await;
 }
+
+#[tokio::test]
+async fn send_forwards_explicit_permission_mode_and_keeps_default_for_old_clients() {
+    use futures_util::{SinkExt, StreamExt};
+    let (h, admin, host) = boot().await;
+    let base = format!("http://{host}");
+    let (_, token) = pair_device(&base, &admin, &host, "permissions-test").await;
+    let c = client();
+    for (index, mode) in [None, Some("default"), Some("acceptEdits"), Some("bypassPermissions"), None].into_iter().enumerate() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(message)) = ws.next().await {
+                if let Ok(text) = message.to_text() {
+                    let value: Value = serde_json::from_str(text).unwrap();
+                    if value["type"] == "send" {
+                        ws.send(tokio_tungstenite::tungstenite::Message::Text(json!({
+                            "type":"event", "threadId":value["threadId"], "event":{"kind":"user","meta":{"messageId":value["clientMessageId"]}}
+                        }).to_string().into())).await.unwrap();
+                        let _ = tx.send(value); break;
+                    }
+                }
+            }
+        });
+        {
+            let mut g = h.state.inner.lock().await;
+            g.config.sidecar_base = Some(format!("http://{address}"));
+            g.threads.upsert(json!({"id":"permission-chat","provider":"codex","title":"Test","status":"idle","lastTurn":{"permissionMode":"bypassPermissions"}}),false).unwrap();
+        }
+        let mut body = json!({"threadId":"permission-chat","prompt":"Read a test file",
+            "clientRequestId":format!("permissions-{index}"),"clientMessageId":format!("message-{index}")});
+        if let Some(mode) = mode { body["permissionMode"] = json!(mode); }
+        if index == 4 { body["mode"] = json!("steer"); }
+        let response = c.post(format!("{base}/remote/v1/send")).header("host", &host)
+            .header("x-atelier-device-token", &token).json(&body).send().await.unwrap();
+        assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+        let payload = tokio::time::timeout(Duration::from_secs(3), rx).await.unwrap().unwrap();
+        assert_eq!(payload["permissionMode"], mode.unwrap_or("default"));
+        body["permissionMode"] = json!(if mode == Some("bypassPermissions") {"default"} else {"bypassPermissions"});
+        let replay: Value = c.post(format!("{base}/remote/v1/send")).header("host", &host)
+            .header("x-atelier-device-token", &token).json(&body).send().await.unwrap().json().await.unwrap();
+        assert_eq!(replay["code"], if index == 4 {"invalid_permission_mode"} else {"replay_conflict"}, "{replay}");
+    }
+    for mode in ["plan", "auto", "unknown"] {
+        let response = c.post(format!("{base}/remote/v1/send")).header("host", &host)
+            .header("x-atelier-device-token", &token)
+            .json(&json!({"threadId":"permission-chat","prompt":"Test","clientRequestId":"invalid-mode","permissionMode":mode})).send().await.unwrap();
+        assert_eq!(response.status(), 400);
+    }
+    h.shutdown().await;
+}

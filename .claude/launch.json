@@ -83,6 +83,24 @@
         "--strictPort"
       ],
       "port": 4185
+    },
+    {
+      "name": "old-viewer",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-old-viewer.sh",
+      "runtimeArgs": [],
+      "port": 8801
+    },
+    {
+      "name": "viewer-A",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-viewer-A.sh",
+      "runtimeArgs": [],
+      "port": 8802
+    },
+    {
+      "name": "viewer-B",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-viewer-B.sh",
+      "runtimeArgs": [],
+      "port": 8803
     }
   ]
 }

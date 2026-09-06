@@ -5491,3 +5491,25 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 ::highlight(chat-highlight-green){background:rgba(120,220,140,.40)}
 ::highlight(chat-highlight-blue){background:rgba(120,170,255,.40)}
 ::highlight(chat-highlight-red){background:rgba(255,140,160,.40)}
+
+
+/* Entrée brève des événements actifs, sans animer la hauteur mesurée par
+   LegendList. Les mises à jour d’un outil existant gardent le même nœud :
+   ce fondu ne redémarre pas à chaque delta ou changement de statut. */
+.turn-current-tools > .ui-activity,
+.thinking-live-indicator.is-arriving {
+  animation: chat-event-arrive var(--motion-standard) var(--ease-out) both;
+}
+@keyframes chat-event-arrive {
+  from { opacity: 0.35; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-current-tools > .ui-activity,
+  .thinking-live-indicator.is-arriving { animation: none; }
+}
+
+
+/* Le premier cumul ne pousse plus une narration déjà en lecture. Le slot
+   reste muet tant qu’aucune réussite antérieure n’est à résumer. */
+.turn-summary-slot { min-height: 24px; }

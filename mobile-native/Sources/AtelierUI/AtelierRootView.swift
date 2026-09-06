@@ -161,10 +161,6 @@ public struct AtelierRootView: View {
                 .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { sidebarButton }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
-                            .disabled(workspace.chat.sending)
-                    }
                 }
         }
     }

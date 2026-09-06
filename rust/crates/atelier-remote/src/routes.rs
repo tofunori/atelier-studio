@@ -585,6 +585,8 @@ struct SendBody {
     model: Option<String>,
     #[serde(default)]
     effort: Option<String>,
+    #[serde(default)]
+    permission_mode: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -597,12 +599,31 @@ struct EditMessageBody {
     #[serde(default)] file_ids: Vec<String>,
     model: Option<String>,
     effort: Option<String>,
+    #[serde(default)] permission_mode: Option<String>,
+}
+
+fn requested_permission_mode(mode: Option<&str>) -> ApiResult<&'static str> {
+    match mode {
+        None | Some("default") => Ok("default"),
+        Some("acceptEdits") => Ok("acceptEdits"),
+        Some("bypassPermissions") => Ok("bypassPermissions"),
+        _ => Err(ApiError::bad_request("invalid_permission_mode", "Mode d’autorisation invalide")),
+    }
+}
+
+fn check_provider_permission(provider: &str, mode: &str) -> ApiResult<()> {
+    if mode != "default" && !atelier_protocol::builtin_providers().iter().any(|p|
+        p.id == provider && p.capabilities.permission_modes.iter().any(|m| m == mode)) {
+        return Err(ApiError::bad_request("unsupported_permission_mode", "Ce mode d’autorisation n’est pas proposé par cet assistant"));
+    }
+    Ok(())
 }
 
 async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
     Path(thread_id): Path<String>, Json(body): Json<EditMessageBody>) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let device = require_device(&state, &headers, Scope::ChatSend).await?;
+    let permission_mode = requested_permission_mode(body.permission_mode.as_deref())?;
     require_device(&state, &headers, Scope::ChatRead).await?;
     if uuid::Uuid::parse_str(&body.request_id).is_err() || body.event_id.is_empty()
         || body.original_text.len() > 120_000 || body.prompt.len() > 100_000
@@ -616,14 +637,17 @@ async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
         }
     }
     {
-        let g = state.inner.lock().await;
+        let mut g = state.inner.lock().await;
+        g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+        let thread = g.threads.get(&thread_id).ok_or_else(|| ApiError::not_found("conversation introuvable"))?;
+        check_provider_permission(&thread.provider, permission_mode)?;
         if !body.file_ids.is_empty() && !has_scope(&device.scopes, Scope::FilesRead) {
             return Err(ApiError::forbidden_scope("files:read"));
         }
         for id in &body.file_ids { let (_, path, _) = g.projects.resolve_file_id(id)?; check_file_readable(&path)?; }
     }
     let fingerprint = hash_token(&json!([thread_id, body.event_id, body.original_text,
-        body.prompt, body.file_ids, body.model, body.effort, device.device_id]).to_string());
+        body.prompt, body.file_ids, body.model, body.effort, permission_mode, device.device_id]).to_string());
     let prepared = query_readonly(&state, &format!("{}-edit", device.device_id), json!({
         "type":"prepareMessageEdit", "requestId":body.request_id, "threadId":thread_id,
         "newThreadId":body.request_id, "messageId":body.request_id, "eventId":body.event_id,
@@ -640,7 +664,7 @@ async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
             mode: None,
             thread_id:body.request_id.clone(), prompt:body.prompt, client_request_id:body.request_id.clone(),
             client_message_id:Some(body.request_id.clone()), file_ids:body.file_ids,
-            model:body.model.clone(), effort:body.effort,
+            model:body.model.clone(), effort:body.effort, permission_mode:body.permission_mode,
         })).await?;
         if sent.0["proxied"] != true { return Err(ApiError::new(StatusCode::BAD_GATEWAY, "edit_unconfirmed", "Envoi non confirmé. La version originale est conservée ; réessayez pour vérifier.")); }
     }
@@ -663,6 +687,10 @@ async fn send_msg(
     if body.mode.as_deref().is_some_and(|mode| mode != "steer") {
         return Err(ApiError::bad_request("invalid_mode", "Mode d’envoi invalide"));
     }
+    let requested_permission = requested_permission_mode(body.permission_mode.as_deref())?;
+    if body.mode.as_deref() == Some("steer") && body.permission_mode.is_some() {
+        return Err(ApiError::bad_request("invalid_permission_mode", "Le travail en cours conserve son mode d’autorisation"));
+    }
     if body.prompt.len() > 100_000 {
         return Err(ApiError::payload_too_large());
     }
@@ -671,6 +699,14 @@ async fn send_msg(
     if g.threads.get(&body.thread_id).is_none() && !g.fixture_history.contains_key(&body.thread_id) {
         return Err(ApiError::not_found("conversation introuvable"));
     }
+    let permission_mode = if body.mode.as_deref() == Some("steer") {
+        // A late steer may fall back to a new turn in a provider. Never
+        // inherit a previous full-access grant for that implicit send.
+        "default"
+    } else {
+        if let Some(thread) = g.threads.get(&body.thread_id) { check_provider_permission(&thread.provider, requested_permission)?; }
+        requested_permission
+    };
     if let Some(effort) = body.effort.as_deref() {
         if !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].contains(&effort) {
             return Err(ApiError::bad_request("invalid_effort", "niveau de réflexion invalide"));
@@ -686,7 +722,7 @@ async fn send_msg(
             files.push((path, mime));
         }
     }
-    let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids, body.mode]).to_string());
+    let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids, body.mode, permission_mode]).to_string());
     match g
         .idempotency
         .check_or_insert(&body.client_request_id, &dev.device_id, &fp)
@@ -769,7 +805,7 @@ async fn send_msg(
                 "inputs": inputs,
                 "attachments": image_paths.iter().map(|path| json!({"path":path})).collect::<Vec<_>>(),
                 "title": thread.title,
-                "permissionMode": "default",
+                "permissionMode": permission_mode,
                 "clientMessageId": body.client_message_id,
             }),
         )

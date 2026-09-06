@@ -24,6 +24,21 @@ function meta(eventId: string, turnId: string, sequence: number, provider = "cod
 }
 
 describe("chat turn view model", () => {
+  it("laisse les erreurs et autorisations en attente visibles dans un tour replié", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Teste", ts: T0 },
+      { kind: "tool_update", id: "bad", name: "Bash", output: "refusé", status: "failed", exitCode: 1 },
+      { kind: "permission", requestId: "approval", toolName: "Bash", answered: null, input: {}, ts: T0 + 10 },
+      { kind: "text", text: "Une intervention est requise.", ts: T0 + 20 },
+      { kind: "done", ok: false, result: "", ts: T0 + 30 },
+    ];
+    const turns = buildChatTurnViewModels(events, null);
+    const projected = projectChatTimeline(events, turns, new Set());
+    expect(projected.some(row => row.type === "fold" && !row.open)).toBe(true);
+    expect(projected.some(row => row.type === "event" && row.event === events[1])).toBe(true);
+    expect(projected.some(row => row.type === "event" && row.event === events[2])).toBe(true);
+  });
+
   it("groupe par turnId et conserve des identités stables", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Q1", meta: meta("u1", "turn-1", 1) },

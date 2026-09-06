@@ -3,6 +3,7 @@
 // icônes de type de fichier. Aucune logique modifiée.
 import { memo, useMemo, useState } from "react";
 import { CheckIcon } from "lucide-react";
+import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
@@ -63,13 +64,33 @@ export type ToolOutcome = "done" | "failed" | "running";
  * annoncer « completed » sur un exit 2. */
 export function toolOutcome(event: Extract<AgentEvent, { kind: "tool_update" }>): ToolOutcome {
   const status = normalizedStatus(event.status);
-  if ((event.exitCode != null && event.exitCode !== 0) || status === "failed") return "failed";
+  if ((event.exitCode != null && event.exitCode !== 0) || /^(failed|interrupted|cancelled|canceled|denied|stopped)$/.test(status)) return "failed";
   return COMPLETED_STATUS.test(status) ? "done" : "running";
 }
 const SUMMARY_ORDER: SummaryPartKind[] = [
   "integrations", "loaded-tools", "file-changes", "exploration", "visualization",
   "commands", "web-search", "images", "agents", "todo", "permissions", "compaction", "tools",
 ];
+
+/** Seules les réussites connues se replient pendant le travail. Les outils
+ * autonomes (agents, images) gardent leur surface dédiée. */
+export function turnToolActivity(turn: ChatTurnViewModel) {
+  const routed = turn.actionGroups.flatMap(group => group.actions).filter(action => {
+    const category = toolCategory(action.name, "detail" in action ? action.detail : undefined);
+    return category !== "image" && category !== "permission" &&
+      !(action.kind === "tool_update" && action.agentActivity != null);
+  });
+  const actions = distinctToolActions(routed);
+  const last = actions[actions.length - 1];
+  const completed = actions.filter(action => action !== last &&
+    action.kind === "tool_update" && toolOutcome(action) === "done");
+  const history = new Set(completed);
+  return { routed, completed, current: actions.filter(action => !history.has(action)) };
+}
+
+export function completedTurnActions(turn: ChatTurnViewModel): ToolAction[] {
+  return turnToolActivity(turn).completed;
+}
 
 export function toolOutputSummary(output: string) {
   const clean = output.trim();
@@ -169,7 +190,7 @@ export function fmtToolDur(ms: number): string {
 }
 
 export const ToolOutputLine = memo(function ToolOutputLine(
-  { event }: { event: Extract<AgentEvent, { kind: "tool_update" }> },
+  { event, expanded, onExpandedChange }: { event: Extract<AgentEvent, { kind: "tool_update" }>; expanded?: boolean; onExpandedChange?: (open: boolean) => void },
 ) {
   // event est réutilisé tel quel par le réducteur tant que l'outil n'émet
   // rien : memo + useMemo évitent stripAnsi (regex sur ≤64 Ko) et JSON.parse
@@ -179,7 +200,9 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const inputView = toolInputView(event.input);
   const outcome = toolOutcome(event);
   const failed = outcome === "failed";
-  const [open, setOpen] = useState(failed);
+  const [localOpen, setLocalOpen] = useState(failed);
+  const open = expanded ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   const trimmedOutput = output.trim();
   // Requêtes d'une recherche web (Rust web_search_update → input.queries) :
@@ -197,8 +220,8 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   );
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}`}>
-      <RowButton className="tool-output-head" onClick={() => setOpen((v) => !v)}>
-        <Tick open={open} />
+      <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ToolGlyph icon={activityIconForAction(event)} />
         <span className="tool-output-name">
           {eventLabel(event.name)}
           {event.source ? <span className="tool-source">{event.source}</span> : null}

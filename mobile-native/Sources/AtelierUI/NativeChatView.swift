@@ -5,6 +5,7 @@ struct NativeChatView: View {
     @AppStorage("atelier.follow") private var followPreference = true
     @AppStorage("atelier.density") private var density = "comfortable"
     @State private var showingWork = false
+    @State private var showingOptions = false
     @State private var followsResponse = true
     @State private var userScrolling = false
     @State private var hasInteracted = false
@@ -38,11 +39,17 @@ struct NativeChatView: View {
         .toolbar {
             if workspace.chat.selected != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
+                    Menu {
+                        Button("Autorisations · " + chat.permissionMode.title, systemImage: "slider.horizontal.3") { showingOptions = true }
+                        Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
+                        Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
+                            .disabled(chat.sending)
+                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options du chat")
                 }
             }
         }
         .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing = true }
+        .sheet(isPresented: $showingOptions) { ChatOptionsView(chat: chat) }
         .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
         .onChange(of: chat.completedResponse) { _, _ in
             if chat.connection == .live && chat.error == nil {
@@ -54,6 +61,7 @@ struct NativeChatView: View {
     }
     private var chatContent: some View {
         let chat = workspace.chat
+        let finalTextIDs = ChatTimelineItem.finalTextIDs(in: chat.rows)
         return VStack(spacing: 0) {
             if chat.connection != .live {
                 Label(chat.statusLabel, systemImage: chat.statusIcon).font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
@@ -67,7 +75,7 @@ struct NativeChatView: View {
                                 followsResponse = false; pendingBookmark = nil
                             }).id(item.id)
                         } else if let row = item.rows.first {
-                            ChatEventRow(row: row, workspace: workspace).id(item.id)
+                            ChatEventRow(row: row, workspace: workspace, isFinalText: finalTextIDs.contains(row.id)).id(item.id)
                         }
                     }
                     if chat.running && !(chat.rows.last.map { ChatTimelineItem.activityKinds.contains($0.kind) } ?? false) { Label(chat.rows.last?.isStreaming == true ? "Rédaction en cours" : "Préparation de la réponse", systemImage: "circle.dotted").font(.caption).foregroundStyle(.secondary).id("running") }
@@ -147,6 +155,7 @@ struct NativeChatView: View {
 private struct ChatEventRow: View {
     let row: RemoteChatModel.Row
     let workspace: WorkspaceModel
+    let isFinalText: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .caption2) private var actionIconSize = 11
     private var actionWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 44 : 32 }
@@ -163,20 +172,39 @@ private struct ChatEventRow: View {
         else { workspace.chat.pins[id, default: []].append(pinID) }
         workspace.chat.scheduleSave()
     }
+    @ViewBuilder private var messageContent: some View {
+        if let editing, row.kind == "user" {
+            InlineMessageEditor(draft: editing, workspace: workspace) { self.editing = nil }
+        } else if row.kind == "text" {
+            RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) }
+                .opacity(isFinalText ? 1 : 0.82)
+        } else if row.kind == "user" {
+            AnnotationMessageText(text: row.text, compactWidth: true) { workspace.chat.quotePassage($0, from: row.id) }
+        } else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
+    }
+    private var userMenu: some View {
+        Menu {
+            Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
+            Button("Sélectionner un passage", systemImage: "text.quote") { selecting = true }
+            Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
+                .disabled(workspace.chat.running || workspace.chat.sending)
+            Button(isPinned ? "Désépingler" : "Épingler", systemImage: "pin") { togglePin() }
+        } label: { Image(systemName: "ellipsis").font(.system(size: actionIconSize)).foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+            .accessibilityLabel("Options du message")
+    }
     var body: some View {
         Group {
                 VStack(alignment: row.kind == "user" ? .trailing : .leading, spacing: 6) {
                     if isPinned { Label("Épinglé", systemImage: "pin.fill").font(.caption).foregroundStyle(.secondary) }
-                    if row.kind != "user" { Text(row.kind == "error" ? "Erreur" : "Atelier").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
-                    Group {
-                        if let editing, row.kind == "user" {
-                            InlineMessageEditor(draft: editing, workspace: workspace) { self.editing = nil }
-                        } else if row.kind == "text" { RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
-                        else if row.kind == "user" { AnnotationMessageText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
-                        else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
-                    }
-                        .padding(row.kind == "user" ? 12 : 0)
-                        .background(row.kind == "user" ? Color(uiColor: .secondarySystemBackground) : .clear, in: RoundedRectangle(cornerRadius: 16))
+                    if row.kind == "error" { Text("Erreur").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                    if row.kind == "user" && editing == nil {
+                        HStack(alignment: .bottom, spacing: 2) {
+                            Spacer(minLength: 18)
+                            if !row.id.hasPrefix("pending:") { userMenu }
+                            messageContent.padding(12)
+                                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                        }
+                    } else { messageContent }
                     if row.kind == "text", let target = workspace.revisionTarget, target.threadID == workspace.chat.selected?.id, workspace.chat.isReply(row, to: target.messageID), !workspace.chat.running,
                        SourceRevisionTarget.replacement(in: row.text) != nil {
                         Button("Examiner la reformulation", systemImage: "pencil.and.outline") { reviewing = true }.frame(minHeight: 44)
@@ -184,7 +212,8 @@ private struct ChatEventRow: View {
                     if editing == nil && !workspace.chat.files(for: row).isEmpty {
                         ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                     }
-                    if editing == nil && !row.isStreaming && !row.id.hasPrefix("pending:") {
+                    if row.kind == "user", editing == nil { MessageVersionPicker(row: row, workspace: workspace) }
+                    if editing == nil && row.kind != "user" && (isFinalText || row.kind == "error") && !row.isStreaming && !workspace.chat.isTurnRunning(row.turn) {
                         HStack(spacing: 0) {
                             Button { UIPasteboard.general.string = row.text; copied = true } label: {
                                 Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: actionWidth, height: actionHeight).contentShape(Rectangle())
@@ -208,12 +237,14 @@ private struct ChatEventRow: View {
                                 .accessibilityLabel("Actions du message")
                                 .disabled(workspace.chat.running || workspace.chat.sending)
                         }.font(.system(size: actionIconSize, weight: .regular)).foregroundStyle(.secondary).buttonStyle(.plain)
-                        if row.kind == "user" { MessageVersionPicker(row: row, workspace: workspace) }
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
                 .contextMenu {
                     Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
                     Button("Sélectionner du texte", systemImage: "text.cursor") { selecting = true }
+                    Button("Citer le message", systemImage: "text.quote") { workspace.chat.quotePassage(row.text, from: row.id) }
+                    Button(isPinned ? "Désépingler" : "Épingler", systemImage: "pin") { togglePin() }
+                    Button("Lire à voix haute", systemImage: "speaker.wave.2") { NativeVoice.shared.speak(row.text) }
                     if row.kind == "user", !workspace.chat.running, !workspace.chat.sending {
                         Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
                     }
