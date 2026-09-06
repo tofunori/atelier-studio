@@ -91,85 +91,103 @@ public struct AtelierRootView: View {
         } catch { importError = error.localizedDescription }
     }
 
-    @ViewBuilder private var workbench: some View {
-        if sizeClass == .regular {
-            HStack(spacing: 0) {
-                NavigationStack {
-                    NativeChatView(workspace: workspace)
-                        .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
-                }.frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
-                Divider()
-                NavigationStack {
-                    Group {
-                        if workspace.surface == .articles { NativeLibraryView(workspace: workspace) }
-                        else if workspace.surface == .document { NativeDocumentView(workspace: workspace) }
-                        else { NativeGalleryView(workspace: workspace) }
-                    }
-                    .navigationTitle(workspace.surface == .articles ? "Articles" : workspace.surface == .document ? workspace.currentName : "Galerie")
-                    .navigationBarTitleDisplayMode(.inline).toolbar { workspaceToolbar }
-                }.frame(maxWidth: .infinity)
+    private var workbench: some View {
+        GeometryReader { geometry in
+        ZStack(alignment: .leading) {
+            mainSurfaces
+                .allowsHitTesting(!workspace.sidebarRequested)
+                .accessibilityHidden(workspace.sidebarRequested)
+            if workspace.sidebarRequested {
+                Color.black.opacity(0.28).ignoresSafeArea()
+                    .onTapGesture { workspace.sidebarRequested = false }
+                    .accessibilityHidden(true)
+                WorkspaceSidebar(workspace: workspace) { showAbout = true }
+                    .frame(width: min(geometry.size.width * 0.86, sizeClass == .regular ? 340 : 360))
+                    .transition(.move(edge: .leading))
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { gesture in
+                        if gesture.translation.width < -60 && abs(gesture.translation.width) > abs(gesture.translation.height) { workspace.sidebarRequested = false }
+                    })
             }
-        } else {
-            TabView(selection: Binding(get: { workspace.surface == .document ? workspace.documentOrigin : workspace.surface }, set: { workspace.surface = $0 })) {
-                Tab("Chats", systemImage: "bubble", value: WorkspaceModel.Surface.chat) {
-                    NavigationStack {
-                        NativeChatView(workspace: workspace)
-                            .navigationTitle(workspace.chat.title)
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar { workspaceToolbar }
-                    }
-                }
-                Tab("Galerie", systemImage: "square.grid.2x2", value: WorkspaceModel.Surface.gallery) {
-                    NavigationStack {
-                        NativeGalleryView(workspace: workspace)
-                            .navigationDestination(isPresented: Binding(get: { workspace.surface == .document && workspace.documentOrigin == .gallery }, set: { if !$0 && workspace.surface == .document { workspace.surface = .gallery } })) {
-                                NativeDocumentView(workspace: workspace)
-                                    .navigationTitle(workspace.currentName)
-                                    .navigationBarTitleDisplayMode(.inline)
-                                    .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                                        Button("Chat", systemImage: "bubble") { workspace.surface = .chat }
-                                    } }
-                            }
-                            .navigationTitle("Galerie")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar { workspaceToolbar }
-                    }
-                }
-                Tab("Articles", systemImage: "books.vertical", value: WorkspaceModel.Surface.articles) {
-                    NavigationStack {
-                        NativeLibraryView(workspace: workspace)
-                            .navigationTitle("Articles").navigationBarTitleDisplayMode(.inline)
-                            .toolbar { workspaceToolbar }
-                            .navigationDestination(isPresented: Binding(get: { workspace.surface == .document && workspace.documentOrigin == .articles }, set: { if !$0 && workspace.surface == .document { workspace.surface = .articles } })) {
-                                NativeDocumentView(workspace: workspace)
-                                    .navigationTitle(workspace.currentArticle?.title ?? workspace.currentName)
-                                    .navigationBarTitleDisplayMode(.inline)
-                            }
-                    }
-                }
+        }
+        .animation(systemReduceMotion || motion == "off" ? nil : .smooth(duration: 0.24), value: workspace.sidebarRequested)
+        }
+        .sheet(isPresented: $workspace.newChatRequested) { NewConversationView(workspace: workspace) }
+    }
 
-
+    private var mainSurfaces: some View {
+        HStack(spacing: 0) {
+            if sizeClass == .regular {
+                chatStack.frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
+                Divider()
+            }
+            ZStack {
+                if sizeClass != .regular {
+                    chatStack.surfaceVisibility(workspace.surface == .chat)
+                }
+                NavigationStack {
+                    NativeGalleryView(workspace: workspace)
+                        .navigationTitle("Galerie").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { workspaceToolbar }
+                }.surfaceVisibility(workspace.surface == .gallery || (sizeClass == .regular && workspace.surface == .chat))
+                NavigationStack {
+                    NativeLibraryView(workspace: workspace)
+                        .navigationTitle("Articles").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { workspaceToolbar }
+                }.surfaceVisibility(workspace.surface == .articles)
+                NavigationStack {
+                    NativeDocumentView(workspace: workspace)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) { sidebarButton }
+                            ToolbarItem(placement: .principal) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Button { workspace.returnToDocumentList() } label: {
+                                        Label(workspace.documentOrigin == .articles ? "Articles" : "Galerie", systemImage: "chevron.left")
+                                            .font(.subheadline.weight(.medium))
+                                    }.accessibilityLabel(workspace.documentOrigin == .articles ? "Retour : Articles" : "Retour : Galerie")
+                                    Text(workspace.currentName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }.frame(minHeight: 44)
+                            }
+                        }
+                }.surfaceVisibility(workspace.surface == .document)
             }
         }
     }
 
+    private var chatStack: some View {
+        NavigationStack {
+            NativeChatView(workspace: workspace)
+                .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { sidebarButton }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
+                            .disabled(workspace.chat.sending)
+                    }
+                }
+        }
+    }
+    private var sidebarButton: some View {
+        Button("Ouvrir le menu", systemImage: "sidebar.left") {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            workspace.sidebarRequested = true
+        }.keyboardShortcut("s", modifiers: [.command, .shift])
+    }
     @ToolbarContentBuilder private var workspaceToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) { documentMenu }
+        ToolbarItem(placement: .topBarLeading) { sidebarButton }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button("Importer un fichier", systemImage: "folder") { workspace.importRequested = true }
+                Button("Réglages", systemImage: "gearshape") { showAbout = true }
+            } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options d’Atelier")
+        }
     }
-
-    private var documentMenu: some View {
-        Menu {
-            if workspace.viewedArtifact != nil { Button("Reprendre le document", systemImage: "doc.text") { workspace.surface = .document } }
-            Button { workspace.surface = .articles } label: { Label("Articles", systemImage: "books.vertical") }.keyboardShortcut("3", modifiers: .command)
-            Button { workspace.surface = .gallery } label: { Label("Galerie", systemImage: "square.grid.2x2") }.keyboardShortcut("2", modifiers: .command)
-            Button { workspace.importRequested = true } label: { Label("Importer un fichier", systemImage: "folder") }
-            Button { showAbout = true } label: { Label("Réglages", systemImage: "gearshape") }.keyboardShortcut(",", modifiers: .command)
-        } label: { Image(systemName: "ellipsis") }
-        .accessibilityLabel("Options d’Atelier")
-    }
-
 }
 
-#Preview("Atelier natif") {
-    AtelierRootView()
+private extension View {
+    func surfaceVisibility(_ visible: Bool) -> some View {
+        opacity(visible ? 1 : 0).allowsHitTesting(visible).accessibilityElement(children: .contain).accessibilityHidden(!visible).zIndex(visible ? 1 : 0)
+    }
 }
+
+#Preview("Atelier natif") { AtelierRootView() }

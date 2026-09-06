@@ -3,15 +3,19 @@ import PDFKit
 
 struct NativeGalleryView: View {
     @Bindable var workspace: WorkspaceModel
-    @State private var query = ""
-    @State private var filter = "Tous"
+    private var filterState: GalleryFilterState { workspace.galleryFilters[workspace.gallery.selectedProject] ?? GalleryFilterState() }
+    private var query: String { filterState.query }
+    private var filter: String { filterState.type }
+    private func updateFilter(_ change: (inout GalleryFilterState) -> Void) {
+        let project = workspace.gallery.selectedProject
+        var state = workspace.galleryFilters[project] ?? GalleryFilterState()
+        change(&state); workspace.galleryFilters[project] = state
+    }
     @State private var showConnection = false
     @State private var opening: UUID?
     @State private var error: String?
     private var items: [GalleryArtifact] {
-        (workspace.gallery.localItems + workspace.gallery.remoteItems).filter {
-            (filter == "Tous" || $0.kind == filter) && (query.isEmpty || $0.name.localizedStandardContains(query))
-        }
+        (workspace.gallery.localItems.filter { $0.projectID == nil || $0.projectID == workspace.gallery.selectedProject } + workspace.gallery.remoteItems.filter { $0.projectID == workspace.gallery.selectedProject }).filter { filterState.matches($0) }
     }
     private func open(_ item: GalleryArtifact) {
         opening = item.id
@@ -34,16 +38,27 @@ struct NativeGalleryView: View {
                         Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
                     }
                     Spacer()
-                    Menu {
-                        Picker("Type", selection: $filter) {
-                            ForEach(["Tous", "PDF", "Figures", "LaTeX", "Texte"], id: \.self) { Text($0) }
-                        }
-                        Button("Actualiser", systemImage: "arrow.clockwise") { Task { await gallery.refresh() } }
-                        Button("Importer un fichier", systemImage: "folder") { workspace.importRequested = true }
-                        Button("Connexion au Mac", systemImage: "network") { showConnection = true }
-                    } label: { Image(systemName: "line.3.horizontal.decrease") }
-                    .accessibilityLabel("Filtrer et importer")
+                    Button("Filtrer les fichiers", systemImage: "line.3.horizontal.decrease") {
+                        updateFilter { $0.expanded.toggle() }
+                    }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+                        .accessibilityValue(filterState.expanded ? "Déplié" : "Replié")
+                    Button("Importer un fichier", systemImage: "plus") { workspace.importRequested = true }
+                        .labelStyle(.iconOnly).frame(width: 44, height: 44)
                 }
+                if filterState.expanded {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(GalleryFilterState.types, id: \.self) { type in
+                                Button(type) { updateFilter { $0.type = type } }
+                                    .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
+                                    .background(filter == type ? AtelierTheme.accent.opacity(0.18) : Color.primary.opacity(0.05), in: Capsule())
+                                    .foregroundStyle(filter == type ? AtelierTheme.accent : .primary)
+                                    .accessibilityAddTraits(filter == type ? .isSelected : [])
+                            }
+                        }
+                    }.scrollIndicators(.hidden)
+                }
+                Text("\(items.count) fichier\(items.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
                 if let problem = gallery.error { Text(problem).font(.footnote).foregroundStyle(.red) }
                 if gallery.busy { ProgressView("Chargement des artefacts…").frame(maxWidth: .infinity) }
                 if items.isEmpty && !gallery.busy {
@@ -52,7 +67,7 @@ struct NativeGalleryView: View {
                     } description: {
                         Text(!query.isEmpty || filter != "Tous" ? "Aucun fichier ne correspond à votre recherche." : "Retrouvez les fichiers de vos projets ou importez un document.")
                     } actions: {
-                        if !query.isEmpty || filter != "Tous" { Button("Réinitialiser la recherche") { query = ""; filter = "Tous" } }
+                        if !query.isEmpty || filter != "Tous" { Button("Réinitialiser la recherche") { updateFilter { $0.query = ""; $0.type = "Tous" } } }
                         else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered) }
                     }
                 }
@@ -90,7 +105,7 @@ struct NativeGalleryView: View {
             }.padding(16)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .searchable(text: $query, prompt: "Rechercher un artefact")
+        .searchable(text: Binding(get: { query }, set: { value in updateFilter { $0.query = value } }), prompt: "Rechercher un fichier")
         .refreshable { await gallery.refresh() }
         .task(id: gallery.selectedProject) { await gallery.refresh() }
         .sheet(isPresented: $showConnection) { GalleryConnectionSheet(gallery: gallery) }

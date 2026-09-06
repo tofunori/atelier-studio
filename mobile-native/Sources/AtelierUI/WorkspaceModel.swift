@@ -58,6 +58,40 @@ final class WorkspaceModel {
     var library = LibraryModel()
     var currentArticle: LibraryArticle?
     var documentOrigin: Surface = .gallery
+    var sidebarRequested = false
+    var sidebarQuery = ""
+    var sidebarCollapsed: Set<String> = []
+    var sidebarGroupsInitialized = false
+    var newChatRequested = false
+    var galleryFilters: [String: GalleryFilterState] = [:]
+    var lastDocuments: [Surface: OpenDocumentBookmark] = [:]
+    struct OpenDocumentBookmark {
+        let artifact: GalleryArtifact
+        let data: Data
+        let article: LibraryArticle?
+    }
+    var activeSection: Surface { surface == .document ? documentOrigin : surface }
+    func rememberOpenDocument() {
+        guard surface == .document, let artifact = viewedArtifact, let data = documentBytes else { return }
+        saveCurrentDocument()
+        lastDocuments[documentOrigin] = OpenDocumentBookmark(artifact: artifact, data: data, article: currentArticle)
+    }
+    func navigate(to section: Surface) {
+        rememberOpenDocument()
+        if section != .chat, let bookmark = lastDocuments[section] {
+            do {
+                try openArtifact(bookmark.artifact, data: bookmark.data)
+                documentOrigin = section; currentArticle = bookmark.article
+            } catch { documentError = error.localizedDescription; surface = section }
+        } else { surface = section }
+        sidebarRequested = false
+    }
+    func returnToDocumentList() {
+        let origin = documentOrigin
+        rememberOpenDocument()
+        surface = origin
+        lastDocuments[origin] = nil
+    }
     var gallery = GalleryModel()
     var chat = RemoteChatModel()
     var image: UIImage?
@@ -77,6 +111,7 @@ final class WorkspaceModel {
             sourceAvailable: sourceAvailable, pdf: pdfDocument, page: pdfPage, mode: documentMode, image: image, imageName: imageName)
     }
     func openArtifact(_ item: GalleryArtifact, data: Data) throws {
+        rememberOpenDocument()
         saveCurrentDocument()
         currentArticle = nil; documentOrigin = .gallery; editingSource = false
         if let saved = savedDocuments[item.id] {
@@ -94,7 +129,9 @@ final class WorkspaceModel {
         surface = .document
     }
 
-    var surface: Surface = .chat
+    var surface: Surface = .chat {
+        willSet { if surface == .document && newValue != .document { rememberOpenDocument() } }
+    }
     var editingSource = false
     var documentMode: DocumentMode = .pdf
     var draft = "" { didSet { chat.updateDraft(draft) } }

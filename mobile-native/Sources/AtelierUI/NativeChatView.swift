@@ -19,7 +19,16 @@ struct NativeChatView: View {
     var body: some View {
         @Bindable var chat = workspace.chat
         Group {
-            if chat.selected == nil { ConversationPicker(workspace: workspace, embedded: true) }
+            if chat.selected == nil {
+                ContentUnavailableView {
+                    Label("Votre espace de travail", systemImage: "bubble")
+                } description: {
+                    Text("Reprenez une conversation dans le menu ou commencez un nouveau chat.")
+                } actions: {
+                    Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
+                    Button("Mes conversations", systemImage: "sidebar.left") { workspace.sidebarRequested = true }
+                }
+            }
             else { chatContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -30,9 +39,6 @@ struct NativeChatView: View {
             if workspace.chat.selected != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Conversations", systemImage: "chevron.left") { workspace.chat.showConversations(workspace: workspace) }.disabled(workspace.chat.sending)
                 }
             }
         }
