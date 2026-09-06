@@ -1,12 +1,12 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpDownIcon, FilePlus2Icon } from "lucide-react";
+import { ArrowUpDownIcon, CheckIcon, FilePlus2Icon, PinIcon, QuoteIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Select } from "./Select";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
-import { Button, IconButton, RowButton } from "./ui";
+import { IconButton, RowButton, showError, showSuccess } from "./ui";
 import { ContextMenuTrigger } from "./shadcn/context-menu";
 import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu";
 import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";
@@ -107,6 +107,9 @@ export default function BiblioSurface({
       if (detail && kbPinnedPendingRef.current) {
         kbPinnedPendingRef.current = false;
         setKbPinned(detail.ok ? "ok" : "err");
+        // Le retour vit dans l'icône (accent 2 s) et dans un toast : plus de
+        // libellé qui change de largeur dans l'en-tête (maquette 2026-09-06).
+        void (detail.ok ? showSuccess(t("biblio.pinned-toast")) : showError(t("biblio.pin-error")));
       }
     };
     window.addEventListener("kb-source-added", onAdded);
@@ -130,6 +133,7 @@ export default function BiblioSurface({
     setCited(true);
     window.setTimeout(() => setCited(false), 1600);
     if (!item) return;
+    void showSuccess(t("biblio.cited-toast"));
     const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
     const pdfPath = item.pdfKey && item.pdfFile ? `~/Zotero/storage/${item.pdfKey}/${item.pdfFile}` : null;
     const lines = [
@@ -409,25 +413,35 @@ export default function BiblioSurface({
             )}
           </div>
           <div className="biblio-reader-actions">
-            <Button
-              variant="ghost"
-              className={`biblio-pin ${kbPinned === "ok" ? "kb-flash-ok" : ""}${kbPinned === "err" ? " kb-flash-err" : ""}`}
+            <IconButton
+              size="s"
+              className={`ghost biblio-pin${kbPinned === "ok" ? " is-on kb-flash-ok" : ""}${kbPinned === "err" ? " is-err kb-flash-err" : ""}`}
               disabled={!selected?.pdfKey || !selected?.pdfFile}
+              label={t("biblio.add-kb")}
               title={t("biblio.add-kb")}
               onClick={() => selected && pinToKb(selected)}
             >
-              {kbPinned === "ok" ? t("biblio.pinned") : t("biblio.pin")}
-            </Button>
-            <Button variant="primary" className={`biblio-cite-action ${cited ? "ok" : ""}`} disabled={!selected}
-              title={t("biblio.cite-tip")} onClick={() => cite(selected)}>
-              {cited ? t("biblio.cited") : t("biblio.cite-action")}
-            </Button>
+              <PinIcon size={13} strokeWidth={1.4} fill={kbPinned === "ok" ? "currentColor" : "none"} />
+            </IconButton>
+            <IconButton
+              size="s"
+              className={`ghost biblio-cite-action${cited ? " is-done" : ""}`}
+              disabled={!selected}
+              label={t("biblio.cite-action")}
+              title={t("biblio.cite-tip")}
+              onClick={() => cite(selected)}
+            >
+              {cited ? <CheckIcon size={13} strokeWidth={1.6} /> : <QuoteIcon size={13} strokeWidth={1.4} />}
+            </IconButton>
           </div>
           {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
-          <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
-            label={t("action.close-reader")} onClick={toggleReader}>
-            <CloseIcon />
-          </IconButton>
+          {!paneControls && (
+            // Une seule croix : dans un panneau, celle du panneau ferme aussi le lecteur.
+            <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
+              label={t("action.close-reader")} onClick={toggleReader}>
+              <CloseIcon />
+            </IconButton>
+          )}
         </div>
         <div className="biblio-frame-wrap">
           {!selected && <div className="biblio-placeholder">{t("biblio.placeholder")}</div>}

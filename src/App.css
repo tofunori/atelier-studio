@@ -2759,17 +2759,15 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .biblio-reader-source { flex: 0 1 auto; font-style: italic; }
 .biblio-reader-year::before, .biblio-reader-source::before { content: "\00b7"; margin-right: 6px;
   font-style: normal; color: var(--text-disabled); }
-.biblio-reader-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.biblio-reader-actions .ui-btn { height: 28px; min-height: 28px; padding: 0 10px;
-  border: none; font-size: var(--fs-m); }
-.biblio-reader-actions .biblio-pin { background: transparent; color: var(--text-muted); }
-.biblio-reader-actions .biblio-pin:hover:not(:disabled) { background: var(--bg-ctl); color: var(--text-primary); }
-.biblio-reader-actions .biblio-pin:disabled { opacity: 0.4; }
-.biblio-reader-actions .biblio-cite-action { background: var(--text-primary); color: var(--surface-app);
-  font-weight: 500; }
-.biblio-reader-actions .biblio-cite-action:hover:not(:disabled) { background: var(--text-secondary);
-  color: var(--surface-app); }
-.biblio-reader-actions .biblio-cite-action:disabled { opacity: 0.4; }
+/* Épingler / Citer : deux boutons-icônes au gabarit des commandes du panneau
+   (maquette « En-tête du lecteur Zotero », 2026-09-06). L'état passe par la
+   couleur de l'icône et un toast, jamais par un libellé ni un fond plein. */
+.biblio-reader-actions { display: flex; align-items: center; gap: 2px; flex: none;
+  padding-right: 8px; margin-right: 4px; border-right: 1px solid var(--border-subtle); }
+.biblio-reader-actions .ui-iconbtn { color: var(--text-muted); }
+.biblio-reader-actions .ui-iconbtn:hover:not(:disabled) { background: var(--bg-ctl); color: var(--text-primary); }
+.biblio-reader-actions .ui-iconbtn:disabled { opacity: 0.4; }
+.biblio-reader-actions .biblio-cite-action.is-done, .biblio-reader-actions .biblio-cite-action.is-done:hover { color: var(--u-ok); }
 .biblio-frame-wrap { flex: 1; min-height: 0; position: relative; background: #fff; }
 :root[data-theme="dark"] .biblio-frame-wrap { background: var(--bg-side); }
 .biblio-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: #fff; }

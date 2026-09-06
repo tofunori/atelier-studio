@@ -360,12 +360,19 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(side[2].querySelector(".biblio-star")).toBeTruthy();
   });
 
-  it("l'en-tête du lecteur propose Épingler et Citer en clair", () => {
+  it("l'en-tête du lecteur propose Épingler et Citer en icônes discrètes, sans bouton plein", () => {
     mount(makeWs());
     deliver(ITEMS, 1);
     const head = document.querySelector(".biblio-reader-head") as HTMLElement;
-    expect(head.textContent).toContain("Épingler");
-    expect(head.textContent).toContain("Citer");
+    const pin = head.querySelector(".biblio-pin") as HTMLButtonElement;
+    const cite = head.querySelector(".biblio-cite-action") as HTMLButtonElement;
+    expect(pin.getAttribute("aria-label")).toBe("Ajouter à la base de connaissances");
+    expect(cite.getAttribute("aria-label")).toBe("Citer");
+    expect(pin.classList.contains("ui-iconbtn")).toBe(true);
+    expect(cite.classList.contains("ui-iconbtn")).toBe(true);
+    expect(head.textContent).not.toContain("Épingler");
+    expect(head.textContent).not.toContain("Citer");
+    expect(head.querySelector(".ui-btn")).toBeNull();
     expect(document.querySelector(".biblio-citekey")).toBeNull();
   });
 
