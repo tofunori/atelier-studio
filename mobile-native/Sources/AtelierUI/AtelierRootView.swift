@@ -84,21 +84,21 @@ public struct AtelierRootView: View {
 
     @ViewBuilder private var workbench: some View {
         if sizeClass == .regular {
-            NavigationStack {
-                HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                NavigationStack {
                     NativeChatView(workspace: workspace)
-                        .frame(maxWidth: .infinity)
-                    Divider()
+                        .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
+                }.frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
+                Divider()
+                NavigationStack {
                     Group {
                         if workspace.surface == .articles { NativeLibraryView(workspace: workspace) }
-                        else if workspace.surface == .gallery || workspace.viewedArtifact == nil { NativeGalleryView(workspace: workspace) }
-                        else { NativeDocumentView(workspace: workspace) }
+                        else if workspace.surface == .document { NativeDocumentView(workspace: workspace) }
+                        else { NativeGalleryView(workspace: workspace) }
                     }
-                        .frame(maxWidth: .infinity)
-                }
-                .navigationTitle(workspace.chat.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { workspaceToolbar }
+                    .navigationTitle(workspace.surface == .articles ? "Articles" : workspace.surface == .document ? workspace.currentName : "Galerie")
+                    .navigationBarTitleDisplayMode(.inline).toolbar { workspaceToolbar }
+                }.frame(maxWidth: .infinity)
             }
         } else {
             TabView(selection: Binding(get: { workspace.surface == .document ? workspace.documentOrigin : workspace.surface }, set: { workspace.surface = $0 })) {
@@ -150,6 +150,7 @@ public struct AtelierRootView: View {
 
     private var documentMenu: some View {
         Menu {
+            Button { workspace.surface = .articles } label: { Label("Articles", systemImage: "books.vertical") }
             Button { workspace.surface = .gallery } label: { Label("Galerie", systemImage: "square.grid.2x2") }
             Button { workspace.importRequested = true } label: { Label("Importer un fichier", systemImage: "folder") }
             Button { showAbout = true } label: { Label("Réglages", systemImage: "gearshape") }

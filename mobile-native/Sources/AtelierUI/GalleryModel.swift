@@ -2,6 +2,10 @@ import SwiftUI
 import PDFKit
 import Security
 
+struct FigureRegion: Codable, Sendable {
+    let x: Double, y: Double, width: Double, height: Double
+}
+
 struct GalleryArtifact: Identifiable, Codable, Sendable {
     var id = UUID()
     let name: String
@@ -10,6 +14,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var fileID: String?
     var projectID: String?
     var size: Int = 0
+    var annotationRegion: FigureRegion?
     var ext: String { (name as NSString).pathExtension.lowercased() }
     var kind: String {
         if ext == "pdf" { return "PDF" }

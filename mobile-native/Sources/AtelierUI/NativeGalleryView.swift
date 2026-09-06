@@ -50,9 +50,10 @@ struct NativeGalleryView: View {
                     ContentUnavailableView {
                         Label(query.isEmpty ? "Votre galerie" : "Aucun résultat", systemImage: "square.grid.2x2")
                     } description: {
-                        Text("Connectez votre Mac pour retrouver les artefacts de vos projets, ou importez un PDF, une figure ou un fichier LaTeX.")
+                        Text(!query.isEmpty || filter != "Tous" ? "Aucun fichier ne correspond à votre recherche." : "Retrouvez les fichiers de vos projets ou importez un document.")
                     } actions: {
-                        Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered)
+                        if !query.isEmpty || filter != "Tous" { Button("Réinitialiser la recherche") { query = ""; filter = "Tous" } }
+                        else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered) }
                     }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 16) {
@@ -82,18 +83,10 @@ struct NativeGalleryView: View {
                             Button("Afficher", systemImage: "eye") { open(item) }
                             Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
                         }
-                        .overlay(alignment: .topTrailing) {
-                            Menu {
-                                Button("Afficher", systemImage: "eye") { open(item) }.disabled(!item.supported)
-                                Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
-                            } label: {
-                                Image(systemName: "ellipsis").padding(10).background(.regularMaterial, in: Circle())
-                            }.padding(5).accessibilityLabel("Actions pour " + item.name)
-                        }
+
                     }
                 }
-                Text("Les fichiers ouverts restent en mémoire dans cet aperçu. Les originaux sur le Mac ne sont pas modifiés.")
-                    .font(.caption).foregroundStyle(.secondary)
+
             }.padding(16)
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -114,7 +107,21 @@ struct ArtifactThumbnail: View {
     @State private var excerpt: String?
     var body: some View {
         Group {
-            if let thumbnail { Image(uiImage: thumbnail).resizable().scaledToFit().padding(6) }
+            if let thumbnail {
+                Image(uiImage: thumbnail).resizable().scaledToFit().padding(6)
+                    .overlay {
+                        if let region = item.annotationRegion {
+                            GeometryReader { geometry in
+                                let ratio = thumbnail.size.width / thumbnail.size.height
+                                let width = max(0, min(geometry.size.width - 12, (geometry.size.height - 12) * ratio))
+                                let height = width / ratio
+                                Rectangle().stroke(AtelierTheme.accent, lineWidth: 2)
+                                    .frame(width: region.width * width, height: region.height * height)
+                                    .offset(x: (geometry.size.width - width) / 2 + region.x * width, y: (geometry.size.height - height) / 2 + region.y * height)
+                            }.allowsHitTesting(false)
+                        }
+                    }
+            }
             else if let excerpt {
                 Text(AttributedString(SourceSyntax.attributed(excerpt, name: item.name, size: 8)))
                     .lineLimit(11).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -138,7 +145,7 @@ struct ArtifactThumbnail: View {
     }
 }
 
-private struct GalleryConnectionSheet: View {
+struct GalleryConnectionSheet: View {
     let gallery: GalleryModel
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
@@ -160,10 +167,10 @@ private struct GalleryConnectionSheet: View {
                     }.disabled(busy)
                     Text("Copiez le lien depuis Atelier sur le Mac, puis collez-le ici.").font(.footnote).foregroundStyle(.secondary)
                 } header: { Text("Coller le lien du Mac") }
-                Section {
+                DisclosureGroup("Saisir l’adresse et le code") {
                     TextField("http://adresse-du-mac:port", text: $address).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("Code d’association", text: $code)
-                } header: { Text("Passerelle Atelier") } footer: { Text("Utilisez l’adresse et le code affichés par Atelier sur votre Mac. Pour une adresse Tailscale en .ts.net, utilisez HTTPS ; sinon utilisez son IP. La connexion est conservée dans le trousseau iOS.") }
+                }
                 if let error { Text(error).foregroundStyle(.red) }
                 Button {
                     busy = true

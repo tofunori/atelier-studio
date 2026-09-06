@@ -133,6 +133,7 @@ private struct ChatEventRow: View {
                     if row.kind != "user" { Text(row.kind == "error" ? "Erreur" : "Atelier").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                     Group {
                         if row.kind == "text" { RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
+                        else if row.kind == "user" { AnnotationMessageText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
                         else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
                     }
                         .padding(row.kind == "user" ? 12 : 0)
@@ -207,20 +208,6 @@ struct ConversationPicker: View {
     private var content: some View {
         let chat = workspace.chat
         return List {
-                Section {
-                    Menu("Nouvelle conversation", systemImage: "plus") {
-                        ForEach(chat.creationProviders) { provider in
-                            Button(provider.label) {
-                                creating = true
-                                Task {
-                                    defer { creating = false }
-                                    do { try await chat.create(provider: provider, workspace: workspace, navigateToChat: navigateToChat); if !embedded { dismiss() } }
-                                    catch { self.error = error.localizedDescription }
-                                }
-                            }
-                        }
-                    }.disabled(creating || chat.creationProviders.isEmpty)
-                }
                 if creating || chat.loading { ProgressView() }
                 if let error = error ?? chat.error { Text(error).foregroundStyle(.red) }
                 ForEach(chat.threads.filter { query.isEmpty || $0.title.localizedStandardContains(query) }) { thread in
@@ -239,7 +226,23 @@ struct ConversationPicker: View {
             .searchable(text: $query, prompt: "Rechercher une conversation")
             .refreshable { await chat.loadCatalog(using: workspace.gallery) }
             .task { await chat.loadCatalog(using: workspace.gallery) }
-            .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } } }
+            .toolbar {
+                if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("Nouvelle conversation", systemImage: "plus") {
+                        ForEach(chat.creationProviders) { provider in
+                            Button(provider.label) {
+                                creating = true
+                                Task {
+                                    defer { creating = false }
+                                    do { try await chat.create(provider: provider, workspace: workspace, navigateToChat: navigateToChat); if !embedded { dismiss() } }
+                                    catch { self.error = error.localizedDescription }
+                                }
+                            }
+                        }
+                    }.disabled(creating || chat.creationProviders.isEmpty)
+                }
+            }
     }
 }
 
