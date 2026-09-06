@@ -386,3 +386,10 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
   AVERTISSEMENTS ancrés sur l'ouverture orpheline ; les erreurs de compilation
   (`! … l.N`) sont les seules « erreurs », posées via `cm.setDiagnostics` dans
   un champ dédié que le linter relit (sinon la première frappe les effaçait).
+
+## Mode lecture PDF (plan 078)
+- Les offsets de sélection et d'ancrage se calculent sur `readingText(block)` (lignes jointes par un espace, césures conservées), jamais sur `block.text` dé-césuré : le DOM affiche `readingText`. Changer l'un sans l'autre décale tous les surlignages.
+- `pdftohtml -xml` : ordre du flux = ordre de lecture sur les PDF LaTeX ; le regroupement retrie par colonne puis y. Un PDF où l'ordre est faux se corrige dans `group_blocks`, pas dans le JS.
+- `pdftohtml` doit être spawné avec `-zoom 1` et sans `-i` (zoom 1,5 par défaut fausse toutes les bbox ; `-i` supprime les `<image>`).
+- Le cache `/reflow` est invalidé par `REFLOW_VERSION` : l'incrémenter à tout changement d'heuristique, sinon les anciens JSON restent servis.
+- Cmd+/− en mode lecture changent la taille du texte (écouteur en capture) ; en vue pages ils zooment.
