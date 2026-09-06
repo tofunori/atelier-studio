@@ -39,6 +39,23 @@ def write_manifest(path: str, manifest: dict) -> None:
     os.replace(tmp, path)
 
 
+INTERPRETER_RE = re.compile(r"^(python[0-9.]*|julia|Rscript|node|bash|zsh|sh|uv)$")
+
+
+def default_label(cmd: list[str]) -> str:
+    """`python3 x.py --years 2019` → `x.py` ; `./run.sh` → `run.sh` ; `python -m mod` → `mod`."""
+    head = os.path.basename(cmd[0])
+    if INTERPRETER_RE.match(head) and len(cmd) > 1:
+        rest = [a for a in cmd[1:] if not a.startswith("-")]
+        if rest:
+            return os.path.basename(rest[0])
+        if "-m" in cmd[1:]:
+            i = cmd.index("-m")
+            if i + 1 < len(cmd):
+                return cmd[i + 1]
+    return head
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="atelier-run", add_help=True)
     parser.add_argument("--label")
@@ -68,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = {
         "version": MANIFEST_VERSION,
         "id": run_id,
-        "label": ns.label or os.path.basename(ns.cmd[-1] if ns.cmd[0] in ("python", "python3", "julia", "Rscript") and len(ns.cmd) > 1 else ns.cmd[0]),
+        "label": ns.label or default_label(ns.cmd),
         "command": command[:200],
         "work_dir": os.getcwd(),
         "host": os.uname().nodename,
@@ -91,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             ns.cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            start_new_session=False,
+            start_new_session=True,  # l'enfant a son propre groupe : Ctrl-C ne l'atteint qu'une fois, par transfert
             env=env,
         )
     except OSError as exc:

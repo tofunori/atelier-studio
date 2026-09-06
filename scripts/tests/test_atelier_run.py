@@ -86,6 +86,21 @@ class AtelierRunTests(unittest.TestCase):
         self.assertTrue(m["label"])
         self.assertEqual(m["version"], 1)
 
+    def test_label_ignores_trailing_options(self):
+        script = os.path.join(self.runs, "fit_m27.py")
+        with open(script, "w") as fh:
+            fh.write("import sys; print(sys.argv[1:])\n")
+        code, out, _ = _run(self.runs, sys.executable, script, "--years", "2019-2023")
+        self.assertEqual(code, 0)
+        self.assertIn("['--years', '2019-2023']", out)
+        m, _ = _manifest(self.runs)
+        self.assertEqual(m["label"], "fit_m27.py")
+
+    def test_child_runs_in_its_own_session(self):
+        code, out, _ = _run(self.runs, sys.executable, "-c", "import os; print(os.getsid(0) == os.getpid())")
+        self.assertEqual(code, 0)
+        self.assertIn("True", out)
+
 
 if __name__ == "__main__":
     unittest.main()
