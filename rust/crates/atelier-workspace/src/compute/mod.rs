@@ -10,7 +10,7 @@ mod slurm;
 mod types;
 
 pub use exec::{Exec, SystemExec};
-pub use types::{Host, HostError, LogChunk, Run, RunState, Snapshot};
+pub use types::{ForgetOutcome, Host, HostError, LogChunk, Run, RunState, Snapshot};
 
 use local::LocalAdapter;
 use nas::NasAdapter;
@@ -247,6 +247,43 @@ pub fn read_log(
     Err(HostError::new("", "invalid_run", "préfixe de run inconnu"))
 }
 
+/// Oubli d'un run terminé : le dossier est archivé (`.archive/`) sur l'hôte
+/// concerné. `local:` directement, `nas:local:` par ssh ; docker, unités
+/// systemd et Slurm ne sont pas pris en charge (`unsupported`).
+pub fn forget_run(
+    cfg: &ComputeConfig,
+    run_id: &str,
+    exec: &dyn Exec,
+) -> Result<ForgetOutcome, HostError> {
+    if !valid_run_id(run_id) {
+        return Err(HostError::new(
+            "",
+            "invalid_run",
+            "identifiant de run invalide",
+        ));
+    }
+    let outcome = ForgetOutcome {
+        run_id: run_id.to_string(),
+        archived: true,
+    };
+    if let Some(id) = run_id.strip_prefix("local:") {
+        cfg.local().forget(id)?;
+        return Ok(outcome);
+    }
+    if run_id.starts_with("nas:") {
+        cfg.nas().forget(exec, run_id)?;
+        return Ok(outcome);
+    }
+    if run_id.starts_with("slurm:") {
+        return Err(HostError::new(
+            Host::Narval.as_str(),
+            "unsupported",
+            "les jobs Slurm ne s'oublient pas depuis l'atelier",
+        ));
+    }
+    Err(HostError::new("", "invalid_run", "préfixe de run inconnu"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +465,103 @@ mod tests {
             assert_eq!(err.code, "invalid_run", "{bad:?}");
         }
         assert_eq!(exec.calls().len(), 1, "aucun ssh pour les ids refusés");
+    }
+
+    #[test]
+    fn forget_run_archives_completed_local_runs_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = cfg(dir.path());
+        let exec = FakeExec::new();
+        // terminé → déplacé dans .archive, disparu de l'instantané
+        let mut value: serde_json::Value = serde_json::from_str(RUNNING).unwrap();
+        value["id"] = serde_json::json!("done0001");
+        value["state"] = serde_json::json!("completed");
+        value["pid"] = serde_json::json!(999_999);
+        let done = dir.path().join("done0001");
+        std::fs::create_dir_all(&done).unwrap();
+        std::fs::write(done.join("run.json"), value.to_string()).unwrap();
+        let out = forget_run(&cfg, "local:done0001", &exec).unwrap();
+        assert_eq!(out, ForgetOutcome { run_id: "local:done0001".into(), archived: true });
+        assert!(!done.exists());
+        assert!(dir.path().join(".archive/done0001/run.json").is_file());
+        // second run de même nom → suffixe epoch, jamais d'écrasement
+        std::fs::create_dir_all(&done).unwrap();
+        std::fs::write(done.join("run.json"), value.to_string()).unwrap();
+        forget_run(&cfg, "local:done0001", &exec).unwrap();
+        let archived: Vec<String> = std::fs::read_dir(dir.path().join(".archive"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(archived.len(), 2);
+        assert!(archived.iter().any(|n| n.starts_with("done0001-")));
+        // vivant (pid du test) → run_live, dossier intact
+        write_local_run(dir.path(), "live0001", std::process::id(), "x\n");
+        let err = forget_run(&cfg, "local:live0001", &exec).unwrap_err();
+        assert_eq!(err.code, "run_live");
+        assert_eq!(err.host, "mac");
+        assert!(dir.path().join("live0001/run.json").is_file());
+        // état completed mais pid encore vivant → toujours run_live
+        let mut ghost: serde_json::Value = serde_json::from_str(RUNNING).unwrap();
+        ghost["id"] = serde_json::json!("ghost001");
+        ghost["state"] = serde_json::json!("completed");
+        ghost["pid"] = serde_json::json!(std::process::id());
+        std::fs::create_dir_all(dir.path().join("ghost001")).unwrap();
+        std::fs::write(dir.path().join("ghost001/run.json"), ghost.to_string()).unwrap();
+        assert_eq!(forget_run(&cfg, "local:ghost001", &exec).unwrap_err().code, "run_live");
+        // absent → not_found ; id douteux → invalid_run avant tout accès
+        assert_eq!(forget_run(&cfg, "local:absent01", &exec).unwrap_err().code, "not_found");
+        assert_eq!(forget_run(&cfg, "local:..", &exec).unwrap_err().code, "invalid_run");
+        // l'archive n'apparaît nulle part dans l'instantané
+        let snap = snapshot(&cfg, &[Host::Mac], 30, &exec);
+        let ids: Vec<&str> = snap.runs.iter().map(|r| r.id.as_str()).collect();
+        assert!(ids.iter().all(|id| !id.contains("archive")), "{ids:?}");
+        assert!(!ids.contains(&"local:done0001"));
+        assert!(ids.contains(&"local:live0001"));
+        assert!(exec.calls().is_empty(), "aucun ssh pour les runs locaux");
+    }
+
+    #[test]
+    fn forget_run_nas_parses_markers_and_quotes_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = cfg(dir.path());
+        let exec = FakeExec::new().on("runs/'a1b2c3d4e5f6'", Ok(Output::ok("::ARCHIVED\n")));
+        let out = forget_run(&cfg, "nas:local:a1b2c3d4e5f6", &exec).unwrap();
+        assert!(out.archived);
+        let call = &exec.calls()[0];
+        assert!(call.starts_with("ssh -o BatchMode=yes"), "{call}");
+        assert!(call.contains(" nas "), "alias NAS");
+        assert!(call.contains("\"$HOME\"/.atelier/runs/'a1b2c3d4e5f6'"), "{call}");
+        assert!(call.contains("runs/.archive"), "{call}");
+        assert!(call.contains("\"state\""), "l'état est extrait du manifeste");
+        assert!(call.contains("kill -0"), "pid sondé");
+        assert!(call.contains("mv -- "), "{call}");
+        for (stdout, code) in [("::LIVE\n", "run_live"), ("::MISSING\n", "not_found"), ("", "command_failed")] {
+            let exec = FakeExec::new().on("ssh", Ok(Output::ok(stdout)));
+            let err = forget_run(&cfg, "nas:local:a1b2c3d4e5f6", &exec).unwrap_err();
+            assert_eq!(err.code, code, "{stdout:?}");
+            assert_eq!(err.host, "nas");
+        }
+        let exec = FakeExec::new().on("ssh", Ok(Output::failed(255, "Connection refused")));
+        assert_eq!(
+            forget_run(&cfg, "nas:local:a1b2c3d4e5f6", &exec).unwrap_err().code,
+            "unavailable"
+        );
+    }
+
+    #[test]
+    fn forget_run_refuses_unsupported_kinds_without_ssh() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = cfg(dir.path());
+        let exec = FakeExec::new();
+        for id in ["nas:docker:albedo-trends", "nas:unit:albedo-sync.service", "slurm:65659021"] {
+            let err = forget_run(&cfg, id, &exec).unwrap_err();
+            assert_eq!(err.code, "unsupported", "{id}");
+        }
+        assert_eq!(forget_run(&cfg, "other:x", &exec).unwrap_err().code, "invalid_run");
+        assert!(exec.calls().is_empty());
+        let value = serde_json::to_value(ForgetOutcome { run_id: "local:a".into(), archived: true }).unwrap();
+        assert_eq!(value, serde_json::json!({"runId": "local:a", "archived": true}));
     }
 
     #[test]

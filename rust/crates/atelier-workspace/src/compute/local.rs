@@ -170,6 +170,10 @@ impl LocalAdapter {
             if !dir.is_dir() {
                 continue;
             }
+            // dossiers cachés (`.archive` des runs oubliés) : jamais listés
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
             let Ok(raw) = fs::read_to_string(dir.join("run.json")) else {
                 continue;
             };
@@ -221,6 +225,44 @@ impl LocalAdapter {
 
     pub fn log_path(&self, run_id: &str) -> PathBuf {
         self.runs_dir.join(run_id).join("log.txt")
+    }
+
+    /// Oubli d'un run : `<runs_dir>/<id>` est déplacé dans
+    /// `<runs_dir>/.archive/` (suffixe `-<epoch>` si le nom y existe déjà).
+    /// Le manifeste est relu ; un run `running`/`queued` — ou dont le pid est
+    /// encore vivant — est refusé (`run_live`), un dossier sans manifeste
+    /// valide est `not_found`.
+    pub fn forget(&self, id: &str) -> Result<(), HostError> {
+        let host = Host::Mac.as_str();
+        let dir = self.runs_dir.join(id);
+        let manifest = fs::read_to_string(dir.join("run.json"))
+            .ok()
+            .and_then(|raw| parse_manifest(&raw))
+            .ok_or_else(|| HostError::new(host, "not_found", "run introuvable"))?;
+        let live = RunState::parse(&manifest.state).is_live()
+            || manifest.pid.is_some_and(pid_alive);
+        if live {
+            return Err(HostError::new(
+                host,
+                "run_live",
+                "le run est encore en cours : impossible de l'oublier",
+            ));
+        }
+        let archive = self.runs_dir.join(".archive");
+        fs::create_dir_all(&archive).map_err(|error| {
+            HostError::new(host, "io", format!("création de .archive impossible : {error}"))
+        })?;
+        let mut target = archive.join(id);
+        if target.exists() {
+            let epoch = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            target = archive.join(format!("{id}-{epoch}"));
+        }
+        fs::rename(&dir, &target).map_err(|error| {
+            HostError::new(host, "io", format!("archivage du run impossible : {error}"))
+        })
     }
 }
 

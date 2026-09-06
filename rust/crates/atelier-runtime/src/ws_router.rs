@@ -12,7 +12,7 @@ use atelier_workspace::{
     create_branch as git_create_branch, create_branch_at as git_create_branch_at,
     delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
     diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands, list_file_catalog, list_pasted, log as git_log,
-    compute_read_log, compute_snapshot, merge_branch as git_merge_branch, narval_inspect_job,
+    compute_forget_run, compute_read_log, compute_snapshot, merge_branch as git_merge_branch, narval_inspect_job,
     narval_list_directory, narval_read_text,
     narval_run_files, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
     reset_to_commit as git_reset_to_commit, restore as git_restore,
@@ -63,6 +63,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "narvalReadText",
     "computeSnapshot",
     "computeReadLog",
+    "computeForgetRun",
     "listCommands",
     "listPlugins",
     "listPasted",
@@ -690,6 +691,25 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 tokio::task::spawn_blocking(move || {
                     let (cfg, exec) = compute_runtime();
                     compute_read_log(cfg, &run_id, tail_lines, exec)
+                })
+                .await,
+            )
+        }
+        "computeForgetRun" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let run_id = msg
+                .get("runId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let run_id_out = run_id.clone();
+            workspace_reply_with(
+                "computeForgotRun",
+                request_id,
+                json!({"runId": run_id_out}),
+                tokio::task::spawn_blocking(move || {
+                    let (cfg, exec) = compute_runtime();
+                    compute_forget_run(cfg, &run_id, exec)
                 })
                 .await,
             )
@@ -4832,6 +4852,35 @@ mod tests {
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["error"]["code"], "invalid_run");
         assert_eq!(v["runId"], "nas:docker:a;rm -rf /");
+    }
+
+    #[tokio::test]
+    async fn compute_forget_run_preserves_request_and_run_id() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        // slurm → unsupported, sans aucun accès disque ni ssh
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeForgetRun","runId":"slurm:1","requestId":"c-4"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["type"], "computeForgotRun");
+        assert_eq!(v["requestId"], "c-4");
+        assert_eq!(v["runId"], "slurm:1");
+        assert_eq!(v["error"]["code"], "unsupported");
+        assert_eq!(v["error"]["host"], "narval");
+        assert!(v.get("data").is_none());
+
+        let out = route_ws(
+            &s,
+            r#"{"type":"computeForgetRun","runId":"local:..","requestId":"c-5"}"#,
+        )
+        .await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["requestId"], "c-5");
+        assert_eq!(v["runId"], "local:..");
+        assert_eq!(v["error"]["code"], "invalid_run");
     }
 
     #[tokio::test]

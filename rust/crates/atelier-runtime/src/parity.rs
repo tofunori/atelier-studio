@@ -259,7 +259,7 @@ mod tests {
             if matches!(*t, "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview") {
                 continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
             }
-            if matches!(*t, "computeSnapshot" | "computeReadLog") {
+            if matches!(*t, "computeSnapshot" | "computeReadLog" | "computeForgetRun") {
                 continue; // calculs : contrat Rust seulement
             }
             assert!(

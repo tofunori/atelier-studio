@@ -477,6 +477,67 @@ impl NasAdapter {
             lines.len() >= tail_lines as usize || output.stdout.len() >= super::exec::MAX_STDOUT;
         Ok(LogChunk { lines, truncated })
     }
+
+    /// Oubli d'un run manifeste NAS (`nas:local:<id>`) : une commande ssh
+    /// qui vérifie le manifeste, refuse un état `running`/`queued` (ou un pid
+    /// vivant, même sonde que la collecte) et déplace le dossier dans
+    /// `~/.atelier/runs/.archive/`. Sortie = un marqueur `::ARCHIVED`,
+    /// `::LIVE` ou `::MISSING`. Docker et unités systemd ne s'oublient pas
+    /// depuis ici (`unsupported`).
+    pub fn forget(&self, exec: &dyn Exec, run_id: &str) -> Result<(), HostError> {
+        let host = Host::Nas.as_str();
+        let rest = run_id
+            .strip_prefix("nas:")
+            .ok_or_else(|| HostError::new(host, "invalid_run", "identifiant NAS attendu"))?;
+        let Some(id) = rest.strip_prefix("local:") else {
+            return Err(HostError::new(
+                host,
+                "unsupported",
+                "seuls les runs manifeste (nas:local:) peuvent être oubliés",
+            ));
+        };
+        let command = forget_script(id);
+        let output = self.ssh(exec, &command)?;
+        let marker = output
+            .stdout
+            .lines()
+            .map(str::trim)
+            .rev()
+            .find(|line| line.starts_with("::"))
+            .unwrap_or("");
+        match marker {
+            "::ARCHIVED" => Ok(()),
+            "::LIVE" => Err(HostError::new(
+                host,
+                "run_live",
+                "le run est encore en cours : impossible de l'oublier",
+            )),
+            "::MISSING" => Err(HostError::new(host, "not_found", "run introuvable")),
+            other => Err(HostError::new(
+                host,
+                "command_failed",
+                format!("réponse distante inattendue : {other:?}"),
+            )),
+        }
+    }
+}
+
+/// Script `sh` d'oubli distant. L'état est lu par `sed` sur la ligne
+/// `  "state": "..."` (même approche que le pid) ; l'id a passé
+/// `valid_run_id` et est cité quand même.
+fn forget_script(id: &str) -> String {
+    let q = shell_quote(id);
+    format!(
+        "d=\"$HOME\"/.atelier/runs/{q}; f=\"$d/run.json\"; \
+         if [ ! -f \"$f\" ]; then echo ::MISSING; exit 0; fi; \
+         s=$(sed -n 's/^  \"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$f\" | head -n1); \
+         p=$(sed -n 's/^  \"pid\": *\\([0-9][0-9]*\\).*/\\1/p' \"$f\" | head -n1); \
+         if [ \"$s\" = running ] || [ \"$s\" = queued ]; then echo ::LIVE; exit 0; fi; \
+         if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then echo ::LIVE; exit 0; fi; \
+         a=\"$HOME\"/.atelier/runs/.archive; mkdir -p \"$a\" || exit 1; \
+         t=\"$a\"/{q}; if [ -e \"$t\" ]; then t=\"$t-$(date +%s)\"; fi; \
+         mv -- \"$d\" \"$t\" && echo ::ARCHIVED"
+    )
 }
 
 #[cfg(test)]

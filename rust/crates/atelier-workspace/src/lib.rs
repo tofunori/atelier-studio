@@ -11,7 +11,8 @@ mod zotero;
 
 pub use catalog::{list_commands, list_file_catalog, list_files, FileCatalog};
 pub use compute::{
-    read_log as compute_read_log, snapshot as compute_snapshot, ComputeConfig, Exec,
+    forget_run as compute_forget_run, read_log as compute_read_log,
+    snapshot as compute_snapshot, ComputeConfig, Exec, ForgetOutcome as ComputeForgetOutcome,
     Host as ComputeHost, HostError as ComputeHostError, LogChunk as ComputeLogChunk,
     Run as ComputeRun, Snapshot as ComputeSnapshot, SystemExec,
 };

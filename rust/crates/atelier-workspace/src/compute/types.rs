@@ -155,6 +155,14 @@ pub struct Snapshot {
     pub errors: Vec<HostError>,
 }
 
+/// Résultat d'un oubli de run : le dossier a été déplacé dans `.archive/`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetOutcome {
+    pub run_id: String,
+    pub archived: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogChunk {
