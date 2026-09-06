@@ -12,12 +12,6 @@ export default defineConfig({
   projects: [
     {name: 'chromium', use: {browserName: 'chromium'}},
     {
-      // SPIKE pdf.js 6.x : l'app tourne dans un WKWebView.
-      name: 'pdfjs-spike-webkit',
-      testMatch: /pdfjs_spike.*\.spec\.js/,
-      use: {browserName: 'webkit'},
-    },
-    {
       name: 'webkit-scroll',
       testMatch: /editor_cm6_scroll\.spec\.js/,
       use: {browserName: 'webkit'},
