@@ -243,10 +243,10 @@ describe("polling getAgentHistory", () => {
     expect(asked.some((m) => m.threadId === THREAD_B.id)).toBe(true);
   });
 
-  it("ne rematérialise pas un transcript agent inchangé", async () => {
+  it.each([0, 5])("ne rematérialise pas un transcript agent inchangé (%i événements)", async (count) => {
     const { sock } = await mountApp();
     await openAgentPane(sock);
-    const list = agentHistoryEvents(5);
+    const list = agentHistoryEvents(count);
     harnessSpies.materialize.mockClear();
     await push(sock, { type: "agentHistory", parentThreadId: THREAD_A.id, agentThreadId: AGENT_ID, events: list });
     const afterFirst = harnessSpies.materialize.mock.calls.length;

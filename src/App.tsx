@@ -2021,7 +2021,8 @@ export default function App() {
         // 2026-08-31 : ~230 Mo/min avec un transcript de 4 Mo poussé toutes
         // les 2,5 s, plat une fois le setEvents évité).
         const known = agentHistoryFps.current.get(msg.agentThreadId);
-        if (known !== fp || !eventsRef.current[msg.agentThreadId]?.length) {
+        const hasEvents = Object.prototype.hasOwnProperty.call(eventsRef.current, msg.agentThreadId);
+        if (known !== fp || !hasEvents) {
           agentHistoryFps.current.set(msg.agentThreadId, fp);
           const next = materializeHarnessHistory(incoming);
           setEvents((prev) => ({ ...prev, [msg.agentThreadId]: next }));
