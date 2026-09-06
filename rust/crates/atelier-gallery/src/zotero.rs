@@ -5,7 +5,7 @@ use axum::{
     Json,
     body::Bytes,
     extract::{Query, State},
-    http::{HeaderMap, Method, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode},
     response::IntoResponse,
 };
 use md5::{Digest, Md5};
@@ -67,8 +67,13 @@ fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
 }
 
+/// `ATELIER_ZOTERO_DIR` permet de pointer vers une racine Zotero de test
+/// (fixture) sans muter `HOME` dans le processus courant — le défaut réel
+/// reste `~/Zotero`.
 fn zotero_dir() -> PathBuf {
-    home().join("Zotero")
+    std::env::var_os("ATELIER_ZOTERO_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join("Zotero"))
 }
 
 fn zotero_src() -> PathBuf {
@@ -588,7 +593,11 @@ async fn post_connector_pdf(data: &[u8], metadata: &str) -> Result<u16, String> 
 /// PDF de la base de connaissances (plan 052) : sert le fichier pointé par
 /// le REGISTRE (`knowledge.json`) — jamais un chemin de la requête, aucune
 /// traversée possible. Miroir de la route Node (boards.mjs).
-pub async fn kb_pdf(axum::extract::Path(id): axum::extract::Path<String>) -> impl IntoResponse {
+pub async fn kb_pdf(
+    method: Method,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
     if id.len() != 8 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
         return json_error(StatusCode::NOT_FOUND, "not found");
     }
@@ -618,15 +627,7 @@ pub async fn kb_pdf(axum::extract::Path(id): axum::extract::Path<String>) -> imp
     if !(kind == "pdf" || kind == "zotero") || !origin.to_ascii_lowercase().ends_with(".pdf") {
         return json_error(StatusCode::NOT_FOUND, "not found");
     }
-    match fs::read(origin) {
-        Ok(data) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/pdf")],
-            data,
-        )
-            .into_response(),
-        Err(_) => json_error(StatusCode::NOT_FOUND, "not found"),
-    }
+    crate::ranged::serve_file_ranged(Path::new(origin), "application/pdf", &method, &headers).await
 }
 
 /// Chemin réel d'un PDF servi sous `zotero/<clé>/<fichier>` — mêmes gardes
@@ -654,6 +655,8 @@ pub fn zotero_pdf_path(rel: &str) -> Option<std::path::PathBuf> {
 }
 
 pub async fn zotero_pdf(
+    method: Method,
+    headers: HeaderMap,
     axum::extract::Path((key, fname)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     if key.len() != 8 || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -674,18 +677,7 @@ pub async fn zotero_pdf(
     if !rp.starts_with(&zroot) || !rp.is_file() {
         return json_error(StatusCode::NOT_FOUND, "not found");
     }
-    match fs::read(&rp) {
-        Ok(data) => (
-            StatusCode::OK,
-            [(
-                header::CONTENT_TYPE,
-                header::HeaderValue::from_static("application/pdf"),
-            )],
-            data,
-        )
-            .into_response(),
-        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "read error"),
-    }
+    crate::ranged::serve_file_ranged(&rp, "application/pdf", &method, &headers).await
 }
 
 #[cfg(test)]

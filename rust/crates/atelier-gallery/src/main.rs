@@ -14,7 +14,6 @@ use agent::AgentStore;
 use atelier_core::{WatcherStatus, artifact_snapshot, is_artifact, is_excluded_dir};
 use axum::{
     Json, Router,
-    body::Body,
     extract::{Query, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
     middleware::{self, Next},

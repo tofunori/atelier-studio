@@ -45,6 +45,18 @@
   #compileBtn.done .ci-done{display:block}
   @keyframes compileSpin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion: reduce){ #compileBtn.busy svg{animation:none;opacity:.6} }
+  /* Confort sombre : même gabarit que #compileBtn (26x24, rayon 6, icône
+     monochrome 1.4). L'inversion ne touche QUE le canvas de la page — la
+     couche texte, les surlignages et les annotations gardent leurs teintes. */
+  #invBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;
+    margin-left:8px;flex:none;background:transparent;border:none;border-radius:6px;
+    color:var(--muted,#868d9a);cursor:pointer;padding:0;
+    transition:color 140ms ease, background 140ms ease}
+  #invBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
+  #invBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
+  @media (prefers-reduced-motion: reduce){ #invBtn{transition:none} }
+  body.pdf-invert .pg{background:#141414}
+  body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:var(--fs-body, 13px)}
@@ -253,6 +265,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     <svg class="ci-idle" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 7.2A5.5 5.5 0 1 0 13 10"/><path d="M13.6 3.4v3.6H10"/></svg>
     <svg class="ci-done" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>
   </button>
+  <button id="invBtn" type="button" aria-pressed="false" title="Confort sombre — inverser les pages" aria-label="Confort sombre">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor" stroke="none"/></svg>
+  </button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
@@ -274,6 +289,54 @@ let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 let __reloadPdf = null;  // posé par main() — rechargement en place après compile LaTeX
+
+// ---- pipeline de rendu : plafond de densité, priorités, annulation --------
+// Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
+// de peinture) grandit comme le CARRÉ du facteur : un écran à devicePixelRatio
+// 3 payait 2,25x le prix d'une page pour rien.
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+// Deux pages en vol au plus : au-delà, les rendus se disputent le worker
+// pdf.js et la première page à l'écran arrive PLUS tard.
+const RENDER_CONCURRENCY = 2;
+
+/** Ordre de peinture. `boxes` : [{n, top, height}] en px CSS dans le flux des
+ *  pages. Renvoie les pages visibles triées par distance au CENTRE de la
+ *  fenêtre (ce qu'on regarde d'abord), puis une courte anticipation : 1 page
+ *  au-dessus, 2 en dessous. Les pages plus lointaines ne sont PAS
+ *  pré-peintes — l'IntersectionObserver s'en charge à l'approche.
+ *  Fonction pure : testée par pdf_render_pipeline.test.mjs. */
+function pdfRenderOrder(boxes, scrollTop, viewH){
+  const list = Array.isArray(boxes) ? boxes : [];
+  const top = scrollTop, bottom = scrollTop + viewH, centre = scrollTop + viewH / 2;
+  const dist = (b) => Math.abs(b.top + b.height / 2 - centre);
+  const visible = list
+    .filter((b) => b.top + b.height > top && b.top < bottom)
+    .sort((a, b) => dist(a) - dist(b) || a.n - b.n)
+    .map((b) => b.n);
+  // Mesure prise avant la mise en page (ou document plus haut que le flux) :
+  // on ne rend pas une page blanche, on prend les deux premières.
+  if (!visible.length) for (const b of list.slice(0, 2)) visible.push(b.n);
+  const lo = Math.min.apply(null, visible), hi = Math.max.apply(null, visible);
+  const known = new Set(list.map((b) => b.n)), taken = new Set(visible);
+  const lookahead = [lo - 1, hi + 1, hi + 2].filter((n) => known.has(n) && !taken.has(n));
+  return {visible: visible, lookahead: lookahead, order: visible.concat(lookahead)};
+}
+
+/** Une peinture abandonnée par pdf.js n'est pas une erreur. */
+function isRenderCancel(error){
+  return !!error && (error.name === "RenderingCancelledException"
+    || /cancell?ed/i.test(String(error.message || "")));
+}
+
+/** Annule la peinture en vol d'une page (sortie d'écran, nouvelle génération).
+ *  Le `RenderTask` est gardé sur le slot ; `rendering` est remis à plat par le
+ *  `finally` de paint(), jamais laissé armé. */
+function cancelRender(slot){
+  if (slot && slot.task) {
+    try { slot.task.cancel(); } catch(e){}
+    slot.task = null;
+  }
+}
 
 /** mtime du PDF affiché, ou null si le serveur ne répond pas. */
 async function currentMtime(){
@@ -395,11 +458,16 @@ async function main(){
   // nettes — c'est là que l'appelant peut retirer le transform de suivi.
   let _renderGen = 0;
   let _pageObserver = null;
+  let _slots = [];
   async function renderAll(onVisibleReady){
     clearHl();
     selHide();
     const gen = ++_renderGen;
     if (_pageObserver) _pageObserver.disconnect();
+    // nouvelle génération : les peintures de l'ancienne partent à la poubelle,
+    // autant ne pas les payer jusqu'au bout
+    for (const old of _slots) cancelRender(old);
+    _slots = [];
     RENDER_W = availW();
     RENDER_Z = ZOOM;
 
@@ -423,8 +491,9 @@ async function main(){
       div.dataset.vscale = vp1.scale;  // px CSS par unité PDF — requis par le synctex
       div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
       wrap.appendChild(div);
-      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false, rendering: false, visible: false });
+      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false, rendering: false, visible: false, want: false, task: null });
     }
+    _slots = slots;
     // 2) peinture d'une page : canvas + couche texte + annotations
     const paint = async function(slot, wantCanvas = true){
       if (slot.rendering || gen !== _renderGen) return;
@@ -445,6 +514,38 @@ async function main(){
         slot.vp = real;
       }
       const vp = slot.vp;
+      // 2a) LE CANVAS D'ABORD. Il attendait getTextContent() : la page restait
+      //     blanche le temps d'extraire un texte dont la peinture n'a aucun
+      //     besoin. Aucune dépendance dure dans l'autre sens non plus —
+      //     readingOrder et drawAnnots ne lisent que la couche texte et le
+      //     gabarit de la page ; revealLinkedPassage attend la fin de renderAll.
+      //     Search and annotations keep their text layer; only nearby pages
+      //     hold the expensive Retina canvas.
+      if (wantCanvas || slot.visible) {
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(vp.width * DPR); cv.height = Math.round(vp.height * DPR);
+        cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+        const ctx = cv.getContext("2d"); ctx.scale(DPR, DPR);
+        // intent "display" : "print" demande à pdf.js la variante d'impression
+        // (annotations aplaties, optimisations écran désactivées) — plus lente,
+        // et destinée à une imprimante, pas à cet écran.
+        const task = slot.page.render({canvasContext: ctx, viewport: vp, intent: "display"});
+        slot.task = task;
+        let cancelled = false;
+        try {
+          await task.promise;
+        } catch (error) {
+          if (!isRenderCancel(error)) throw error;
+          cancelled = true;   // sortie d'écran ou nouvelle génération : normal
+        } finally {
+          if (slot.task === task) slot.task = null;
+        }
+        if (cancelled || gen !== _renderGen || (_pageObserver && !slot.visible && !slot.want)) {
+          cv.width = cv.height = 0; return;
+        }
+        slot.div.prepend(cv);
+      }
+      // 2b) couche texte : sélection, recherche, ancrage des annotations
       let tl = slot.div.querySelector(".textLayer");
       if (!tl) {
         tl = document.createElement("div"); tl.className = "textLayer";
@@ -454,45 +555,49 @@ async function main(){
         slot.div.appendChild(tl); drawAnnots(slot.div, slot.n);
         slot.painted = true;
       }
-      // Search and annotations keep their text layer; only nearby pages
-      // hold the expensive Retina canvas.
-      if (wantCanvas || slot.visible) {
-        const cv = document.createElement("canvas");
-        cv.width = vp.width * devicePixelRatio; cv.height = vp.height * devicePixelRatio;
-        cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
-        const ctx = cv.getContext("2d"); ctx.scale(devicePixelRatio, devicePixelRatio);
-        await slot.page.render({canvasContext: ctx, viewport: vp, intent: "print"}).promise;
-        if (gen !== _renderGen || (!slot.visible && _pageObserver)) { cv.width = cv.height = 0; return; }
-        slot.div.prepend(cv);
-      }
       } catch (error) {
-        if (gen === _renderGen) console.warn("PDF page", slot.n, error);
+        if (gen === _renderGen && !isRenderCancel(error)) console.warn("PDF page", slot.n, error);
       } finally { slot.rendering = false; }
 
     };
-    // 3) l'écran d'abord (avec une hauteur de marge de part et d'autre), le
-    //    reste ensuite : le net revient sans attendre les pages hors vue.
+    // 3) FILE PRIORISÉE : deux pages en vol au plus, les visibles d'abord (de
+    //    la plus proche du centre de la fenêtre à la plus lointaine), puis
+    //    l'anticipation courte. `onVisibleReady` sonne toujours quand les
+    //    pages À L'ÉCRAN sont nettes, ni avant ni après.
     const sc = document.scrollingElement || document.documentElement;
-    const from = sc.scrollTop - window.innerHeight;
-    const to = sc.scrollTop + window.innerHeight * 2;
-    const onScreen = slots.filter(function(s){
-      const y = s.div.offsetTop;
-      return y + s.vp.height >= from && y <= to;
-    });
-    const first = onScreen.length ? onScreen : slots.slice(0, 2);
-    for (const slot of first) slot.visible = true;
+    const plan = pdfRenderOrder(
+      slots.map(function(s){ return {n: s.n, top: s.div.offsetTop, height: s.vp.height}; }),
+      sc.scrollTop, window.innerHeight);
+    for (const n of plan.visible) { slots[n - 1].visible = true; slots[n - 1].want = true; }
+    for (const n of plan.lookahead) slots[n - 1].want = true;
     if (typeof IntersectionObserver === "function") {
       _pageObserver = new IntersectionObserver(entries => {
         for (const entry of entries) {
           const slot = slots[Number(entry.target.dataset.page) - 1];
           slot.visible = entry.isIntersecting;
-          if (slot.visible) void paint(slot);
-          else for (const cv of slot.div.querySelectorAll("canvas")) { cv.remove(); cv.width = cv.height = 0; }
+          if (slot.visible) { slot.want = true; void paint(slot); }
+          else {
+            // sortie d'écran : on annule la peinture en vol (sinon on paie
+            // jusqu'au bout un canvas qu'on jette juste après) puis on libère
+            slot.want = false;
+            cancelRender(slot);
+            for (const cv of slot.div.querySelectorAll("canvas")) { cv.remove(); cv.width = cv.height = 0; }
+          }
         }
       }, {rootMargin: "100% 0px"});
       for (const slot of slots) _pageObserver.observe(slot.div);
     }
-    for (const s of first) { await paint(s); if (gen !== _renderGen) return; }
+    const runQueue = async function(nums, limit){
+      let next = 0;
+      const worker = async function(){
+        while (next < nums.length && gen === _renderGen) await paint(slots[nums[next++] - 1]);
+      };
+      const lanes = [];
+      for (let k = 0; k < Math.min(limit, nums.length); k++) lanes.push(worker());
+      await Promise.all(lanes);
+    };
+    await runQueue(plan.visible, RENDER_CONCURRENCY);
+    if (gen !== _renderGen) return;
     if (onVisibleReady) onVisibleReady();
     // Peinture de fond : CÉDER LA MAIN entre chaque page. Sans ça, les 40+
     // pages d'un article monopolisent le fil et un clic (ouvrir le panneau,
@@ -502,6 +607,15 @@ async function main(){
       if (window.requestIdleCallback) window.requestIdleCallback(() => r(), { timeout: 60 });
       else setTimeout(r, 0);
     });
+    await yieldToUi();
+    if (gen !== _renderGen) return;
+    await runQueue(plan.lookahead, RENDER_CONCURRENCY);
+    if (gen !== _renderGen) return;
+    // 4) passe de fond SANS CANVAS. La recherche (Cmd+F), les liens de passage
+    //    (?page/?quote) et l'ancrage des annotations ont besoin de la couche
+    //    texte de TOUTES les pages : c'est une dépendance dure, et elle ne
+    //    coûte presque rien à côté d'un canvas. Les pages lointaines
+    //    n'obtiennent donc PAS de canvas — l'observer les peint à l'approche.
     for (const s of slots) {
       await paint(s, !_pageObserver);
       if (gen !== _renderGen) return;
@@ -1172,6 +1286,43 @@ const annPane = (function(){
   } };
 })();
 
+// ---- confort sombre (inversion des pages) ---------------------------------
+// Seul le CANVAS de la page s'inverse : la couche texte, les surlignages
+// (.pdfhl), les zones et les commentaires gardent leurs couleurs. Choix retenu
+// dans localStorage ; sans choix, on suit le thème de l'app.
+(function(){
+  const btn = document.getElementById("invBtn");
+  if (!btn) return;
+  const KEY = "pdf_invert";
+  function themeIsDark(){
+    if (document.documentElement.dataset.theme === "dark") return true;
+    const theme = window.__atelierTheme;   // posé par atelier_theme.js
+    if (theme && typeof theme.colorScheme === "string") return theme.colorScheme !== "light";
+    return (document.documentElement.style.colorScheme || "") === "dark";
+  }
+  function stored(){
+    try { return localStorage.getItem(KEY); } catch(e){ return null; }
+  }
+  let on = stored() === null ? themeIsDark() : stored() === "1";
+  function apply(){
+    document.body.classList.toggle("pdf-invert", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  apply();
+  btn.onclick = function(){
+    on = !on;
+    try { localStorage.setItem(KEY, on ? "1" : "0"); } catch(e){}
+    apply();
+  };
+  // le pont de thème répond APRÈS le boot : tant que l'utilisateur n'a pas
+  // tranché, le lecteur suit ce que l'app annonce.
+  window.addEventListener("atelier-theme-applied", function(){
+    if (stored() !== null) return;
+    on = themeIsDark();
+    apply();
+  });
+})();
+
 // ---- recherche dans le document (Cmd+F) -----------------------------------
 // La couche texte de chaque page est déjà construite par renderAll : on scanne
 // ses spans plutôt que de redemander le contenu à pdf.js. Un span qui contient
@@ -1219,7 +1370,14 @@ const annPane = (function(){
     input.focus(); input.select();
   }
   function close(){ bar.style.display = "none"; clearFind(); }
-  input.oninput = () => run(input.value);
+  // 150 ms de repos avant de rescanner : une frappe rapide déclenchait un
+  // balayage plein document par caractère.
+  let _findTimer = 0;
+  const schedule = () => {
+    clearTimeout(_findTimer);
+    _findTimer = setTimeout(() => run(input.value), 150);
+  };
+  input.oninput = schedule;
   input.onkeydown = (e) => {
     if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
     if (e.key === "Escape") { e.preventDefault(); close(); }
