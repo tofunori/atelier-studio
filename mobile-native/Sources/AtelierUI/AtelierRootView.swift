@@ -7,6 +7,11 @@ public struct AtelierRootView: View {
     @State private var restoredTab = false
     @State private var showAbout = false
     @AppStorage("atelier.appearance") private var appearance = "system"
+    @AppStorage("atelier.accent") private var accent = "sage"
+    @AppStorage("atelier.contrast") private var contrast = false
+    @AppStorage("atelier.motion") private var motion = "native"
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.colorSchemeContrast) private var systemContrast
     @State private var importError: String?
     @State private var connecting = false
     @Environment(\.scenePhase) private var scenePhase
@@ -16,9 +21,12 @@ public struct AtelierRootView: View {
 
     private var connectedWorkbench: some View {
         workbench
-        .tint(AtelierTheme.accent)
+        .tint(AtelierTheme.accent(named: accent))
+        .contrast(contrast ? 1.18 : 1)
+        .transaction { if systemReduceMotion || motion == "off" { $0.animation = nil } }
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .onChange(of: workspace.surface) { _, surface in
+            workspace.scheduleDocumentResume()
             if surface == .chat { lastTab = "chat" }
             else if surface == .articles || (surface == .document && workspace.documentOrigin == .articles) { lastTab = "articles" }
             else { lastTab = "gallery" }
@@ -28,7 +36,7 @@ public struct AtelierRootView: View {
             workspace.chat.galleryProjectID = project; workspace.chat.scheduleSave()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { Task { await workspace.chat.flushResume() } }
+            if phase != .active { Task { await workspace.chat.flushResume(); await workspace.flushDocumentResume() } }
         }
         .onOpenURL { url in
             Task { await connect(url.absoluteString) }
@@ -60,9 +68,10 @@ public struct AtelierRootView: View {
     private func initialize() async {
             let desiredTab = lastTab
             if !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") { await workspace.chat.restore(workspace: workspace) }
+            let documentVisible = !restoredTab && !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") ? await workspace.restoreDocument() : false
             if !restoredTab {
                 restoredTab = true
-                workspace.surface = desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
+                workspace.surface = documentVisible ? .document : desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
             }
             #if targetEnvironment(simulator)
             let arguments = ProcessInfo.processInfo.arguments
@@ -150,10 +159,11 @@ public struct AtelierRootView: View {
 
     private var documentMenu: some View {
         Menu {
-            Button { workspace.surface = .articles } label: { Label("Articles", systemImage: "books.vertical") }
-            Button { workspace.surface = .gallery } label: { Label("Galerie", systemImage: "square.grid.2x2") }
+            if workspace.viewedArtifact != nil { Button("Reprendre le document", systemImage: "doc.text") { workspace.surface = .document } }
+            Button { workspace.surface = .articles } label: { Label("Articles", systemImage: "books.vertical") }.keyboardShortcut("3", modifiers: .command)
+            Button { workspace.surface = .gallery } label: { Label("Galerie", systemImage: "square.grid.2x2") }.keyboardShortcut("2", modifiers: .command)
             Button { workspace.importRequested = true } label: { Label("Importer un fichier", systemImage: "folder") }
-            Button { showAbout = true } label: { Label("Réglages", systemImage: "gearshape") }
+            Button { showAbout = true } label: { Label("Réglages", systemImage: "gearshape") }.keyboardShortcut(",", modifiers: .command)
         } label: { Image(systemName: "ellipsis") }
         .accessibilityLabel("Options d’Atelier")
     }

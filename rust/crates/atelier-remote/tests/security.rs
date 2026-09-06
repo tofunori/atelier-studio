@@ -603,7 +603,10 @@ async fn send_and_interaction_replay() {
         .unwrap();
     assert_eq!(r2.status(), 200);
     let v2: Value = r2.json().await.unwrap();
-    assert_eq!(v2["replay"], true);
+    // No sidecar exists in this fixture: the first transmission never left
+    // the gateway, so an identical request is retryable rather than accepted.
+    assert_eq!(v2["replay"], false);
+    assert_eq!(v2["proxied"], false);
 
     // conflict different payload same id
     let r3 = c

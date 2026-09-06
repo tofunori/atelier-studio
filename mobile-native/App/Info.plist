@@ -36,5 +36,9 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Accéder aux artefacts de vos projets sur votre Mac.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dicter un message après avoir touché le microphone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcrire votre dictée pour la relire avant de l’envoyer.</string>
 </dict>
 </plist>

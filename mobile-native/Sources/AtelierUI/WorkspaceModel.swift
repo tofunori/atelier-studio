@@ -42,8 +42,13 @@ final class WorkspaceModel {
     }
 
     init(resumeStore: ChatResumeStore? = nil) { chat.resumeStore = resumeStore }
+    var documentResumeStore = DocumentResumeStore.live()
+    @ObservationIgnored var documentSaveTask: Task<Void, Never>?
+    var documentBytes: Data?
+    var readingOffsets: [UUID: Double] = [:]
     var revisionTarget: SourceRevisionTarget?
     var chatPickerRequested = false
+    var focusChatRequest = UUID()
     var importToChat = false
     var viewedArtifact: GalleryArtifact?
     func attachToChat(_ item: GalleryArtifact) {
@@ -83,6 +88,7 @@ final class WorkspaceModel {
         }
         if originalSources[item.id] == nil && sourceAvailable { originalSources[item.id] = source }
         viewedArtifact = item
+        documentBytes = data
         documentID = item.id
         selection = nil; pdfPassage = nil; annotationDraft = nil
         surface = .document

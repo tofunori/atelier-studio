@@ -26,6 +26,10 @@ struct NativeDocumentView: View {
                 NativePDFView(workspace: workspace)
             }
         }
+        .onChange(of: workspace.source) { _, _ in workspace.scheduleDocumentResume() }
+        .onChange(of: workspace.pdfPage) { _, _ in workspace.scheduleDocumentResume() }
+        .onChange(of: workspace.documentMode) { _, _ in workspace.scheduleDocumentResume() }
+        .onDisappear { workspace.scheduleDocumentResume() }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 6) {
                 if workspace.image != nil {

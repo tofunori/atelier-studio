@@ -2,6 +2,9 @@ import SwiftUI
 
 struct NativeChatView: View {
     @Bindable var workspace: WorkspaceModel
+    @AppStorage("atelier.follow") private var followPreference = true
+    @AppStorage("atelier.density") private var density = "comfortable"
+    @State private var showingWork = false
     @State private var followsResponse = true
     @State private var userScrolling = false
     @State private var hasInteracted = false
@@ -9,7 +12,9 @@ struct NativeChatView: View {
     @State private var readingPosition = ScrollPosition(edge: .bottom)
     @State private var pendingBookmark: ChatBookmark?
     @State private var scrollMetrics = ChatScrollMetrics()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @AppStorage("atelier.motion") private var motion = "native"
+    private var reduceMotion: Bool { systemReduceMotion || motion == "off" }
     @FocusState private var composing: Bool
     var body: some View {
         @Bindable var chat = workspace.chat
@@ -23,9 +28,19 @@ struct NativeChatView: View {
         .toolbar(composing ? .hidden : .visible, for: .tabBar)
         .toolbar {
             if workspace.chat.selected != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Conversations", systemImage: "chevron.left") { workspace.chat.showConversations(workspace: workspace) }.disabled(workspace.chat.sending)
                 }
+            }
+        }
+        .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing = true }
+        .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
+        .onChange(of: chat.completedResponse) { _, _ in
+            if chat.connection == .live && chat.error == nil {
+                Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true) }
             }
         }
         .sheet(isPresented: $workspace.chatPickerRequested) { ConversationPicker(workspace: workspace) }
@@ -39,7 +54,7 @@ struct NativeChatView: View {
             }
             ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: density == "compact" ? 12 : 20) {
                     ForEach(ChatTimelineItem.group(chat.rows)) { item in
                         if item.isActivity {
                             ChatActivityView(rows: item.rows, active: chat.running && item.rows.last?.id == chat.rows.last?.id, workspace: workspace).id(item.id)
@@ -59,7 +74,7 @@ struct NativeChatView: View {
                     Color.clear.frame(height: 1).id("chat-bottom")
                 }.padding(16)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    if followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                    if followPreference && followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
                 }
             }
             .scrollPosition($readingPosition)
@@ -85,12 +100,12 @@ struct NativeChatView: View {
                 }
             }
             .onChange(of: chat.rows.count) { _, _ in
-                if followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                if followPreference && followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
             }
             .onChange(of: chat.selected?.id, initial: true) { _, _ in
                 userScrolling = false; hasInteracted = false; nearBottom = true
                 let bookmark = chat.selected.flatMap { chat.bookmarks[$0.id] }
-                followsResponse = bookmark?.followsTail ?? true
+                followsResponse = bookmark?.followsTail ?? followPreference
                 pendingBookmark = followsResponse ? nil : bookmark
                 if followsResponse { proxy.scrollTo("chat-bottom", anchor: .bottom) }
             }
@@ -128,12 +143,23 @@ private struct ChatEventRow: View {
     @State private var copied = false
     @State private var reviewing = false
     @State private var editing: MessageEditDraft?
+    private var pinID: String { row.eventID ?? row.id }
+    private var isPinned: Bool { workspace.chat.pins[workspace.chat.selected?.id ?? ""]?.contains(pinID) == true }
+    private func togglePin() {
+        guard let id = workspace.chat.selected?.id else { return }
+        if isPinned { workspace.chat.pins[id]?.removeAll { $0 == pinID } }
+        else { workspace.chat.pins[id, default: []].append(pinID) }
+        workspace.chat.scheduleSave()
+    }
     var body: some View {
         Group {
                 VStack(alignment: row.kind == "user" ? .trailing : .leading, spacing: 6) {
+                    if isPinned { Label("Épinglé", systemImage: "pin.fill").font(.caption).foregroundStyle(.secondary) }
                     if row.kind != "user" { Text(row.kind == "error" ? "Erreur" : "Atelier").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                     Group {
-                        if row.kind == "text" { RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
+                        if let editing, row.kind == "user" {
+                            InlineMessageEditor(draft: editing, workspace: workspace) { self.editing = nil }
+                        } else if row.kind == "text" { RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
                         else if row.kind == "user" { AnnotationMessageText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
                         else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
                     }
@@ -143,10 +169,10 @@ private struct ChatEventRow: View {
                        SourceRevisionTarget.replacement(in: row.text) != nil {
                         Button("Examiner la reformulation", systemImage: "pencil.and.outline") { reviewing = true }.frame(minHeight: 44)
                     }
-                    if !workspace.chat.files(for: row).isEmpty {
+                    if editing == nil && !workspace.chat.files(for: row).isEmpty {
                         ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                     }
-                    if !row.id.hasPrefix("live:") && !row.id.hasPrefix("pending:") {
+                    if editing == nil && !row.isStreaming && !row.id.hasPrefix("pending:") {
                         HStack(spacing: 2) {
                             Button { UIPasteboard.general.string = row.text; copied = true } label: {
                                 Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: 44, height: 44)
@@ -155,12 +181,15 @@ private struct ChatEventRow: View {
                                 Image(systemName: "text.quote").frame(width: 44, height: 44)
                             }.accessibilityLabel("Sélectionner un passage à citer")
                             Menu {
+                                Button("Lire à voix haute", systemImage: "speaker.wave.2") { NativeVoice.shared.speak(row.text) }
+                                Button("Arrêter la lecture", systemImage: "speaker.slash") { NativeVoice.shared.stopSpeaking() }
+                                Button(isPinned ? "Désépingler" : "Épingler", systemImage: "pin") { togglePin() }
                                 Button("Citer le message", systemImage: "text.quote") { workspace.chat.quotePassage(row.text, from: row.id) }
                                 if row.kind == "user" {
                                     Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
                                 } else if workspace.chat.retryPrompt(for: row) != nil {
-                                    Button("Redemander une réponse", systemImage: "arrow.clockwise") {
-                                        Task { await workspace.chat.retry(row, using: workspace.gallery) }
+                                    Button("Régénérer la réponse", systemImage: "arrow.clockwise") {
+                                        Task { await workspace.chat.retry(row, workspace: workspace) }
                                     }
                                 }
                             } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
@@ -178,7 +207,6 @@ private struct ChatEventRow: View {
                     }
                 }
         }
-        .sheet(item: $editing) { draft in MessageEditSheet(draft: draft, workspace: workspace) }
         .sheet(isPresented: $reviewing) {
             if let target = workspace.revisionTarget, let replacement = SourceRevisionTarget.replacement(in: row.text) {
                 SourceRevisionView(workspace: workspace, target: target, replacement: replacement)
@@ -208,6 +236,7 @@ struct ConversationPicker: View {
     var navigateToChat = true
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var searching = false
     @State private var creating = false
     @State private var error: String?
     var body: some View {
@@ -233,10 +262,11 @@ struct ConversationPicker: View {
                 }
             }
             .navigationTitle("Conversations").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Rechercher une conversation")
+            .searchable(text: $query, isPresented: $searching, prompt: "Rechercher une conversation")
             .refreshable { await chat.loadCatalog(using: workspace.gallery) }
             .task { await chat.loadCatalog(using: workspace.gallery) }
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Rechercher", systemImage: "magnifyingglass") { searching = true }.keyboardShortcut("f", modifiers: .command) }
                 if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("Nouvelle conversation", systemImage: "plus") {

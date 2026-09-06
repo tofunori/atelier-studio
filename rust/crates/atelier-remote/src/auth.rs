@@ -399,13 +399,14 @@ pub fn pairing_max_attempts() -> u32 {
 pub struct IdempotencyCache {
     /// request_id -> (device_id, response_fingerprint)
     seen: HashMap<String, (String, String)>,
+    retryable: std::collections::HashSet<String>,
 }
 
 impl IdempotencyCache {
     /// Release only when the command definitely did not reach the engine.
     pub fn release(&mut self, request: &str, device: &str, fingerprint: &str) {
         if self.seen.get(request).is_some_and(|(d, f)| d == device && f == fingerprint) {
-            self.seen.remove(request);
+            self.retryable.insert(request.to_owned());
         }
     }
 
@@ -420,7 +421,7 @@ impl IdempotencyCache {
         }
         match self.seen.get(client_request_id) {
             Some((dev, fp)) if dev == device_id && fp == fingerprint => {
-                IdempotencyResult::ReplaySame
+                if self.retryable.remove(client_request_id) { IdempotencyResult::Fresh } else { IdempotencyResult::ReplaySame }
             }
             Some(_) => IdempotencyResult::ReplayConflict,
             None => {
@@ -430,7 +431,7 @@ impl IdempotencyCache {
                 );
                 // Bound size simply
                 if self.seen.len() > 10_000 {
-                    self.seen.clear();
+                    self.seen.clear(); self.retryable.clear();
                 }
                 IdempotencyResult::Fresh
             }
@@ -444,4 +445,20 @@ pub enum IdempotencyResult {
     ReplaySame,
     ReplayConflict,
     MissingId,
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn definitive_failure_releases_delivery_but_retains_fingerprint() {
+        let mut cache = IdempotencyCache::default();
+        assert_eq!(cache.check_or_insert("r", "d", "fp"), IdempotencyResult::Fresh);
+        cache.release("r", "other", "fp");
+        assert_eq!(cache.check_or_insert("r", "d", "fp"), IdempotencyResult::ReplaySame);
+        cache.release("r", "d", "fp");
+        assert_eq!(cache.check_or_insert("r", "d", "changed"), IdempotencyResult::ReplayConflict);
+        assert_eq!(cache.check_or_insert("r", "d", "fp"), IdempotencyResult::Fresh);
+        assert_eq!(cache.check_or_insert("r", "d", "fp"), IdempotencyResult::ReplaySame);
+    }
 }

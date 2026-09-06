@@ -573,6 +573,8 @@ async fn get_history(
 #[serde(rename_all = "camelCase")]
 struct SendBody {
     #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
     file_ids: Vec<String>,
     thread_id: String,
     prompt: String,
@@ -635,6 +637,7 @@ async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
     // previous send. Never generate a second response for the same revision.
     if result["sent"] != true {
         let sent = send_msg(State(state.clone()), headers.clone(), Json(SendBody {
+            mode: None,
             thread_id:body.request_id.clone(), prompt:body.prompt, client_request_id:body.request_id.clone(),
             client_message_id:Some(body.request_id.clone()), file_ids:body.file_ids,
             model:body.model.clone(), effort:body.effort,
@@ -657,6 +660,9 @@ async fn send_msg(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let dev = require_device(&state, &headers, Scope::ChatSend).await?;
+    if body.mode.as_deref().is_some_and(|mode| mode != "steer") {
+        return Err(ApiError::bad_request("invalid_mode", "Mode d’envoi invalide"));
+    }
     if body.prompt.len() > 100_000 {
         return Err(ApiError::payload_too_large());
     }
@@ -680,7 +686,7 @@ async fn send_msg(
             files.push((path, mime));
         }
     }
-    let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids]).to_string());
+    let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids, body.mode]).to_string());
     match g
         .idempotency
         .check_or_insert(&body.client_request_id, &dev.device_id, &fp)
@@ -752,6 +758,7 @@ async fn send_msg(
             &dev.device_id,
             json!({
                 "type": "send",
+                "mode": body.mode,
                 "threadId": body.thread_id,
                 "projectRoot": thread.project_root,
                 "provider": thread.provider,

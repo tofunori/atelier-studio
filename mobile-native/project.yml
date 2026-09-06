@@ -17,6 +17,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: Atelier Pairing
             CFBundleURLSchemes: [atelier-native]
+        NSMicrophoneUsageDescription: Dicter un message après avoir touché le microphone.
+        NSSpeechRecognitionUsageDescription: Transcrire votre dictée pour la relire avant de l’envoyer.
         NSLocalNetworkUsageDescription: Accéder aux artefacts de vos projets sur votre Mac.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
