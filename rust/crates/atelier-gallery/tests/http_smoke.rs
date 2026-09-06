@@ -721,3 +721,138 @@ fn prov_reste_confine_au_projet_et_derriere_le_garde_dorigine() {
     );
     assert_eq!(st, 403, "/prov inter-origines doit être refusé");
 }
+// --- HTTP Range / ETag / 304 (Porte : PDF/vidéo streamables + cache) -------
+
+/// Fichier "vidéo" bidon — seule l'extension compte pour `is_video_path`,
+/// qui route vers `serve_file_ranged` (plan Range/ETag).
+fn write_ranged_fixture(srv: &Server, name: &str, bytes: &[u8]) -> String {
+    fs::write(srv.root.join(name), bytes).unwrap();
+    format!("http://127.0.0.1:{}/{name}", srv.port)
+}
+
+#[test]
+fn range_bytes_0_9_returns_206_with_exact_window() {
+    let srv = start_server();
+    let url = write_ranged_fixture(&srv, "clip.mp4", b"0123456789ABCDEFGHIJ");
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get(&url)
+        .header("Range", "bytes=0-9")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 206);
+    assert_eq!(resp.headers().get("content-range").unwrap(), "bytes 0-9/20");
+    let body = resp.bytes().unwrap();
+    assert_eq!(body.len(), 10, "{body:?}");
+    assert_eq!(&body[..], b"0123456789");
+}
+
+#[test]
+fn head_request_reports_accept_ranges_and_length_with_empty_body() {
+    let srv = start_server();
+    let url = write_ranged_fixture(&srv, "clip.mp4", b"0123456789ABCDEFGHIJ");
+    let client = reqwest::blocking::Client::new();
+    let resp = client.head(&url).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get("accept-ranges").unwrap(), "bytes");
+    assert_eq!(resp.headers().get("content-length").unwrap(), "20");
+    assert!(resp.bytes().unwrap().is_empty());
+}
+
+#[test]
+fn if_none_match_round_trip_returns_304() {
+    let srv = start_server();
+    let url = write_ranged_fixture(&srv, "clip.mp4", b"0123456789ABCDEFGHIJ");
+    let client = reqwest::blocking::Client::new();
+    let first = client.get(&url).send().unwrap();
+    assert_eq!(first.status(), 200);
+    let etag = first
+        .headers()
+        .get("etag")
+        .expect("ETag manquant")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let second = client
+        .get(&url)
+        .header("If-None-Match", etag)
+        .send()
+        .unwrap();
+    assert_eq!(second.status(), 304);
+}
+
+#[test]
+fn range_out_of_bounds_is_416() {
+    let srv = start_server();
+    let url = write_ranged_fixture(&srv, "clip.mp4", b"0123456789ABCDEFGHIJ");
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get(&url)
+        .header("Range", "bytes=1000-2000")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 416);
+    assert_eq!(resp.headers().get("content-range").unwrap(), "bytes */20");
+}
+
+#[test]
+fn static_asset_etag_304_round_trip_for_non_html() {
+    let srv = start_server();
+    let base = format!("http://127.0.0.1:{}", srv.port);
+    let client = reqwest::blocking::Client::new();
+    let first = client.get(format!("{base}/tiny.png")).send().unwrap();
+    assert_eq!(first.status(), 200);
+    let etag = first
+        .headers()
+        .get("etag")
+        .expect("ETag manquant sur /tiny.png")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let second = client
+        .get(format!("{base}/tiny.png"))
+        .header("If-None-Match", &etag)
+        .send()
+        .unwrap();
+    assert_eq!(second.status(), 304);
+}
+
+/// Route Zotero PDF de bout en bout : le serveur est lancé avec
+/// `ATELIER_ZOTERO_DIR` pointant vers une fixture (env passé au process
+/// enfant — jamais `std::env::set_var` en process, cf. leçon
+/// rust-tests-env-var-race). Vérifie Range → 206 + ETag valide.
+#[test]
+fn zotero_pdf_route_serves_range_and_etag() {
+    let zdir = std::env::temp_dir().join(format!(
+        "atelier-zotero-fixture-{}-{}",
+        std::process::id(),
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+    ));
+    let storage = zdir.join("storage").join("ABCD1234");
+    fs::create_dir_all(&storage).unwrap();
+    let pdf_bytes = b"%PDF-1.4 fixture bytes for the zotero range route test".to_vec();
+    fs::write(storage.join("paper.pdf"), &pdf_bytes).unwrap();
+
+    let srv = start_server_with(&[("ATELIER_ZOTERO_DIR", zdir.to_string_lossy().to_string())]);
+    let client = reqwest::blocking::Client::new();
+    let url = format!("http://127.0.0.1:{}/zotero/ABCD1234/paper.pdf", srv.port);
+    let resp = client
+        .get(&url)
+        .header("Range", "bytes=0-9")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 206, "route zotero-pdf attendue en 206");
+    assert!(resp.headers().get("etag").is_some(), "ETag attendu");
+    let content_range = resp
+        .headers()
+        .get("content-range")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(content_range.starts_with("bytes 0-9/"), "{content_range}");
+    let body = resp.bytes().unwrap();
+    assert_eq!(&body[..], &pdf_bytes[..10]);
+
+    let _ = fs::remove_dir_all(&zdir);
+}
