@@ -322,3 +322,43 @@ jamais le CSS extrait.
 - Faire tourner les goldens visuels concernés (`npx playwright test -c
   tests/visual -g "<nom>"`) après tout déplacement de CSS, même quand le
   diff semble purement organisationnel.
+
+## 15. Sélection CM6 = sélection NATIVE ; tout ce qui recalcule par tick de drag se paie en saccades
+
+Symptôme (2026-09-06) : sélection à la souris et frappe « pas parfaitement
+fluides » dans l'éditeur LaTeX (moteur cm6, wrap actif), surtout sur un
+document long. Banc `gallery/scripts/bench_editor.mjs` (WebKit, moteur du
+WKWebView) : 10,8 ms par pas de drag, 15,8 ms par caractère frappé.
+
+Causes, toutes dans le code Atelier, aucune dans CM6 lui-même :
+- La sélection visible était une `Decoration.mark` (`cm-clsel`) recalculée à
+  CHAQUE transaction de sélection, pendant que la couche `drawSelection` de
+  CM6 et la `::selection` native étaient rendues transparentes à coups de
+  `!important`. Une mark redécoupe les spans de chaque ligne touchée, par-dessus
+  les spans de coloration — c'est le cas le plus cher des trois.
+- `ghost_ai.mjs` dispatchait `setGhost(null)` à chaque mouvement de curseur,
+  même sans changement : deux cycles de vue par tick. Et `tokens()` retokenisait
+  le document entier à chaque frappe.
+- `highlightSelectionMatches` officiel rescanne le viewport à chaque tick, sans
+  temporisation.
+- `hangingIndent` posait des styles inline par ligne sur `geometryChanged`, que
+  le wrap déclenche lui-même → reflow en boucle.
+- La pile CM5 entière (CSS + addons) restait chargée dans la page alors que
+  seul cm6 s'instancie : d'où la guerre de `!important`.
+
+**Règles** :
+- La sélection visible est la sélection native du navigateur, stylée par
+  `::selection` dans le thème (`SELECTION_RENDERING` dans
+  `cm6/studio_editor.mjs`). Ni `drawSelection()`, ni mark par transaction.
+  Verrouillé par `studio_editor_contract.test.mjs`.
+- Rien de coûteux sur `selectionSet` : ce qui doit suivre la sélection (bridge
+  `/selinfo`, surlignage des occurrences, synctex) attend le REPOS (≥ 150 ms).
+- Dans un `updateListener`, ne dispatcher que si l'état visible change vraiment
+  (comparer avant/après) — un dispatch « vide » est un cycle de vue complet.
+- Toute scan plein document (`doc.toString()` + regex) se mémoïse par instance
+  de `state.doc` (Text immuable) ou par fenêtre de fraîcheur.
+- Un `ViewPlugin` qui pose des styles inline ne réagit jamais à
+  `geometryChanged` nu : comparer la mesure qui l'intéresse (chasse, hauteur).
+- Après toute modification du chemin sélection/frappe : `node
+  gallery/scripts/bench_editor.mjs` avant/après (référence post-correctif :
+  ≈ 2 ms/pas de drag, ≈ 3,7 ms/caractère en WebKit).
