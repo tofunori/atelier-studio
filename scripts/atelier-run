@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""atelier-run — lance une commande longue et l'enregistre pour la surface Calculs.
+
+Usage :
+  atelier-run [--label L] [--total N] [--unit U] [--runs-dir D] -- cmd args…
+
+Écrit ~/.atelier/runs/<id>/run.json et log.txt (stdout+stderr, tee vers le
+terminal). Une ligne de sortie de la forme `::progress current=<n> total=<m>`
+met à jour la progression. Stdlib seulement — doit tourner sur le Mac et le NAS.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import uuid
+
+MANIFEST_VERSION = 1
+PROGRESS_RE = re.compile(r"::progress\s+current=(\d+)(?:\s+total=(\d+))?")
+
+
+def _now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def default_runs_dir() -> str:
+    return os.environ.get("ATELIER_RUNS_DIR") or os.path.join(os.path.expanduser("~"), ".atelier", "runs")
+
+
+def write_manifest(path: str, manifest: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="atelier-run", add_help=True)
+    parser.add_argument("--label")
+    parser.add_argument("--total", type=int)
+    parser.add_argument("--unit", default="")
+    parser.add_argument("--run-tag", default="")
+    parser.add_argument("--runs-dir")
+    parser.add_argument("cmd", nargs=argparse.REMAINDER)
+    ns = parser.parse_args(argv)
+    if ns.cmd and ns.cmd[0] == "--":
+        ns.cmd = ns.cmd[1:]
+    if not ns.cmd:
+        parser.error("commande manquante après --")
+    return ns
+
+
+def main(argv: list[str] | None = None) -> int:
+    ns = parse_args(sys.argv[1:] if argv is None else argv)
+    runs_dir = ns.runs_dir or default_runs_dir()
+    run_id = uuid.uuid4().hex[:12]
+    run_dir = os.path.join(runs_dir, run_id)
+    os.makedirs(run_dir, exist_ok=True)
+    manifest_path = os.path.join(run_dir, "run.json")
+    log_path = os.path.join(run_dir, "log.txt")
+
+    command = " ".join(ns.cmd)
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "id": run_id,
+        "label": ns.label or os.path.basename(ns.cmd[-1] if ns.cmd[0] in ("python", "python3", "julia", "Rscript") and len(ns.cmd) > 1 else ns.cmd[0]),
+        "command": command[:200],
+        "work_dir": os.getcwd(),
+        "host": os.uname().nodename,
+        "pid": None,
+        "state": "queued",
+        "started_at": _now(),
+        "ended_at": None,
+        "exit_code": None,
+        "progress": {"current": 0, "total": ns.total or 0, "unit": ns.unit},
+        "tags": {"run_tag": ns.run_tag} if ns.run_tag else {},
+    }
+    write_manifest(manifest_path, manifest)
+
+    log = open(log_path, "ab", buffering=0)
+    try:
+        proc = subprocess.Popen(
+            ns.cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=False,
+        )
+    except OSError as exc:
+        log.write(f"atelier-run: impossible de lancer la commande : {exc}\n".encode())
+        manifest.update(state="failed", ended_at=_now(), exit_code=127)
+        write_manifest(manifest_path, manifest)
+        log.close()
+        return 127
+
+    manifest.update(pid=proc.pid, state="running")
+    write_manifest(manifest_path, manifest)
+
+    def forward(signum, _frame):
+        try:
+            proc.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, forward)
+
+    assert proc.stdout is not None
+    for raw in iter(proc.stdout.readline, b""):
+        log.write(raw)
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+        m = PROGRESS_RE.search(raw.decode("utf-8", "replace"))
+        if m:
+            manifest["progress"]["current"] = int(m.group(1))
+            if m.group(2):
+                manifest["progress"]["total"] = int(m.group(2))
+            write_manifest(manifest_path, manifest)
+
+    code = proc.wait()
+    log.close()
+    if code < 0:
+        manifest.update(state="failed", exit_code=code, ended_at=_now())
+    else:
+        manifest.update(state="completed" if code == 0 else "failed", exit_code=code, ended_at=_now())
+    write_manifest(manifest_path, manifest)
+    return code if code >= 0 else 128 + (-code)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
