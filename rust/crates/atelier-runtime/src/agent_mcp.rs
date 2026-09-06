@@ -841,7 +841,10 @@ mod tests {
             assert!(is_mcp_compatible_provider(provider));
         }
         for provider in ["fake", "", "inconnu"] {
-            assert!(!should_launch_mcp(provider), "{provider} ne porte pas de MCP");
+            assert!(
+                !should_launch_mcp(provider),
+                "{provider} ne porte pas de MCP"
+            );
         }
     }
 
@@ -883,8 +886,20 @@ mod tests {
     #[test]
     fn la_portee_du_grant_suit_le_fil_meme_quand_le_jeton_est_reutilise() {
         let mut reg = CapabilityRegistry::new();
-        let jeton = reg.issue("t1", "/tmp/a", "claude", Some("s1".into()), Some("t-1".into()));
-        let rejeton = reg.issue("t1", "/tmp/b", "codex", Some("s2".into()), Some("t-2".into()));
+        let jeton = reg.issue(
+            "t1",
+            "/tmp/a",
+            "claude",
+            Some("s1".into()),
+            Some("t-1".into()),
+        );
+        let rejeton = reg.issue(
+            "t1",
+            "/tmp/b",
+            "codex",
+            Some("s2".into()),
+            Some("t-2".into()),
+        );
         assert_eq!(jeton, rejeton);
 
         let g = reg.resolve(&jeton).expect("grant vivant");
@@ -899,13 +914,22 @@ mod tests {
         reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
 
         for i in 0..8 {
-            assert!(reg.try_consume_widget_slot("t1", 8), "le slot {i} devait passer");
+            assert!(
+                reg.try_consume_widget_slot("t1", 8),
+                "le slot {i} devait passer"
+            );
         }
-        assert!(!reg.try_consume_widget_slot("t1", 8), "le 9e doit être refusé");
+        assert!(
+            !reg.try_consume_widget_slot("t1", 8),
+            "le 9e doit être refusé"
+        );
 
         // tour suivant : nouveau grant, compteur remis à zéro
         reg.issue("t1", "/tmp/proj", "claude", None, Some("turn-1".into()));
-        assert!(reg.try_consume_widget_slot("t1", 8), "le tour suivant repart à zéro");
+        assert!(
+            reg.try_consume_widget_slot("t1", 8),
+            "le tour suivant repart à zéro"
+        );
 
         // un fil sans grant ne consomme rien
         assert!(!reg.try_consume_widget_slot("inconnu", 8));

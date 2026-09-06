@@ -6,6 +6,7 @@ import {
   AgentActivityGroup,
   AgentDetailPanel,
   agentsFromActions,
+  agentWithTranscriptState,
   type AgentToolAction,
 } from "./AgentActivity";
 import type { AgentEvent } from "../../lib/ws";
@@ -34,6 +35,37 @@ beforeEach(() => { resetTestState(); setLanguage("en"); });
 afterEach(cleanup);
 
 describe("Codex subagent activity", () => {
+  it("recognizes terminal native statuses and a later child completion", () => {
+    const [agent] = agentsFromActions([action({ ts: 10 })]);
+    expect(agentWithTranscriptState(agent, [
+      { kind: "started", ts: 11 }, { kind: "done", ok: true, result: "Finished", ts: 20 },
+    ]).status).toBe("done");
+    expect(agentWithTranscriptState(agent, [{ kind: "done", ok: false, result: "Failed", ts: 20 }]).status).toBe("failed");
+    expect(agentWithTranscriptState({ ...agent, statusTs: 30 }, [
+      { kind: "done", ok: true, result: "Previous turn", ts: 20 },
+    ]).status).toBe("working");
+    expect(agentWithTranscriptState(agent, [{ kind: "text", text: "Reading" }]).status).toBe("working");
+    for (const status of ["done", "completed", "finished"]) {
+      expect(agentsFromActions([action({ agentActivity: {
+        ...action().agentActivity, agentsStates: { "child-1": { status } },
+      } })])[0].status).toBe("done");
+    }
+  });
+
+  it("shows readable activity rather than orchestration code or opaque messages", () => {
+    renderUi(<AgentDetailPanel agent={agentsFromActions([action()])[0]} onClose={() => {}}
+      events={[
+        { kind: "tool_update", id: "exec", name: "functions.exec", detail: "const r = await tools.exec_command({cmd:'pwd'});", output: "/project", status: "completed" },
+        { kind: "tool_update", id: "message", name: "collaboration.send_message", detail: '{"message":"gAAAAAabcdefghijklmnopqrstuvwxyz0123456789"}', output: "", status: "completed" },
+        { kind: "text", text: "I am reading the project README." },
+      ]} />);
+    const transcript = screen.getByTestId("agent-transcript");
+    expect(transcript).toHaveTextContent("Ran a command");
+    expect(transcript).toHaveTextContent("I am reading the project README.");
+    expect(transcript).not.toHaveTextContent("const r");
+    expect(transcript).not.toHaveTextContent("gAAAAA");
+    expect(transcript.querySelector("pre")).toHaveTextContent("/project");
+  });
   it("opens every agent beyond the three-chip preview", () => {
     const onOpenAgent = vi.fn();
     renderUi(<AgentActivityGroup actions={Array.from({ length: 5 }, (_, i) => action({

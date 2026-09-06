@@ -43,7 +43,7 @@ import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
 import Chat from "./components/Chat";
-import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./components/chat/AgentActivity";
+import { agentsFromActions, agentWithTranscriptState, isAgentActivityAction, type AgentDisplay } from "./components/chat/AgentActivity";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
@@ -1022,7 +1022,8 @@ export default function App() {
   const activeAgent = useMemo(() => {
     if (!openedAgent || !activeId) return null;
     const refreshed = agentsFromActions((events[activeId] ?? []).filter(isAgentActivityAction));
-    return refreshed.find((agent) => agent.threadId === openedAgent.threadId) ?? openedAgent;
+    const agent = refreshed.find((agent) => agent.threadId === openedAgent.threadId) ?? openedAgent;
+    return agentWithTranscriptState(agent, events[agent.threadId] ?? []);
   }, [activeId, events, openedAgent]);
   const activeAgentEvents = useMemo(
     () => activeAgent ? (events[activeAgent.threadId] ?? []) : [],
@@ -1035,7 +1036,7 @@ export default function App() {
       if (!current.startsWith("agent:")) previousAtelierTab.current = current;
       return nextId;
     });
-    switchToSurface("atelier");
+    revealAtelierTab(nextId);
   };
   const closeAgentInAtelier = () => {
     const closingId = openedAgent ? `agent:${openedAgent.threadId}` : null;
@@ -1455,7 +1456,8 @@ export default function App() {
   useEffect(() => {
     if (!showAtelier || !tabRequest) return;
     // le workspace parle en `document:<id>` / `surface:atelier`, pas en id brut
-    window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id: `document:${tabRequest.id}` } }));
+    const id = tabRequest.id.startsWith("agent:") ? tabRequest.id : `document:${tabRequest.id}`;
+    window.dispatchEvent(new CustomEvent("workspace-select-tab", { detail: { id } }));
   }, [showAtelier, tabRequest]);
   useEffect(() => {
     const openPassage = () => switchToSurface("biblio");

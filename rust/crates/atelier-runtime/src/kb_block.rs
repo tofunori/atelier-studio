@@ -35,8 +35,15 @@ pub fn prepare_knowledge(
     let dir = app_dir.join("knowledge");
     let registry = read_registry(&dir);
     let list = |key: &str| -> Vec<String> {
-        extra.and_then(|e| e.get(key)).and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        extra
+            .and_then(|e| e.get(key))
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let full = list("kbFullContent");
@@ -45,28 +52,61 @@ pub fn prepare_knowledge(
     let mut seen = std::collections::HashSet::new();
     let mut gbrain = false;
     for id in list("kbSourceIds") {
-        if !seen.insert(id.clone()) { continue; }
+        if !seen.insert(id.clone()) {
+            continue;
+        }
         if id == "gbrain" {
             gbrain = true;
             sources.push(serde_json::json!({"id":id,"title":"Corpus thèse (gbrain)","kind":"gbrain","mode":"corpus","chars":0,"providedChars":0,"truncated":false}));
             continue;
         }
-        let known = registry.iter().find(|s| s.get("id").and_then(Value::as_str) == Some(&id));
+        let known = registry
+            .iter()
+            .find(|s| s.get("id").and_then(Value::as_str) == Some(&id));
         // Only registry IDs may access the cache. No user-supplied paths.
-        let content = known.and_then(|_| read_cache_text(&dir, &id)).filter(|s| !s.trim().is_empty());
-        let title = known.and_then(|s| s.get("title")).and_then(Value::as_str).unwrap_or(&id).to_owned();
-        let kind = known.and_then(|s| s.get("kind")).and_then(Value::as_str).unwrap_or("file").to_owned();
+        let content = known
+            .and_then(|_| read_cache_text(&dir, &id))
+            .filter(|s| !s.trim().is_empty());
+        let title = known
+            .and_then(|s| s.get("title"))
+            .and_then(Value::as_str)
+            .unwrap_or(&id)
+            .to_owned();
+        let kind = known
+            .and_then(|s| s.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("file")
+            .to_owned();
         let chars = content.as_ref().map(|s| s.chars().count()).unwrap_or(0);
         let inline = chars <= KB_INLINE_MAX as usize || full.contains(&id);
-        let mode = if content.is_none() { "unavailable" } else if inline { "inline" } else { "search" };
-        sources.push(serde_json::json!({"id":id,"title":title,"kind":kind,"mode":mode,"chars":chars,
+        let mode = if content.is_none() {
+            "unavailable"
+        } else if inline {
+            "inline"
+        } else {
+            "search"
+        };
+        sources.push(
+            serde_json::json!({"id":id,"title":title,"kind":kind,"mode":mode,"chars":chars,
             "providedChars":if mode == "inline" { chars.min(KB_FORCED_MAX) } else { 0 },
-            "truncated":mode == "inline" && chars > KB_FORCED_MAX}));
+            "truncated":mode == "inline" && chars > KB_FORCED_MAX}),
+        );
         if content.is_some() {
-            entries.push(KbEntry { id, title, kind, chars: chars as u64, text: if inline { content } else { None } });
+            entries.push(KbEntry {
+                id,
+                title,
+                kind,
+                chars: chars as u64,
+                text: if inline { content } else { None },
+            });
         }
     }
-    let block = with_kb_block(String::new(), &Path::new(server_dir).join("atelier-kb-rs"), &entries, gbrain);
+    let block = with_kb_block(
+        String::new(),
+        &Path::new(server_dir).join("atelier-kb-rs"),
+        &entries,
+        gbrain,
+    );
     PreparedKnowledge { block, sources }
 }
 
@@ -327,7 +367,7 @@ pub fn with_kb_block_for_thread(
     let entries = kb_block_entries(&knowledge_dir, &ids, &full);
     with_kb_block(
         prompt,
-        &Path::new(server_dir).join("atelier-kb-rs"),  // bascule soak 065 (2026-08-16)
+        &Path::new(server_dir).join("atelier-kb-rs"), // bascule soak 065 (2026-08-16)
         &entries,
         gbrain,
     )
@@ -439,7 +479,10 @@ mod tests {
     fn prepared_receipt_reads_actual_cache_and_excludes_missing_sources() {
         let dir = tempdir().unwrap();
         write_fixture(dir.path());
-        let extra = HashMap::from([("kbSourceIds".into(), json!(["aaaa1111","bbbb2222","absent","aaaa1111","gbrain"]))]);
+        let extra = HashMap::from([(
+            "kbSourceIds".into(),
+            json!(["aaaa1111", "bbbb2222", "absent", "aaaa1111", "gbrain"]),
+        )]);
         let first = prepare_knowledge(dir.path(), "/tools", Some(&extra));
         assert_eq!(first.sources.len(), 4);
         assert_eq!(first.sources[1]["mode"], "inline"); // registry length is stale
@@ -458,10 +501,16 @@ mod tests {
     fn prepared_receipt_bounds_forced_unicode_content() {
         let dir = tempdir().unwrap();
         write_fixture(dir.path());
-        std::fs::write(dir.path().join("knowledge/cache/aaaa1111.json"),
-            json!({"version":1,"pages":[{"text":"𝔸".repeat(100010)}]}).to_string()).unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/cache/aaaa1111.json"),
+            json!({"version":1,"pages":[{"text":"𝔸".repeat(100010)}]}).to_string(),
+        )
+        .unwrap();
         let mut extra = HashMap::from([("kbSourceIds".into(), json!(["aaaa1111"]))]);
-        assert_eq!(prepare_knowledge(dir.path(), "/tools", Some(&extra)).sources[0]["mode"], "search");
+        assert_eq!(
+            prepare_knowledge(dir.path(), "/tools", Some(&extra)).sources[0]["mode"],
+            "search"
+        );
         extra.insert("kbFullContent".into(), json!(["aaaa1111"]));
         let receipt = prepare_knowledge(dir.path(), "/tools", Some(&extra));
         assert_eq!(receipt.sources[0]["providedChars"], 100000);

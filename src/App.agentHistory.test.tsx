@@ -140,6 +140,22 @@ describe("polling getAgentHistory", () => {
     vi.useRealTimers();
   });
 
+  it("affiche le panneau dès le premier clic et le réactive après la galerie", async () => {
+    const { sock } = await mountApp();
+    await openAgentPane(sock);
+    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
+      await flushMicrotasks(4);
+    });
+    expect(document.querySelector(".agent-detail-panel")).not.toBeVisible();
+    await act(async () => {
+      (document.querySelector(".agent-chip") as HTMLButtonElement).click();
+      await flushMicrotasks(4);
+    });
+    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
+  });
+
   it("applique une révision à taille constante sans rematérialiser les doublons", async () => {
     const { sock } = await mountApp();
     await openAgentPane(sock);
@@ -151,6 +167,20 @@ describe("polling getAgentHistory", () => {
     expect(document.querySelector(".agent-transcript")).toHaveTextContent("Résultat final");
     await push(sock, { ...message, revision: "completed", events: [{ kind: "text", text: "Résultat final" }] });
     expect(harnessSpies.materialize.mock.calls.length).toBe(first + 1);
+  });
+
+  it("actualise le badge depuis la fin attestée du transcript enfant", async () => {
+    const { sock } = await mountApp();
+    await openAgentPane(sock);
+    await push(sock, { type: "agentHistory", parentThreadId: THREAD_A.id, agentThreadId: AGENT_ID,
+      revision: "child-completed", events: [
+        { kind: "text", text: "Compte rendu de l'enfant" },
+        { kind: "done", ok: true, result: "Compte rendu de l'enfant", ts: Date.now() + 1 },
+      ] });
+    const panel = document.querySelector(".agent-detail-panel") as HTMLElement;
+    expect(panel).toBeVisible();
+    expect(panel).toHaveTextContent("Done");
+    expect(panel).not.toHaveTextContent("Working");
   });
 
   it("interroge pendant le tour parent puis s'arrête au done", async () => {

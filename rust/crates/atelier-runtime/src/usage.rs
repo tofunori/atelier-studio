@@ -90,7 +90,12 @@ fn claude_token_from_file(path: &Path) -> Option<String> {
 /// `.credentials.json` n'existe pas (cas courant depuis 2025).
 fn claude_token_from_keychain() -> Option<String> {
     let out = std::process::Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -172,7 +177,9 @@ fn all_jsonl(dir: &Path, depth: u8, out: &mut Vec<(PathBuf, u64)>) {
 
 /// Complète `resets_at` (epoch s) depuis `resets_in_seconds` quand absent.
 fn codex_fill_resets(limit: &mut Value, ref_s: u64) {
-    let Some(o) = limit.as_object_mut() else { return };
+    let Some(o) = limit.as_object_mut() else {
+        return;
+    };
     if !o.contains_key("resets_at") {
         if let Some(s) = o.get("resets_in_seconds").and_then(Value::as_u64) {
             o.insert("resets_at".into(), json!(ref_s + s));
@@ -190,14 +197,20 @@ pub fn codex_rate_limits(base: &Path) -> Option<Value> {
     all_jsonl(base, 0, &mut files);
     files.sort_by(|a, b| b.1.cmp(&a.1));
     for (path, mtime_ms) in files.into_iter().take(10) {
-        let Ok(raw) = fs::read_to_string(&path) else { continue };
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
         for line in raw.lines().rev() {
-            let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
             let Some(pl) = v.get("payload") else { continue };
             if pl.get("type").and_then(Value::as_str) != Some("token_count") {
                 continue;
             }
-            let Some(rl) = pl.get("rate_limits") else { continue };
+            let Some(rl) = pl.get("rate_limits") else {
+                continue;
+            };
             if !rl.get("primary").is_some_and(Value::is_object)
                 && !rl.get("secondary").is_some_and(Value::is_object)
             {
@@ -228,7 +241,9 @@ pub fn grok_credits(log_path: &Path, now_epoch_s: u64) -> Option<Value> {
         if !line.contains("billing: fetched credits config") {
             continue;
         }
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         let cfg = v.pointer("/ctx/config")?;
         let used = cfg.get("creditUsagePercent").and_then(Value::as_f64)?;
         let resets_at = cfg
@@ -267,7 +282,9 @@ pub fn kimi_today(base: &Path, midnight_ms: u64) -> Option<Value> {
     let (mut input, mut output, mut turns) = (0u64, 0u64, 0u64);
     for wd in fs::read_dir(base).ok()? {
         let Ok(wd) = wd else { continue };
-        let Ok(sessions) = fs::read_dir(wd.path()) else { continue };
+        let Ok(sessions) = fs::read_dir(wd.path()) else {
+            continue;
+        };
         for s in sessions.flatten() {
             let wire = s.path().join("agents/main/wire.jsonl");
             let fresh = fs::metadata(&wire)
@@ -278,9 +295,13 @@ pub fn kimi_today(base: &Path, midnight_ms: u64) -> Option<Value> {
             if !fresh {
                 continue;
             }
-            let Ok(raw) = fs::read_to_string(&wire) else { continue };
+            let Ok(raw) = fs::read_to_string(&wire) else {
+                continue;
+            };
             for line in raw.lines() {
-                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
                 if v.get("type").and_then(Value::as_str) != Some("usage.record")
                     || v.get("usageScope").and_then(Value::as_str) != Some("turn")
                     || v.get("time").and_then(Value::as_u64).unwrap_or(0) < midnight_ms
@@ -304,7 +325,9 @@ pub fn local_midnight_ms() -> u64 {
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .and_then(|n| n.and_local_timezone(Local).single());
-    midnight.map(|d| d.timestamp_millis().max(0) as u64).unwrap_or(0)
+    midnight
+        .map(|d| d.timestamp_millis().max(0) as u64)
+        .unwrap_or(0)
 }
 
 // --------------------------------------------------------------- collect ---
@@ -386,9 +409,24 @@ mod tests {
             "seven_day": {"utilization": 87.0, "resets_at": 1766900000},
         });
         let d = map_claude_oauth(&oauth).unwrap();
-        assert_eq!(d.pointer("/primary/used_percent").unwrap().as_f64().unwrap(), 42.0);
-        assert_eq!(d.pointer("/secondary/used_percent").unwrap().as_f64().unwrap(), 87.0);
-        assert_eq!(d.pointer("/primary/resets_at").unwrap().as_i64().unwrap(), 1766400000);
+        assert_eq!(
+            d.pointer("/primary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            42.0
+        );
+        assert_eq!(
+            d.pointer("/secondary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            87.0
+        );
+        assert_eq!(
+            d.pointer("/primary/resets_at").unwrap().as_i64().unwrap(),
+            1766400000
+        );
     }
 
     #[test]
@@ -424,7 +462,13 @@ mod tests {
         )
         .unwrap();
         let out = codex_rate_limits(tmp.path()).unwrap();
-        assert_eq!(out.pointer("/data/primary/used_percent").unwrap().as_f64().unwrap(), 33.0);
+        assert_eq!(
+            out.pointer("/data/primary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            33.0
+        );
     }
 
     #[test]
@@ -450,10 +494,28 @@ mod tests {
         )
         .unwrap();
         let out = codex_rate_limits(tmp.path()).unwrap();
-        assert_eq!(out.pointer("/data/primary/used_percent").unwrap().as_f64().unwrap(), 55.5);
-        assert_eq!(out.pointer("/data/secondary/used_percent").unwrap().as_f64().unwrap(), 12.0);
+        assert_eq!(
+            out.pointer("/data/primary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            55.5
+        );
+        assert_eq!(
+            out.pointer("/data/secondary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            12.0
+        );
         // resets_at complété depuis resets_in_seconds
-        assert!(out.pointer("/data/primary/resets_at").unwrap().as_u64().unwrap() > 0);
+        assert!(
+            out.pointer("/data/primary/resets_at")
+                .unwrap()
+                .as_u64()
+                .unwrap()
+                > 0
+        );
     }
 
     #[test]
@@ -478,10 +540,22 @@ mod tests {
             .unwrap()
             .timestamp() as u64;
         let out = grok_credits(&log, line_s + 7200).unwrap();
-        assert_eq!(out.pointer("/data/primary/used_percent").unwrap().as_f64().unwrap(), 8.0);
+        assert_eq!(
+            out.pointer("/data/primary/used_percent")
+                .unwrap()
+                .as_f64()
+                .unwrap(),
+            8.0
+        );
         assert_eq!(out.get("label").unwrap().as_str().unwrap(), "SuperGrok");
         assert_eq!(out.get("stale_s").unwrap().as_u64().unwrap(), 7200);
-        assert!(out.pointer("/data/primary/resets_at").unwrap().as_i64().unwrap() > 0);
+        assert!(
+            out.pointer("/data/primary/resets_at")
+                .unwrap()
+                .as_i64()
+                .unwrap()
+                > 0
+        );
     }
 
     #[test]

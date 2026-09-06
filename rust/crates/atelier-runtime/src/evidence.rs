@@ -78,7 +78,9 @@ pub fn is_valid_gbrain_slug(slug: &str) -> bool {
         seg != "."
             && seg != ".."
             && !seg.is_empty()
-            && seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+            && seg
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
     })
 }
 
@@ -328,8 +330,14 @@ mod tests {
         use is_valid_gbrain_slug as evidence_read_slug;
 
         // Accord sur les cas réels usuels (les deux acceptent).
-        for slug in ["papers/acp-19-1393-2019", "articles/aoki-2022-melting-alpine-glaciers-under"] {
-            assert!(kb_write_slug(slug) && evidence_read_slug(slug), "cas réel accepté par les deux: {slug}");
+        for slug in [
+            "papers/acp-19-1393-2019",
+            "articles/aoki-2022-melting-alpine-glaciers-under",
+        ] {
+            assert!(
+                kb_write_slug(slug) && evidence_read_slug(slug),
+                "cas réel accepté par les deux: {slug}"
+            );
         }
 
         // Divergence délibérée : `evidence` (lecture d'un lien déjà émis)
@@ -374,7 +382,10 @@ mod tests {
         let pins = add_pin(&dir, "/proj/g", pin.clone()).unwrap();
         assert_eq!(pins.len(), 1);
         assert_eq!(pins[0].source, "gbrain");
-        assert_eq!(pins[0].gbrain_slug.as_deref(), Some("williamson-2021-fire-aerosol"));
+        assert_eq!(
+            pins[0].gbrain_slug.as_deref(),
+            Some("williamson-2021-fire-aerosol")
+        );
         // dédup sur (gbrain_slug, quote), pas (pdf_key vide, page 0, quote) : toujours 1
         assert_eq!(add_pin(&dir, "/proj/g", pin.clone()).unwrap().len(), 1);
 

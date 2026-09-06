@@ -63,7 +63,9 @@ pub fn new_widget_id() -> String {
 pub fn is_valid_widget_id(id: &str) -> bool {
     id.len() == 18
         && id.starts_with("w_")
-        && id[2..].chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        && id[2..]
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 fn escape_html(raw: &str) -> String {
@@ -82,9 +84,13 @@ pub fn extract_scripts(html: &str) -> String {
     let mut i = 0;
     while let Some(rel) = bas[i..].find("<script") {
         let ouvre = i + rel;
-        let Some(rel_fin_balise) = bas[ouvre..].find('>') else { break };
+        let Some(rel_fin_balise) = bas[ouvre..].find('>') else {
+            break;
+        };
         let debut = ouvre + rel_fin_balise + 1;
-        let Some(rel_fermeture) = bas[debut..].find("</script") else { break };
+        let Some(rel_fermeture) = bas[debut..].find("</script") else {
+            break;
+        };
         let fin = debut + rel_fermeture;
         out.push_str(&html[debut..fin]);
         out.push('\n');
@@ -100,38 +106,138 @@ pub fn extract_scripts(html: &str) -> String {
 /// Un oubli ici ferait un FAUX REFUS : en cas de doute, ajouter le nom.
 const GLOBAUX_PERMIS: &[&str] = &[
     // langage
-    "globalThis", "undefined", "NaN", "Infinity", "Math", "JSON", "Number",
-    "String", "Array", "Object", "Boolean", "Symbol", "BigInt", "Date",
-    "RegExp", "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy",
-    "Reflect", "Intl", "Error", "TypeError", "RangeError", "SyntaxError",
-    "parseFloat", "parseInt", "isNaN", "isFinite", "structuredClone",
-    "queueMicrotask", "console", "arguments", "eval",
-    "Float32Array", "Float64Array", "Int8Array", "Int16Array", "Int32Array",
-    "Uint8Array", "Uint16Array", "Uint32Array", "Uint8ClampedArray",
-    "ArrayBuffer", "DataView",
-    "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
-    "atob", "btoa", "TextEncoder", "TextDecoder", "URL", "URLSearchParams",
+    "globalThis",
+    "undefined",
+    "NaN",
+    "Infinity",
+    "Math",
+    "JSON",
+    "Number",
+    "String",
+    "Array",
+    "Object",
+    "Boolean",
+    "Symbol",
+    "BigInt",
+    "Date",
+    "RegExp",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Promise",
+    "Proxy",
+    "Reflect",
+    "Intl",
+    "Error",
+    "TypeError",
+    "RangeError",
+    "SyntaxError",
+    "parseFloat",
+    "parseInt",
+    "isNaN",
+    "isFinite",
+    "structuredClone",
+    "queueMicrotask",
+    "console",
+    "arguments",
+    "eval",
+    "Float32Array",
+    "Float64Array",
+    "Int8Array",
+    "Int16Array",
+    "Int32Array",
+    "Uint8Array",
+    "Uint16Array",
+    "Uint32Array",
+    "Uint8ClampedArray",
+    "ArrayBuffer",
+    "DataView",
+    "encodeURIComponent",
+    "decodeURIComponent",
+    "encodeURI",
+    "decodeURI",
+    "atob",
+    "btoa",
+    "TextEncoder",
+    "TextDecoder",
+    "URL",
+    "URLSearchParams",
     // navigateur
-    "window", "document", "navigator", "location", "screen", "self",
-    "parent", "frames", "history", "innerWidth", "innerHeight",
-    "devicePixelRatio", "performance", "crypto", "getComputedStyle",
-    "matchMedia", "alert", "getSelection",
-    "setTimeout", "clearTimeout", "setInterval", "clearInterval",
-    "requestAnimationFrame", "cancelAnimationFrame", "requestIdleCallback",
-    "cancelIdleCallback", "addEventListener", "removeEventListener",
-    "dispatchEvent", "postMessage",
-    "Event", "CustomEvent", "KeyboardEvent", "MouseEvent", "PointerEvent",
-    "WheelEvent", "TouchEvent", "MessageEvent", "AbortController",
-    "ResizeObserver", "IntersectionObserver", "MutationObserver",
-    "Image", "Audio", "Path2D", "DOMMatrix", "DOMPoint", "DOMRect",
-    "ImageData", "OffscreenCanvas", "FontFace", "Option", "Node", "Element",
-    "HTMLElement", "HTMLCanvasElement", "SVGElement", "DocumentFragment",
-    "Blob", "File", "FileReader", "FormData",
+    "window",
+    "document",
+    "navigator",
+    "location",
+    "screen",
+    "self",
+    "parent",
+    "frames",
+    "history",
+    "innerWidth",
+    "innerHeight",
+    "devicePixelRatio",
+    "performance",
+    "crypto",
+    "getComputedStyle",
+    "matchMedia",
+    "alert",
+    "getSelection",
+    "setTimeout",
+    "clearTimeout",
+    "setInterval",
+    "clearInterval",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "requestIdleCallback",
+    "cancelIdleCallback",
+    "addEventListener",
+    "removeEventListener",
+    "dispatchEvent",
+    "postMessage",
+    "Event",
+    "CustomEvent",
+    "KeyboardEvent",
+    "MouseEvent",
+    "PointerEvent",
+    "WheelEvent",
+    "TouchEvent",
+    "MessageEvent",
+    "AbortController",
+    "ResizeObserver",
+    "IntersectionObserver",
+    "MutationObserver",
+    "Image",
+    "Audio",
+    "Path2D",
+    "DOMMatrix",
+    "DOMPoint",
+    "DOMRect",
+    "ImageData",
+    "OffscreenCanvas",
+    "FontFace",
+    "Option",
+    "Node",
+    "Element",
+    "HTMLElement",
+    "HTMLCanvasElement",
+    "SVGElement",
+    "DocumentFragment",
+    "Blob",
+    "File",
+    "FileReader",
+    "FormData",
     // bloqués par la CSP à l'exécution, mais référençables sans faute
-    "fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage",
-    "indexedDB", "Worker",
+    "fetch",
+    "XMLHttpRequest",
+    "WebSocket",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "Worker",
     // le pont de la coquille
-    "saveState", "sendPrompt", "onRestore",
+    "saveState",
+    "sendPrompt",
+    "onRestore",
 ];
 
 /// Analyse STATIQUE du script du widget — pure Rust (oxc), aucune exécution,
@@ -279,7 +385,10 @@ pub fn write_widget(
     shell: &str,
 ) -> std::io::Result<PathBuf> {
     let path = widget_path(app_dir, thread_id, id).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "identifiant de widget invalide")
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "identifiant de widget invalide",
+        )
     })?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -468,7 +577,10 @@ dans le fil, tu n'as donc pas de panneau à remplacer."
         tracing::warn!("widget non écrit : {e}");
         "widget_write_failed".to_string()
     })?;
-    purge_oldest(&widget_dir(state.app_dir(), caller_id), FILES_PER_THREAD_MAX);
+    purge_oldest(
+        &widget_dir(state.app_dir(), caller_id),
+        FILES_PER_THREAD_MAX,
+    );
 
     let sequence = state.journal().last_sequence(caller_id) + 1;
     let ts = std::time::SystemTime::now()
@@ -509,9 +621,24 @@ mod tests {
 
     #[test]
     fn height_is_clamped_never_rejected() {
-        assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 10)).unwrap().height, HEIGHT_MIN);
-        assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 5000)).unwrap().height, HEIGHT_MAX);
-        assert_eq!(parse_widget_input(&req("<p>a</p>", "t", 300)).unwrap().height, 300);
+        assert_eq!(
+            parse_widget_input(&req("<p>a</p>", "t", 10))
+                .unwrap()
+                .height,
+            HEIGHT_MIN
+        );
+        assert_eq!(
+            parse_widget_input(&req("<p>a</p>", "t", 5000))
+                .unwrap()
+                .height,
+            HEIGHT_MAX
+        );
+        assert_eq!(
+            parse_widget_input(&req("<p>a</p>", "t", 300))
+                .unwrap()
+                .height,
+            300
+        );
     }
 
     #[test]
@@ -606,9 +733,15 @@ mod tests {
         let input = parse_widget_input(&req("<p>salut</p>", "titre", 240)).unwrap();
         let shell = wrap_shell(&input);
         assert!(shell.contains("default-src 'none'"));
-        assert!(!shell.contains("connect-src"), "aucune requête réseau autorisée");
+        assert!(
+            !shell.contains("connect-src"),
+            "aucune requête réseau autorisée"
+        );
         assert!(!shell.contains("font-src"), "aucune police distante");
-        assert!(shell.contains("<p>salut</p>"), "le contenu de l'agent est présent");
+        assert!(
+            shell.contains("<p>salut</p>"),
+            "le contenu de l'agent est présent"
+        );
         assert!(shell.contains("sendPrompt"), "le pont est injecté");
     }
 
@@ -618,8 +751,10 @@ mod tests {
         let id = new_widget_id();
         let input = parse_widget_input(&req("<p>legacy</p>", "t", 420)).unwrap();
         let current = wrap_shell(&input);
-        let legacy = current.replace(&format!("{PRESENTATION}\n"), "")
-            .replace("catch (err) { post({ source: \"atelier-widget\", type: \"error\" }); }", "catch (err) { }");
+        let legacy = current.replace(&format!("{PRESENTATION}\n"), "").replace(
+            "catch (err) { post({ source: \"atelier-widget\", type: \"error\" }); }",
+            "catch (err) { }",
+        );
         write_widget(dir.path(), "t1", &id, &legacy).unwrap();
         let served = serve_body(dir.path(), "t1", &id).unwrap();
         assert_eq!(served, current);
@@ -648,21 +783,34 @@ mod tests {
         let shell = wrap_shell(&input);
         // spec §D : `state` est débouncé à 200 ms DANS la coquille — c'est là
         // que ça coûte le moins et que ça protège le thread de l'hôte.
-        assert!(shell.contains("STATE_MIN_MS = 200"), "débounce de 200 ms absent");
-        assert!(shell.contains("setTimeout(flushState"), "pas de report d'envoi");
+        assert!(
+            shell.contains("STATE_MIN_MS = 200"),
+            "débounce de 200 ms absent"
+        );
+        assert!(
+            shell.contains("setTimeout(flushState"),
+            "pas de report d'envoi"
+        );
         assert!(
             shell.contains("hasPending = true"),
             "la dernière valeur de la fenêtre doit être conservée"
         );
         // spec §F : Échap doit SORTIR de l'iframe. Le keydown d'une frame
         // d'origine opaque ne remonte pas au parent : il faut le relayer.
-        assert!(shell.contains(r#"e.key !== "Escape""#), "pas d'écouteur Échap");
-        assert!(shell.contains(r#"type: "escape""#), "Échap n'est pas relayé à l'hôte");
+        assert!(
+            shell.contains(r#"e.key !== "Escape""#),
+            "pas d'écouteur Échap"
+        );
+        assert!(
+            shell.contains(r#"type: "escape""#),
+            "Échap n'est pas relayé à l'hôte"
+        );
     }
 
     #[test]
     fn shell_does_not_let_a_title_break_out_of_the_tag() {
-        let input = parse_widget_input(&req("<p>a</p>", "</title><script>boom()</script>", 200)).unwrap();
+        let input =
+            parse_widget_input(&req("<p>a</p>", "</title><script>boom()</script>", 200)).unwrap();
         let shell = wrap_shell(&input);
         assert!(!shell.contains("<script>boom()</script>"));
         assert!(shell.contains("&lt;/title&gt;"));
@@ -736,7 +884,10 @@ mod tests {
         // le HTML ne DOIT PAS voyager dans l'event : il gonflerait le JSONL
         // et repasserait dans le contexte du modèle au rejeu.
         let serialized = serde_json::to_string(&ev).unwrap();
-        assert!(!serialized.contains("lourd"), "le HTML a fuité dans l'event");
+        assert!(
+            !serialized.contains("lourd"),
+            "le HTML a fuité dans l'event"
+        );
     }
 
     #[test]
@@ -838,7 +989,9 @@ mod tests {
         assert_eq!(ev["meta"]["threadId"], "t1");
         assert_eq!(ev["meta"]["turnId"], "turn-7");
         assert!(ev["meta"]["sequence"].is_u64());
-        assert!(ev["meta"]["eventId"].as_str().is_some_and(|s| !s.is_empty()));
+        assert!(ev["meta"]["eventId"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()));
         assert!(ev["meta"]["ts"].as_i64().is_some_and(|t| t > 0));
         assert!(ev.get("html").is_none(), "le HTML ne doit pas voyager");
 
@@ -985,10 +1138,10 @@ performance.now(); crypto.getRandomValues(new Uint8Array(4));
 
     #[test]
     fn les_blocs_script_sont_tous_extraits() {
-        let html = r#"<script>var a=1;</script><p>x</p><script type="text/javascript">var b=2;</script>"#;
+        let html =
+            r#"<script>var a=1;</script><p>x</p><script type="text/javascript">var b=2;</script>"#;
         let s = extract_scripts(html);
         assert!(s.contains("var a=1;") && s.contains("var b=2;"));
         assert!(!s.contains("<p>"));
     }
 }
-

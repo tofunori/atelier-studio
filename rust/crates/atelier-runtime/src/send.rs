@@ -9,10 +9,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Keep runtime context when the provider uses structured image/skill inputs.
-fn enrich_structured_inputs(inputs: Option<Vec<Value>>, raw: &str, enriched: &str) -> Option<Vec<Value>> {
+fn enrich_structured_inputs(
+    inputs: Option<Vec<Value>>,
+    raw: &str,
+    enriched: &str,
+) -> Option<Vec<Value>> {
     inputs.map(|mut items| {
-        let matched = items.iter_mut().find(|item| item.get("type").and_then(Value::as_str) == Some("text")
-            && item.get("text").and_then(Value::as_str).is_some_and(|text| text.starts_with(raw)));
+        let matched = items.iter_mut().find(|item| {
+            item.get("type").and_then(Value::as_str) == Some("text")
+                && item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text.starts_with(raw))
+        });
         if let Some(item) = matched {
             let tail = item["text"].as_str().unwrap_or("")[raw.len()..].to_string();
             item["text"] = json!(format!("{enriched}{tail}"));
@@ -60,7 +69,7 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
     if server_dir.is_empty() {
         return prompt;
     }
-    let tool = std::path::Path::new(server_dir).join("atelier-zotero-passages-rs");  // bascule soak 065
+    let tool = std::path::Path::new(server_dir).join("atelier-zotero-passages-rs"); // bascule soak 065
     let base = format!(
         "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n\nWhen the user asks for a reference or supporting evidence for a sentence they are writing and no PARTICULAR article is in play, call the tool once with `search --corpus --query <the-claim> --limit 5` instead — do not ask them to attach anything. Asking the user to attach a PDF from Zotero applies ONLY when they name a specific article whose local PDF metadata is missing. When you present a found passage as the answer, put its markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep your explanation in separate paragraphs.\n</atelier-zotero-passages>",
         serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
@@ -873,8 +882,13 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let folder_settings = atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null);
-    let additional_directories = crate::project_folders::writable(&project_root, &folder_settings, msg.get("additionalDirectories"));
+    let folder_settings =
+        atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null);
+    let additional_directories = crate::project_folders::writable(
+        &project_root,
+        &folder_settings,
+        msg.get("additionalDirectories"),
+    );
     let title = msg
         .get("title")
         .and_then(|v| v.as_str())
@@ -965,7 +979,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .filter(|context| !context.is_empty())
         .map(|context| format!("{context}{prompt}"))
         .unwrap_or_else(|| prompt.clone());
-    let provider_prompt = format!("{}{}", provider_prompt, crate::project_folders::context(&project_root, &folder_settings));
+    let provider_prompt = format!(
+        "{}{}",
+        provider_prompt,
+        crate::project_folders::context(&project_root, &folder_settings)
+    );
     let provider_prompt = with_file_scope_instruction(provider_prompt);
     // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
     // message alors que l'historique natif du provider les conserve tous — une
@@ -1110,7 +1128,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         normalize_display_event(msg)
     };
     // Server-authored snapshot: never accept a client's claim of delivery.
-    if !origin_agent { user_event["context"] = context_receipt; }
+    if !origin_agent {
+        user_event["context"] = context_receipt;
+    }
     let client_mid = msg
         .get("clientMessageId")
         .and_then(|v| v.as_str())
@@ -1894,14 +1914,29 @@ mod steer_capacite_tests {
 mod tests {
     #[test]
     fn structured_inputs_keep_runtime_context_and_skill_tail() {
-        let items = super::enrich_structured_inputs(Some(vec![
-            serde_json::json!({"type":"text","text":"question\n\nskill instruction"}),
-            serde_json::json!({"type":"local_image","path":"/tmp/image.png"}),
-        ]), "question", "fork question knowledge").unwrap();
-        assert_eq!(items[0]["text"], "fork question knowledge\n\nskill instruction");
+        let items = super::enrich_structured_inputs(
+            Some(vec![
+                serde_json::json!({"type":"text","text":"question\n\nskill instruction"}),
+                serde_json::json!({"type":"local_image","path":"/tmp/image.png"}),
+            ]),
+            "question",
+            "fork question knowledge",
+        )
+        .unwrap();
+        assert_eq!(
+            items[0]["text"],
+            "fork question knowledge\n\nskill instruction"
+        );
         assert_eq!(items[1]["path"], "/tmp/image.png");
         assert!(super::enrich_structured_inputs(None, "q", "q context").is_none());
-        let image_only = super::enrich_structured_inputs(Some(vec![serde_json::json!({"type":"local_image","path":"/tmp/a.png"})]), "q", "q context").unwrap();
+        let image_only = super::enrich_structured_inputs(
+            Some(vec![
+                serde_json::json!({"type":"local_image","path":"/tmp/a.png"}),
+            ]),
+            "q",
+            "q context",
+        )
+        .unwrap();
         assert_eq!(image_only[0]["text"], "q context");
         assert_eq!(image_only.len(), 2);
     }
@@ -1975,8 +2010,16 @@ mod tests {
         // Standard par défaut : rien dans le message, rien dans l'historique.
         assert!(!turn_fast_mode(&json!({}), &json!({}), true));
         // Choix explicite du composer.
-        assert!(turn_fast_mode(&json!({"fastMode": true}), &json!({}), false));
-        assert!(!turn_fast_mode(&json!({"fastMode": false}), &last_fast, true));
+        assert!(turn_fast_mode(
+            &json!({"fastMode": true}),
+            &json!({}),
+            false
+        ));
+        assert!(!turn_fast_mode(
+            &json!({"fastMode": false}),
+            &last_fast,
+            true
+        ));
         // Renvoi nu : reprise du dernier tour du MÊME provider seulement.
         assert!(turn_fast_mode(&json!({}), &last_fast, true));
         assert!(!turn_fast_mode(&json!({}), &last_fast, false));
@@ -1986,21 +2029,40 @@ mod tests {
     async fn claude_steer_receipt_defers_instructions_with_explicit_or_implicit_mode() {
         for mode in [Some("steer"), None] {
             let dir = tempdir().unwrap();
-            let state = AppState::new(AppPaths::from_app_dir(dir.path().to_path_buf()), None,
-                "t".into(), "0.1.0".into(), "h".into(), "/tmp".into())
-                .with_slow_test_provider("claude", 250);
+            let state = AppState::new(
+                AppPaths::from_app_dir(dir.path().to_path_buf()),
+                None,
+                "t".into(),
+                "0.1.0".into(),
+                "h".into(),
+                "/tmp".into(),
+            )
+            .with_slow_test_provider("claude", 250);
             let first = json!({"type":"send","threadId":"t-deferred","provider":"claude","prompt":"first",
                 "projectRoot":dir.path().to_string_lossy()});
             handle_send(&state, &first).await;
             assert!(state.harness().is_running("t-deferred").await);
-            state.threads().lock().await.upsert(json!({"id":"t-deferred",
-                "consigne":{"id":"new","texte":"Nouvelle règle"}}), false).unwrap();
+            state
+                .threads()
+                .lock()
+                .await
+                .upsert(
+                    json!({"id":"t-deferred",
+                "consigne":{"id":"new","texte":"Nouvelle règle"}}),
+                    false,
+                )
+                .unwrap();
             let mut next = first.clone();
             next["prompt"] = json!("follow-up");
-            if let Some(mode) = mode { next["mode"] = json!(mode); }
+            if let Some(mode) = mode {
+                next["mode"] = json!(mode);
+            }
             handle_send(&state, &next).await;
             let events = state.journal().materialize("t-deferred");
-            let receipt = &events.iter().find(|e| e["kind"] == "user" && e["text"] == "follow-up").unwrap()["context"];
+            let receipt = &events
+                .iter()
+                .find(|e| e["kind"] == "user" && e["text"] == "follow-up")
+                .unwrap()["context"];
             assert_eq!(receipt["consigneDeferred"], true);
             assert_eq!(receipt["consigne"], Value::Null);
             handle_interrupt(&state, &json!({"type":"interrupt","threadId":"t-deferred"})).await;
@@ -2377,17 +2439,32 @@ mod tests {
             vec!["config", "user.email", "t@test"],
             vec!["config", "user.name", "t"],
         ] {
-            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
         }
         std::fs::write(dir.path().join("a.txt"), b"un\n").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let sha = atelier_workspace::snapshot(root).unwrap();
         std::fs::write(dir.path().join("a.txt"), b"un\ndeux\n").unwrap();
 
         let event = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), None);
         assert_eq!(event["filesChanged"], json!(["a.txt"]));
-        assert_eq!(event["fileStats"], json!([{"path":"a.txt","add":1,"del":0}]));
+        assert_eq!(
+            event["fileStats"],
+            json!([{"path":"a.txt","add":1,"del":0}])
+        );
         assert_eq!(event["checkpoint"]["filesChanged"], json!(["a.txt"]));
     }
 
@@ -2404,11 +2481,23 @@ mod tests {
             vec!["config", "user.email", "t@test"],
             vec!["config", "user.name", "t"],
         ] {
-            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
         }
         std::fs::write(dir.path().join("README.md"), b"x\n").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let sha = atelier_workspace::snapshot(root).unwrap();
         // Le tour : un script modifié, une figure créée (untracked), et une
         // capture de viewer qui ne doit surtout pas être prise pour une figure.
@@ -2453,7 +2542,10 @@ mod tests {
         assert_eq!(entry["commands"], json!(["python3 plot.py"]));
         assert_eq!(entry["snapshotSha"], sha);
         assert!(entry["head"].as_str().is_some_and(|h| h.len() >= 7));
-        assert!(!dir.path().join("figures/_view_trend.png.prov.json").exists());
+        assert!(!dir
+            .path()
+            .join("figures/_view_trend.png.prov.json")
+            .exists());
     }
 
     /// Sans contexte de provenance (`None`), le `done` ne dépose rien : les
@@ -2467,11 +2559,23 @@ mod tests {
             vec!["config", "user.email", "t@test"],
             vec!["config", "user.name", "t"],
         ] {
-            std::process::Command::new("git").args(&args).current_dir(dir.path()).output().unwrap();
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
         }
         std::fs::write(dir.path().join("README.md"), b"x\n").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let sha = atelier_workspace::snapshot(root).unwrap();
         std::fs::write(dir.path().join("fig.png"), b"\x89PNG\r\n").unwrap();
         let _ = normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), None);
@@ -2564,10 +2668,7 @@ mod tests {
         assert!(enriched.contains("ATELIER_FIGURE_QC=off"));
 
         // sans server_dir (tests, environnements nus) : prompt inchangé
-        assert_eq!(
-            with_figure_qc_instruction("p".into(), ""),
-            "p".to_string()
-        );
+        assert_eq!(with_figure_qc_instruction("p".into(), ""), "p".to_string());
     }
 
     /// Le module Python part dans le bundle par stage-rust-server.sh : un
@@ -2643,7 +2744,9 @@ mod tests {
             file: Some("intro.tex".into()),
             lines: Some("L42".into()),
         };
-        let out = expand_ref_command("/ref", Some(sel)).unwrap().expect("expansion");
+        let out = expand_ref_command("/ref", Some(sel))
+            .unwrap()
+            .expect("expansion");
         assert!(out.contains("« La fonte estivale s'accélère. »"));
         assert!(out.contains("(sélectionnée dans intro.tex, L42)"));
     }
@@ -2651,8 +2754,12 @@ mod tests {
     #[test]
     fn ref_command_ignore_les_prompts_ordinaires_et_les_prefixes_voisins() {
         assert!(expand_ref_command("bonjour", None).unwrap().is_none());
-        assert!(expand_ref_command("/refactor ce module", None).unwrap().is_none());
-        assert!(expand_ref_command("parle-moi de /ref", None).unwrap().is_none());
+        assert!(expand_ref_command("/refactor ce module", None)
+            .unwrap()
+            .is_none());
+        assert!(expand_ref_command("parle-moi de /ref", None)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

@@ -256,10 +256,16 @@ mod tests {
             if matches!(*t, "upsertThread" | "projectFolderCatalog") {
                 continue; // Rust convenience alias and asynchronous project-folder catalog
             }
-            if matches!(*t, "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview") {
+            if matches!(
+                *t,
+                "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview"
+            ) {
                 continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
             }
-            if matches!(*t, "computeSnapshot" | "computeReadLog" | "computeForgetRun") {
+            if matches!(
+                *t,
+                "computeSnapshot" | "computeReadLog" | "computeForgetRun"
+            ) {
                 continue; // calculs : contrat Rust seulement
             }
             assert!(

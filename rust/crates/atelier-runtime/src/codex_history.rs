@@ -180,6 +180,13 @@ const COLLAB_TOOLS: [&str; 5] = [
     "close_agent",
 ];
 
+/// Le protocole natif encode les messages inter-agents dans des appels
+/// `collaboration.send_message`. Leurs arguments peuvent contenir un blob
+/// chiffré : ils ne doivent jamais être envoyés au transcript.
+fn is_internal_collaboration_call(name: &str, namespace: Option<&str>) -> bool {
+    namespace == Some("collaboration") && name == "send_message"
+}
+
 /// Ids d'agents cités par un blob JSON (`agent_thread_ids` ou `agent_thread_id`).
 fn agent_ids_from_json(raw: &str) -> Vec<String> {
     let Ok(value) = serde_json::from_str::<Value>(raw) else {
@@ -221,7 +228,10 @@ fn agent_activity(name: &str, arguments: &str, output: &str) -> Value {
     }
     let mut states = serde_json::Map::new();
     for id in &ids {
-        states.insert(id.clone(), json!({"status": "running", "message": Value::Null}));
+        states.insert(
+            id.clone(),
+            json!({"status": "running", "message": Value::Null}),
+        );
     }
     json!({
         "tool": name,
@@ -254,6 +264,36 @@ fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, statu
     })
 }
 
+/// Le nouveau rollout natif porte les réponses assistant dans
+/// `response_item.message.content[].output_text`; les anciens journaux
+/// utilisaient encore `message: String` sur `agent_message`.
+fn assistant_message_text(payload: &Value) -> Option<String> {
+    if payload.get("role").and_then(Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let text = payload
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("output_text"))
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn event_message(payload: &Value) -> Option<String> {
+    ["message", "last_agent_message", "reason", "error"]
+        .into_iter()
+        .filter_map(|key| payload.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(bound_output)
+}
+
 pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec<Value> {
     let Some(path) = find_session_file(base, session_id) else {
         return Vec::new();
@@ -262,9 +302,9 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         return Vec::new();
     };
     let mut events = Vec::new();
-    // call_id -> (name, input) ; Vec plutôt que HashMap pour garder l'ordre
-    // d'insertion des appels restés sans sortie (< 10³ appels par rollout).
-    let mut pending_calls: Vec<(String, String, String)> = Vec::new();
+    // call_id -> (name, input, namespace). Vec plutôt que HashMap pour garder
+    // l'ordre d'insertion des appels restés sans sortie (< 10³ appels).
+    let mut pending_calls: Vec<(String, String, String, Option<String>)> = Vec::new();
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         let Ok(row) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -291,20 +331,55 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                pending_calls.push((call_id(), name, input));
+                let namespace = payload
+                    .get("namespace")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                pending_calls.push((call_id(), name, input, namespace));
                 continue;
             }
             "custom_tool_call_output" | "function_call_output" => {
                 let id = call_id();
-                let Some(index) = pending_calls.iter().position(|(key, _, _)| *key == id) else {
+                let Some(index) = pending_calls.iter().position(|(key, _, _, _)| *key == id) else {
                     continue;
                 };
-                let (_, name, input) = pending_calls.remove(index);
+                let (_, name, input, namespace) = pending_calls.remove(index);
+                // La sortie native est vide, mais l'argument de
+                // collaboration.send_message peut être du ciphertext. Ne
+                // jamais le refléter dans `input.raw`, `detail` ou `output`.
+                if is_internal_collaboration_call(&name, namespace.as_deref()) {
+                    continue;
+                }
                 let output = payload
                     .get("output")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 events.push(tool_update_event(&id, &name, &input, output, "completed"));
+                continue;
+            }
+            "message" => {
+                if let Some(text) = assistant_message_text(payload) {
+                    events.push(json!({"kind": "text", "text": bound_output(&text)}));
+                }
+                continue;
+            }
+            "task_started" => {
+                events.push(json!({"kind": "started"}));
+                continue;
+            }
+            "task_complete" => {
+                events.push(json!({
+                    "kind": "done",
+                    "ok": true,
+                    "result": event_message(payload).unwrap_or_default(),
+                }));
+                continue;
+            }
+            "turn_aborted" | "task_failed" => {
+                events.push(json!({
+                    "kind": "error",
+                    "message": event_message(payload).unwrap_or_else(|| "Le sous-agent a été interrompu.".to_string()),
+                }));
                 continue;
             }
             "mcp_tool_call_end" => {
@@ -393,7 +468,10 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         events.push(json!({"kind": kind, "text": text}));
     }
     // appels restés sans sortie (rollout coupé) : les rendre quand même
-    for (id, name, input) in pending_calls {
+    for (id, name, input, namespace) in pending_calls {
+        if is_internal_collaboration_call(&name, namespace.as_deref()) {
+            continue;
+        }
         events.push(tool_update_event(&id, &name, &input, "", "inProgress"));
     }
     events
@@ -436,7 +514,10 @@ mod tests {
         assert_eq!(completed[0]["status"], "completed");
         assert_eq!(completed[0]["output"], "/tmp/project");
         assert_ne!(history_revision(&pending), history_revision(&completed));
-        assert_eq!(history_revision(&completed), history_revision(&load_codex_history_from_base(dir.path(), id)));
+        assert_eq!(
+            history_revision(&completed),
+            history_revision(&load_codex_history_from_base(dir.path(), id))
+        );
     }
 
     fn rollout_path(base: &Path, id: &str) -> PathBuf {
@@ -486,17 +567,36 @@ mod tests {
         let id = "019f5e20-34f6-76c2-bad0-442af9683acd";
         let path = rollout_path(dir.path(), id);
         let mut file = File::create(&path).unwrap();
-        writeln!(file, "{}", json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp/projet"}})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp/projet"}})
+        )
+        .unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"custom_tool_call","status":"completed","call_id":"c1","name":"exec","input":"const r = await tools.exec_command({cmd: \"wc -l a.py\"})"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"custom_tool_call_output","call_id":"c1","output":"42 a.py\n"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_reasoning","text":"Je compte les lignes."}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"m1","invocation":{"server":"scholar","tool":"search_papers","arguments":{"query":"albedo"}},"result":{"Ok":{"content":[{"type":"text","text":"3 articles"}]}}}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"patch_apply_end","call_id":"p1","stdout":"Success. Updated a.py\n","stderr":"","success":true}})).unwrap();
-        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"Fini."}})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","payload":{"type":"agent_message","message":"Fini."}})
+        )
+        .unwrap();
 
         let events = load_codex_history_from_base(dir.path(), id);
         let kinds: Vec<&str> = events.iter().map(|e| e["kind"].as_str().unwrap()).collect();
-        assert_eq!(kinds, ["tool_update", "thinking", "tool_update", "tool_update", "text"]);
+        assert_eq!(
+            kinds,
+            [
+                "tool_update",
+                "thinking",
+                "tool_update",
+                "tool_update",
+                "text"
+            ]
+        );
         assert_eq!(events[0]["id"], "c1");
         assert_eq!(events[0]["name"], "exec");
         assert_eq!(events[0]["output"], "42 a.py\n");
@@ -517,7 +617,12 @@ mod tests {
         let id = "019f5e20-34f6-76c2-bad0-442af9683acd";
         let path = rollout_path(dir.path(), id);
         let mut file = File::create(&path).unwrap();
-        writeln!(file, "{}", json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp"}})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"session_meta","payload":{"id": id, "cwd":"/tmp"}})
+        )
+        .unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"spawn_agent","call_id":"s1","arguments":"{\"prompt\":\"cherche X\"}"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call_output","call_id":"s1","output":"{\"agent_thread_id\":\"child-42\"}"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"wait","call_id":"w1","arguments":"{\"agent_thread_ids\":[\"child-42\"]}"}})).unwrap();
@@ -525,9 +630,73 @@ mod tests {
 
         let events = load_codex_history_from_base(dir.path(), id);
         assert_eq!(events[0]["name"], "agent:spawn_agent");
-        assert_eq!(events[0]["agentActivity"]["receiverThreadIds"][0], "child-42");
+        assert_eq!(
+            events[0]["agentActivity"]["receiverThreadIds"][0],
+            "child-42"
+        );
         assert_eq!(events[1]["name"], "agent:wait");
-        assert_eq!(events[1]["agentActivity"]["agentsStates"]["child-42"]["status"], "running");
+        assert_eq!(
+            events[1]["agentActivity"]["agentsStates"]["child-42"]["status"],
+            "running"
+        );
+    }
+
+    #[test]
+    fn reads_native_assistant_messages_and_terminal_status_without_ciphertext() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ace";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Lecture terminée."}]}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"send_message","call_id":"m1","arguments":"{\"message\":\"gAAAAA-ciphertext\"}"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"m1","output":""}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Résultat envoyé."}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["kind"] == "started")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events.iter().find(|event| event["kind"] == "text").unwrap()["text"],
+            "Lecture terminée."
+        );
+        let done = events.iter().find(|event| event["kind"] == "done").unwrap();
+        assert_eq!(done["ok"], true);
+        assert_eq!(done["result"], "Résultat envoyé.");
+        assert!(!events
+            .iter()
+            .any(|event| event.to_string().contains("gAAAAA")));
+        assert!(!events.iter().any(|event| event["name"] == "send_message"));
     }
 
     #[test]

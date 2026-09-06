@@ -8,21 +8,20 @@ use atelier_protocol::{ErrorMessage, PongMessage};
 use atelier_store::{get_all_ledgers, get_ledger, iso_now, read_settings, write_settings};
 use atelier_workspace::{
     check_frame, clear_pasted, commit as git_commit, commit_details as git_commit_details,
-    commit_file_contents as git_commit_file_contents,
-    create_branch as git_create_branch, create_branch_at as git_create_branch_at,
+    commit_file_contents as git_commit_file_contents, compute_forget_run, compute_read_log,
+    compute_snapshot, create_branch as git_create_branch, create_branch_at as git_create_branch_at,
     delete_branch as git_delete_branch, diff as git_diff, diff_contents as git_diff_contents,
-    diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands, list_file_catalog, list_pasted, log as git_log,
-    compute_forget_run, compute_read_log, compute_snapshot, merge_branch as git_merge_branch, narval_inspect_job,
-    narval_list_directory, narval_read_text,
-    narval_run_files, narval_snapshot, narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
+    diff_staged as git_diff_staged, fetch_all as git_fetch_all, ignore_pattern, list_commands,
+    list_file_catalog, list_pasted, log as git_log, merge_branch as git_merge_branch,
+    narval_inspect_job, narval_list_directory, narval_read_text, narval_run_files, narval_snapshot,
+    narval_status, pdf_absolute_path, pull as git_pull, push as git_push,
     reset_to_commit as git_reset_to_commit, restore as git_restore,
     restore_file_from_commit as git_restore_file_from_commit, revert_commit as git_revert_commit,
     revert_file, save_image, scan_local, stage_files, status as git_status,
     switch_branch as git_switch_branch, undo_last_commit as git_undo_last_commit, unstage_files,
     zotero_add_pdfs, zotero_available, zotero_collections, zotero_load_favs, zotero_search,
     zotero_toggle_fav, ComputeConfig, ComputeHost, ComputeHostError, ComputeSnapshot, NarvalError,
-    SystemExec,
-    TermEvent,
+    SystemExec, TermEvent,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -427,28 +426,44 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
-            if !settings.is_object() { return vec![json_msg(json!({"type":"settingsSaved","ok":false}))]; }
+            if !settings.is_object() {
+                return vec![json_msg(json!({"type":"settingsSaved","ok":false}))];
+            }
             let previous = read_settings(&state.settings_path()).unwrap_or_else(|| json!({}));
             let threads = state.threads().lock().await.list();
             let mut rejected = false;
             for thread in threads {
                 let root = &thread.project_root;
                 if crate::project_folders::scope_changed(root, &previous, &settings)
-                    && state.harness().is_running(&thread.id).await {
+                    && state.harness().is_running(&thread.id).await
+                {
                     if let Some(old) = previous.get("projectFolders").and_then(|v| v.get(root)) {
-                        if !settings["projectFolders"].is_object() { settings["projectFolders"] = json!({}); }
+                        if !settings["projectFolders"].is_object() {
+                            settings["projectFolders"] = json!({});
+                        }
                         settings["projectFolders"][root] = old.clone();
                     } else {
-                        if let Some(map) = settings.get_mut("projectFolders").and_then(Value::as_object_mut) { map.remove(root); }
-                        settings["additionalDirectories"] = json!(previous["additionalDirectories"].as_str().unwrap_or(""));
+                        if let Some(map) = settings
+                            .get_mut("projectFolders")
+                            .and_then(Value::as_object_mut)
+                        {
+                            map.remove(root);
+                        }
+                        settings["additionalDirectories"] =
+                            json!(previous["additionalDirectories"].as_str().unwrap_or(""));
                     }
                     rejected = true;
                 }
             }
             let ok_flag = write_settings(&state.settings_path(), &settings);
             if rejected {
-                vec![json_msg(json!({"type":"settingsSaved","ok":false,"reason":"project_running"})), json_msg(json!({"type":"settingsFile","settings":settings}))]
-            } else { vec![json_msg(json!({"type":"settingsSaved","ok": ok_flag}))] }
+                vec![
+                    json_msg(json!({"type":"settingsSaved","ok":false,"reason":"project_running"})),
+                    json_msg(json!({"type":"settingsFile","settings":settings})),
+                ]
+            } else {
+                vec![json_msg(json!({"type":"settingsSaved","ok": ok_flag}))]
+            }
         }
         "getLedger" => {
             let root = msg
@@ -488,10 +503,16 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             tokio::spawn(async move {
                 let response_root = root.clone();
                 let result = match CATALOG_WORKERS.try_acquire() {
-                    Ok(permit) => tokio::time::timeout(std::time::Duration::from_secs(12), tokio::task::spawn_blocking(move || {
-                        let _permit = permit;
-                        crate::project_folders::catalog(&root, &config)
-                    })).await.ok().and_then(Result::ok),
+                    Ok(permit) => tokio::time::timeout(
+                        std::time::Duration::from_secs(12),
+                        tokio::task::spawn_blocking(move || {
+                            let _permit = permit;
+                            crate::project_folders::catalog(&root, &config)
+                        }),
+                    )
+                    .await
+                    .ok()
+                    .and_then(Result::ok),
                     Err(_) => None,
                 };
                 state.publish(json_msg(json!({"type":"projectFolderCatalog","projectRoot":response_root,"requestId":request_id,"sources":result.clone().unwrap_or_else(|| json!([])),"error":if result.is_none() { Some("catalog_unavailable") } else { None }})));
@@ -634,7 +655,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .map(|list| list.iter().filter_map(Value::as_str).collect())
                 .filter(|list: &Vec<&str>| !list.is_empty());
             let hosts: Vec<ComputeHost> = match &requested {
-                Some(list) => list.iter().copied().filter_map(ComputeHost::parse).collect(),
+                Some(list) => list
+                    .iter()
+                    .copied()
+                    .filter_map(ComputeHost::parse)
+                    .collect(),
                 None => ComputeHost::ALL.to_vec(),
             };
             let days = msg
@@ -756,10 +781,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "listPlugins" => {
             let root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
-            let response = |plugins: Value, error: Option<String>| json_msg(json!({
-                "type": "plugins", "plugins": plugins, "error": error,
-                "projectRoot": root, "requestId": msg.get("requestId"),
-            }));
+            let response = |plugins: Value, error: Option<String>| {
+                json_msg(json!({
+                    "type": "plugins", "plugins": plugins, "error": error,
+                    "projectRoot": root, "requestId": msg.get("requestId"),
+                }))
+            };
             let Some(provider) = state.provider("codex") else {
                 return vec![response(json!([]), Some("provider Codex absent".into()))];
             };
@@ -767,7 +794,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .native_command("pluginsInstalled", json!({"projectRoot": root}))
                 .await
             {
-                Ok(value) => vec![response(value.get("plugins").cloned().unwrap_or_else(|| json!([])), None)],
+                Ok(value) => vec![response(
+                    value.get("plugins").cloned().unwrap_or_else(|| json!([])),
+                    None,
+                )],
                 Err(error) => vec![response(json!([]), Some(error))],
             }
         }
@@ -801,12 +831,25 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbList" => handle_kb_list(state),
         "getTurnContextPreview" => {
             let extra = std::collections::HashMap::from([
-                ("kbSourceIds".into(), msg.get("kbSourceIds").cloned().unwrap_or(json!([]))),
-                ("kbFullContent".into(), msg.get("kbFullContent").cloned().unwrap_or(json!([]))),
+                (
+                    "kbSourceIds".into(),
+                    msg.get("kbSourceIds").cloned().unwrap_or(json!([])),
+                ),
+                (
+                    "kbFullContent".into(),
+                    msg.get("kbFullContent").cloned().unwrap_or(json!([])),
+                ),
             ]);
-            let prepared = crate::kb_block::prepare_knowledge(state.app_dir(), state.server_dir(), Some(&extra));
-            vec![json!({"type":"turnContextPreview", "requestId":msg.get("requestId"),
-                "sources":prepared.sources, "knowledgeText":prepared.block.trim_start()}).to_string()]
+            let prepared = crate::kb_block::prepare_knowledge(
+                state.app_dir(),
+                state.server_dir(),
+                Some(&extra),
+            );
+            vec![
+                json!({"type":"turnContextPreview", "requestId":msg.get("requestId"),
+                "sources":prepared.sources, "knowledgeText":prepared.block.trim_start()})
+                .to_string(),
+            ]
         }
         "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg).await,
         "kbRemove" => handle_kb_remove(state, &msg).await,
@@ -872,15 +915,24 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let limit = msg.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
             let query = msg.get("query").and_then(Value::as_str).unwrap_or("");
             match git_log(&root, all, skip, limit, query) {
-                Ok(page) => vec![json_msg(json!({"type":"gitLog","projectRoot":root,"commits":page.commits,"hasMore":page.has_more,"skip":page.skip}))],
-                Err(e) => vec![json_msg(json!({"type":"gitLog","projectRoot":root,"commits":[],"hasMore":false,"error":e.to_string()}))],
+                Ok(page) => vec![json_msg(
+                    json!({"type":"gitLog","projectRoot":root,"commits":page.commits,"hasMore":page.has_more,"skip":page.skip}),
+                )],
+                Err(e) => vec![json_msg(
+                    json!({"type":"gitLog","projectRoot":root,"commits":[],"hasMore":false,"error":e.to_string()}),
+                )],
             }
         }
         "gitCommitDetails" => {
-            let root = git_root(state, &msg).await; let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
+            let root = git_root(state, &msg).await;
+            let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
             match git_commit_details(&root, sha) {
-                Ok(details) => vec![json_msg(json!({"type":"gitCommitDetails","projectRoot":root,"details":details}))],
-                Err(e) => vec![json_msg(json!({"type":"gitCommitDetails","projectRoot":root,"error":e.to_string()}))],
+                Ok(details) => vec![json_msg(
+                    json!({"type":"gitCommitDetails","projectRoot":root,"details":details}),
+                )],
+                Err(e) => vec![json_msg(
+                    json!({"type":"gitCommitDetails","projectRoot":root,"error":e.to_string()}),
+                )],
             }
         }
         "gitCommitFileDiff" => {
@@ -889,23 +941,89 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let path = msg.get("path").and_then(Value::as_str).unwrap_or("");
             let previous = msg.get("previousPath").and_then(Value::as_str);
             match git_commit_file_contents(&root, sha, path, previous) {
-                Ok(contents) => vec![json_msg(json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"before":contents.before,"after":contents.after,"binary":contents.binary}))],
-                Err(e) => vec![json_msg(json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"error":e.to_string()}))],
+                Ok(contents) => vec![json_msg(
+                    json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"before":contents.before,"after":contents.after,"binary":contents.binary}),
+                )],
+                Err(e) => vec![json_msg(
+                    json!({"type":"gitCommitFileDiff","projectRoot":root,"sha":sha,"path":path,"error":e.to_string()}),
+                )],
             }
         }
-        "gitCreateBranchAt" | "gitRestoreFileFromCommit" | "gitRevertCommit" | "gitUndoCommit" | "gitResetToCommit" | "gitFetch" => {
-            let root = git_root(state, &msg).await; let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
+        "gitCreateBranchAt"
+        | "gitRestoreFileFromCommit"
+        | "gitRevertCommit"
+        | "gitUndoCommit"
+        | "gitResetToCommit"
+        | "gitFetch" => {
+            let root = git_root(state, &msg).await;
+            let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
             let expected = msg.get("expectedHead").and_then(Value::as_str);
             let (op, result): (&str, Result<Value, String>) = match msg_type {
-                "gitCreateBranchAt" => ("create-branch", git_create_branch_at(&root, msg.get("branch").and_then(Value::as_str).unwrap_or(""), sha).map(Value::String).map_err(|e| e.to_string())),
-                "gitRestoreFileFromCommit" => ("restore-file", git_restore_file_from_commit(&root, sha, msg.get("path").and_then(Value::as_str).unwrap_or(""), expected).map(Value::String).map_err(|e| e.to_string())),
-                "gitRevertCommit" => ("revert", git_revert_commit(&root, sha, expected).map(Value::String).map_err(|e| e.to_string())),
-                "gitUndoCommit" => ("undo-commit", git_undo_last_commit(&root, expected).map(Value::String).map_err(|e| e.to_string())),
-                "gitResetToCommit" => ("reset", git_reset_to_commit(&root, sha, msg.get("mode").and_then(Value::as_str).unwrap_or("mixed"), expected).map(|(head, safety_ref)| json!({"head":head,"safetyRef":safety_ref})).map_err(|e| e.to_string())),
-                _ => ("fetch", git_fetch_all(&root).map(Value::String).map_err(|e| e.to_string())),
+                "gitCreateBranchAt" => (
+                    "create-branch",
+                    git_create_branch_at(
+                        &root,
+                        msg.get("branch").and_then(Value::as_str).unwrap_or(""),
+                        sha,
+                    )
+                    .map(Value::String)
+                    .map_err(|e| e.to_string()),
+                ),
+                "gitRestoreFileFromCommit" => (
+                    "restore-file",
+                    git_restore_file_from_commit(
+                        &root,
+                        sha,
+                        msg.get("path").and_then(Value::as_str).unwrap_or(""),
+                        expected,
+                    )
+                    .map(Value::String)
+                    .map_err(|e| e.to_string()),
+                ),
+                "gitRevertCommit" => (
+                    "revert",
+                    git_revert_commit(&root, sha, expected)
+                        .map(Value::String)
+                        .map_err(|e| e.to_string()),
+                ),
+                "gitUndoCommit" => (
+                    "undo-commit",
+                    git_undo_last_commit(&root, expected)
+                        .map(Value::String)
+                        .map_err(|e| e.to_string()),
+                ),
+                "gitResetToCommit" => (
+                    "reset",
+                    git_reset_to_commit(
+                        &root,
+                        sha,
+                        msg.get("mode").and_then(Value::as_str).unwrap_or("mixed"),
+                        expected,
+                    )
+                    .map(|(head, safety_ref)| json!({"head":head,"safetyRef":safety_ref}))
+                    .map_err(|e| e.to_string()),
+                ),
+                _ => (
+                    "fetch",
+                    git_fetch_all(&root)
+                        .map(Value::String)
+                        .map_err(|e| e.to_string()),
+                ),
             };
-            let mut out = match result { Ok(value) => vec![json_msg(json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"out":value}))], Err(error) => vec![json_msg(json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"error":error}))] };
-            if out.first().is_some_and(|message| !message.contains("\"error\"")) { out.extend(git_changed(state, &msg, &root).await); }
+            let mut out = match result {
+                Ok(value) => vec![json_msg(
+                    json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"out":value}),
+                )],
+                Err(error) => vec![json_msg(
+                    json!({"type":"gitHistoryActionDone","op":op,"projectRoot":root,"error":error}),
+                )],
+            };
+            if out
+                .first()
+                .is_some_and(|message| !message.contains("\"error\""))
+            {
+                out.extend(git_changed(state, &msg, &root).await);
+            }
             out
         }
         "gitStatus" => {
@@ -1257,9 +1375,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         }
                     }
                     if fav_only {
-                        items.retain(|it| {
-                            it.get("fav").and_then(|v| v.as_bool()).unwrap_or(false)
-                        });
+                        items.retain(|it| it.get("fav").and_then(|v| v.as_bool()).unwrap_or(false));
                     }
                     vec![json_msg(with_request_id(
                         json!({"type":"zoteroItems","items": items}),
@@ -1662,7 +1778,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "generateCommitMsg" => {
             let root = git_root(state, &msg).await;
-            let scope = msg.get("scope").and_then(Value::as_str).unwrap_or("changes");
+            let scope = msg
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("changes");
             if scope != "staged" && scope != "changes" {
                 return vec![json_msg(json!({
                     "type": "commitMsg",
@@ -2013,7 +2132,11 @@ fn kb_cli_run_engine(
 /// Node : `$ATELIER_APP_DIR/knowledge`) plutôt que de muter une variable
 /// d'environnement globale du process serveur. `--text -` est remplacé par
 /// le texte réel : la limite ARG_MAX ne s'applique pas à un appel in-process.
-fn kb_cli_run_rust(app_dir: &std::path::Path, args: &[&str], stdin_text: &str) -> Result<Value, String> {
+fn kb_cli_run_rust(
+    app_dir: &std::path::Path,
+    args: &[&str],
+    stdin_text: &str,
+) -> Result<Value, String> {
     let owned = kb_rust_args(app_dir, args, stdin_text);
     atelier_kb::cli::run(&owned)
 }
@@ -2098,9 +2221,15 @@ fn kb_cli_stream(
 /// étape arrive sur `on_progress` sans jamais toucher stdout. Seule commande
 /// couverte : `article-import --path <p> [--progress]`, l'unique usage réel
 /// de `kb_cli_stream`.
-fn kb_cli_stream_rust(app_dir: &std::path::Path, args: &[&str], mut on_progress: impl FnMut(Value)) -> Result<Value, String> {
+fn kb_cli_stream_rust(
+    app_dir: &std::path::Path,
+    args: &[&str],
+    mut on_progress: impl FnMut(Value),
+) -> Result<Value, String> {
     if args.first() != Some(&"article-import") {
-        return Err(format!("kb_cli_stream (moteur rust): commande non supportée: {args:?}"));
+        return Err(format!(
+            "kb_cli_stream (moteur rust): commande non supportée: {args:?}"
+        ));
     }
     let path = args
         .windows(2)
@@ -2252,8 +2381,21 @@ async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
         .unwrap_or(12)
         .clamp(1, 25)
         .to_string();
-    let args = vec!["gbrain-search".to_string(), "--query".to_string(), query.clone(), "--limit".to_string(), limit];
-    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
+    let args = vec![
+        "gbrain-search".to_string(),
+        "--query".to_string(),
+        query.clone(),
+        "--limit".to_string(),
+        limit,
+    ];
+    match kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
+    {
         Ok(v) => vec![json_msg(json!({
             "type": "gbrainResults",
             "query": v.get("query").cloned().unwrap_or_else(|| json!(query)),
@@ -2274,7 +2416,11 @@ async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
     }
     let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
     let write = msg.get("write").and_then(Value::as_bool).unwrap_or(false);
-    let mut args = vec!["promote-page".to_string(), "--id".to_string(), id.to_string()];
+    let mut args = vec![
+        "promote-page".to_string(),
+        "--id".to_string(),
+        id.to_string(),
+    ];
     if !slug.is_empty() {
         args.push("--slug".to_string());
         args.push(slug.to_string());
@@ -2282,7 +2428,14 @@ async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
     if write {
         args.push("--write".to_string());
     }
-    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
+    match kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
+    {
         Ok(v) if v.get("written").and_then(Value::as_bool) == Some(true) => {
             vec![json_msg(json!({
                 "type": "kbPageWritten",
@@ -2308,7 +2461,13 @@ async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
 /// `article-write`. La conversion MinerU dure des minutes : elle part sur le
 /// pool bloquant, sinon tout le routeur ws (chat compris) reste figé.
 async fn article_cli(state: &AppState, args: Vec<String>) -> Result<Value, String> {
-    kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
+    kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
 }
 
 fn article_error(request_id: &Value, message: String) -> Vec<String> {
@@ -2381,7 +2540,12 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
     let app_dir = state.app_dir().to_path_buf();
     let path_owned = path.to_string();
     let streamed = tokio::task::spawn_blocking(move || {
-        let refs = vec!["article-import", "--path", path_owned.as_str(), "--progress"];
+        let refs = vec![
+            "article-import",
+            "--path",
+            path_owned.as_str(),
+            "--progress",
+        ];
         kb_cli_stream(&server_dir, &app_dir, &refs, |step| {
             publisher.publish(json_msg(json!({
                 "type": "articleProgress",
@@ -2523,7 +2687,14 @@ async fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
         }))];
     }
     let args = vec!["kb-text".to_string(), "--id".to_string(), id.to_string()];
-    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
+    match kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
+    {
         Ok(mut v) => {
             if let Some(obj) = v.as_object_mut() {
                 obj.insert("type".into(), json!("sourceText"));
@@ -2546,8 +2717,19 @@ async fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
             "error": "kbGbrainPage: slug requis",
         }))];
     }
-    let args = vec!["gbrain-page".to_string(), "--slug".to_string(), slug.to_string()];
-    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await {
+    let args = vec![
+        "gbrain-page".to_string(),
+        "--slug".to_string(),
+        slug.to_string(),
+    ];
+    match kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
+    {
         Ok(v) => vec![json_msg(json!({
             "type": "gbrainPage",
             "slug": v.get("slug").cloned().unwrap_or(json!(slug)),
@@ -2612,7 +2794,9 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
     };
     let input: PinPassageInput = match serde_json::from_value(raw_pin) {
         Ok(p) => p,
-        Err(e) => return evidence_pins_error(project_root, format!("pinPassage: pin invalide: {e}")),
+        Err(e) => {
+            return evidence_pins_error(project_root, format!("pinPassage: pin invalide: {e}"))
+        }
     };
     // Validation PAR SOURCE (tâche 6) : Zotero garde ses exigences d'origine
     // (quote/zoteroKey/pdfKey/pdfFile/citeLabel/page) — un passage cité sans
@@ -2624,7 +2808,10 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
         // Même règle que parseGbrainPassageRef côté TypeScript (md.tsx) : le
         // backend n'accepte jamais un slug que le frontend refuserait — pas
         // seulement "non vide", mais bien FORME valide (garde anti-traversée).
-        let slug_ok = input.gbrain_slug.as_deref().is_some_and(evidence::is_valid_gbrain_slug);
+        let slug_ok = input
+            .gbrain_slug
+            .as_deref()
+            .is_some_and(evidence::is_valid_gbrain_slug);
         if input.quote.is_empty() || !slug_ok || input.cite_label.is_empty() {
             return evidence_pins_error(
                 project_root,
@@ -2643,12 +2830,18 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
             "pinPassage: quote/zoteroKey/pdfKey/pdfFile/citeLabel/page requis",
         );
     }
-    let supports = input.supports.or_else(|| evidence::fig_selection_supports(900));
+    let supports = input
+        .supports
+        .or_else(|| evidence::fig_selection_supports(900));
     let pin = evidence::EvidencePin {
         id: String::new(),
         ts: 0,
         quote: input.quote,
-        source: if is_gbrain { "gbrain".to_string() } else { "zotero".to_string() },
+        source: if is_gbrain {
+            "gbrain".to_string()
+        } else {
+            "zotero".to_string()
+        },
         zotero_key: input.zotero_key,
         pdf_key: input.pdf_key,
         pdf_file: input.pdf_file,
@@ -2719,7 +2912,14 @@ async fn handle_kb_add(state: &AppState, msg: &Value) -> Vec<String> {
         args.push("--text".to_string());
         args.push("-".to_string());
     }
-    match kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, text.to_string()).await {
+    match kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        text.to_string(),
+    )
+    .await
+    {
         Ok(v) => {
             let mut out = json!({
                 "type": "kbAdded",
@@ -2849,8 +3049,13 @@ async fn handle_kb_organize(state: &AppState, msg_type: &str, msg: &Value) -> Ve
             }
         }
     }
-    if let Err(message) =
-        kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
+    if let Err(message) = kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
     {
         return kb_error(message);
     }
@@ -2876,8 +3081,13 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
         Some(joined) => vec!["remove".to_string(), "--ids".to_string(), joined.clone()],
         None => vec!["remove".to_string(), "--id".to_string(), ids[0].clone()],
     };
-    if let Err(message) =
-        kb_cli_run_async(state.server_dir().to_string(), state.app_dir().to_path_buf(), args, String::new()).await
+    if let Err(message) = kb_cli_run_async(
+        state.server_dir().to_string(),
+        state.app_dir().to_path_buf(),
+        args,
+        String::new(),
+    )
+    .await
     {
         return kb_error(message);
     }
@@ -2894,7 +3104,10 @@ async fn handle_kb_remove(state: &AppState, msg: &Value) -> Vec<String> {
             })
             .unwrap_or_default();
         let had = items.iter().any(|x| ids.contains(x));
-        (items.into_iter().filter(|x| !ids.contains(x)).collect(), had)
+        (
+            items.into_iter().filter(|x| !ids.contains(x)).collect(),
+            had,
+        )
     };
     let patches: Vec<Value> = {
         let store = state.threads().lock().await;
@@ -4305,7 +4518,9 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"listCommands"}"#).await;
         let response: Value = serde_json::from_str(&out[0]).unwrap();
         let commands = response["commands"].as_array().expect("liste de commandes");
-        assert!(commands.iter().any(|c| c["name"] == "ref" && c["source"] == "atelier"));
+        assert!(commands
+            .iter()
+            .any(|c| c["name"] == "ref" && c["source"] == "atelier"));
     }
 
     #[tokio::test]
@@ -4413,7 +4628,11 @@ mod tests {
         assert!(v["message"].as_str().unwrap().contains("kind requis"));
         // origine invalide → kbError du moteur Rust (le CLI Node n'est plus
         // consulté : l'absence de kb_cli.mjs n'est plus une erreur possible)
-        let out = route_ws(&s, r#"{"type":"kbAdd","kind":"zotero","origin":"pas-une-uri"}"#).await;
+        let out = route_ws(
+            &s,
+            r#"{"type":"kbAdd","kind":"zotero","origin":"pas-une-uri"}"#,
+        )
+        .await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "kbError");
         let message = v["message"].as_str().unwrap();
@@ -4434,17 +4653,29 @@ mod tests {
         assert_eq!(v["requestId"], "r1");
         assert!(v["message"].as_str().unwrap().contains("path requis"));
 
-        let out = route_ws(&s, r#"{"type":"articleWrite","requestId":"r2","slug":"articles/x"}"#).await;
+        let out = route_ws(
+            &s,
+            r#"{"type":"articleWrite","requestId":"r2","slug":"articles/x"}"#,
+        )
+        .await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "articleError");
         assert!(v["message"].as_str().unwrap().contains("draftId requis"));
 
-        let out = route_ws(&s, r#"{"type":"articleWrite","requestId":"r3","draftId":"abc"}"#).await;
+        let out = route_ws(
+            &s,
+            r#"{"type":"articleWrite","requestId":"r3","draftId":"abc"}"#,
+        )
+        .await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert!(v["message"].as_str().unwrap().contains("slug requis"));
 
         // PDF inexistant → échec explicite du moteur Rust, pas de silence
-        let out = route_ws(&s, r#"{"type":"articleImport","requestId":"r4","path":"/tmp/atelier-absent-fixture.pdf"}"#).await;
+        let out = route_ws(
+            &s,
+            r#"{"type":"articleImport","requestId":"r4","path":"/tmp/atelier-absent-fixture.pdf"}"#,
+        )
+        .await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["type"], "articleError");
         assert_eq!(v["requestId"], "r4");
@@ -4605,25 +4836,58 @@ mod tests {
             KbEngine::Rust,
             &server_dir,
             app_dir,
-            &["add", "--kind", "note", "--title", "Parité moteur", "--text", "Contenu de test pour comparer les deux moteurs."],
+            &[
+                "add",
+                "--kind",
+                "note",
+                "--title",
+                "Parité moteur",
+                "--text",
+                "Contenu de test pour comparer les deux moteurs.",
+            ],
             "",
         )
         .expect("add (rust)");
         assert_eq!(added["ok"], true, "add (rust): {added}");
 
         // list : sortie JSON strictement identique entre les deux moteurs.
-        let via_node = kb_cli_run_engine(KbEngine::Node, &server_dir, app_dir, &["list"], "").expect("list (node)");
-        let via_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["list"], "").expect("list (rust)");
-        assert_eq!(via_node, via_rust, "list: node != rust ({via_node} vs {via_rust})");
+        let via_node = kb_cli_run_engine(KbEngine::Node, &server_dir, app_dir, &["list"], "")
+            .expect("list (node)");
+        let via_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["list"], "")
+            .expect("list (rust)");
+        assert_eq!(
+            via_node, via_rust,
+            "list: node != rust ({via_node} vs {via_rust})"
+        );
         assert_eq!(via_node["count"], 1);
         assert_eq!(via_node["sources"][0]["title"], "Parité moteur");
 
         // kb-text : même exercice sur une deuxième commande de lecture.
         let id = via_node["sources"][0]["id"].as_str().unwrap().to_string();
-        let text_node = kb_cli_run_engine(KbEngine::Node, &server_dir, app_dir, &["kb-text", "--id", &id], "").expect("kb-text (node)");
-        let text_rust = kb_cli_run_engine(KbEngine::Rust, &server_dir, app_dir, &["kb-text", "--id", &id], "").expect("kb-text (rust)");
-        assert_eq!(text_node, text_rust, "kb-text: node != rust ({text_node} vs {text_rust})");
-        assert_eq!(text_node["text"], "Contenu de test pour comparer les deux moteurs.");
+        let text_node = kb_cli_run_engine(
+            KbEngine::Node,
+            &server_dir,
+            app_dir,
+            &["kb-text", "--id", &id],
+            "",
+        )
+        .expect("kb-text (node)");
+        let text_rust = kb_cli_run_engine(
+            KbEngine::Rust,
+            &server_dir,
+            app_dir,
+            &["kb-text", "--id", &id],
+            "",
+        )
+        .expect("kb-text (rust)");
+        assert_eq!(
+            text_node, text_rust,
+            "kb-text: node != rust ({text_node} vs {text_rust})"
+        );
+        assert_eq!(
+            text_node["text"],
+            "Contenu de test pour comparer les deux moteurs."
+        );
     }
 
     /// 2026-08-22 : `youtube` et `zotero` sont portés en Rust, donc plus
@@ -4636,7 +4900,11 @@ mod tests {
         let dir = tempdir().unwrap();
         for (kind, origin, attendu) in [
             ("zotero", "pas-une-uri-zotero", "zotero://"),
-            ("youtube", "https://example.org/x", "URL YouTube non reconnue"),
+            (
+                "youtube",
+                "https://example.org/x",
+                "URL YouTube non reconnue",
+            ),
         ] {
             let err = kb_cli_run(
                 "/dev/null/server-dir-inexistant",
@@ -4646,7 +4914,10 @@ mod tests {
             )
             .unwrap_err();
             assert!(err.contains(attendu), "{kind}: err={err}");
-            assert!(!err.contains("kb_cli.mjs"), "{kind} passe encore par Node: {err}");
+            assert!(
+                !err.contains("kb_cli.mjs"),
+                "{kind} passe encore par Node: {err}"
+            );
         }
     }
 
@@ -5069,14 +5340,20 @@ mod tests {
         let no_slug = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","quote":"q","citeLabel":"C"}}"#;
         let out = route_ws(&s, no_slug).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
-        assert!(v["error"].as_str().is_some(), "attendu une erreur (slug manquant): {v}");
+        assert!(
+            v["error"].as_str().is_some(),
+            "attendu une erreur (slug manquant): {v}"
+        );
         assert!(v["pins"].as_array().unwrap().is_empty());
 
         // les champs zotero (absents ici) ne doivent PAS être exigés côté gbrain
         let ok = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"s","quote":"q","citeLabel":"C"}}"#;
         let out_ok = route_ws(&s, ok).await;
         let v_ok: Value = serde_json::from_str(&out_ok[0]).unwrap();
-        assert!(v_ok["error"].is_null(), "gbrain ne doit pas exiger les champs zotero: {v_ok}");
+        assert!(
+            v_ok["error"].is_null(),
+            "gbrain ne doit pas exiger les champs zotero: {v_ok}"
+        );
     }
 
     // Arbitrage contrôleur (post-revue tâche 6) : le backend ne doit pas
@@ -5090,14 +5367,20 @@ mod tests {
         let traversal = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"a/../b","quote":"q","citeLabel":"C"}}"#;
         let out = route_ws(&s, traversal).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
-        assert!(v["error"].as_str().is_some(), "attendu une erreur (slug ..): {v}");
+        assert!(
+            v["error"].as_str().is_some(),
+            "attendu une erreur (slug ..): {v}"
+        );
         assert!(v["pins"].as_array().unwrap().is_empty());
 
         // un slug hiérarchique légitime, lui, doit passer
         let hierarchical = r#"{"type":"pinPassage","projectRoot":"/proj/a","pin":{"source":"gbrain","gbrainSlug":"papers/acp-19-1393-2019","quote":"q","citeLabel":"C"}}"#;
         let out2 = route_ws(&s, hierarchical).await;
         let v2: Value = serde_json::from_str(&out2[0]).unwrap();
-        assert!(v2["error"].is_null(), "slug hiérarchique légitime rejeté à tort: {v2}");
+        assert!(
+            v2["error"].is_null(),
+            "slug hiérarchique légitime rejeté à tort: {v2}"
+        );
         assert_eq!(v2["pins"][0]["gbrainSlug"], "papers/acp-19-1393-2019");
     }
 
@@ -5164,8 +5447,7 @@ mod tests {
         for (from, to) in [("src", "f1"), ("f1", "f2"), ("f2", "f3")] {
             route_ws(
                 &s,
-                &json!({"type":"forkThread","fromThreadId":from,"newThreadId":to})
-                    .to_string(),
+                &json!({"type":"forkThread","fromThreadId":from,"newThreadId":to}).to_string(),
             )
             .await;
         }
@@ -5173,10 +5455,16 @@ mod tests {
         let store = s.threads().lock().await;
         for (id, depth) in [("f1", 1), ("f2", 2), ("f3", 3)] {
             let thread = store.get(id).cloned().unwrap();
-            assert_eq!(thread.title, "Rendu des vignettes", "titre préfixé pour {id}");
+            assert_eq!(
+                thread.title, "Rendu des vignettes",
+                "titre préfixé pour {id}"
+            );
             assert_eq!(thread.extra["fork"]["depth"], depth, "profondeur pour {id}");
         }
-        assert_eq!(store.get("f3").unwrap().extra["fork"]["parentThreadId"], "f2");
+        assert_eq!(
+            store.get("f3").unwrap().extra["fork"]["parentThreadId"],
+            "f2"
+        );
     }
 
     #[tokio::test]
@@ -5234,8 +5522,18 @@ mod tests {
         std::fs::create_dir_all(&sessions).unwrap();
         let path = sessions.join(format!("rollout-2026-08-27T10-00-00-{id}.jsonl"));
         let mut file = std::fs::File::create(&path).unwrap();
-        writeln!(file, "{}", json!({"type":"session_meta","payload":{"cwd":"/tmp"}})).unwrap();
-        writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"Je délègue."}})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"session_meta","payload":{"cwd":"/tmp"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","payload":{"type":"agent_message","message":"Je délègue."}})
+        )
+        .unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call","name":"spawn_agent","call_id":"s1","arguments":"{\"prompt\":\"cherche X\"}"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"function_call_output","call_id":"s1","output":"{\"agent_thread_id\":\"child-42\"}"}})).unwrap();
         writeln!(file, "{}", json!({"type":"event_msg","payload":{"type":"agent_message","message":"L'enfant a fini."}})).unwrap();

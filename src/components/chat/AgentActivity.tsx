@@ -12,7 +12,7 @@ import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
 import { RowButton } from "../ui";
 import { MdBody, MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { ToolGlyph, activityIconForAction } from "./toolPresentation";
+import { ToolGlyph, activityIconForAction, activeToolLabel } from "./toolPresentation";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
   agentActivity: NonNullable<Extract<AgentEvent, { kind: "tool_update" }>["agentActivity"]>;
@@ -33,6 +33,7 @@ export type AgentDisplay = {
   model: string | null;
   reasoningEffort: string | null;
   agentPath: string | null;
+  statusTs?: number;
 };
 
 export function isAgentActivityAction(event: AgentEvent): event is AgentToolAction {
@@ -49,6 +50,9 @@ function displayNameFromPath(path: string | null | undefined): string | null {
 function normalizedStatus(status: string | null | undefined): AgentDisplay["status"] {
   switch ((status ?? "").replace(/[_-]/g, "").toLowerCase()) {
     case "completed":
+    case "complete":
+    case "done":
+    case "finished":
     case "shutdown":
       return "done";
     case "errored":
@@ -56,6 +60,8 @@ function normalizedStatus(status: string | null | undefined): AgentDisplay["stat
     case "failed":
       return "failed";
     case "interrupted":
+    case "cancelled":
+    case "canceled":
       return "interrupted";
     default:
       return "working";
@@ -103,6 +109,7 @@ export function agentsFromActions(actions: AgentToolAction[]): AgentDisplay[] {
       if (state) {
         agent.status = normalizedStatus(state.status);
         agent.statusMessage = state.message?.trim() || null;
+        agent.statusTs = action.ts;
       } else if (activity.activityKind === "interrupted") {
         agent.status = "interrupted";
       }
@@ -114,6 +121,32 @@ export function agentsFromActions(actions: AgentToolAction[]): AgentDisplay[] {
     fallback += 1;
     return { ...agent, displayName: `${t("chat.subagent-default")} ${fallback}` };
   });
+}
+
+/** A child rollout can settle before the parent's next status observation. */
+export function agentWithTranscriptState(agent: AgentDisplay, events: AgentEvent[]): AgentDisplay {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.kind !== "done" && event.kind !== "started") continue;
+    // A follow-up request must not inherit the previous turn's completion.
+    if (agent.statusTs != null && event.ts != null && event.ts < agent.statusTs) return agent;
+    const status = event.kind === "started" ? "working" : event.ok ? "done" : "failed";
+    return status === agent.status ? agent : { ...agent, status };
+  }
+  return agent;
+}
+
+function opaqueAgentText(text: string | null | undefined): boolean {
+  return /\bgAAAAA[A-Za-z0-9_-]{24,}/u.test(text ?? "");
+}
+
+function agentToolLabel(event: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
+  if (/^(?:functions\.)?exec$/u.test(event.name)) {
+    const code = /\b(?:const|let|await|tools\.)\b/u.test(event.detail ?? "");
+    const display = { ...event, name: "command", detail: code ? "" : event.detail };
+    return activeToolLabel(display.kind === "tool_update" ? { ...display, input: undefined } : display);
+  }
+  return activeToolLabel(event);
 }
 
 function hashHue(seed: string) {
@@ -218,7 +251,9 @@ export function AgentDetailPanel({
     // Outils de l'enfant : on les montre, sauf ses propres appels collab
     // (préfixe `agent:`) — pas de chips imbriquées dans le panneau.
     if (event.kind === "tool" || event.kind === "tool_update") {
-      return !event.name?.startsWith("agent:");
+      return !/^(?:agent:|(?:functions\.)?collaboration[.:])/u.test(event.name)
+        && !opaqueAgentText(event.detail)
+        && !(event.kind === "tool_update" && opaqueAgentText(event.output));
     }
     return event.kind === "text"
       || event.kind === "streaming"
@@ -244,7 +279,8 @@ export function AgentDetailPanel({
           {(agent.model || agent.reasoningEffort) ? (
             <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>
           ) : null}
-          {agent.statusMessage ? <div className="agent-detail-message">{agent.statusMessage}</div> : null}
+          {agent.statusMessage && !opaqueAgentText(agent.statusMessage)
+            ? <div className="agent-detail-message">{agent.statusMessage}</div> : null}
           {transcript.length > 0 ? (
             <MessageGroup className="agent-transcript" data-testid="agent-transcript">
               {transcript.map((event, index) => {
@@ -254,7 +290,7 @@ export function AgentDetailPanel({
                   const completed = event.kind === "tool_update" && event.status === "completed";
                   const line = <>
                     <ToolGlyph icon={activityIconForAction(event)} />
-                    <span className="agent-tool-line-text">{event.detail || event.name}</span>
+                    <span className="agent-tool-line-text">{agentToolLabel(event)}</span>
                     <span className="agent-tool-status">{t(failed ? "agent-tool.failed" : completed ? "agent-tool.done" : "agent-tool.pending")}</span>
                   </>;
                   const key = `tool-${("id" in event ? event.id : null) ?? "legacy"}-${index}`;

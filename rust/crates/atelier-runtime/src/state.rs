@@ -311,7 +311,6 @@ impl AppState {
         &self.inner.approval_sessions
     }
 
-
     pub fn qa_sessions(&self) -> &Mutex<HashMap<String, QaSession>> {
         &self.inner.qa_sessions
     }
@@ -383,7 +382,6 @@ mod writer_tests {
             "/tmp".into(),
         )
     }
-
 }
 
 #[cfg(test)]

@@ -820,16 +820,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(res.status(), Sc::OK);
-        let content_type = res
-            .headers()
-            .get("content-type")
-            .unwrap()
-            .to_str()
-            .unwrap();
+        let content_type = res.headers().get("content-type").unwrap().to_str().unwrap();
         assert_eq!(content_type, "text/html; charset=utf-8");
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
-        assert_eq!(body, shell, "le corps servi est la coquille, octet pour octet");
+        assert_eq!(
+            body, shell,
+            "le corps servi est la coquille, octet pour octet"
+        );
         assert!(body.starts_with("<!doctype html>"));
         assert!(body.contains("default-src 'none'"));
         assert!(body.contains("<p>salut</p>"));
