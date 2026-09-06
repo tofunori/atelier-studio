@@ -84,11 +84,15 @@ def main(argv: list[str] | None = None) -> int:
 
     log = open(log_path, "ab", buffering=0)
     try:
+        # Sortie non tamponnée pour les enfants Python/Julia/R : sinon la
+        # progression et le log n'arrivent qu'à la fin du processus.
+        env = dict(os.environ, PYTHONUNBUFFERED="1", JULIA_STDOUT_BUFFERED="0")
         proc = subprocess.Popen(
             ns.cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=False,
+            env=env,
         )
     except OSError as exc:
         log.write(f"atelier-run: impossible de lancer la commande : {exc}\n".encode())

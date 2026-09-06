@@ -14,16 +14,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const SEP: &str = "::SEP";
 
+/// Noms (sous-chaînes, insensibles à la casse) de conteneurs/unités
+/// d'infrastructure du NAS : jamais des calculs. Surcharge par
+/// `ATELIER_NAS_EXCLUDE` (liste séparée par des virgules).
 pub const DEFAULT_EXCLUDED: &[&str] = &[
-    "jellyfin",
-    "paperless",
-    "mcp",
-    "redis",
-    "postgres",
-    "gotenberg",
-    "tika",
-    "broker",
+    "jellyfin", "paperless", "mcp", "redis", "postgres", "gotenberg", "tika", "broker",
+    "adb-server", "cloudflared", "gluetun", "wireguard", "qbittorrent", "torrent", "firefox",
+    "gbrain", "globus", "homeassistant", "homepage", "matter-server", "minio", "mitmproxy",
+    "nextcloud", "portainer", "qinglong", "ttyd", "uptime-kuma", "vaultwarden", "webmap",
+    "epico", "albedo-gallery", "albedo-site", "narval-watcher", "-watch",
 ];
+
+/// Un conteneur `running` créé il y a plus longtemps que ceci est un service
+/// permanent (Nextcloud, passerelles…), pas un calcul : masqué. Les calculs
+/// de plusieurs jours (exports GEE) restent bien en deçà.
+pub const SERVICE_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
 
 #[derive(Debug, Clone)]
 pub struct NasAdapter {
@@ -157,6 +162,9 @@ impl NasAdapter {
                     }
                 }
                 let created = parse_datetime(&row.CreatedAt).unwrap_or(observed);
+                if state.is_live() && observed.duration_since(created).unwrap_or_default() > SERVICE_AGE {
+                    return None; // service permanent, pas un calcul
+                }
                 let last_activity = match state {
                     RunState::Running | RunState::Queued => observed,
                     _ => ended.unwrap_or(created),
@@ -400,6 +408,16 @@ mod tests {
     }
 
     #[test]
+    fn docker_running_service_older_than_service_age_is_hidden() {
+        let nas = NasAdapter { alias: "nas".into(), excluded: vec![] };
+        let old = r#"{"Command":"\"nextcloud\"","CreatedAt":"2026-01-10 08:00:00 -0500 EST","ID":"a","Image":"nextcloud","Names":"cloud-app-1","State":"running","Status":"Up 7 months"}"#;
+        let fresh = r#"{"Command":"\"python gee.py\"","CreatedAt":"2026-09-04 08:12:33 -0400 EDT","ID":"b","Image":"albedo-ee:1","Names":"gee_albedo_all","State":"running","Status":"Up 2 days"}"#;
+        let raw = format!("{old}\n{fresh}\n");
+        let runs = nas.parse_docker(&raw, window_start(observed(), 7), observed());
+        assert_eq!(runs.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(), vec!["gee_albedo_all"]);
+    }
+
+    #[test]
     fn docker_rows_are_mapped_filtered_and_dated() {
         let nas = NasAdapter::default();
         let runs = nas.parse_docker(DOCKER, window_start(observed(), 7), observed());
@@ -456,7 +474,11 @@ mod tests {
         };
         let runs = strict.parse_docker(DOCKER, window_start(observed(), 7), observed());
         assert!(runs.iter().all(|r| !r.id.contains("albedo-trends")));
-        assert_eq!(runs.len(), 3, "jellyfin revient quand il n'est plus exclu");
+        assert_eq!(
+            runs.len(),
+            2,
+            "jellyfin reste masqué par la règle SERVICE_AGE (créé il y a 3 mois)"
+        );
     }
 
     #[test]
