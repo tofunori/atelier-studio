@@ -12,6 +12,7 @@ struct DocumentPassage: Identifiable {
     var figureRegion: CGRect?
     var figure: GalleryArtifact?
     var articleKey: String?
+    var articleAttachmentKey: String?
 
     var citation: String { "\(fileName) · \(location)" }
 }
@@ -180,7 +181,7 @@ final class WorkspaceModel {
                 }
             }
         }
-        pdfPassage = DocumentPassage(documentID: documentID, fileName: pdfName, location: location, text: text, regions: regions, articleKey: currentArticle?.key)
+        pdfPassage = DocumentPassage(documentID: documentID, fileName: pdfName, location: location, text: text, regions: regions, articleKey: currentArticle?.key, articleAttachmentKey: currentArticle?.pdfKey)
     }
 
     func beginAnnotation() {

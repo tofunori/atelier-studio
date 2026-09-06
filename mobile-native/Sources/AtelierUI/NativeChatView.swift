@@ -137,7 +137,7 @@ private struct ChatEventRow: View {
                     }
                         .padding(row.kind == "user" ? 12 : 0)
                         .background(row.kind == "user" ? Color(uiColor: .secondarySystemBackground) : .clear, in: RoundedRectangle(cornerRadius: 16))
-                    if row.kind == "text", let target = workspace.revisionTarget, target.threadID == workspace.chat.selected?.id,
+                    if row.kind == "text", let target = workspace.revisionTarget, target.threadID == workspace.chat.selected?.id, workspace.chat.isReply(row, to: target.messageID), !workspace.chat.running,
                        SourceRevisionTarget.replacement(in: row.text) != nil {
                         Button("Examiner la reformulation", systemImage: "pencil.and.outline") { reviewing = true }.frame(minHeight: 44)
                     }
