@@ -1258,19 +1258,28 @@ mod tests {
 
     #[test]
     fn creators_are_ordered_by_order_index_not_creator_id() {
-        // itemID 5: creatorID 2 ("Miller") was inserted with the LOWER
-        // creatorID but has the HIGHER orderIndex — i.e. it is the second
-        // author on the paper even though its primary key is smaller. The
-        // legacy creatorID-order query would render "Miller, Marshall";
-        // the byline must read "Marshall, Miller".
+        // itemID 5 is signed Marshall & Miller (Marshall first, orderIndex
+        // 0). Marshall's `creatorID` (4) is deliberately allocated AFTER
+        // Miller's (3) — i.e. creatorID order is the reverse of orderIndex
+        // order, exactly the defect described by Thierry: creatorID-order
+        // would render "Miller, Marshall" for a paper signed Marshall &
+        // Miller. The byline must follow orderIndex and read
+        // "Marshall, Miller".
+        //
+        // The `itemCreators` rows are inserted in creatorID-ascending order
+        // (Miller/3 before Marshall/4) so that `search_legacy`'s
+        // `GROUP_CONCAT` with no `ORDER BY` — which this minimal test
+        // schema resolves via plain table-scan/insertion order, standing in
+        // for the real library's `(itemID, creatorID, ...)` primary-key
+        // index scan — reproduces the legacy creatorID-order defect.
         let conn = build_fixture_conn();
         conn.execute_batch(
             r#"
             INSERT INTO items VALUES (5, 'ITEM0005', 1, '2024-04-04', '2024-04-04');
             INSERT INTO itemDataValues VALUES (30, 'A third paper');
             INSERT INTO itemData VALUES (5, 1, 30);
-            INSERT INTO creators VALUES (3, 'Marshall'), (4, 'Miller');
-            INSERT INTO itemCreators VALUES (5, 4, 0), (5, 3, 1);
+            INSERT INTO creators VALUES (3, 'Miller'), (4, 'Marshall');
+            INSERT INTO itemCreators VALUES (5, 3, 1), (5, 4, 0);
             "#,
         )
         .unwrap();
@@ -1278,6 +1287,11 @@ mod tests {
         let grouped = search_with_conn(&conn, "", None, None, 5000).unwrap();
         let item = grouped.iter().find(|v| v["key"] == "ITEM0005").unwrap();
         assert_eq!(item["creators"], "Marshall, Miller");
+
+        // The legacy path, unchanged, still exhibits the defect.
+        let legacy = search_legacy(&conn, "", None, None, 5000).unwrap();
+        let legacy_item = legacy.iter().find(|v| v["key"] == "ITEM0005").unwrap();
+        assert_eq!(legacy_item["creators"], "Miller, Marshall");
     }
 
     #[test]
@@ -1381,5 +1395,37 @@ mod tests {
             "grouped rewrite must return the same item count as legacy on real data"
         );
         assert_eq!(legacy, grouped, "grouped rewrite must stay byte-identical to legacy on real data");
+    }
+
+    /// Measures how many real-library items had their byline reordered by
+    /// switching `fetch_creators` from creatorID order to `orderIndex`
+    /// order. Run with:
+    ///   cargo test -q -p atelier-workspace --manifest-path rust/Cargo.toml \
+    ///     -- --ignored --nocapture creator_order_fix_affects_how_many_items
+    #[test]
+    #[ignore = "needs a real ~/Zotero library already synced into the atelier-studio app dir"]
+    fn creator_order_fix_affects_how_many_items_on_real_library() {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
+        let app_dir = home.join("Library/Application Support/atelier-studio");
+        let conn = ensure_fresh(&app_dir).expect("real Zotero copy must exist to run this bench");
+
+        let legacy = search_legacy(&conn, "", None, None, 5000).unwrap();
+        let grouped = search_with_conn(&conn, "", None, None, 5000).unwrap();
+        assert_eq!(legacy.len(), grouped.len());
+
+        let mut changed = 0usize;
+        for (l, g) in legacy.iter().zip(grouped.iter()) {
+            if l["creators"] != g["creators"] {
+                changed += 1;
+                eprintln!(
+                    "{}: legacy={:?}  orderIndex={:?}",
+                    l["key"], l["creators"], g["creators"]
+                );
+            }
+        }
+        eprintln!(
+            "creator order changed for {changed}/{} items",
+            grouped.len()
+        );
     }
 }
