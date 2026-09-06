@@ -127,6 +127,7 @@ private struct ChatEventRow: View {
     @State private var selecting = false
     @State private var copied = false
     @State private var reviewing = false
+    @State private var editing: MessageEditDraft?
     var body: some View {
         Group {
                 VStack(alignment: row.kind == "user" ? .trailing : .leading, spacing: 6) {
@@ -156,7 +157,7 @@ private struct ChatEventRow: View {
                             Menu {
                                 Button("Citer le message", systemImage: "text.quote") { workspace.chat.quotePassage(row.text, from: row.id) }
                                 if row.kind == "user" {
-                                    Button("Modifier dans le brouillon", systemImage: "pencil") { workspace.chat.prepareRevision(row, workspace: workspace) }
+                                    Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
                                 } else if workspace.chat.retryPrompt(for: row) != nil {
                                     Button("Redemander une réponse", systemImage: "arrow.clockwise") {
                                         Task { await workspace.chat.retry(row, using: workspace.gallery) }
@@ -166,9 +167,18 @@ private struct ChatEventRow: View {
                                 .accessibilityLabel("Actions du message")
                                 .disabled(workspace.chat.running || workspace.chat.sending)
                         }.font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
+                        if row.kind == "user" { MessageVersionPicker(row: row, workspace: workspace) }
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
+                .contextMenu {
+                    Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
+                    Button("Sélectionner du texte", systemImage: "text.cursor") { selecting = true }
+                    if row.kind == "user", !workspace.chat.running, !workspace.chat.sending {
+                        Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
+                    }
+                }
         }
+        .sheet(item: $editing) { draft in MessageEditSheet(draft: draft, workspace: workspace) }
         .sheet(isPresented: $reviewing) {
             if let target = workspace.revisionTarget, let replacement = SourceRevisionTarget.replacement(in: row.text) {
                 SourceRevisionView(workspace: workspace, target: target, replacement: replacement)
@@ -210,7 +220,7 @@ struct ConversationPicker: View {
         return List {
                 if creating || chat.loading { ProgressView() }
                 if let error = error ?? chat.error { Text(error).foregroundStyle(.red) }
-                ForEach(chat.threads.filter { query.isEmpty || $0.title.localizedStandardContains(query) }) { thread in
+                ForEach(chat.conversationThreads.filter { query.isEmpty || $0.title.localizedStandardContains(query) }) { thread in
                     Button {
                         chat.select(thread, workspace: workspace, navigateToChat: navigateToChat); if !embedded { dismiss() }
                     } label: {
