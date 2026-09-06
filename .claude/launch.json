@@ -101,6 +101,12 @@
       "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-viewer-B.sh",
       "runtimeArgs": [],
       "port": 8803
+    },
+    {
+      "name": "viewer-main",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-tofunori-Documents-atelier-studio/d082e602-d4af-4486-826e-750325ec8b20/scratchpad/run-viewer-main.sh",
+      "runtimeArgs": [],
+      "port": 8804
     }
   ]
 }
