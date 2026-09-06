@@ -224,10 +224,11 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         return try JSONDecoder().decode(Uploaded.self, from: await response(request)).fileId
     }
     func invalidate(_ item: GalleryArtifact) { if let id = item.fileID { cache.removeValue(forKey: id) } }
-    func chatRequest(_ components: [String], body: [String: Any]? = nil, timeout: TimeInterval = 20) async throws -> Data {
+    func chatRequest(_ components: [String], body: [String: Any]? = nil, timeout: TimeInterval = 20, query: [URLQueryItem] = []) async throws -> Data {
         guard let baseURL else { throw GalleryError.invalidAddress }
         var url = baseURL.appendingPathComponent("remote/v1")
         for component in components { url.appendPathComponent(component) }
+        if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url)
         request.setValue(token, forHTTPHeaderField: "x-atelier-device-token")
         if let body {
