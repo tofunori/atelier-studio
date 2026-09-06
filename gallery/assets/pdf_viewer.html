@@ -34,6 +34,8 @@
 <link rel="stylesheet" href="annotation_ui.css">
 <script src="pdf_passage.js"></script>
 <script src="pdf_selection.js"></script>
+<script src="pdf_reading.js"></script>
+<link rel="stylesheet" href="pdf_reading.css">
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
@@ -284,10 +286,22 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <button id="invBtn" type="button" aria-pressed="false" title="Confort sombre — inverser les pages" aria-label="Confort sombre">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor" stroke="none"/></svg>
   </button>
+  <button id="readBtn" type="button" aria-pressed="false" title="Mode lecture — texte en une colonne (R)" aria-label="Mode lecture">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5"/></svg>
+  </button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
 <div id="pages"></div>
+<section id="reading" hidden>
+  <div id="readBar">
+    <div class="grp"><button class="fsm" title="Texte plus petit (⌘−)">−</button><span class="fsv">15</span><button class="fsp" title="Texte plus grand (⌘+)">+</button></div>
+    <div class="grp" data-set="width"><button data-v="65ch">65</button><button data-v="80ch">80</button><button data-v="100ch">100</button></div>
+    <div class="grp" data-set="lh"><button data-v="1.4">1,4</button><button data-v="1.6">1,6</button><button data-v="1.8">1,8</button></div>
+    <div class="grp" data-set="font"><button data-v="sans">Sans</button><button data-v="serif">Serif</button></div>
+  </div>
+  <div id="readBody"></div>
+</section>
 <button id="sendBtn">➜ Claude</button>
 <div id="selPill"><span class="nb"><svg viewBox="0 0 16 16" stroke-width="1.4"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible"><svg viewBox="0 0 16 16" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)"><svg viewBox="0 0 16 16" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button></div>
 <div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div></div>
@@ -380,6 +394,136 @@ async function findTexSource(){
   }catch(e){ return null; }
 }
 
+// ---- mode lecture ---------------------------------------------------------
+// Un seul document analysé par `rel` (GET /reflow, cache serveur). La colonne
+// vit dans #reading ; #pages reste dans le DOM (annotations, synctex).
+let __readingPdf = null;           // posé par main() : le document pdf.js
+window.__readingMode = (function(){
+  const R = window.AtelierPdfReading;
+  const body = document.body, section = document.getElementById("reading");
+  const host = document.getElementById("readBody"), btn = document.getElementById("readBtn");
+  const bar = document.getElementById("readBar");
+  const KEYS = {fs: "pdfRead.fs", width: "pdfRead.width", lh: "pdfRead.lh", font: "pdfRead.font"};
+  const FS_MIN = 13, FS_MAX = 24;
+  let doc = null, loading = null, on = false, cropObserver = null;
+  const crops = new Map();       // blockId → {canvas, task}
+
+  function pref(k, d){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
+  function setPref(k, v){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
+  function applyPrefs(){
+    const fs = Math.max(FS_MIN, Math.min(FS_MAX, parseInt(pref("fs", "15"), 10) || 15));
+    section.style.setProperty("--read-fs", fs + "px");
+    section.style.setProperty("--read-width", pref("width", "80ch"));
+    section.style.setProperty("--read-lh", pref("lh", "1.6"));
+    section.classList.toggle("serif", pref("font", "sans") === "serif");
+    bar.querySelector(".fsv").textContent = String(fs);
+    bar.querySelector(".fsm").disabled = fs <= FS_MIN; bar.querySelector(".fsp").disabled = fs >= FS_MAX;
+    for (const g of bar.querySelectorAll(".grp[data-set]")) {
+      const cur = pref(g.dataset.set, {width: "80ch", lh: "1.6", font: "sans"}[g.dataset.set]);
+      for (const b of g.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === cur));
+    }
+  }
+  bar.querySelector(".fsm").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) - 1);
+  bar.querySelector(".fsp").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) + 1);
+  for (const g of bar.querySelectorAll(".grp[data-set]")) for (const b of g.querySelectorAll("button")) b.onclick = () => setPref(g.dataset.set, b.dataset.v);
+
+  function skeleton(){
+    host.innerHTML = "";
+    for (let i = 0; i < 12; i++) { const s = document.createElement("div"); s.className = "skeleton" + (i % 4 === 3 ? " w60" : ""); host.appendChild(s); }
+  }
+  async function load(){
+    if (doc) return doc;
+    if (!loading) loading = fetch("/reflow?path=" + encodeURIComponent(rel)).then(async r => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      doc = j; return doc;
+    }).finally(() => { loading = null; });
+    return loading;
+  }
+  function makeFigure(block){
+    const c = document.createElement("canvas");
+    c.dataset.crop = String(block.id);
+    const w = block.bbox[2] - block.bbox[0], h = block.bbox[3] - block.bbox[1];
+    c.style.aspectRatio = w + " / " + h; c.style.width = "min(100%, " + Math.round(w * 1.5) + "px)";
+    crops.set(block.id, {canvas: c, task: null, block});
+    return c;
+  }
+  async function paintCrop(entry){
+    if (!__readingPdf || entry.task || entry.canvas.dataset.done) return;
+    const page = await __readingPdf.getPage(entry.block.page);
+    const cssScale = 1.5;
+    const cv = R.cropViewport(page, entry.block, cssScale, DPR);
+    entry.canvas.width = cv.canvasWidth; entry.canvas.height = cv.canvasHeight;
+    const ctx = entry.canvas.getContext("2d"); ctx.scale(DPR, DPR);
+    entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display"});
+    try { await entry.task.promise; entry.canvas.dataset.done = "1"; }
+    catch(e){ if (!isRenderCancel(e)) console.warn("reading crop", entry.block.id, e); }
+    finally { entry.task = null; }
+  }
+  function observeCrops(){
+    if (cropObserver) cropObserver.disconnect();
+    cropObserver = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        const entry = crops.get(Number(e.target.dataset.crop)); if (!entry) continue;
+        if (e.isIntersecting) void paintCrop(entry);
+        else if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; entry.canvas.width = entry.canvas.height = 0; delete entry.canvas.dataset.done; }
+      }
+    }, {rootMargin: "100% 0px"});
+    for (const {canvas} of crops.values()) cropObserver.observe(canvas);
+  }
+  function render(){
+    host.innerHTML = ""; crops.clear();
+    if (!doc.blocks.length) { const p = document.createElement("p"); p.className = "err"; p.textContent = "Ce PDF n'a pas de couche texte : rien à recomposer."; host.appendChild(p); return; }
+    host.appendChild(R.buildReadingDom(doc, {document, makeFigure}));
+    observeCrops();
+    document.dispatchEvent(new CustomEvent("atelier-reading-rendered"));
+  }
+  function topPage(){
+    const sc = document.scrollingElement || document.documentElement;
+    const y = sc.scrollTop + 8;
+    let best = 1;
+    for (const pg of document.querySelectorAll("#pages .pg")) { if (pg.offsetTop <= y) best = +pg.dataset.page; else break; }
+    return best;
+  }
+  function scrollToBlockOfPage(page){
+    const el = host.querySelector('[data-page="' + page + '"]');
+    if (el) el.scrollIntoView({block: "start"});
+  }
+  function currentBlockId(){
+    const sc = document.scrollingElement || document.documentElement;
+    const entries = [...host.querySelectorAll("[data-block]")].map(el => ({id: +el.dataset.block, top: el.offsetTop}));
+    return R.blockAtScrollTop(entries, sc.scrollTop + 8);
+  }
+  async function enter(){
+    if (on) return;
+    const page = topPage();
+    on = true; btn.setAttribute("aria-pressed", "true"); section.hidden = false; body.classList.add("read-mode");
+    applyPrefs(); skeleton();
+    try { await load(); render(); scrollToBlockOfPage(page); }
+    catch(e){ host.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "Mode lecture indisponible — " + (e.message || e); host.appendChild(p); }
+  }
+  function leave(){
+    if (!on) return;
+    const page = doc ? R.pageForBlock(doc, currentBlockId()) : 1;
+    on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
+    const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
+    if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
+  }
+  /** Le document recomposé est lié au PDF affiché : un rechargement en place
+   *  (compile LaTeX, mtime) le périme — __reloadPdf appelle reset(). */
+  function reset(){ doc = null; if (cropObserver) { cropObserver.disconnect(); cropObserver = null; } crops.clear(); host.innerHTML = ""; }
+  btn.onclick = () => on ? leave() : enter();
+  window.addEventListener("keydown", e => {
+    const t = document.activeElement;
+    const typing = /^(INPUT|TEXTAREA)$/.test((t && t.tagName) || "") || !!(t && t.isContentEditable);
+    if (e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && !typing) { e.preventDefault(); on ? leave() : enter(); }
+    if (!on || !(e.metaKey || e.ctrlKey)) return;
+    if (e.key === "=" || e.key === "+") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsp").click(); }
+    if (e.key === "-") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsm").click(); }
+  }, true);   // capture : passe avant le raccourci de zoom du lecteur
+  return {enter, leave, isOn: () => on, doc: () => doc, reset, host, crops};
+})();
+
 async function main(){
   let pdf;
   try {
@@ -388,6 +532,7 @@ async function main(){
       standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
       wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
       cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    __readingPdf = pdf;
   } catch(e) {
     const p = document.getElementById("pages");
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
@@ -672,6 +817,10 @@ async function main(){
         cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
       if(t !== _rlTok) return;
       pdf = doc;
+      __readingPdf = pdf;
+      // Nouveau document : la recomposition en cache est périmée.
+      if (window.__readingMode.isOn()) window.__readingMode.leave();
+      window.__readingMode.reset();
       const el = document.scrollingElement || document.documentElement;
       const st = el.scrollTop;
       await renderAll();

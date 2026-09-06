@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {JSDOM} from "jsdom";
 await import("../../assets/pdf_passage.js");
 await import("../../assets/pdf_reading.js");
@@ -85,4 +86,28 @@ test("blockAtScrollTop et pageForBlock", () => {
   assert.equal(R.blockAtScrollTop(entries, 5000), 2);
   assert.equal(R.pageForBlock(DOC, 5), 2);
   assert.equal(R.pageForBlock(DOC, 99), 1);
+});
+
+// ---- contrat du lecteur ---------------------------------------------------
+const html = fs.readFileSync(new URL("../../assets/pdf_viewer.html", import.meta.url), "utf8");
+const css = fs.readFileSync(new URL("../../assets/pdf_reading.css", import.meta.url), "utf8");
+
+test("contrat lecteur : bouton, colonne, script compagnon, clés persistées", () => {
+  assert.match(html, /<script src="pdf_reading\.js"><\/script>/);
+  assert.match(html, /<link rel="stylesheet" href="pdf_reading\.css">/);
+  assert.match(html, /id="readBtn"[^>]*aria-pressed="false"/);
+  assert.match(html, /<section id="reading" hidden>/);
+  assert.match(html, /id="readBar"/);
+  for (const k of ["pdfRead.fs", "pdfRead.width", "pdfRead.lh", "pdfRead.font"]) assert.ok(html.includes(`"${k}"`), k);
+  assert.match(html, /fetch\("\/reflow\?path=" \+ encodeURIComponent\(rel\)\)/);
+  assert.match(html, /window\.__readingMode\s*=/);
+  assert.doesNotMatch(html, /intent:\s*"print"/);
+});
+
+test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur en dur", () => {
+  assert.match(css, /body\.read-mode #pages\{display:none\}/);
+  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b/i, "hex en dur interdit — variables CSS seulement");
+  for (const m of css.matchAll(/transition:[^;]*?(\d+)ms/g)) assert.ok(Number(m[1]) <= 200, m[0]);
+  assert.match(css, /prefers-reduced-motion/);
+  assert.match(css, /--read-fs/); assert.match(css, /--read-width/); assert.match(css, /--read-lh/);
 });
