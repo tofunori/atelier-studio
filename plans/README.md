@@ -523,17 +523,23 @@ Numérotation reprise à 069.
 | 070 | Reprise des messages d'agents liés coincés en « delivering » après un crash | P2 | S | — | TODO |
 | 071 | Caractérisation : parité i18n FR/EN et câblage de `Chat.tsx` | P2 | M | — | TODO |
 | 072 | Caractérisation de `ws_router.rs` par famille de messages (prérequis au découpage) | P2 | L | — | TODO |
+| 073 | `getHistory` lit le journal hors du worker WebSocket | P1 | S | — | TODO |
+| 074 | Passerelle distante fail-closed (pair inconnu, liste d'hôtes vide) | P1 | S | — | TODO |
+| 075 | DOMPurify versionné partout (galerie + mermaid), test anti-dérive | P1 | S | — | TODO |
+| 076 | i18n par locale : l'entrée ne charge qu'une langue, budget retrouvé | P2 | M | 071 | TODO |
+| 077 | État galerie : fusion par présence + version, refus des snapshots périmés (409) | P2 | M | — | TODO |
 
 ### Dependency notes
 
 - 069 et 070 sont indépendants (crates différentes) ; 069 d'abord, impact utilisateur plus large.
 - 071 et 072 ne modifient aucune logique ; ils précèdent tout découpage de `Chat.tsx` / `ws_router.rs` (plans à écrire après).
+- Deuxième vague (2026-09-06, même audit) : 073, 074, 075 sont des « S » indépendants, exécutables en parallèle ; 076 dépend de 071 (le test de parité protège le découpage des dictionnaires) ; 077 est indépendant mais touche le template galerie (lire `docs/PIEGES_CONNUS.md`).
 
 ### Constats vérifiés, non planifiés (disponibles sur demande)
 
-- **Fluidité** : `getHistory` lit + retrie le journal en bloquant le worker (`ws_router.rs:279` ; `spawn_blocking` existe 3 lignes plus bas) — S ; bundle d'entrée à 1 023/1 024 Ko (`check_entry_budget.mjs`), le script désigne le split i18n par locale — M ; sélection PDF recalculée à chaque `pointermove` sans rAF (`pdf_viewer.html:794`) — S ; Explorateur : filtre de 24 414 chemins par frappe, arbre non virtualisé (`Explorer.tsx:144,288`) — S/M ; `vitest.config.ts` sans borne de pool → timeouts sous charge — S.
-- **Sécurité / dépendances** : passerelle distante `peer == "unknown"` saute la garde loopback (`remote/routes.rs:223`) et liste d'hôtes vide = tout accepté (`hostcheck.rs:16`) — S ; DOMPurify 3.1.7 vendorisé (`gallery/assets/purify.min.js`, invisible à `npm audit`) et `mermaid` → dompurify 3.4.11 (2 advisories modérées atteignables) — S ; `isValidMessageUrl` accepte tout schéma, seule la CSP protège `<img>` (`ipc.ts:130`) — S ; `claude-cli.log` en 644 sans rédaction (`claude.rs:1231`) — S.
-- **Intégrité galerie** : `POST /state` réécrit tout l'état depuis un onglet périmé (`atelier-gallery/main.rs:203-274` ; `toggle_favorite` documente le risque) — M ; `annotation-previews/` jamais purgé (`main.rs:1447`, `widgets.rs::purge_oldest` comme modèle) — S.
+- **Fluidité** (073 et 076 planifiés) : sélection PDF recalculée à chaque `pointermove` sans rAF (`pdf_viewer.html:794`) — S ; Explorateur : filtre de 24 414 chemins par frappe, arbre non virtualisé (`Explorer.tsx:144,288`) — S/M ; `vitest.config.ts` sans borne de pool → timeouts sous charge — S.
+- **Sécurité / dépendances** (074 et 075 planifiés) : `isValidMessageUrl` accepte tout schéma, seule la CSP protège `<img>` (`ipc.ts:130`) — S ; `claude-cli.log` en 644 sans rédaction (`claude.rs:1231`) — S.
+- **Intégrité galerie** (077 planifié) : `annotation-previews/` jamais purgé (`main.rs:1447`, `widgets.rs::purge_oldest` comme modèle) — S.
 - **Dette / docs** : `__atelierPost` copié 5× (une copie divergente) ; palettes galerie sans test anti-dérive (le mobile en a un : `tokens-drift.test.ts`) ; `ROADMAP_V1.md` et `BRIEF_PROVIDER_REGISTRY.md` obsolètes ; protocole de relance en bash copié-collé (→ `scripts/relance.sh`).
 - **Direction** : steer/permissions pour Grok/Kimi/OpenCode (point d'extension `Provider::steer()` présent, `permissions: true` déjà pour Grok/Kimi) — spike par provider ; split i18n par locale (aussi la réponse au budget d'entrée).
 
