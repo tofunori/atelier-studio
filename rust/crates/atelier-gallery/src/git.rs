@@ -139,7 +139,7 @@ fn parse_editor_commit_message(raw: &str) -> Result<EditorCommitMessage, String>
     let raw_title = value.get("title").and_then(Value::as_str).unwrap_or("");
     let normalized = raw_title.split_whitespace().collect::<Vec<_>>().join(" ");
     let title = normalized
-        .trim_end_matches(|c| c == ':' || c == ';')
+        .trim_end_matches([':', ';'])
         .chars()
         .take(50)
         .collect::<String>()

@@ -1078,6 +1078,31 @@ async fn static_asset(
         return serve_video(&path, &metadata, method, &headers).await;
     }
 
+    // Injection de sel_overlay.js requiert de réécrire les octets HTML à
+    // chaque requête (le contenu servi n'est jamais celui du disque) — pas
+    // d'ETag pour cette branche (documenté dans le rapport de la tâche 3).
+    // Le HTML mis à part, le fichier est servi tel quel : un ETag faible
+    // (mtime+taille) permet un aller-retour 304 sans relire le disque —
+    // notable pour le bundle pdf.js (~1,4 Mo) rechargé à chaque iframe.
+    let is_html = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
+    if !is_html {
+        let etag = ranged::etag_for_metadata(&metadata);
+        if ranged::matches_if_none_match(&headers, &etag) {
+            let mut resp = (StatusCode::NOT_MODIFIED, ()).into_response();
+            let hdrs = resp.headers_mut();
+            hdrs.insert(
+                header::ETAG,
+                HeaderValue::from_str(&etag)
+                    .unwrap_or_else(|_| HeaderValue::from_static("W/\"0-0\"")),
+            );
+            hdrs.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            return resp;
+        }
+    }
+
     let Ok(mut bytes) = tokio::fs::read(&path).await else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "read failed").into_response();
     };
@@ -1085,11 +1110,6 @@ async fn static_asset(
         .first_or_octet_stream()
         .to_string();
 
-    // Inject sel_overlay.js into project HTML (parité Python).
-    let is_html = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
     let trusted = trusted_static_path(requested, &bytes);
     if is_html && !trusted {
         let tag = br#"<script defer src="/.fig_thumbs/sel_overlay.js?v=3"></script>"#;
@@ -1123,6 +1143,13 @@ async fn static_asset(
         },
     )
         .into_response();
+    if !is_html {
+        let etag = ranged::etag_for_metadata(&metadata);
+        response.headers_mut().insert(
+            header::ETAG,
+            HeaderValue::from_str(&etag).unwrap_or_else(|_| HeaderValue::from_static("W/\"0-0\"")),
+        );
+    }
     let executable = content_type.starts_with("text/html")
         || content_type == "application/xhtml+xml"
         || content_type == "image/svg+xml";

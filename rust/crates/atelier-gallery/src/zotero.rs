@@ -636,9 +636,7 @@ pub async fn kb_pdf(
 /// Zotero valide : l'appelant retombe alors sur la résolution projet.
 pub fn zotero_pdf_path(rel: &str) -> Option<std::path::PathBuf> {
     let rest = rel.strip_prefix("zotero/")?;
-    let mut parts = rest.splitn(2, '/');
-    let key = parts.next()?;
-    let fname = parts.next()?;
+    let (key, fname) = rest.split_once('/')?;
     if key.len() != 8 || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
         return None;
     }

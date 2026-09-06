@@ -535,15 +535,22 @@ async function main(){
         try {
           await task.promise;
         } catch (error) {
-          if (!isRenderCancel(error)) throw error;
-          cancelled = true;   // sortie d'écran ou nouvelle génération : normal
+          cv.width = cv.height = 0;
+          // annulation = sortie d'écran ou génération périmée : rien à dire.
+          // Une VRAIE erreur de peinture ne doit pas priver la page de sa
+          // couche texte (sélection, recherche, ancrage des annotations).
+          if (isRenderCancel(error)) cancelled = true;
+          else console.warn("PDF page", slot.n, error);
         } finally {
           if (slot.task === task) slot.task = null;
         }
-        if (cancelled || gen !== _renderGen || (_pageObserver && !slot.visible && !slot.want)) {
-          cv.width = cv.height = 0; return;
-        }
-        slot.div.prepend(cv);
+        if (gen !== _renderGen) { cv.width = cv.height = 0; return; }
+        // Peinture annulée ou page ressortie de l'écran : pas de canvas, mais
+        // on continue vers la couche texte — sinon la passe de fond, qui
+        // ignore une page encore marquée `rendering`, pouvait laisser cette
+        // page sans texte (recherche et passages muets jusqu'au retour).
+        if (cancelled || (_pageObserver && !slot.visible && !slot.want)) cv.width = cv.height = 0;
+        else if (cv.width) slot.div.prepend(cv);
       }
       // 2b) couche texte : sélection, recherche, ancrage des annotations
       let tl = slot.div.querySelector(".textLayer");

@@ -427,12 +427,11 @@ pub async fn get_pdfannot(
     // rien dans le store partagé : reprendre l'ancien store du projet
     if store.get(&rel).is_none() {
         let legacy = legacy_pdf_annots_path(&state.root);
-        if legacy != shared {
-            if let Some(old) = read_pdf_store(&legacy).get(&rel).cloned() {
-                if old.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
-                    annots = old;
-                }
-            }
+        if legacy != shared
+            && let Some(old) = read_pdf_store(&legacy).get(&rel).cloned()
+            && old.as_array().map(|a| !a.is_empty()).unwrap_or(false)
+        {
+            annots = old;
         }
     }
     (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
