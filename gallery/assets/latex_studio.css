@@ -163,23 +163,23 @@
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);flex:none}
+      border:1px solid var(--border, #2a2d31);color:var(--muted);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
   #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
   #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--bg);flex:none}
   #selPill .go:hover{background:color-mix(in srgb,var(--accent) 88%,white)}
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
-      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
-      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:var(--fs-body, 13px)}
+      background:var(--card, #24282d);border-radius:10px;padding:6px;
+      box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-size:var(--fs-body, 13px)}
   #tgMenu .hd{font-size:var(--fs-label, 11px);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
-  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
-  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;cursor:pointer}
+  #tgMenu .it:hover{background:var(--card2, #2c2f34)}
   #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-      color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
+      color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #tgMenu .it.on .t{color:#8ab4ff}
-#mdModeSeg button.mdon{background:var(--accent);color:#10151d;border-color:var(--accent)}
+  #tgMenu .it.on .t{color:var(--accent)}
+#mdModeSeg button.mdon{background:var(--accent);color:var(--bg);border-color:var(--accent)}
   #diffGrp{order:0;height:28px;gap:0!important;padding:1px;border:1px solid var(--border);border-radius:8px;box-sizing:border-box;background:color-mix(in srgb,var(--card) 82%,var(--bg));overflow:hidden}
   #diffGrp>button,#diffGrp #dvNav button{width:30px;height:24px;padding:0!important;border:0!important;border-radius:5px!important;display:inline-flex;align-items:center;justify-content:center;position:relative}
   #diffGrp button svg{width:14px;height:14px;flex:none}

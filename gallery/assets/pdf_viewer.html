@@ -82,7 +82,7 @@
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);flex:none}
+      border:1px solid var(--border, #2a2d31);color:var(--muted);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
   #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
   /* Barre d'annotation À LA SÉLECTION (refonte 2026-08-16, variante A) : les
@@ -109,15 +109,15 @@
   .pdfcomment-line{position:absolute;z-index:7;height:0;border-bottom:1px solid #73777d99;pointer-events:none}
   #annotPop{position:fixed;z-index:9999;display:none}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
-      background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
-      box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:var(--fs-body, 13px)}
+      background:var(--card, #24282d);border-radius:10px;padding:6px;
+      box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-size:var(--fs-body, 13px)}
   #tgMenu .hd{font-size:var(--fs-label, 11px);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
-  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
-  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;cursor:pointer}
+  #tgMenu .it:hover{background:var(--card2, #2c2f34)}
   #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-      color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
+      color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #tgMenu .it.on .t{color:#8ab4ff}
+  #tgMenu .it.on .t{color:var(--accent)}
   /* Recherche dans le document (Cmd+F) — Zotero 7 l'a, ce lecteur non. */
   #findBar{position:fixed;top:56px;right:18px;z-index:320;display:none;align-items:center;gap:6px;
     background:#1d2026;border:1px solid #343842;border-radius:999px;padding:6px 8px 6px 14px;
