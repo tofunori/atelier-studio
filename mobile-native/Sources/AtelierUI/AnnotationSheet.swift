@@ -7,6 +7,8 @@ struct AnnotationSheet: View {
     @FocusState private var editing: Bool
     @State private var sending = false
     @State private var savedNote = false
+    @State private var syncingNote = false
+    @State private var syncedNote = false
     @State private var saveError: String?
     @State private var choosingConversation = false
 
@@ -26,7 +28,7 @@ struct AnnotationSheet: View {
                     TextField("Que souhaitez-vous dire sur ce passage ?", text: $draft.note, axis: .vertical)
                         .lineLimit(4...10)
                         .focused($editing)
-                        .disabled(sending)
+                        .disabled(sending || syncingNote)
                         .accessibilityIdentifier("annotationNote")
                 }
                 }.padding(20)
@@ -37,6 +39,15 @@ struct AnnotationSheet: View {
                         Button(savedNote ? "Note conservée dans Atelier" : "Conserver la note dans Atelier", systemImage: savedNote ? "checkmark" : "bookmark") {
                             do { try workspace.library.save(draft); savedNote = true } catch { saveError = error.localizedDescription }
                         }.frame(minHeight: 44).disabled(draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+                        Button(syncedNote ? "Enregistrée dans Zotero" : "Enregistrer dans Zotero", systemImage: syncedNote ? "checkmark" : "books.vertical") {
+                            syncingNote = true; saveError = nil
+                            Task {
+                                defer { syncingNote = false }
+                                do { try await workspace.library.sync(draft, using: workspace.gallery); savedNote = true; syncedNote = true }
+                                catch { saveError = error.localizedDescription }
+                            }
+                        }.frame(minHeight: 44).disabled(syncingNote || sending || draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if syncingNote { Text("Confirmez l’autorisation dans Zotero sur le Mac si elle apparaît.").font(.caption).foregroundStyle(.secondary) }
                         if let saveError { Text(saveError).font(.caption).foregroundStyle(.red) }
                     }
                     Button { choosingConversation = true } label: {
@@ -44,7 +55,7 @@ struct AnnotationSheet: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .disabled(sending)
+                    .disabled(sending || syncingNote)
                     .accessibilityIdentifier("annotationConversation")
                     Button {
                         editing = false
@@ -78,7 +89,7 @@ struct AnnotationSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") { dismiss() }.disabled(sending)
+                    Button("Annuler") { dismiss() }.disabled(sending || syncingNote)
                 }
             }
         }
@@ -87,6 +98,7 @@ struct AnnotationSheet: View {
         }
         .presentationDetents([.fraction(0.65), .large])
         .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(!draft.note.isEmpty)
+        .interactiveDismissDisabled(sending || syncingNote || (!draft.note.isEmpty && !savedNote))
+        .onChange(of: draft.note) { _, _ in savedNote = false; syncedNote = false }
     }
 }

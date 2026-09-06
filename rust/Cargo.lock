@@ -259,6 +259,7 @@ dependencies = [
  "atelier-fdlimit",
  "atelier-protocol",
  "atelier-store",
+ "atelier-workspace",
  "axum",
  "futures-util",
  "hex",

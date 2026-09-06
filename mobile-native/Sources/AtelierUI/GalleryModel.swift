@@ -219,7 +219,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         return try JSONDecoder().decode(Uploaded.self, from: await response(request)).fileId
     }
     func invalidate(_ item: GalleryArtifact) { if let id = item.fileID { cache.removeValue(forKey: id) } }
-    func chatRequest(_ components: [String], body: [String: Any]? = nil) async throws -> Data {
+    func chatRequest(_ components: [String], body: [String: Any]? = nil, timeout: TimeInterval = 20) async throws -> Data {
         guard let baseURL else { throw GalleryError.invalidAddress }
         var url = baseURL.appendingPathComponent("remote/v1")
         for component in components { url.appendPathComponent(component) }
@@ -230,7 +230,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
-        return try await response(request)
+        return try await response(request, timeout: timeout)
     }
     func chatStream(_ thread: String) async throws -> URLSession.AsyncBytes {
         guard let baseURL else { throw GalleryError.invalidAddress }
@@ -241,8 +241,8 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw GalleryError.server((response as? HTTPURLResponse)?.statusCode ?? 0) }
         return bytes
     }
-    private func response(_ request: URLRequest) async throws -> Data {
-        var request = request; request.timeoutInterval = 20
+    private func response(_ request: URLRequest, timeout: TimeInterval = 20) async throws -> Data {
+        var request = request; request.timeoutInterval = timeout
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             if (response as? HTTPURLResponse)?.statusCode == 401 { throw GalleryError.server(401) }
