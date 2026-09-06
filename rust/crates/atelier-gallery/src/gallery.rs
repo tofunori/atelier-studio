@@ -1061,7 +1061,10 @@ mod open_path_tests {
         let file = outside.path().join("figure.pdf");
         fs::write(&file, "%PDF-1.4\n").unwrap();
         // rel qui remonte hors du sandbox : refusé (not found, comme avant).
-        let escaping = format!("../{}/figure.pdf", outside.path().file_name().unwrap().to_str().unwrap());
+        let escaping = format!(
+            "../{}/figure.pdf",
+            outside.path().file_name().unwrap().to_str().unwrap()
+        );
         let err = resolve_openable(&root, &escaping).unwrap_err();
         assert_eq!(err.0, StatusCode::NOT_FOUND);
     }

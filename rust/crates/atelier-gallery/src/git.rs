@@ -670,7 +670,10 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
                         .insert("milestone".into(), stone);
                 }
                 if let Some(cur) = map.get("current") {
-                    state.as_object_mut().unwrap().insert("current".into(), cur.clone());
+                    state
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("current".into(), cur.clone());
                 }
             }
             "set-current" => {

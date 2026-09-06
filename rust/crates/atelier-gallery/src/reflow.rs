@@ -191,9 +191,8 @@ pub(crate) struct RawBlock {
     pub bbox: [f32; 4],
     pub lines: Vec<Line>,
     pub size: f32,
-    /// Police de la première ligne du bloc : conservée pour l'inspection en
-    /// tests mais pas encore consommée par `analyze` (héritage tâches 1-2).
-    #[allow(dead_code)]
+    /// Police de la première ligne du bloc : consommée par `analyze` pour
+    /// repérer les titres en gras à la taille du corps.
     pub family: String,
 }
 
@@ -394,7 +393,9 @@ pub(crate) struct ReflowDoc {
     pub blocks: Vec<Block>,
 }
 
-pub(crate) const REFLOW_VERSION: u32 = 1;
+// 2 : vague finale du plan 078 — ordre de lecture de la manchette, titres en
+// gras, fragments d'exposant supprimés, numéro d'équation à 3 chiffres max.
+pub(crate) const REFLOW_VERSION: u32 = 2;
 
 fn norm_text(t: &str) -> String {
     t.chars()
@@ -410,6 +411,59 @@ fn is_math_family(f: &str) -> bool {
     ]
     .iter()
     .any(|k| u.contains(k))
+}
+
+/// Police grasse. Les articles composés en Times/Nimbus donnent leurs titres
+/// de section à la taille du corps : seule la graisse les distingue.
+fn is_bold_family(f: &str) -> bool {
+    let u = f.to_uppercase();
+    // « MEDI » couvre les familles Nimbus/URW (`NimbusRomNo9L-Medi`), la
+    // graisse des titres de section des articles Copernicus : sans elle la
+    // règle ne trouvait AUCUN titre sur un vrai article (mesuré 2026-09-06).
+    ["BOLD", "-B", "CMBX", "HEAVY", "SEMIBOLD", "MEDI"]
+        .iter()
+        .any(|k| u.contains(k))
+}
+
+/// Numéro de section en tête (`2 Methods`, `2.3.1 Albedo`) → nombre de points
+/// du numéro (`2` → 0, `2.3` → 1). `None` si le texte ne commence pas par
+/// `\d+(\.\d+)*` suivi d'une espace et d'un caractère non blanc.
+fn section_dots(t: &str) -> Option<usize> {
+    let t = t.trim_start();
+    let head: String = t
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if head.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = head.split('.').collect();
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()))
+    {
+        return None;
+    }
+    let rest = &t[head.len()..];
+    if !rest.starts_with(' ') || rest.trim_start().is_empty() {
+        return None;
+    }
+    Some(parts.len() - 1)
+}
+
+/// Marqueur d'affiliation en exposant (« 1 », « 1,2 », « * », « † ») laissé
+/// seul par `pdftohtml` : un bloc minuscule et plus petit que le corps, qui
+/// n'apporte rien à la lecture (140 blocs de ce genre sur un article
+/// Copernicus de 19 pages).
+/// La classe de caractères est volontairement large (pas seulement des
+/// chiffres) : les indices de variables (`Q_G`, `S_N`, `d_sd`) sont laissés
+/// par pdftohtml sous la même forme — un fragment orphelin plus petit que le
+/// corps et large de quelques points. Un « 1 » à la taille du corps (numéro de
+/// liste, chiffre de tableau) est protégé par le seuil de taille, une cellule
+/// de tableau par celui de largeur.
+fn is_superscript_marker(text: &str, size: f32, body: f32, width: f32) -> bool {
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    size < body * 0.9 && width < 25.0 && !compact.is_empty() && compact.chars().count() <= 3
 }
 
 /// Taille du corps : médiane des tailles de ligne pondérée par le nombre de caractères.
@@ -553,17 +607,47 @@ pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
             .filter(|l| is_math_family(&l.family))
             .map(|l| l.text.chars().count())
             .sum();
+        // 1 à 3 chiffres seulement : `(12)` est un numéro d'équation, `(2014)`
+        // une année de citation en fin de phrase.
         let ends_with_eq_number = b.lines.len() <= 2
             && text.trim_end().ends_with(')')
             && text.rsplit('(').next().is_some_and(|t| {
-                t.trim_end_matches(')').chars().all(|c| c.is_ascii_digit())
-                    && !t.trim_end_matches(')').is_empty()
+                let n = t.trim_end_matches(')');
+                (1..=3).contains(&n.chars().count()) && n.chars().all(|c| c.is_ascii_digit())
             });
+        // Fragment de math EN LIGNE isolé par pdftohtml (un « α », un « ◦ »,
+        // une flèche de quelques points de large) : la spec veut que les
+        // équations inline restent du texte et que seules les équations en
+        // ligne isolée deviennent des découpes. Rendu en bloc, un tel
+        // fragment donnait une découpe bitmap de 5 pt de large au milieu du
+        // flux (104 sur un article Copernicus de 19 pages) : on le laisse
+        // tomber plutôt que d'en faire une image.
+        let inline_math_scrap = math_chars == chars
+            && text.chars().filter(|c| !c.is_whitespace()).count() <= 3
+            && b.bbox[2] - b.bbox[0] < 25.0
+            && !ends_with_eq_number;
+        if inline_math_scrap || is_superscript_marker(&text, b.size, body, b.bbox[2] - b.bbox[0]) {
+            continue;
+        }
+        let big_heading = b.size > body * 1.15 && b.lines.len() <= 3;
+        // Titre en gras à la taille du corps : ≤ 3 lignes, graisse, et soit un
+        // numéro de section, soit un intitulé court sans point final.
+        let bold_heading = b.lines.len() <= 3
+            && b.size >= body * 0.95
+            && is_bold_family(&b.family)
+            && (section_dots(&text).is_some()
+                || (text.chars().count() <= 60 && !text.trim_end().ends_with('.')));
+        // Précédence de la chaîne ci-dessous, du plus spécifique au plus
+        // générique : une légende gagne sur tout (elle porte son propre
+        // préfixe) ; une équation gagne sur un titre (les deux sont courts,
+        // mais la police math ou le numéro d'équation tranchent) ; un titre
+        // gagne sur une note de bas de page (une note est PLUS petite que le
+        // corps, un titre jamais) ; une liste gagne sur un paragraphe.
         let kind = if caption_re(&text) {
             Kind::Caption
         } else if math_chars * 10 >= chars * 6 || ends_with_eq_number {
             Kind::Math
-        } else if b.size > body * 1.15 && b.lines.len() <= 3 {
+        } else if big_heading || bold_heading {
             Kind::Heading
         } else if b.size < body * 0.9 && b.bbox[1] > ph * 0.66 {
             Kind::Footnote
@@ -583,7 +667,14 @@ pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
                 lines,
             ),
             Kind::Heading => {
-                let lv = level_of(b.size);
+                // Un titre repéré par la TAILLE garde son rang de taille ; un
+                // titre repéré par la GRAISSE tient son niveau de son numéro
+                // de section (`2.3` → 2), plafonné à 3, faute de numéro → 2.
+                let lv = if big_heading {
+                    level_of(b.size)
+                } else {
+                    section_dots(&text).map_or(2, |d| (d + 1).min(3) as u8)
+                };
                 push(&mut blocks, b.page, kind, b.bbox, text, Some(lv), lines)
             }
             _ => push(&mut blocks, b.page, kind, b.bbox, text, None, lines),
@@ -1138,7 +1229,7 @@ mod tests {
     fn classification_titre_paragraphe_legende_equation() {
         let p = parse_pdftohtml_xml(FIXTURE).unwrap();
         let doc = analyze(&p);
-        assert_eq!(doc.version, 1);
+        assert_eq!(doc.version, REFLOW_VERSION);
         let kinds = |k: Kind| doc.blocks.iter().filter(|b| b.kind == k).count();
         assert!(
             kinds(Kind::Heading) >= 3,
@@ -1177,6 +1268,159 @@ mod tests {
             .find(|b| b.kind == Kind::Math)
             .expect("math block");
         assert!(math.text.is_empty() && math.bbox[3] > math.bbox[1]);
+    }
+
+    /// Petit document synthétique : `body` lignes de corps 10 pt (pour que la
+    /// taille de corps soit 10) plus les lignes passées en argument.
+    fn doc_with(extra: Vec<Line>) -> Parsed {
+        let mut lines: Vec<Line> = (0..40)
+            .map(|i| Line {
+                page: 1,
+                bbox: [
+                    57.0,
+                    200.0 + i as f32 * 12.0,
+                    293.0,
+                    209.0 + i as f32 * 12.0,
+                ],
+                text: "corps de texte ordinaire assez long pour peser".into(),
+                size: 10.0,
+                family: "Times".into(),
+            })
+            .collect();
+        lines.extend(extra);
+        Parsed {
+            pages: vec![PageDim { w: 595.0, h: 841.0 }],
+            lines,
+            images: vec![],
+        }
+    }
+
+    #[test]
+    fn titre_gras_de_taille_corps_est_un_titre_numerote() {
+        let bold = |top: f32, t: &str| Line {
+            page: 1,
+            bbox: [57.0, top, 200.0, top + 10.0],
+            text: t.into(),
+            size: 10.0,
+            family: "NimbusSanL-Bold".into(),
+        };
+        let doc = analyze(&doc_with(vec![
+            bold(700.0, "2 Methods"),
+            bold(730.0, "2.1 Study site"),
+            bold(760.0, "Note that the results."),
+        ]));
+        let by = |t: &str| {
+            doc.blocks
+                .iter()
+                .find(|b| b.text == t)
+                .unwrap_or_else(|| panic!("bloc « {t} » absent"))
+        };
+        assert_eq!(by("2 Methods").kind, Kind::Heading);
+        assert_eq!(by("2 Methods").level, Some(1));
+        assert_eq!(by("2.1 Study site").kind, Kind::Heading);
+        assert_eq!(by("2.1 Study site").level, Some(2));
+        assert_eq!(
+            by("Note that the results.").kind,
+            Kind::Paragraph,
+            "une phrase grasse finissant par un point n'est pas un titre"
+        );
+    }
+
+    #[test]
+    fn fragments_dexposant_supprimes_mais_pas_les_chiffres_de_corps() {
+        let mark = |top: f32, t: &str, size: f32| Line {
+            page: 1,
+            bbox: [57.0, top, 70.0, top + size],
+            text: t.into(),
+            size,
+            family: "Times".into(),
+        };
+        let wide = Line {
+            page: 1,
+            bbox: [57.0, 760.0, 100.0, 767.0],
+            text: "0.62".into(),
+            size: 7.0,
+            family: "Times".into(),
+        };
+        let doc = analyze(&doc_with(vec![
+            mark(700.0, "1,2", 7.0),
+            mark(730.0, "1", 10.0),
+            mark(745.0, "sd", 7.0),
+            wide,
+        ]));
+        assert!(
+            !doc.blocks.iter().any(|b| b.text == "1,2"),
+            "marqueur d'affiliation gardé"
+        );
+        assert!(
+            !doc.blocks.iter().any(|b| b.text == "sd"),
+            "indice de variable orphelin gardé"
+        );
+        assert!(
+            doc.blocks.iter().any(|b| b.text == "1"),
+            "un « 1 » de corps ne doit pas disparaître"
+        );
+        assert!(
+            doc.blocks.iter().any(|b| b.text == "0.62"),
+            "une cellule de tableau (large) ne doit pas disparaître"
+        );
+    }
+
+    #[test]
+    fn fragment_de_math_en_ligne_ne_devient_pas_une_decoupe() {
+        // Une équation EN LIGNE laissée seule par pdftohtml (un « α » de 5 pt
+        // de large) donnait une découpe bitmap au milieu du flux ; une vraie
+        // équation en ligne isolée, elle, reste `math`.
+        let math = |top: f32, t: &str, x2: f32| Line {
+            page: 1,
+            bbox: [200.0, top, x2, top + 10.0],
+            text: t.into(),
+            size: 10.0,
+            family: "XNZQWU+MTMI".into(),
+        };
+        let doc = analyze(&doc_with(vec![
+            math(700.0, "\u{3b1}", 205.0),
+            math(730.0, "Q = Q ( 1 \u{2212} \u{3b1} ) + Q", 400.0),
+        ]));
+        assert!(
+            !doc.blocks
+                .iter()
+                .any(|b| b.kind == Kind::Math && b.bbox[2] - b.bbox[0] < 25.0),
+            "fragment inline gardé comme découpe"
+        );
+        assert!(
+            doc.blocks
+                .iter()
+                .any(|b| b.kind == Kind::Math && b.bbox[2] - b.bbox[0] > 100.0),
+            "équation isolée perdue"
+        );
+    }
+
+    #[test]
+    fn numero_dequation_au_plus_trois_chiffres() {
+        let line = |top: f32, t: &str| Line {
+            page: 1,
+            bbox: [57.0, top, 200.0, top + 10.0],
+            text: t.into(),
+            size: 10.0,
+            family: "Times".into(),
+        };
+        let doc = analyze(&doc_with(vec![
+            line(700.0, "Marshall (2014)"),
+            line(730.0, "\u{3b1} = 1 (1)"),
+        ]));
+        let kind = |t: &str| {
+            doc.blocks
+                .iter()
+                .find(|b| b.lines.iter().any(|l| l.text == t))
+                .map(|b| b.kind)
+        };
+        assert_eq!(
+            kind("Marshall (2014)"),
+            Some(Kind::Paragraph),
+            "une année de citation n'est pas un numéro d'équation"
+        );
+        assert_eq!(kind("\u{3b1} = 1 (1)"), Some(Kind::Math));
     }
 
     #[test]
@@ -1250,7 +1494,7 @@ mod tests {
         let p = parse_pdftohtml_xml(FIXTURE).unwrap();
         let doc = analyze(&p);
         let v = serde_json::to_value(&doc).unwrap();
-        assert_eq!(v["version"], 1);
+        assert_eq!(v["version"], REFLOW_VERSION);
         assert!(v["blocks"][0]["kind"].is_string());
         assert!(v["blocks"][0]["lines"].is_array());
         assert_eq!(
