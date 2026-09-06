@@ -10,6 +10,7 @@ mod codex_history;
 pub mod evidence;
 mod grok_history;
 pub mod instance;
+mod message_edits;
 pub mod kb_block;
 pub mod parity;
 pub mod paths;

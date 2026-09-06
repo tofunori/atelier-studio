@@ -126,6 +126,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "listSessions",
     "importSession",
     "forkThread",
+    "prepareMessageEdit",
     "createLinkedThread",
     "mentionAgent",
     "setLinkedThreadPaused",
@@ -1328,6 +1329,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "forkThread" => handle_fork_thread(state, &msg).await,
+        "prepareMessageEdit" => crate::message_edits::prepare(state, &msg).await,
         "createLinkedThread" => crate::agent_links::handle_create_linked_thread(state, &msg).await,
         "mentionAgent" => crate::agent_links::handle_mention_agent(state, &msg).await,
         "setLinkedThreadPaused" => crate::agent_links::handle_set_link_paused(state, &msg).await,

@@ -38,6 +38,7 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/threads/{thread_id}/live", get(live_events))
         .route("/remote/v1/threads", get(list_threads).post(create_thread))
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))
+        .route("/remote/v1/threads/{thread_id}/edit", post(edit_message))
         .route("/remote/v1/send", post(send_msg))
         .route("/remote/v1/attachments/{name}", post(upload_attachment).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
         .route("/remote/v1/document/{file_id}", post(save_document))
@@ -382,6 +383,7 @@ async fn list_threads(
                 "projectId": project_id,
                 "lastSequence": last,
                 "model": t.extra.get("model").and_then(|v| v.as_str()),
+                "messageRevision": t.extra.get("messageRevision"),
             })
         })
         .collect();
@@ -581,6 +583,71 @@ struct SendBody {
     model: Option<String>,
     #[serde(default)]
     effort: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditMessageBody {
+    event_id: String,
+    original_text: String,
+    prompt: String,
+    request_id: String,
+    #[serde(default)] file_ids: Vec<String>,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
+async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
+    Path(thread_id): Path<String>, Json(body): Json<EditMessageBody>) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let device = require_device(&state, &headers, Scope::ChatSend).await?;
+    require_device(&state, &headers, Scope::ChatRead).await?;
+    if uuid::Uuid::parse_str(&body.request_id).is_err() || body.event_id.is_empty()
+        || body.original_text.len() > 120_000 || body.prompt.len() > 100_000
+        || (body.prompt.trim().is_empty() && body.file_ids.is_empty()) {
+        return Err(ApiError::bad_request("invalid_edit", "Modification de message invalide"));
+    }
+    if body.file_ids.len() > 6 { return Err(ApiError::bad_request("too_many_files", "Six pièces jointes maximum")); }
+    if let Some(effort) = body.effort.as_deref() {
+        if !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].contains(&effort) {
+            return Err(ApiError::bad_request("invalid_effort", "Niveau de réflexion invalide"));
+        }
+    }
+    {
+        let g = state.inner.lock().await;
+        if !body.file_ids.is_empty() && !has_scope(&device.scopes, Scope::FilesRead) {
+            return Err(ApiError::forbidden_scope("files:read"));
+        }
+        for id in &body.file_ids { let (_, path, _) = g.projects.resolve_file_id(id)?; check_file_readable(&path)?; }
+    }
+    let fingerprint = hash_token(&json!([thread_id, body.event_id, body.original_text,
+        body.prompt, body.file_ids, body.model, body.effort, device.device_id]).to_string());
+    let prepared = query_readonly(&state, &format!("{}-edit", device.device_id), json!({
+        "type":"prepareMessageEdit", "requestId":body.request_id, "threadId":thread_id,
+        "newThreadId":body.request_id, "messageId":body.request_id, "eventId":body.event_id,
+        "originalText":body.original_text, "fingerprint":fingerprint,
+    }), "messageEditPrepared").await?;
+    let result = &prepared["result"];
+    if let Some(error) = result["error"].as_str() { return Err(ApiError::new(StatusCode::CONFLICT, "edit_conflict", error)); }
+    let thread = &result["thread"];
+    if thread["id"] != body.request_id { return Err(ApiError::new(StatusCode::BAD_GATEWAY, "edit_unconfirmed", "Modification non confirmée")); }
+    // After a lost HTTP acknowledgement, the durable user event confirms the
+    // previous send. Never generate a second response for the same revision.
+    if result["sent"] != true {
+        let sent = send_msg(State(state.clone()), headers.clone(), Json(SendBody {
+            thread_id:body.request_id.clone(), prompt:body.prompt, client_request_id:body.request_id.clone(),
+            client_message_id:Some(body.request_id.clone()), file_ids:body.file_ids,
+            model:body.model.clone(), effort:body.effort,
+        })).await?;
+        if sent.0["proxied"] != true { return Err(ApiError::new(StatusCode::BAD_GATEWAY, "edit_unconfirmed", "Envoi non confirmé. La version originale est conservée ; réessayez pour vérifier.")); }
+    }
+    let project_id = thread["projectRoot"].as_str().filter(|s| !s.is_empty())
+        .map(|root| crate::path_policy::project_id_for(std::path::Path::new(root)));
+    Ok(Json(json!({"proxied":true, "thread":{
+        "id":thread["id"], "title":thread["title"], "provider":thread["provider"],
+        "model":body.model.or_else(|| thread["model"].as_str().map(str::to_owned)),
+        "status":"idle", "projectId":project_id, "messageRevision":thread["messageRevision"],
+    }})))
 }
 
 async fn send_msg(
@@ -1381,7 +1448,8 @@ async fn query_readonly(state: &GatewayState, device: &str, query: Value, expect
                     if value.get("type").and_then(Value::as_str) == Some(expected) {
                         let confirms_creation = query["type"] != "upsertThread" ||
                             value["threads"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == query["thread"]["id"]));
-                        if confirms_creation { return Some(value); }
+                        let confirms_edit = query["type"] != "prepareMessageEdit" || value["requestId"] == query["requestId"];
+                        if confirms_creation && confirms_edit { return Some(value); }
                     }
                 }
             }
