@@ -49,6 +49,7 @@
   #mdTools{display:none;align-items:center;gap:8px;margin-left:auto;padding-right:128px;
     font-size:var(--fs-body-s, 12px);color:var(--muted);white-space:nowrap}
   #mdTools.mounted{display:flex}
+  .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-group:has(#mdTools){margin-left:auto}
   #state{font-variant-numeric:tabular-nums}
   #state.dirty{color:#ffd54a}
   #save{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
@@ -121,6 +122,8 @@ fetch("/code?path=" + encodeURIComponent(path)).then(async r => {
       ["hr", "quote"],
       ["ul", "ol", "task"],
       ["table", "link", "image", "code", "codeblock"],
+      // dernier groupe = état + ⌘S, poussé à droite (voir CSS :has(#mdTools))
+      [{ name: "mdTools", el: document.getElementById("mdTools") }],
     ],
   });
   editor.on("change", () => {
@@ -129,10 +132,7 @@ fetch("/code?path=" + encodeURIComponent(path)).then(async r => {
   });
   setTimeout(() => { loading = false; }, 300);
   setState("", "");
-  // état + ⌘S dans la barre d'outils Toast UI (flex) : à droite des icônes
-  const toolbar = document.querySelector(".toastui-editor-defaultUI-toolbar");
-  const tools = document.getElementById("mdTools");
-  if(toolbar && tools){ toolbar.appendChild(tools); tools.classList.add("mounted"); }
+  document.getElementById("mdTools").classList.add("mounted");
 });
 
 async function save(){
