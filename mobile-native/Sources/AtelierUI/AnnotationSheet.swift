@@ -64,6 +64,9 @@ struct AnnotationSheet: View {
                             defer { sending = false }
                             let prompt = (draft.passage.articleKey.map { "Article Zotero : \($0)\n" } ?? "") + "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
                             if await workspace.chat.send(prompt, using: workspace.gallery, explicitFiles: draft.passage.figure.map { [$0] } ?? []) {
+                                if workspace.sourceAvailable, draft.passage.documentID == workspace.documentID, let threadID = workspace.chat.selected?.id {
+                                    workspace.revisionTarget = SourceRevisionTarget(documentID: workspace.documentID, threadID: threadID, fileName: draft.passage.fileName, original: workspace.source, passage: draft.passage.text)
+                                }
                                 _ = workspace.sendAnnotation(draft)
                                 dismiss()
                             }

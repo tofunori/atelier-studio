@@ -14,28 +14,16 @@ public struct AtelierRootView: View {
 
     public init() {}
 
-    public var body: some View {
+    private var connectedWorkbench: some View {
         workbench
         .tint(AtelierTheme.accent)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .onChange(of: workspace.surface) { _, surface in
-            lastTab = surface == .chat ? "chat" : surface == .articles || (surface == .document && workspace.documentOrigin == .articles) ? "articles" : "gallery"
+            if surface == .chat { lastTab = "chat" }
+            else if surface == .articles || (surface == .document && workspace.documentOrigin == .articles) { lastTab = "articles" }
+            else { lastTab = "gallery" }
         }
-        .task {
-            let desiredTab = lastTab
-            if !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") { await workspace.chat.restore(workspace: workspace) }
-            if !restoredTab {
-                restoredTab = true
-                workspace.surface = desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
-            }
-            #if targetEnvironment(simulator)
-            let arguments = ProcessInfo.processInfo.arguments
-            if let index = arguments.firstIndex(of: "--pair-link"), arguments.indices.contains(index + 1) {
-                await connect(arguments[index + 1])
-            }
-            #endif
-            ChatPreviewFixture.install(in: workspace)
-        }
+        .task { await initialize() }
         .onChange(of: workspace.gallery.selectedProject) { _, project in
             workspace.chat.galleryProjectID = project; workspace.chat.scheduleSave()
         }
@@ -51,6 +39,10 @@ public struct AtelierRootView: View {
                     .padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
         }
+    }
+
+    public var body: some View {
+        connectedWorkbench
         .fileImporter(isPresented: $workspace.importRequested, allowedContentTypes: [.pdf, .image, .plainText, UTType(filenameExtension: "tex") ?? .text]) { result in
             defer { workspace.importToChat = false }
             do {
@@ -63,6 +55,22 @@ public struct AtelierRootView: View {
         .sheet(isPresented: $showAbout) {
             AtelierSettingsView()
         }
+    }
+
+    private func initialize() async {
+            let desiredTab = lastTab
+            if !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") { await workspace.chat.restore(workspace: workspace) }
+            if !restoredTab {
+                restoredTab = true
+                workspace.surface = desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
+            }
+            #if targetEnvironment(simulator)
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "--pair-link"), arguments.indices.contains(index + 1) {
+                await connect(arguments[index + 1])
+            }
+            #endif
+            ChatPreviewFixture.install(in: workspace)
     }
 
     private func connect(_ link: String) async {

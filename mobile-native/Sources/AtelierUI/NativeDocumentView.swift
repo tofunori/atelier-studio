@@ -58,7 +58,15 @@ struct NativeDocumentView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if let item = workspace.viewedArtifact {
-                    Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
+                    Menu {
+                        Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
+                        if workspace.sourceAvailable && item.fileID != nil {
+                            Button("Recharger depuis le Mac", systemImage: "arrow.clockwise") { Task { await workspace.reloadDocument() } }
+                            if workspace.recoveredDrafts[workspace.documentID] != nil {
+                                Button("Récupérer mon brouillon", systemImage: "arrow.uturn.backward") { workspace.recoverDocumentDraft() }
+                            }
+                        }
+                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Actions du document")
                 }
             }
         }

@@ -180,6 +180,7 @@ private struct ChatEventRow: View {
     let workspace: WorkspaceModel
     @State private var selecting = false
     @State private var copied = false
+    @State private var reviewing = false
     var body: some View {
         Group {
                 VStack(alignment: row.kind == "user" ? .trailing : .leading, spacing: 6) {
@@ -190,6 +191,10 @@ private struct ChatEventRow: View {
                     }
                         .padding(row.kind == "user" ? 12 : 0)
                         .background(row.kind == "user" ? Color(uiColor: .secondarySystemBackground) : .clear, in: RoundedRectangle(cornerRadius: 16))
+                    if row.kind == "text", let target = workspace.revisionTarget, target.threadID == workspace.chat.selected?.id,
+                       SourceRevisionTarget.replacement(in: row.text) != nil {
+                        Button("Examiner la reformulation", systemImage: "pencil.and.outline") { reviewing = true }.frame(minHeight: 44)
+                    }
                     if !workspace.chat.files(for: row).isEmpty {
                         ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                     }
@@ -216,6 +221,11 @@ private struct ChatEventRow: View {
                         }.font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
+        }
+        .sheet(isPresented: $reviewing) {
+            if let target = workspace.revisionTarget, let replacement = SourceRevisionTarget.replacement(in: row.text) {
+                SourceRevisionView(workspace: workspace, target: target, replacement: replacement)
+            }
         }
         .sheet(isPresented: $selecting) {
             NavigationStack {

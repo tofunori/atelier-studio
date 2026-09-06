@@ -41,6 +41,7 @@ final class WorkspaceModel {
     }
 
     init(resumeStore: ChatResumeStore? = nil) { chat.resumeStore = resumeStore }
+    var revisionTarget: SourceRevisionTarget?
     var chatPickerRequested = false
     var importToChat = false
     var viewedArtifact: GalleryArtifact?
@@ -56,6 +57,7 @@ final class WorkspaceModel {
     var image: UIImage?
     var imageName = ""
     var originalSources: [UUID: String] = [:]
+    var recoveredDrafts: [UUID: String] = [:]
     var documentError: String?
     var savingDocument = false
     var savedDocuments: [UUID: DocumentState] = [:]
@@ -116,6 +118,26 @@ final class WorkspaceModel {
         let lastLine = firstLine + text.dropLast().filter { $0.isNewline }.count
         let location = firstLine == lastLine ? "ligne \(firstLine)" : "lignes \(firstLine)–\(lastLine)"
         return DocumentPassage(documentID: documentID, fileName: sourceName, location: location, text: text)
+    }
+
+    func reloadDocument() async {
+        guard let artifact = viewedArtifact, artifact.fileID != nil, !savingDocument else { return }
+        let id = documentID
+        recoveredDrafts[id] = source
+        savingDocument = true; documentError = nil
+        defer { savingDocument = false }
+        do {
+            gallery.invalidate(artifact)
+            let data = try await gallery.contents(artifact)
+            guard documentID == id, let text = String(data: data, encoding: .utf8) else { return }
+            selection = nil; source = text; originalSources[id] = text
+            saveCurrentDocument()
+            feedback = "Version du Mac rechargée. Votre ancien brouillon reste récupérable."
+        } catch { documentError = error.localizedDescription }
+    }
+    func recoverDocumentDraft() {
+        guard let text = recoveredDrafts[documentID] else { return }
+        selection = nil; source = text
     }
 
     var documentDirty: Bool { sourceAvailable && originalSources[documentID].map { $0 != source } == true }
