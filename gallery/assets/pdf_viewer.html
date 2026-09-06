@@ -265,15 +265,35 @@
   body.area-mode .pg{cursor:crosshair}
   body.area-mode .textLayer{pointer-events:none}
 
-.pdf-mark-tools{display:flex;align-items:center;gap:3px;flex:none}
-.pdf-mark-tools button{width:32px;height:32px;min-width:32px;padding:7px;border:0;border-radius:6px;background:transparent;color:var(--txt,#dadee3);cursor:pointer}
-.pdf-mark-tools svg{width:16px;height:16px;display:block}
-.pdf-mark-tools button:hover{background:var(--card,#30363e)}
-.pdf-mark-tools button[aria-pressed="true"]{box-shadow:inset 0 -2px #b9c0c9;background:var(--card,#30363e)}
-.pdf-mark-colors{display:flex;gap:2px;padding:0 5px;border-inline:1px solid #70778040}
-.pdf-mark-tools .pdf-mark-color{background:var(--mark-color);border:7px solid var(--bg,#24282d);border-radius:50%;box-shadow:none}
-.pdf-mark-tools .pdf-mark-color[aria-pressed="true"]{outline:1px solid #aeb5bf;outline-offset:-3px;background:var(--mark-color)}
+/* Marquage : MÊME gabarit que les autres boutons de la barre (26×24, rayon 6,
+   icône 14 px trait 1,4) — une seule rangée, plus de seconde barre à 32 px
+   (maquette « Barre du lecteur PDF », 2026-09-06). */
+.pdf-mark-tools{display:flex;align-items:center;gap:2px;flex:none;position:relative;
+  margin-left:4px;padding-left:8px;border-left:1px solid var(--border)}
+.pdf-mark-tools button{width:26px;height:24px;min-width:0;padding:0;border:0;border-radius:6px;
+  display:inline-flex;align-items:center;justify-content:center;background:transparent;
+  color:var(--muted,#868d9a);cursor:pointer;transition:color 120ms ease,background 120ms ease}
+.pdf-mark-tools svg{width:14px;height:14px;display:block;stroke-width:1.4}
+.pdf-mark-tools button:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
+.pdf-mark-tools button[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
+.pdf-mark-colors{display:flex;align-items:center;gap:6px;padding:0 6px}
+.pdf-mark-tools .pdf-mark-color{width:12px;height:12px;min-width:0;border-radius:999px;border:0;
+  background:var(--mark-color);outline:2px solid transparent;outline-offset:2px;transition:outline-color 120ms ease}
+.pdf-mark-tools .pdf-mark-color:hover{background:var(--mark-color);outline-color:var(--muted,#868d9a)}
+.pdf-mark-tools .pdf-mark-color[aria-pressed="true"]{background:var(--mark-color);outline-color:var(--txt,#dadee3)}
 .pdf-mark-tools button:focus-visible{outline:1px solid #aeb5bf;outline-offset:1px}
+/* Stylo : point de la couleur courante (visible quand la palette est repliée) */
+.pdf-mark-tools .pdf-mark-pen{position:relative}
+.pdf-mark-tools .pdf-mark-pen::after{content:"";position:absolute;right:3px;bottom:3px;width:6px;height:6px;
+  border-radius:999px;background:var(--mark-current);display:none}
+/* Fenêtre étroite : la palette se replie dans le stylo et s'ouvre en popover */
+@media (max-width:720px){
+  .pdf-mark-tools .pdf-mark-pen[aria-pressed="true"]::after{display:block}
+  .pdf-mark-colors{display:none;position:absolute;top:30px;left:0;z-index:20;padding:8px 10px;
+    border-radius:10px;background:var(--card,#30363e);box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  .pdf-mark-tools.palette-open .pdf-mark-colors{display:flex}
+}
+@media (prefers-reduced-motion:reduce){.pdf-mark-tools button,.pdf-mark-tools .pdf-mark-color{transition:none}}
 #selPill .hlbar{display:none!important}
 header{flex-wrap:wrap}
 </style>
@@ -1990,7 +2010,11 @@ let eraseMark = false;
   const tools=[];
   const refresh=()=>tools.forEach(([button,kind])=>button.setAttribute("aria-pressed",String(kind==="erase"?eraseMark:!eraseMark&&markKind===kind)));
   for(const [kind,label] of [["hl","Surligner"],["ul","Souligner"]]){
-    const button=tool(label,kind,()=>{eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});tools.push([button,kind]);
+    const button=tool(label,kind,()=>{
+      // palette repliée (fenêtre étroite) : un clic sur l'outil déjà actif ouvre les couleurs
+      if(!eraseMark&&markKind===kind&&getComputedStyle(palette).display==="none"){bar.classList.toggle("palette-open");return;}
+      bar.classList.remove("palette-open");eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});
+    button.classList.add("pdf-mark-pen");tools.push([button,kind]);
   }
   const palette=document.createElement("span");palette.className="pdf-mark-colors";bar.appendChild(palette);
   const colors=[];
@@ -1999,11 +2023,13 @@ let eraseMark = false;
     button.title=["Jaune","Vert","Bleu","Rose"][i];button.setAttribute("aria-label",button.title);
     button.style.setProperty("--mark-color",color.replace(",.40)",",1)"));
     button.setAttribute("aria-pressed",String(i===0));
-    button.onclick=()=>{LAST_COLOR=color;eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
+    button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));bar.classList.remove("palette-open");eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
     palette.appendChild(button);colors.push(button);
   });
   const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
+  bar.style.setProperty("--mark-current",HL_COLORS[0].replace(",.40)",",1)"));
+  document.addEventListener("pointerdown",e=>{ if(!e.target.closest(".pdf-mark-tools")) bar.classList.remove("palette-open"); });
   document.getElementById("selinfo").before(bar);refresh();
 })();
 // Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
@@ -2360,16 +2386,19 @@ if(window.self !== window.top){
     header #selinfo{color:#868d9a !important;font-size:12px}
     header #status{font-size:12px}
     header button{background:transparent !important;border:none !important;
-      color:#868d9a !important;font-size:13px !important;padding:3px 8px !important;
+      color:#868d9a !important;font-size:13px !important;padding:0 !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
+    header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
     header button:hover{background:#2c313a !important;color:var(--txt) !important}
-    header{flex-wrap:wrap !important;min-height:46px !important;height:auto !important;box-sizing:border-box !important;
-      padding-top:0 !important;padding-bottom:0 !important}
+    header button[aria-pressed="true"]{background:#2c313a !important;color:var(--accent,#e77f3e) !important}
+    /* UNE seule rangée : jamais de retour à la ligne, hauteur fixe 44 px */
+    header{flex-wrap:nowrap !important;height:44px !important;min-height:44px !important;box-sizing:border-box !important;
+      padding-top:0 !important;padding-bottom:0 !important;gap:8px !important;overflow:visible}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
-    #pdftools{flex-shrink:0}
-    header .pdf-mark-tools button{padding:7px !important}
-    header .pdf-mark-tools button[aria-pressed="true"]{background:#30363e !important;box-shadow:inset 0 -2px #b9c0c9 !important}
-    header .pdf-mark-tools button.pdf-mark-color{padding:0 !important;background:var(--mark-color) !important;border:7px solid #1a1d22 !important;border-radius:50% !important;box-shadow:none !important}
+    #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid #333a45}
+    header .pdf-mark-tools{border-left-color:#333a45}
+    header .pdf-mark-tools .pdf-mark-color{background:var(--mark-color) !important}
+    header .pdf-mark-tools .pdf-mark-color[aria-pressed="true"]{background:var(--mark-color) !important;outline-color:var(--txt) !important}
 
     @media (max-width: 440px){
       header #selinfo{display:none}
