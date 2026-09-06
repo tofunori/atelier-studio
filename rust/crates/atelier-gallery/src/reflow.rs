@@ -888,20 +888,65 @@ pub(crate) fn write_cache(path: &Path, doc: &ReflowDoc) -> Result<(), String> {
 /// supposent le zoom 1). Ne JAMAIS ajouter `-i` : voir le commentaire de
 /// tête du module — `-i` fait disparaître les `<image>` du XML.
 /// Le binaire vient de `ATELIER_PDFTOHTML` (tests) ou du PATH.
+/// Échéance du spawn. `ATELIER_PDFTOHTML_TIMEOUT_MS` la raccourcit pour les
+/// tests (lu par le PROCESSUS SERVEUR, jamais muté depuis un test unitaire).
+fn pdftohtml_timeout() -> std::time::Duration {
+    std::env::var("ATELIER_PDFTOHTML_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or_else(|| std::time::Duration::from_secs(60))
+}
+
+pub(crate) const PDFTOHTML_TIMEOUT_MSG: &str = "pdftohtml: délai dépassé (60 s)";
+
 pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
+    use std::io::Read;
     let bin = std::env::var("ATELIER_PDFTOHTML").unwrap_or_else(|_| "pdftohtml".to_string());
-    let out = std::process::Command::new(&bin)
+    let mut child = std::process::Command::new(&bin)
         .args(["-xml", "-zoom", "1", "-stdout", "-q"])
         .arg(pdf)
-        .output()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("pdftohtml introuvable ({bin}): {e}"))?;
-    if !out.status.success() {
+    // Les deux tuyaux sont VIDÉS dans des threads : sans ça, un XML plus gros
+    // que le tampon du noyau bloquerait l'enfant et l'échéance ci-dessous
+    // tuerait un processus en bonne santé.
+    let mut out_pipe = child.stdout.take().expect("stdout piped");
+    let mut err_pipe = child.stderr.take().expect("stderr piped");
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let deadline = std::time::Instant::now() + pdftohtml_timeout();
+    let status = loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(PDFTOHTML_TIMEOUT_MSG.to_string());
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(25)),
+        }
+    };
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    if !status.success() {
         return Err(format!(
             "pdftohtml a échoué: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+            String::from_utf8_lossy(&stderr).trim()
         ));
     }
-    String::from_utf8(out.stdout).map_err(|e| format!("pdftohtml: sortie non UTF-8: {e}"))
+    String::from_utf8(stdout).map_err(|e| format!("pdftohtml: sortie non UTF-8: {e}"))
 }
 
 #[derive(Deserialize)]
@@ -1529,6 +1574,14 @@ mod tests {
             v["blocks"][0]["kind"].as_str().unwrap(),
             v["blocks"][0]["kind"].as_str().unwrap().to_lowercase()
         );
+    }
+
+    #[test]
+    fn message_de_delai_depasse_du_spawn() {
+        // Le message exact que le handler renvoie en 502 (couvert de bout en
+        // bout par `reflow_tue_un_pdftohtml_qui_traine_et_repond_502`).
+        assert!(PDFTOHTML_TIMEOUT_MSG.contains("délai dépassé"));
+        assert!(PDFTOHTML_TIMEOUT_MSG.contains("60 s"));
     }
 
     #[test]

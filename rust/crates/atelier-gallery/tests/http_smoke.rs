@@ -983,6 +983,36 @@ fn reflow_refuse_hors_projet_et_signale_pdftohtml_absent() {
     assert!(body.contains("pdftohtml"));
 }
 
+/// `pdftohtml` qui ne rend jamais la main : le handler doit le tuer et
+/// répondre 502 plutôt que retenir un thread bloquant indéfiniment. L'échéance
+/// est raccourcie par l'environnement PASSÉ AU SERVEUR (jamais par une mutation
+/// d'env dans ce test, qui serait une course avec les autres).
+#[test]
+fn reflow_tue_un_pdftohtml_qui_traine_et_repond_502() {
+    let sleeper =
+        std::env::temp_dir().join(format!("atelier-pdftohtml-sleep-{}", std::process::id()));
+    fs::write(&sleeper, "#!/bin/sh\nsleep 120\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&sleeper, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let server = start_server_with(&[
+        ("ATELIER_PDFTOHTML", sleeper.to_string_lossy().to_string()),
+        ("ATELIER_PDFTOHTML_TIMEOUT_MS", "400".to_string()),
+    ]);
+    fs::copy(reflow_fixture_pdf(), server.root.join("twocol.pdf")).unwrap();
+    let started = Instant::now();
+    let (status, body) = http(server.port, "GET", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 502, "{body}");
+    assert!(body.contains("délai dépassé"), "{body}");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "le handler a attendu la fin du processus au lieu de le tuer"
+    );
+    let _ = fs::remove_file(&sleeper);
+}
+
 #[test]
 fn reflow_sert_un_pdf_zotero() {
     let zotero = std::env::temp_dir().join(format!("atelier-reflow-zotero-{}", std::process::id()));
