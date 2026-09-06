@@ -127,3 +127,15 @@ test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur 
   assert.match(css, /--read-fs/); assert.match(css, /--read-width/); assert.match(css, /--read-lh/);
   assert.match(css, /:disabled/, "boutons désactivés sans chrome UA — fix 1, aussi trivial du ruling");
 });
+
+test("contrat lecteur : recherche, passage et annotations câblés au mode lecture", () => {
+  assert.match(html, /function drawReadingAnnots\(\)/);
+  assert.match(html, /function addHighlightFromReadingSel\(/);
+  assert.match(html, /AtelierPdfReading\.anchorAnnotations\(/);
+  assert.match(html, /AtelierPdfReading\.selectionToAnnotation\(/);
+  assert.match(html, /atelier-reading-rendered/);
+  // la recherche choisit ses spans selon le mode
+  assert.match(html, /__readingMode\.isOn\(\)\s*\?/);
+  // le passage ?quote est résolu dans la colonne en mode lecture
+  assert.match(html, /function revealReadingPassage\(/);
+});

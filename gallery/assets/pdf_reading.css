@@ -44,3 +44,8 @@ body.read-mode #readBar{display:flex}
 #readBar button[aria-pressed="true"]{background:var(--card2);color:var(--txt)}
 #readBar button:disabled{opacity:.4;pointer-events:none}
 @media (prefers-reduced-motion:reduce){#reading,#readBar button{transition:none}}
+
+/* Outils liés à la géométrie des pages : sans page à l'écran, ils n'ont pas
+   de cible en mode lecture — capture de zone et note libre sont éteintes. */
+body.read-mode #pdftools #areaBtn,
+body.read-mode #pdftools [data-t="note"]{opacity:.4;pointer-events:none}

@@ -555,6 +555,7 @@ window.__readingMode = (function(){
     on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
     const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
     if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
+    document.dispatchEvent(new CustomEvent("atelier-reading-left"));
   }
   /** Le document recomposé est lié au PDF affiché : un rechargement en place
    *  (compile LaTeX, mtime) le périme — __reloadPdf appelle reset(). */
@@ -936,6 +937,22 @@ function revealLinkedPassage(shouldScroll){
   targetRevealed = true;
 }
 
+/** Même lien ?page=&quote= résolu dans la colonne de lecture : l'ancrage
+ *  passe par les blocs recomposés, pas par la couche texte des pages. */
+function revealReadingPassage(){
+  if(!targetQuote || !window.__readingMode.isOn()) return false;
+  const doc = window.__readingMode.doc(); if(!doc) return false;
+  const hit = window.AtelierPdfReading.anchorAnnotations(doc, [{id:"__q", kind:"comment", page:targetPage, text:targetQuote}])[0];
+  if(!hit) return false;
+  const el = document.querySelector('#readBody [data-block="' + hit.blockId + '"]');
+  if(!el) return false;
+  el.scrollIntoView({block:"center"});
+  el.classList.add("find-cur"); setTimeout(() => el.classList.remove("find-cur"), 2000);
+  document.getElementById("status").textContent = "Passage retrouvé — p. " + doc.blocks.find(b => b.id === hit.blockId).page;
+  return true;
+}
+document.addEventListener("atelier-reading-rendered", () => { revealReadingPassage(); });
+
 // Couche texte maison : un span par item, largeur EXACTE tiree du PDF
 // (item.width), glyphes etires par scaleX — plus de boites trop larges.
 const _measureCv = document.createElement("canvas");
@@ -1154,7 +1171,18 @@ document.addEventListener("pointerup", e => {
   updateSelInfo();
   selPillShow(entries);
 });
+function readingSelText(){
+  if(!window.__readingMode.isOn()) return "";
+  const sel = window.getSelection();
+  if(!sel || sel.isCollapsed || !sel.rangeCount) return "";
+  const el = sel.getRangeAt(0).startContainer.parentElement?.closest("#readBody [data-block]");
+  return el ? sel.toString().replace(/\s+/g, " ").trim() : "";
+}
 function hlText(){
+  // en mode lecture la sélection est NATIVE (la couche texte des pages est
+  // masquée) : c'est elle qui alimente la pilule.
+  const reading = readingSelText();
+  if(reading) return reading;
   const model = selectionModel();
   return model ? model.text : "";
 }
@@ -1214,6 +1242,20 @@ function selPillShow(entries){
     l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
   selApi.placeAt({left: l, width: r - l, top, bottom: bot});
 }
+// La colonne de lecture n'a pas de moteur de sélection maison : on écoute la
+// sélection native et on place la pilule sur son rectangle.
+document.addEventListener("mouseup", (e) => {
+  if(!window.__readingMode.isOn()) return;
+  if(e.target.closest("#selPill, .pdf-mark-tools")) return;
+  if(!e.target.closest("#readBody")) return;
+  const text = readingSelText();
+  if(!text){ selApi.hide(); return; }
+  const sel = window.getSelection(), rng = sel.getRangeAt(0);
+  const el = rng.startContainer.parentElement?.closest("#readBody [data-block]");
+  if(el) selPage = el.dataset.page;
+  const b = rng.getBoundingClientRect();
+  selApi.placeAt({left: b.left, width: b.width, top: b.top, bottom: b.bottom});
+});
 function selHide(){ selApi.hide(); }
 function selCancel(){ selApi.cancel(); }
 const __EMB = SelPill.embedded;
@@ -1561,7 +1603,7 @@ const annPane = (function(){
   const input = bar.querySelector("input"), cnt = bar.querySelector(".cnt");
   let hits = [], cur = -1;
   function clearFind(){
-    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur")
+    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur, #readBody .find-hit, #readBody .find-cur")
       .forEach(s => s.classList.remove("find-hit", "find-cur"));
     hits = []; cur = -1; cnt.textContent = "";
   }
@@ -1569,8 +1611,12 @@ const annPane = (function(){
     clearFind();
     const needle = String(q || "").trim().toLowerCase();
     if (needle.length < 2) return;
-    for (const layer of document.querySelectorAll(".textLayer")) {
-      const spans = Array.from(layer.querySelectorAll("span"));
+    // En mode lecture un « span » est un bloc entier de la colonne : la
+    // couche texte des pages est masquée, il n'y a qu'un seul « calque ».
+    const layers = window.__readingMode.isOn()
+      ? [[...document.querySelectorAll("#readBody [data-block]:not(figure)")]]
+      : [...document.querySelectorAll(".textLayer")].map(l => Array.from(l.querySelectorAll("span")));
+    for (const spans of layers) {
       const matches = window.AtelierPdfPassage.findAllSpanRanges(spans.map(s => s.textContent), needle);
       for (const match of matches) {
         const group = spans.slice(match.start, match.end + 1);
@@ -1591,6 +1637,7 @@ const annPane = (function(){
     const pg = el.closest(".pg");
     const sc = document.scrollingElement || document.documentElement;
     if (pg) sc.scrollTo({ top: pg.offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
+    else el.scrollIntoView({block: "center", behavior: "smooth"});   // colonne de lecture
   }
   function open(){
     bar.style.display = "flex";
@@ -1618,6 +1665,11 @@ const annPane = (function(){
   // un re-rendu (zoom, redimensionnement) reconstruit les couches texte :
   // les marques sont perdues, on les repose sur la recherche courante
   window.addEventListener("pdf-rendered", () => { if (bar.style.display === "flex") run(input.value); });
+  // même raison en mode lecture : la colonne est reconstruite à l'entrée
+  // (atelier-reading-rendered) et disparaît à la sortie (atelier-reading-left).
+  const rerun = () => { if (bar.style.display === "flex") run(input.value); };
+  document.addEventListener("atelier-reading-rendered", rerun);
+  document.addEventListener("atelier-reading-left", rerun);
 })();
 
 if(rel) main();
@@ -1630,6 +1682,7 @@ function loadAnnots(attempt){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
       document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+      if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
       annPane.refresh();
       revealTargetAnnot(); })
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
@@ -1774,7 +1827,40 @@ function drawAnnots(pgDiv, n){
   }
 }
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
+/** Surlignages texte (comment/hl) reportés dans la colonne de lecture.
+ *  Idempotent : les marques existantes sont retirées et l'hôte re-normalisé
+ *  avant tout ré-ancrage, si bien qu'un second appel ne double rien. */
+function drawReadingAnnots(){
+  const doc = window.__readingMode.doc(); if(!doc) return;
+  const host = window.__readingMode.host;
+  for (const m of host.querySelectorAll("mark.pdfhl")) m.replaceWith(...m.childNodes);
+  host.normalize();
+  const anchored = window.AtelierPdfReading.anchorAnnotations(doc, PDF_ANNOTS);
+  // du dernier au premier dans chaque bloc pour garder les offsets valides
+  anchored.sort((a, b) => a.blockId - b.blockId || b.start - a.start);
+  for (const h of anchored) {
+    const el = host.querySelector('[data-block="' + h.blockId + '"]'); if(!el || el.tagName === "FIGURE") continue;
+    const a = PDF_ANNOTS.find(x => String(x.id) === String(h.annotId)); if(!a) continue;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let pos = 0, range = document.createRange(), s = null, e = null;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const len = n.textContent.length;
+      if (s === null && h.start < pos + len) { s = [n, h.start - pos]; }
+      if (h.end <= pos + len) { e = [n, h.end - pos]; break; }
+      pos += len;
+    }
+    if (!s || !e) continue;
+    range.setStart(s[0], s[1]); range.setEnd(e[0], e[1]);
+    const mark = document.createElement("mark"); mark.className = "pdfhl"; mark.dataset.annot = String(a.id);
+    if (a.color) mark.style.background = a.color;
+    try { range.surroundContents(mark); } catch(_) { /* plage à cheval sur des nœuds : ignorée, l'annotation reste visible en vue pages */ continue; }
+    mark.onclick = (ev) => { ev.stopPropagation(); annotMenu(a, ev.clientX, ev.clientY); };
+  }
+}
+document.addEventListener("atelier-reading-rendered", drawReadingAnnots);
 function addHighlightFromSel(kind, color){
+  // Aiguillage unique de « annoter la sélection » : en mode lecture la
+  // sélection est native et vit dans la colonne, pas dans la couche texte.
+  if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
   if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   kind = kind || "hl"; color = color || HL_COLORS[0];
   const model = selectionModel();
@@ -1810,6 +1896,27 @@ function addHighlightFromSel(kind, color){
   try{ window.getSelection().removeAllRanges(); }catch(e){}
   // Only an explicit comment opens the note editor; colors mark the text directly.
   if (kind === "comment" && lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
+}
+/** Sélection dans #readBody → annotation `comment` ordinaire (rects reconstitués par ligne). */
+function addHighlightFromReadingSel(kind, color){
+  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  const doc = window.__readingMode.doc(); const sel = window.getSelection();
+  if(!doc || !sel || sel.isCollapsed) return;
+  const rng = sel.getRangeAt(0);
+  const el = rng.startContainer.parentElement?.closest("#readBody [data-block]");
+  if(!el || el !== (rng.endContainer.parentElement?.closest("#readBody [data-block]"))) { document.getElementById("status").textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  const block = doc.blocks.find(b => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
+  const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(rng.startContainer, rng.startOffset);
+  const start = pre.toString().length, end = start + rng.toString().length;
+  const dim = doc.pages[block.page - 1];
+  const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, dim);
+  if(!built.rects.length) return;
+  const a = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
+  if(a.kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
+  PDF_ANNOTS.push(a); saveAnnots();
+  const pg = document.querySelector('.pg[data-page="' + a.page + '"]'); if(pg) drawAnnots(pg, a.page);
+  drawReadingAnnots(); selHide(); sel.removeAllRanges();
+  const r = rng.getBoundingClientRect(); if(a.kind === "comment") annotMenu(a, r.left, r.bottom);
 }
 // PDF marks live in the reader toolbar; selection capsules only target chat.
 let LAST_COLOR = HL_COLORS[0];
@@ -1905,6 +2012,7 @@ async function removeAnnot(a){
     return false;
   }
   document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   if(annotationEditor?.a.id === a.id) annotationEditor = null;
   annotPop.style.display = "none";
   return true;
@@ -1967,6 +2075,7 @@ window.addEventListener("message", e => {
   // Serialize behind any note edit already being persisted by this viewer.
   saveAnnots();
   document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
 });
 async function annotMenu(a, x, y){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
@@ -2024,6 +2133,7 @@ async function annotMenu(a, x, y){
     status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
     if(!saved) return false;
     document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
     if(close) { annotPop.style.display = "none"; annotationEditor = null; }
     return true;
   };
