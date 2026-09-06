@@ -8,7 +8,7 @@
 //   → computeReadLog  { requestId, runId, tailLines } ← computeLog { runId, data:{ lines, truncated } } | error
 // Les réponses arrivent par le pont `compute-message` d'App.tsx.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon, XIcon } from "lucide-react";
+import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import NarvalSurface from "./NarvalSurface";
@@ -37,6 +37,8 @@ export type ComputeRun = {
   lastActivityAt: string | number;
   progress?: { current: number; total: number; unit: string } | null;
   logPath?: string | null;
+  /** Code de sortie si l’hôte le connaît (runs terminés). */
+  exitCode?: number | null;
   logTail: string[];
   remoteTasks: unknown[];
   detail:
@@ -190,17 +192,12 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
 }) {
   const [hostFilter, setHostFilter] = useState<HostFilter>(readStoredHost);
   const [snapshot, setSnapshot] = useState<ComputeSnapshot | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [log, setLog] = useState<LogChunk | null>(null);
-  const [logError, setLogError] = useState<string | null>(null);
-  const [logLoading, setLogLoading] = useState(false);
+  const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [error, setError] = useState<SurfaceError | null>(null);
   const [loading, setLoading] = useState(false);
   const [slurmView, setSlurmView] = useState(false);
-  const [tab, setTab] = useState("overview");
   const [now, setNow] = useState(() => Date.now());
   const snapshotRequest = useRef<string | null>(null);
-  const logRequest = useRef<string | null>(null);
   const fingerprint = useRef<string | null>(null);
   // Instant d'observation du dernier snapshot reçu. Volontairement une ref et
   // non un état : « observé il y a N s » est recalculé par le tic d'horloge
@@ -209,9 +206,14 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const observedAt = useRef<number | null>(null);
   const manualLoading = useRef(false);
   const hasError = useRef(false);
+  // Le parent peut passer un onOpenTerminal inline : on le stabilise pour que
+  // les rangées mémoïsées ne se re-rendent pas à chaque rendu du pane.
+  const onOpenTerminalRef = useRef(onOpenTerminal);
+  onOpenTerminalRef.current = onOpenTerminal;
+  const openTerminal = useCallback((command: string) => onOpenTerminalRef.current(command), []);
+  const openSlurmView = useCallback(() => setSlurmView(true), []);
 
   const runs = useMemo(() => sortRuns(snapshot?.runs ?? []), [snapshot]);
-  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   // `manual` = clic utilisateur : seul cas où l'icône tourne. Les sondages
   // périodiques restent silencieux (pas de setState au repos).
@@ -238,59 +240,34 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     }
   }, [hostFilter]);
 
-  const requestLog = useCallback((runId: string) => {
-    const id = requestId();
-    logRequest.current = id;
-    setLogLoading(true);
-    setLogError(null);
-    if (!wsSend({ type: "computeReadLog", requestId: id, runId, tailLines: LOG_TAIL_LINES })) {
-      setLogLoading(false);
-      setLogError(t("calculs.offline"));
-    }
-  }, []);
-
   useEffect(() => {
     const onMessage = (event: Event) => {
       const msg = (event as CustomEvent).detail ?? {};
-      if (msg.type === "computeSnapshot" && msg.requestId === snapshotRequest.current) {
-        if (manualLoading.current) {
-          manualLoading.current = false;
-          setLoading(false);
-        }
-        if (msg.error) {
-          hasError.current = true;
-          setError({ code: String(msg.error.code ?? "error"), message: String(msg.error.message ?? "") });
-          return;
-        }
-        const data = msg.data as ComputeSnapshot | undefined;
-        if (!data || !Array.isArray(data.runs)) return;
-        const errors = Array.isArray(data.errors) ? data.errors : [];
-        observedAt.current = toMs(data.observedAt) ?? Date.now();
-        if (hasError.current) {
-          hasError.current = false;
-          setError(null);
-        }
-        const next = snapshotFingerprint(data.runs, errors);
-        // Réponse identique (cas nominal au repos) : aucun setState — le label
-        // « observé il y a » se rafraîchira au prochain tic d'horloge.
-        if (next === fingerprint.current) return;
-        fingerprint.current = next;
-        setNow(Date.now());
-        setSnapshot({ observedAt: data.observedAt, runs: data.runs, errors });
+      if (msg.type !== "computeSnapshot" || msg.requestId !== snapshotRequest.current) return;
+      if (manualLoading.current) {
+        manualLoading.current = false;
+        setLoading(false);
       }
-      if (msg.type === "computeLog" && msg.requestId === logRequest.current) {
-        setLogLoading(false);
-        if (msg.error) {
-          setLogError(String(msg.error.message ?? msg.error.code ?? ""));
-          return;
-        }
-        const data = msg.data as { lines?: unknown; truncated?: unknown } | undefined;
-        setLog({
-          runId: String(msg.runId ?? ""),
-          lines: Array.isArray(data?.lines) ? data!.lines.map(String) : [],
-          truncated: data?.truncated === true,
-        });
+      if (msg.error) {
+        hasError.current = true;
+        setError({ code: String(msg.error.code ?? "error"), message: String(msg.error.message ?? "") });
+        return;
       }
+      const data = msg.data as ComputeSnapshot | undefined;
+      if (!data || !Array.isArray(data.runs)) return;
+      const errors = Array.isArray(data.errors) ? data.errors : [];
+      observedAt.current = toMs(data.observedAt) ?? Date.now();
+      if (hasError.current) {
+        hasError.current = false;
+        setError(null);
+      }
+      const next = snapshotFingerprint(data.runs, errors);
+      // Réponse identique (cas nominal au repos) : aucun setState — le label
+      // « observé il y a » se rafraîchira au prochain tic d'horloge.
+      if (next === fingerprint.current) return;
+      fingerprint.current = next;
+      setNow(Date.now());
+      setSnapshot({ observedAt: data.observedAt, runs: data.runs, errors });
     };
     window.addEventListener("compute-message", onMessage);
     return () => window.removeEventListener("compute-message", onMessage);
@@ -314,39 +291,26 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     return () => window.clearInterval(timer);
   }, [slurmView, visible]);
 
-  // Changement de run : le journal repart de zéro ; relu si l'onglet Log est ouvert.
+  // Échap replie la rangée ouverte.
   useEffect(() => {
-    setLog(null);
-    setLogError(null);
-    logRequest.current = null;
-    if (selectedRunId && tab === "log") requestLog(selectedRunId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRunId]);
-
-  useEffect(() => {
-    if (!visible || slurmView || !selectedRunId) return;
+    if (!visible || slurmView || !openRunId) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedRunId(null);
+      if (event.key === "Escape") setOpenRunId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedRunId, slurmView, visible]);
+  }, [openRunId, slurmView, visible]);
 
   const changeHost = (next: HostFilter) => {
     if (next === hostFilter) return;
     setHostFilter(next);
     storeHost(next);
-    setSelectedRunId(null);
+    setOpenRunId(null);
     fingerprint.current = null;
   };
 
-  const changeTab = (next: string) => {
-    setTab(next);
-    if (next === "log" && selectedRunId && !log && !logLoading) requestLog(selectedRunId);
-  };
-
-  const selectRun = useCallback((id: string) => {
-    setSelectedRunId((current) => (current === id ? null : id));
+  const toggleRun = useCallback((id: string) => {
+    setOpenRunId((current) => (current === id ? null : id));
   }, []);
 
   const terminalCommand = hostTerminalCommand(hostFilter);
@@ -368,176 +332,97 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
 
   return (
     <div className="calculs-shell" data-visible={visible}>
-      <div className="calculs-surface" data-inspector={selectedRun ? "open" : "closed"}>
-        <main className="calculs-main">
-          <header className="calculs-toolbar">
-            <h1>{t("calculs.title")}</h1>
-            <SegmentedControl
-              className="calculs-host-filter"
-              label={t("calculs.filter-host")}
-              value={hostFilter}
-              onChange={(value) => changeHost(value as HostFilter)}
-              options={HOSTS.map((host) => ({ value: host, label: hostLabel(host) }))}
-            />
-            {observedSeconds != null && (
-              <span className="calculs-observed" title={new Date(observedMs!).toLocaleTimeString()}>
-                {t("calculs.observed-ago", { seconds: observedSeconds })}
-              </span>
+      <main className="calculs-main">
+        <header className="calculs-toolbar">
+          <h1>{t("calculs.title")}</h1>
+          <SegmentedControl
+            className="calculs-host-filter"
+            label={t("calculs.filter-host")}
+            value={hostFilter}
+            onChange={(value) => changeHost(value as HostFilter)}
+            options={HOSTS.map((host) => ({ value: host, label: hostLabel(host) }))}
+          />
+          {observedSeconds != null && (
+            <span className="calculs-observed" title={new Date(observedMs!).toLocaleTimeString()}>
+              {t("calculs.observed-ago", { seconds: observedSeconds })}
+            </span>
+          )}
+          {stale && <StatusBadge status="warning">{t("calculs.stale")}</StatusBadge>}
+          <div className="calculs-toolbar-actions">
+            {hostFilter === "narval" && (
+              <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
             )}
-            {stale && <StatusBadge status="warning">{t("calculs.stale")}</StatusBadge>}
-            <div className="calculs-toolbar-actions">
-              {hostFilter === "narval" && (
-                <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
-              )}
+            <IconButton
+              className={loading ? "calculs-refresh is-loading" : "calculs-refresh"}
+              size="s"
+              hit40
+              label={t("calculs.refresh")}
+              title={t("calculs.refresh")}
+              onClick={() => requestSnapshot(true)}
+            >
+              <RefreshCwIcon />
+            </IconButton>
+            {terminalCommand && (
               <IconButton
-                className={loading ? "calculs-refresh is-loading" : "calculs-refresh"}
                 size="s"
                 hit40
-                label={t("calculs.refresh")}
-                title={t("calculs.refresh")}
-                onClick={() => requestSnapshot(true)}
+                label={t("calculs.terminal")}
+                title={t("calculs.terminal")}
+                onClick={() => onOpenTerminal(terminalCommand)}
               >
-                <RefreshCwIcon />
+                <SquareTerminalIcon />
               </IconButton>
-              {terminalCommand && (
-                <IconButton
-                  size="s"
-                  hit40
-                  label={t("calculs.terminal")}
-                  title={t("calculs.terminal")}
-                  onClick={() => onOpenTerminal(terminalCommand)}
-                >
-                  <SquareTerminalIcon />
-                </IconButton>
-              )}
-            </div>
-            {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
-          </header>
+            )}
+          </div>
+          {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
+        </header>
 
-          {snapshot && snapshot.errors.length > 0 && (
-            <Alert variant="destructive" className="calculs-alert">
-              <ServerIcon />
-              <AlertTitle>{t("calculs.host-errors-title")}</AlertTitle>
-              <AlertDescription>
-                <ul className="calculs-host-errors">
-                  {snapshot.errors.map((hostError) => (
-                    <li key={`${hostError.host}:${hostError.code}`}>
-                      <strong>{hostLabel(hostError.host)}</strong> · {hostError.message}
-                    </li>
-                  ))}
-                </ul>
-              </AlertDescription>
-            </Alert>
-          )}
+        {snapshot && snapshot.errors.length > 0 && (
+          <Alert variant="destructive" className="calculs-alert">
+            <ServerIcon />
+            <AlertTitle>{t("calculs.host-errors-title")}</AlertTitle>
+            <AlertDescription>
+              <ul className="calculs-host-errors">
+                {snapshot.errors.map((hostError) => (
+                  <li key={`${hostError.host}:${hostError.code}`}>
+                    <strong>{hostLabel(hostError.host)}</strong> · {hostError.message}
+                  </li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
 
-          {error && !snapshot ? (
-            <div className="calculs-offline">
-              <ServerIcon aria-hidden="true" />
-              <strong>{t("calculs.host-errors-title")}</strong>
-              <p>{error.message}</p>
-              <Button variant="secondary" onClick={() => requestSnapshot(true)}>{t("calculs.refresh")}</Button>
-            </div>
-          ) : !snapshot ? (
-            <div className="calculs-skeleton"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>
-          ) : runs.length === 0 ? (
-            <Empty className="calculs-empty">
-              <EmptyHeader>
-                <EmptyMedia className="calculs-empty-icon"><Clock3Icon /></EmptyMedia>
-                <EmptyTitle>{t("calculs.empty-title")}</EmptyTitle>
-                <EmptyDescription>{t("calculs.empty-desc")}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <ScrollArea className="calculs-list-scroll">
-              <RunList runs={runs} selectedRunId={selectedRunId} now={now} onSelect={selectRun} />
-            </ScrollArea>
-          )}
-        </main>
-
-        <aside className="calculs-inspector" aria-label={t("calculs.inspector")}>
-          {!selectedRun ? (
-            <Empty className="calculs-inspector-empty">
-              <EmptyHeader>
-                <EmptyMedia className="calculs-empty-icon"><ServerIcon /></EmptyMedia>
-                <EmptyTitle>{t("calculs.select-run")}</EmptyTitle>
-                <EmptyDescription>{t("calculs.select-run-desc")}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <>
-              <header className="calculs-inspector-head">
-                <IconButton
-                  className="calculs-inspector-close"
-                  size="s"
-                  hit40
-                  label={t("calculs.close-inspector")}
-                  title={t("calculs.close-inspector")}
-                  onClick={() => setSelectedRunId(null)}
-                >
-                  <XIcon />
-                </IconButton>
-                <div><strong title={selectedRun.label}>{selectedRun.label}</strong></div>
-                <StatusBadge status={stateTone(selectedRun.state)}>{stateLabel(selectedRun.state)}</StatusBadge>
-                <span className="calculs-muted">{hostLabel(selectedRun.host)} · {selectedRun.source}</span>
-              </header>
-              <Tabs value={tab} onValueChange={changeTab} className="calculs-tabs">
-                <TabsList className="calculs-tabs-list">
-                  <TabsTrigger value="overview">{t("calculs.tab-overview")}</TabsTrigger>
-                  <TabsTrigger value="log">{t("calculs.tab-log")}</TabsTrigger>
-                </TabsList>
-                <TabsContent value="overview">
-                  <ScrollArea className="calculs-inspector-scroll">
-                    <dl className="calculs-detail-list">
-                      {selectedRun.progress && selectedRun.progress.total > 0 && (
-                        <>
-                          <dt>{t("calculs.progress")}</dt>
-                          <dd className="calculs-mono">
-                            {selectedRun.progress.current} / {selectedRun.progress.total} {selectedRun.progress.unit}
-                            <ProgressBar current={selectedRun.progress.current} total={selectedRun.progress.total} />
-                          </dd>
-                        </>
-                      )}
-                      <dt>{t("calculs.command")}</dt><dd><code>{selectedRun.command || "—"}</code></dd>
-                      <dt>{t("calculs.workdir")}</dt><dd><code>{selectedRun.workDir || "—"}</code></dd>
-                      <dt>{t("calculs.host")}</dt><dd>{hostLabel(selectedRun.host)}</dd>
-                      <dt>{t("calculs.source")}</dt><dd>{selectedRun.source}</dd>
-                      <dt>{t("calculs.started")}</dt><dd className="calculs-mono">{formatTimestamp(selectedRun.startedAt)}</dd>
-                      <dt>{t("calculs.ended")}</dt><dd className="calculs-mono">{formatTimestamp(selectedRun.endedAt)}</dd>
-                    </dl>
-                    {selectedRun.detail.kind === "slurm" && (
-                      <div className="calculs-inspector-actions">
-                        <Button variant="secondary" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
-                      </div>
-                    )}
-                    <div className="calculs-log-tail">
-                      <span className="calculs-muted">{t("calculs.log-tail")}</span>
-                      <pre>{selectedRun.logTail.length ? selectedRun.logTail.join("\n") : t("calculs.log-empty")}</pre>
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
-                <TabsContent value="log">
-                  <ScrollArea className="calculs-log-scroll">
-                    {logLoading ? (
-                      <p className="calculs-muted">{t("calculs.log-loading")}</p>
-                    ) : logError ? (
-                      <p className="calculs-muted">{logError}</p>
-                    ) : log ? (
-                      <>
-                        {log.truncated && (
-                          <p className="calculs-muted">{t("calculs.log-truncated", { count: LOG_TAIL_LINES })}</p>
-                        )}
-                        <pre>{log.lines.length ? log.lines.join("\n") : t("calculs.log-empty")}</pre>
-                      </>
-                    ) : (
-                      <p className="calculs-muted">{t("calculs.log-empty")}</p>
-                    )}
-                  </ScrollArea>
-                </TabsContent>
-              </Tabs>
-            </>
-          )}
-        </aside>
-      </div>
+        {error && !snapshot ? (
+          <div className="calculs-offline">
+            <ServerIcon aria-hidden="true" />
+            <strong>{t("calculs.host-errors-title")}</strong>
+            <p>{error.message}</p>
+            <Button variant="secondary" onClick={() => requestSnapshot(true)}>{t("calculs.refresh")}</Button>
+          </div>
+        ) : !snapshot ? (
+          <div className="calculs-skeleton"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>
+        ) : runs.length === 0 ? (
+          <Empty className="calculs-empty">
+            <EmptyHeader>
+              <EmptyMedia className="calculs-empty-icon"><Clock3Icon /></EmptyMedia>
+              <EmptyTitle>{t("calculs.empty-title")}</EmptyTitle>
+              <EmptyDescription>{t("calculs.empty-desc")}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <ScrollArea className="calculs-list-scroll">
+            <RunList
+              runs={runs}
+              openRunId={openRunId}
+              now={now}
+              onToggle={toggleRun}
+              onOpenTerminal={openTerminal}
+              onSlurmView={openSlurmView}
+            />
+          </ScrollArea>
+        )}
+      </main>
     </div>
   );
 }
@@ -557,56 +442,228 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   );
 }
 
-const RunList = memo(function RunList({ runs, selectedRunId, now, onSelect }: {
+type RowActions = {
+  onToggle: (id: string) => void;
+  onOpenTerminal: (command: string) => void;
+  onSlurmView: () => void;
+};
+
+const RunList = memo(function RunList({ runs, openRunId, now, onToggle, onOpenTerminal, onSlurmView }: RowActions & {
   runs: ComputeRun[];
-  selectedRunId: string | null;
+  openRunId: string | null;
   now: number;
-  onSelect: (id: string) => void;
 }) {
   calculsDebug.listRenders += 1;
   return (
     <div className="calculs-list">
       {runs.map((run) => (
-        <RunRow key={run.id} run={run} selected={run.id === selectedRunId} now={now} onSelect={onSelect} />
+        <RunRow
+          key={run.id}
+          run={run}
+          open={run.id === openRunId}
+          now={now}
+          onToggle={onToggle}
+          onOpenTerminal={onOpenTerminal}
+          onSlurmView={onSlurmView}
+        />
       ))}
     </div>
   );
 });
 
-const RunRow = memo(function RunRow({ run, selected, now, onSelect }: {
+/** Rangée + repli accordéon. Le corps n'est monté que lorsque la rangée est
+ *  ouverte (une seule à la fois) : 200 rangées = 200 en-têtes, un seul corps. */
+const RunRow = memo(function RunRow({ run, open, now, onToggle, onOpenTerminal, onSlurmView }: RowActions & {
   run: ComputeRun;
-  selected: boolean;
+  open: boolean;
   now: number;
-  onSelect: (id: string) => void;
 }) {
   calculsDebug.rowRenders += 1;
   const hasProgress = Boolean(run.progress && run.progress.total > 0);
+  const bodyId = `calculs-run-body-${run.id}`;
   return (
-    <RowButton
-      className="calculs-run"
-      data-state={selected ? "selected" : undefined}
-      data-run-state={run.state}
-      aria-pressed={selected}
-      onClick={() => onSelect(run.id)}
-    >
-      <StatusBadge status={stateTone(run.state)}>{stateLabel(run.state)}</StatusBadge>
-      <span className="calculs-run-identity">
-        <strong title={run.label}>{run.label}</strong>
-        <span className="calculs-run-meta">
-          <span>{hostLabel(run.host)} · {run.source}</span>
-          <code title={run.command}>{run.command}</code>
+    <div className="calculs-run" data-run-state={run.state} data-open={open || undefined}>
+      <RowButton
+        className="calculs-run-head"
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        onClick={() => onToggle(run.id)}
+      >
+        <StatusBadge status={stateTone(run.state)}>{stateLabel(run.state)}</StatusBadge>
+        <span className="calculs-run-identity">
+          <strong title={run.label}>{run.label}</strong>
+          <span className="calculs-run-meta">
+            <span>{hostLabel(run.host)} · {run.source}</span>
+            <code title={run.command}>{run.command}</code>
+          </span>
+          {hasProgress && run.state === "running" && (
+            <ProgressBar current={run.progress!.current} total={run.progress!.total} />
+          )}
         </span>
-        {hasProgress && run.state === "running" && (
-          <ProgressBar current={run.progress!.current} total={run.progress!.total} />
-        )}
-      </span>
-      <span className="calculs-run-times">
-        <b>{runDuration(run, now)}</b>
-        <small>{activityAgo(run, now)}</small>
-      </span>
-    </RowButton>
+        <span className="calculs-run-times">
+          <b>{runDuration(run, now)}</b>
+          <small>{activityAgo(run, now)}</small>
+        </span>
+        <span className="calculs-run-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </RowButton>
+      <div className="calculs-run-fold">
+        <div>
+          {open && (
+            <RunBody id={bodyId} run={run} onOpenTerminal={onOpenTerminal} onSlurmView={onSlurmView} />
+          )}
+        </div>
+      </div>
+    </div>
   );
-}, (prev, next) => prev.run === next.run && prev.selected === next.selected && prev.onSelect === next.onSelect
+}, (prev, next) => prev.run === next.run && prev.open === next.open
+  && prev.onToggle === next.onToggle && prev.onOpenTerminal === next.onOpenTerminal && prev.onSlurmView === next.onSlurmView
   // le tic d'horloge (10 s) ne re-rend une rangée que si son affichage change
   && runDuration(prev.run, prev.now) === runDuration(next.run, next.now)
   && activityAgo(prev.run, prev.now) === activityAgo(next.run, next.now));
+
+function detailFact(detail: ComputeRun["detail"]): [string, string] | null {
+  switch (detail.kind) {
+    case "local": return detail.pid == null ? null : [t("calculs.pid"), String(detail.pid)];
+    case "docker": return [t("calculs.container"), detail.container];
+    case "unit": return [t("calculs.unit"), detail.unit];
+    case "slurm": return [t("calculs.job"), detail.jobId];
+    default: return null;
+  }
+}
+
+function progressStatus(run: ComputeRun, current: number, total: number) {
+  if (run.state === "completed" || run.state === "failed") {
+    return typeof run.exitCode === "number"
+      ? t("calculs.finished-code", { code: run.exitCode })
+      : t("calculs.finished");
+  }
+  return `${Math.round(Math.max(0, Math.min(100, (current / total) * 100)))} %`;
+}
+
+/** Corps déplié : onglets Aperçu / Log (+ Fichiers pour Slurm). L'état du
+ *  journal vit ici — monté à l'ouverture, jeté à la fermeture — si bien qu'un
+ *  changement d'onglet ne re-rend que cette rangée. */
+function RunBody({ id, run, onOpenTerminal, onSlurmView }: {
+  id: string;
+  run: ComputeRun;
+  onOpenTerminal: (command: string) => void;
+  onSlurmView: () => void;
+}) {
+  const [tab, setTab] = useState("overview");
+  const [log, setLog] = useState<LogChunk | null>(null);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const logRequest = useRef<string | null>(null);
+
+  const requestLog = useCallback(() => {
+    const requestIdValue = requestId();
+    logRequest.current = requestIdValue;
+    setLogLoading(true);
+    setLogError(null);
+    if (!wsSend({ type: "computeReadLog", requestId: requestIdValue, runId: run.id, tailLines: LOG_TAIL_LINES })) {
+      setLogLoading(false);
+      setLogError(t("calculs.offline"));
+    }
+  }, [run.id]);
+
+  useEffect(() => {
+    const onMessage = (event: Event) => {
+      const msg = (event as CustomEvent).detail ?? {};
+      if (msg.type !== "computeLog" || msg.requestId !== logRequest.current) return;
+      setLogLoading(false);
+      if (msg.error) {
+        setLogError(String(msg.error.message ?? msg.error.code ?? ""));
+        return;
+      }
+      const data = msg.data as { lines?: unknown; truncated?: unknown } | undefined;
+      setLog({
+        runId: String(msg.runId ?? ""),
+        lines: Array.isArray(data?.lines) ? data!.lines.map(String) : [],
+        truncated: data?.truncated === true,
+      });
+    };
+    window.addEventListener("compute-message", onMessage);
+    return () => window.removeEventListener("compute-message", onMessage);
+  }, []);
+
+  const changeTab = (next: string) => {
+    setTab(next);
+    if (next === "log" && !log && !logLoading) requestLog();
+  };
+
+  const isSlurm = run.detail.kind === "slurm";
+  const terminalCommand = hostTerminalCommand(run.host as HostFilter);
+  const progress = run.progress && run.progress.total > 0 ? run.progress : null;
+  const fact = detailFact(run.detail);
+  const ended = toMs(run.endedAt) != null;
+
+  return (
+    <div id={id} className="calculs-run-body">
+      <Tabs value={tab} onValueChange={changeTab} className="calculs-run-tabs">
+        <TabsList className="calculs-run-tabs-list">
+          <TabsTrigger value="overview">{t("calculs.tab-overview")}</TabsTrigger>
+          <TabsTrigger value="log">{t("calculs.tab-log")}</TabsTrigger>
+          {isSlurm && <TabsTrigger value="files">{t("calculs.tab-files")}</TabsTrigger>}
+        </TabsList>
+        <TabsContent value="overview" className="calculs-run-overview">
+          {run.state === "unknown" && <p className="calculs-run-hint">{t("calculs.unknown-hint")}</p>}
+          {progress && (
+            <div className="calculs-run-prog">
+              <div className="calculs-run-prog-line">
+                <span>{progress.current} / {progress.total} {progress.unit}</span>
+                <span>{progressStatus(run, progress.current, progress.total)}</span>
+              </div>
+              <ProgressBar current={progress.current} total={progress.total} />
+            </div>
+          )}
+          <dl className="calculs-run-facts">
+            <div className="calculs-fact"><dt>{t("calculs.started")}</dt><dd>{formatTimestamp(run.startedAt)}</dd></div>
+            {ended
+              ? <div className="calculs-fact"><dt>{t("calculs.ended")}</dt><dd>{formatTimestamp(run.endedAt)}</dd></div>
+              : <div className="calculs-fact"><dt>{t("calculs.last-activity")}</dt><dd>{formatTimestamp(run.lastActivityAt)}</dd></div>}
+            <div className="calculs-fact"><dt>{t("calculs.host")}</dt><dd>{hostLabel(run.host)} · {run.source}</dd></div>
+            {fact && <div className="calculs-fact"><dt>{fact[0]}</dt><dd className="calculs-mono">{fact[1]}</dd></div>}
+            <div className="calculs-fact is-full"><dt>{t("calculs.command")}</dt><dd className="calculs-mono">{run.command || "—"}</dd></div>
+            <div className="calculs-fact is-full"><dt>{t("calculs.workdir")}</dt><dd className="calculs-mono">{run.workDir || "—"}</dd></div>
+          </dl>
+          <pre className="calculs-run-tail">{run.logTail.length ? run.logTail.join("\n") : t("calculs.log-empty")}</pre>
+          <div className="calculs-run-actions">
+            <Button variant="secondary" onClick={() => changeTab("log")}>{t("calculs.log-full")}</Button>
+            {isSlurm && <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>}
+            {terminalCommand && (
+              <Button variant="secondary" onClick={() => onOpenTerminal(terminalCommand)}>
+                {t("calculs.terminal-on", { host: hostLabel(run.host) })}
+              </Button>
+            )}
+          </div>
+        </TabsContent>
+        <TabsContent value="log" className="calculs-run-log">
+          {logLoading ? (
+            <p className="calculs-run-hint">{t("calculs.log-loading")}</p>
+          ) : logError ? (
+            <p className="calculs-run-hint">{logError}</p>
+          ) : log ? (
+            <>
+              {log.truncated && <p className="calculs-run-hint">{t("calculs.log-truncated", { count: LOG_TAIL_LINES })}</p>}
+              <pre className="calculs-run-tail is-tall">{log.lines.length ? log.lines.join("\n") : t("calculs.log-empty")}</pre>
+            </>
+          ) : (
+            <p className="calculs-run-hint">{t("calculs.log-empty")}</p>
+          )}
+        </TabsContent>
+        {isSlurm && (
+          <TabsContent value="files" className="calculs-run-files">
+            <p className="calculs-run-hint">{t("calculs.files-hint")}</p>
+            <div className="calculs-run-actions">
+              <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>
+            </div>
+          </TabsContent>
+        )}
+      </Tabs>
+    </div>
+  );
+}

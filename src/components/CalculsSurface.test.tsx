@@ -202,9 +202,15 @@ describe("CalculsSurface", () => {
   it("l'onglet Log demande computeReadLog 400 lignes et affiche le journal", () => {
     const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
     deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
-    fireEvent.click(container.querySelectorAll(".calculs-run")[0]);
-    expect(container.querySelector(".calculs-surface")?.getAttribute("data-inspector")).toBe("open");
-    expect(container.querySelector(".calculs-inspector")?.textContent).toContain("python3 scripts/fit.py");
+    const head = container.querySelectorAll(".calculs-run-head")[0];
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    const body = container.querySelector(".calculs-run[data-open] .calculs-run-body");
+    expect(body?.textContent).toContain("python3 scripts/fit.py");
+    expect(body?.textContent).toContain("/Users/tofunori/Documents/albedo");
+    expect(body?.textContent).toContain("gee-export"); // Conteneur (détail docker)
+    expect(body?.textContent).toMatch(/40 \/ 100 tuiles/);
+    expect(body?.textContent).toContain("40 %");
     expect(lastRequest("computeReadLog")).toBeUndefined();
 
     fireEvent.click(screen.getByRole("tab", { name: "Log" }));
@@ -214,17 +220,93 @@ describe("CalculsSurface", () => {
       type: "computeLog", requestId: logRequest.requestId, runId: "nas:docker:gee-export",
       data: { lines: ["tile 39", "tile 40"], truncated: true },
     });
-    expect(container.querySelector(".calculs-log-scroll pre")?.textContent).toBe("tile 39\ntile 40");
+    expect(container.querySelector(".calculs-run-log pre")?.textContent).toBe("tile 39\ntile 40");
     expect(screen.getByText(/tronqué|truncated/)).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(container.querySelector(".calculs-surface")?.getAttribute("data-inspector")).toBe("closed");
+    expect(container.querySelector(".calculs-run[data-open]")).toBeNull();
+    expect(container.querySelector(".calculs-run-body")).toBeNull();
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("« Log complet » bascule sur l'onglet Log et demande le journal", () => {
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    fireEvent.click(container.querySelectorAll(".calculs-run-head")[2]);
+    fireEvent.click(screen.getByRole("button", { name: /log complet|full log/i }));
+    expect(lastRequest("computeReadLog")).toMatchObject({ runId: "mac:old-fit", tailLines: 400 });
+    expect(screen.getByRole("tab", { name: "Log" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(/lecture du journal|reading log/i)).toBeTruthy();
+  });
+
+  it("une seule rangée ouverte à la fois ; un second clic la replie", () => {
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    const heads = container.querySelectorAll(".calculs-run-head");
+    expect(container.querySelectorAll(".calculs-run-body")).toHaveLength(0);
+    fireEvent.click(heads[0]);
+    expect(container.querySelectorAll(".calculs-run-body")).toHaveLength(1);
+    fireEvent.click(heads[2]);
+    expect(container.querySelectorAll(".calculs-run-body")).toHaveLength(1);
+    expect(heads[0].getAttribute("aria-expanded")).toBe("false");
+    expect(heads[2].getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".calculs-run[data-open]")?.getAttribute("data-run-state")).toBe("completed");
+    // run terminé sans progression : Fin + PID, pas de barre
+    const body = container.querySelector(".calculs-run-body")!;
+    expect(body.textContent).toContain("4242");
+    expect(body.querySelector("[role=progressbar]")).toBeNull();
+    fireEvent.click(heads[2]);
+    expect(container.querySelectorAll(".calculs-run-body")).toHaveLength(0);
+    expect(container.querySelector(".calculs-run[data-open]")).toBeNull();
+  });
+
+  it("le corps propose le terminal de l'hôte du run (masqué pour le Mac) et la vue Slurm pour slurm", () => {
+    const openTerminal = vi.fn();
+    const { container } = render(<CalculsSurface visible onOpenTerminal={openTerminal} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    const heads = container.querySelectorAll(".calculs-run-head");
+    fireEvent.click(heads[0]); // NAS docker
+    fireEvent.click(screen.getByRole("button", { name: /terminal sur nas|terminal on nas/i }));
+    expect(openTerminal).toHaveBeenCalledWith("ssh nas");
+    expect(screen.queryByRole("tab", { name: /fichiers|files/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /vue slurm|slurm view/i })).toBeNull();
+    fireEvent.click(heads[2]); // Mac local
+    expect(screen.queryByRole("button", { name: /terminal sur|terminal on/i })).toBeNull();
+    fireEvent.click(heads[1]); // Narval slurm
+    expect(screen.getByRole("tab", { name: /fichiers|files/i })).toBeTruthy();
+    expect(container.querySelector(".calculs-run-body")?.textContent).toContain("65659188");
+    fireEvent.click(screen.getByRole("button", { name: /terminal sur narval|terminal on narval/i }));
+    expect(openTerminal).toHaveBeenLastCalledWith("ssh nas -t ssh narval-vpn");
+  });
+
+  it("ouvrir une rangée ne re-rend que celle-ci ; un snapshot identique reste silencieux", () => {
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    const request = lastRequest("computeSnapshot");
+    deliver(snapshotMessage(request.requestId));
+    const heads = container.querySelectorAll(".calculs-run-head");
+    let rows = calculsDebug.rowRenders;
+    fireEvent.click(heads[0]);
+    expect(calculsDebug.rowRenders).toBe(rows + 1);
+    rows = calculsDebug.rowRenders;
+    const lists = calculsDebug.listRenders;
+    // rangée ouverte, snapshot identique : aucun setState, rien ne bouge
+    vi.setSystemTime(NOW + 5_000);
+    deliver(snapshotMessage(request.requestId, { observedAt: new Date(NOW + 5_000).toISOString() }));
+    expect(calculsDebug.rowRenders).toBe(rows);
+    expect(calculsDebug.listRenders).toBe(lists);
+    // changer d'onglet dans le corps ne re-rend ni la liste ni les rangées
+    fireEvent.click(screen.getByRole("tab", { name: "Log" }));
+    expect(calculsDebug.rowRenders).toBe(rows);
+    expect(calculsDebug.listRenders).toBe(lists);
+    // ouvrir B : seules A (qui se replie) et B se re-rendent
+    fireEvent.click(heads[2]);
+    expect(calculsDebug.rowRenders).toBe(rows + 2);
   });
 
   it("« Vue Slurm » bascule sur NarvalSurface puis revient", () => {
     const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
     deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
-    fireEvent.click(container.querySelectorAll(".calculs-run")[1]);
+    fireEvent.click(container.querySelectorAll(".calculs-run-head")[1]);
     fireEvent.click(screen.getByRole("button", { name: /vue slurm|slurm view/i }));
     expect(screen.getByTestId("narval-stub").getAttribute("data-visible")).toBe("true");
     expect(container.querySelector(".calculs-run")).toBeNull();
