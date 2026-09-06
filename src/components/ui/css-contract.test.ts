@@ -25,6 +25,20 @@ const appCss = stripComments(readFileSync(join(root, "App.css"), "utf8"));
 const galleryMain = readFileSync(join(root, "..", "gallery", "react-ui", "main.tsx"), "utf8");
 const galleryStyles = readFileSync(join(root, "..", "gallery", "react-ui", "styles.css"), "utf8");
 
+// utilitaire : liste récursive des fichiers d'un répertoire filtrés par extension
+const collectFiles = (dir: string, exts: string[]): string[] => {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...collectFiles(p, exts));
+    else if (exts.some((ext) => entry.name.endsWith(ext))) out.push(p);
+  }
+  return out;
+};
+// toutes les feuilles de style de composants (hors gallery/, hors shadcn/ qui
+// n'en a pas) : ProjectFolders.css, ProjectGallery.css, UiBench.css, etc.
+const componentCssFiles = collectFiles(join(root, "components"), [".css"]);
+
 describe("contrat Quiet Instrument (sources CSS)", () => {
   it("aucun `transition: all` dans tokens/primitives/App.css", () => {
     for (const [name, css] of [
@@ -805,5 +819,80 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       expect(appCss.match(new RegExp(decl.source, "g"))?.length,
         `${decl} doit être dérivé dans les DEUX thèmes`).toBe(2);
     }
+  });
+
+  // Écarts 2026-09-06 (relevé design) : les ombres de surfaces élevées
+  // (menus/popovers/modales) passent par --elev, les chips/cartes/petits
+  // contrôles flottants par --elev-soft — plus de rgba(0,0,0,…) littéral en
+  // dehors des palettes :root. Trois exceptions JUSTIFIÉES restent : ce ne
+  // sont pas des surfaces (fond+contenu), mais des ombres de PETITS CONTRÔLES
+  // ou de retour visuel ponctuel — allowlist gelée, ne peut que rétrécir.
+  //   - .slider::-webkit-slider-thumb (App.css) : galet de curseur, ombre de
+  //     relief sur un knob de 14px, pas une surface élevée.
+  //   - .ef-thumb (App.css) : même rôle sur le slider d'effort.
+  //   - .workspace-drop-preview (App.css) : halo de retour visuel pendant un
+  //     drag, combiné à un anneau interne teinté --info — sémantique de
+  //     drop-target, pas un rôle d'élévation statique.
+  it("box-shadow : aucun rgba() littéral hors :root (App.css + CSS de composants), sauf allowlist gelée", () => {
+    const stripRoot = (css: string) => css.replace(/^:root[^{]*\{[^}]*\}/gm, "");
+    const rgbaShadowAllow = [
+      { file: "App.css", needle: ".slider::-webkit-slider-thumb", pattern: /\.slider::-webkit-slider-thumb\s*\{[^}]*box-shadow:[^;]*rgba\(/ },
+      { file: "App.css", needle: ".ef-thumb", pattern: /\.ef-thumb\s*\{[^}]*box-shadow:[^;]*rgba\(/ },
+      { file: "App.css", needle: ".workspace-drop-preview", pattern: /^\.workspace-drop-preview \{[^}]*box-shadow:[^;]*rgba\(/m },
+    ];
+    const appBody = stripRoot(appCss);
+    const rawShadows = [...appBody.matchAll(/box-shadow:[^;]*rgba\([^;]*;/g)].map((m) => m[0]);
+    const allowedCount = rgbaShadowAllow.filter((a) => a.file === "App.css" && a.pattern.test(appBody)).length;
+    expect(
+      rawShadows.length,
+      `box-shadow rgba() hors allowlist dans App.css : ${rawShadows.join(" | ")}`,
+    ).toBe(allowedCount);
+    for (const path of componentCssFiles) {
+      const css = stripRoot(stripComments(readFileSync(path, "utf8")));
+      expect(css, `${path} : box-shadow rgba() littéral interdit hors App.css`).not.toMatch(/box-shadow:[^;]*rgba\(/);
+    }
+  });
+
+  // Écarts 2026-09-06 : hex legacy des éditeurs galerie — cette assertion
+  // dépend d'un lot séparé (autre agent, gallery/**) encore en cours au
+  // moment où ce test est écrit. À ACTIVER (retirer .skip) une fois le lot 2
+  // (migration hex → tokens galerie) terminé — aujourd'hui elle échouerait
+  // sur gallery/assets/*.css et *.html (code_editor.css, latex_studio.css,
+  // pdf_viewer.html, etc.) et gallery/src/** si des occurrences y subsistent.
+  it.skip("gallery : aucun hex legacy hors bundles (activer après lot 2)", () => {
+    const legacyHex = /#(202024|27272a|1f1f23|dbdfe5|a1a1aa|e8823a|5b9dff|3f3f46)\b/i;
+    const galleryRoot = join(root, "..", "gallery");
+    const tsFiles = collectFiles(join(galleryRoot, "src"), [".ts"]);
+    const assetFiles = collectFiles(join(galleryRoot, "assets"), [".css", ".html"]).filter(
+      (p) => !p.endsWith(".bundle.js"),
+    );
+    const offenders: string[] = [];
+    for (const p of [...tsFiles, ...assetFiles]) {
+      if (legacyHex.test(readFileSync(p, "utf8"))) offenders.push(p);
+    }
+    expect(offenders, `hex legacy trouvé : ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  // Écarts 2026-09-06 : rayons hors échelle 6/10/999 — toute valeur px
+  // LITTÉRALE doit tomber sur 6/10/999 (idéalement via var(--r-*)/
+  // var(--radius-*), mais un littéral déjà sur l'échelle n'est pas une
+  // infraction). Les unités non-px (em, %, 0) et var() sont hors du périmètre
+  // de cette règle — d'autres contrats couvrent déjà var().
+  it("border-radius : aucune valeur px hors 6/10/999 dans src/**/*.css et App.css", () => {
+    const cssFiles = collectFiles(root, [".css"]).filter(
+      (p) => !p.includes(join("components", "shadcn")),
+    );
+    const onScale = new Set(["6px", "10px", "999px"]);
+    const offenders: string[] = [];
+    for (const path of cssFiles) {
+      const css = stripComments(readFileSync(path, "utf8"));
+      for (const m of css.matchAll(/border-radius:\s*([^;]+);/g)) {
+        const v = m[1].trim();
+        if (!/^\d+(\.\d+)?px$/.test(v)) continue; // seules les valeurs px littérales sont notées ici
+        if (onScale.has(v)) continue;
+        offenders.push(`${path} : ${v}`);
+      }
+    }
+    expect(offenders, `border-radius px hors échelle : ${offenders.join(", ")}`).toEqual([]);
   });
 });

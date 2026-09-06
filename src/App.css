@@ -5302,9 +5302,10 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 [data-reader-search] { background:rgba(232,154,56,.2); }
 [data-reader-quote] { background:rgba(94,149,232,.2); }
 
-.atelier-chat-note{position:fixed;z-index:1000;transform:translateX(-50%)}
+.atelier-chat-note{position:fixed;z-index:var(--z-popover);transform:translateX(-50%)}
 .sel-toolbar.atelier-chat-selection{background:transparent;border:0;box-shadow:none;padding:0}
-::highlight(chat-an){background:transparent;text-decoration:underline;text-decoration-color:#969ca599;text-decoration-thickness:1px}
+/* soulignement des ancres d'annotation : le gris secondaire à 60 %, jamais un hex en dur (contrat css) */
+::highlight(chat-an){background:transparent;text-decoration:underline;text-decoration-color:color-mix(in srgb, var(--text-muted) 60%, transparent);text-decoration-thickness:1px}
 ::highlight(chat-highlight-amber){background:rgba(255,213,74,.40)}
 ::highlight(chat-highlight-green){background:rgba(120,220,140,.40)}
 ::highlight(chat-highlight-blue){background:rgba(120,170,255,.40)}
