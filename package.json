@@ -20,7 +20,7 @@
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "typecheck:gallery": "npm --prefix gallery run typecheck:studio",
     "typecheck:protocol": "npm --prefix packages/atelier-protocol run typecheck",
-    "typecheck:all": "npm run typecheck && npm run typecheck:gallery && npm run mobile:typecheck && npm run typecheck:protocol",
+    "typecheck:all": "npm run typecheck && npm run typecheck:node && npm run typecheck:gallery && npm run mobile:typecheck && npm run typecheck:protocol",
     "build:web": "vite build",
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",

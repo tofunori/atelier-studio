@@ -43,7 +43,7 @@ export default defineConfig(async () => ({
         // Base UI is shared by the migrated primitives. Keep it in its own
         // cacheable chunk so the application entry remains within Atelier's
         // 950 KB critical-path budget as the migration grows.
-        manualChunks(id) {
+        manualChunks(id: string) {
           // Shared palette data is cacheable independently from application code.
           if (id.endsWith("/src/lib/themes.ts")) return "themes";
           if (id.includes("/node_modules/@base-ui/react/")) return "base-ui";
