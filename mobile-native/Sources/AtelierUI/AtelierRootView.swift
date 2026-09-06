@@ -144,7 +144,8 @@ public struct AtelierRootView: View {
                                     Button { workspace.returnToDocumentList() } label: {
                                         Label(workspace.documentOrigin == .articles ? "Articles" : "Galerie", systemImage: "chevron.left")
                                             .font(.subheadline.weight(.medium))
-                                    }.accessibilityLabel(workspace.documentOrigin == .articles ? "Retour : Articles" : "Retour : Galerie")
+                                    }.labelStyle(.titleAndIcon)
+                                        .accessibilityLabel(workspace.documentOrigin == .articles ? "Retour : Articles" : "Retour : Galerie")
                                     Text(workspace.currentName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }.frame(minHeight: 44)
                             }
