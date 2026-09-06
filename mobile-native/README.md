@@ -1,5 +1,8 @@
 # Atelier — prototype SwiftUI natif
 
+État courant de la refonte du 6 septembre : [fonctionnalités et validation](REDESIGN.md).
+Les sections ci-dessous retracent les étapes précédentes du prototype.
+
 Prototype iPhone/iPad iOS 26+, isolé du client React/Tauri dans `mobile/`.
 SwiftUI pour les écrans, TabView/NavigationStack pour la navigation système,
 TextEditor avec sélection pour LaTeX, PDFKit pour le PDF. Aucun WebView.
