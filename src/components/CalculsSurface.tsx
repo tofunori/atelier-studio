@@ -6,6 +6,9 @@
 // Contrat WS gelé (docs/superpowers/plans/2026-09-06-surface-calculs.md) :
 //   → computeSnapshot { requestId, hosts?, days? }  ← computeSnapshot { data:{ observedAt, runs, errors } }
 //   → computeReadLog  { requestId, runId, tailLines } ← computeLog { runId, data:{ lines, truncated } } | error
+//   → computeForgetRun { requestId, runId } ← computeForgotRun { runId, data:{ runId, archived } } | error
+//     (error.code "unsupported" = l'hôte ne sait pas archiver ce genre → masqué
+//     localement ; "run_live" = encore en cours → message inline, pas masqué)
 // Les réponses arrivent par le pont `compute-message` d'App.tsx.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucide-react";
@@ -53,6 +56,8 @@ type LogChunk = { runId: string; lines: string[]; truncated: boolean };
 type SurfaceError = { code: string; message: string };
 
 const HOST_STORAGE_KEY = "atelier.calculs.host";
+const HIDDEN_STORAGE_KEY = "atelier.calculs.hidden";
+const HIDDEN_CAP = 500;
 const HOSTS: HostFilter[] = ["all", "mac", "nas", "narval"];
 /** Cadence de sondage (spec) : Mac local 30 s ; NAS et Slurm 60 s — donc 60 s
  *  dès que le filtre inclut un hôte distant (« Tous » compris). */
@@ -90,6 +95,29 @@ function storeHost(host: HostFilter) {
   } catch {
     // stockage indisponible : le filtre vit en mémoire
   }
+}
+
+/** Runs retirés de la liste (archivés côté hôte ou masqués localement) —
+ *  liste ordonnée (plus ancien d'abord), plafonnée à HIDDEN_CAP. */
+function readHidden(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HIDDEN_STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string").slice(-HIDDEN_CAP) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeHidden(ids: string[]) {
+  try {
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // stockage indisponible : le masquage vit en mémoire
+  }
+}
+
+export function isFinished(state: string) {
+  return state === "completed" || state === "failed" || state === "unknown";
 }
 
 /** Horodatage du contrat (ISO ou epoch s/ms) → ms, ou null. */
@@ -197,6 +225,10 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const [loading, setLoading] = useState(false);
   const [slurmView, setSlurmView] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [hidden, setHidden] = useState<string[]>(readHidden);
+  const [forgetErrors, setForgetErrors] = useState<Record<string, string>>({});
+  // requestId → runId des computeForgetRun en vol
+  const forgetPending = useRef(new Map<string, string>());
   const snapshotRequest = useRef<string | null>(null);
   const fingerprint = useRef<string | null>(null);
   // Instant d'observation du dernier snapshot reçu. Volontairement une ref et
@@ -213,7 +245,71 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const openTerminal = useCallback((command: string) => onOpenTerminalRef.current(command), []);
   const openSlurmView = useCallback(() => setSlurmView(true), []);
 
-  const runs = useMemo(() => sortRuns(snapshot?.runs ?? []), [snapshot]);
+  const allRuns = useMemo(() => sortRuns(snapshot?.runs ?? []), [snapshot]);
+  // Filtre des runs retirés, mémoïsé : snapshot identique + masquage identique
+  // → même tableau, aucune rangée re-rendue.
+  const runs = useMemo(() => {
+    if (hidden.length === 0) return allRuns;
+    const set = new Set(hidden);
+    return allRuns.filter((run) => !set.has(run.id));
+  }, [allRuns, hidden]);
+  const finishedVisible = useMemo(() => runs.filter((run) => isFinished(run.state)), [runs]);
+
+  const hideRun = useCallback((id: string) => {
+    setHidden((current) => {
+      const next = [...current.filter((entry) => entry !== id), id].slice(-HIDDEN_CAP);
+      storeHidden(next);
+      return next;
+    });
+  }, []);
+  const unhideRun = useCallback((id: string) => {
+    setHidden((current) => {
+      if (!current.includes(id)) return current;
+      const next = current.filter((entry) => entry !== id);
+      storeHidden(next);
+      return next;
+    });
+  }, []);
+
+  // Retrait optimiste : la rangée disparaît tout de suite ; la réponse ne la
+  // ramène qu'en cas d'échec (run encore vivant, erreur hôte).
+  const forgetRun = useCallback((id: string) => {
+    const requestIdValue = requestId();
+    forgetPending.current.set(requestIdValue, id);
+    setForgetErrors((current) => {
+      if (!(id in current)) return current;
+      const { [id]: _dropped, ...rest } = current;
+      return rest;
+    });
+    hideRun(id);
+    if (!wsSend({ type: "computeForgetRun", requestId: requestIdValue, runId: id })) {
+      forgetPending.current.delete(requestIdValue);
+      unhideRun(id);
+      setForgetErrors((current) => ({ ...current, [id]: t("calculs.offline") }));
+    }
+  }, [hideRun, unhideRun]);
+
+  const forgetFinished = () => {
+    for (const run of finishedVisible) forgetRun(run.id);
+  };
+
+  useEffect(() => {
+    const onMessage = (event: Event) => {
+      const msg = (event as CustomEvent).detail ?? {};
+      if (msg.type !== "computeForgotRun") return;
+      const runId = forgetPending.current.get(String(msg.requestId));
+      if (!runId) return;
+      forgetPending.current.delete(String(msg.requestId));
+      if (!msg.error) return; // archivé (ou non) côté hôte : reste masqué
+      const code = String(msg.error.code ?? "");
+      if (code === "unsupported") return; // l'hôte ne sait pas archiver : masqué localement
+      unhideRun(runId);
+      const message = String(msg.error.message ?? code);
+      setForgetErrors((current) => ({ ...current, [runId]: t("calculs.forget-failed", { message }) }));
+    };
+    window.addEventListener("compute-message", onMessage);
+    return () => window.removeEventListener("compute-message", onMessage);
+  }, [unhideRun]);
 
   // `manual` = clic utilisateur : seul cas où l'icône tourne. Les sondages
   // périodiques restent silencieux (pas de setState au repos).
@@ -352,6 +448,9 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
             {hostFilter === "narval" && (
               <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
             )}
+            <Button variant="ghost" disabled={finishedVisible.length === 0} onClick={forgetFinished}>
+              {t("calculs.forget-finished")}
+            </Button>
             <IconButton
               className={loading ? "calculs-refresh is-loading" : "calculs-refresh"}
               size="s"
@@ -416,7 +515,9 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
               runs={runs}
               openRunId={openRunId}
               now={now}
+              forgetErrors={forgetErrors}
               onToggle={toggleRun}
+              onForget={forgetRun}
               onOpenTerminal={openTerminal}
               onSlurmView={openSlurmView}
             />
@@ -444,14 +545,16 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
 
 type RowActions = {
   onToggle: (id: string) => void;
+  onForget: (id: string) => void;
   onOpenTerminal: (command: string) => void;
   onSlurmView: () => void;
 };
 
-const RunList = memo(function RunList({ runs, openRunId, now, onToggle, onOpenTerminal, onSlurmView }: RowActions & {
+const RunList = memo(function RunList({ runs, openRunId, now, forgetErrors, onToggle, onForget, onOpenTerminal, onSlurmView }: RowActions & {
   runs: ComputeRun[];
   openRunId: string | null;
   now: number;
+  forgetErrors: Record<string, string>;
 }) {
   calculsDebug.listRenders += 1;
   return (
@@ -462,7 +565,9 @@ const RunList = memo(function RunList({ runs, openRunId, now, onToggle, onOpenTe
           run={run}
           open={run.id === openRunId}
           now={now}
+          forgetError={forgetErrors[run.id]}
           onToggle={onToggle}
+          onForget={onForget}
           onOpenTerminal={onOpenTerminal}
           onSlurmView={onSlurmView}
         />
@@ -473,10 +578,11 @@ const RunList = memo(function RunList({ runs, openRunId, now, onToggle, onOpenTe
 
 /** Rangée + repli accordéon. Le corps n'est monté que lorsque la rangée est
  *  ouverte (une seule à la fois) : 200 rangées = 200 en-têtes, un seul corps. */
-const RunRow = memo(function RunRow({ run, open, now, onToggle, onOpenTerminal, onSlurmView }: RowActions & {
+const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onForget, onOpenTerminal, onSlurmView }: RowActions & {
   run: ComputeRun;
   open: boolean;
   now: number;
+  forgetError?: string;
 }) {
   calculsDebug.rowRenders += 1;
   const hasProgress = Boolean(run.progress && run.progress.total > 0);
@@ -513,14 +619,15 @@ const RunRow = memo(function RunRow({ run, open, now, onToggle, onOpenTerminal, 
       <div className="calculs-run-fold">
         <div>
           {open && (
-            <RunBody id={bodyId} run={run} onOpenTerminal={onOpenTerminal} onSlurmView={onSlurmView} />
+            <RunBody id={bodyId} run={run} forgetError={forgetError} onForget={onForget} onOpenTerminal={onOpenTerminal} onSlurmView={onSlurmView} />
           )}
         </div>
       </div>
     </div>
   );
-}, (prev, next) => prev.run === next.run && prev.open === next.open
-  && prev.onToggle === next.onToggle && prev.onOpenTerminal === next.onOpenTerminal && prev.onSlurmView === next.onSlurmView
+}, (prev, next) => prev.run === next.run && prev.open === next.open && prev.forgetError === next.forgetError
+  && prev.onToggle === next.onToggle && prev.onForget === next.onForget
+  && prev.onOpenTerminal === next.onOpenTerminal && prev.onSlurmView === next.onSlurmView
   // le tic d'horloge (10 s) ne re-rend une rangée que si son affichage change
   && runDuration(prev.run, prev.now) === runDuration(next.run, next.now)
   && activityAgo(prev.run, prev.now) === activityAgo(next.run, next.now));
@@ -547,9 +654,11 @@ function progressStatus(run: ComputeRun, current: number, total: number) {
 /** Corps déplié : onglets Aperçu / Log (+ Fichiers pour Slurm). L'état du
  *  journal vit ici — monté à l'ouverture, jeté à la fermeture — si bien qu'un
  *  changement d'onglet ne re-rend que cette rangée. */
-function RunBody({ id, run, onOpenTerminal, onSlurmView }: {
+function RunBody({ id, run, forgetError, onForget, onOpenTerminal, onSlurmView }: {
   id: string;
   run: ComputeRun;
+  forgetError?: string;
+  onForget: (id: string) => void;
   onOpenTerminal: (command: string) => void;
   onSlurmView: () => void;
 }) {
@@ -639,7 +748,11 @@ function RunBody({ id, run, onOpenTerminal, onSlurmView }: {
                 {t("calculs.terminal-on", { host: hostLabel(run.host) })}
               </Button>
             )}
+            {isFinished(run.state) && (
+              <Button variant="secondary" onClick={() => onForget(run.id)}>{t("calculs.forget")}</Button>
+            )}
           </div>
+          {forgetError && <p className="calculs-run-hint calculs-forget-error" role="alert">{forgetError}</p>}
         </TabsContent>
         <TabsContent value="log" className="calculs-run-log">
           {logLoading ? (

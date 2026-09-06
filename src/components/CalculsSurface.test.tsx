@@ -365,4 +365,127 @@ describe("CalculsSurface", () => {
     deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
     expect(container.querySelector(".calculs-refresh.is-loading")).toBeNull();
   });
+
+  describe("retirer les runs terminés", () => {
+    function openRow(container: HTMLElement, index: number) {
+      fireEvent.click(container.querySelectorAll(".calculs-run-head")[index]);
+    }
+    const forgetButton = () => screen.queryByRole("button", { name: /^retirer$|^remove$/i });
+    const forgetFinishedButton = () => screen.getByRole("button", { name: /retirer les terminés|remove finished/i });
+    const rowIds = (container: HTMLElement) =>
+      [...container.querySelectorAll(".calculs-run-head strong")].map((el) => el.textContent);
+
+    it("« Retirer » n'apparaît que sur les runs terminés/échoués/inconnus", () => {
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      openRow(container, 0); // running
+      expect(forgetButton()).toBeNull();
+      openRow(container, 1); // queued
+      expect(forgetButton()).toBeNull();
+      openRow(container, 2); // completed
+      expect(forgetButton()).toBeTruthy();
+    });
+
+    it("un clic envoie computeForgetRun et masque la rangée aussitôt ; « unsupported » la laisse masquée", () => {
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      openRow(container, 2);
+      fireEvent.click(forgetButton()!);
+      const request = lastRequest("computeForgetRun");
+      expect(request).toMatchObject({ runId: "mac:old-fit" });
+      expect(typeof request.requestId).toBe("string");
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+      expect(JSON.parse(localStorage.getItem("atelier.calculs.hidden")!)).toEqual(["mac:old-fit"]);
+      deliver({
+        type: "computeForgotRun", requestId: request.requestId, runId: "mac:old-fit",
+        error: { host: "mac", code: "unsupported", message: "cannot archive" },
+      });
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+      expect(JSON.parse(localStorage.getItem("atelier.calculs.hidden")!)).toEqual(["mac:old-fit"]);
+      // archived=true : reste masqué aussi
+      deliver({ type: "computeForgotRun", requestId: request.requestId, runId: "mac:old-fit", data: { runId: "mac:old-fit", archived: true } });
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+    });
+
+    it("« run_live » ré-affiche la rangée avec le message d'erreur", () => {
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      openRow(container, 2);
+      fireEvent.click(forgetButton()!);
+      const request = lastRequest("computeForgetRun");
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+      deliver({
+        type: "computeForgotRun", requestId: request.requestId, runId: "mac:old-fit",
+        error: { host: "mac", code: "run_live", message: "still running" },
+      });
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(3);
+      expect(JSON.parse(localStorage.getItem("atelier.calculs.hidden")!)).toEqual([]);
+      const error = container.querySelector(".calculs-forget-error");
+      expect(error?.textContent).toMatch(/impossible de retirer|could not remove/i);
+      expect(error?.textContent).toContain("still running");
+      // une réponse à un requestId inconnu est ignorée
+      deliver({ type: "computeForgotRun", requestId: "nope", runId: "mac:old-fit", error: { host: "mac", code: "x", message: "y" } });
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(3);
+    });
+
+    it("« Retirer les terminés » envoie un message par run terminé visible et les masque", () => {
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      const snap = lastRequest("computeSnapshot").requestId;
+      const runs = [...RUNS, run({ id: "mac:failed", label: "Échec M40", state: "failed", exitCode: 1 }),
+        run({ id: "nas:unit:stale", label: "Unité", host: "nas", source: "systemd", state: "unknown", detail: { kind: "unit", unit: "fit.service" } })];
+      deliver(snapshotMessage(snap, { runs }));
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(5);
+      const before = sent.length;
+      fireEvent.click(forgetFinishedButton());
+      const requests = sent.slice(before).filter((m) => m.type === "computeForgetRun");
+      expect(requests.map((m) => m.runId).sort()).toEqual(["mac:failed", "mac:old-fit", "nas:unit:stale"]);
+      expect(new Set(requests.map((m) => m.requestId)).size).toBe(3);
+      expect(rowIds(container)).toEqual(["Export GEE", "M42a-full"]);
+      expect((forgetFinishedButton() as HTMLButtonElement).disabled).toBe(true);
+      // le prochain snapshot (encore avec ces runs) reste filtré
+      deliver(snapshotMessage(snap, { runs, observedAt: new Date(NOW + 60_000).toISOString() }));
+      expect(rowIds(container)).toEqual(["Export GEE", "M42a-full"]);
+    });
+
+    it("le bouton de barre est désactivé sans run terminé visible ; le masquage persiste au remontage", () => {
+      localStorage.setItem("atelier.calculs.hidden", JSON.stringify(["mac:old-fit"]));
+      const { container, unmount } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      expect(rowIds(container)).toEqual(["Export GEE", "M42a-full"]);
+      expect((forgetFinishedButton() as HTMLButtonElement).disabled).toBe(true);
+      unmount();
+      // stockage corrompu : ignoré
+      localStorage.setItem("atelier.calculs.hidden", "{bad");
+      const second = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      expect(second.container.querySelectorAll(".calculs-run")).toHaveLength(3);
+    });
+
+    it("le masquage est plafonné à 500 identifiants (plus anciens évincés)", () => {
+      localStorage.setItem("atelier.calculs.hidden", JSON.stringify(Array.from({ length: 500 }, (_, i) => `old:${i}`)));
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      openRow(container, 2);
+      fireEvent.click(forgetButton()!);
+      const stored = JSON.parse(localStorage.getItem("atelier.calculs.hidden")!);
+      expect(stored).toHaveLength(500);
+      expect(stored[0]).toBe("old:1");
+      expect(stored[499]).toBe("mac:old-fit");
+    });
+
+    it("snapshot identique + masquage inchangé : aucune rangée re-rendue", () => {
+      const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      const request = lastRequest("computeSnapshot");
+      deliver(snapshotMessage(request.requestId));
+      openRow(container, 2);
+      fireEvent.click(forgetButton()!);
+      expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+      const rows = calculsDebug.rowRenders;
+      const lists = calculsDebug.listRenders;
+      vi.setSystemTime(NOW + 5_000);
+      deliver(snapshotMessage(request.requestId, { observedAt: new Date(NOW + 5_000).toISOString() }));
+      expect(calculsDebug.rowRenders).toBe(rows);
+      expect(calculsDebug.listRenders).toBe(lists);
+    });
+  });
 });

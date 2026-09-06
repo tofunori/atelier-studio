@@ -4860,6 +4860,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   color: var(--text-secondary); font: var(--fs-label)/1.6 var(--font-code); }
 .calculs-run-tail.is-tall { max-height: 360px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .calculs-run-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.calculs-forget-error { color: var(--status-error); }
 
 @container calculs (max-width: 720px) {
   .calculs-run-head { grid-template-columns: 88px minmax(0, 1fr) 20px; }
