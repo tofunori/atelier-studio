@@ -235,9 +235,10 @@ private struct ChatEventRow: View {
     }
 }
 
-private struct ConversationPicker: View {
+struct ConversationPicker: View {
     @Bindable var workspace: WorkspaceModel
     var embedded = false
+    var navigateToChat = true
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var creating = false
@@ -257,7 +258,7 @@ private struct ConversationPicker: View {
                                 creating = true
                                 Task {
                                     defer { creating = false }
-                                    do { try await chat.create(provider: provider, workspace: workspace); if !embedded { dismiss() } }
+                                    do { try await chat.create(provider: provider, workspace: workspace, navigateToChat: navigateToChat); if !embedded { dismiss() } }
                                     catch { self.error = error.localizedDescription }
                                 }
                             }
@@ -268,7 +269,7 @@ private struct ConversationPicker: View {
                 if let error = error ?? chat.error { Text(error).foregroundStyle(.red) }
                 ForEach(chat.threads.filter { query.isEmpty || $0.title.localizedStandardContains(query) }) { thread in
                     Button {
-                        chat.select(thread, workspace: workspace); if !embedded { dismiss() }
+                        chat.select(thread, workspace: workspace, navigateToChat: navigateToChat); if !embedded { dismiss() }
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(thread.title).foregroundStyle(.primary)

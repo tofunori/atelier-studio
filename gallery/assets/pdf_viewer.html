@@ -1273,7 +1273,9 @@ function saveAnnots(){
   if(!ANNOTS_LOADED) return Promise.resolve(false);
   // Snapshot and serialize writes: an older request must not overwrite a
   // newer note, even when the user saves and immediately adds it to chat.
-  const body = JSON.stringify({rel, annots: PDF_ANNOTS});
+  // `fresh` (commentaire créé mais jamais validé) vit en mémoire seulement :
+  // il ne doit pas survivre à un rechargement dans le fichier d'annotations.
+  const body = JSON.stringify({rel, annots: PDF_ANNOTS.map(({fresh, ...a}) => a)});
   ANNOT_SAVE = ANNOT_SAVE.then(async () => {
     try {
       const response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
@@ -1410,7 +1412,7 @@ function addHighlightFromSel(kind, color){
     const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
       text: text,
       kind: kind, color: color, note: ""};
-    if(kind === "comment") a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0));
+    if(kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
     PDF_ANNOTS.push(a);
     drawAnnots(g.pg, +pgNum);
     lastA = a;
@@ -1593,9 +1595,32 @@ async function annotMenu(a, x, y){
   let attachedNote = a.note || "";
   editor.commit = async (close, send) => {
     if(saving) return false;
+    // A fresh annotation (just created by Annoter/zone/note libre) whose note
+    // is still empty when the editor closes WITHOUT explicit validation
+    // (Escape, outside click, trash) is abandoned outright: it never existed
+    // as far as the user is concerned, so it must not linger as a grey mark.
+    // An explicit validation (Enter, ↑/send2 → send==="force") with an empty
+    // note keeps it (deliberate blank marker). An EXISTING annotation that
+    // the user empties keeps today's draft-save behavior — untouched here.
+    if(a.fresh && !inp.value.trim() && send !== "force"){
+      saving = true;
+      inp.disabled = true;
+      annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+      status.textContent = "Suppression…";
+      const removed = await removeAnnot(a);
+      saving = false;
+      if(removed) return true;
+      if(annotationEditor === editor){
+        inp.disabled = false;
+        annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+        status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
+      }
+      return false;
+    }
     saving = true;
     inp.disabled = true;
     annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    delete a.fresh;
     a.note = inp.value;
     status.textContent = "Enregistrement…";
     const saved = await saveAnnots();
@@ -1746,7 +1771,7 @@ if(window.self !== window.top){
     if (w < 12 || h < 12) return;   // clic parasite : pas de zone minuscule
     const a = { id: Date.now() + "-area-" + pg.dataset.page, page: +pg.dataset.page,
       rects: [[left / pr.width, top / pr.height, w / pr.width, h / pr.height]],
-      text: "", kind: "area", color: "rgba(255,170,60,.40)", note: "" };
+      text: "", kind: "area", color: "rgba(255,170,60,.40)", note: "", fresh: true };
     PDF_ANNOTS.push(a);
     drawAnnots(pg, +pg.dataset.page);
     saveAnnots();
@@ -1774,7 +1799,7 @@ if(window.self !== window.top){
     const pr = pg.getBoundingClientRect();
     const a = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
       pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
-      kind: "note", color: LAST_COLOR, text: "", note: ""};
+      kind: "note", color: LAST_COLOR, text: "", note: "", fresh: true};
     PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
     annotMenu(a, e.clientX, e.clientY);
   });

@@ -107,6 +107,64 @@ test('a comment draws a number and neutral underlines without a colored passage'
  assert.ok(parseFloat(markers[1].style.top)-parseFloat(markers[0].style.top)>=22);win.close();
 });
 
+test('a fresh empty comment is abandoned on Escape: removed, persisted, not sent', async () => {
+ const m=menu(true,'');
+ m.win.annotation.fresh = true;
+ m.root.querySelector('textarea').dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ await tick();
+ assert.equal(m.win.PDF_ANNOTS.length,0);
+ assert.ok(m.writes.length>=1);
+ assert.equal(m.sends.length,0);
+ assert.equal(m.root.style.display,'none');
+ m.close();
+});
+
+test('a fresh empty comment is abandoned on outside click: removed, persisted, not sent', async () => {
+ const m=menu(true,'');
+ m.win.annotation.fresh = true;
+ m.win.document.getElementById('outside').click();
+ await tick();
+ assert.equal(m.win.PDF_ANNOTS.length,0);
+ assert.ok(m.writes.length>=1);
+ assert.equal(m.sends.length,0);
+ assert.equal(m.root.style.display,'none');
+ m.close();
+});
+
+test('a fresh comment survives Enter with an empty note (explicit force)', async () => {
+ const m=menu(true,'');
+ m.win.annotation.fresh = true;
+ const input=m.root.querySelector('textarea');
+ input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+ await tick();
+ assert.equal(m.win.PDF_ANNOTS.length,1);
+ assert.equal(m.writes.at(-1).note,'');
+ m.close();
+});
+
+test('a fresh comment with typed text survives Escape as a draft', async () => {
+ const m=menu(true,'');
+ m.win.annotation.fresh = true;
+ const input=m.root.querySelector('textarea');
+ input.value='x';
+ input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ await tick();
+ assert.equal(m.win.PDF_ANNOTS.length,1);
+ assert.equal(m.writes.at(-1).note,'x');
+ m.close();
+});
+
+test('an existing annotation emptied then closed with Escape keeps its (empty) draft', async () => {
+ const m=menu(true,'Previously saved');
+ const input=m.root.querySelector('textarea');
+ input.value='';
+ input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ await tick();
+ assert.equal(m.win.PDF_ANNOTS.length,1);
+ assert.equal(m.writes.at(-1).note,'');
+ m.close();
+});
+
 test('deleting a note persists removal without attaching its draft to chat', async () => {
  const m=menu(true,'Saved note');
  m.root.querySelector('textarea').value='Unsent draft';

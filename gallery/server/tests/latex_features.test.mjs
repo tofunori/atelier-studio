@@ -620,6 +620,44 @@ test("LaTeX notes persist exact passages, keep their mark until authenticated de
   dom.window.close();
 });
 
+test("LaTeX: a fresh Annoter left empty and closed via Escape leaves no mark, no push, no save", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
+  const win = dom.window, doc = win.document, writes = [];
+  win.fetch = async (_url, options) => { writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
+  const passage = 'Un passage à annoter puis abandonner.', from = {line: 2, ch: 0}, to = {line: 2, ch: passage.length};
+  let marked = 0;
+  const editor = {charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => { marked += 1; return {clear(){}, find: () => ({from, to})}; }};
+  const notes = latex.createLatexAnnotationsController({path: 'paper.tex', getEditor: () => editor, popover: doc.getElementById('pop'), panel: doc.getElementById('panel'), button: doc.getElementById('notes'), postToHost(){}, document: doc, window: win});
+  notes.open({text: passage, from, to});
+  assert.equal(doc.getElementById('pop').style.display, 'block');
+  const input = doc.querySelector('textarea');
+  assert.equal(input.value, '');
+  input.dispatchEvent(new win.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(notes.annotations().length, 0);
+  assert.equal(marked, 0);
+  assert.equal(writes.length, 0);
+  assert.equal(doc.getElementById('pop').style.display, 'none');
+  dom.window.close();
+});
+
+test("LaTeX: an explicit Enter on an empty fresh comment keeps it (deliberate blank marker)", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
+  const win = dom.window, doc = win.document, writes = [];
+  win.fetch = async (_url, options) => { writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
+  const passage = 'Un passage marqué sans commentaire.', from = {line: 5, ch: 0}, to = {line: 5, ch: passage.length};
+  const editor = {charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => ({clear(){}, find: () => ({from, to})})};
+  const notes = latex.createLatexAnnotationsController({path: 'paper.tex', getEditor: () => editor, popover: doc.getElementById('pop'), panel: doc.getElementById('panel'), button: doc.getElementById('notes'), postToHost(){}, document: doc, window: win});
+  notes.open({text: passage, from, to});
+  const input = doc.querySelector('textarea');
+  input.dispatchEvent(new win.KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(notes.annotations().length, 1);
+  assert.equal(notes.annotations()[0].comment, '');
+  assert.ok(writes.length >= 1);
+  dom.window.close();
+});
+
 test("studio controls expose automatic states and return focus after closing line settings", async () => {
   const html = await readFile(new URL("../../assets/latex_studio.html", import.meta.url), "utf8");
   const dom = new JSDOM(html, {url: "https://atelier.test"});
