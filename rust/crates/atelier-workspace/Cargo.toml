@@ -18,6 +18,8 @@ portable-pty = "0.8"
 tokio = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 tempfile = { workspace = true }
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

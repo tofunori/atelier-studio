@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "0f9e8d7c6b5a",
+  "label": "build_duckdb.R",
+  "command": "Rscript build_duckdb.R",
+  "work_dir": "/Users/tofunori/Documents/albedo",
+  "host": "macbook.local",
+  "pid": 41002,
+  "state": "completed",
+  "started_at": "2026-09-05T20:00:00Z",
+  "ended_at": "2026-09-05T21:14:32Z",
+  "exit_code": 0,
+  "progress": {"current": 0, "total": 0, "unit": ""},
+  "tags": {}
+}
