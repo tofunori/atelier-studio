@@ -80,7 +80,6 @@ fn http_with_origin(
 struct Server {
     child: Child,
     port: u16,
-    #[allow(dead_code)]
     root: PathBuf,
     _test_guard: MutexGuard<'static, ()>,
 }
@@ -470,33 +469,65 @@ fn le_favori_bascule_sans_effacer_le_reste_de_l_etat() {
     assert_eq!(st, 200, "POST /state — {body}");
 
     // ajout
-    let (st, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf"}"#));
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/favorite",
+        Some(r#"{"rel":"figs/albedo.pdf"}"#),
+    );
     assert_eq!(st, 200, "POST /favorite — {body}");
-    assert!(body.contains("\"fav\":true"), "bascule vers favori — {body}");
+    assert!(
+        body.contains("\"fav\":true"),
+        "bascule vers favori — {body}"
+    );
 
     let (_, body) = http(srv.port, "GET", "/state", None);
     assert!(body.contains("figs/albedo.pdf"), "favori absent — {body}");
     assert!(body.contains("deja.png"), "favori existant perdu — {body}");
     assert!(body.contains("albedo"), "tags perdus — {body}");
     assert!(body.contains("cache.png"), "masqués perdus — {body}");
-    assert!(body.contains("\"fileTypes\""), "filtre du projet perdu — {body}");
+    assert!(
+        body.contains("\"fileTypes\""),
+        "filtre du projet perdu — {body}"
+    );
 
     // deuxième appel : bascule inverse
-    let (_, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf"}"#));
+    let (_, body) = http(
+        srv.port,
+        "POST",
+        "/favorite",
+        Some(r#"{"rel":"figs/albedo.pdf"}"#),
+    );
     assert!(body.contains("\"fav\":false"), "retrait — {body}");
     let (_, body) = http(srv.port, "GET", "/state", None);
-    assert!(!body.contains("figs/albedo.pdf"), "favori non retiré — {body}");
+    assert!(
+        !body.contains("figs/albedo.pdf"),
+        "favori non retiré — {body}"
+    );
 
     // `on` explicite : idempotent, l'ordre d'arrivée ne décide de rien
     for _ in 0..2 {
-        let (_, body) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"figs/albedo.pdf","on":true}"#));
+        let (_, body) = http(
+            srv.port,
+            "POST",
+            "/favorite",
+            Some(r#"{"rel":"figs/albedo.pdf","on":true}"#),
+        );
         assert!(body.contains("\"fav\":true"), "on:true — {body}");
     }
     let (_, body) = http(srv.port, "GET", "/state", None);
-    assert_eq!(body.matches("figs/albedo.pdf").count(), 1, "doublon — {body}");
+    assert_eq!(
+        body.matches("figs/albedo.pdf").count(),
+        1,
+        "doublon — {body}"
+    );
 
     // chemins hors projet refusés
-    for sale in [r#"{"rel":"/etc/passwd"}"#, r#"{"rel":"../secret.png"}"#, r#"{"rel":""}"#] {
+    for sale in [
+        r#"{"rel":"/etc/passwd"}"#,
+        r#"{"rel":"../secret.png"}"#,
+        r#"{"rel":""}"#,
+    ] {
         let (st, _) = http(srv.port, "POST", "/favorite", Some(sale));
         assert_eq!(st, 400, "rel accepté à tort : {sale}");
     }
@@ -507,20 +538,26 @@ fn gallery_presentation_and_saved_view_survive_partial_writes() {
     let srv = start_server();
     let payload = r#"{"presentation":{"mode":"list","size":240,"rows":"compact","widths":{"name":340}},"filePresets":[{"id":"view-1","label":"Brouillons","extensions":["png"],"view":{"favorites":true,"status":"draft","collection":"Figures","folder":"figs","query":"albedo","sort":"name","rate":0,"archive":false,"hidden":false}}]}"#;
     assert_eq!(http(srv.port, "POST", "/state", Some(payload)).0, 200);
-    assert_eq!(http(srv.port, "POST", "/state", Some(r#"{"favs":["plot.png"]}"#)).0, 200);
+    assert_eq!(
+        http(srv.port, "POST", "/state", Some(r#"{"favs":["plot.png"]}"#)).0,
+        200
+    );
     let (_, body) = http(srv.port, "GET", "/state", None);
     let state: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(state["presentation"]["mode"], "list");
-    assert_eq!(state["presentation"]["widths"]["name"].as_f64(), Some(340.0));
+    assert_eq!(
+        state["presentation"]["widths"]["name"].as_f64(),
+        Some(340.0)
+    );
     assert_eq!(state["filePresets"][0]["view"]["query"], "albedo");
     assert_eq!(state["filePresets"][0]["view"]["favorites"], true);
-    let bounds=r#"{"presentation":{"mode":"bad","size":99999,"rows":"bad","widths":{"name":-1}},"filePresets":[]}"#;
+    let bounds = r#"{"presentation":{"mode":"bad","size":99999,"rows":"bad","widths":{"name":-1}},"filePresets":[]}"#;
     assert_eq!(http(srv.port, "POST", "/state", Some(bounds)).0, 200);
-    let (_,body)=http(srv.port,"GET","/state",None);
-    let state:serde_json::Value=serde_json::from_str(&body).unwrap();
-    assert_eq!(state["presentation"]["size"].as_f64(),Some(320.0));
-    assert_eq!(state["presentation"]["widths"]["name"].as_f64(),Some(70.0));
-    assert_eq!(state["filePresets"].as_array().unwrap().len(),0);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["presentation"]["size"].as_f64(), Some(320.0));
+    assert_eq!(state["presentation"]["widths"]["name"].as_f64(), Some(70.0));
+    assert_eq!(state["filePresets"].as_array().unwrap().len(), 0);
 }
 
 /// Filtre de types par PROJET (2026-08-24). Le panneau Filtres ne gardait son
@@ -543,8 +580,14 @@ fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
     let (st, body) = http(srv.port, "GET", "/state", None);
     assert_eq!(st, 200);
     assert!(body.contains("\"fileTypes\""), "types absents — {body}");
-    assert!(body.contains("\"tex\"") && body.contains("\"pdf\""), "{body}");
-    assert!(body.contains("\"pinnedTypes\""), "épinglés absents — {body}");
+    assert!(
+        body.contains("\"tex\"") && body.contains("\"pdf\""),
+        "{body}"
+    );
+    assert!(
+        body.contains("\"pinnedTypes\""),
+        "épinglés absents — {body}"
+    );
     assert!(body.contains("\"filePresets\""), "presets absents — {body}");
     assert!(body.contains("Sources"), "libellé de preset perdu — {body}");
 
@@ -555,7 +598,10 @@ fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
     let (st, _) = http(srv.port, "POST", "/state", Some(sans));
     assert_eq!(st, 200);
     let (_, body) = http(srv.port, "GET", "/state", None);
-    assert!(body.contains("\"fileTypes\""), "filtre effacé par un POST partiel — {body}");
+    assert!(
+        body.contains("\"fileTypes\""),
+        "filtre effacé par un POST partiel — {body}"
+    );
     assert!(body.contains("fig.png"), "favori perdu — {body}");
 
     // « Reset filters » efface EXPLICITEMENT (null) : distinct d'une clé
@@ -565,7 +611,10 @@ fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
     let (st, _) = http(srv.port, "POST", "/state", Some(reset));
     assert_eq!(st, 200);
     let (_, body) = http(srv.port, "GET", "/state", None);
-    assert!(!body.contains("\"fileTypes\""), "reset n'a pas effacé — {body}");
+    assert!(
+        !body.contains("\"fileTypes\""),
+        "reset n'a pas effacé — {body}"
+    );
 
     // extensions farfelues : bornées, jamais recopiées telles quelles
     let sale = r#"{"favs":[],"ratings":{},"hidden":[],"tags":{},"hideRules":[],
@@ -574,8 +623,14 @@ fn le_filtre_de_types_survit_dans_l_etat_du_projet() {
     let (st, _) = http(srv.port, "POST", "/state", Some(sale));
     assert_eq!(st, 200);
     let (_, body) = http(srv.port, "GET", "/state", None);
-    assert!(body.contains("\"png\"") && body.contains("\"tex\""), "normalisation — {body}");
-    assert!(!body.contains("etc") && !body.contains("p*g"), "entrée non bornée — {body}");
+    assert!(
+        body.contains("\"png\"") && body.contains("\"tex\""),
+        "normalisation — {body}"
+    );
+    assert!(
+        !body.contains("etc") && !body.contains("p*g"),
+        "entrée non bornée — {body}"
+    );
 }
 
 /// Jalon de comparaison « Repartir d'ici » (2026-08-24). Un fichier dont la
@@ -617,7 +672,10 @@ fn un_jalon_deplace_la_base_daffichage_sans_toucher_lancre() {
     assert!(body.contains("\"milestone\""), "jalon absent — {body}");
     assert!(body.contains(&h2), "texte du jalon perdu — {body}");
     // l'ancre d'origine est intacte : c'est elle qui garantit la persistance
-    assert!(body.contains("\"kind\":\"session\""), "ancre modifiée — {body}");
+    assert!(
+        body.contains("\"kind\":\"session\""),
+        "ancre modifiée — {body}"
+    );
     assert!(
         body.contains(&sha256_hex("version un\n")),
         "texte de l'ancre collecté par le GC — {body}"
@@ -632,8 +690,16 @@ fn githead_distingue_non_suivi_et_hors_depot_puis_gittrack_suit() {
     let repo = srv.root.join("dossier");
     fs::create_dir_all(&repo).unwrap();
     let git = |args: &[&str]| {
-        let out = Command::new("git").args(args).current_dir(&repo).output().unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     };
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.name", "smoke"]);
@@ -652,7 +718,10 @@ fn githead_distingue_non_suivi_et_hors_depot_puis_gittrack_suit() {
     assert_eq!(st, 200);
     assert!(body.contains("\"ok\":false"), "{body}");
     assert!(body.contains("\"repo\":true"), "dépôt non détecté — {body}");
-    assert!(body.contains("\"tracked\":false"), "suivi mal rapporté — {body}");
+    assert!(
+        body.contains("\"tracked\":false"),
+        "suivi mal rapporté — {body}"
+    );
 
     let payload = format!(r#"{{"path":"{path}"}}"#);
     let (st, body) = http(srv.port, "POST", "/gittrack", Some(&payload));
@@ -660,7 +729,10 @@ fn githead_distingue_non_suivi_et_hors_depot_puis_gittrack_suit() {
     assert!(body.contains("\"ok\":true"), "{body}");
 
     let (_, body) = http(srv.port, "GET", &format!("/githead?path={path}"), None);
-    assert!(body.contains("\"tracked\":true"), "toujours non suivi — {body}");
+    assert!(
+        body.contains("\"tracked\":true"),
+        "toujours non suivi — {body}"
+    );
 }
 
 /// Panneau Provenance du viewer (spec provenance-figures, sections C/F) :
@@ -855,4 +927,106 @@ fn zotero_pdf_route_serves_range_and_etag() {
     assert_eq!(&body[..], &pdf_bytes[..10]);
 
     let _ = fs::remove_dir_all(&zdir);
+}
+
+fn reflow_fixture_pdf() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reflow/twocol.pdf")
+}
+
+#[test]
+fn reflow_analyse_un_pdf_du_projet_et_le_met_en_cache() {
+    let server = start_server();
+    fs::copy(reflow_fixture_pdf(), server.root.join("twocol.pdf")).unwrap();
+    let (status, body) = http(server.port, "HEAD", "/reflow?path=twocol.pdf", None);
+    assert_eq!(
+        status, 404,
+        "pas de cache avant la première analyse: {body}"
+    );
+    let (status, body) = http(server.port, "GET", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    // REFLOW_VERSION courant (à monter avec la constante de reflow.rs :
+    // c'est elle qui périme les caches quand une heuristique change).
+    assert_eq!(v["version"], 3);
+    assert!(v["blocks"].as_array().unwrap().len() >= 8);
+    assert!(
+        v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["kind"] == "heading")
+    );
+    let cache_dir = server.root.join(".fig_thumbs/reflow");
+    let cached: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten().collect();
+    assert_eq!(cached.len(), 1);
+    let mtime1 = cached[0].metadata().unwrap().modified().unwrap();
+    thread::sleep(Duration::from_millis(1100));
+    let (status, _) = http(server.port, "HEAD", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 200);
+    let (status, body2) = http(server.port, "GET", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 200);
+    assert_eq!(body, body2, "2e réponse identique (cache)");
+    let mtime2 = fs::metadata(cached[0].path()).unwrap().modified().unwrap();
+    assert_eq!(mtime1, mtime2, "le cache n'a pas été réécrit");
+}
+
+#[test]
+fn reflow_refuse_hors_projet_et_signale_pdftohtml_absent() {
+    let server = start_server_with(&[("ATELIER_PDFTOHTML", "/nonexistent/pdftohtml".to_string())]);
+    fs::copy(reflow_fixture_pdf(), server.root.join("twocol.pdf")).unwrap();
+    let (status, _) = http(server.port, "GET", "/reflow?path=../etc/passwd", None);
+    assert_eq!(status, 403);
+    let (status, _) = http(server.port, "GET", "/reflow?path=missing.pdf", None);
+    assert_eq!(status, 404);
+    let (status, body) = http(server.port, "GET", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 502, "{body}");
+    assert!(body.contains("pdftohtml"));
+}
+
+/// `pdftohtml` qui ne rend jamais la main : le handler doit le tuer et
+/// répondre 502 plutôt que retenir un thread bloquant indéfiniment. L'échéance
+/// est raccourcie par l'environnement PASSÉ AU SERVEUR (jamais par une mutation
+/// d'env dans ce test, qui serait une course avec les autres).
+#[test]
+fn reflow_tue_un_pdftohtml_qui_traine_et_repond_502() {
+    let sleeper =
+        std::env::temp_dir().join(format!("atelier-pdftohtml-sleep-{}", std::process::id()));
+    fs::write(&sleeper, "#!/bin/sh\nsleep 120\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&sleeper, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let server = start_server_with(&[
+        ("ATELIER_PDFTOHTML", sleeper.to_string_lossy().to_string()),
+        ("ATELIER_PDFTOHTML_TIMEOUT_MS", "400".to_string()),
+    ]);
+    fs::copy(reflow_fixture_pdf(), server.root.join("twocol.pdf")).unwrap();
+    let started = Instant::now();
+    let (status, body) = http(server.port, "GET", "/reflow?path=twocol.pdf", None);
+    assert_eq!(status, 502, "{body}");
+    assert!(body.contains("délai dépassé"), "{body}");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "le handler a attendu la fin du processus au lieu de le tuer"
+    );
+    let _ = fs::remove_file(&sleeper);
+}
+
+#[test]
+fn reflow_sert_un_pdf_zotero() {
+    let zotero = std::env::temp_dir().join(format!("atelier-reflow-zotero-{}", std::process::id()));
+    let storage = zotero.join("storage/ABCD1234");
+    fs::create_dir_all(&storage).unwrap();
+    fs::copy(reflow_fixture_pdf(), storage.join("paper.pdf")).unwrap();
+    let server = start_server_with(&[("ATELIER_ZOTERO_DIR", zotero.to_string_lossy().to_string())]);
+    let (status, body) = http(
+        server.port,
+        "GET",
+        "/reflow?path=zotero/ABCD1234/paper.pdf",
+        None,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"blocks\""));
+    let _ = fs::remove_dir_all(&zotero);
 }

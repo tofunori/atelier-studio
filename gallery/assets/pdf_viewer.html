@@ -34,6 +34,8 @@
 <link rel="stylesheet" href="annotation_ui.css">
 <script src="pdf_passage.js"></script>
 <script src="pdf_selection.js"></script>
+<script src="pdf_reading.js"></script>
+<link rel="stylesheet" href="pdf_reading.css">
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
@@ -71,6 +73,15 @@
   #invBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
   #invBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
   @media (prefers-reduced-motion: reduce){ #invBtn{transition:none} }
+  /* Même gabarit que #invBtn — le toggle du mode lecture doit avoir un état
+     "actif" visible (revue plan 078 T5 fix 1, constat n°2). */
+  #readBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;
+    margin-left:8px;flex:none;background:transparent;border:none;border-radius:6px;
+    color:var(--muted,#868d9a);cursor:pointer;padding:0;
+    transition:color 140ms ease, background 140ms ease}
+  #readBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
+  #readBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
+  @media (prefers-reduced-motion: reduce){ #readBtn{transition:none} }
   body.pdf-invert .pg{background:#141414}
   body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
@@ -83,7 +94,7 @@
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
   .pdfsel{position:absolute;background:rgba(91,157,255,.45);border-radius:2px;pointer-events:none}
   .textLayer span.auto-hl{background:rgba(255,196,71,.58);border-radius:2px;box-shadow:0 0 0 1px rgba(184,126,20,.22)}
-  .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
+  .pg .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   .pdfnote{position:absolute;cursor:pointer;background:#1b1f26;border:1px solid #333a45;
     border-radius:6px;padding:2px 3px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
   #pdftools{display:flex;align-items:center;gap:2px}
@@ -284,10 +295,22 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <button id="invBtn" type="button" aria-pressed="false" title="Confort sombre — inverser les pages" aria-label="Confort sombre">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor" stroke="none"/></svg>
   </button>
+  <button id="readBtn" type="button" aria-pressed="false" title="Mode lecture — texte en une colonne (R)" aria-label="Mode lecture">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5"/></svg>
+  </button>
   <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
   <span class="muted" id="status"></span>
 </header>
 <div id="pages"></div>
+<section id="reading" hidden>
+  <div id="readBar">
+    <div class="grp"><button class="fsm" title="Texte plus petit (⌘−)">−</button><span class="fsv">15</span><button class="fsp" title="Texte plus grand (⌘+)">+</button></div>
+    <div class="grp" data-set="width"><button data-v="65ch">65</button><button data-v="80ch">80</button><button data-v="100ch">100</button></div>
+    <div class="grp" data-set="lh"><button data-v="1.4">1,4</button><button data-v="1.6">1,6</button><button data-v="1.8">1,8</button></div>
+    <div class="grp" data-set="font"><button data-v="sans">Sans</button><button data-v="serif">Serif</button></div>
+  </div>
+  <div id="readBody"></div>
+</section>
 <button id="sendBtn">➜ Claude</button>
 <div id="selPill"><span class="nb"><svg viewBox="0 0 16 16" stroke-width="1.4"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible"><svg viewBox="0 0 16 16" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)"><svg viewBox="0 0 16 16" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button></div>
 <div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div></div>
@@ -380,6 +403,203 @@ async function findTexSource(){
   }catch(e){ return null; }
 }
 
+// ---- mode lecture ---------------------------------------------------------
+// Un seul document analysé par `rel` (GET /reflow, cache serveur). La colonne
+// vit dans #reading ; #pages reste dans le DOM (annotations, synctex).
+let __readingPdf = null;           // posé par main() : le document pdf.js
+window.__readingMode = (function(){
+  const R = window.AtelierPdfReading;
+  const body = document.body, section = document.getElementById("reading");
+  const host = document.getElementById("readBody"), btn = document.getElementById("readBtn");
+  const bar = document.getElementById("readBar");
+  const KEYS = {fs: "pdfRead.fs", width: "pdfRead.width", lh: "pdfRead.lh", font: "pdfRead.font"};
+  const FS_MIN = 13, FS_MAX = 24;
+  let doc = null, loading = null, on = false, cropObserver = null;
+  // page vue en haut de fenêtre à l'entrée : repli de sortie quand l'analyse
+  // n'a pas abouti (doc null) — sans elle on retombait toujours page 1.
+  let enteredPage = 1;
+  // jeton de génération : reset()/leave() l'incrémentent pour périmer tout
+  // fetch /reflow en vol (un enter() abandonné par un reload externe ne doit
+  // pas ressusciter un `doc` périmé — revue plan 078 T5 fix 1, constat n°3).
+  let gen = 0;
+  const crops = new Map();       // blockId → {canvas, task}
+  function headerHeight(){ const h = document.querySelector("header"); return h ? h.offsetHeight : 44; }
+  // Outils liés à la GÉOMÉTRIE des pages : sans page à l'écran ils n'ont pas
+  // de cible. Le CSS les grise, `disabled` les retire aussi du clavier et des
+  // lecteurs d'écran (revue de branche, I5).
+  const PAGE_TOOLS = '#areaBtn, #pdftools [data-t="note"], .pdf-mark-tools [data-t="erase"]';
+  function disablePageTools(off){
+    for (const el of document.querySelectorAll(PAGE_TOOLS)) el.disabled = off;
+  }
+  function cancelCrops(){
+    for (const entry of crops.values()) { if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; } }
+  }
+
+  function pref(k, d){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
+  function setPref(k, v){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
+  function applyPrefs(){
+    const fs = Math.max(FS_MIN, Math.min(FS_MAX, parseInt(pref("fs", "15"), 10) || 15));
+    section.style.setProperty("--read-fs", fs + "px");
+    section.style.setProperty("--read-width", pref("width", "80ch"));
+    section.style.setProperty("--read-lh", pref("lh", "1.6"));
+    section.classList.toggle("serif", pref("font", "sans") === "serif");
+    bar.querySelector(".fsv").textContent = String(fs);
+    bar.querySelector(".fsm").disabled = fs <= FS_MIN; bar.querySelector(".fsp").disabled = fs >= FS_MAX;
+    for (const g of bar.querySelectorAll(".grp[data-set]")) {
+      const cur = pref(g.dataset.set, {width: "80ch", lh: "1.6", font: "sans"}[g.dataset.set]);
+      for (const b of g.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === cur));
+    }
+  }
+  bar.querySelector(".fsm").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) - 1);
+  bar.querySelector(".fsp").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) + 1);
+  for (const g of bar.querySelectorAll(".grp[data-set]")) for (const b of g.querySelectorAll("button")) b.onclick = () => setPref(g.dataset.set, b.dataset.v);
+
+  function skeleton(){
+    host.innerHTML = "";
+    for (let i = 0; i < 12; i++) { const s = document.createElement("div"); s.className = "skeleton" + (i % 4 === 3 ? " w60" : ""); host.appendChild(s); }
+  }
+  async function load(g){
+    if (doc) return doc;
+    if (!loading) loading = fetch("/reflow?path=" + encodeURIComponent(rel)).then(async r => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      // Ne réinstalle le document que si cette génération est toujours la
+      // courante : reset()/leave() ont pu être appelés pendant le fetch.
+      if (gen === g) doc = j;
+      return j;
+    }).finally(() => { loading = null; });
+    return loading;
+  }
+  function makeFigure(block){
+    const c = document.createElement("canvas");
+    c.dataset.crop = String(block.id);
+    const w = block.bbox[2] - block.bbox[0], h = block.bbox[3] - block.bbox[1];
+    c.style.aspectRatio = w + " / " + h; c.style.width = "min(100%, " + Math.round(w * 1.5) + "px)";
+    crops.set(block.id, {canvas: c, task: null, block});
+    return c;
+  }
+  async function paintCrop(entry){
+    if (!__readingPdf || entry.task || entry.canvas.dataset.done) return;
+    const page = await __readingPdf.getPage(entry.block.page);
+    const cssScale = 1.5;
+    const cv = R.cropViewport(page, entry.block, cssScale, DPR);
+    entry.canvas.width = cv.canvasWidth; entry.canvas.height = cv.canvasHeight;
+    const ctx = entry.canvas.getContext("2d"); ctx.scale(DPR, DPR);
+    entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display"});
+    try { await entry.task.promise; entry.canvas.dataset.done = "1"; }
+    catch(e){ if (!isRenderCancel(e)) console.warn("reading crop", entry.block.id, e); }
+    finally { entry.task = null; }
+  }
+  function observeCrops(){
+    if (cropObserver) cropObserver.disconnect();
+    cropObserver = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        const entry = crops.get(Number(e.target.dataset.crop)); if (!entry) continue;
+        if (e.isIntersecting) void paintCrop(entry);
+        else {
+          // Toujours libérer le bitmap en sortie d'écran, peinture terminée
+          // ou non — sinon une découpe déjà peinte (task=null, done="1")
+          // gardait son canvas plein format indéfiniment (revue plan 078 T5
+          // fix 1, constat n°4). La ré-entrée dans le viewport repeint via
+          // paintCrop (dataset.done supprimé ci-dessous).
+          if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; }
+          entry.canvas.width = entry.canvas.height = 0;
+          delete entry.canvas.dataset.done;
+        }
+      }
+    }, {rootMargin: "100% 0px"});
+    for (const {canvas} of crops.values()) cropObserver.observe(canvas);
+  }
+  /** Rend la colonne. N'ÉMET PAS `atelier-reading-rendered` : ses auditeurs
+   *  (passage ?quote, relance de recherche) défilent, et enter() restaure la
+   *  position juste après — l'évènement part donc APRÈS scrollToBlockOfPage
+   *  (revue plan 078 T6 fix 1, constat n°2). Renvoie false si rien n'est rendu. */
+  function render(){
+    host.innerHTML = ""; crops.clear();
+    if (!doc.blocks.length) { const p = document.createElement("p"); p.className = "err"; p.textContent = "Ce PDF n'a pas de couche texte : rien à recomposer."; host.appendChild(p); return false; }
+    host.appendChild(R.buildReadingDom(doc, {document, makeFigure}));
+    observeCrops();
+    return true;
+  }
+  function topPage(){
+    const sc = document.scrollingElement || document.documentElement;
+    const y = sc.scrollTop + 8;
+    let best = 1;
+    for (const pg of document.querySelectorAll("#pages .pg")) { if (pg.offsetTop <= y) best = +pg.dataset.page; else break; }
+    return best;
+  }
+  function scrollToBlockOfPage(page){
+    const el = host.querySelector('[data-page="' + page + '"]');
+    if (!el) return;
+    // scrollIntoView({block:"start"}) ignore le header ET la barre collants :
+    // la première ligne du bloc atterrissait dessous (revue plan 078 T5
+    // fix 1, constat n°1). Position explicite sur l'élément défilant.
+    const sc = document.scrollingElement || document.documentElement;
+    sc.scrollTop = el.offsetTop - headerHeight() - bar.offsetHeight - 8;
+  }
+  function currentBlockId(){
+    const sc = document.scrollingElement || document.documentElement;
+    const entries = [...host.querySelectorAll("[data-block]")].map(el => ({id: +el.dataset.block, top: el.offsetTop}));
+    return R.blockAtScrollTop(entries, sc.scrollTop + 8);
+  }
+  async function enter(){
+    if (on) return;
+    const page = enteredPage = topPage();
+    const g = ++gen;
+    on = true; btn.setAttribute("aria-pressed", "true"); section.hidden = false; body.classList.add("read-mode");
+    disablePageTools(true);
+    section.style.setProperty("--read-top", headerHeight() + "px");
+    applyPrefs(); skeleton();
+    try {
+      await load(g);
+      // Périmé par un leave()/reset() pendant le fetch (compile LaTeX,
+      // __reloadPdf) : ne pas peindre dans une section qu'on a quittée
+      // (revue plan 078 T5 fix 1, constat n°3).
+      if (gen !== g || !on) return;
+      const rendered = render();
+      scrollToBlockOfPage(page);
+      // après la restauration de position : un passage ?quote ou un résultat
+      // de recherche l'emporte sur elle au lieu d'être écrasé.
+      if (rendered) document.dispatchEvent(new CustomEvent("atelier-reading-rendered"));
+    }
+    catch(e){
+      if (gen !== g || !on) return;
+      host.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "Mode lecture indisponible — " + (e.message || e); host.appendChild(p);
+    }
+  }
+  function leave(){
+    if (!on) return;
+    const page = doc ? R.pageForBlock(doc, currentBlockId()) : enteredPage;
+    // `loading` n'est PAS remis à null ici : le fetch en vol reste partagé
+    // (le jeton de génération suffit à le périmer), sinon une entrée/sortie
+    // rapide relançait une analyse par aller-retour. Seul reset() le coupe.
+    gen++; cancelCrops(); crops.clear();
+    on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
+    disablePageTools(false);
+    const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
+    if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
+    document.dispatchEvent(new CustomEvent("atelier-reading-left"));
+  }
+  /** Le document recomposé est lié au PDF affiché : un rechargement en place
+   *  (compile LaTeX, mtime) le périme — __reloadPdf appelle reset(). */
+  function reset(){
+    gen++; loading = null; doc = null;
+    if (cropObserver) { cropObserver.disconnect(); cropObserver = null; }
+    cancelCrops(); crops.clear();
+    host.innerHTML = "";
+  }
+  btn.onclick = () => on ? leave() : enter();
+  window.addEventListener("keydown", e => {
+    const t = document.activeElement;
+    const typing = /^(INPUT|TEXTAREA)$/.test((t && t.tagName) || "") || !!(t && t.isContentEditable);
+    if (e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && !typing) { e.preventDefault(); on ? leave() : enter(); }
+    if (!on || !(e.metaKey || e.ctrlKey)) return;
+    if (e.key === "=" || e.key === "+") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsp").click(); }
+    if (e.key === "-") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsm").click(); }
+  }, true);   // capture : passe avant le raccourci de zoom du lecteur
+  return {enter, leave, isOn: () => on, doc: () => doc, reset, host, crops};
+})();
+
 async function main(){
   let pdf;
   try {
@@ -388,6 +608,7 @@ async function main(){
       standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
       wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
       cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    __readingPdf = pdf;
   } catch(e) {
     const p = document.getElementById("pages");
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
@@ -672,6 +893,10 @@ async function main(){
         cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
       if(t !== _rlTok) return;
       pdf = doc;
+      __readingPdf = pdf;
+      // Nouveau document : la recomposition en cache est périmée.
+      if (window.__readingMode.isOn()) window.__readingMode.leave();
+      window.__readingMode.reset();
       const el = document.scrollingElement || document.documentElement;
       const st = el.scrollTop;
       await renderAll();
@@ -734,6 +959,27 @@ function revealLinkedPassage(shouldScroll){
   }
   targetRevealed = true;
 }
+
+/** Même lien ?page=&quote= résolu dans la colonne de lecture : l'ancrage
+ *  passe par les blocs recomposés, pas par la couche texte des pages. */
+let readingPassageRevealed = false;
+function revealReadingPassage(){
+  // une seule fois, comme `targetRevealed` côté pages : le passage se révèle
+  // à la première colonne rendue, pas à chaque re-rendu (fix 1, garde 3).
+  if(readingPassageRevealed) return false;
+  if(!targetQuote || !window.__readingMode.isOn()) return false;
+  const doc = window.__readingMode.doc(); if(!doc) return false;
+  const hit = window.AtelierPdfReading.anchorAnnotations(doc, [{id:"__q", kind:"comment", page:targetPage, text:targetQuote}])[0];
+  if(!hit) return false;
+  const el = document.querySelector('#readBody [data-block="' + hit.blockId + '"]');
+  if(!el) return false;
+  readingPassageRevealed = true;
+  el.scrollIntoView({block:"center"});
+  el.classList.add("find-cur"); setTimeout(() => el.classList.remove("find-cur"), 2000);
+  document.getElementById("status").textContent = "Passage retrouvé — p. " + doc.blocks.find(b => b.id === hit.blockId).page;
+  return true;
+}
+document.addEventListener("atelier-reading-rendered", () => { revealReadingPassage(); });
 
 // Couche texte maison : un span par item, largeur EXACTE tiree du PDF
 // (item.width), glyphes etires par scaleX — plus de boites trop larges.
@@ -953,7 +1199,23 @@ document.addEventListener("pointerup", e => {
   updateSelInfo();
   selPillShow(entries);
 });
+/** Bloc de la colonne contenant un nœud de plage : `parentElement` est nul
+ *  quand l'ancre est l'élément <p>/<li> lui-même (fix 1, garde 2). */
+function readingBlockOf(n){
+  return n ? (n.nodeType === 1 ? n : n.parentElement)?.closest("#readBody [data-block]") || null : null;
+}
+function readingSelText(){
+  if(!window.__readingMode.isOn()) return "";
+  const sel = window.getSelection();
+  if(!sel || sel.isCollapsed || !sel.rangeCount) return "";
+  const el = readingBlockOf(sel.getRangeAt(0).startContainer);
+  return el ? sel.toString().replace(/\s+/g, " ").trim() : "";
+}
 function hlText(){
+  // en mode lecture la sélection est NATIVE (la couche texte des pages est
+  // masquée) : c'est elle qui alimente la pilule.
+  const reading = readingSelText();
+  if(reading) return reading;
   const model = selectionModel();
   return model ? model.text : "";
 }
@@ -1013,6 +1275,20 @@ function selPillShow(entries){
     l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
   selApi.placeAt({left: l, width: r - l, top, bottom: bot});
 }
+// La colonne de lecture n'a pas de moteur de sélection maison : on écoute la
+// sélection native et on place la pilule sur son rectangle.
+document.addEventListener("mouseup", (e) => {
+  if(!window.__readingMode.isOn()) return;
+  if(e.target.closest("#selPill, .pdf-mark-tools")) return;
+  if(!e.target.closest("#readBody")) return;
+  const text = readingSelText();
+  if(!text){ selApi.hide(); return; }
+  const sel = window.getSelection(), rng = sel.getRangeAt(0);
+  const el = readingBlockOf(rng.startContainer);
+  if(el) selPage = el.dataset.page;
+  const b = rng.getBoundingClientRect();
+  selApi.placeAt({left: b.left, width: b.width, top: b.top, bottom: b.bottom});
+});
 function selHide(){ selApi.hide(); }
 function selCancel(){ selApi.cancel(); }
 const __EMB = SelPill.embedded;
@@ -1044,6 +1320,9 @@ const annPane = (function(){
       ((a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0) - (b.rects?.[0]?.[1] ?? b.pin?.[1] ?? 0)));
   }
   function jump(a){
+    // toute navigation qui vise une PAGE quitte d'abord la colonne : sans ça
+    // le scroll portait sur #pages, masqué (revue de branche, I5).
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
     if (!pg) return;
     const y = a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0;
@@ -1360,7 +1639,7 @@ const annPane = (function(){
   const input = bar.querySelector("input"), cnt = bar.querySelector(".cnt");
   let hits = [], cur = -1;
   function clearFind(){
-    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur")
+    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur, #readBody .find-hit, #readBody .find-cur")
       .forEach(s => s.classList.remove("find-hit", "find-cur"));
     hits = []; cur = -1; cnt.textContent = "";
   }
@@ -1368,8 +1647,12 @@ const annPane = (function(){
     clearFind();
     const needle = String(q || "").trim().toLowerCase();
     if (needle.length < 2) return;
-    for (const layer of document.querySelectorAll(".textLayer")) {
-      const spans = Array.from(layer.querySelectorAll("span"));
+    // En mode lecture un « span » est un bloc entier de la colonne : la
+    // couche texte des pages est masquée, il n'y a qu'un seul « calque ».
+    const layers = window.__readingMode.isOn()
+      ? [[...document.querySelectorAll("#readBody [data-block]:not(figure)")]]
+      : [...document.querySelectorAll(".textLayer")].map(l => Array.from(l.querySelectorAll("span")));
+    for (const spans of layers) {
       const matches = window.AtelierPdfPassage.findAllSpanRanges(spans.map(s => s.textContent), needle);
       for (const match of matches) {
         const group = spans.slice(match.start, match.end + 1);
@@ -1390,6 +1673,7 @@ const annPane = (function(){
     const pg = el.closest(".pg");
     const sc = document.scrollingElement || document.documentElement;
     if (pg) sc.scrollTo({ top: pg.offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
+    else el.scrollIntoView({block: "center", behavior: "smooth"});   // colonne de lecture
   }
   function open(){
     bar.style.display = "flex";
@@ -1417,6 +1701,11 @@ const annPane = (function(){
   // un re-rendu (zoom, redimensionnement) reconstruit les couches texte :
   // les marques sont perdues, on les repose sur la recherche courante
   window.addEventListener("pdf-rendered", () => { if (bar.style.display === "flex") run(input.value); });
+  // même raison en mode lecture : la colonne est reconstruite à l'entrée
+  // (atelier-reading-rendered) et disparaît à la sortie (atelier-reading-left).
+  const rerun = () => { if (bar.style.display === "flex") run(input.value); };
+  document.addEventListener("atelier-reading-rendered", rerun);
+  document.addEventListener("atelier-reading-left", rerun);
 })();
 
 if(rel) main();
@@ -1429,6 +1718,7 @@ function loadAnnots(attempt){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
       document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+      if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
       annPane.refresh();
       revealTargetAnnot(); })
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
@@ -1440,6 +1730,7 @@ loadAnnots(0);
 let __annotTarget = new URLSearchParams(location.search).get("annot");
 function revealTargetAnnot(){
   if (!__annotTarget) return;
+  if (window.__readingMode?.isOn()) window.__readingMode.leave();
   const a = PDF_ANNOTS.find(x => String(x.id) === __annotTarget);
   __annotTarget = null;
   if (!a) return;
@@ -1573,9 +1864,48 @@ function drawAnnots(pgDiv, n){
   }
 }
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
+/** Surlignages texte (comment/hl) reportés dans la colonne de lecture.
+ *  Idempotent : les marques existantes sont retirées et l'hôte re-normalisé
+ *  avant tout ré-ancrage, si bien qu'un second appel ne double rien. */
+function drawReadingAnnots(){
+  const doc = window.__readingMode.doc(); if(!doc) return;
+  const host = window.__readingMode.host;
+  for (const m of host.querySelectorAll("mark.pdfhl")) m.replaceWith(...m.childNodes);
+  host.normalize();
+  const anchored = window.AtelierPdfReading.anchorAnnotations(doc, PDF_ANNOTS);
+  // du dernier au premier dans chaque bloc pour garder les offsets valides
+  anchored.sort((a, b) => a.blockId - b.blockId || b.start - a.start);
+  for (const h of anchored) {
+    const el = host.querySelector('[data-block="' + h.blockId + '"]'); if(!el || el.tagName === "FIGURE") continue;
+    const a = PDF_ANNOTS.find(x => String(x.id) === String(h.annotId)); if(!a) continue;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let pos = 0, range = document.createRange(), s = null, e = null;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const len = n.textContent.length;
+      if (s === null && h.start < pos + len) { s = [n, h.start - pos]; }
+      if (h.end <= pos + len) { e = [n, h.end - pos]; break; }
+      pos += len;
+    }
+    if (!s || !e) continue;
+    range.setStart(s[0], s[1]); range.setEnd(e[0], e[1]);
+    const mark = document.createElement("mark"); mark.className = "pdfhl" + (a.kind === "ul" || a.kind === "st" ? " pdfhl-" + a.kind : "");
+    mark.dataset.annot = String(a.id);
+    // soulignement / barré : la couleur porte le trait, pas un aplat (les
+    // classes correspondantes vident le fond dans pdf_reading.css).
+    if (a.color) mark.style.setProperty(a.kind === "ul" || a.kind === "st" ? "--read-mark-line" : "background", a.color);
+    try { range.surroundContents(mark); } catch(_) { /* plage à cheval sur des nœuds : ignorée, l'annotation reste visible en vue pages */ continue; }
+    mark.onclick = (ev) => { ev.stopPropagation(); annotMenu(a, ev.clientX, ev.clientY); };
+  }
+}
+document.addEventListener("atelier-reading-rendered", drawReadingAnnots);
 function addHighlightFromSel(kind, color){
-  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  // Aiguillage unique de « annoter la sélection » : en mode lecture la
+  // sélection est native et vit dans la colonne, pas dans la couche texte.
+  // défauts posés AVANT l'aiguillage : la colonne de lecture recevait sinon
+  // un `kind` indéfini et créait un commentaire là où on voulait un
+  // surlignage (revue de branche, I4).
   kind = kind || "hl"; color = color || HL_COLORS[0];
+  if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
+  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   const model = selectionModel();
   const entries = selectionClientRects(model);
   if(!model || !entries.length) return;
@@ -1609,6 +1939,33 @@ function addHighlightFromSel(kind, color){
   try{ window.getSelection().removeAllRanges(); }catch(e){}
   // Only an explicit comment opens the note editor; colors mark the text directly.
   if (kind === "comment" && lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
+}
+/** Sélection dans #readBody → annotation `comment` ordinaire (rects reconstitués par ligne). */
+function addHighlightFromReadingSel(kind, color){
+  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  const doc = window.__readingMode.doc(); const sel = window.getSelection();
+  if(!doc || !sel || sel.isCollapsed) return;
+  const rng = sel.getRangeAt(0);
+  const el = readingBlockOf(rng.startContainer);
+  if(!el || el !== readingBlockOf(rng.endContainer)) { document.getElementById("status").textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  // rect mesuré AVANT toute mutation du DOM sous la plage (drawReadingAnnots
+  // réécrit les nœuds de texte) — sinon annotMenu s'ouvre n'importe où
+  // (revue plan 078 T6 fix 1, constat n°3), cf. `lastRect` côté pages.
+  const r = rng.getBoundingClientRect();
+  const block = doc.blocks.find(b => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
+  const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(rng.startContainer, rng.startOffset);
+  const start = pre.toString().length, end = start + rng.toString().length;
+  // `doc.pages` en entier : un paragraphe fusionné d'une page à l'autre fait
+  // choisir la page à selectionToAnnotation, qui normalise avec la sienne.
+  if(!doc.pages || !doc.pages[block.lines[0].page - 1]) return;
+  const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, doc.pages);
+  if(!built.rects.length) return;
+  const a = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
+  if(a.kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
+  PDF_ANNOTS.push(a); saveAnnots();
+  const pg = document.querySelector('.pg[data-page="' + a.page + '"]'); if(pg) drawAnnots(pg, a.page);
+  drawReadingAnnots(); selHide(); sel.removeAllRanges();
+  if(a.kind === "comment") annotMenu(a, r.left, r.bottom);
 }
 // PDF marks live in the reader toolbar; selection capsules only target chat.
 let LAST_COLOR = HL_COLORS[0];
@@ -1644,7 +2001,7 @@ let eraseMark = false;
     button.onclick=()=>{LAST_COLOR=color;eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
     palette.appendChild(button);colors.push(button);
   });
-  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});tools.push([eraser,"erase"]);
+  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
   document.getElementById("selinfo").before(bar);refresh();
 })();
@@ -1704,6 +2061,7 @@ async function removeAnnot(a){
     return false;
   }
   document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   if(annotationEditor?.a.id === a.id) annotationEditor = null;
   annotPop.style.display = "none";
   return true;
@@ -1766,6 +2124,7 @@ window.addEventListener("message", e => {
   // Serialize behind any note edit already being persisted by this viewer.
   saveAnnots();
   document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
 });
 async function annotMenu(a, x, y){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
@@ -1823,6 +2182,7 @@ async function annotMenu(a, x, y){
     status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
     if(!saved) return false;
     document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
     if(close) { annotPop.style.display = "none"; annotationEditor = null; }
     return true;
   };
@@ -1887,6 +2247,7 @@ if(window.self !== window.top){
   fn.after(tools);
   let annIdx = -1;
   function gotoAnn(dir){
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const sorted = [...PDF_ANNOTS].sort((a, b) =>
       (+a.page - +b.page) || ((a.rects[0]?.[1] ?? (a.pin?.[1] ?? 0)) - (b.rects[0]?.[1] ?? (b.pin?.[1] ?? 0))));
     if (!sorted.length) return;

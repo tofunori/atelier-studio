@@ -1,0 +1,73 @@
+/* Mode lecture — colonne unique. Toute couleur vient des variables du thème
+   (atelier_theme.js) ; corps 13–24 px réglable ; transitions 120–150 ms. */
+body.read-mode #pages{display:none}
+#reading{display:none}
+body.read-mode #reading{display:block}
+#reading{
+  --read-fs:15px; --read-width:80ch; --read-lh:1.6; --read-font:-apple-system,"Helvetica Neue",sans-serif;
+  /* Teintes de marquage : les surlignages persistants gardent les couleurs
+     du lecteur (HL_COLORS), la recherche a la sienne. Déclarées ICI pour que
+     rien ne soit écrit en dur dans une règle. */
+  --read-mark-bg:rgba(255,213,74,.4);
+  --read-hit-bg:rgba(120,170,255,.14);
+  margin:0 auto; padding:24px 20px 80px; max-width:var(--read-width);
+  font:400 var(--read-fs)/var(--read-lh) var(--read-font); color:var(--txt);
+  transition:max-width 150ms ease, font-size 150ms ease;
+}
+#reading.serif{--read-font:"Iowan Old Style","Palatino","Georgia",serif}
+#reading h1,#reading h2,#reading h3{font-weight:600;letter-spacing:-0.01em;line-height:1.3;margin:1.6em 0 .6em}
+#reading h1{font-size:1.5em}#reading h2{font-size:1.25em}#reading h3{font-size:1.1em}
+#reading p{margin:0 0 1em}
+/* Plancher à 13 px : le corps de lecture descend à 13 px et un ratio relatif
+   passait légendes et notes sous le minimum du système de design. */
+#reading p.caption{font-size:max(13px,.9em);color:var(--fg);margin:.4em 0 1.4em}
+#reading p.footnote{font-size:max(13px,.85em);color:var(--muted)}
+/* La puce/le numéro reste DANS le texte du li (offsets d'annotation stables,
+   fix 1 ruling a) : on éteint le marqueur du navigateur pour ne pas le voir
+   deux fois. */
+#reading ul{list-style:none;padding-left:0;margin:0 0 1em}
+#reading figure{margin:1.2em 0 .4em;text-align:center}
+#reading figure canvas{max-width:100%;height:auto;border-radius:6px;background:var(--card)}
+#reading figure.math{margin:.6em 0}
+#reading figure.math canvas{border-radius:0;background:transparent}
+body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
+#reading .skeleton{height:12px;margin:0 0 12px;border-radius:6px;background:var(--card2);opacity:.6}
+#reading .skeleton.w60{width:60%}
+#reading .err{color:var(--destructive, var(--fg));padding:20px 0}
+/* Dans la colonne, une marque est du texte EN FLUX : elle ne doit hériter ni
+   du position:absolute ni du mix-blend-mode:multiply de la règle des pages
+   (.pg .pdfhl dans pdf_viewer.html) — revue plan 078 T6 fix 1, constat n°1. */
+#reading mark.pdfhl{position:static;mix-blend-mode:normal;background:var(--read-mark-bg);color:inherit;border-radius:6px;cursor:pointer}
+/* Un « résultat » de recherche est ici un BLOC entier (la colonne n'a pas de
+   spans de mots) : un fond pleine largeur sur tout le paragraphe noyait le
+   texte. Repère discret en marge + voile très léger. */
+/* Soulignement et barré : mêmes marques, sans aplat — la couleur de
+   l'annotation passe par --read-mark-line, posée en ligne par le lecteur. */
+#reading mark.pdfhl-ul,#reading mark.pdfhl-st{background:transparent}
+#reading mark.pdfhl-ul{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px;text-decoration-color:var(--read-mark-line,var(--accent))}
+#reading mark.pdfhl-st{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:var(--read-mark-line,var(--accent))}
+#reading .find-hit{box-shadow:inset 2px 0 0 var(--accent);background:var(--read-hit-bg);border-radius:6px}
+#reading .find-cur{outline:1px solid var(--ring);outline-offset:2px;border-radius:6px}
+/* top : hauteur du <header> collant du lecteur (44-46px), posée en JS via
+   --read-top sur #reading à l'entrée — sinon la barre glisse sous l'en-tête
+   opaque au scroll (revue plan 078 T5 fix 1, constat n°1). z-index:3 lui
+   suffit : elle n'a qu'à dominer la colonne, pas l'en-tête (z-index:10). */
+#readBar{
+  display:none;position:sticky;top:var(--read-top, 48px);z-index:3;gap:8px;align-items:center;
+  padding:8px 12px;margin:0 0 16px;border-radius:10px;background:var(--popover,var(--card));box-shadow:0 4px 16px rgba(0,0,0,.25);
+  font:400 12px/1.5 var(--ui-font);color:var(--fg);
+}
+body.read-mode #readBar{display:flex}
+#readBar .grp{display:flex;align-items:center;gap:4px}
+#readBar .grp span{font-variant-numeric:tabular-nums;min-width:24px;text-align:center}
+#readBar button{min-width:24px;height:24px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:500 12px/1 var(--ui-font);cursor:pointer;transition:background 120ms ease}
+#readBar button:hover{background:var(--card2)}
+#readBar button[aria-pressed="true"]{background:var(--card2);color:var(--txt)}
+#readBar button:disabled{opacity:.4;pointer-events:none}
+@media (prefers-reduced-motion:reduce){#reading,#readBar button{transition:none}}
+
+/* Outils liés à la géométrie des pages : sans page à l'écran, ils n'ont pas
+   de cible en mode lecture — capture de zone et note libre sont éteintes. */
+body.read-mode #pdftools #areaBtn,
+body.read-mode #pdftools [data-t="note"],
+body.read-mode .pdf-mark-tools [data-t="erase"]{opacity:.4;pointer-events:none}

@@ -386,3 +386,17 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
   AVERTISSEMENTS ancrés sur l'ouverture orpheline ; les erreurs de compilation
   (`! … l.N`) sont les seules « erreurs », posées via `cm.setDiagnostics` dans
   un champ dédié que le linter relit (sinon la première frappe les effaçait).
+
+## Mode lecture PDF (plan 078)
+- Les offsets de sélection et d'ancrage se calculent sur `readingText(block)` — la jointure DÉ-CÉSURÉE des lignes, égale à `block.text` produit par `join_lines` en Rust — via `lineOffsets(block)`, jamais sur une jointure naïve par espaces : le DOM affiche `readingText`. Changer la règle d'un côté sans l'autre décale tous les surlignages ; le test de parité `readingText(b) === b.text` la verrouille.
+- Un trait d'union absorbé reste PEINT sur la page : la ligne a une longueur affichée (sans le `-`) et une longueur peinte (avec). `selectionToAnnotation` interpole les x sur la longueur peinte, sinon le rect s'arrête un caractère trop tôt.
+- `pdftohtml -xml` : ordre du flux = ordre de lecture sur les PDF LaTeX ; le regroupement retrie par colonne puis y. Un PDF où l'ordre est faux se corrige dans `group_blocks`, pas dans le JS.
+- `pdftohtml` doit être spawné avec `-zoom 1` et sans `-i` (zoom 1,5 par défaut fausse toutes les bbox ; `-i` supprime les `<image>`).
+- Le cache `/reflow` est invalidé par `REFLOW_VERSION` : l'incrémenter à tout changement d'heuristique, sinon les anciens JSON restent servis.
+- Cmd+/− en mode lecture changent la taille du texte (écouteur en capture) ; en vue pages ils zooment.
+- Ordre de lecture : une ligne qui TRAVERSE la gouttière est colonne 0, et tout ce qui flotte au-dessus du haut réel de la colonne 1 (`col1_top` = plus petit `top` parmi ses lignes alignées sur son bord gauche modal) aussi. C'est ce qui met titre et auteurs avant le corps ; une manchette dont les auteurs sont alignés sur le bord gauche de la colonne 1 resterait mal ordonnée.
+- Titres de section : repérés par la TAILLE (> 1,15 × corps) ou par la GRAISSE à la taille du corps. La liste de familles grasses (`BOLD`, `-B`, `CMBX`, `HEAVY`, `SEMIBOLD`, `MEDI`) est empirique — un article dont la graisse porte un autre nom ne rendra aucun titre ; c'est le premier endroit à regarder si le mode lecture affiche un mur de paragraphes.
+- Fragments orphelins supprimés : bloc de ≤ 3 caractères, plus petit que le corps et large de moins de 25 pt (indices, marqueurs d'affiliation), et fragment de math EN LIGNE de moins de 25 pt (sans quoi il devenait une découpe bitmap de 5 pt de large). Une équation isolée, elle, reste `math`.
+- Limites assumées : les cellules d'un TABLEAU non détecté restent des paragraphes d'un ou deux mots (84 sur un article Copernicus de 19 pages) ; `area` et `note` ne sont ni créables ni affichées dans la colonne (elles n'ont qu'une géométrie de page) ; `#readBtn` n'est PAS désactivé quand `pdftohtml` manque — le bouton reste cliquable et la colonne affiche l'erreur 502.
+- La recherche en mode lecture a le BLOC pour granularité (la colonne n'a pas de spans de mots comme la couche texte des pages) : le compteur « n/m » compte des blocs, pas des occurrences, et le repère est un filet en marge — pas un aplat sur tout le paragraphe.
+- Une sélection à cheval sur deux pages garde la citation complète mais ses rects ne couvrent que la première page.

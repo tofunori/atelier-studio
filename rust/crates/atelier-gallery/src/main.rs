@@ -9,6 +9,7 @@ mod ranged;
 mod suggest;
 mod workspace;
 mod zotero;
+mod reflow;
 
 use agent::AgentStore;
 use atelier_core::{WatcherStatus, artifact_snapshot, is_artifact, is_excluded_dir};
@@ -2419,6 +2420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/zotero-add", post(zotero::zotero_add))
         .route("/zotero/{key}/{fname}", get(zotero::zotero_pdf))
         .route("/kb-pdf/{id}", get(zotero::kb_pdf))
+        .route("/reflow", get(reflow::reflow).head(reflow::reflow))
         // Phase 7 — hôte macOS
         .route("/orca-fullscreen-exit", post(host::orca_fullscreen_exit))
         .route(
