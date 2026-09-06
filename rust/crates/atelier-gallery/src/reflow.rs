@@ -228,15 +228,46 @@ pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
         let pno = (idx + 1) as u16;
         let page_lines: Vec<&Line> = parsed.lines.iter().filter(|l| l.page == pno).collect();
         let gutter = gutter_x(&page_lines, page.w);
-        let column_of = |l: &Line| -> u8 {
-            match gutter {
-                Some(g)
-                    if (l.bbox[2] - l.bbox[0]) <= page.w * 0.55
-                        && (l.bbox[0] + l.bbox[2]) / 2.0 >= g =>
-                {
-                    1
+        // (a) une ligne qui TRAVERSE la gouttière appartient à la manchette
+        // pleine largeur, quelle que soit sa largeur : un titre centré tient
+        // souvent sous les 55 % de la page et son centre tombe à droite de la
+        // gouttière — il se retrouvait alors en colonne 1, donc lu APRÈS tout
+        // le corps de la colonne 0 (revue de branche, constat C1).
+        let crosses = |l: &Line| gutter.is_some_and(|g| l.bbox[0] < g - 6.0 && l.bbox[2] > g + 6.0);
+        let narrow_right = |l: &Line| match gutter {
+            Some(g) => {
+                !crosses(l)
+                    && (l.bbox[2] - l.bbox[0]) <= page.w * 0.55
+                    && (l.bbox[0] + l.bbox[2]) / 2.0 >= g
+            }
+            None => false,
+        };
+        // (b) coupure de manchette : le haut RÉEL de la colonne 1 est le plus
+        // petit `top` parmi ses lignes alignées sur son bord gauche modal.
+        // Tout ce qui flotte au-dessus (auteurs, affiliations posés à droite
+        // du titre) est de la manchette, pas de la colonne 1.
+        let col1_top = {
+            let cand: Vec<&&Line> = page_lines.iter().filter(|l| narrow_right(l)).collect();
+            let mut counts: std::collections::HashMap<i32, usize> = Default::default();
+            for l in &cand {
+                *counts.entry(l.bbox[0].round() as i32).or_insert(0) += 1;
+            }
+            match counts.iter().max_by_key(|(left, n)| (**n, -**left)) {
+                Some((modal, _)) => {
+                    let modal = *modal as f32;
+                    cand.iter()
+                        .filter(|l| (l.bbox[0] - modal).abs() <= 3.0)
+                        .map(|l| l.bbox[1])
+                        .fold(f32::INFINITY, f32::min)
                 }
-                _ => 0,
+                None => f32::INFINITY,
+            }
+        };
+        let column_of = |l: &Line| -> u8 {
+            if narrow_right(l) && l.bbox[1] >= col1_top {
+                1
+            } else {
+                0
             }
         };
         // ordre de lecture : colonne 0 (et pleine largeur) puis colonne 1, chacune par y
@@ -940,6 +971,50 @@ mod tests {
             .find(|b| b.lines.iter().any(|l| l.text.contains("Albedo decline")))
             .unwrap();
         assert!(title.lines.len() <= 2);
+    }
+
+    #[test]
+    fn ordre_de_lecture_titre_auteurs_puis_colonnes() {
+        // Manchette (titre pleine largeur + auteurs côte à côte) AVANT les
+        // deux colonnes : une ligne qui traverse la gouttière est colonne 0
+        // quelle que soit sa largeur, et tout ce qui est au-dessus du haut
+        // réel de la colonne 1 (`col1_top`) l'est aussi.
+        let p = parse_pdftohtml_xml(FIXTURE).unwrap();
+        let blocks = group_blocks(&p);
+        for b in blocks.iter().filter(|b| b.page == 1) {
+            assert!(
+                !(b.column == 1 && b.bbox[1] < 250.0),
+                "bloc de manchette laissé en colonne 1: {:?}",
+                b.lines.first().map(|l| l.text.clone())
+            );
+        }
+        let doc = analyze(&p);
+        let page1: Vec<&Block> = doc.blocks.iter().filter(|b| b.page == 1).collect();
+        assert!(
+            page1[0].text.contains("Albedo decline"),
+            "premier bloc = titre, obtenu {:?}",
+            page1[0].text
+        );
+        let intro = page1
+            .iter()
+            .position(|b| b.text.starts_with("1 Introduction"))
+            .expect("bloc « 1 Introduction »");
+        assert!(
+            intro <= 3,
+            "« 1 Introduction » doit tomber dans les 4 premiers blocs (index {intro}): {:?}",
+            page1
+                .iter()
+                .take(5)
+                .map(|b| b.text.clone())
+                .collect::<Vec<_>>()
+        );
+        for b in &page1[1..intro] {
+            assert!(
+                b.text.contains("Fixture") || b.text.contains("Sample"),
+                "entre le titre et l'introduction, seuls les auteurs: {:?}",
+                b.text
+            );
+        }
     }
 
     #[test]
