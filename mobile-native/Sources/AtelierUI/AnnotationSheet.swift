@@ -19,11 +19,12 @@ struct AnnotationSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(draft.passage.citation).font(.caption).foregroundStyle(.secondary)
+                    Text(draft.passage.figure == nil ? draft.passage.citation : draft.passage.fileName + (draft.passage.figureRegion == nil ? " · Figure entière" : " · Zone sélectionnée")).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                     if let figure = draft.passage.figure {
-                        ArtifactThumbnail(item: figure, gallery: workspace.gallery).frame(height: 130)
+                        ArtifactThumbnail(item: figure, gallery: workspace.gallery).frame(height: 90)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    if draft.passage.figure == nil {
                     HStack(alignment: .top, spacing: 10) {
                         Rectangle().fill(AtelierTheme.accent).frame(width: 2)
                         Button { expanded.toggle() } label: {
@@ -31,6 +32,7 @@ struct AnnotationSheet: View {
                                 .lineLimit(expanded ? nil : 3).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }.buttonStyle(.plain).accessibilityLabel("Déplier ou replier le passage cité")
                     }.fixedSize(horizontal: false, vertical: true)
+                    }
                     TextField("Votre note…", text: $draft.note, axis: .vertical)
                         .lineLimit(3...10).focused($editing).disabled(busy)
                         .accessibilityIdentifier("annotationNote")
@@ -75,7 +77,7 @@ struct AnnotationSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer", systemImage: "xmark") { dismiss() }.disabled(busy) } }
         }
         .sheet(isPresented: $choosingConversation) { ConversationPicker(workspace: workspace, navigateToChat: false) }
-        .presentationDetents([.height(380), .large]).presentationDragIndicator(.visible)
+        .presentationDetents([.height(draft.passage.figure == nil ? 380 : 420), .large]).presentationDragIndicator(.visible)
         .interactiveDismissDisabled(busy || (!empty && !savedNote))
         .onChange(of: draft.note) { _, _ in savedNote = false; syncedNote = false }
     }
