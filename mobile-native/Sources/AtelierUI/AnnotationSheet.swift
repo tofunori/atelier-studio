@@ -6,102 +6,98 @@ struct AnnotationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var editing: Bool
     @State private var sending = false
+    @State private var choosingConversation = false
+    @State private var expanded = false
     @State private var savedNote = false
     @State private var syncingNote = false
     @State private var syncedNote = false
     @State private var saveError: String?
-    @State private var choosingConversation = false
+    private var busy: Bool { sending || syncingNote }
+    private var empty: Bool { draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 18) {
                     Text(draft.passage.citation).font(.caption).foregroundStyle(.secondary)
-                    if let figure = draft.passage.figure { ArtifactThumbnail(item: figure, gallery: workspace.gallery).frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 12)) }
-                    Text(draft.passage.text)
-                        .font(.subheadline)
-                        .textSelection(.enabled)
-                }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Votre note").font(.caption).foregroundStyle(.secondary)
-                    TextField("Que souhaitez-vous dire sur ce passage ?", text: $draft.note, axis: .vertical)
-                        .lineLimit(4...10)
-                        .focused($editing)
-                        .disabled(sending || syncingNote)
+                    if let figure = draft.passage.figure {
+                        ArtifactThumbnail(item: figure, gallery: workspace.gallery).frame(height: 130)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    HStack(alignment: .top, spacing: 10) {
+                        Rectangle().fill(AtelierTheme.accent).frame(width: 2)
+                        Button { expanded.toggle() } label: {
+                            Text(draft.passage.text).font(.subheadline).foregroundStyle(.secondary)
+                                .lineLimit(expanded ? nil : 3).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }.buttonStyle(.plain).accessibilityLabel("Déplier ou replier le passage cité")
+                    }.fixedSize(horizontal: false, vertical: true)
+                    TextField("Votre note…", text: $draft.note, axis: .vertical)
+                        .lineLimit(3...10).focused($editing).disabled(busy)
                         .accessibilityIdentifier("annotationNote")
-                }
+                    if let error = saveError ?? workspace.chat.error { Text(error).font(.footnote).foregroundStyle(.red) }
+                    if syncingNote { Label("Confirmez dans Zotero sur le Mac si une autorisation apparaît.", systemImage: "desktopcomputer").font(.caption).foregroundStyle(.secondary) }
+                    else if syncedNote { Label("Enregistrée dans Zotero", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary) }
+                    else if savedNote { Label("Note conservée dans Atelier", systemImage: "bookmark").font(.caption).foregroundStyle(.secondary) }
                 }.padding(20)
-            }
+            }.scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 8) {
+                HStack(spacing: 8) {
                     if draft.passage.articleKey != nil {
-                        Button(savedNote ? "Note conservée dans Atelier" : "Conserver la note dans Atelier", systemImage: savedNote ? "checkmark" : "bookmark") {
-                            do { try workspace.library.save(draft); savedNote = true } catch { saveError = error.localizedDescription }
-                        }.frame(minHeight: 44).disabled(draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
-                        Button(syncedNote ? "Enregistrée dans Zotero" : "Enregistrer dans Zotero", systemImage: syncedNote ? "checkmark" : "books.vertical") {
-                            syncingNote = true; saveError = nil
-                            Task {
-                                defer { syncingNote = false }
-                                do { try await workspace.library.sync(draft, using: workspace.gallery); savedNote = true; syncedNote = true }
-                                catch { saveError = error.localizedDescription }
+                        Menu {
+                            Button("Conserver dans Atelier", systemImage: "bookmark") {
+                                do { try workspace.library.save(draft); savedNote = true } catch { saveError = error.localizedDescription }
                             }
-                        }.frame(minHeight: 44).disabled(syncingNote || sending || draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if syncingNote { Text("Confirmez l’autorisation dans Zotero sur le Mac si elle apparaît.").font(.caption).foregroundStyle(.secondary) }
-                        if let saveError { Text(saveError).font(.caption).foregroundStyle(.red) }
+                            Button("Enregistrer dans Zotero", systemImage: "books.vertical") { syncNote() }
+                        } label: { Image(systemName: "bookmark").frame(width: 44, height: 44) }
+                            .disabled(empty || busy).accessibilityLabel("Enregistrer l’annotation")
                     }
                     Button { choosingConversation = true } label: {
-                        Label(workspace.chat.selected == nil ? "Choisir une conversation" : workspace.chat.title, systemImage: "bubble.left.and.bubble.right")
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .disabled(sending || syncingNote)
-                    .accessibilityIdentifier("annotationConversation")
-                    Button {
-                        editing = false
-                        sending = true
-                        Task {
-                            defer { sending = false }
-                            let prompt = (draft.passage.articleKey.map { "Article Zotero : \($0)\n" } ?? "") + "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
-                            if await workspace.chat.send(prompt, using: workspace.gallery, explicitFiles: draft.passage.figure.map { [$0] } ?? []) {
-                                if workspace.sourceAvailable, draft.passage.documentID == workspace.documentID, let threadID = workspace.chat.selected?.id {
-                                    workspace.revisionTarget = SourceRevisionTarget(documentID: workspace.documentID, threadID: threadID, fileName: draft.passage.fileName, original: workspace.source, passage: draft.passage.text)
-                                }
-                                _ = workspace.sendAnnotation(draft)
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        Label("Envoyer au chat", systemImage: "arrow.up.message")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(sending || workspace.chat.sending || workspace.chat.running || workspace.chat.selected == nil || draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("sendAnnotation")
-                    Text(workspace.chat.selected == nil ? "Choisissez la conversation qui recevra cette annotation." : "Envoyer à : " + workspace.chat.title + ". Le passage et votre note seront transmis au Mac.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let error = workspace.chat.error { Text(error).foregroundStyle(.red) }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-                .background(.regularMaterial)
+                        HStack(spacing: 5) {
+                            Image(systemName: "bubble")
+                            Text(workspace.chat.selected == nil ? "Choisir un chat" : workspace.chat.title).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }.font(.caption).frame(minHeight: 44)
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).disabled(busy)
+                        .accessibilityIdentifier("annotationConversation")
+                    Spacer(minLength: 0)
+                    Button { send() } label: {
+                        ZStack {
+                            Circle().fill(AtelierTheme.accent).frame(width: 34, height: 34)
+                            if busy { ProgressView().tint(Color(uiColor: .systemBackground)) }
+                            else { Image(systemName: "arrow.up").fontWeight(.semibold).foregroundStyle(Color(uiColor: .systemBackground)) }
+                        }.frame(width: 44, height: 44)
+                    }.buttonStyle(.plain)
+                        .disabled(busy || workspace.chat.sending || workspace.chat.running || workspace.chat.selected == nil || empty)
+                        .accessibilityLabel("Envoyer au chat").accessibilityIdentifier("sendAnnotation")
+                }.padding(.horizontal, 12).padding(.vertical, 6).background(.background)
             }
-            .navigationTitle("Annoter")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") { dismiss() }.disabled(sending || syncingNote)
-                }
-            }
+            .navigationTitle("Annoter").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer", systemImage: "xmark") { dismiss() }.disabled(busy) } }
         }
-        .sheet(isPresented: $choosingConversation) {
-            ConversationPicker(workspace: workspace, navigateToChat: false)
-        }
-        .presentationDetents([.fraction(0.65), .large])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(sending || syncingNote || (!draft.note.isEmpty && !savedNote))
+        .sheet(isPresented: $choosingConversation) { ConversationPicker(workspace: workspace, navigateToChat: false) }
+        .presentationDetents([.height(380), .large]).presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy || (!empty && !savedNote))
         .onChange(of: draft.note) { _, _ in savedNote = false; syncedNote = false }
+    }
+    private func syncNote() {
+        syncingNote = true; saveError = nil; editing = false
+        Task {
+            defer { syncingNote = false }
+            do { try await workspace.library.sync(draft, using: workspace.gallery); savedNote = true; syncedNote = true }
+            catch { saveError = error.localizedDescription }
+        }
+    }
+    private func send() {
+        editing = false; sending = true
+        Task {
+            defer { sending = false }
+            let prompt = (draft.passage.articleKey.map { "Article Zotero : \($0)\n" } ?? "") + "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
+            if await workspace.chat.send(prompt, using: workspace.gallery, explicitFiles: draft.passage.figure.map { [$0] } ?? []) {
+                if workspace.sourceAvailable, draft.passage.documentID == workspace.documentID, let threadID = workspace.chat.selected?.id {
+                    workspace.revisionTarget = SourceRevisionTarget(documentID: workspace.documentID, threadID: threadID, fileName: draft.passage.fileName, original: workspace.source, passage: draft.passage.text)
+                }
+                _ = workspace.sendAnnotation(draft); dismiss()
+            }
+        }
     }
 }

@@ -948,3 +948,31 @@ async fn gallery_paginates_beyond_one_thousand_files() {
     assert_eq!(ids.len(), 1011);
     assert!(latex);
 }
+
+#[tokio::test]
+async fn document_save_checks_version_scope_and_path() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (device, token) = pair_device(&base, &admin, &host, "document-save").await;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("notes.tex");
+    std::fs::write(&path, "original").unwrap();
+    let file_id = {
+        let mut g = h.state.inner.lock().await;
+        let p = g.projects.register_project(root.path(), None);
+        g.projects.register_file(&p.project_id, "notes.tex").unwrap()
+    };
+    let request = |id: String, original: &str, content: &str| client().post(format!("{base}/remote/v1/document/{id}"))
+        .header("host", &host).header("x-atelier-device-token", &token).json(&json!({"original":original,"content":content}));
+    let saved = request(file_id.clone(), "original", "révision").send().await.unwrap();
+    assert_eq!(saved.status(), 200, "{}", saved.text().await.unwrap());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "révision");
+    let conflict = request(file_id.clone(), "original", "écrasement").send().await.unwrap();
+    assert_eq!(conflict.status(), 409);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "révision");
+    assert_eq!(request("f_inconnu".into(), "", "texte").send().await.unwrap().status(), 404);
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    h.state.inner.lock().await.auth.revoke_device(&device).unwrap();
+    assert_eq!(request(file_id, "révision", "interdit").send().await.unwrap().status(), 401);
+    h.shutdown().await;
+}

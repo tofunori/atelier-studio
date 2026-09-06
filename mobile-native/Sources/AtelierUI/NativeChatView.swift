@@ -20,23 +20,23 @@ struct NativeChatView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if chat.selected != nil { composer }
         }
+        .toolbar(composing ? .hidden : .visible, for: .tabBar)
+        .toolbar {
+            if workspace.chat.selected != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Conversations", systemImage: "chevron.left") { workspace.chat.showConversations(workspace: workspace) }.disabled(workspace.chat.sending)
+                }
+            }
+        }
         .sheet(isPresented: $workspace.chatPickerRequested) { ConversationPicker(workspace: workspace) }
         .task(id: "\(chat.selected?.id ?? ""):\(chat.reconnectGeneration)") { await chat.observe(using: workspace.gallery) }
     }
     private var chatContent: some View {
         let chat = workspace.chat
         return VStack(spacing: 0) {
-            HStack {
-                Button("Conversations", systemImage: "bubble.left.and.bubble.right") { chat.showConversations(workspace: workspace) }
-                    .disabled(chat.sending)
-                Spacer()
-                if chat.selected != nil {
-                    Label(chat.statusLabel, systemImage: chat.statusIcon)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .contentTransition(.opacity)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: chat.statusLabel)
-                }
-            }.font(.subheadline).padding(.horizontal, 16).padding(.vertical, 8)
+            if chat.connection != .live {
+                Label(chat.statusLabel, systemImage: chat.statusIcon).font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+            }
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
@@ -118,61 +118,7 @@ struct NativeChatView: View {
             }
         }
     }
-    private var composer: some View {
-        @Bindable var chat = workspace.chat
-        return VStack(spacing: 8) {
-            if let quote = chat.quote {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "text.quote").foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Passage cité").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                        Text(quote.text).font(.subheadline).lineLimit(3)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    Button { chat.quote = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                        .accessibilityLabel("Retirer la citation").disabled(chat.sending)
-                }.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
-            }
-            if !chat.attachments.isEmpty { ChatAttachmentBar(workspace: workspace) }
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Poursuivre la réflexion…", text: $workspace.draft, axis: .vertical)
-                    .lineLimit(1...5).focused($composing).accessibilityIdentifier("chatDraft")
-            HStack(spacing: 6) {
-                ChatAttachMenu(workspace: workspace).frame(minWidth: 44, minHeight: 44).disabled(chat.sending || chat.running)
-                Menu {
-                    Picker("Modèle", selection: $chat.model) {
-                        if !chat.model.isEmpty && !(chat.provider?.models.contains(chat.model) ?? false) { Text(chat.model).tag(chat.model) }
-                        ForEach(chat.provider?.models ?? [], id: \.self) { model in Text(chat.provider?.modelLabels?[model] ?? model).tag(model) }
-                    }
-                } label: { Text(chat.provider?.modelLabels?[chat.model] ?? (chat.model.isEmpty ? "Modèle du Mac" : chat.model)).lineLimit(1) }
-                Spacer(minLength: 0)
-                Menu {
-                    Picker("Réflexion", selection: $chat.effort) {
-                        Text("Auto").tag("")
-                        ForEach(chat.provider?.efforts ?? [], id: \.self) { Text($0).tag($0) }
-                    }
-                } label: { Label(chat.effort.isEmpty ? "Auto" : chat.effort, systemImage: "brain") }
-                if chat.sending {
-                    ProgressView("Envoi…").labelsHidden()
-                } else if chat.running {
-                    Button { Task { await chat.stop(using: workspace.gallery) } } label: { Image(systemName: "stop.fill") }
-                        .accessibilityLabel("Arrêter la réponse")
-                } else {
-                    Button {
-                        let prompt = workspace.draft
-                        let thread = chat.selected?.id
-                        Task {
-                            if await chat.send(prompt, using: workspace.gallery, includingAttachments: true), chat.selected?.id == thread, workspace.draft == prompt { workspace.draft = ""; composing = false }
-                        }
-                    } label: {
-                        if chat.sending { ProgressView() } else { Image(systemName: "arrow.up").fontWeight(.semibold) }
-                    }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
-                        .disabled(chat.sending || (workspace.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && chat.attachments.isEmpty && chat.quote == nil))
-                        .accessibilityLabel("Envoyer au Mac")
-                }
-            }.font(.caption).foregroundStyle(.secondary)
-            }.padding(12).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 20))
-        }.padding(.horizontal, 16).padding(.vertical, 8).background(.background)
-    }
+    private var composer: some View { NativeComposerView(workspace: workspace, composing: $composing) }
 }
 
 private struct ChatEventRow: View {
