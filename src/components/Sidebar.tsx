@@ -267,7 +267,11 @@ export default function Sidebar(p: {
   }
 
   async function deleteSelected(fallbackId: string) {
-    const ids = selected.size ? [...selected] : [fallbackId];
+    // La sélection multiple ne s'applique que si le fil visé en fait partie :
+    // un clic droit (ou ⋯) sur un autre fil ne vide pas la sélection, et sans
+    // cette garde la suppression frappait les fils sélectionnés — déjà
+    // supprimés ou pas — et jamais celui qu'on venait de viser.
+    const ids = selected.size && selected.has(fallbackId) ? [...selected] : [fallbackId];
     if (ids.length > 1) {
       const ok = await tauriConfirm(tr("sidebar.delete-many-confirm", { count: ids.length }), { kind: "warning" }).catch(() => true);
       if (!ok) return;

@@ -297,6 +297,17 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     expect(p.onDelete).toHaveBeenCalledWith("th-c");
   });
 
+  it("menu contextuel sur un fil hors sélection : supprime CE fil, pas la sélection", () => {
+    const p = makeProps({ threads: projectThreads() });
+    renderUi(<Sidebar {...p} />);
+    // sélection périmée (cmd-clic) sur th-a, puis clic droit sur th-b
+    fireEvent.click(screen.getByText("Analyse albédo"), { metaKey: true });
+    fireEvent.contextMenu(screen.getByText("Révision figure"));
+    fireEvent.click(screen.getByText(t("action.delete")));
+    expect(p.onDelete).toHaveBeenCalledTimes(1);
+    expect(p.onDelete).toHaveBeenCalledWith("th-b");
+  });
+
   it("Échap vide la sélection multiple : Suppr ne supprime plus rien", () => {
     const p = makeProps({ threads: projectThreads() });
     renderUi(<Sidebar {...p} />);

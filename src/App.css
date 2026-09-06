@@ -911,7 +911,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .pin-menu .pin-unpin:hover { background: color-mix(in srgb, var(--status-error) 20%, transparent);
   color: var(--status-error); }
 .rename { flex: 1; background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-s);
-  color: inherit; font-size: var(--fs-l); padding: 2px 6px; outline: none; }
+  color: inherit; font-size: var(--fs-l); padding: 2px 6px; outline: none;
+  /* Renommage en place : même focus sobre que les autres champs inline
+     (git, épingles) — bordure forte, pas d'anneau accent. */
+  --focus-ring-color: var(--border-strong); --ring: var(--border-strong); }
 .annot-banner { display: flex; align-items: center; gap: 10px; margin: 10px 16px 0;
   padding: 8px 12px; background: color-mix(in srgb, var(--accent) 12%, var(--bg)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--bg));
   border-radius: var(--r-m); font-size: var(--fs-l); }
