@@ -26,7 +26,7 @@ test("buildReadingDom : titres, paragraphes, légendes, listes, figures", () => 
   const root = dom.window.document.createElement("div"); root.appendChild(frag);
   assert.equal(root.querySelector("h1[data-block='0']").textContent, "1 Introduction");
   const p = root.querySelector("p[data-block='1']");
-  assert.equal(p.textContent, "Surface albedo controls the energy bal- ance of glaciers.", "le DOM montre le texte des lignes (offsets stables), la césure est masquée par CSS/rendu ultérieur");
+  assert.equal(p.textContent, "Surface albedo controls the energy balance of glaciers.", "le DOM montre le texte DÉ-CÉSURÉ, comme block.text côté Rust");
   assert.equal(root.querySelector("figure[data-block='2'] canvas").dataset.crop, "2");
   assert.equal(root.querySelector("p.caption[data-block='3']").textContent, "Figure 1. A figure.");
   const lis = [...root.querySelectorAll("ul > li")];
@@ -42,8 +42,21 @@ test("buildReadingDom : titres, paragraphes, légendes, listes, figures", () => 
   assert.equal(root.querySelector("figure[data-block='6']").dataset.page, "2");
 });
 
-test("readingText joint les lignes par un espace, sans dé-césure", () => {
-  assert.equal(R.readingText(DOC.blocks[1]), "Surface albedo controls the energy bal- ance of glaciers.");
+test("readingText dé-césure comme join_lines (Rust) et vaut block.text", () => {
+  assert.equal(R.readingText(DOC.blocks[1]), "Surface albedo controls the energy balance of glaciers.");
+  // parité Rust/JS : le texte affiché est EXACTEMENT celui du bloc analysé
+  for (const b of DOC.blocks) {
+    if (b.kind === "figure" || b.kind === "table" || b.kind === "math") continue;
+    assert.equal(R.readingText(b), b.text, "bloc " + b.id);
+  }
+  // trait d'union conservé devant une majuscule (comme en Rust)
+  assert.equal(R.readingText({lines: [{text: "long-"}, {text: "Term study"}]}), "long- Term study");
+});
+
+test("lineOffsets : début de chaque ligne dans readingText, césure absorbée", () => {
+  assert.deepEqual(R.lineOffsets(DOC.blocks[1]), [0, 28, 38]);
+  const t = R.readingText(DOC.blocks[1]);
+  assert.equal(t.slice(38), "ance of glaciers.");
 });
 
 test("cropViewport : viewport décalé sur le bloc, taille en px CSS", () => {
@@ -60,14 +73,15 @@ test("selectionToAnnotation : rects par ligne, x interpolé aux extrémités", (
   const start = text.indexOf("controls"), end = text.indexOf("ance") + "ance".length;
   const a = R.selectionToAnnotation(DOC.blocks[1], start, end, {w: 600, h: 800});
   assert.equal(a.page, 1);
-  assert.equal(a.text, "controls the energy bal- ance");
+  assert.equal(a.text, "controls the energy balance");
   assert.equal(a.rects.length, 3);
   const [r1, r2, r3] = a.rects;
   // ligne 1 : commence à "controls" (15/27 des caractères) → x ≈ 60 + 240*15/27
   assert.ok(Math.abs(r1[0] * 600 - (60 + 240 * 15 / 27)) < 2, `x1=${r1[0] * 600}`);
   assert.ok(Math.abs((r1[0] + r1[2]) * 600 - 300) < 1);
   assert.ok(Math.abs(r1[1] * 800 - 110) < 0.01 && Math.abs(r1[3] * 800 - 12) < 0.01);
-  // ligne 2 entière
+  // ligne 2 entière : la césure est absorbée à l'affichage mais le « - » est
+  // le dernier caractère PEINT sur la page — le rect va jusqu'au bout.
   assert.ok(Math.abs(r2[0] * 600 - 60) < 0.01 && Math.abs(r2[2] * 600 - 240) < 0.01);
   // ligne 3 : finit après "ance" (4/17 des caractères de "ance of glaciers.")
   assert.ok(Math.abs(r3[0] * 600 - 60) < 0.01);
@@ -85,7 +99,7 @@ test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {
   assert.equal(anchored[0].annotId, "a1");
   assert.equal(anchored[0].blockId, 1);
   const t = R.readingText(DOC.blocks[1]);
-  assert.equal(t.slice(anchored[0].start, anchored[0].end), "energy bal- ance of glaciers");
+  assert.equal(t.slice(anchored[0].start, anchored[0].end), "energy balance of glaciers");
 });
 
 test("anchorAnnotations : pas d'espace en tête après affinage (fix 1, ruling b)", () => {

@@ -388,7 +388,8 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
   un champ dédié que le linter relit (sinon la première frappe les effaçait).
 
 ## Mode lecture PDF (plan 078)
-- Les offsets de sélection et d'ancrage se calculent sur `readingText(block)` (lignes jointes par un espace, césures conservées), jamais sur `block.text` dé-césuré : le DOM affiche `readingText`. Changer l'un sans l'autre décale tous les surlignages.
+- Les offsets de sélection et d'ancrage se calculent sur `readingText(block)` — la jointure DÉ-CÉSURÉE des lignes, égale à `block.text` produit par `join_lines` en Rust — via `lineOffsets(block)`, jamais sur une jointure naïve par espaces : le DOM affiche `readingText`. Changer la règle d'un côté sans l'autre décale tous les surlignages ; le test de parité `readingText(b) === b.text` la verrouille.
+- Un trait d'union absorbé reste PEINT sur la page : la ligne a une longueur affichée (sans le `-`) et une longueur peinte (avec). `selectionToAnnotation` interpole les x sur la longueur peinte, sinon le rect s'arrête un caractère trop tôt.
 - `pdftohtml -xml` : ordre du flux = ordre de lecture sur les PDF LaTeX ; le regroupement retrie par colonne puis y. Un PDF où l'ordre est faux se corrige dans `group_blocks`, pas dans le JS.
 - `pdftohtml` doit être spawné avec `-zoom 1` et sans `-i` (zoom 1,5 par défaut fausse toutes les bbox ; `-i` supprime les `<image>`).
 - Le cache `/reflow` est invalidé par `REFLOW_VERSION` : l'incrémenter à tout changement d'heuristique, sinon les anciens JSON restent servis.

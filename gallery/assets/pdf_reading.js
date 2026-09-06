@@ -6,11 +6,38 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   root.AtelierPdfReading = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function(root){
-  /** Texte tel qu'affiché : lignes jointes par un espace. Les offsets de la
-   *  sélection et de l'ancrage se calculent sur CETTE chaîne. */
-  function readingText(block){
-    return (block.lines || []).map(function(l){ return l.text; }).join(" ");
+  /** Minuscule au sens de `char::is_lowercase` (Rust) : un chiffre n'en est
+   *  pas une (`toUpperCase() === toLowerCase()`). */
+  function isLower(c){ return !!c && c.toLowerCase() === c && c.toUpperCase() !== c; }
+
+  /** Jointure des lignes d'un bloc, MÊME RÈGLE que `join_lines` côté Rust :
+   *  accumulé finissant par `-` suivi d'une minuscule → le `-` disparaît et la
+   *  jointure est sans espace ; sinon une espace. Renvoie le texte affiché,
+   *  l'offset de début de chaque ligne dans ce texte, et pour chaque ligne si
+   *  son trait d'union final a été absorbé (il reste PEINT sur la page, d'où
+   *  l'écart entre longueur affichée et longueur de la ligne). */
+  function layout(texts){
+    var text = "", offs = [], absorbed = [];
+    for (var i = 0; i < texts.length; i++) {
+      var t = texts[i] == null ? "" : String(texts[i]);
+      absorbed.push(false);
+      if (i === 0) { offs.push(0); text = t; continue; }
+      if (text.slice(-1) === "-" && isLower(t.charAt(0))) { text = text.slice(0, -1); absorbed[i - 1] = true; }
+      else { text += " "; }
+      offs.push(text.length);
+      text += t;
+    }
+    return {text: text, offs: offs, absorbed: absorbed};
   }
+  function blockTexts(block){
+    return (block.lines || []).map(function(l){ return l.text; });
+  }
+  /** Texte tel qu'affiché, dé-césuré : égal à `block.text` produit par Rust.
+   *  Les offsets de la sélection et de l'ancrage se calculent sur CETTE
+   *  chaîne, via `lineOffsets`. */
+  function readingText(block){ return layout(blockTexts(block)).text; }
+  /** Offset de début de chaque ligne dans `readingText(block)`. */
+  function lineOffsets(block){ return layout(blockTexts(block)).offs; }
 
   function buildReadingDom(doc, hooks){
     var d = hooks.document, frag = d.createDocumentFragment(), list = null;
@@ -46,12 +73,17 @@
 
   /** Offsets [start,end) dans readingText(block) → {page, text, rects normalisés}. */
   function selectionToAnnotation(block, start, end, pageDim){
-    var lines = block.lines || [], rects = [], pos = 0, text = readingText(block).slice(start, end);
-    lines.forEach(function(l){
-      var len = l.text.length, ls = pos, le = pos + len;
-      pos = le + 1; // + espace de jointure
+    var lines = block.lines || [], info = layout(blockTexts(block)), rects = [];
+    var text = info.text.slice(start, end);
+    lines.forEach(function(l, i){
+      // longueur PEINTE (avec le trait d'union) vs longueur AFFICHÉE (sans).
+      var len = l.text.length, vis = len - (info.absorbed[i] ? 1 : 0);
+      var ls = info.offs[i], le = ls + vis;
       if (le <= start || ls >= end) return;
       var a = Math.max(start, ls) - ls, b = Math.min(end, le) - ls;
+      // sélection jusqu'au bout d'une ligne césurée : le `-` est le dernier
+      // caractère peint, le rect doit l'englober.
+      if (info.absorbed[i] && b >= vis) b = len;
       var w = l.bbox[2] - l.bbox[0], h = l.bbox[3] - l.bbox[1];
       var x = l.bbox[0] + w * (len ? a / len : 0), xe = l.bbox[0] + w * (len ? b / len : 1);
       rects.push([x / pageDim.w, l.bbox[1] / pageDim.h, (xe - x) / pageDim.w, h / pageDim.h]);
@@ -71,13 +103,15 @@
         var b = candidates[i], texts = b.lines.map(function(l){ return l.text; });
         var m = passage.findAllSpanRanges(texts, a.text);
         if (!m || !m.length) continue;
-        var r = m[0], offs = [], p = 0;
-        texts.forEach(function(t){ offs.push(p); p += t.length + 1; });
+        var r = m[0], offs = lineOffsets(b);
         // findAllSpanRanges renvoie {start, end} en index de spans ; on
         // affine aux caractères en normalisant en forme COMPACTE (sans
         // espaces) les deux côtés, car c'est la forme que findAllSpanRanges
         // utilise pour son second index (tolérance à la césure/espacement).
-        var slice = texts.slice(r.start, r.end + 1).join(" ");
+        // la tranche est jointe comme le texte affiché (dé-césurée) : sinon
+        // `lo`/`hi` seraient comptés sur une chaîne plus longue que celle des
+        // offsets et décaleraient toutes les marques.
+        var slice = layout(texts.slice(r.start, r.end + 1)).text;
         var norm = passage.normalize, target = norm(a.text).replace(/ /g, ""), lo = 0, hi = slice.length;
         for (var s = 0; s < slice.length; s++) {
           if (norm(slice.slice(s)).replace(/ /g, "").indexOf(target) === 0) { lo = s; break; }
@@ -106,7 +140,7 @@
     return b ? b.page : 1;
   }
 
-  return {readingText: readingText, buildReadingDom: buildReadingDom, cropViewport: cropViewport,
+  return {readingText: readingText, lineOffsets: lineOffsets, buildReadingDom: buildReadingDom, cropViewport: cropViewport,
     selectionToAnnotation: selectionToAnnotation, anchorAnnotations: anchorAnnotations,
     blockAtScrollTop: blockAtScrollTop, pageForBlock: pageForBlock};
 });
