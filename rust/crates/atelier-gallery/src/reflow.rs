@@ -201,9 +201,21 @@ fn union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 }
 
 /// Lignes consécutives (ordre du flux) de même page, même colonne, même
-/// taille (± 0,5 pt), et soit écart vertical < 0,6 × hauteur de ligne, soit
-/// même rangée que la dernière ligne du bloc (écart de `top` < 0,3 × hauteur,
-/// p. ex. "2" et "Methods" sur la même ligne de base) → un bloc.
+/// taille (± 0,5 pt) → un bloc si :
+/// - même rangée que la dernière ligne du bloc (écart de `top` < 0,3 ×
+///   hauteur, p. ex. "2" et "Methods" sur la même ligne de base) ET écart
+///   horizontal `g = gauche(l) − droite(dernière ligne)` dans
+///   [-0,5 × hauteur, 1,5 × hauteur] — borne qui évite de coller deux
+///   fragments courts posés côte à côte sans lien (le test math/texte
+///   ci-dessous ignore volontairement la famille de police sur cette
+///   branche : un "(1)" en police texte sur la ligne d'une équation doit
+///   quand même rejoindre le bloc) ; ou
+/// - écart vertical < 0,6 × hauteur de ligne (lignes empilées) ET la nature
+///   police-math (`is_math_family`) de la nouvelle ligne et de la dernière
+///   ligne du bloc concorde — un saut de police math ↔ texte referme le
+///   bloc courant même si le petit écart vertical le suggérait autrement
+///   (p. ex. une équation collée de trop près au paragraphe qui la précède
+///   ne doit pas l'avaler).
 pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
     let mut out: Vec<RawBlock> = Vec::new();
     for (idx, page) in parsed.pages.iter().enumerate() {
@@ -241,10 +253,17 @@ pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
             let h = (l.bbox[3] - l.bbox[1]).max(1.0);
             let joinable = current.as_ref().is_some_and(|c| {
                 let last_line = c.lines.last().expect("block always has ≥1 line");
-                c.column == col
-                    && (l.size - c.size).abs() <= 0.5
-                    && ((l.bbox[1] - c.bbox[3]).abs() < 0.6 * h
-                        || (l.bbox[1] - last_line.bbox[1]).abs() < 0.3 * h)
+                if c.column != col || (l.size - c.size).abs() > 0.5 {
+                    return false;
+                }
+                let same_row = (l.bbox[1] - last_line.bbox[1]).abs() < 0.3 * h;
+                if same_row {
+                    let g = l.bbox[0] - last_line.bbox[2];
+                    g >= -0.5 * h && g <= 1.5 * h
+                } else {
+                    (l.bbox[1] - c.bbox[3]).abs() < 0.6 * h
+                        && is_math_family(&l.family) == is_math_family(&last_line.family)
+                }
             });
             if joinable {
                 let c = current.as_mut().unwrap();
@@ -805,6 +824,72 @@ mod tests {
         let blocks = group_blocks(&parsed);
         assert_eq!(blocks.len(), 1, "got {blocks:?}");
         assert_eq!(join_lines(&blocks[0].lines), "2 Methods");
+    }
+
+    #[test]
+    fn regroupement_meme_rangee_refuse_un_ecart_horizontal_trop_grand() {
+        // Deux runs courts sur la même ligne de base mais éloignés de 5×
+        // hauteur : pas de lien plausible (pas un numéro de section suivi
+        // de son titre) → deux blocs distincts, pas un seul.
+        let parsed = Parsed {
+            pages: vec![PageDim { w: 800.0, h: 800.0 }],
+            lines: vec![
+                Line {
+                    page: 1,
+                    bbox: [57.0, 728.0, 90.0, 741.0],
+                    text: "Left".into(),
+                    size: 13.0,
+                    family: "T".into(),
+                },
+                Line {
+                    // hauteur de ligne = 13 ; écart gauche(l) - droite(dernière) = 500 - 90 = 410 ≈ 31×h
+                    page: 1,
+                    bbox: [500.0, 728.0, 540.0, 741.0],
+                    text: "Right".into(),
+                    size: 13.0,
+                    family: "T".into(),
+                },
+            ],
+            images: vec![],
+        };
+        let blocks = group_blocks(&parsed);
+        assert_eq!(blocks.len(), 2, "got {blocks:?}");
+    }
+
+    #[test]
+    fn regroupement_refuse_de_joindre_texte_et_math_verticalement() {
+        // Une ligne en police texte suivie, 0,2×hauteur plus bas, d'une
+        // ligne en police math (familles différentes) : le petit écart
+        // vertical seul ne suffit plus à joindre — c'est exactement le cas
+        // d'une équation collée de près au paragraphe qui la précède
+        // (`\abovedisplayshortskip`). Deux lignes texte au même écart, elles,
+        // fusionnent toujours.
+        let text_line = |top: f32, family: &str| Line {
+            page: 1,
+            bbox: [57.0, top, 200.0, top + 10.0],
+            text: "x".into(),
+            size: 10.0,
+            family: family.into(),
+        };
+        let parsed_text_then_math = Parsed {
+            pages: vec![PageDim { w: 300.0, h: 800.0 }],
+            lines: vec![text_line(600.0, "Times"), text_line(612.0, "CMMI10")],
+            images: vec![],
+        };
+        let blocks = group_blocks(&parsed_text_then_math);
+        assert_eq!(
+            blocks.len(),
+            2,
+            "texte→math ne doit pas fusionner: {blocks:?}"
+        );
+
+        let parsed_text_then_text = Parsed {
+            pages: vec![PageDim { w: 300.0, h: 800.0 }],
+            lines: vec![text_line(600.0, "Times"), text_line(612.0, "Times")],
+            images: vec![],
+        };
+        let blocks = group_blocks(&parsed_text_then_text);
+        assert_eq!(blocks.len(), 1, "texte→texte doit fusionner: {blocks:?}");
     }
 
     #[test]
