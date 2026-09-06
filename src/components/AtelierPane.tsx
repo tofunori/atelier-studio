@@ -11,7 +11,7 @@ const TerminalSurface = lazyWithRetry(() => import("./TerminalSurface"));
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
-const NarvalSurface = lazyWithRetry(() => import("./NarvalSurface"));
+const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
@@ -128,7 +128,7 @@ function ownsNativeChrome(ref: WorkspaceTabRef | null): boolean {
 
 function integratesPaneControls(ref: WorkspaceTabRef | null): boolean {
   return ref?.kind === "surface"
-    && ["terminal", "browser", "biblio", "connaissances", "narval"].includes(ref.surface);
+    && ["terminal", "browser", "biblio", "connaissances", "calculs"].includes(ref.surface);
 }
 
 export default function AtelierPane({
@@ -537,7 +537,7 @@ export default function AtelierPane({
     if (ref.kind === "agent") onCloseAgent?.();
   }, [onCloseAgent, onCloseTab, updateWorkspaceWithFlip]);
 
-  const openNarvalTerminal = useCallback((command: string) => {
+  const openHostTerminal = useCallback((command: string) => {
     setTerminalBootstrap(command);
     setWorkspace((current) => activateWorkspaceTab(current, { kind: "surface", surface: "terminal" }));
     onActiveSurfaceChange("terminal");
@@ -546,11 +546,11 @@ export default function AtelierPane({
   useEffect(() => {
     const onCommand = (event: Event) => {
       const command = (event as CustomEvent).detail?.command;
-      if (typeof command === "string" && command.trim()) openNarvalTerminal(command);
+      if (typeof command === "string" && command.trim()) openHostTerminal(command);
     };
     window.addEventListener("atelier-terminal-command", onCommand);
     return () => window.removeEventListener("atelier-terminal-command", onCommand);
-  }, [openNarvalTerminal]);
+  }, [openHostTerminal]);
 
   let gallerySrc = url;
   try {
@@ -990,11 +990,11 @@ export default function AtelierPane({
       );
     }
     return (
-      <div key="surface:narval" className="workspace-tab-content surface-body" style={{ display }}>
+      <div key="surface:calculs" className="workspace-tab-content surface-body" style={{ display }}>
         <LazyBoundary fallback={<div className="pane-slot" />}>
-          <NarvalSurface
+          <CalculsSurface
             visible={active}
-            onOpenTerminal={openNarvalTerminal}
+            onOpenTerminal={openHostTerminal}
             paneControls={renderPaneControls(paneNode, ref, "integrated")}
           />
         </LazyBoundary>
