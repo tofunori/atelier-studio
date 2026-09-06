@@ -143,18 +143,46 @@ describe("CalculsSurface", () => {
     expect(alert?.textContent).toContain("Connection timed out");
   });
 
-  it("un snapshot identique ne re-rend aucune rangée", () => {
+  it("un snapshot identique au repos ne re-rend ni la liste ni les rangées", () => {
     const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
     const request = lastRequest("computeSnapshot");
     deliver(snapshotMessage(request.requestId));
     expect(container.querySelectorAll(".calculs-run")).toHaveLength(3);
-    const renders = calculsDebug.rowRenders;
-    // même contenu, observedAt différent : seule l'étiquette « observé » bouge
+    const rows = calculsDebug.rowRenders;
+    const lists = calculsDebug.listRenders;
+    // le temps passe, même contenu, observedAt différent : aucun setState
+    vi.setSystemTime(NOW + 5_000);
     deliver(snapshotMessage(request.requestId, { observedAt: new Date(NOW + 5_000).toISOString() }));
-    expect(calculsDebug.rowRenders).toBe(renders);
+    expect(calculsDebug.rowRenders).toBe(rows);
+    expect(calculsDebug.listRenders).toBe(lists);
+    // run vivant dont lastActivityAt suit l'instant d'observation : idem
+    vi.setSystemTime(NOW + 35_000);
+    const live = RUNS.map((r) => (r.state === "running" || r.state === "queued"
+      ? { ...r, lastActivityAt: new Date(NOW + 35_000).toISOString() } : r));
+    deliver(snapshotMessage(request.requestId, { runs: live, observedAt: new Date(NOW + 35_000).toISOString() }));
+    expect(calculsDebug.rowRenders).toBe(rows);
+    expect(calculsDebug.listRenders).toBe(lists);
+    // l'étiquette « observé » se rafraîchit au tic d'horloge, pas à la réponse
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(screen.getByText(/observé il y a 10 s|observed 10 s ago/)).toBeTruthy();
+    // (le tic est le seul re-rendu périodique du conteneur ; seules les rangées
+    // dont l'affichage « actif il y a » change se re-rendent)
+    expect(calculsDebug.listRenders).toBe(lists + 1);
     // contenu différent : la liste se met à jour
     deliver(snapshotMessage(request.requestId, { runs: RUNS.slice(0, 2) }));
     expect(container.querySelectorAll(".calculs-run")).toHaveLength(2);
+    expect(calculsDebug.listRenders).toBe(lists + 2);
+  });
+
+  it("un run terminé dont lastActivityAt change re-rend la liste", () => {
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    const request = lastRequest("computeSnapshot");
+    deliver(snapshotMessage(request.requestId));
+    const lists = calculsDebug.listRenders;
+    const changed = RUNS.map((r) => (r.id === "mac:old-fit" ? { ...r, lastActivityAt: "2026-09-05T09:00:00Z" } : r));
+    deliver(snapshotMessage(request.requestId, { runs: changed }));
+    expect(calculsDebug.listRenders).toBe(lists + 1);
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(3);
   });
 
   it("signale l'absence de service et les données périmées", () => {
@@ -211,10 +239,48 @@ describe("CalculsSurface", () => {
     rerender(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
     expect(lastRequest("computeSnapshot")).toBeTruthy();
     const before = sent.filter((m) => m.type === "computeSnapshot").length;
-    act(() => { vi.advanceTimersByTime(30_000); });
-    expect(sent.filter((m) => m.type === "computeSnapshot").length).toBe(before + 1);
-    rerender(<CalculsSurface visible={false} onOpenTerminal={vi.fn()} />);
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(sent.filter((m) => m.type === "computeSnapshot").length).toBe(before + 1);
+    rerender(<CalculsSurface visible={false} onOpenTerminal={vi.fn()} />);
+    act(() => { vi.advanceTimersByTime(120_000); });
+    expect(sent.filter((m) => m.type === "computeSnapshot").length).toBe(before + 1);
+  });
+
+  it("sonde toutes les 30 s pour le Mac, toutes les 60 s dès qu'un hôte distant est inclus", () => {
+    const count = () => sent.filter((m) => m.type === "computeSnapshot").length;
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    // « Tous » inclut NAS et Slurm : 60 s
+    let before = count();
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before + 1);
+    // le sondage périodique est silencieux : pas d'icône qui tourne
+    expect(container.querySelector(".calculs-refresh.is-loading")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Mac" }));
+    before = count();
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before + 1);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before + 2);
+
+    fireEvent.click(screen.getByRole("radio", { name: "NAS" }));
+    before = count();
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(count()).toBe(before + 1);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Narval" }));
+    before = count();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(count()).toBe(before + 1);
+
+    // actualisation manuelle : l'icône tourne jusqu'à la réponse
+    fireEvent.click(screen.getByRole("button", { name: /actualiser|refresh/i }));
+    expect(container.querySelector(".calculs-refresh.is-loading")).toBeTruthy();
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    expect(container.querySelector(".calculs-refresh.is-loading")).toBeNull();
   });
 });

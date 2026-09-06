@@ -40,7 +40,7 @@ export type ComputeRun = {
   logTail: string[];
   remoteTasks: unknown[];
   detail:
-    | { kind: "local"; pid: number }
+    | { kind: "local"; pid?: number | null }
     | { kind: "docker"; container: string }
     | { kind: "unit"; unit: string }
     | { kind: "slurm"; jobId: string; profile: string };
@@ -52,15 +52,22 @@ type SurfaceError = { code: string; message: string };
 
 const HOST_STORAGE_KEY = "atelier.calculs.host";
 const HOSTS: HostFilter[] = ["all", "mac", "nas", "narval"];
-const POLL_MS = 30_000;
+/** Cadence de sondage (spec) : Mac local 30 s ; NAS et Slurm 60 s — donc 60 s
+ *  dès que le filtre inclut un hôte distant (« Tous » compris). */
+const POLL_LOCAL_MS = 30_000;
+const POLL_REMOTE_MS = 60_000;
 const CLOCK_MS = 10_000;
 const STALE_MS = 60_000;
 const SNAPSHOT_DAYS = 7;
 const LOG_TAIL_LINES = 400;
 
-/** Compteur de rendus des rangées — exposé pour le test « snapshot identique
- *  → aucun re-rendu de la liste » (garde-fou de performance n° 4). */
-export const calculsDebug = { rowRenders: 0 };
+/** Compteurs de rendus (rangées, conteneur de liste) — exposés pour le test
+ *  « snapshot identique → aucun re-rendu » (garde-fou de performance n° 4). */
+export const calculsDebug = { rowRenders: 0, listRenders: 0 };
+
+export function pollIntervalMs(host: HostFilter) {
+  return host === "mac" ? POLL_LOCAL_MS : POLL_REMOTE_MS;
+}
 
 function requestId() {
   return crypto.randomUUID();
@@ -148,10 +155,17 @@ export function hostTerminalCommand(host: HostFilter): string | null {
   return null;
 }
 
-/** Empreinte structurelle d'un snapshot — `observedAt` exclu : un snapshot
- *  identique à 30 s d'intervalle ne doit pas re-rendre la liste. */
-function snapshotFingerprint(data: ComputeSnapshot) {
-  return JSON.stringify([data.runs, data.errors]);
+/** Empreinte structurelle d'un snapshot — `observedAt` exclu, et pour les
+ *  runs vivants (running/queued) `lastActivityAt` aussi : un run actif rapporte
+ *  souvent une activité égale à l'instant d'observation, ce qui ferait re-rendre
+ *  la liste à chaque sondage alors que rien n'a changé pour l'œil. */
+function snapshotFingerprint(runs: ComputeRun[], errors: HostError[]) {
+  const stable = runs.map((run) => {
+    if (run.state !== "running" && run.state !== "queued") return run;
+    const { lastActivityAt: _ignored, ...rest } = run;
+    return rest;
+  });
+  return JSON.stringify([stable, errors]);
 }
 
 const STATE_RANK: Record<string, number> = { running: 0, queued: 1, completed: 2, failed: 2, unknown: 3 };
@@ -176,7 +190,6 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
 }) {
   const [hostFilter, setHostFilter] = useState<HostFilter>(readStoredHost);
   const [snapshot, setSnapshot] = useState<ComputeSnapshot | null>(null);
-  const [observedAt, setObservedAt] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [log, setLog] = useState<LogChunk | null>(null);
   const [logError, setLogError] = useState<string | null>(null);
@@ -189,14 +202,26 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const snapshotRequest = useRef<string | null>(null);
   const logRequest = useRef<string | null>(null);
   const fingerprint = useRef<string | null>(null);
+  // Instant d'observation du dernier snapshot reçu. Volontairement une ref et
+  // non un état : « observé il y a N s » est recalculé par le tic d'horloge
+  // (CLOCK_MS), si bien qu'une réponse identique au repos ne déclenche AUCUN
+  // setState — le tic de 10 s est le seul setState périodique de la surface.
+  const observedAt = useRef<number | null>(null);
+  const manualLoading = useRef(false);
+  const hasError = useRef(false);
 
   const runs = useMemo(() => sortRuns(snapshot?.runs ?? []), [snapshot]);
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
-  const requestSnapshot = useCallback(() => {
+  // `manual` = clic utilisateur : seul cas où l'icône tourne. Les sondages
+  // périodiques restent silencieux (pas de setState au repos).
+  const requestSnapshot = useCallback((manual = false) => {
     const id = requestId();
     snapshotRequest.current = id;
-    setLoading(true);
+    if (manual) {
+      manualLoading.current = true;
+      setLoading(true);
+    }
     const sent = wsSend({
       type: "computeSnapshot",
       requestId: id,
@@ -204,7 +229,11 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
       days: SNAPSHOT_DAYS,
     });
     if (!sent) {
-      setLoading(false);
+      if (manualLoading.current) {
+        manualLoading.current = false;
+        setLoading(false);
+      }
+      hasError.current = true;
       setError({ code: "offline", message: t("calculs.offline") });
     }
   }, [hostFilter]);
@@ -224,20 +253,30 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     const onMessage = (event: Event) => {
       const msg = (event as CustomEvent).detail ?? {};
       if (msg.type === "computeSnapshot" && msg.requestId === snapshotRequest.current) {
-        setLoading(false);
+        if (manualLoading.current) {
+          manualLoading.current = false;
+          setLoading(false);
+        }
         if (msg.error) {
+          hasError.current = true;
           setError({ code: String(msg.error.code ?? "error"), message: String(msg.error.message ?? "") });
           return;
         }
         const data = msg.data as ComputeSnapshot | undefined;
         if (!data || !Array.isArray(data.runs)) return;
-        setError(null);
-        setObservedAt(toMs(data.observedAt) ?? Date.now());
-        setNow(Date.now());
-        const next = snapshotFingerprint({ ...data, errors: Array.isArray(data.errors) ? data.errors : [] });
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+        observedAt.current = toMs(data.observedAt) ?? Date.now();
+        if (hasError.current) {
+          hasError.current = false;
+          setError(null);
+        }
+        const next = snapshotFingerprint(data.runs, errors);
+        // Réponse identique (cas nominal au repos) : aucun setState — le label
+        // « observé il y a » se rafraîchira au prochain tic d'horloge.
         if (next === fingerprint.current) return;
         fingerprint.current = next;
-        setSnapshot({ observedAt: data.observedAt, runs: data.runs, errors: Array.isArray(data.errors) ? data.errors : [] });
+        setNow(Date.now());
+        setSnapshot({ observedAt: data.observedAt, runs: data.runs, errors });
       }
       if (msg.type === "computeLog" && msg.requestId === logRequest.current) {
         setLogLoading(false);
@@ -257,16 +296,18 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     return () => window.removeEventListener("compute-message", onMessage);
   }, []);
 
-  // Sondage uniquement quand la surface est visible (même mécanisme que Narval).
+  // Sondage uniquement quand la surface est visible (même mécanisme que Narval) ;
+  // cadence selon l'hôte filtré (30 s Mac, 60 s dès qu'un hôte distant est inclus).
   useEffect(() => {
     if (!visible || slurmView) return;
     requestSnapshot();
-    const timer = window.setInterval(() => requestSnapshot(), POLL_MS);
+    const timer = window.setInterval(() => requestSnapshot(), pollIntervalMs(hostFilter));
     return () => window.clearInterval(timer);
-  }, [requestSnapshot, slurmView, visible]);
+  }, [hostFilter, requestSnapshot, slurmView, visible]);
 
-  // Horloge grossière pour « observé il y a » / durées — les rangées sont
-  // mémoïsées, le tic ne re-rend que la barre.
+  // Horloge grossière pour « observé il y a » / durées / péremption — SEUL
+  // setState périodique au repos. Les rangées sont mémoïsées : le tic ne
+  // re-rend que la barre et les rangées dont l'affichage change.
   useEffect(() => {
     if (!visible || slurmView) return;
     const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
@@ -309,8 +350,9 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   }, []);
 
   const terminalCommand = hostTerminalCommand(hostFilter);
-  const stale = observedAt != null && now - observedAt > STALE_MS;
-  const observedSeconds = observedAt == null ? null : Math.max(0, Math.round((now - observedAt) / 1_000));
+  const observedMs = observedAt.current;
+  const stale = observedMs != null && now - observedMs > STALE_MS;
+  const observedSeconds = observedMs == null ? null : Math.max(0, Math.round((now - observedMs) / 1_000));
 
   if (slurmView) {
     return (
@@ -338,7 +380,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
               options={HOSTS.map((host) => ({ value: host, label: hostLabel(host) }))}
             />
             {observedSeconds != null && (
-              <span className="calculs-observed" title={new Date(observedAt!).toLocaleTimeString()}>
+              <span className="calculs-observed" title={new Date(observedMs!).toLocaleTimeString()}>
                 {t("calculs.observed-ago", { seconds: observedSeconds })}
               </span>
             )}
@@ -353,7 +395,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
                 hit40
                 label={t("calculs.refresh")}
                 title={t("calculs.refresh")}
-                onClick={requestSnapshot}
+                onClick={() => requestSnapshot(true)}
               >
                 <RefreshCwIcon />
               </IconButton>
@@ -393,7 +435,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
               <ServerIcon aria-hidden="true" />
               <strong>{t("calculs.host-errors-title")}</strong>
               <p>{error.message}</p>
-              <Button variant="secondary" onClick={requestSnapshot}>{t("calculs.refresh")}</Button>
+              <Button variant="secondary" onClick={() => requestSnapshot(true)}>{t("calculs.refresh")}</Button>
             </div>
           ) : !snapshot ? (
             <div className="calculs-skeleton"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>
@@ -407,11 +449,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
             </Empty>
           ) : (
             <ScrollArea className="calculs-list-scroll">
-              <div className="calculs-list">
-                {runs.map((run) => (
-                  <RunRow key={run.id} run={run} selected={run.id === selectedRunId} now={now} onSelect={selectRun} />
-                ))}
-              </div>
+              <RunList runs={runs} selectedRunId={selectedRunId} now={now} onSelect={selectRun} />
             </ScrollArea>
           )}
         </main>
@@ -518,6 +556,22 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
     </span>
   );
 }
+
+const RunList = memo(function RunList({ runs, selectedRunId, now, onSelect }: {
+  runs: ComputeRun[];
+  selectedRunId: string | null;
+  now: number;
+  onSelect: (id: string) => void;
+}) {
+  calculsDebug.listRenders += 1;
+  return (
+    <div className="calculs-list">
+      {runs.map((run) => (
+        <RunRow key={run.id} run={run} selected={run.id === selectedRunId} now={now} onSelect={onSelect} />
+      ))}
+    </div>
+  );
+});
 
 const RunRow = memo(function RunRow({ run, selected, now, onSelect }: {
   run: ComputeRun;
