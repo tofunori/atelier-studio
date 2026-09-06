@@ -145,6 +145,10 @@ struct NativeChatView: View {
 private struct ChatEventRow: View {
     let row: RemoteChatModel.Row
     let workspace: WorkspaceModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption2) private var actionIconSize = 11
+    private var actionWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 44 : 32 }
+    private var actionHeight: CGFloat { dynamicTypeSize.isAccessibilitySize ? 44 : 30 }
     @State private var selecting = false
     @State private var copied = false
     @State private var reviewing = false
@@ -179,12 +183,12 @@ private struct ChatEventRow: View {
                         ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                     }
                     if editing == nil && !row.isStreaming && !row.id.hasPrefix("pending:") {
-                        HStack(spacing: 2) {
+                        HStack(spacing: 0) {
                             Button { UIPasteboard.general.string = row.text; copied = true } label: {
-                                Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: 44, height: 44)
+                                Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: actionWidth, height: actionHeight).contentShape(Rectangle())
                             }.accessibilityLabel("Copier le message")
                             Button { selecting = true } label: {
-                                Image(systemName: "text.quote").frame(width: 44, height: 44)
+                                Image(systemName: "text.quote").frame(width: actionWidth, height: actionHeight).contentShape(Rectangle())
                             }.accessibilityLabel("Sélectionner un passage à citer")
                             Menu {
                                 Button("Lire à voix haute", systemImage: "speaker.wave.2") { NativeVoice.shared.speak(row.text) }
@@ -198,10 +202,10 @@ private struct ChatEventRow: View {
                                         Task { await workspace.chat.retry(row, workspace: workspace) }
                                     }
                                 }
-                            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                            } label: { Image(systemName: "ellipsis").frame(width: actionWidth, height: actionHeight).contentShape(Rectangle()) }
                                 .accessibilityLabel("Actions du message")
                                 .disabled(workspace.chat.running || workspace.chat.sending)
-                        }.font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
+                        }.font(.system(size: actionIconSize, weight: .regular)).foregroundStyle(.secondary).buttonStyle(.plain)
                         if row.kind == "user" { MessageVersionPicker(row: row, workspace: workspace) }
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)

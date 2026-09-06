@@ -31,7 +31,9 @@ struct NativeGalleryView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     if gallery.connected {
-                        Picker("Projet", selection: $gallery.selectedProject) {
+                        Picker("Projet", selection: Binding(get: { gallery.selectedProject }, set: { project in
+                            gallery.selectedProject = project; workspace.sidebarPreferences.markOpened(project)
+                        })) {
                             ForEach(gallery.projects) { Text($0.name).tag($0.id) }
                         }.labelsHidden()
                     } else {
