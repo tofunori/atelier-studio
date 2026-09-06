@@ -486,46 +486,18 @@ pub async fn post_pdfannot(
     let store_path = pdf_annots_path(&state.root);
     let mut store = read_pdf_store(&store_path);
     let new_annots = if let Some(ids) = body.get("removeIds") {
-        if rel_key.is_empty() {
-            return json_error(StatusCode::BAD_REQUEST, "rel required");
-        }
-        let Some(ids) = ids
-            .as_array()
-            .filter(|ids| ids.iter().all(Value::is_string))
-        else {
-            return json_error(
-                StatusCode::BAD_REQUEST,
-                "removeIds must be an array of strings",
-            );
+        if rel_key.is_empty() { return json_error(StatusCode::BAD_REQUEST, "rel required"); }
+        let Some(ids) = ids.as_array().filter(|ids| ids.iter().all(Value::is_string)) else {
+            return json_error(StatusCode::BAD_REQUEST, "removeIds must be an array of strings");
         };
         let existing = store.get(&rel_key).cloned().unwrap_or_else(|| {
-            read_pdf_store(&legacy_pdf_annots_path(&state.root))
-                .get(&rel_key)
-                .cloned()
-                .unwrap_or_else(|| json!([]))
+            read_pdf_store(&legacy_pdf_annots_path(&state.root)).get(&rel_key).cloned().unwrap_or_else(|| json!([]))
         });
-        json!(
-            existing
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|a| {
-                    if a.get("id").is_none_or(Value::is_null) {
-                        return true;
-                    }
-                    let id = a
-                        .get("id")
-                        .map(|v| {
-                            v.as_str()
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| v.to_string())
-                        })
-                        .unwrap_or_default();
-                    !ids.iter()
-                        .any(|remove| remove.as_str() == Some(id.as_str()))
-                })
-                .collect::<Vec<_>>()
-        )
+        json!(existing.as_array().into_iter().flatten().filter(|a| {
+            if a.get("id").is_none_or(Value::is_null) { return true; }
+            let id = a.get("id").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
+            !ids.iter().any(|remove| remove.as_str() == Some(id.as_str()))
+        }).collect::<Vec<_>>())
     } else {
         body.get("annots").cloned().unwrap_or_else(|| json!([]))
     };

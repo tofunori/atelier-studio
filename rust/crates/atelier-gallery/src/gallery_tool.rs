@@ -43,9 +43,7 @@ fn absolutize(path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("/"))
-            .join(path)
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")).join(path)
     }
 }
 
@@ -64,11 +62,7 @@ pub fn build_gallery_command(
     let mut project_root = cwd.to_path_buf();
     if rest.first() == Some(&"--project-root") {
         rest.remove(0);
-        let value = if rest.is_empty() {
-            String::new()
-        } else {
-            rest.remove(0).to_string()
-        };
+        let value = if rest.is_empty() { String::new() } else { rest.remove(0).to_string() };
         if value.is_empty() {
             return Err("project-root invalide ou trop de fichiers".to_string());
         }
@@ -85,7 +79,7 @@ pub fn build_gallery_command(
         "show" if rest.is_empty() => return Err("show requiert au moins un fichier".to_string()),
         "open" if rest.len() != 1 => return Err("open requiert exactement un fichier".to_string()),
         "compare" if rest.len() < 2 => {
-            return Err("compare requiert au moins deux fichiers".to_string());
+            return Err("compare requiert au moins deux fichiers".to_string())
         }
         _ => {}
     }
@@ -101,12 +95,7 @@ pub fn build_gallery_command(
         let absolute = canonical(&candidate);
         let rel = absolute
             .strip_prefix(&root)
-            .map(|r| {
-                r.components()
-                    .map(|c| c.as_os_str().to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join("/")
-            })
+            .map(|r| r.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))
             .unwrap_or_default();
         if rel.is_empty() || rel == ".." || rel.starts_with("../") || rel.len() > MAX_REL_LENGTH {
             return Err(format!("fichier hors projet refusé: {input}"));
@@ -131,14 +120,8 @@ pub fn build_gallery_command(
 pub fn parse_lock(raw: &str) -> Result<(u16, String), String> {
     let value: serde_json::Value =
         serde_json::from_str(raw).map_err(|_| "sidecar.lock invalide".to_string())?;
-    let port = value
-        .get("port")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let token = value
-        .get("token")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
+    let port = value.get("port").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let token = value.get("token").and_then(serde_json::Value::as_str).unwrap_or("");
     if port == 0 || port > 65535 || token.is_empty() {
         return Err("sidecar.lock invalide".to_string());
     }
@@ -163,14 +146,7 @@ fn request_id() -> String {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    )
+    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
 
 fn post_gallery_command(command: &GalleryCommand) -> Result<String, String> {
@@ -185,11 +161,7 @@ fn post_gallery_command(command: &GalleryCommand) -> Result<String, String> {
         Ok(ok) => ok.into_string().map_err(|e| e.to_string()),
         Err(ureq::Error::Status(code, body)) => {
             let text = body.into_string().unwrap_or_default();
-            Err(if text.is_empty() {
-                format!("gallery-command HTTP {code}")
-            } else {
-                text
-            })
+            Err(if text.is_empty() { format!("gallery-command HTTP {code}") } else { text })
         }
         Err(other) => Err(other.to_string()),
     }
@@ -237,16 +209,8 @@ mod tests {
         let dir = root_with(&["a.png", "b.png"]);
         let root = dir.path();
         assert_eq!(build(root, &["show", "--", "a.png"]).unwrap().mode, "focus");
-        assert_eq!(
-            build(root, &["open", "--", "a.png"]).unwrap().mode,
-            "viewer"
-        );
-        assert_eq!(
-            build(root, &["compare", "--", "a.png", "b.png"])
-                .unwrap()
-                .mode,
-            "selection"
-        );
+        assert_eq!(build(root, &["open", "--", "a.png"]).unwrap().mode, "viewer");
+        assert_eq!(build(root, &["compare", "--", "a.png", "b.png"]).unwrap().mode, "selection");
         assert_eq!(build(root, &["reset"]).unwrap().mode, "all");
     }
 
@@ -262,22 +226,10 @@ mod tests {
     fn chaque_action_impose_son_compte_de_fichiers() {
         let dir = root_with(&["a.png", "b.png"]);
         let root = dir.path();
-        assert!(
-            build(root, &["reset", "--", "a.png"]).is_err(),
-            "reset ne prend aucun fichier"
-        );
-        assert!(
-            build(root, &["show"]).is_err(),
-            "show exige au moins un fichier"
-        );
-        assert!(
-            build(root, &["open", "--", "a.png", "b.png"]).is_err(),
-            "open en exige exactement un"
-        );
-        assert!(
-            build(root, &["compare", "--", "a.png"]).is_err(),
-            "compare en exige deux"
-        );
+        assert!(build(root, &["reset", "--", "a.png"]).is_err(), "reset ne prend aucun fichier");
+        assert!(build(root, &["show"]).is_err(), "show exige au moins un fichier");
+        assert!(build(root, &["open", "--", "a.png", "b.png"]).is_err(), "open en exige exactement un");
+        assert!(build(root, &["compare", "--", "a.png"]).is_err(), "compare en exige deux");
     }
 
     #[test]
@@ -287,20 +239,11 @@ mod tests {
         let absolute = root.join("b.png");
         let command = build(
             root,
-            &[
-                "compare",
-                "--",
-                "fig/a.png",
-                &absolute.to_string_lossy(),
-                "fig/a.png",
-            ],
+            &["compare", "--", "fig/a.png", &absolute.to_string_lossy(), "fig/a.png"],
         )
         .unwrap();
         // séparateurs normalisés en `/`, doublon retiré, ordre préservé
-        assert_eq!(
-            command.rels,
-            vec!["fig/a.png".to_string(), "b.png".to_string()]
-        );
+        assert_eq!(command.rels, vec!["fig/a.png".to_string(), "b.png".to_string()]);
         assert_eq!(command.action, "compare");
         assert_eq!(command.request_id, "req-fixe");
     }
@@ -310,15 +253,8 @@ mod tests {
         let dir = root_with(&["a.png"]);
         let outside = tempdir().unwrap();
         std::fs::write(outside.path().join("vole.png"), b"x").unwrap();
-        let err = build(
-            dir.path(),
-            &[
-                "show",
-                "--",
-                &outside.path().join("vole.png").to_string_lossy(),
-            ],
-        )
-        .unwrap_err();
+        let err = build(dir.path(), &["show", "--", &outside.path().join("vole.png").to_string_lossy()])
+            .unwrap_err();
         assert!(err.contains("hors projet refusé"), "err={err}");
         assert!(build(dir.path(), &["show", "--", "../evade.png"]).is_err());
     }
@@ -329,21 +265,11 @@ mod tests {
         let sous = dir.path().join("sous");
         let command = build(
             dir.path(),
-            &[
-                "show",
-                "--project-root",
-                &sous.to_string_lossy(),
-                "--",
-                "a.png",
-            ],
+            &["show", "--project-root", &sous.to_string_lossy(), "--", "a.png"],
         )
         .unwrap();
         assert_eq!(command.rels, vec!["a.png".to_string()]);
-        assert!(
-            command.project_root.ends_with("sous"),
-            "root={}",
-            command.project_root
-        );
+        assert!(command.project_root.ends_with("sous"), "root={}", command.project_root);
     }
 
     #[test]

@@ -106,6 +106,10 @@ test("selectionToAnnotation : un paragraphe fusionné rend les rects d'UNE page"
   const b2 = R.selectionToAnnotation(block, 0, t.length, doc.pages);
   assert.equal(b2.page, 1);
   assert.equal(b2.rects.length, 1);
+  // comportement actuel volontairement figé : `text` porte la citation
+  // SÉLECTIONNÉE en entier (les deux pages), alors que `rects` ne couvre
+  // que la page gardée (voir docs/PIEGES_CONNUS.md § Mode lecture PDF).
+  assert.equal(b2.text, t, "text = citation complète, pas tronquée à la page gardée");
 });
 
 test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {

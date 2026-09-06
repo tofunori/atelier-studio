@@ -246,20 +246,31 @@ pub(crate) fn group_blocks(parsed: &Parsed) -> Vec<RawBlock> {
         // Tout ce qui flotte au-dessus (auteurs, affiliations posés à droite
         // du titre) est de la manchette, pas de la colonne 1.
         let col1_top = {
-            let cand: Vec<&&Line> = page_lines.iter().filter(|l| narrow_right(l)).collect();
-            let mut counts: std::collections::HashMap<i32, usize> = Default::default();
-            for l in &cand {
-                *counts.entry(l.bbox[0].round() as i32).or_insert(0) += 1;
-            }
-            match counts.iter().max_by_key(|(left, n)| (**n, -**left)) {
-                Some((modal, _)) => {
-                    let modal = *modal as f32;
-                    cand.iter()
-                        .filter(|l| (l.bbox[0] - modal).abs() <= 3.0)
-                        .map(|l| l.bbox[1])
-                        .fold(f32::INFINITY, f32::min)
+            let raw = {
+                let cand: Vec<&&Line> = page_lines.iter().filter(|l| narrow_right(l)).collect();
+                let mut counts: std::collections::HashMap<i32, usize> = Default::default();
+                for l in &cand {
+                    *counts.entry(l.bbox[0].round() as i32).or_insert(0) += 1;
                 }
-                None => f32::INFINITY,
+                match counts.iter().max_by_key(|(left, n)| (**n, -**left)) {
+                    Some((modal, _)) => {
+                        let modal = *modal as f32;
+                        cand.iter()
+                            .filter(|l| (l.bbox[0] - modal).abs() <= 3.0)
+                            .map(|l| l.bbox[1])
+                            .fold(f32::INFINITY, f32::min)
+                    }
+                    None => f32::INFINITY,
+                }
+            };
+            // La règle (b) ne s'applique que si le haut réel de la colonne 1
+            // tombe assez bas sur la page (> 15 % de sa hauteur) : sur une
+            // page sans manchette, la colonne 1 commence près du haut et il
+            // n'y a rien à démouvoir vers la colonne 0.
+            if raw > page.h * 0.15 {
+                raw
+            } else {
+                f32::NEG_INFINITY
             }
         };
         let column_of = |l: &Line| -> u8 {
@@ -468,7 +479,7 @@ fn section_dots(t: &str) -> Option<usize> {
 /// de tableau par celui de largeur.
 fn is_superscript_marker(text: &str, size: f32, body: f32, width: f32) -> bool {
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    size < body * 0.9 && width < 25.0 && !compact.is_empty() && compact.chars().count() <= 3
+    size < body * 0.8 && width < 25.0 && !compact.is_empty() && compact.chars().count() <= 3
 }
 
 /// Clé d'en-tête / de pied : `None` hors des bandes de 6 % en haut et en bas
@@ -1166,6 +1177,62 @@ mod tests {
                 "entre le titre et l'introduction, seuls les auteurs: {:?}",
                 b.text
             );
+        }
+    }
+
+    #[test]
+    fn pas_de_demotion_de_manchette_quand_col1_top_pres_du_haut_de_page() {
+        // Page à deux colonnes sans manchette (aucun titre pleine largeur au
+        // dessus) : le haut réel de la colonne 1 tombe près du haut de page
+        // (< 15 % de sa hauteur). La règle (b) ne doit alors PAS s'appliquer
+        // — sinon la première ligne indentée de la colonne 1 (simple retrait
+        // de paragraphe) se ferait démouvoir en colonne 0.
+        let page_h = 800.0_f32;
+        let mut lines = Vec::new();
+        // colonne 0 : 30 lignes étroites, alignées à gauche à x=60.
+        for i in 0..30 {
+            let top = 40.0 + i as f32 * 14.0;
+            lines.push(Line {
+                page: 1,
+                bbox: [60.0, top, 260.0, top + 12.0],
+                text: format!("col0 line {i}"),
+                size: 10.0,
+                family: "Times".into(),
+            });
+        }
+        // colonne 1 : 30 lignes étroites à x=320, sauf la première indentée
+        // de 12 pt (x=332) — retrait de paragraphe classique, pas une
+        // manchette. Toutes proches du haut de page (< 15 % de 800 = 120).
+        for i in 0..30 {
+            let top = 40.0 + i as f32 * 14.0;
+            let left = if i == 0 { 332.0 } else { 320.0 };
+            lines.push(Line {
+                page: 1,
+                bbox: [left, top, left + 200.0, top + 12.0],
+                text: format!("col1 line {i}"),
+                size: 10.0,
+                family: "Times".into(),
+            });
+        }
+        let parsed = Parsed {
+            pages: vec![PageDim {
+                w: 595.0,
+                h: page_h,
+            }],
+            lines,
+            images: vec![],
+        };
+        let blocks = group_blocks(&parsed);
+        for b in &blocks {
+            for l in &b.lines {
+                if l.text.starts_with("col1") {
+                    assert_eq!(
+                        b.column, 1,
+                        "ligne de colonne 1 démoue à tort en colonne 0: {}",
+                        l.text
+                    );
+                }
+            }
         }
     }
 

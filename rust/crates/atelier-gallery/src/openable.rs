@@ -35,7 +35,8 @@ pub(crate) fn openable_exts() -> impl Iterator<Item = &'static &'static str> {
 /// `/open-path` : dans l'allowlist ET absente de la liste de blocage.
 pub(crate) fn is_openable_ext(ext: &str) -> bool {
     let lower = ext.to_ascii_lowercase();
-    !BLOCKED_OPEN_EXTS.contains(&lower.as_str()) && openable_exts().any(|allowed| *allowed == lower)
+    !BLOCKED_OPEN_EXTS.contains(&lower.as_str())
+        && openable_exts().any(|allowed| *allowed == lower)
 }
 
 #[cfg(test)]
@@ -44,18 +45,14 @@ mod tests {
 
     #[test]
     fn allows_gallery_types() {
-        for ext in [
-            "png", "PDF", "Tex", "md", "py", "r", "ipynb", "csv", "txt", "json", "mp4", "svg",
-        ] {
+        for ext in ["png", "PDF", "Tex", "md", "py", "r", "ipynb", "csv", "txt", "json", "mp4", "svg"] {
             assert!(is_openable_ext(ext), "{ext} devrait être ouvrable");
         }
     }
 
     #[test]
     fn refuses_bundles_and_executables() {
-        for ext in [
-            "app", "command", "sh", "terminal", "workflow", "webloc", "APP", "Command",
-        ] {
+        for ext in ["app", "command", "sh", "terminal", "workflow", "webloc", "APP", "Command"] {
             assert!(!is_openable_ext(ext), "{ext} ne devrait PAS être ouvrable");
         }
     }

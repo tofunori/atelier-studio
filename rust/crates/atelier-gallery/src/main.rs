@@ -6,10 +6,10 @@ mod git;
 mod host;
 mod openable;
 mod ranged;
-mod reflow;
 mod suggest;
 mod workspace;
 mod zotero;
+mod reflow;
 
 use agent::AgentStore;
 use atelier_core::{WatcherStatus, artifact_snapshot, is_artifact, is_excluded_dir};
@@ -498,13 +498,7 @@ fn sanitize_gallery_state(request: &Value) -> Value {
             .iter()
             .filter_map(|preset| {
                 let object = preset.as_object()?;
-                let id: String = object
-                    .get("id")?
-                    .as_str()?
-                    .trim()
-                    .chars()
-                    .take(64)
-                    .collect();
+                let id: String = object.get("id")?.as_str()?.trim().chars().take(64).collect();
                 let label: String = object
                     .get("label")?
                     .as_str()?
@@ -513,27 +507,15 @@ fn sanitize_gallery_state(request: &Value) -> Value {
                     .take(60)
                     .collect();
                 let extensions = extension_list(object.get("extensions"), 60)?;
-                if id.is_empty() || label.is_empty() {
-                    return None;
-                }
+                if id.is_empty() || label.is_empty() { return None; }
                 let mut result = json!({"id": id, "label": label, "extensions": extensions});
                 if let Some(view) = object.get("view").filter(|v| v.is_object()) {
                     let mut clean = json!({});
-                    for key in ["favorites", "archive", "hidden"] {
-                        clean[key] = json!(view.get(key).and_then(Value::as_bool).unwrap_or(false));
-                    }
+                    for key in ["favorites", "archive", "hidden"] { clean[key] = json!(view.get(key).and_then(Value::as_bool).unwrap_or(false)); }
                     for key in ["collection", "status", "folder", "query", "sort"] {
-                        clean[key] = json!(
-                            view.get(key)
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .chars()
-                                .take(1024)
-                                .collect::<String>()
-                        );
+                        clean[key] = json!(view.get(key).and_then(Value::as_str).unwrap_or("").chars().take(1024).collect::<String>());
                     }
-                    clean["rate"] =
-                        json!(view.get("rate").and_then(Value::as_u64).unwrap_or(0).min(5));
+                    clean["rate"] = json!(view.get("rate").and_then(Value::as_u64).unwrap_or(0).min(5));
                     result["view"] = clean;
                 }
                 Some(result)
@@ -545,11 +527,7 @@ fn sanitize_gallery_state(request: &Value) -> Value {
     if let Some(p) = request.get("presentation").filter(|v| v.is_object()) {
         let mut widths = json!({});
         for key in ["name", "type", "size", "mtime", "status"] {
-            if let Some(width) = p
-                .get("widths")
-                .and_then(|w| w.get(key))
-                .and_then(Value::as_f64)
-            {
+            if let Some(width) = p.get("widths").and_then(|w| w.get(key)).and_then(Value::as_f64) {
                 widths[key] = json!(width.clamp(70.0, 800.0));
             }
         }
@@ -965,11 +943,7 @@ fn is_video_path(path: &std::path::Path) -> bool {
 /// la frontière d'origine accepte déjà. Nécessaire car la webview de l'app
 /// (`tauri://localhost`) applique CORS sur ses fetch vers 127.0.0.1 — sans cet
 /// écho, WKWebView bloque des réponses que le serveur a pourtant servies.
-fn cors_allowed_origin(
-    headers: &HeaderMap,
-    own_port: u16,
-    agent_token: &str,
-) -> Option<HeaderValue> {
+fn cors_allowed_origin(headers: &HeaderMap, own_port: u16, agent_token: &str) -> Option<HeaderValue> {
     let origin = headers.get("origin")?.to_str().ok()?;
     if !(loopback_origin(headers, own_port) || authorized(headers, agent_token)) {
         return None;
@@ -1239,8 +1213,8 @@ async fn quote(
     // 2026-08-16 : « file not found », silencieux côté lecteur).
     let trimmed = raw_rel.trim();
     let zotero_full = zotero::zotero_pdf_path(trimmed);
-    let Some(full) =
-        zotero_full.or_else(|| atelier_core::safe_project_path(&state.root, trimmed).ok())
+    let Some(full) = zotero_full
+        .or_else(|| atelier_core::safe_project_path(&state.root, trimmed).ok())
     else {
         return (
             StatusCode::NOT_FOUND,
@@ -2124,12 +2098,7 @@ fn ensure_gallery_token() {
         .write(true)
         .create_new(true)
         .open(&file)
-        .or_else(|_| {
-            fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(&file)
-        });
+        .or_else(|_| fs::OpenOptions::new().write(true).truncate(true).open(&file));
     if let Ok(mut out) = opened {
         let _ = out.write_all(tok.as_bytes());
         #[cfg(unix)]
@@ -2207,28 +2176,12 @@ mod cors_tests {
         let v = cors_allowed_origin(&headers(Some("tauri://localhost"), None), 19175, "tok");
         assert_eq!(v.unwrap().to_str().unwrap(), "tauri://localhost");
         // même port loopback (pages servies par la galerie elle-même)
-        assert!(
-            cors_allowed_origin(&headers(Some("http://127.0.0.1:19175"), None), 19175, "tok")
-                .is_some()
-        );
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:19175"), None), 19175, "tok").is_some());
         // autre port loopback : refusé sans Bearer, accepté avec le bon Bearer
-        assert!(
-            cors_allowed_origin(&headers(Some("http://127.0.0.1:9999"), None), 19175, "tok")
-                .is_none()
-        );
-        assert!(
-            cors_allowed_origin(
-                &headers(Some("http://127.0.0.1:9999"), Some("tok")),
-                19175,
-                "tok"
-            )
-            .is_some()
-        );
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:9999"), None), 19175, "tok").is_none());
+        assert!(cors_allowed_origin(&headers(Some("http://127.0.0.1:9999"), Some("tok")), 19175, "tok").is_some());
         // origine externe ou « null » : jamais d'écho
-        assert!(
-            cors_allowed_origin(&headers(Some("https://evil.example"), None), 19175, "tok")
-                .is_none()
-        );
+        assert!(cors_allowed_origin(&headers(Some("https://evil.example"), None), 19175, "tok").is_none());
         assert!(cors_allowed_origin(&headers(Some("null"), None), 19175, "tok").is_none());
         // pas d'Origin (curl, navigation) : rien à échoyer, rien à faire
         assert!(cors_allowed_origin(&headers(None, None), 19175, "tok").is_none());
@@ -2445,7 +2398,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/pdfannot",
             get(documents::get_pdfannot).post(documents::post_pdfannot),
         )
-        .route("/pdfannot-all", get(documents::get_pdfannot_all))
+        .route(
+            "/pdfannot-all",
+            get(documents::get_pdfannot_all),
+        )
         .route("/export-png", post(documents::export_png))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard
@@ -2506,10 +2462,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.clone(),
             origin_guard_middleware,
         ))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            cors_middleware,
-        ))
+        .layer(middleware::from_fn_with_state(state.clone(), cors_middleware))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             remote_auth_middleware,

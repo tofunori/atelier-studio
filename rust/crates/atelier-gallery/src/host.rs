@@ -12,8 +12,8 @@ use serde_json::json;
 use std::process::Stdio;
 use tokio::process::Command;
 
-use crate::openable::IMAGE_EXTS as NATIVE_FULLSCREEN_EXTS;
 use crate::{AppState, request_allowed};
+use crate::openable::IMAGE_EXTS as NATIVE_FULLSCREEN_EXTS;
 
 fn json_ok(payload: serde_json::Value) -> axum::response::Response {
     (StatusCode::OK, Json(payload)).into_response()
