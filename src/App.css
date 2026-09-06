@@ -674,8 +674,8 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .custom-select-icon, .custom-select-option-icon { display: inline-flex; align-items: center; justify-content: center;
   flex: none; color: var(--text-muted); }
 .custom-select-chevron { flex: none; color: var(--text-muted); }
-.custom-select-menu { background: var(--bg-pop); border: 1px solid var(--border2);
-  border-radius: var(--r-s); box-shadow: var(--elev-soft); padding: 3px; overflow-y: auto;
+.custom-select-menu { background: var(--bg-pop);
+  border-radius: var(--r-m); box-shadow: var(--elev); padding: 3px; overflow-y: auto;
   min-width: max(120px, var(--anchor-width, 0px)); max-width: min(280px, var(--available-width, 100vw));
   animation: pop-in 130ms ease; transform-origin: top; }
 .custom-select-menu.top { transform-origin: bottom; }
@@ -1267,7 +1267,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
 /* positionné par le Positioner Base UI (PopoverContent plain) — skin seul */
 .rail-menu { background: var(--bg-pop);
-  border: 1px solid var(--border); border-radius: var(--r-m); padding: 12px; width: 200px;
+  border-radius: var(--r-m); padding: 12px; width: 200px;
   display: flex; flex-direction: column; gap: 10px;
   box-shadow: var(--elev); }
 .rail-menu-title { font-size: var(--fs-m); color: var(--text-muted); overflow: hidden;
@@ -2912,7 +2912,7 @@ body.dragging iframe { pointer-events: none; }
 .qa-overlay { position: fixed; inset: 0; z-index: var(--z-quick-ask); background: rgba(0,0,0,0.38);
   display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; }
 .qa-pop { width: min(640px, 94vw); max-height: 74vh; background: var(--bg-pop);
-  border: 1px solid var(--border); border-radius: var(--r-m); display: flex; flex-direction: column;
+  border-radius: var(--r-m); display: flex; flex-direction: column;
   box-shadow: var(--elev); overflow: hidden; }
 .qa-head { display: flex; align-items: center; gap: 9px; padding: 13px 18px 11px;
   font-size: var(--fs-l); color: var(--text-secondary); }
@@ -4067,7 +4067,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-branch-btn svg { flex: none; color: var(--text-muted); }
 .git-branch-btn .git-branch-chevron { width: 13px; height: 13px; color: var(--text-disabled); }
 .git-branch-popover { width: min(420px, calc(100vw - 16px)); padding: 6px;
-  color: var(--text-secondary); background: var(--bg-pop); border: 1px solid var(--border2);
+  color: var(--text-secondary); background: var(--bg-pop);
   border-radius: var(--r-m); box-shadow: var(--elev); --focus-ring-color: var(--border-strong); }
 .git-branch-popover-head { gap: 2px; padding: 4px 7px 6px; }
 .git-branch-popover-head [data-slot="popover-title"] { color: var(--text-primary); font-size: var(--fs-m); }

@@ -940,4 +940,52 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       ).toBe(true);
     }
   });
+
+  // Même règle, mais DÉCOUVERTE par motif : un menu créé demain (`.foo-menu`,
+  // `.bar-pop`, `.baz-dropdown`) est attrapé sans qu'on pense à l'ajouter à la
+  // liste ci-dessus. Cible = dernier maillon d'un sélecteur dont une classe
+  // contient menu / pop / popover / dropdown, ET qui pose son propre fond
+  // (une surface) — les rangées, en-têtes, icônes et wrappers sont ignorés.
+  // Allowlist gelée : chaque entrée dit pourquoi ce n'est PAS une surface de menu.
+  it("menus (par motif) : toute surface *menu*/*pop*/*dropdown* = fond + ombre, sans bordure", () => {
+    const notMenus = new Set<string>([
+      "proj-menu-head", // en-tête teinté DANS .proj-menu (couleur du projet), pas une surface
+      "proj-menu-sep", // filet séparateur de 1 px DANS .proj-menu
+    ]);
+    const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selector: m[1].trim().replace(/\s+/g, " "),
+      body: m[2],
+    }));
+    const pattern = /\.([\w-]*(?:menu|popover|pop|dropdown)[\w-]*)/;
+    const bySurface = new Map<string, { selectors: string[]; bodies: string[] }>();
+    for (const r of rules) {
+      if (r.selector.startsWith("@") || r.selector.includes(":root")) continue;
+      for (const part of r.selector.split(",")) {
+        const last = part.trim().split(/\s+/).pop() ?? "";
+        // uniquement la classe elle-même (pas `.menu li`, pas `.menu:hover`)
+        const m = /^\.([\w-]+)$/.exec(last);
+        if (!m || !pattern.test(last)) continue;
+        const name = m[1];
+        if (notMenus.has(name)) continue;
+        const entry = bySurface.get(name) ?? { selectors: [], bodies: [] };
+        entry.selectors.push(r.selector);
+        entry.bodies.push(r.body);
+        bySurface.set(name, entry);
+      }
+    }
+    const offenders: string[] = [];
+    for (const [name, entry] of bySurface) {
+      // NB : le lookahead négatif vient AVANT les blancs (`:(?!\s*none)`), sinon
+      // `\s*` rétrograde d'un cran et « border: none » passe pour une bordure.
+      // `background: transparent|none` = wrapper (ex. .model-menu autour de .model-list), pas une surface
+      const ownsBackground = entry.bodies.some((b) => /\bbackground(?:-color)?:(?!\s*(?:transparent|none)\b)/.test(b));
+      if (!ownsBackground) continue; // pas une surface : rangée, wrapper, icône
+      const hasBorder = entry.bodies.some((b) => /(?:^|[;\s])border(?!-radius)(?:-(?:top|right|bottom|left))?:(?!\s*(?:none|0)\b)/.test(b));
+      const hasElev = entry.bodies.some((b) => /box-shadow:\s*var\(--elev/.test(b));
+      if (hasBorder) offenders.push(`.${name} : bordure`);
+      if (!hasElev) offenders.push(`.${name} : pas d'ombre var(--elev…)`);
+    }
+    expect(bySurface.size, "le motif ne trouve plus aucun menu — motif cassé ?").toBeGreaterThan(3);
+    expect(offenders, offenders.join(" · ")).toEqual([]);
+  });
 });

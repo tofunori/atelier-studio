@@ -357,19 +357,19 @@
      par overflow:hidden en multiligne. */
   #annotNote{position:fixed;z-index:104;display:none}
   #annotPill{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:102;display:none;
-      align-items:center;gap:2px;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
-      border:1px solid #333a45;border-radius:10px;
-      padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);color:#868d9a;font-size:var(--fs-body, 13px)}
+      align-items:center;gap:2px;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(10px);
+      border-radius:10px;
+      padding:4px;box-shadow:var(--elev);color:var(--muted);font-size:var(--fs-body, 13px)}
   #lb.annot #annotPill.on{display:none}
   #annotPill .ic{display:none}
   #annotPill button{height:28px;width:auto;padding:0 10px;border-radius:6px;border:none;background:transparent;
-      color:#b6bdc7;font-size:var(--fs-body, 13px);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
-  #annotPill button:hover{background:#2c313a;color:#fff}
-  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:#646d7b;font-size:var(--fs-body-s, 12px)}
+      color:var(--txt);font-size:var(--fs-body, 13px);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+  #annotPill button:hover{background:var(--card2);color:var(--txt)}
+  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:var(--faint);font-size:var(--fs-body-s, 12px)}
   #annotPill button.x:hover{background:var(--card2);border:none;color:var(--txt)}
   #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
-      color:#646d7b;font-size:var(--fs-body-s, 12px)}
-  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:var(--card2);border:none;color:#7aa2f7}
+      color:var(--faint);font-size:var(--fs-body-s, 12px)}
+  #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:var(--card2);border:none;color:var(--primary)}
   #annotPill svg{width:13px;height:13px;display:block;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
   #annotPill button#annotPillSend .ic-arrow{display:block}
   #annotPill button#annotPillSend.is-busy .ic-arrow,
