@@ -4816,9 +4816,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .calculs-run-times { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
 .calculs-run-times b { color: var(--text-secondary); font-size: var(--fs-body-s); font-weight: 500; font-variant-numeric: tabular-nums; }
 .calculs-run-times small { color: var(--text-muted); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.calculs-progress { display: block; width: 100%; max-width: 240px; height: 4px; margin-top: 4px;
+.calculs-progress { display: block; width: 100%; max-width: 240px; height: 2px; margin-top: 8px;
   border-radius: var(--radius-pill); background: var(--surface-inset); overflow: hidden; }
-.calculs-progress > i { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent);
+/* Barre sobre : gris secondaire, jamais l'accent (décision Thierry 2026-09-06). */
+.calculs-progress > i { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--text-muted);
   transition: width var(--motion-fast) var(--ease-out); }
 .calculs-mono { font-family: var(--font-code); font-variant-numeric: tabular-nums; }
 .calculs-muted { margin: 16px 0; color: var(--text-muted); font-size: var(--fs-body-s); }

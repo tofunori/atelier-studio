@@ -596,7 +596,9 @@ const RunRow = memo(function RunRow({ run, selected, now, onSelect }: {
           <span>{hostLabel(run.host)} · {run.source}</span>
           <code title={run.command}>{run.command}</code>
         </span>
-        {hasProgress && <ProgressBar current={run.progress!.current} total={run.progress!.total} />}
+        {hasProgress && run.state === "running" && (
+          <ProgressBar current={run.progress!.current} total={run.progress!.total} />
+        )}
       </span>
       <span className="calculs-run-times">
         <b>{runDuration(run, now)}</b>
