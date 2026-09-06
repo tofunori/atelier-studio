@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpDownIcon, FilePlus2Icon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
@@ -10,6 +10,7 @@ import { ContextMenuTrigger } from "./shadcn/context-menu";
 import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu";
 import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";
 import { useBiblioReader } from "./biblio/useBiblioReader";
+import { groupsForSort } from "./biblio/filter";
 import type { PassageTarget, SortBy, ZoteroItem } from "./biblio/types";
 
 export type { ZoteroAddResult } from "./biblio/types";
@@ -219,36 +220,115 @@ export default function BiblioSurface({
     }
   }
 
+  // Geste 1 : les favoris sont un interrupteur de la barre, plus un segment
+  // « Tous / Favoris » — la portée revient à la collection en cours si elle
+  // existe, sinon à toute la bibliothèque.
+  const favOnly = filter === "fav";
+  function toggleFavOnly() {
+    setFilter(favOnly ? (collectionId ? "collection" : "all") : "fav");
+  }
+
+  const pdfCount = visibleItems.reduce((n, item) => n + (item.hasPdf ? 1 : 0), 0);
+  const groups = groupsForSort(visibleItems, sortBy);
+  const showYears = sortBy === "year" || sortBy === "added";
+
+  function renderRow(item: ZoteroItem) {
+    return (
+      <BiblioRowMenu key={item.key} item={item} actions={rowActions}>
+        <ContextMenuTrigger
+          id={`biblio-row-${item.key}`}
+          role="option"
+          aria-selected={selected?.key === item.key}
+          className="biblio-row"
+          ref={(el: HTMLElement | null) => {
+            if (el) rowRefs.current.set(item.key, el);
+            else rowRefs.current.delete(item.key);
+          }}
+        >
+          <RowButton
+            className="biblio-main-button"
+            onClick={() => selectItem(item, { openPdf: !readerOpen })}
+            title={item.title}
+          >
+            <span className="biblio-title">{item.title}</span>
+            <span className="biblio-meta">
+              <span className="biblio-meta-authors">{item.creators || t("common.unknown-author")}</span>
+              {item.year && <span className="biblio-meta-year">{item.year}</span>}
+              {item.publication && <span className="biblio-meta-source">{item.publication}</span>}
+            </span>
+          </RowButton>
+          <span className="biblio-row-side">
+            {item.hasPdf && <span className="biblio-pdf-badge">PDF</span>}
+            <IconButton
+              className={`biblio-star ${item.fav ? "on" : ""}`}
+              label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
+              onClick={() => toggleFav(item)}
+            >
+              <StarIcon />
+            </IconButton>
+          </span>
+        </ContextMenuTrigger>
+      </BiblioRowMenu>
+    );
+  }
+
   return (
     <div className={`biblio-surface ${readerOpen ? "" : "no-reader"} ${listOpen ? "" : "no-list"}`}
       onKeyDown={onSurfaceKeyDown}
-      style={listOpen && readerOpen ? { gridTemplateColumns: `${listW}px 4px minmax(0, 1fr)` } : undefined}>
+      style={listOpen && readerOpen ? { gridTemplateColumns: `${listW}px 8px minmax(0, 1fr)` } : undefined}>
       {listOpen && (
       <aside className="biblio-left">
-        <div className="biblio-search-row">
-          <span className="biblio-search-icon"><SearchIcon /></span>
-          <Input
-            ref={searchRef}
-            className="biblio-search-input"
-            value={search}
-            onChange={(e) => { setPassageTarget(null); setSearch(e.target.value); }}
-            placeholder={t("biblio.search")}
-            aria-label={t("biblio.search")}
+        <div className="biblio-bar">
+          <label className="biblio-search">
+            <span className="biblio-search-icon"><SearchIcon /></span>
+            <Input
+              ref={searchRef}
+              className="biblio-search-input"
+              value={search}
+              onChange={(e) => { setPassageTarget(null); setSearch(e.target.value); }}
+              placeholder={t("biblio.search")}
+              aria-label={t("biblio.search")}
+            />
+            <kbd className="biblio-search-kbd" aria-hidden="true">/</kbd>
+          </label>
+          <Select
+            className="biblio-sort"
+            title={t("biblio.sort-current", { sort: sortLabels[sortBy] })}
+            value={sortBy}
+            onChange={(value) => changeSort(value as SortBy)}
+            triggerIcon={<ArrowUpDownIcon />}
+            menuLabel={t("biblio.sort-menu")}
+            menuClassName="biblio-sort-menu"
+            positionerClassName="biblio-sort-positioner"
+            alignItemWithTrigger={false}
+            align="start"
+            options={[
+              { value: "added", label: sortLabels.added },
+              { value: "year", label: sortLabels.year },
+              { value: "author", label: sortLabels.author },
+              { value: "title", label: sortLabels.title },
+            ]}
           />
-          {!readerOpen && paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
-        </div>
-        <div className="biblio-filters">
-          <Button variant="ghost" className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>{t("biblio.all")}</Button>
-          <IconButton size="s" className={filter === "fav" ? "on" : ""} onClick={() => setFilter("fav")} label={t("biblio.favorites")}>
+          <IconButton size="s" aria-pressed={favOnly} onClick={toggleFavOnly}
+            title={t("biblio.favorites-only")} label={t("biblio.favorites")}>
             <StarIcon />
           </IconButton>
-          <IconButton size="s" className={pdfOnly ? "on" : ""} onClick={togglePdfOnly}
+          <IconButton size="s" aria-pressed={pdfOnly} onClick={togglePdfOnly}
             title={t("biblio.pdf-only")} label={t("biblio.pdf-only")}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
               <path d="M6 9.2h4M6 11.2h2.5" />
             </svg>
           </IconButton>
+          <IconButton size="s" className="biblio-add" onClick={addPdfs} disabled={adding}
+            title={t("biblio.add-pdf")} label={t("biblio.add-pdf")}>
+            {adding
+              ? <Spinner data-icon="inline-start" />
+              : <FilePlus2Icon data-icon="inline-start" aria-hidden="true" />}
+          </IconButton>
+          {!readerOpen && paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
+        </div>
+        <div className="biblio-scope">
           <Select
             className="biblio-collection-select"
             title={t("biblio.collection-aria")}
@@ -263,32 +343,16 @@ export default function BiblioSurface({
               ...collections.map((collection) => ({ value: String(collection.id), label: collection.name })),
             ]}
           />
-          <div className="biblio-actions">
-            <Select
-              className="biblio-sort"
-              title={t("biblio.sort-current", { sort: sortLabels[sortBy] })}
-              value={sortBy}
-              onChange={(value) => changeSort(value as SortBy)}
-              triggerIcon={<ArrowUpDownIcon />}
-              menuLabel={t("biblio.sort-menu")}
-              menuClassName="biblio-sort-menu"
-              positionerClassName="biblio-sort-positioner"
-              alignItemWithTrigger={false}
-              align="start"
-              options={[
-                { value: "added", label: sortLabels.added },
-                { value: "year", label: sortLabels.year },
-                { value: "author", label: sortLabels.author },
-                { value: "title", label: sortLabels.title },
-              ]}
-            />
-            <IconButton size="m" className="biblio-add" onClick={addPdfs} disabled={adding}
-              title={t("biblio.add-pdf")} label={t("biblio.add-pdf")}>
-              {adding
-                ? <Spinner data-icon="inline-start" />
-                : <FilePlus2Icon data-icon="inline-start" aria-hidden="true" />}
-            </IconButton>
-          </div>
+          <span className="biblio-scope-sep" aria-hidden="true">·</span>
+          <span className="biblio-scope-count">
+            {visibleItems.length === 1
+              ? t("biblio.scope-refs-one")
+              : t("biblio.scope-refs", { count: visibleItems.length })}
+          </span>
+          <span className="biblio-scope-sep" aria-hidden="true">·</span>
+          <span className="biblio-scope-count">
+            {pdfCount === 1 ? t("biblio.scope-pdf-one") : t("biblio.scope-pdf", { count: pdfCount })}
+          </span>
         </div>
         {addNote && <div className="biblio-add-note">{addNote}</div>}
         {error && <div className="biblio-empty" role="status">{error}</div>}
@@ -311,40 +375,16 @@ export default function BiblioSurface({
             </div>
           )}
           {!error && !loading && visibleItems.length === 0 && <div className="biblio-empty">{t("biblio.empty")}</div>}
-          {!loading && visibleItems.map((item) => (
-            <BiblioRowMenu key={item.key} item={item} actions={rowActions}>
-              <ContextMenuTrigger
-                id={`biblio-row-${item.key}`}
-                role="option"
-                aria-selected={selected?.key === item.key}
-                className={`biblio-row ${selected?.key === item.key ? "on" : ""}`}
-                ref={(el: HTMLElement | null) => {
-                  if (el) rowRefs.current.set(item.key, el);
-                  else rowRefs.current.delete(item.key);
-                }}
-              >
-                <RowButton
-                  className="biblio-main-button"
-                  onClick={() => selectItem(item, { openPdf: !readerOpen })}
-                  title={item.title}
-                >
-                  <span className="biblio-title">{item.title}</span>
-                  <span className="biblio-meta">
-                    <span className="biblio-meta-authors">{item.creators || t("common.unknown-author")}</span>
-                    {item.year && <span className="biblio-meta-year">{item.year}</span>}
-                    {item.publication && <span className="biblio-meta-source">{item.publication}</span>}
-                    {item.hasPdf && <span className="biblio-pdf-badge">PDF</span>}
-                  </span>
-                </RowButton>
-                <IconButton
-                  className={`biblio-star ${item.fav ? "on" : ""}`}
-                  label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                  onClick={() => toggleFav(item)}
-                >
-                  <StarIcon />
-                </IconButton>
-              </ContextMenuTrigger>
-            </BiblioRowMenu>
+          {!loading && groups.map((group) => (
+            <Fragment key={group.year || "biblio-no-year"}>
+              {showYears && (
+                <div className="biblio-year">
+                  {group.year || t("biblio.no-year")}
+                  <small>{group.items.length}</small>
+                </div>
+              )}
+              {group.items.map(renderRow)}
+            </Fragment>
           ))}
         </div>
       </aside>
@@ -361,26 +401,29 @@ export default function BiblioSurface({
           </IconButton>
           <div className="biblio-reader-title">
             <span>{selected?.title ?? t("biblio.title")}</span>
-            {selected && <small>{creatorLine(selected)}</small>}
+            {selected && (
+              <small>
+                <span className="biblio-reader-authors">{selected.creators || t("common.unknown-author")}</span>
+                {selected.year && <span className="biblio-reader-year">{selected.year}</span>}
+                {selected.publication && <i className="biblio-reader-source">{selected.publication}</i>}
+              </small>
+            )}
           </div>
-          <Button variant="ghost" className={`biblio-citekey ${cited ? "ok" : ""}`} disabled={!selected}
-            title={t("biblio.cite-tip")} onClick={() => cite(selected)}>
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M3 9.5C3 6.5 4.8 4.4 7 3.5l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1C4.4 11.6 3 10.8 3 9.5zm6.5 0c0-3 1.8-5.1 4-6l.6 1.2c-1.4.7-2.3 1.8-2.5 3 .2-.1.5-.2.9-.2 1.1 0 2 .9 2 2s-.9 2.1-2.1 2.1c-1.5 0-2.9-.8-2.9-2.1z"/>
-            </svg>
-            <span>{cited ? "✓" : (selected ? `@${selected.citeKey || selected.key}` : "@…")}</span>
-          </Button>
-          <IconButton
-            className={`ghost ${kbPinned === "ok" ? "kb-flash-ok" : ""}${kbPinned === "err" ? " kb-flash-err" : ""}`}
-            disabled={!selected?.pdfKey || !selected?.pdfFile}
-            title={kbPinned === "ok" ? t("biblio.added-kb") : t("biblio.add-kb")}
-            label={t("biblio.add-kb")}
-            onClick={() => selected && pinToKb(selected)}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-            </svg>
-          </IconButton>
+          <div className="biblio-reader-actions">
+            <Button
+              variant="ghost"
+              className={`biblio-pin ${kbPinned === "ok" ? "kb-flash-ok" : ""}${kbPinned === "err" ? " kb-flash-err" : ""}`}
+              disabled={!selected?.pdfKey || !selected?.pdfFile}
+              title={t("biblio.add-kb")}
+              onClick={() => selected && pinToKb(selected)}
+            >
+              {kbPinned === "ok" ? t("biblio.pinned") : t("biblio.pin")}
+            </Button>
+            <Button variant="primary" className={`biblio-cite-action ${cited ? "ok" : ""}`} disabled={!selected}
+              title={t("biblio.cite-tip")} onClick={() => cite(selected)}>
+              {cited ? t("biblio.cited") : t("biblio.cite-action")}
+            </Button>
+          </div>
           {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
           <IconButton className="ghost git-icon-btn" title={t("action.close-reader")}
             label={t("action.close-reader")} onClick={toggleReader}>
