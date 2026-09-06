@@ -63,10 +63,19 @@ export function resolveEngine(
 
 export function createEditor(options: StudioEditorOptions): StudioEditor {
   let engine = resolveEngine(location.search, window.localStorage, options.defaultEngine);
-  if (engine === "cm6" && typeof window.AtelierStudioCM6?.createStudioEditor !== "function") {
-    if (typeof window.CodeMirror !== "function") throw new Error("Atelier editor: neither CM6 nor CM5 is available");
+  const hasCm6 = typeof window.AtelierStudioCM6?.createStudioEditor === "function";
+  const hasCm5 = typeof window.CodeMirror === "function";
+  if (engine === "cm6" && !hasCm6) {
+    if (!hasCm5) throw new Error("Atelier editor: neither CM6 nor CM5 is available");
     console.warn("[Atelier editor] CM6 unavailable; falling back to CM5");
     engine = "cm5";
+  } else if (engine === "cm5" && !hasCm5) {
+    // Pages où la pile CM5 n'est plus chargée (latex_studio.html depuis le
+    // 2026-09-06) : `?engine=cm5` ou un studioEngine persisté ne doit pas
+    // casser la page.
+    if (!hasCm6) throw new Error("Atelier editor: neither CM6 nor CM5 is available");
+    console.warn("[Atelier editor] CM5 not loaded on this page; using CM6");
+    engine = "cm6";
   }
   window.__ENGINE = engine;
   document.documentElement.dataset.editorEngine = engine;

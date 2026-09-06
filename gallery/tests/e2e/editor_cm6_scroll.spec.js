@@ -76,7 +76,13 @@ test('first pointer selection in a long unfocused LaTeX document keeps the viewp
     await page.goto(url);
     await waitForEditor(page);
     await firstPointerSelection(page);
-    await expect(page.locator('.cm-clsel')).toBeVisible();
+    // Sélection native (pas de couche drawSelection ni de mark .cm-clsel) :
+    // la fenêtre porte une sélection non vide dans .cm-content.
+    await expect.poll(() => page.evaluate(() => {
+      const sel = window.getSelection();
+      return sel && !sel.isCollapsed && document.querySelector('.cm-content')?.contains(sel.anchorNode);
+    })).toBe(true);
+    await expect(page.locator('.cm-selectionLayer .cm-selectionBackground')).toHaveCount(0);
   });
 });
 

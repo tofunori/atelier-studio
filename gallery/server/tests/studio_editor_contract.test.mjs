@@ -26,6 +26,9 @@ const codeCsvViewSource = await readFile(new URL("../../src/studio/features/code
 const latexSurfaceSource = await readFile(new URL("../../src/studio/surfaces/latex.ts", import.meta.url), "utf8");
 const codeSurfaceSource = await readFile(new URL("../../src/studio/surfaces/code.ts", import.meta.url), "utf8");
 const markdownSurfaceSource = await readFile(new URL("../../src/studio/surfaces/markdown.ts", import.meta.url), "utf8");
+const ghostSource = await readFile(new URL("../../assets/cm6/ghost_ai.mjs", import.meta.url), "utf8");
+const latexStudioHtml = studioHtml;
+const latexStudioCss = latexCss;
 const {languageKindFor} = await import("../../assets/cm6/studio_editor.mjs");
 
 test("CM6 facade exposes the complete engine-neutral diff contract", () => {
@@ -55,11 +58,39 @@ test("CM6 preserves viewport state and accepts CM5 scroll ranges", () => {
   assert.doesNotMatch(source, /scrollIntoView:\s*\(pos[^]*?y:\s*["']center["']/);
 });
 
-test("CM6 selection highlighting is derived without a follow-up mark transaction", () => {
-  assert.match(source, /EditorView\.decorations\.compute\(\["selection"\]/);
+test("CM6 selection is the native browser selection: no drawSelection, no per-tick mark, no follow-up markText", () => {
+  // Banc scripts/bench_editor.mjs (2026-09-06) : la mark recalculée par
+  // transaction redécoupait les spans à chaque tick de drag (10,8 → 2,0 ms/pas).
+  assert.doesNotMatch(source, /\bdrawSelection\(\),/);
+  assert.doesNotMatch(source, /EditorView\.decorations\.compute\(\["selection"\]/);
+  assert.doesNotMatch(source, /class:\s*["']cm-clsel["']/);
+  assert.match(source, /::selection/);
   assert.match(source, /hasNativeSelectionHighlight:\s*true/);
   assert.match(selectionBridgeSource, /hasNativeSelectionHighlight/);
   assert.match(selectionBridgeSource, /editor\.markText/);
+});
+
+test("CM6 selection-match highlighting and hanging indent run at rest, not per tick", () => {
+  assert.doesNotMatch(source, /highlightSelectionMatches\(/);
+  assert.match(source, /RESTING_MATCH_DELAY/);
+  assert.match(source, /new SearchCursor\(/);
+  assert.match(source, /charWidth !== this\.charWidth/);
+  assert.doesNotMatch(source, /update\.docChanged \|\| update\.viewportChanged \|\| update\.geometryChanged/);
+});
+
+test("CM6 ghost recomputes only when the suggestion changes and never on a non-empty selection", () => {
+  assert.match(ghostSource, /function sameGhost\(/);
+  assert.match(ghostSource, /if \(!sameGhost\(current, local\)\) v\.dispatch/);
+  assert.match(ghostSource, /if \(!update\.state\.selection\.main\.empty\)/);
+  assert.match(ghostSource, /TOKENS_STALE_MS/);
+  assert.match(ghostSource, /docTextCache/);
+});
+
+test("latex_studio.html loads the CM6 engine only", () => {
+  assert.doesNotMatch(latexStudioHtml, /\/\.fig_thumbs\/cm\//);
+  assert.match(latexStudioHtml, /cm6\/studio_cm6\.bundle\.js/);
+  assert.doesNotMatch(latexStudioCss, /\.CodeMirror|cm-s-material-darker|cm-clsel|cm-selectionLayer/);
+  assert.match(editorFactorySource, /CM5 not loaded on this page; using CM6/);
 });
 
 test("CM6 uses native tracked decorations, readOnly compartments, and gutter markers", () => {

@@ -8,36 +8,6 @@
 <script>AtelierStudioRuntime.bootstrap({tokenFetch:true,hostBridge:true,latexDisplayPolicy:true,legacyTheme:"orange"});</script>
 <script src="/.fig_thumbs/studio_core.bundle.js"></script>
 <script src="/.fig_thumbs/latex_features.bundle.js"></script>
-<link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
-<link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
-<script src="/.fig_thumbs/cm/codemirror.min.js"></script>
-<link rel="stylesheet" href="/.fig_thumbs/cm/addon/dialog.css">
-<link rel="stylesheet" href="/.fig_thumbs/cm/addon/foldgutter.css">
-<link rel="stylesheet" href="/.fig_thumbs/cm/addon/matchesonscrollbar.css">
-<script src="/.fig_thumbs/cm/addon/dialog.js"></script>
-<script src="/.fig_thumbs/cm/addon/searchcursor.js"></script>
-<script src="/.fig_thumbs/cm/addon/search.js"></script>
-<script src="/.fig_thumbs/cm/addon/jump-to-line.js"></script>
-<script src="/.fig_thumbs/cm/addon/annotatescrollbar.js"></script>
-<script src="/.fig_thumbs/cm/addon/matchesonscrollbar.js"></script>
-<script src="/.fig_thumbs/cm/addon/match-highlighter.js"></script>
-<script src="/.fig_thumbs/cm/addon/matchbrackets.js"></script>
-<script src="/.fig_thumbs/cm/addon/closebrackets.js"></script>
-<script src="/.fig_thumbs/cm/addon/foldcode.js"></script>
-<script src="/.fig_thumbs/cm/addon/foldgutter.js"></script>
-<script src="/.fig_thumbs/cm/addon/brace-fold.js"></script>
-<script src="/.fig_thumbs/cm/addon/indent-fold.js"></script>
-<script src="/.fig_thumbs/cm/addon/comment-fold.js"></script>
-<script src="/.fig_thumbs/cm/addon/markdown-fold.js"></script>
-<script src="/.fig_thumbs/cm/addon/xml-fold.js"></script>
-<script src="/.fig_thumbs/cm/mark-selection.min.js"></script>
-<script src="/.fig_thumbs/cm/stex.min.js"></script>
-<script src="/.fig_thumbs/cm/python.min.js"></script>
-<script src="/.fig_thumbs/cm/r.min.js"></script>
-<script src="/.fig_thumbs/cm/markdown.min.js"></script>
-<script src="/.fig_thumbs/cm/julia.min.js"></script>
-<script src="/.fig_thumbs/cm/shell.min.js"></script>
-<script src="/.fig_thumbs/cm/javascript.min.js"></script>
 <script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
 <script src="/.fig_thumbs/sel_pill.js"></script>
 <script src="/.fig_thumbs/marked.min.js"></script>
@@ -47,6 +17,9 @@
 <script src="/.fig_thumbs/csv_table.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/katex/katex.min.css">
 <script src="/.fig_thumbs/katex/katex.min.js"></script>
+<!-- Moteur unique : CodeMirror 6 (studio_cm6.bundle.js). La pile CM5 (codemirror.min.*, addons,
+     modes, mark-selection) a été retirée le 2026-09-06 : jamais instanciée sous cm6, ses feuilles
+     CSS se battaient avec les classes .cm-* de CM6 (chaîne de !important pour la sélection). -->
 <script src="/.fig_thumbs/cm6/studio_cm6.bundle.js"></script>
 <script src="/.fig_thumbs/editor_factory.js"></script>
 <script src="/.fig_thumbs/studio_surfaces.bundle.js"></script>
