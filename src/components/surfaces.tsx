@@ -4,13 +4,12 @@
 // Tailles à 19px (viewBox 16x16 inchangée) : mêmes icônes qu'avant, rendues
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
-import { ServerCogIcon } from "lucide-react";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "narval" | "preuves";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.narval" | "atelier.preuves";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves";
   icon: React.ReactNode;
 }[] = [
   {
@@ -81,9 +80,16 @@ export const SURFACES: {
     ),
   },
   {
-    id: "narval",
-    labelKey: "atelier.narval",
-    icon: <ServerCogIcon width={19} height={19} strokeWidth={1.3} />,
+    // Calculs (plan 2026-09-06) : cadran — calculs longs local/NAS/Slurm,
+    // dont l'ancienne surface Narval devient la « vue Slurm ».
+    id: "calculs",
+    labelKey: "atelier.calculs",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="M8 4.4V8l2.4 1.6" />
+      </svg>
+    ),
   },
   {
     id: "generateur",

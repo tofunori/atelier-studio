@@ -144,6 +144,26 @@ describe("workspaceLayout", () => {
     expect(findTabPaneId(layout.root, "document:main.tex")).not.toBeNull();
   });
 
+  it("migre une surface persistée « narval » vers « calculs » (onglet et actif)", () => {
+    const stored: WorkspaceLayout = {
+      version: 1,
+      focusedPaneId: "p1",
+      root: {
+        type: "pane", id: "p1", activeTabId: "surface:narval",
+        tabs: [{ kind: "surface", surface: "atelier" }, { kind: "surface", surface: "narval" as never }],
+      },
+    };
+    const store = storage({ [`${WORKSPACE_LAYOUT_PREFIX}/proj`]: JSON.stringify(stored) });
+    const layout = loadWorkspaceLayout(store, "/proj", [], "gallery", ids());
+    const pane = listWorkspacePanes(layout.root)[0];
+    expect(pane.tabs.map(workspaceTabId)).toEqual(["surface:atelier", "surface:calculs"]);
+    // reconcile réactive l'id externe (« gallery ») : l'ancien actif doit
+    // néanmoins avoir été réécrit avant, sinon il aurait été perdu
+    expect(findTabPaneId(layout.root, "surface:calculs")).toBe("p1");
+    expect(findTabPaneId(layout.root, "surface:narval")).toBeNull();
+    expect(parseWorkspaceLayout(stored)?.root).toMatchObject({ activeTabId: "surface:calculs" });
+  });
+
   it("rejette un JSON hostile et recharge un layout sain", () => {
     expect(parseWorkspaceLayout({ version: 1, focusedPaneId: "x", root: { type: "wat" } })).toBeNull();
     const project = "/tmp/project";

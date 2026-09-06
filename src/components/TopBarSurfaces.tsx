@@ -59,7 +59,11 @@ export function readPinned(): TargetId[] {
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PINNED;
-    const list = parsed.filter((id): id is TargetId => typeof id === "string").slice(0, MAX_PINNED);
+    const list = parsed
+      .filter((id): id is string => typeof id === "string")
+      // surface renommée 2026-09-06 : une épingle persistée « narval » suit
+      .map((id): TargetId => (id === "narval" ? "calculs" : id) as TargetId)
+      .slice(0, MAX_PINNED);
     if (!list.includes("preuves") && !localStorage.getItem(PREUVES_MIGRATION_KEY)) {
       localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
       if (list.length < MAX_PINNED) {
