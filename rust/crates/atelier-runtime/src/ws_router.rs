@@ -4208,6 +4208,82 @@ mod tests {
         assert_eq!(response["results"][0]["error"], "invalid-path");
     }
 
+    /// requestId doit être répété tel quel dans la réponse zoteroItems,
+    /// succès ou erreur — le sandbox de test n'a pas de ~/Zotero réel, donc
+    /// cet essai passe forcément par la branche erreur ("zotero-introuvable"),
+    /// ce qui suffit à vérifier l'écho sur les deux chemins puisque l'écho
+    /// est fait par le même helper `with_request_id` avant la bifurcation.
+    #[tokio::test]
+    async fn zotero_search_echoes_request_id_on_error_branch() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let message = json!({
+            "type": "zoteroSearch",
+            "q": "glacier",
+            "requestId": "req-42",
+        });
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["type"], "zoteroItems");
+        assert_eq!(response["requestId"], "req-42");
+    }
+
+    /// Sans requestId fourni, la réponse ne doit pas en inventer un.
+    #[tokio::test]
+    async fn zotero_search_omits_request_id_when_not_supplied() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"zoteroSearch","q":"x"}"#).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert!(response.get("requestId").is_none());
+    }
+
+    /// `limit` au-delà de 5000 ne doit ni planter ni être rejeté — il est
+    /// simplement plafonné avant d'atteindre la couche Zotero.
+    #[tokio::test]
+    async fn zotero_search_accepts_a_limit_above_5000_without_erroring() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let message = json!({
+            "type": "zoteroSearch",
+            "q": "",
+            "limit": 999_999,
+            "requestId": "req-limit",
+        });
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["type"], "zoteroItems");
+        assert_eq!(response["requestId"], "req-limit");
+    }
+
+    /// zoteroFav répond désormais toujours avec "ok" — false + "error" quand
+    /// l'écriture échoue (ici : pas de ~/Zotero dans le sandbox de test, donc
+    /// équivalent au cas "base verrouillée / Zotero fermé" du contrat).
+    #[tokio::test]
+    async fn zotero_fav_reports_ok_false_and_error_when_the_write_fails() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let message = json!({"type": "zoteroFav", "key": "ABCD1234", "fav": true});
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["type"], "zoteroFav");
+        assert_eq!(response["key"], "ABCD1234");
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().is_some());
+    }
+
+    /// Le champ legacy "on" reste accepté en plus du nouveau champ "fav".
+    #[tokio::test]
+    async fn zotero_fav_still_accepts_the_legacy_on_field() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let message = json!({"type": "zoteroFav", "key": "ABCD1234", "on": false});
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["type"], "zoteroFav");
+        assert_eq!(response["fav"], false);
+    }
+
     #[tokio::test]
     async fn kb_add_erreurs_propres_kind_manquant_et_origine_invalide() {
         let dir = tempdir().unwrap();

@@ -217,7 +217,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
   });
 
   it("le filtre favoris et le filtre PDF réduisent la liste", () => {
-    const ws = mount(makeWs());
+    mount(makeWs());
     deliver(ITEMS, 1);
     act(() => fireEvent.click(screen.getByLabelText("Seulement avec PDF")));
     expect(rowTitles()).toEqual(["Névés du Québec"]);
@@ -228,15 +228,14 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
   });
 
   it("le tri change l'ordre de la liste", () => {
-    const ws = mount(makeWs());
+    mount(makeWs());
     deliver(ITEMS, 1);
     expect(rowTitles()).toEqual(["Albedo of ice", "Melt ponds", "Névés du Québec"]);
     act(() => { localStorage.setItem("atelier-studio.biblio.sort", "year"); });
     cleanup();
-    const ws2 = mount(makeWs());
+    mount(makeWs());
     deliver(ITEMS, 1);
     expect(rowTitles()).toEqual(["Albedo of ice", "Névés du Québec", "Melt ponds"]);
-    expect(ws2).toBeTruthy();
   });
 
   it("↑/↓ déplacent la sélection et marquent aria-selected", () => {

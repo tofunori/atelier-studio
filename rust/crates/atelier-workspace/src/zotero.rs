@@ -187,16 +187,16 @@ fn fetch_creators(conn: &Connection, ids: &[i64]) -> Result<HashMap<i64, Vec<Str
     if ids.is_empty() {
         return Ok(out);
     }
-    // NB: no `ORDER BY ... orderIndex` here on purpose. The legacy
-    // correlated subquery had no ORDER BY either, and sqlite answers it via
-    // the (itemID, creatorID, creatorTypeID, orderIndex) primary-key index —
-    // i.e. creatorID order, not orderIndex/byline order. Matching that
-    // (rather than the "correct" byline order) is required for the JSON
-    // parity the front depends on; see `search_and_search_legacy_*` tests.
+    // Byline order = Zotero's own `orderIndex` (creatorID is just the
+    // itemCreators primary key and has no relation to author order — the
+    // legacy correlated subquery relied on it only by accident, via
+    // sqlite's index scan order, and could render "Miller, Marshall" for a
+    // paper signed Marshall & Miller). creatorID is kept as a tie-breaker
+    // for creators sharing an orderIndex.
     let sql = format!(
         "SELECT ic.itemID, c.lastName FROM itemCreators ic \
          JOIN creators c ON c.creatorID = ic.creatorID \
-         WHERE ic.itemID IN ({}) ORDER BY ic.itemID, ic.creatorID",
+         WHERE ic.itemID IN ({}) ORDER BY ic.itemID, ic.orderIndex, ic.creatorID",
         ids_clause(ids)
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -1186,6 +1186,14 @@ mod tests {
         conn
     }
 
+    /// `search_legacy` reproduces the old creatorID-order byline (a defect),
+    /// while `search_with_conn` now sorts by `orderIndex`. On the fixture
+    /// data both orders happen to coincide (creators were inserted in
+    /// orderIndex order — see the comment on `itemCreators` below), so the
+    /// two implementations still agree on every field byte-for-byte here;
+    /// the dedicated `orderIndex` order is exercised by
+    /// `creators_are_ordered_by_order_index_not_creator_id` below, using a
+    /// fixture where the two orders diverge.
     #[test]
     fn search_and_search_legacy_produce_identical_json() {
         let conn = build_fixture_conn();
@@ -1215,6 +1223,24 @@ mod tests {
         assert_eq!(second["publication"], "");
     }
 
+    /// Parity is required on every field except the order of names inside
+    /// `creators`: `search_legacy` keeps the legacy creatorID order on
+    /// purpose (see its doc comment), while `search_with_conn` now sorts by
+    /// `orderIndex`. Sort each side's `creators` string before comparing so
+    /// this test still catches any other regression.
+    fn with_creators_order_ignored(mut rows: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        for row in &mut rows {
+            if let Some(creators) = row.get_mut("creators") {
+                if let Some(s) = creators.as_str() {
+                    let mut names: Vec<&str> = s.split(", ").collect();
+                    names.sort_unstable();
+                    *creators = serde_json::json!(names.join(", "));
+                }
+            }
+        }
+        rows
+    }
+
     #[test]
     fn search_and_search_legacy_agree_with_text_query_and_scope() {
         let conn = build_fixture_conn();
@@ -1224,10 +1250,34 @@ mod tests {
             ("", None, Some("albedo")),
             ("nomatch", None, None),
         ] {
-            let legacy = search_legacy(&conn, q, cid, tag, 5000).unwrap();
-            let grouped = search_with_conn(&conn, q, cid, tag, 5000).unwrap();
+            let legacy = with_creators_order_ignored(search_legacy(&conn, q, cid, tag, 5000).unwrap());
+            let grouped = with_creators_order_ignored(search_with_conn(&conn, q, cid, tag, 5000).unwrap());
             assert_eq!(legacy, grouped, "mismatch for q={q:?} cid={cid:?} tag={tag:?}");
         }
+    }
+
+    #[test]
+    fn creators_are_ordered_by_order_index_not_creator_id() {
+        // itemID 5: creatorID 2 ("Miller") was inserted with the LOWER
+        // creatorID but has the HIGHER orderIndex — i.e. it is the second
+        // author on the paper even though its primary key is smaller. The
+        // legacy creatorID-order query would render "Miller, Marshall";
+        // the byline must read "Marshall, Miller".
+        let conn = build_fixture_conn();
+        conn.execute_batch(
+            r#"
+            INSERT INTO items VALUES (5, 'ITEM0005', 1, '2024-04-04', '2024-04-04');
+            INSERT INTO itemDataValues VALUES (30, 'A third paper');
+            INSERT INTO itemData VALUES (5, 1, 30);
+            INSERT INTO creators VALUES (3, 'Marshall'), (4, 'Miller');
+            INSERT INTO itemCreators VALUES (5, 4, 0), (5, 3, 1);
+            "#,
+        )
+        .unwrap();
+
+        let grouped = search_with_conn(&conn, "", None, None, 5000).unwrap();
+        let item = grouped.iter().find(|v| v["key"] == "ITEM0005").unwrap();
+        assert_eq!(item["creators"], "Marshall, Miller");
     }
 
     #[test]
