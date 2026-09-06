@@ -39,6 +39,11 @@ body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
 /* Un « résultat » de recherche est ici un BLOC entier (la colonne n'a pas de
    spans de mots) : un fond pleine largeur sur tout le paragraphe noyait le
    texte. Repère discret en marge + voile très léger. */
+/* Soulignement et barré : mêmes marques, sans aplat — la couleur de
+   l'annotation passe par --read-mark-line, posée en ligne par le lecteur. */
+#reading mark.pdfhl-ul,#reading mark.pdfhl-st{background:transparent}
+#reading mark.pdfhl-ul{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px;text-decoration-color:var(--read-mark-line,var(--accent))}
+#reading mark.pdfhl-st{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:var(--read-mark-line,var(--accent))}
 #reading .find-hit{box-shadow:inset 2px 0 0 var(--accent);background:var(--read-hit-bg);border-radius:6px}
 #reading .find-cur{outline:1px solid var(--ring);outline-offset:2px;border-radius:6px}
 /* top : hauteur du <header> collant du lecteur (44-46px), posée en JS via

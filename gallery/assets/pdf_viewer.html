@@ -1868,8 +1868,11 @@ function drawReadingAnnots(){
     }
     if (!s || !e) continue;
     range.setStart(s[0], s[1]); range.setEnd(e[0], e[1]);
-    const mark = document.createElement("mark"); mark.className = "pdfhl"; mark.dataset.annot = String(a.id);
-    if (a.color) mark.style.background = a.color;
+    const mark = document.createElement("mark"); mark.className = "pdfhl" + (a.kind === "ul" || a.kind === "st" ? " pdfhl-" + a.kind : "");
+    mark.dataset.annot = String(a.id);
+    // soulignement / barré : la couleur porte le trait, pas un aplat (les
+    // classes correspondantes vident le fond dans pdf_reading.css).
+    if (a.color) mark.style.setProperty(a.kind === "ul" || a.kind === "st" ? "--read-mark-line" : "background", a.color);
     try { range.surroundContents(mark); } catch(_) { /* plage à cheval sur des nœuds : ignorée, l'annotation reste visible en vue pages */ continue; }
     mark.onclick = (ev) => { ev.stopPropagation(); annotMenu(a, ev.clientX, ev.clientY); };
   }
@@ -1878,9 +1881,12 @@ document.addEventListener("atelier-reading-rendered", drawReadingAnnots);
 function addHighlightFromSel(kind, color){
   // Aiguillage unique de « annoter la sélection » : en mode lecture la
   // sélection est native et vit dans la colonne, pas dans la couche texte.
+  // défauts posés AVANT l'aiguillage : la colonne de lecture recevait sinon
+  // un `kind` indéfini et créait un commentaire là où on voulait un
+  // surlignage (revue de branche, I4).
+  kind = kind || "hl"; color = color || HL_COLORS[0];
   if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
   if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
-  kind = kind || "hl"; color = color || HL_COLORS[0];
   const model = selectionModel();
   const entries = selectionClientRects(model);
   if(!model || !entries.length) return;

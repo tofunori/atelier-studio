@@ -103,7 +103,10 @@
     var passage = root.AtelierPdfPassage, out = [];
     if (!passage) return out;
     (annots || []).forEach(function(a){
-      if (!(a.kind === "comment" || a.kind === "hl") || !a.text) return;
+      // toutes les marques de TEXTE (les seules qui aient une citation) :
+      // surlignage, soulignement, barré, commentaire. `area`/`note` ont une
+      // géométrie de page, pas de texte à ancrer.
+      if (["comment", "hl", "ul", "st"].indexOf(a.kind) < 0 || !a.text) return;
       var page = Number(a.page) || 1;
       var candidates = (doc.blocks || []).filter(function(b){ return b.lines && b.lines.length && Math.abs(b.page - page) <= 1; });
       candidates.sort(function(x, y){ return Math.abs(x.page - page) - Math.abs(y.page - page); });
@@ -138,6 +141,8 @@
     return out;
   }
 
+  /** `entries` = [{id, top}] TRIÉ PAR `top` croissant (l'ordre du DOM de la
+   *  colonne) : la boucle s'arrête au premier bloc situé sous la position. */
   function blockAtScrollTop(entries, top){
     var best = entries.length ? entries[0].id : null;
     for (var i = 0; i < entries.length; i++) { if (entries[i].top <= top + 1) best = entries[i].id; else break; }

@@ -122,6 +122,13 @@ test("anchorAnnotations retrouve une citation dans le bloc de sa page", () => {
   assert.equal(t.slice(anchored[0].start, anchored[0].end), "energy balance of glaciers");
 });
 
+test("anchorAnnotations ancre aussi soulignements et barrés", () => {
+  const kinds = ["hl", "ul", "st", "comment"].map((kind, i) =>
+    ({id: "k" + i, kind, page: 1, text: "energy balance of glaciers"}));
+  const anchored = R.anchorAnnotations(DOC, kinds.concat([{id: "area", kind: "area", page: 1, text: "energy balance of glaciers"}]));
+  assert.deepEqual(anchored.map(a => a.annotId), ["k0", "k1", "k2", "k3"]);
+});
+
 test("anchorAnnotations : pas d'espace en tête après affinage (fix 1, ruling b)", () => {
   const doc = {version: 1, pages: [{w: 600, h: 800}], blocks: [
     {id: 0, page: 1, kind: "paragraph", bbox: [60, 80, 300, 110], text: "",
@@ -229,5 +236,13 @@ test("contrat lecteur (fix 1) : marques en flux, ordre du scroll, rect du menu",
   assert.match(addBody, /if\(!doc\.pages \|\| !doc\.pages\[block\.lines\[0\]\.page - 1\]\) return;/);
   assert.match(addBody, /selectionToAnnotation\(block, start, end, doc\.pages\)/);
   assert.match(html, /function readingBlockOf\(n\)/);
+  // I4 — soulignement et barré sont rendus dans la colonne, et les défauts
+  // kind/color sont posés AVANT l'aiguillage vers la sélection de lecture.
+  assert.match(html, /pdfhl-" \+ a\.kind/);
+  assert.match(css, /#reading mark\.pdfhl-ul\{[^}]*text-decoration:underline/);
+  assert.match(css, /#reading mark\.pdfhl-st\{[^}]*text-decoration:line-through/);
+  const sw = html.slice(html.indexOf("function addHighlightFromSel("), html.indexOf("/** Sélection dans #readBody"));
+  assert.ok(sw.indexOf('kind = kind || "hl"') < sw.indexOf("addHighlightFromReadingSel(kind, color)"),
+    "défauts kind/color posés avant l'aiguillage vers le mode lecture");
   assert.match(html, /let readingPassageRevealed = false;/);
 });
