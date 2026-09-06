@@ -12503,7 +12503,7 @@ function yi({
         qM,
         {
           "data-slot": "dropdown-menu-content",
-          className: Fe("tw:max-h-(--available-height) tw:min-w-32 tw:max-w-72 tw:origin-(--transform-origin) tw:overflow-x-hidden tw:overflow-y-auto tw:rounded-[var(--radius-control)] tw:bg-popover tw:p-1 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-none", u),
+          className: Fe("tw:max-h-(--available-height) tw:min-w-32 tw:max-w-72 tw:origin-(--transform-origin) tw:overflow-x-hidden tw:overflow-y-auto tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-1 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-none", u),
           ...f
         }
       )
@@ -12589,7 +12589,7 @@ function i2({
     yi,
     {
       "data-slot": "dropdown-menu-sub-content",
-      className: Fe("tw:w-auto tw:min-w-[96px] tw:rounded-[var(--radius-control)] tw:bg-popover tw:p-1 tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10", u),
+      className: Fe("tw:w-auto tw:min-w-[96px] tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-1 tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10", u),
       align: n,
       alignOffset: o,
       side: a,
