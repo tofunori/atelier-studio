@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpDownIcon, FilePlus2Icon } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Select } from "./Select";
@@ -51,10 +52,6 @@ export function pdfViewerUrl(item: ZoteroItem, galleryUrl: string, passage?: Pas
     params.set("quote", passage.quote.slice(0, 900));
   }
   return inheritHash(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, galleryUrl);
-}
-
-function creatorLine(item: ZoteroItem): string {
-  return [item.creators || t("common.unknown-author"), item.year].filter(Boolean).join(" · ");
 }
 
 /** Une saisie en cours ne doit jamais être détournée par un raccourci de liste. */
@@ -162,7 +159,9 @@ export default function BiblioSurface({
     pinToKb,
     toggleFav,
     copyKey: (item) => { void navigator.clipboard?.writeText(item.key); },
-    revealInZotero: (item) => { window.open(`zotero://select/library/items/${item.key}`, "_blank"); },
+    // window.open sur un schéma zotero:// ne fait rien dans la WebView —
+    // l'ouverture externe passe par le helper Tauri (comme Sidebar/Terminal).
+    revealInZotero: (item) => { void openUrl(`zotero://select/library/items/${item.key}`).catch(() => {}); },
   };
 
   const focusList = useCallback(() => {

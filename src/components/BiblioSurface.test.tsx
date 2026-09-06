@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
@@ -294,6 +296,77 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(document.querySelectorAll(".biblio-pdf-badge")).toHaveLength(1);
     expect(document.querySelector(".biblio-pdf-badge")?.textContent).toBe("PDF");
     expect(document.querySelectorAll(".biblio-meta-year")).toHaveLength(3);
+  });
+
+  // ── Raffinement 2026-09-06 : une barre, des années, un rail ──
+
+  it("une SEULE barre : plus de seconde ligne de filtres, et le raccourci « / » s'affiche", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    expect(document.querySelector(".biblio-filters")).toBeNull();
+    expect(document.querySelectorAll(".biblio-bar")).toHaveLength(1);
+    expect(document.querySelector(".biblio-search-kbd")?.textContent).toBe("/");
+    // les deux bascules disent leur état à la techno d'assistance
+    expect(screen.getByLabelText("Favoris").getAttribute("aria-pressed")).toBe("false");
+    act(() => fireEvent.click(screen.getByLabelText("Favoris")));
+    expect(screen.getByLabelText("Favoris").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("la ligne de portée annonce la collection, le nombre de références et de PDF", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    const scope = document.querySelector(".biblio-scope") as HTMLElement;
+    expect(scope).toBeTruthy();
+    expect(scope.textContent).toContain("Collection");
+    expect(scope.textContent).toContain("3 références");
+    expect(scope.textContent).toContain("1 PDF");
+  });
+
+  it("les surtitres d'année n'apparaissent que sur un tri par date ou année", () => {
+    localStorage.setItem("atelier-studio.biblio.sort", "year");
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    expect([...document.querySelectorAll(".biblio-year")].map((el) => el.textContent))
+      .toEqual(["20201", "20011", "19981"]);
+    cleanup();
+    localStorage.setItem("atelier-studio.biblio.sort", "title");
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    expect(document.querySelectorAll(".biblio-year")).toHaveLength(0);
+    expect(rowTitles()).toHaveLength(3);
+  });
+
+  it("la sélection est un rail porté par aria-selected, jamais un bloc « on »", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    const list = document.querySelector(".biblio-list") as HTMLElement;
+    act(() => fireEvent.keyDown(list, { key: "ArrowDown" }));
+    expect(document.querySelectorAll('.biblio-row[aria-selected="true"]')).toHaveLength(1);
+    expect(document.querySelectorAll(".biblio-row.on")).toHaveLength(0);
+    // le rail est un pseudo-élément accroché au SEUL sélecteur aria-selected
+    const css = readFileSync(join(__dirname, "..", "App.css"), "utf8");
+    expect(css).toMatch(
+      /\.biblio-row\[aria-selected="true"\]::before \{[^}]*background:\s*var\(--selection-line\)/,
+    );
+    expect(css).not.toMatch(/\.biblio-row\.on\b/);
+  });
+
+  it("le badge PDF et l'étoile partagent le côté droit de la rangée", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    const side = document.querySelectorAll(".biblio-row-side");
+    expect(side).toHaveLength(3);
+    expect(side[2].querySelector(".biblio-pdf-badge")?.textContent).toBe("PDF");
+    expect(side[2].querySelector(".biblio-star")).toBeTruthy();
+  });
+
+  it("l'en-tête du lecteur propose Épingler et Citer en clair", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    const head = document.querySelector(".biblio-reader-head") as HTMLElement;
+    expect(head.textContent).toContain("Épingler");
+    expect(head.textContent).toContain("Citer");
+    expect(document.querySelector(".biblio-citekey")).toBeNull();
   });
 
   it("le menu contextuel d'une rangée ouvre les actions et copie la clé Zotero", async () => {
