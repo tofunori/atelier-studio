@@ -163,7 +163,7 @@
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
       border:1px solid #3a4150;color:var(--muted);font-size:var(--fs-body, 13px);flex:none}
-  #selPill .tgt:hover,#selPill .tgt.set{border-color:#e8823a;color:#e8823a}
+  #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
   #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
   #selPill .go:hover{background:#e0714a}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;

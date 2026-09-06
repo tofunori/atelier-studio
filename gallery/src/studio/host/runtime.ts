@@ -124,7 +124,7 @@ export function applyLegacyStoredTheme(
   let name = "Default";
   try { name = win.localStorage.getItem("figTheme") || "Default"; } catch { /* use defaults */ }
   const theme = name === "Default"
-    ? {bg: "#202024", card: "#27272a", card2: "#1f1f23", txt: "#dbdfe5", muted: "#a1a1aa", accent: variant === "orange" ? "#e8823a" : "#5b9dff", border: "#3f3f46"}
+    ? {bg: "#1e2124", card: "#24282d", card2: "#2c2f34", txt: "#dadee3", muted: "#90969d", accent: variant === "orange" ? "#e77f3e" : "#7aa2f7", border: "#2a2d31"}
     : LEGACY_THEMES[name];
   if (!theme) return;
   for (const [key, value] of Object.entries(theme)) win.document.documentElement.style.setProperty(`--${key}`, value);

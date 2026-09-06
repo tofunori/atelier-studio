@@ -976,7 +976,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     if (win.self === win.top) return;
     const button = doc.createElement("button");
     button.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-    button.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dbdfe5;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
+    button.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dadee3;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
     doc.body.appendChild(button);
     let selectedText = "";
     button.addEventListener("mousedown", (event) => {

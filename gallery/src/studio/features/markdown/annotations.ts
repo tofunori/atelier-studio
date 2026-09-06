@@ -53,8 +53,8 @@ export function createMarkdownAnnotationsController(
     new Promise((resolve, reject) => {
       let styles = "";
       doc.querySelectorAll("style").forEach((style) => { styles += `${style.textContent || ""}\n`; });
-      const background = cssVariable("--bg", "#202024");
-      const text = cssVariable("--txt", "#dbdfe5");
+      const background = cssVariable("--bg", "#1e2124");
+      const text = cssVariable("--txt", "#dadee3");
       const inner = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;background:${background};color:${text}"><style>${styles}</style>${wrap.outerHTML}</div>`;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${inner}</foreignObject></svg>`;
       const image = doc.createElement("img");
@@ -66,8 +66,8 @@ export function createMarkdownAnnotationsController(
     const activeOverlay = ensureOverlay();
     const width = activeOverlay.width;
     const height = activeOverlay.height;
-    const background = cssVariable("--bg", "#202024");
-    const text = cssVariable("--txt", "#dbdfe5");
+    const background = cssVariable("--bg", "#1e2124");
+    const text = cssVariable("--txt", "#dadee3");
     const composition = doc.createElement("canvas");
     composition.width = width;
     composition.height = height;
