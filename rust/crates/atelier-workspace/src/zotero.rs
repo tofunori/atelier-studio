@@ -30,7 +30,7 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn zotero_dir() -> PathBuf {
+pub fn zotero_dir() -> PathBuf {
     home().join("Zotero")
 }
 

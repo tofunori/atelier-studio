@@ -21,6 +21,7 @@ pub mod state;
 pub mod usage;
 pub mod widgets;
 pub mod ws_router;
+pub mod zotero_watch;
 
 pub use atomic::write_file_atomic;
 pub use instance::{resolve_single_instance, InstanceAction};

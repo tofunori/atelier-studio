@@ -33,6 +33,7 @@ oxc_span = "0.130"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sha2 = "0.10"
 hex = "0.4"
+notify = "8"
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -213,6 +213,10 @@ pub async fn serve_once(
         crate::agent_mailbox::drain_mailbox(&recovery_state).await;
     });
 
+    // Rafraîchissement auto de la bibliothèque Zotero (non fatal si absente).
+    let _zotero_watch =
+        crate::zotero_watch::spawn_zotero_watcher(state.clone(), atelier_workspace::zotero_dir());
+
     let join = tokio::spawn(async move {
         let serve = axum::serve(
             listener,

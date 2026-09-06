@@ -36,5 +36,5 @@ pub use term::{TermEvent, TerminalHub};
 pub use zotero::{
     add_pdfs as zotero_add_pdfs, available as zotero_available, collections as zotero_collections,
     load_favs as zotero_load_favs, pdf_absolute_path, search as zotero_search,
-    toggle_fav as zotero_toggle_fav, ZoteroAddResult, ZoteroItem,
+    toggle_fav as zotero_toggle_fav, zotero_dir, ZoteroAddResult, ZoteroItem,
 };

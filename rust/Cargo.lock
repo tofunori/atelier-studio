@@ -299,6 +299,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "libc",
+ "notify",
  "oxc_allocator",
  "oxc_parser",
  "oxc_semantic",
