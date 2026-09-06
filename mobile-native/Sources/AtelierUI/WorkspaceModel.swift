@@ -62,6 +62,7 @@ final class WorkspaceModel {
     var sidebarQuery = ""
     var sidebarCollapsed: Set<String> = []
     var sidebarGroupsInitialized = false
+    var sidebarPreferences = SidebarProjectPreferences()
     var newChatRequested = false
     var galleryFilters: [String: GalleryFilterState] = [:]
     var lastDocuments: [Surface: OpenDocumentBookmark] = [:]
