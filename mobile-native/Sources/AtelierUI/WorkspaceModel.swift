@@ -72,7 +72,7 @@ final class WorkspaceModel {
     }
     func openArtifact(_ item: GalleryArtifact, data: Data) throws {
         saveCurrentDocument()
-        currentArticle = nil; documentOrigin = .gallery
+        currentArticle = nil; documentOrigin = .gallery; editingSource = false
         if let saved = savedDocuments[item.id] {
             source = saved.source; sourceName = saved.sourceName; pdfName = saved.pdfName
             sourceAvailable = saved.sourceAvailable; pdfDocument = saved.pdf; pdfPage = saved.page
@@ -88,6 +88,7 @@ final class WorkspaceModel {
     }
 
     var surface: Surface = .chat
+    var editingSource = false
     var documentMode: DocumentMode = .pdf
     var draft = "" { didSet { chat.updateDraft(draft) } }
     var configuration = ChatConfiguration()

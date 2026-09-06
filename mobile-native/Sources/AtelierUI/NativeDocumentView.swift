@@ -52,6 +52,11 @@ struct NativeDocumentView: View {
         .alert("Sauvegarde impossible", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                if workspace.sourceAvailable && workspace.documentMode == .source {
+                    Button(workspace.editingSource ? "Terminer l’édition" : "Modifier", systemImage: workspace.editingSource ? "checkmark.circle" : "pencil") { workspace.editingSource.toggle() }
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 if workspace.documentDirty {
                     Button("Enregistrer", systemImage: "checkmark") { Task { await workspace.saveDocument() } }.disabled(workspace.savingDocument)
                 }

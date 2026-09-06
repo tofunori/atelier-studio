@@ -87,6 +87,6 @@ final class AnnotationTests: XCTestCase {
         XCTAssertNil(model.pdfPassage)
         XCTAssertEqual(model.source, "Mon document")
         XCTAssertEqual(model.sourceName, file.lastPathComponent)
-        XCTAssertEqual(model.documentMode, .source)
+        XCTAssertEqual(model.documentMode, .reading)
     }
 }
