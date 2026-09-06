@@ -3,9 +3,9 @@
 // CM5 shim: methods the page doesn't call don't exist here.
 import {EditorState, EditorSelection, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
 import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter,
-        lineNumbers, drawSelection, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
+        lineNumbers, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
-import {openSearchPanel, searchKeymap, highlightSelectionMatches} from "@codemirror/search";
+import {openSearchPanel, searchKeymap, SearchCursor} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
@@ -138,7 +138,8 @@ function themeExtensions(id) {
     ".cm-line": {padding: "0 14px 0 10px"},
     "&.cm-focused": {outline: "none"},
     "&.cm-focused .cm-cursor": {borderLeftColor: p.accent, borderLeftWidth: "2px"},
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {backgroundColor: p.selection},
+    // Sélection = sélection native du navigateur (voir SELECTION_RENDERING).
+    ".cm-content ::selection, .cm-content::selection, .cm-line::selection, .cm-line ::selection": {backgroundColor: p.selection},
     ".cm-activeLine": {backgroundColor: p.active},
     ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
     ".cm-lineNumbers .cm-gutterElement": {padding: "0 4px"},
@@ -292,16 +293,76 @@ const marksField = StateField.define({
   provide: (f) => EditorView.decorations.from(f, (v) => v.decos),
 });
 
-// The visible selection accent is derived in the same transaction as the
-// native CM6 selection. The old pages used markText 200 ms later, causing an
-// avoidable second view update precisely during the fragile first-focus path.
-const nativeSelectionHighlight = EditorView.decorations.compute(["selection"], (state) => {
-  const mark = Decoration.mark({class: "cm-clsel"});
-  const ranges = state.selection.ranges
-    .filter((range) => range.from < range.to)
-    .map((range) => mark.range(range.from, range.to));
-  return Decoration.set(ranges, true);
+// SELECTION_RENDERING — la sélection visible est la sélection NATIVE du
+// navigateur, peinte par `::selection` dans le thème. Ni `drawSelection()`
+// (couche absolue remesurée à chaque tick) ni décoration `Decoration.mark`
+// recalculée par transaction : une mark redécoupait les spans de chaque ligne
+// touchée à chaque mouvement de souris, par-dessus les spans de coloration —
+// c'était la première cause de saccade du drag (banc scripts/bench_editor.mjs,
+// 2026-09-06). La sélection native épouse le texte (« hugs the text ») et
+// est composée hors du thread de layout.
+
+// Surlignage des occurrences de la sélection AU REPOS : l'extension
+// `highlightSelectionMatches` officielle rescanne le viewport à chaque tick
+// de drag, sans temporisation. Ici : effacement immédiat quand la sélection
+// bouge, recalcul après RESTING_MATCH_DELAY ms de stabilité, viewport
+// seulement.
+const RESTING_MATCH_DELAY = 160;
+const RESTING_MATCH_MIN = 3;
+const RESTING_MATCH_MAX = 200;
+const setRestingMatches = StateEffect.define();
+const restingMatchDeco = Decoration.mark({class: "cm-selectionMatch"});
+const restingMatchesField = StateField.define({
+  create: () => Decoration.none,
+  update(decos, tr) {
+    for (const e of tr.effects) if (e.is(setRestingMatches)) return e.value;
+    if (tr.selection || tr.docChanged) return Decoration.none;
+    return decos;
+  },
+  provide: (f) => EditorView.decorations.from(f),
 });
+function computeRestingMatches(view) {
+  const {state} = view;
+  const sel = state.selection.main;
+  if (sel.empty) return Decoration.none;
+  const len = sel.to - sel.from;
+  if (len < RESTING_MATCH_MIN || len > RESTING_MATCH_MAX) return Decoration.none;
+  const query = state.sliceDoc(sel.from, sel.to);
+  if (!/\S/.test(query)) return Decoration.none;
+  const ranges = [];
+  for (const {from, to} of view.visibleRanges) {
+    const cursor = new SearchCursor(state.doc, query, from, to);
+    while (!cursor.next().done) {
+      const {from: f, to: t} = cursor.value;
+      if (f === sel.from && t === sel.to) continue;
+      ranges.push(restingMatchDeco.range(f, t));
+      if (ranges.length > 500) return Decoration.none;
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+const restingSelectionMatches = [
+  restingMatchesField,
+  ViewPlugin.fromClass(class {
+    constructor(view) { this.view = view; this.timer = 0; this.schedule(); }
+    update(update) {
+      if (update.selectionSet || update.docChanged || update.viewportChanged) this.schedule();
+    }
+    schedule() {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        this.timer = 0;
+        if (!this.view.dom.isConnected) return;
+        const next = computeRestingMatches(this.view);
+        const current = this.view.state.field(restingMatchesField);
+        if (next === current || (next.size === 0 && current.size === 0)) return;
+        this.view.dispatch({effects: setRestingMatches.of(next)});
+      }, RESTING_MATCH_DELAY);
+    }
+    destroy() { clearTimeout(this.timer); }
+  }),
+  EditorView.baseTheme({".cm-selectionMatch": {backgroundColor: "rgba(140, 160, 190, .18)"}}),
+];
 
 function captureScrollableState(view) {
   const elements = [];
@@ -382,9 +443,15 @@ function hangingIndentDecorations(view) {
   return Decoration.set(ranges, true);
 }
 const hangingIndent = ViewPlugin.fromClass(class {
-  constructor(view) { this.decorations = hangingIndentDecorations(view); }
+  constructor(view) { this.charWidth = view.defaultCharacterWidth; this.decorations = hangingIndentDecorations(view); }
   update(update) {
-    if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+    // `geometryChanged` sonne à chaque reflow du wrap ; les styles inline
+    // posés ici provoquent eux-mêmes un reflow → boucle. Ne recalculer sur
+    // géométrie que si la chasse de caractère a réellement changé (police).
+    const charWidth = update.view.defaultCharacterWidth;
+    const fontChanged = charWidth !== this.charWidth;
+    if (update.docChanged || update.viewportChanged || fontChanged) {
+      this.charWidth = charWidth;
       this.decorations = hangingIndentDecorations(update.view);
     }
   }
@@ -449,15 +516,15 @@ export function createStudioEditor(parent, opts) {
       doc: opts.value || "",
       extensions: [
         ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}])] : []),
-        lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightActiveLineGutter(),
-        bracketMatching(), closeBrackets(), foldGutter(), highlightSelectionMatches({minSelectionLength: 3}),
+        lineNumbers(), history(), highlightActiveLine(), highlightActiveLineGutter(),
+        bracketMatching(), closeBrackets(), foldGutter(), restingSelectionMatches,
         indentUnit.of(opts.ext === "py" ? "    " : "  "),
         languageExtensionFor(opts.ext),
         themeComp.of(themeExtensions(themeId)),
         mergeDiffComp.of([]),
         themePickerBase,
         themePickerExtension(() => themeId, (id) => applyTheme(id)),
-        marksField, nativeSelectionHighlight, lineClsField, gutterField, hangingIndent,
+        marksField, lineClsField, gutterField, hangingIndent,
         gutter({
           class: "CodeMirror-diffgutter",
           markers: (view) => view.state.field(gutterField).ranges,
@@ -740,6 +807,7 @@ export function createStudioEditor(parent, opts) {
     },
     onInput: (fn) => handlers.change.push((editor, change) => fn(editor, change)),
     on: (event, fn) => { (handlers[event] || (handlers[event] = [])).push(fn); },
+    off: (event, fn) => { const list = handlers[event]; if (list) { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); } },
     destroy: () => {
       window.removeEventListener("storage", onStoredTheme);
       themeChannel?.close();

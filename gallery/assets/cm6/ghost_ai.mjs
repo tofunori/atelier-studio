@@ -76,8 +76,20 @@ const NEXT = {
   we: ["find", "estimate", "show", "use"]
 };
 
+// `state.doc` est un Text immuable : mémoïser par instance évite de
+// rematérialiser la chaîne (et de re-tokeniser le document entier) à chaque
+// frappe et à chaque déplacement du curseur (banc bench_editor.mjs 2026-09-06).
+const docTextCache = new WeakMap();
+// Les jetons servent à des heuristiques (mot suivant le plus fréquent) : une
+// vue vieille de ~1,5 s est aussi bonne qu'une vue exacte. En frappe continue,
+// chaque touche crée un nouveau `doc` — sans cette fenêtre, on re-tokeniserait
+// tout le document à chaque caractère.
+const TOKENS_STALE_MS = 1500;
+let tokensCache = {doc: null, tokens: null, at: 0};
 function textOf(state) {
-  return state.doc.toString();
+  let text = docTextCache.get(state.doc);
+  if (text === undefined) { text = state.doc.toString(); docTextCache.set(state.doc, text); }
+  return text;
 }
 
 function lineBefore(state) {
@@ -96,7 +108,13 @@ function cleanText(src) {
 }
 
 function tokens(state) {
-  return cleanText(textOf(state)).toLowerCase().match(/[a-z][a-z'-]{2,}/g) || [];
+  const now = Date.now();
+  if (tokensCache.tokens && (tokensCache.doc === state.doc || now - tokensCache.at < TOKENS_STALE_MS)) {
+    return tokensCache.tokens;
+  }
+  const all = cleanText(textOf(state)).toLowerCase().match(/[a-z][a-z'-]{2,}/g) || [];
+  tokensCache = {doc: state.doc, tokens: all, at: now};
+  return all;
 }
 
 export function labels(state) {
@@ -367,9 +385,19 @@ const ghostField = StateField.define({
   provide: (field) => EditorView.decorations.from(field, (value) => value.deco)
 });
 
+function sameGhost(current, next) {
+  const curText = current?.text || "";
+  const nextText = next?.text || "";
+  if (!curText && !nextText) return true;
+  return curText === nextText && current.pos === next.pos;
+}
+
 export function refreshGhost(v) {
   const local = ghostFor(v.state);
-  v.dispatch({effects: setGhost.of(local)});
+  // Ne dispatcher que si l'état visible change : un dispatch vide par
+  // mouvement de curseur doublait chaque cycle de mise à jour de la vue.
+  const current = v.state.field(ghostField, false);
+  if (!sameGhost(current, local)) v.dispatch({effects: setGhost.of(local)});
   if (local) {
     config.onState("local ready");
     cancelAiGhost();
@@ -416,7 +444,16 @@ export function ghostAiExtension(cfg) {
         refreshGhost(update.view);
       }
     } else if (update.selectionSet) {
-      refreshGhost(update.view);
+      // Sélection non vide (drag souris, ⇧flèches) : aucun fantôme possible
+      // (`ghostFor`/`aiContext` retournent null) — se contenter d'effacer
+      // celui qui traîne, sans recalcul ni requête.
+      if (!update.state.selection.main.empty) {
+        const current = update.state.field(ghostField, false);
+        cancelAiGhost();
+        if (current?.text) update.view.dispatch({effects: setGhost.of(null)});
+      } else {
+        refreshGhost(update.view);
+      }
     }
   });
   const keymapExt = Prec.highest(keymap.of([
