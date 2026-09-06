@@ -402,6 +402,13 @@ pub struct IdempotencyCache {
 }
 
 impl IdempotencyCache {
+    /// Release only when the command definitely did not reach the engine.
+    pub fn release(&mut self, request: &str, device: &str, fingerprint: &str) {
+        if self.seen.get(request).is_some_and(|(d, f)| d == device && f == fingerprint) {
+            self.seen.remove(request);
+        }
+    }
+
     pub fn check_or_insert(
         &mut self,
         client_request_id: &str,

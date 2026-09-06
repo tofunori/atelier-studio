@@ -113,7 +113,7 @@ async fn relay_sidecar(
         .map_err(|_| {
             ApiError::new(
                 StatusCode::BAD_GATEWAY,
-                "sidecar_send_failed",
+                "sidecar_hello_failed",
                 "commande impossible",
             )
         })?;
@@ -698,12 +698,15 @@ async fn send_msg(
             ));
         }
         IdempotencyResult::ReplaySame => {
-            return Ok(Json(json!({
-                "ok": true,
-                "accepted": true,
-                "replay": true,
-                "clientRequestId": body.client_request_id,
-            })));
+            let confirmed = body.client_message_id.as_deref().is_some_and(|id|
+                g.journal.materialize(&body.thread_id).iter().any(|event|
+                    event["kind"] == "user" && event["meta"]["messageId"].as_str() == Some(id)));
+            if !confirmed {
+                return Err(ApiError::new(StatusCode::CONFLICT, "send_unconfirmed",
+                    "La transmission précédente est encore à vérifier. Le message est conservé."));
+            }
+            return Ok(Json(json!({"ok":true, "accepted":true, "proxied":true,
+                "replay":true, "clientRequestId":body.client_request_id})));
         }
         IdempotencyResult::Fresh => {}
     }
@@ -742,7 +745,7 @@ async fn send_msg(
         .map(|(p,_)| p.to_string_lossy().into_owned()).collect();
     let mut inputs = vec![json!({"type":"text","text":prompt})];
     inputs.extend(image_paths.iter().map(|path| json!({"type":"local_image","path":path})));
-    let proxied = if let Some(thread) = thread {
+    let relay = if let Some(thread) = thread {
         let model = body.model.as_deref().unwrap_or_else(|| thread.extra.get("model").and_then(Value::as_str).unwrap_or(""));
         relay_sidecar(
             &state,
@@ -763,9 +766,22 @@ async fn send_msg(
                 "clientMessageId": body.client_message_id,
             }),
         )
-        .await?
+        .await
     } else {
-        false
+        Ok(false)
+    };
+    let proxied = match relay {
+        Ok(true) => true,
+        Ok(false) => {
+            state.inner.lock().await.idempotency.release(&body.client_request_id, &dev.device_id, &fp);
+            false
+        }
+        Err(error) => {
+            if matches!(error.code.as_str(), "sidecar_unavailable" | "sidecar_hello_failed") {
+                state.inner.lock().await.idempotency.release(&body.client_request_id, &dev.device_id, &fp);
+            }
+            return Err(error);
+        }
     };
     Ok(Json(json!({
         "ok": true,
