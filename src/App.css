@@ -5241,14 +5241,14 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .project-context-action { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 7px 9px; border-radius: var(--r-s); font-size: var(--fs-m); text-align: left; transition: background 120ms ease; }
 .project-context-action > svg { flex-shrink: 0; color: var(--text-muted); }
 .project-context-action:hover, .project-context-back:hover { background: var(--bg-ctl); }
-.project-context-chevron { margin-left: auto; color: var(--text-muted); font-size: 19px; line-height: 1; }
+.project-context-chevron { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xl); line-height: 1; }
 .project-context-divider { height: 1px; background: var(--border); margin: 5px 3px; }
 .project-context-danger { color: var(--text-muted); }
 .project-context-danger:hover { color: var(--status-error); background: color-mix(in srgb, var(--status-error) 10%, transparent); }
 .project-context-danger:hover > svg { color: inherit; }
 .project-context-appearance { border-top: 1px solid var(--border); padding: 4px 8px 9px; }
 .project-context-back { display: flex; align-items: center; gap: 8px; min-height: 30px; margin: 0 -4px 8px; padding: 4px; border-radius: var(--r-s); color: var(--text-muted); font-size: var(--fs-m); }
-.project-context-back > span { font-size: 22px; }
+.project-context-back > span { font-size: var(--fs-xl); }
 .project-context-label { display: block; margin: 12px 0 8px; color: var(--text-muted); font-size: var(--fs-label, 11px); }
 .project-context-panel .swatches { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; }
 .project-context-panel .swatch { width: 21px; height: 21px; border-radius: 50%; border: 3px solid var(--bg-pop); box-shadow: 0 0 0 1px transparent; }

@@ -7,6 +7,6 @@
 .project-folder-row{padding:12px 0}
 .project-folder-content code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-folders-help{margin-top:16px;font-size:var(--fs-body-s, 12px);color:var(--muted)}
-.project-folders-help summary{cursor:pointer;width:fit-content;border-radius:4px;padding:4px 0}
+.project-folders-help summary{cursor:pointer;width:fit-content;border-radius:var(--radius-control);padding:4px 0}
 .project-folders-help summary:hover,.project-folders-help summary:focus-visible{color:var(--fg)}
 .project-folders-help .project-folders-note{margin-top:10px}
