@@ -63,12 +63,14 @@ struct NativeChatView: View {
                 LazyVStack(alignment: .leading, spacing: density == "compact" ? 12 : 20) {
                     ForEach(ChatTimelineItem.group(chat.rows)) { item in
                         if item.isActivity {
-                            ChatActivityView(rows: item.rows, active: chat.running && item.rows.last?.id == chat.rows.last?.id, workspace: workspace).id(item.id)
+                            ChatActivityView(rows: item.rows, active: item.rows.first.map { chat.isTurnRunning($0.turn) } ?? false, workspace: workspace, onInspect: {
+                                followsResponse = false; pendingBookmark = nil
+                            }).id(item.id)
                         } else if let row = item.rows.first {
                             ChatEventRow(row: row, workspace: workspace).id(item.id)
                         }
                     }
-                    if chat.running && !(chat.rows.last.map { ChatTimelineItem.activityKinds.contains($0.kind) } ?? false) { ProgressView().controlSize(.small).id("running") }
+                    if chat.running && !(chat.rows.last.map { ChatTimelineItem.activityKinds.contains($0.kind) } ?? false) { Label(chat.rows.last?.isStreaming == true ? "Rédaction en cours" : "Préparation de la réponse", systemImage: "circle.dotted").font(.caption).foregroundStyle(.secondary).id("running") }
                     if let error = chat.error {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
