@@ -244,7 +244,9 @@ test('latex deterministic parity', async ({page}) => {
     await expect.poll(() => page.evaluate(() => cm.getValue())).toContain('Beta');
     await saveShortcut(page);
     expect(readFileSync(path.join(root, 'main.tex'), 'utf8')).toContain('Beta');
-    await page.goto(url('latex_studio.html', 'main.tex', '&engine=cm5')); await expectEngine(page, 'cm5');
+    // `?engine=cm5` sur la page LaTeX : la pile CM5 n'y est plus chargée, la
+    // fabrique retombe sur cm6 sans casser la page.
+    await page.goto(url('latex_studio.html', 'main.tex', '&engine=cm5')); await expectEngine(page, 'cm6');
     await page.goto(url('latex_studio.html', 'script.py'));
     await expectEngine(page, 'cm6');
     await expect(page.locator('#sbLint')).toContainText('1 ruff');
@@ -284,8 +286,8 @@ test('latex auto rewrap saves numbered physical lines that fit the window', asyn
   });
 });
 
-test('latex anchored comments persist through the typed controller in CM5 and CM6', async ({page}) => {
-  for (const engine of ['cm5', 'cm6']) {
+test('latex anchored comments persist through the typed controller in CM6', async ({page}) => {
+  for (const engine of ['cm6']) {
     await withProject({'comments.tex': '\\section{Review}\nAnchored comment text\n'}, async ({url}) => {
       await page.goto(url('latex_studio.html', 'comments.tex', `&engine=${engine}`));
       await expectEngine(page, engine);

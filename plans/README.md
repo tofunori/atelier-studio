@@ -502,3 +502,48 @@ LANG-01…08) sont détaillés dans `plans/COMMERCIALISATION.md`.
 - Prémisses corrigées par l'audit lui-même : le README racine EXISTE (mais périmé),
   le plan 013 A ÉTÉ exécuté (Node embarqué) — la dérive est venue de la bascule
   Rust postérieure (2026-07-16), traitée par 061.
+
+
+---
+
+## Audit transversal — 2026-09-06 (commit `b70ac4b3`)
+
+Audit complet (correction/concurrence, sécurité + dépendances, performance,
+tests/dette/DX/direction) en quatre passes de lecture seule, chaque constat
+vérifié dans le code par le réviseur. Ligne de base : `npm run verify` passe ;
+8 tests frontend en timeout sous charge repassent 102/102 à froid (flake connu).
+Sélection de Thierry : robustesse des tours et tests de caractérisation.
+Numérotation reprise à 069.
+
+### Execution order & status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 069 | Filet d'inactivité pour Grok, Kimi et OpenCode (durée injectable, tests « CLI muet ») | P1 | M | — | TODO |
+| 070 | Reprise des messages d'agents liés coincés en « delivering » après un crash | P2 | S | — | TODO |
+| 071 | Caractérisation : parité i18n FR/EN et câblage de `Chat.tsx` | P2 | M | — | TODO |
+| 072 | Caractérisation de `ws_router.rs` par famille de messages (prérequis au découpage) | P2 | L | — | TODO |
+
+### Dependency notes
+
+- 069 et 070 sont indépendants (crates différentes) ; 069 d'abord, impact utilisateur plus large.
+- 071 et 072 ne modifient aucune logique ; ils précèdent tout découpage de `Chat.tsx` / `ws_router.rs` (plans à écrire après).
+
+### Constats vérifiés, non planifiés (disponibles sur demande)
+
+- **Fluidité** : `getHistory` lit + retrie le journal en bloquant le worker (`ws_router.rs:279` ; `spawn_blocking` existe 3 lignes plus bas) — S ; bundle d'entrée à 1 023/1 024 Ko (`check_entry_budget.mjs`), le script désigne le split i18n par locale — M ; sélection PDF recalculée à chaque `pointermove` sans rAF (`pdf_viewer.html:794`) — S ; Explorateur : filtre de 24 414 chemins par frappe, arbre non virtualisé (`Explorer.tsx:144,288`) — S/M ; `vitest.config.ts` sans borne de pool → timeouts sous charge — S.
+- **Sécurité / dépendances** : passerelle distante `peer == "unknown"` saute la garde loopback (`remote/routes.rs:223`) et liste d'hôtes vide = tout accepté (`hostcheck.rs:16`) — S ; DOMPurify 3.1.7 vendorisé (`gallery/assets/purify.min.js`, invisible à `npm audit`) et `mermaid` → dompurify 3.4.11 (2 advisories modérées atteignables) — S ; `isValidMessageUrl` accepte tout schéma, seule la CSP protège `<img>` (`ipc.ts:130`) — S ; `claude-cli.log` en 644 sans rédaction (`claude.rs:1231`) — S.
+- **Intégrité galerie** : `POST /state` réécrit tout l'état depuis un onglet périmé (`atelier-gallery/main.rs:203-274` ; `toggle_favorite` documente le risque) — M ; `annotation-previews/` jamais purgé (`main.rs:1447`, `widgets.rs::purge_oldest` comme modèle) — S.
+- **Dette / docs** : `__atelierPost` copié 5× (une copie divergente) ; palettes galerie sans test anti-dérive (le mobile en a un : `tokens-drift.test.ts`) ; `ROADMAP_V1.md` et `BRIEF_PROVIDER_REGISTRY.md` obsolètes ; protocole de relance en bash copié-collé (→ `scripts/relance.sh`).
+- **Direction** : steer/permissions pour Grok/Kimi/OpenCode (point d'extension `Provider::steer()` présent, `permissions: true` déjà pour Grok/Kimi) — spike par provider ; split i18n par locale (aussi la réponse au budget d'entrée).
+
+### Findings considered and rejected (2026-09-06)
+
+- « Toutes les vignettes de `ProjectGallery` se rechargent à chaque changement » : le compteur `revision` n'est jamais incrémenté (`ProjectGallery.tsx:27`) ; la clé de cache ne bouge qu'au rafraîchissement manuel.
+- « Message d'agent lié livré deux fois après crash » : faux — `queued()` ne reprend que `"queued"` ; le défaut réel est l'inverse (message coincé), planifié en 070.
+- « `/regenerate` exécute une commande du projet » et « `opener` en `path:**` » : déjà tracés SEC-10 / SEC-09 dans `plans/COMMERCIALISATION.md` — pas de nouveau plan.
+- Traversée de chemins galerie, CSP Tauri, spawns shell, jetons : vérifiés conformes.
+
+### Not audited (2026-09-06)
+
+`atelier-agent-mcp` en détail, `atelier-kb`, `mobile-native/` (Swift), `cargo audit` (binaire absent — déjà SEC-11), `sidecar/*.mjs` (Node en extinction), `.claude/worktrees/*`.

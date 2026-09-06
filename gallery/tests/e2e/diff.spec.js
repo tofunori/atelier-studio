@@ -27,7 +27,8 @@ const CODE_INITIAL_TEXT = [
 ].join('\n');
 
 const EDITORS = {
-  latex: { asset: 'latex_studio.html', filename: 'contract.tex', initialText: INITIAL_TEXT, query: '&engine=cm5' },
+  // latex_studio.html ne charge plus la pile CM5 (2026-09-06) : moteur cm6 seul.
+  latex: { asset: 'latex_studio.html', filename: 'contract.tex', initialText: INITIAL_TEXT, query: '' },
   code: { asset: 'code_editor.html', filename: 'contract.py', initialText: CODE_INITIAL_TEXT, query: '' },
 };
 
@@ -108,7 +109,7 @@ async function withEditor(kind, run, engine = 'cm6') {
 }
 
 async function withLatexStudio(engineOrRun, maybeRun) {
-  const engine = typeof engineOrRun === 'string' ? engineOrRun : 'cm5';
+  const engine = typeof engineOrRun === 'string' ? engineOrRun : 'cm6';
   const run = typeof engineOrRun === 'function' ? engineOrRun : maybeRun;
   return withEditor('latex', run, engine);
 }
@@ -317,7 +318,7 @@ async function replaceCodeLineAndSave(page, line, text) {
   await saveCodeOnce(page);
 }
 
-test('CM5: one multi-word save is one intervention', async ({ page }) => {
+test('latex: one multi-word save is one intervention', async ({ page }) => {
   await withLatexStudio(async ({ url }) => {
     await openEditor(page, url);
     const changed = INITIAL_TEXT.replace(
@@ -343,7 +344,7 @@ test('CM5: one multi-word save is one intervention', async ({ page }) => {
   });
 });
 
-test('CM5: three spatially separated saves are three interventions', async ({ page }) => {
+test('latex: three spatially separated saves are three interventions', async ({ page }) => {
   await withLatexStudio(async ({ url }) => {
     await openEditor(page, url);
 
@@ -372,7 +373,7 @@ test('CM5: three spatially separated saves are three interventions', async ({ pa
   });
 });
 
-test('CM5: reload preserves three interventions and restore 2/3 becomes intervention four', async ({ page }) => {
+test('latex: reload preserves three interventions and restore 2/3 becomes intervention four', async ({ page }) => {
   await withLatexStudio(async ({ url }) => {
     await openEditor(page, url);
     const s1 = INITIAL_TEXT.replace(
@@ -417,7 +418,7 @@ test('CM5: reload preserves three interventions and restore 2/3 becomes interven
   });
 });
 
-test('CM5: two open pages converge through one 409 retry without losing either intervention', async ({ page, context }) => {
+test('latex: two open pages converge through one 409 retry without losing either intervention', async ({ page, context }) => {
   await withLatexStudio(async ({ url }) => {
     const other = await context.newPage();
     try {
@@ -442,7 +443,7 @@ test('CM5: two open pages converge through one 409 retry without losing either i
   });
 });
 
-test('CM5: save and clean disk reload keep explicit intervention sources', async ({ page }) => {
+test('latex: save and clean disk reload keep explicit intervention sources', async ({ page }) => {
   await withLatexStudio(async ({ texPath, url }) => {
     const traffic = watchEditorTraffic(page);
     const { versionPayloads } = traffic;
@@ -488,7 +489,8 @@ test('CM5: save and clean disk reload keep explicit intervention sources', async
   });
 });
 
-for (const engine of ['cm5', 'cm6']) {
+// Matrice LaTeX : cm6 seulement — la page n'embarque plus CM5.
+for (const engine of ['cm6']) {
   test.describe(engine.toUpperCase(), () => {
     test('diff multi-zone is one intervention', async ({ page }) => {
       await withLatexStudio(engine, async ({ url }) => {
