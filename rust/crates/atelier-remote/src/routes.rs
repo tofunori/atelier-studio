@@ -22,6 +22,9 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+#[path = "zotero_routes.rs"]
+mod zotero_routes;
+
 pub fn router(state: GatewayState) -> Router {
     Router::new()
         .route("/remote/health", get(health))
@@ -29,6 +32,9 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/pair", post(pair_complete))
         .route("/remote/v1/projects", get(list_projects))
         .route("/remote/v1/providers", get(live_providers))
+        .route("/remote/v1/zotero", get(zotero_routes::library))
+        .route("/remote/v1/zotero/note/{key}", post(zotero_routes::save_note))
+        .route("/remote/v1/zotero/pdf/{key}", get(zotero_routes::pdf))
         .route("/remote/v1/threads/{thread_id}/live", get(live_events))
         .route("/remote/v1/threads", get(list_threads).post(create_thread))
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))

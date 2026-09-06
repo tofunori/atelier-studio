@@ -6,6 +6,8 @@ struct AnnotationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var editing: Bool
     @State private var sending = false
+    @State private var savedNote = false
+    @State private var saveError: String?
     @State private var choosingConversation = false
 
     var body: some View {
@@ -31,6 +33,12 @@ struct AnnotationSheet: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {
+                    if draft.passage.articleKey != nil {
+                        Button(savedNote ? "Note conservée dans Atelier" : "Conserver la note dans Atelier", systemImage: savedNote ? "checkmark" : "bookmark") {
+                            do { try workspace.library.save(draft); savedNote = true } catch { saveError = error.localizedDescription }
+                        }.frame(minHeight: 44).disabled(draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+                        if let saveError { Text(saveError).font(.caption).foregroundStyle(.red) }
+                    }
                     Button { choosingConversation = true } label: {
                         Label(workspace.chat.selected == nil ? "Choisir une conversation" : workspace.chat.title, systemImage: "bubble.left.and.bubble.right")
                             .lineLimit(1)
@@ -43,7 +51,7 @@ struct AnnotationSheet: View {
                         sending = true
                         Task {
                             defer { sending = false }
-                            let prompt = "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
+                            let prompt = (draft.passage.articleKey.map { "Article Zotero : \($0)\n" } ?? "") + "Document : \(draft.passage.citation)\n\nPassage cité :\n> " + draft.passage.text.replacingOccurrences(of: "\n", with: "\n> ") + "\n\nMa note :\n" + draft.note
                             if await workspace.chat.send(prompt, using: workspace.gallery, explicitFiles: draft.passage.figure.map { [$0] } ?? []) {
                                 _ = workspace.sendAnnotation(draft)
                                 dismiss()

@@ -11,6 +11,7 @@ struct DocumentPassage: Identifiable {
     var regions: [Region] = []
     var figureRegion: CGRect?
     var figure: GalleryArtifact?
+    var articleKey: String?
 
     var citation: String { "\(fileName) · \(location)" }
 }
@@ -25,7 +26,7 @@ final class AnnotationDraft: Identifiable {
 
 @MainActor @Observable
 final class WorkspaceModel {
-    enum Surface: Hashable { case chat, document, gallery }
+    enum Surface: Hashable { case chat, document, gallery, articles }
     enum DocumentMode: String, CaseIterable { case reading = "Lecture", source = "Source", pdf = "PDF" }
     struct Message: Identifiable {
         let id = UUID()
@@ -47,6 +48,9 @@ final class WorkspaceModel {
         chat.attach(item); surface = .chat
         if chat.selected == nil { chatPickerRequested = true }
     }
+    var library = LibraryModel()
+    var currentArticle: LibraryArticle?
+    var documentOrigin: Surface = .gallery
     var gallery = GalleryModel()
     var chat = RemoteChatModel()
     var image: UIImage?
@@ -66,6 +70,7 @@ final class WorkspaceModel {
     }
     func openArtifact(_ item: GalleryArtifact, data: Data) throws {
         saveCurrentDocument()
+        currentArticle = nil; documentOrigin = .gallery
         if let saved = savedDocuments[item.id] {
             source = saved.source; sourceName = saved.sourceName; pdfName = saved.pdfName
             sourceAvailable = saved.sourceAvailable; pdfDocument = saved.pdf; pdfPage = saved.page
@@ -126,6 +131,7 @@ final class WorkspaceModel {
                 gallery.invalidate(artifact)
             } else if let index = gallery.localItems.firstIndex(where: { $0.id == artifact.id }) {
                 gallery.localItems[index].data = Data(content.utf8)
+                if documentID == id { viewedArtifact = gallery.localItems[index] }
             }
             originalSources[id] = content
             if documentID == id { feedback = artifact.fileID == nil ? "Copie locale enregistrée" : "Enregistré sur le Mac" }
@@ -151,7 +157,7 @@ final class WorkspaceModel {
                 }
             }
         }
-        pdfPassage = DocumentPassage(documentID: documentID, fileName: pdfName, location: location, text: text, regions: regions)
+        pdfPassage = DocumentPassage(documentID: documentID, fileName: pdfName, location: location, text: text, regions: regions, articleKey: currentArticle?.key)
     }
 
     func beginAnnotation() {

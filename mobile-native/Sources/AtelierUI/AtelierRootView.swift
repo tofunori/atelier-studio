@@ -19,14 +19,14 @@ public struct AtelierRootView: View {
         .tint(AtelierTheme.accent)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .onChange(of: workspace.surface) { _, surface in
-            lastTab = surface == .chat ? "chat" : "gallery"
+            lastTab = surface == .chat ? "chat" : surface == .articles || (surface == .document && workspace.documentOrigin == .articles) ? "articles" : "gallery"
         }
         .task {
             let desiredTab = lastTab
             if !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") { await workspace.chat.restore(workspace: workspace) }
             if !restoredTab {
                 restoredTab = true
-                workspace.surface = desiredTab == "gallery" ? .gallery : .chat
+                workspace.surface = desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
             }
             #if targetEnvironment(simulator)
             let arguments = ProcessInfo.processInfo.arguments
@@ -82,7 +82,8 @@ public struct AtelierRootView: View {
                         .frame(maxWidth: .infinity)
                     Divider()
                     Group {
-                        if workspace.surface == .gallery || workspace.viewedArtifact == nil { NativeGalleryView(workspace: workspace) }
+                        if workspace.surface == .articles { NativeLibraryView(workspace: workspace) }
+                        else if workspace.surface == .gallery || workspace.viewedArtifact == nil { NativeGalleryView(workspace: workspace) }
                         else { NativeDocumentView(workspace: workspace) }
                     }
                         .frame(maxWidth: .infinity)
@@ -92,7 +93,7 @@ public struct AtelierRootView: View {
                 .toolbar { workspaceToolbar }
             }
         } else {
-            TabView(selection: Binding(get: { workspace.surface == .chat ? WorkspaceModel.Surface.chat : .gallery }, set: { workspace.surface = $0 })) {
+            TabView(selection: Binding(get: { workspace.surface == .document ? workspace.documentOrigin : workspace.surface }, set: { workspace.surface = $0 })) {
                 Tab("Chats", systemImage: "bubble", value: WorkspaceModel.Surface.chat) {
                     NavigationStack {
                         NativeChatView(workspace: workspace)
@@ -104,7 +105,7 @@ public struct AtelierRootView: View {
                 Tab("Galerie", systemImage: "square.grid.2x2", value: WorkspaceModel.Surface.gallery) {
                     NavigationStack {
                         NativeGalleryView(workspace: workspace)
-                            .navigationDestination(isPresented: Binding(get: { workspace.surface == .document }, set: { if !$0 && workspace.surface == .document { workspace.surface = .gallery } })) {
+                            .navigationDestination(isPresented: Binding(get: { workspace.surface == .document && workspace.documentOrigin == .gallery }, set: { if !$0 && workspace.surface == .document { workspace.surface = .gallery } })) {
                                 NativeDocumentView(workspace: workspace)
                                     .navigationTitle(workspace.currentName)
                                     .navigationBarTitleDisplayMode(.inline)
@@ -117,6 +118,19 @@ public struct AtelierRootView: View {
                             .toolbar { workspaceToolbar }
                     }
                 }
+                Tab("Articles", systemImage: "books.vertical", value: WorkspaceModel.Surface.articles) {
+                    NavigationStack {
+                        NativeLibraryView(workspace: workspace)
+                            .navigationTitle("Articles").navigationBarTitleDisplayMode(.inline)
+                            .toolbar { workspaceToolbar }
+                            .navigationDestination(isPresented: Binding(get: { workspace.surface == .document && workspace.documentOrigin == .articles }, set: { if !$0 && workspace.surface == .document { workspace.surface = .articles } })) {
+                                NativeDocumentView(workspace: workspace)
+                                    .navigationTitle(workspace.currentArticle?.title ?? workspace.currentName)
+                                    .navigationBarTitleDisplayMode(.inline)
+                            }
+                    }
+                }
+
 
             }
         }

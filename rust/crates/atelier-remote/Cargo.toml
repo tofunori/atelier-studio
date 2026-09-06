@@ -14,6 +14,7 @@ path = "src/main.rs"
 atelier-fdlimit = { workspace = true }
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
+atelier-workspace = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
 tokio-tungstenite = "0.28"
@@ -32,7 +33,8 @@ mime_guess = "2"
 http-body-util = { workspace = true }
 tower = { workspace = true }
 
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+
 [dev-dependencies]
 tempfile = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 tokio = { workspace = true }
