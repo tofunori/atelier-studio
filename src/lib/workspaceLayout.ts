@@ -49,9 +49,18 @@ const SURFACES = new Set<Surface>([
   "biblio",
   "connaissances",
   "generateur",
-  "narval",
+  "calculs",
   "preuves",
 ]);
+
+/** Surfaces renommées : une référence persistée sous l'ancien id est
+ *  réécrite au chargement plutôt que perdue (2026-09-06 : narval → calculs). */
+const SURFACE_ALIASES: Record<string, Surface> = { narval: "calculs" };
+
+export function migrateSurfaceId(surface: string): Surface | null {
+  const resolved = SURFACE_ALIASES[surface] ?? surface;
+  return SURFACES.has(resolved as Surface) ? (resolved as Surface) : null;
+}
 
 let fallbackId = 0;
 
@@ -350,13 +359,20 @@ export function resizeWorkspaceSplit(
   return { ...layout, root: visit(layout.root) };
 }
 
-function validTabRef(value: unknown): value is WorkspaceTabRef {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<WorkspaceTabRef> & { kind?: unknown };
-  if (candidate.kind === "ide") return true;
-  if (candidate.kind === "document") return typeof candidate.tabId === "string" && candidate.tabId.length > 0;
-  if (candidate.kind === "agent") return typeof candidate.threadId === "string" && candidate.threadId.length > 0;
-  return candidate.kind === "surface" && typeof candidate.surface === "string" && SURFACES.has(candidate.surface as Surface);
+/** Réf. d'onglet persistée → réf. valide (alias de surface résolus), ou null. */
+function parseTabRef(value: unknown): WorkspaceTabRef | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<WorkspaceTabRef> & { kind?: unknown; surface?: unknown };
+  if (candidate.kind === "ide") return { kind: "ide" };
+  if (candidate.kind === "document") {
+    return typeof candidate.tabId === "string" && candidate.tabId.length > 0 ? { kind: "document", tabId: candidate.tabId } : null;
+  }
+  if (candidate.kind === "agent") {
+    return typeof candidate.threadId === "string" && candidate.threadId.length > 0 ? { kind: "agent", threadId: candidate.threadId } : null;
+  }
+  if (candidate.kind !== "surface" || typeof candidate.surface !== "string") return null;
+  const surface = migrateSurfaceId(candidate.surface);
+  return surface ? { kind: "surface", surface } : null;
 }
 
 function parseNode(value: unknown, depth = 0): WorkspaceNode | null {
@@ -364,8 +380,12 @@ function parseNode(value: unknown, depth = 0): WorkspaceNode | null {
   const candidate = value as Record<string, unknown>;
   if (candidate.type === "pane") {
     if (typeof candidate.id !== "string" || !Array.isArray(candidate.tabs)) return null;
-    const tabs = candidate.tabs.filter(validTabRef);
-    const active = typeof candidate.activeTabId === "string" ? candidate.activeTabId : null;
+    const tabs = candidate.tabs.map(parseTabRef).filter((tab): tab is WorkspaceTabRef => tab !== null);
+    const rawActive = typeof candidate.activeTabId === "string" ? candidate.activeTabId : null;
+    const activeRef = rawActive ? parseWorkspaceTabId(rawActive) : null;
+    const active = activeRef?.kind === "surface"
+      ? (migrateSurfaceId(activeRef.surface) ? `surface:${migrateSurfaceId(activeRef.surface)}` : rawActive)
+      : rawActive;
     return {
       type: "pane",
       id: candidate.id,
@@ -448,7 +468,8 @@ function migrateLegacyLayout(
 ): WorkspaceLayout | null {
   if (!legacyValue || typeof legacyValue !== "object") return null;
   const legacy = legacyValue as { second?: unknown; pct?: unknown };
-  if (typeof legacy.second !== "string" || !SURFACES.has(legacy.second as Surface) || legacy.second === "atelier") return null;
+  const legacySecond = typeof legacy.second === "string" ? migrateSurfaceId(legacy.second) : null;
+  if (!legacySecond || legacySecond === "atelier") return null;
   const first = pane(idFactory, [
     { kind: "surface", surface: "atelier" },
     ...documentIds.map((tabId): WorkspaceTabRef => ({ kind: "document", tabId })),
@@ -456,7 +477,7 @@ function migrateLegacyLayout(
   const activeRef = externalTabRef(activeExternalId);
   if (!first.tabs.some((tab) => workspaceTabId(tab) === workspaceTabId(activeRef))) first.tabs.push(activeRef);
   first.activeTabId = workspaceTabId(activeRef);
-  const second = pane(idFactory, [{ kind: "surface", surface: legacy.second as Surface }]);
+  const second = pane(idFactory, [{ kind: "surface", surface: legacySecond }]);
   const root: WorkspaceSplitNode = {
     type: "split",
     id: idFactory(),

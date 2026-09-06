@@ -162,13 +162,13 @@ describe("TopBarTabs", () => {
 });
 
 describe("ce que le ruban NE porte pas", () => {
-  const SURFACE = { id: "surface:narval", title: "Narval", kind: "surface" as const, surface: "narval" as const };
+  const SURFACE = { id: "surface:calculs", title: "Calculs", kind: "surface" as const, surface: "calculs" as const };
   const IDE = { id: "ide", title: "IDE", kind: "ide" as const };
   const AGENT = { id: "agent:th1", title: "Claude — albédo", kind: "agent" as const };
 
   it("écarte les surfaces : elles ont leur icône à droite de la même barre", () => {
     renderUi(<TopBarTabs {...props({ tabs: [...TABS, SURFACE], activeTab: "document:t1" })} />);
-    expect(screen.queryByText("Narval")).toBeNull();
+    expect(screen.queryByText("Calculs")).toBeNull();
     expect(tab("methods_en.tex")).toBeTruthy();
   });
 
@@ -185,7 +185,7 @@ describe("ce que le ruban NE porte pas", () => {
 
   it("disparaît entièrement quand seules des destinations sont ouvertes", () => {
     const { container } = renderUi(<TopBarTabs {...props({
-      tabs: [SURFACE, IDE], activeTab: "surface:narval",
+      tabs: [SURFACE, IDE], activeTab: "surface:calculs",
     })} />);
     expect(container.querySelector(".topbar-tabs")).toBeNull();
   });

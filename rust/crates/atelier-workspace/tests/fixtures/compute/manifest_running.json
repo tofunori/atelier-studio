@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "a1b2c3d4e5f6",
+  "label": "albedo_trends.py",
+  "command": "python3 albedo_trends.py --region saint-elias",
+  "work_dir": "/Users/tofunori/Documents/albedo",
+  "host": "macbook.local",
+  "pid": 48213,
+  "state": "running",
+  "started_at": "2026-09-06T13:02:11Z",
+  "ended_at": null,
+  "exit_code": null,
+  "progress": {"current": 12, "total": 40, "unit": "tuiles"},
+  "tags": {"run_tag": "m42"}
+}

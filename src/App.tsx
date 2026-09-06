@@ -2329,6 +2329,9 @@ export default function App() {
       if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalRunFiles", "narvalText"].includes(msg.type)) {
         window.dispatchEvent(new CustomEvent("narval-message", { detail: msg }));
       }
+      if (msg.type === "computeSnapshot" || msg.type === "computeLog") {
+        window.dispatchEvent(new CustomEvent("compute-message", { detail: msg }));
+      }
       if (msg.type === "agentMentionAccepted" && typeof msg.requestId === "string") {
         pendingAgentMentions.current.delete(msg.requestId);
       }

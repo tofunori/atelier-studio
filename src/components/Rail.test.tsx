@@ -70,7 +70,7 @@ describe("Rail — identité et vues", () => {
     renderUi(<Rail {...makeProps()} />);
     expect(screen.queryByRole("button", { name: t("atelier.surface") })).toBeNull();
     expect(screen.queryByRole("button", { name: t("atelier.biblio") })).toBeNull();
-    expect(screen.queryByRole("button", { name: t("atelier.narval") })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("atelier.calculs") })).toBeNull();
     expect(screen.queryByRole("button", { name: t("atelier.more") })).toBeNull();
   });
 

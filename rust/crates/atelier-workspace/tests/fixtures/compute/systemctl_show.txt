@@ -1,0 +1,106 @@
+Result=success
+ExecMainPID=41233
+ExecStart={ path=/usr/bin/rclone ; argv[]=/usr/bin/rclone sync gdrive:albedo /volume1/albedo ; ignore_errors=no ; start_time=[Sat 2026-09-06 12:24:23 EDT] ; stop_time=[n/a] ; pid=41233 ; code=(null) ; status=0/0 }
+Id=albedo-sync.service
+TriggeredBy=albedo-sync.timer
+Description=Synchronisation Drive vers NAS
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Sat 2026-09-06 12:24:23 EDT
+InactiveEnterTimestamp=Fri 2026-09-05 12:31:02 EDT
+Transient=no
+
+Result=success
+ExecMainPID=0
+ExecStart={ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 fit.py --model m42 ; ignore_errors=no ; start_time=[Fri 2026-09-05 20:00:00 EDT] ; stop_time=[Fri 2026-09-05 22:30:00 EDT] ; pid=39001 ; code=exited ; status=0/SUCCESS }
+Id=run-u1234.service
+TriggeredBy=
+Description=/usr/bin/python3 fit.py --model m42
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=Fri 2026-09-05 20:00:00 EDT
+InactiveEnterTimestamp=Fri 2026-09-05 22:30:00 EDT
+Transient=yes
+
+Result=exit-code
+ExecMainPID=0
+ExecStart={ path=/home/thierry/bin/ragdoc-index ; argv[]=/home/thierry/bin/ragdoc-index ; ignore_errors=no ; start_time=[Sat 2026-09-06 03:00:01 EDT] ; stop_time=[Sat 2026-09-06 03:00:09 EDT] ; pid=40012 ; code=exited ; status=1 }
+Id=ragdoc-index.service
+TriggeredBy=ragdoc-index.timer
+Description=Indexation ragdoc
+ActiveState=failed
+SubState=failed
+ActiveEnterTimestamp=Sat 2026-09-06 03:00:01 EDT
+InactiveEnterTimestamp=Sat 2026-09-06 03:00:09 EDT
+Transient=no
+
+Result=success
+ExecMainPID=1201
+ExecStart={ path=/usr/bin/gbrain ; argv[]=/usr/bin/gbrain mcp ; ignore_errors=no ; start_time=[Sat 2026-09-06 08:00:00 EDT] ; stop_time=[n/a] ; pid=1201 ; code=(null) ; status=0/0 }
+Id=gbrain-mcp.service
+TriggeredBy=
+Description=Serveur MCP gbrain
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Sat 2026-09-06 08:00:00 EDT
+InactiveEnterTimestamp=
+Transient=yes
+
+Result=success
+ExecMainPID=0
+ExecStart={ path=/usr/bin/dbus-daemon ; argv[]=/usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+Id=dbus.service
+TriggeredBy=dbus.socket
+Description=D-Bus User Message Bus
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=
+InactiveEnterTimestamp=
+Transient=no
+
+Result=success
+ExecMainPID=880
+ExecStart={ path=/usr/bin/pipewire ; argv[]=/usr/bin/pipewire ; ignore_errors=no ; start_time=[Mon 2026-06-01 10:00:00 EDT] ; stop_time=[n/a] ; pid=880 ; code=(null) ; status=0/0 }
+Id=pipewire.service
+TriggeredBy=
+Description=PipeWire Multimedia Service
+ActiveState=active
+SubState=running
+ActiveEnterTimestamp=Mon 2026-06-01 10:00:00 EDT
+InactiveEnterTimestamp=
+Transient=no
+
+Result=success
+ExecMainPID=0
+ExecStart={ path=/home/thierry/bin/nightly-report ; argv[]=/home/thierry/bin/nightly-report ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+Id=nightly-report.service
+TriggeredBy=nightly-report.timer
+Description=Rapport nocturne
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=
+InactiveEnterTimestamp=
+Transient=no
+
+Result=success
+ExecMainPID=0
+ExecStart={ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 export.py ; ignore_errors=no ; start_time=[Sat 2026-08-01 10:00:00 EDT] ; stop_time=[Sat 2026-08-01 12:00:00 EDT] ; pid=30001 ; code=exited ; status=0/SUCCESS }
+Id=run-u777.service
+TriggeredBy=
+Description=/usr/bin/python3 export.py
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=Sat 2026-08-01 10:00:00 EDT
+InactiveEnterTimestamp=Sat 2026-08-01 12:00:00 EDT
+Transient=yes
+
+Result=protocol
+ExecMainPID=0
+Id=run-u999.service
+TriggeredBy=
+Description=/usr/bin/python3 odd.py
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=Sat 2026-09-06 09:00:00 EDT
+InactiveEnterTimestamp=Sat 2026-09-06 09:00:05 EDT
+Transient=yes

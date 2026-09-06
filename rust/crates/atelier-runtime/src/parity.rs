@@ -259,6 +259,9 @@ mod tests {
             if matches!(*t, "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview") {
                 continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
             }
+            if matches!(*t, "computeSnapshot" | "computeReadLog") {
+                continue; // calculs : contrat Rust seulement
+            }
             assert!(
                 node_cases.contains(&format!("case \"{t}\"")),
                 "ALL_MESSAGE_TYPES entry {t} missing from Node router.mjs"

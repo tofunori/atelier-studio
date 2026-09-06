@@ -46,7 +46,7 @@ describe("cibles", () => {
     const targets = buildTargets(props());
     expect(targets[0].id).toBe("explorer");
     expect(targets[1].id).toBe("ide");
-    expect(targets.map((target) => target.id)).toContain("narval");
+    expect(targets.map((target) => target.id)).toContain("calculs");
     expect(targets.map((target) => target.id)).toContain("connaissances");
   });
 
@@ -72,13 +72,13 @@ describe("TopBarSurfaces", () => {
     // sélection par défaut COURTE depuis le lot 068 : la largeur de la barre
     // appartient aux onglets du pane, les autres surfaces vivent au menu
     expect(screen.queryByRole("button", { name: t("atelier.git") })).toBeNull();
-    expect(screen.queryByRole("button", { name: t("atelier.narval") })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("atelier.calculs") })).toBeNull();
   });
 
   it("révèle la surface active même non épinglée", () => {
-    renderUi(<TopBarSurfaces {...props({ activeSurface: "narval" })} />);
-    const narval = screen.getByRole("button", { name: t("atelier.narval") });
-    expect(narval.classList.contains("on")).toBe(true);
+    renderUi(<TopBarSurfaces {...props({ activeSurface: "calculs" })} />);
+    const calculs = screen.getByRole("button", { name: t("atelier.calculs") });
+    expect(calculs.classList.contains("on")).toBe(true);
   });
 
   it("bascule de surface au clic", () => {
@@ -91,21 +91,21 @@ describe("TopBarSurfaces", () => {
   it("le menu liste tout, avec les libellés", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    expect(screen.getByText(t("atelier.narval"))).toBeTruthy();
+    expect(screen.getByText(t("atelier.calculs"))).toBeTruthy();
     expect(screen.getByText(t("atelier.biblio"))).toBeTruthy();
   });
 
   it("épingle depuis le menu, et le choix survit au remontage", async () => {
     const { unmount } = renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    const row = screen.getByText(t("atelier.narval")).closest(".topbar-menu-row");
+    const row = screen.getByText(t("atelier.calculs")).closest(".topbar-menu-row");
     fireEvent.click(row!.querySelector(".topbar-menu-pin")!);
-    expect(readPinned()).toContain("narval");
+    expect(readPinned()).toContain("calculs");
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);
 
     unmount();
     renderUi(<TopBarSurfaces {...props()} />);
-    expect(screen.getByRole("button", { name: t("atelier.narval") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: t("atelier.calculs") })).toBeTruthy();
   });
 
   it("réorganise les épinglées depuis le menu", async () => {
@@ -133,7 +133,7 @@ describe("TopBarSurfaces", () => {
   it("accepte d'épingler au-delà de la sélection courte", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    for (const label of [t("atelier.narval"), t("atelier.biblio"), t("atelier.browser")]) {
+    for (const label of [t("atelier.calculs"), t("atelier.biblio"), t("atelier.browser")]) {
       const row = screen.getByText(label).closest(".topbar-menu-row");
       fireEvent.click(row!.querySelector(".topbar-menu-pin")!);
     }
@@ -215,8 +215,8 @@ describe("migration trim-v1 (lot 068)", () => {
     expect(readPinned()).toEqual(DEFAULT_PINNED);
     // l'utilisateur épingle une quatrième surface : elle DOIT survivre
     localStorage.setItem("atelier-studio.topbar-surfaces",
-      JSON.stringify([...DEFAULT_PINNED, "narval"]));
-    expect(readPinned()).toEqual([...DEFAULT_PINNED, "narval"]);
+      JSON.stringify([...DEFAULT_PINNED, "calculs"]));
+    expect(readPinned()).toEqual([...DEFAULT_PINNED, "calculs"]);
   });
 
   it("une installation neuve ne se voit PAS greffer Preuves", () => {

@@ -1,6 +1,7 @@
 //! Workspace ops for the Atelier Rust backend (plan 033 Porte 4).
 
 mod catalog;
+mod compute;
 mod git;
 mod narval;
 mod pasted;
@@ -9,6 +10,11 @@ mod term;
 mod zotero;
 
 pub use catalog::{list_commands, list_file_catalog, list_files, FileCatalog};
+pub use compute::{
+    read_log as compute_read_log, snapshot as compute_snapshot, ComputeConfig, Exec,
+    Host as ComputeHost, HostError as ComputeHostError, LogChunk as ComputeLogChunk,
+    Run as ComputeRun, Snapshot as ComputeSnapshot, SystemExec,
+};
 pub use git::{
     changed_since, changed_since_stats, commit, commit_details, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
     diff_contents, diff_staged, fetch_all, ignore_pattern, log, merge_branch, pull, push, reset_to_commit,
