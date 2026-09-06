@@ -32,18 +32,27 @@ export async function fetchGalleryIndex(
   projectId: string,
   signal?: AbortSignal,
 ): Promise<GalleryIndex> {
-  const res = await fetch(
-    `${base(creds.gatewayBaseUrl)}/remote/v1/gallery/${encodeURIComponent(projectId)}`,
-    { headers: authHeaders(creds.token), signal },
-  );
-  if (!res.ok) throw await parseError(res);
-  const body = (await res.json()) as { projectId: string; items: Record<string, unknown>[]; count?: number };
-  const items: GalleryItem[] = (body.items ?? []).map((raw) => normalizeItem(raw));
-  return {
-    projectId: body.projectId ?? projectId,
-    items,
-    count: body.count ?? items.length,
-  };
+  const items: GalleryItem[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let snapshot: string | undefined;
+  while (true) {
+    const res = await fetch(
+      `${base(creds.gatewayBaseUrl)}/remote/v1/gallery/${encodeURIComponent(projectId)}?offset=${offset}${snapshot ? `&snapshot=${encodeURIComponent(snapshot)}` : ""}`,
+      { headers: authHeaders(creds.token), signal },
+    );
+    if (!res.ok) throw await parseError(res);
+    const body = (await res.json()) as { items: Record<string, unknown>[]; nextOffset?: number | null; snapshot?: string };
+    snapshot = body.snapshot;
+    for (const raw of body.items ?? []) {
+      const item = normalizeItem(raw);
+      if (!seen.has(item.fileId)) { seen.add(item.fileId); items.push(item); }
+    }
+    if (body.nextOffset == null) break;
+    if (!Number.isSafeInteger(body.nextOffset) || body.nextOffset <= offset) throw new Error("Pagination de la galerie invalide");
+    offset = body.nextOffset;
+  }
+  return { projectId, items, count: items.length };
 }
 
 export type FileBlobResult = {

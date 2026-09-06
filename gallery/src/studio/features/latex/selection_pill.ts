@@ -115,7 +115,7 @@ export function createLatexSelectionPill(
       go.style.display="none";
       const actions=doc.createElement("div");go.before(actions);
       createSelectionActions(actions, {
-        onColor: options.highlight ? color=>{if(lastSelection) options.highlight?.(lastSelection,color);win.getSelection()?.removeAllRanges();api.hide();} : undefined,
+        onAdd: ()=>go.click(),
         onAnnotate: ()=>{if(lastSelection) options.openComment(lastSelection);api.hide();},
         onAsk: options.postToHost ? ()=>{
           if(!lastSelection)return;

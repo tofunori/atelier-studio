@@ -77,7 +77,7 @@ Sur iOS : Galerie → Connecter le Mac → Coller. Le lien `atelier-native://pai
 peut aussi être ouvert directement. L’adresse et le code temporaire sont inclus ;
 le jeton de l’appareil est conservé dans le trousseau, jamais dans les préférences.
 La saisie adresse/code reste disponible. HTTPS Tailscale sur le port 8443 pour le lien automatique.
-Le chat reste un prototype local ; l’association active ici la galerie uniquement.
+À cette étape initiale, seule la galerie était connectée ; le chat réel est décrit ci-dessous.
 
 Le panneau macOS communique avec la passerelle par `remote/pair.sock`, mode 0600,
 réservé au compte macOS. Il ne demande plus de jeton administrateur au frontend.
@@ -102,3 +102,132 @@ La compilation Simulator doit être signée ad hoc pour utiliser le trousseau.
 Validation en direct finale : ouverture du PDF figS_smoke_modis_vs_raqdps.pdf depuis
 la galerie manuscript_ch1, puis relance et réinstallation sans nouveau lien :
 connexion restaurée par le trousseau. Aucun test sur iPhone physique.
+
+## Aperçus texte et code
+
+Les cartes de texte, LaTeX, Python, Markdown, CSV/JSON et autres formats source
+compatibles affichent le début réel du fichier (requête Range limitée à 64 Kio,
+900 caractères affichés). Les images/PDF conservent leurs miniatures ; les formats
+binaires non pris en charge et les visuels de plus de 5 Mo gardent une icône.
+
+L’éditeur natif UITextView colore les commandes/commentaires LaTeX et les
+mots-clés, chaînes, commentaires et nombres Python ; règles aussi pour R,
+Swift, JS/TS, Rust et JSON. La coloration est lexicale, pas un serveur de langage.
+Elle couvre les premiers 200 000 caractères ; tout le texte reste éditable.
+La sélection Unicode est conservée pendant la recoloration et la recréation
+éditeur, avec le même parcours Annoter → note → chat local.
+
+Validation coloration : 14 tests XCTest réussis, dont chaînes/commentaires Python,
+pourcent échappé LaTeX, édition et citation Unicode, restauration de sélection
+à la recréation de l’éditeur. Revue indépendante et correction appliquée.
+
+## Conversations réelles du Mac
+
+L’onglet Chat lit les conversations existantes et l’historique du runtime,
+puis reçoit les événements en NDJSON via HTTPS. Il permet de créer une
+conversation, d’envoyer un message, d’arrêter une réponse et de choisir le
+modèle et l’effort parmi les valeurs exposées par le fournisseur du Mac.
+Le flux est filtré par conversation et le jeton est revérifié avant chaque
+événement et heartbeat ; une révocation coupe l’abonnement.
+
+Les brouillons restent distincts par conversation. L’historique et le flux
+sont dédupliqués par eventId ; les fragments d’un tour terminé sont ignorés.
+Les annotations transmettent le nom, la page/les lignes, le passage et la note
+au chat choisi. Le brouillon est conservé si la transmission échoue.
+
+Limites : autorisations d’outils à traiter sur le Mac ; éditions/surlignages
+des documents en mémoire seulement ; aucune sauvegarde distante ni compilation
+LaTeX déclenchée depuis iOS. Un accusé réseau confirme la transmission au
+runtime, pas l’exécution du fournisseur. Pas de test sur iPhone physique.
+
+Validation automatisée : 19 tests XCTest, tests du crate atelier-remote,
+TypeScript/Vite et 654 tests sidecar passent. Revue statique indépendante
+effectuée, avec corrections du changement de conversation, des reprises de
+flux et de la révocation.
+
+Validation en direct (simulateur connecté au Mac) : catalogue et création Codex,
+message « validation iOS. réponds juste ok » → réponse « ok » ; sélection LaTeX
+notes.tex ligne 7 (« espace »), annotation → réponse « reçu » dans le même chat.
+Le bundle Mac a été reconstruit et son chemin de processus vérifié.
+Dernier filtrage du menu de création aux cinq fournisseurs acceptés : compilé,
+non réinstallé dans le simulateur afin de préserver une saisie utilisateur en cours.
+
+## Pièces jointes et Photos
+
+Dans la galerie, le menu ⋯ et l’appui long proposent Afficher / Joindre au chat.
+Le lecteur propose aussi Joindre au chat pour le fichier ouvert. Le brouillon
+affiche les pièces jointes avec aperçu et retrait, séparément pour chaque chat.
+Sans conversation active, le sélecteur de conversations s’ouvre.
+
+Le bouton + du chat propose Galerie, Photothèque (PhotosPicker natif) et Fichiers.
+Les photos sélectionnées sont converties en JPEG, côté long maximal 2048 pixels,
+avant transfert. Les HEIC/TIFF de Fichiers sont aussi convertis. Six pièces
+jointes maximum ; les imports locaux sont limités à 8 Mo chacun. Les références
+de galerie restent soumises à la limite existante de 50 Mo.
+
+La passerelle exige files:write pour importer, chat:send et files:read pour
+transmettre les références. Elle résout les identifiants opaques et fournit les
+images en inputs local_image au runtime ; les autres fichiers sont référencés
+par leur chemin vérifié dans le contexte. Les imports sont conservés dans
+mobile-uploads sous les données Atelier, quota de 128 Mo par appareil.
+Un réessai identique réutilise le fichier par empreinte SHA256 et nom.
+L’envoi attend l’événement utilisateur corrélé du runtime avant de retirer les
+pièces jointes ; refus ou confirmation absente conservent le brouillon.
+Les approbations simples de commandes peuvent être autorisées une fois ou refusées
+depuis leur bloc iPhone. La confirmation attend l’événement answered du Mac ;
+les demandes expirées restent inactives. Les questions structurées et permissions
+spécifiques de connexion d’un outil peuvent encore nécessiter le Mac.
+
+Validation automatisée : 23 tests XCTest ; 27 tests Rust (dont 20 de sécurité),
+TypeScript/Vite et 654 tests sidecar. Revue indépendante appliquée.
+
+La création de conversation passe par upsertThread du runtime, avec confirmation
+du nouvel ID. La passerelle ne réécrit plus threads.json quand le runtime est
+connecté ; cela évite qu’un chat vide disparaisse lors d’une sauvegarde du Mac.
+
+Validation interactive : PhotosPicker → image rouge/bleu → pièce jointe → réponse
+correcte du modèle sur les deux couleurs. Menus galerie et attachement depuis
+le lecteur vérifiés dans le simulateur. La référence JSON atteint bien le runtime
+et ses demandes d’outils ; lecture finale du contenu non confirmée, car elle a
+rencontré des autorisations. Aucun test sur iPhone physique.
+
+Les blocs de tools/interaction affichent les détails disponibles du flux. La
+configuration web/MCP demeure celle du moteur sur le Mac ; aucun nouveau
+commutateur Web ni installation Firecrawl n’a été ajouté dans cette étape.
+
+Présentation compacte des outils : les événements consécutifs d’un même tour
+sont regroupés dans une ligne d’activité sobre. Son libellé évolue pendant
+le travail, avec un symbole animé (désactivé par Réduire les animations).
+Un toucher ouvre les détails dans une feuille ; les approbations en attente
+restent visibles et accessibles directement dans le chat.
+
+Reprise après redémarrage Mac : avant envoi, les pièces jointes distantes
+réindexent leur projet et valident leur identifiant exact. Les aperçus relancent
+aussi cette résolution si la passerelle répond fichier inconnu. Les noms seuls
+ne servent jamais de remplacement. Le flux du chat conserve ses réessais
+automatiques toutes les trois secondes et l’association du trousseau.
+
+Indexation complète : le serveur parcourt désormais tous les sous-dossiers
+admissibles sans le plafond prématuré de 1 000 fichiers ni la limite de profondeur
+de 10 dossiers. Un instantané trié (10 minutes, 8 conservés maximum) fournit des
+pages de 500 entrées ; les clients Swift et web suivent automatiquement toutes
+les pages. Les dossiers cachés/dépendances et les liens symboliques restent exclus.
+Tests : projet de 1 011 fichiers, LaTeX profond, suppression entre pages,
+chargement de plusieurs pages dans les clients.
+
+Accueil : entrée directe dans les conversations, recherche et création, avec
+deux onglets Chats/Galerie. Le dernier onglet est restauré au lancement.
+Sur iPhone, le document est poussé depuis la galerie avec retour au chat ;
+sur iPad, le chat et la galerie/le document partagent l’écran. Le retour à la
+liste conserve le brouillon et fusionne les pièces jointes en attente.
+
+Citations du chat : sélection native dans une réponse/message → Ajouter au
+message. Le passage apparaît au-dessus du champ de saisie, retirable, sans
+remplacer le brouillon. Une citation par chat ; une nouvelle sélection remplace
+la précédente. À l’envoi, le passage est inclus comme citation dans le prompt ;
+seul un envoi confirmé retire la citation capturée.
+
+Défilement du chat : suivi de la hauteur du fil pendant le streaming vers un
+repère fixe en bas. Remonter manuellement suspend le suivi ; le bouton flèche
+le réactive. Validation simulateur : réponse réelle de 40 lignes suivie sans
+geste, remontée manuelle, puis retour à la ligne 40 avec la flèche.

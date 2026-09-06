@@ -17,11 +17,7 @@ struct NativeDocumentView: View {
             if let image = workspace.image {
                 ZoomableArtifactImage(image: image)
             } else if workspace.documentMode == .source {
-                TextEditor(text: $workspace.source, selection: $workspace.selection)
-                    .font(.system(.body, design: .monospaced))
-                    .autocorrectionDisabled().textInputAutocapitalization(.never)
-                    .padding(.horizontal, 8)
-                    .accessibilityIdentifier("latexSource")
+                SyntaxSourceEditor(workspace: workspace)
             } else {
                 NativePDFView(workspace: workspace)
             }
@@ -48,6 +44,13 @@ struct NativeDocumentView: View {
                 }
             }
             .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(.background)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let item = workspace.viewedArtifact {
+                    Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
+                }
+            }
         }
         .sheet(item: $workspace.annotationDraft) { draft in
             AnnotationSheet(workspace: workspace, draft: draft)

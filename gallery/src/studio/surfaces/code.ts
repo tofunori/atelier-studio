@@ -1,3 +1,4 @@
+import {createCodeSelectionActions} from "../features/code/selection_actions";
 import {createCsvViewController, type CsvToolkit} from "../features/code";
 import {
   addRecentStudioFile,
@@ -163,7 +164,10 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
         setState("dirty", "modified");
       }
     });
+    const selectionActions = createCodeSelectionActions(editor, path || "", doc, win);
     const selectionBridge = attachEditorSelection({
+      onSelection: selectionActions.show,
+      onEmpty: selectionActions.hide,
       editor,
       buildPayload: (selection) => ({
         lines: selection.lines,

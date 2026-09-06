@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <title>Editor</title>
 <script src="/.fig_thumbs/studio_runtime.bundle.js"></script>
-<script>AtelierStudioRuntime.bootstrap({tokenFetch:true,legacyTheme:"blue"});</script>
+<script>AtelierStudioRuntime.bootstrap({tokenFetch:true,hostBridge:true,legacyTheme:"blue"});</script>
 <script src="/.fig_thumbs/studio_core.bundle.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/cm/codemirror.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/cm/material-darker.min.css">
@@ -26,24 +26,25 @@
 <script src="/.fig_thumbs/studio_surfaces.bundle.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/csv_table.css">
 <link rel="stylesheet" href="/.fig_thumbs/code_editor.css">
+<link rel="stylesheet" href="/.fig_thumbs/annotation_ui.css">
 </head>
 <body>
 <header>
   <b id="fname"></b>
   <button id="openFile" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Open…</button>
-  <select id="wrapSel" title="Word wrap" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer">
-    <option value="win">Wrap: window</option>
-    <option value="off">Wrap: off</option>
-    <option value="80">Wrap: 80</option>
-    <option value="100">Wrap: 100</option>
-    <option value="120">Wrap: 120</option>
-    <option value="50">Wrap: 50</option>
-    <option value="60">Wrap: 60</option>
-    <option value="70">Wrap: 70</option>
-    <option value="90">Wrap: 90</option>
-    <option value="custom">Wrap: custom…</option>
+  <select id="wrapSel" title="Retour à la ligne visuel" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer">
+    <option value="win">Lignes : fenêtre</option>
+    <option value="off">Lignes : sans retour</option>
+    <option value="80">Lignes : 80</option>
+    <option value="100">Lignes : 100</option>
+    <option value="120">Lignes : 120</option>
+    <option value="50">Lignes : 50</option>
+    <option value="60">Lignes : 60</option>
+    <option value="70">Lignes : 70</option>
+    <option value="90">Lignes : 90</option>
+    <option value="custom">Lignes : personnalisé…</option>
   </select>
-  <input id="wrapCustom" type="number" min="20" max="400" step="1" placeholder="cols" title="Wrap column"
+  <input id="wrapCustom" type="number" min="20" max="400" step="1" placeholder="cols" title="Largeur de ligne en colonnes"
          style="display:none;width:56px;background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px">
   <span id="diffGrp" style="display:none">
     <button id="diffPrev" class="dvBtn" style="display:none" title="Version précédente">&#8249;</button>

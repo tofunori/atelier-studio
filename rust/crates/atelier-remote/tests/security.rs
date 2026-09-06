@@ -573,6 +573,7 @@ async fn send_and_interaction_replay() {
     let (h, admin, host) = boot().await;
     let base = h.base_url();
     let (_id, tok) = pair_device(&base, &admin, &host, "replay").await;
+    h.state.inner.lock().await.threads.upsert(json!({"id":"t1","provider":"codex","title":"Test"}), false).unwrap();
     let c = client();
     let body = json!({
         "threadId": "t1",
@@ -611,7 +612,7 @@ async fn send_and_interaction_replay() {
         .header("x-atelier-device-token", &tok)
         .json(&json!({
             "threadId": "t1",
-            "prompt": "DIFFERENT",
+            "prompt": "HELLO",
             "clientRequestId": "idem-1"
         }))
         .send()
@@ -786,4 +787,164 @@ fn native_tauri_origin_is_scoped_to_localhost() {
         "http://tauri.localhost",
         &allowed
     ));
+}
+
+#[tokio::test]
+async fn attachment_upload_and_image_forwarding() {
+    use futures_util::{StreamExt, SinkExt};
+    let (h, admin, host) = boot().await;
+    let base = format!("http://{host}");
+    let (_, token) = pair_device(&base, &admin, &host, "photo-test").await;
+    let c = client();
+    let upload = format!("{base}/remote/v1/attachments/test.png");
+    assert_eq!(c.post(&upload).header("host",&host).body("test").send().await.unwrap().status(),401);
+    let bytes = b"test-image-payload";
+    let response = c.post(&upload).header("host",&host).header("x-atelier-device-token",&token)
+        .body(bytes.to_vec()).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let uploaded: Value = response.json().await.unwrap();
+    let id = uploaded["fileId"].as_str().unwrap();
+    assert!(!uploaded.to_string().contains("mobile-uploads"));
+    let repeated: Value = c.post(&upload).header("host",&host).header("x-atelier-device-token",&token)
+        .body(bytes.to_vec()).send().await.unwrap().json().await.unwrap();
+    assert_eq!(repeated["fileId"], uploaded["fileId"]);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let (stream,_) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        while let Some(Ok(message)) = ws.next().await {
+            if let Ok(text) = message.to_text() {
+                let value: Value = serde_json::from_str(text).unwrap();
+                if value["type"] == "send" {
+                    ws.send(tokio_tungstenite::tungstenite::Message::Text(json!({
+                        "type":"event","threadId":value["threadId"],"event":{"kind":"user","meta":{"messageId":value["clientMessageId"]}}
+                    }).to_string().into())).await.unwrap();
+                    let _ = tx.send(value); break;
+                }
+            }
+        }
+    });
+    {
+        let mut g = h.state.inner.lock().await;
+        g.config.sidecar_base = Some(format!("http://{address}"));
+        g.threads.upsert(json!({"id":"attachment-chat","provider":"codex","title":"Test"}),false).unwrap();
+    }
+    let sent = c.post(format!("{base}/remote/v1/send")).header("host",&host)
+        .header("x-atelier-device-token",&token)
+        .json(&json!({"threadId":"attachment-chat","prompt":"Read this","fileIds":[id],"clientRequestId":"photo-1"}))
+        .send().await.unwrap();
+    assert_eq!(sent.status(),200);
+    let payload = tokio::time::timeout(Duration::from_secs(3),rx).await.unwrap().unwrap();
+    let path = payload["inputs"][1]["path"].as_str().unwrap();
+    assert_eq!(payload["inputs"][1]["type"],"local_image");
+    assert_eq!(std::fs::read(path).unwrap(),bytes);
+    assert_eq!(payload["attachments"][0]["path"],path);
+    assert!(payload["displayEvent"]["text"].as_str().unwrap().contains("test.png"));
+    assert!(!payload["displayEvent"]["text"].as_str().unwrap().contains("mobile-uploads"));
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn attachment_limits_and_unknown_references() {
+    let (h, admin, host) = boot().await;
+    let base = format!("http://{host}");
+    let (_, token) = pair_device(&base,&admin,&host,"limits").await;
+    let c = client();
+    for name in ["secret.exe", "nested%2Ffile.png"] {
+        let response = c.post(format!("{base}/remote/v1/attachments/{name}")).header("host",&host)
+            .header("x-atelier-device-token",&token).body("content").send().await.unwrap();
+        assert!(response.status().is_client_error());
+    }
+    let large = c.post(format!("{base}/remote/v1/attachments/large.png")).header("host",&host)
+        .header("x-atelier-device-token",&token).body(vec![0u8;8*1024*1024+1]).send().await.unwrap();
+    assert_eq!(large.status(),413);
+    h.state.inner.lock().await.threads.upsert(json!({"id":"refs","provider":"codex","title":"Test"}),false).unwrap();
+    let missing = c.post(format!("{base}/remote/v1/send")).header("host",&host)
+        .header("x-atelier-device-token",&token)
+        .json(&json!({"threadId":"refs","prompt":"test","fileIds":["/etc/passwd"],"clientRequestId":"missing"})).send().await.unwrap();
+    assert_eq!(missing.status(),404);
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn mobile_creation_uses_runtime_as_single_writer() {
+    use futures_util::{SinkExt, StreamExt};
+    let (h,admin,host) = boot().await;
+    let base = format!("http://{host}");
+    let (_,token) = pair_device(&base,&admin,&host,"create").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    h.state.inner.lock().await.config.sidecar_base = Some(format!("http://{address}"));
+    let (tx,rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let (stream,_) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        while let Some(Ok(frame)) = ws.next().await {
+            if let Ok(text) = frame.to_text() {
+                let value: Value = serde_json::from_str(text).unwrap();
+                if value["type"] == "upsertThread" {
+                    let thread = value["thread"].clone();
+                    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                        json!({"type":"threads","threads":[]}).to_string().into())).await.unwrap();
+                    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                        json!({"type":"threads","threads":[thread]}).to_string().into())).await.unwrap();
+                    let _ = tx.send(thread); break;
+                }
+            }
+        }
+    });
+    let response = client().post(format!("{base}/remote/v1/threads")).header("host",&host)
+        .header("x-atelier-device-token",&token).json(&json!({"provider":"codex","title":"Mobile stable","model":"test"}))
+        .send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let result:Value = response.json().await.unwrap();
+    let request = rx.await.unwrap();
+    assert_eq!(result["id"],request["id"]);
+    assert_eq!(result["title"],"Mobile stable");
+    assert!(h.state.inner.lock().await.threads.get(result["id"].as_str().unwrap()).is_none(),
+        "the gateway must not write its stale thread store when a runtime exists");
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn gallery_paginates_beyond_one_thousand_files() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "gallery-pages").await;
+    let root = tempfile::tempdir().unwrap();
+    for i in 0..1010 {
+        std::fs::write(root.path().join(format!("figure-{i:04}.png")), b"image").unwrap();
+    }
+    let nested = root.path().join("manuscrit/sections/a/b/c/d/e/f/g/h/i/j");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("results.tex"), b"results").unwrap();
+    let pid = h.state.inner.lock().await.projects.register_project(root.path(), None).project_id;
+    let mut offset = 0;
+    let mut snapshot = String::new();
+    let mut ids = std::collections::HashSet::new();
+    let mut latex = false;
+    loop {
+        let body: Value = client().get(format!("{base}/remote/v1/gallery/{pid}?offset={offset}{snapshot}"))
+            .header("host", &host).header("x-atelier-device-token", &token)
+            .send().await.unwrap().json().await.unwrap();
+        assert_eq!(body["total"], 1011);
+        snapshot = format!("&snapshot={}", body["snapshot"].as_str().unwrap());
+        if offset == 0 {
+            let name = body["items"][0]["name"].as_str().unwrap();
+            if name.starts_with("figure-") { std::fs::remove_file(root.path().join(name)).unwrap(); }
+        }
+        let items = body["items"].as_array().unwrap();
+        assert!(items.len() <= 500);
+        for item in items {
+            assert!(item.get("_relative").is_none());
+            assert!(ids.insert(item["fileId"].as_str().unwrap().to_string()));
+            latex |= item["name"] == "results.tex";
+        }
+        match body["nextOffset"].as_u64() { Some(next) => { assert!(next > offset); offset = next; }, None => break }
+    }
+    assert_eq!(ids.len(), 1011);
+    assert!(latex);
 }

@@ -33,7 +33,7 @@ export function createEditorWrapController(options: EditorWrapOptions): EditorWr
     if (!select || !/^\d+$/.test(value) || hasOption(value)) return;
     const option = doc.createElement("option");
     option.value = value;
-    option.textContent = `Wrap: ${value}`;
+    option.textContent = `Lignes : ${value}`;
     const customOption = Array.from(select.options).find((item) => item.value === "custom");
     select.insertBefore(option, customOption || null);
   };

@@ -70,6 +70,7 @@ pub struct GatewayInner {
     /// In-memory fixture threads for tests (thread_id -> events).
     pub fixture_history: HashMap<String, Vec<Value>>,
     pub started_at: String,
+    pub gallery_snapshots: HashMap<String, (String, std::time::Instant, Arc<Vec<Value>>)>,
 }
 
 #[derive(Clone)]
@@ -126,6 +127,7 @@ impl GatewayState {
                 api_limiter: RateLimiter::api_default(),
                 idempotency: IdempotencyCache::default(),
                 fixture_history: HashMap::new(),
+                gallery_snapshots: HashMap::new(),
                 started_at: atelier_store::iso_now(),
             })),
         })

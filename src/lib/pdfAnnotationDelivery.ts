@@ -23,3 +23,15 @@ export class PdfAnnotationDelivery {
     }
   }
 }
+
+/** Use the same Bearer header as the gallery runtime (also allowed by CORS). */
+export async function removeDeliveredAnnotation(annotation: PdfAnnotation, token: string | null, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const endpoint = new URL("/pdfannot", annotation.origin);
+  if (!["http:", "https:"].includes(endpoint.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)) throw new Error("Invalid gallery origin");
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...(token ? {Authorization: `Bearer ${token}`} : {})},
+    body: JSON.stringify({rel: annotation.rel, removeIds: [annotation.id]}),
+  });
+  if (!response.ok || (await response.json()).error) throw new Error("Annotation cleanup failed");
+}

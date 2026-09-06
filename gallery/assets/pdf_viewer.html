@@ -221,6 +221,18 @@
     background:rgba(255,170,60,.12);pointer-events:none;z-index:60}
   body.area-mode .pg{cursor:crosshair}
   body.area-mode .textLayer{pointer-events:none}
+
+.pdf-mark-tools{display:flex;align-items:center;gap:3px;flex:none}
+.pdf-mark-tools button{width:32px;height:32px;min-width:32px;padding:7px;border:0;border-radius:6px;background:transparent;color:var(--txt,#dadee3);cursor:pointer}
+.pdf-mark-tools svg{width:16px;height:16px;display:block}
+.pdf-mark-tools button:hover{background:var(--card,#30363e)}
+.pdf-mark-tools button[aria-pressed="true"]{box-shadow:inset 0 -2px #b9c0c9;background:var(--card,#30363e)}
+.pdf-mark-colors{display:flex;gap:2px;padding:0 5px;border-inline:1px solid #70778040}
+.pdf-mark-tools .pdf-mark-color{background:var(--mark-color);border:7px solid var(--bg,#24282d);border-radius:50%;box-shadow:none}
+.pdf-mark-tools .pdf-mark-color[aria-pressed="true"]{outline:1px solid #aeb5bf;outline-offset:-3px;background:var(--mark-color)}
+.pdf-mark-tools button:focus-visible{outline:1px solid #aeb5bf;outline-offset:1px}
+#selPill .hlbar{display:none!important}
+header{flex-wrap:wrap}
 </style>
 <script>
 function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#202024',card:'#27272a',card2:'#1f1f23',txt:'#dbdfe5',muted:'#a1a1aa',accent:'#5b9dff',border:'#3f3f46'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
@@ -763,7 +775,7 @@ function pointAt(tl, x, y){
   return index < 0 ? null : {index, offset: offsetAt(span, x, y)};
 }
 document.addEventListener("pointerdown", e => {
-  if(e.target.closest("#selPill")) return;  // the bar: keep selection
+  if(e.target.closest("#selPill, .pdf-mark-tools")) return;  // Keep the selected range while using either toolbar.
   const tl = e.target.closest(".textLayer");
   btn.style.display = "none";
   selHide();
@@ -835,7 +847,7 @@ const selApi = SelPill.attach({
     const legacyColors = selPill.querySelector(".hlbar");
     if(legacyColors) legacyColors.style.display = "none";
     AtelierAnnotationUI.createSelectionActions(actions, {
-      onColor: (_name, color) => addHighlightFromSel("hl", color),
+      onAdd: () => go.click(),
       onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
       onAsk: () => {
         const text = hlText(); if(!text) return;
@@ -1338,7 +1350,13 @@ function drawAnnots(pgDiv, n){
       else if(a.kind === "note"){ el.style.background = "transparent"; }
       else { el.style.background = col; }
       if(a.note) el.title = a.note;
-      el.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      el.onclick = (e) => {
+        e.stopPropagation();
+        if(eraseMark && (a.kind === "hl" || a.kind === "ul" || a.kind === "st")){
+          void removeAnnot(a);return;
+        }
+        annotMenu(a,e.clientX,e.clientY);
+      };
       pgDiv.appendChild(el);
     }
     if(a.kind === "area" && a.rects && a.rects[0]){
@@ -1403,28 +1421,43 @@ function addHighlightFromSel(kind, color){
   // Only an explicit comment opens the note editor; colors mark the text directly.
   if (kind === "comment" && lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
 }
-// Barre d'annotation à la sélection : chaque pastille surligne DIRECTEMENT
-// dans sa couleur. Positions FIXES (la dernière utilisée porte un anneau) —
-// une pastille qui se déplacerait vers la première place casserait justement
-// la mémoire du geste qu'on cherche à installer.
+// PDF marks live in the reader toolbar; selection capsules only target chat.
 let LAST_COLOR = HL_COLORS[0];
+let markKind = "hl";
+let eraseMark = false;
 (function(){
-  const bar = document.querySelector("#selPill .hlbar");
-  if (!bar) return;
-  const sws = [...bar.querySelectorAll(".sw")];
-  sws.forEach((sw, i) => {
-    sw.style.background = HL_COLORS[i].replace(",.40", ",.85");
-    sw.title = "Surligner";
-    sw.classList.toggle("on", HL_COLORS[i] === LAST_COLOR);
-    sw.onclick = (e) => {
-      e.stopPropagation();
-      LAST_COLOR = HL_COLORS[i];
-      sws.forEach((o, j) => o.classList.toggle("on", j === i));
-      addHighlightFromSel("hl", LAST_COLOR);
-    };
+  const bar = document.createElement("div");
+  bar.className = "pdf-mark-tools";
+  bar.setAttribute("role", "group");bar.setAttribute("aria-label", "Marquage du PDF");
+  const icons = {
+    hl:'<path d="m14 3 7 7-9 9-7-7zM5 12l-2 6 3 3 6-2M2 22h13"/>',
+    ul:'<path d="M6 3v8a6 6 0 0 0 12 0V3M4 21h16"/>',
+    erase:'<path d="m14 3 7 7-11 11H6l-4-4zM8 11l7 7M10 21h12"/>'
+  };
+  const tool = (label, icon, action) => {
+    const button=document.createElement("button");button.type="button";
+    button.title=label;button.setAttribute("aria-label",label);
+    button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+icons[icon]+'</svg>';
+    button.onclick=action;bar.appendChild(button);return button;
+  };
+  const tools=[];
+  const refresh=()=>tools.forEach(([button,kind])=>button.setAttribute("aria-pressed",String(kind==="erase"?eraseMark:!eraseMark&&markKind===kind)));
+  for(const [kind,label] of [["hl","Surligner"],["ul","Souligner"]]){
+    const button=tool(label,kind,()=>{eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});tools.push([button,kind]);
+  }
+  const palette=document.createElement("span");palette.className="pdf-mark-colors";bar.appendChild(palette);
+  const colors=[];
+  HL_COLORS.forEach((color,i)=>{
+    const button=document.createElement("button");button.type="button";button.className="pdf-mark-color";
+    button.title=["Jaune","Vert","Bleu","Rose"][i];button.setAttribute("aria-label",button.title);
+    button.style.setProperty("--mark-color",color.replace(",.40)",",1)"));
+    button.setAttribute("aria-pressed",String(i===0));
+    button.onclick=()=>{LAST_COLOR=color;eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
+    palette.appendChild(button);colors.push(button);
   });
-  const ul = bar.querySelector(".ulb");
-  if (ul) ul.onclick = (e) => { e.stopPropagation(); addHighlightFromSel("ul", LAST_COLOR); };
+  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});tools.push([eraser,"erase"]);
+  bar.onmousedown=e=>e.preventDefault();
+  document.getElementById("selinfo").before(bar);refresh();
 })();
 // Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
 // métadonnées Zotero (ni auteur ni année structurés). Même règle que les
@@ -1756,10 +1789,14 @@ if(window.self !== window.top){
       color:#868d9a !important;font-size:13px !important;padding:3px 8px !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header button:hover{background:#2c313a !important;color:#dbdfe5 !important}
-    header{flex-wrap:nowrap !important;height:46px !important;box-sizing:border-box !important;
+    header{flex-wrap:wrap !important;min-height:46px !important;height:auto !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
     #pdftools{flex-shrink:0}
+    header .pdf-mark-tools button{padding:7px !important}
+    header .pdf-mark-tools button[aria-pressed="true"]{background:#30363e !important;box-shadow:inset 0 -2px #b9c0c9 !important}
+    header .pdf-mark-tools button.pdf-mark-color{padding:0 !important;background:var(--mark-color) !important;border:7px solid #1a1d22 !important;border-radius:50% !important;box-shadow:none !important}
+
     @media (max-width: 440px){
       header #selinfo{display:none}
     }

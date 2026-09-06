@@ -2,88 +2,292 @@ import SwiftUI
 
 struct NativeChatView: View {
     @Bindable var workspace: WorkspaceModel
-    @State private var scrollPosition: UUID?
+    @State private var followsResponse = true
+    @State private var userScrolling = false
+    @State private var hasInteracted = false
+    @State private var nearBottom = true
+    @State private var readingPosition = ScrollPosition(edge: .bottom)
+    @State private var pendingBookmark: ChatBookmark?
+    @State private var scrollMetrics = ChatScrollMetrics()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var composing: Bool
-
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                Text("Exemple de conversation").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                HStack {
-                    Spacer(minLength: 32)
-                    Text("J’aimerais relire ce passage en gardant le document à côté.")
-                        .padding(14)
-                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+        @Bindable var chat = workspace.chat
+        Group {
+            if chat.selected == nil { ConversationPicker(workspace: workspace, embedded: true) }
+            else { chatContent }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if chat.selected != nil { composer }
+        }
+        .sheet(isPresented: $workspace.chatPickerRequested) { ConversationPicker(workspace: workspace) }
+        .task(id: "\(chat.selected?.id ?? ""):\(chat.reconnectGeneration)") { await chat.observe(using: workspace.gallery) }
+    }
+    private var chatContent: some View {
+        let chat = workspace.chat
+        return VStack(spacing: 0) {
+            HStack {
+                Button("Conversations", systemImage: "bubble.left.and.bubble.right") { chat.showConversations(workspace: workspace) }
+                    .disabled(chat.sending)
+                Spacer()
+                if chat.selected != nil {
+                    Label(chat.statusLabel, systemImage: chat.statusIcon)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .contentTransition(.opacity)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: chat.statusLabel)
                 }
-                VStack(alignment: .leading, spacing: 14) {
-                    Label("Atelier", systemImage: "sparkle").font(.caption.weight(.semibold)).foregroundStyle(.orange)
-                    Text("Sélectionnez un passage dans le PDF ou la source, touchez Annoter et ajoutez votre note. Le passage et sa référence seront joints au chat.")
-                    Text("Votre brouillon reste ici pendant la lecture.")
-                    Button {
-                        workspace.surface = .document
-                        composing = false
-                    } label: { Label(workspace.currentName, systemImage: "doc.text") }
-                    .buttonStyle(.bordered)
-                }
-                ForEach(workspace.messages) { message in
-                    VStack(alignment: .trailing, spacing: 8) {
-                        if let passage = message.passage {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Label(passage.citation, systemImage: "text.quote").font(.caption.weight(.semibold))
-                                Text(passage.text).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            .padding(.leading, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .overlay(alignment: .leading) { Rectangle().fill(.orange).frame(width: 2) }
+            }.font(.subheadline).padding(.horizontal, 16).padding(.vertical, 8)
+            ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    ForEach(ChatTimelineItem.group(chat.rows)) { item in
+                        if item.isActivity {
+                            ChatActivityView(rows: item.rows, active: chat.running && item.rows.last?.id == chat.rows.last?.id, workspace: workspace).id(item.id)
+                        } else if let row = item.rows.first {
+                            ChatEventRow(row: row, workspace: workspace).id(item.id)
                         }
-                        Text(message.text).padding(14)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-                        Text(message.configuration.summary).font(.caption2).foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .id(message.id)
+                    if chat.running && !(chat.rows.last.map { ChatTimelineItem.activityKinds.contains($0.kind) } ?? false) { ProgressView().controlSize(.small).id("running") }
+                    if let error = chat.error {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                            if chat.connection == .reconnecting {
+                                Button("Reconnecter maintenant", systemImage: "arrow.clockwise") { chat.reconnect() }.font(.footnote)
+                            }
+                        }
+                    }
+                    Color.clear.frame(height: 1).id("chat-bottom")
+                }.padding(16)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                    if followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
                 }
             }
-            .scrollTargetLayout()
-            .padding(20)
-            .textSelection(.enabled)
+            .scrollPosition($readingPosition)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .onScrollPhaseChange { _, phase in
+                userScrolling = phase == .tracking || phase == .interacting || phase == .decelerating
+                if userScrolling { pendingBookmark = nil; hasInteracted = true }
+                if phase == .idle && nearBottom && pendingBookmark == nil { followsResponse = true }
+                if phase == .idle && pendingBookmark == nil && hasInteracted && !chat.rows.isEmpty {
+                    chat.rememberPosition(rowID: nil, followsTail: followsResponse, offsetY: scrollMetrics.offset, contentHeight: scrollMetrics.height)
+                }
+            }
+            .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
+                ChatScrollMetrics(offset: geometry.contentOffset.y, height: geometry.contentSize.height,
+                                  bottom: geometry.contentSize.height - geometry.visibleRect.maxY < 60)
+            } action: { _, metrics in
+                scrollMetrics = metrics; nearBottom = metrics.bottom
+                if userScrolling { followsResponse = metrics.bottom }
+                if let bookmark = pendingBookmark, !chat.rows.isEmpty, !userScrolling {
+                    let target = bookmark.offsetY ?? 0
+                    if abs(metrics.offset - target) > 1 { readingPosition.scrollTo(y: target) }
+                    if metrics.height >= (bookmark.contentHeight ?? 0) - 2 && abs(metrics.offset - target) <= 1 { pendingBookmark = nil }
+                }
+            }
+            .onChange(of: chat.rows.count) { _, _ in
+                if followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+            }
+            .onChange(of: chat.selected?.id, initial: true) { _, _ in
+                userScrolling = false; hasInteracted = false; nearBottom = true
+                let bookmark = chat.selected.flatMap { chat.bookmarks[$0.id] }
+                followsResponse = bookmark?.followsTail ?? true
+                pendingBookmark = followsResponse ? nil : bookmark
+                if followsResponse { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+            }
+            .onChange(of: chat.sending) { _, sending in
+                if sending { pendingBookmark = nil; followsResponse = true; chat.rememberPosition(rowID: nil, followsTail: true); proxy.scrollTo("chat-bottom", anchor: .bottom) }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: chat.quote?.id) { _, quoteID in
+                if quoteID != nil { composing = true }
+                pendingBookmark = nil; followsResponse = true
+                proxy.scrollTo("chat-bottom", anchor: .bottom)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !followsResponse {
+                    Button {
+                        pendingBookmark = nil; followsResponse = true
+                        chat.rememberPosition(rowID: nil, followsTail: true)
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
+                    } label: { Image(systemName: "arrow.down").font(.body.weight(.semibold)) }
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                        .accessibilityLabel("Revenir au bas de la réponse")
+                        .padding(12)
+                }
+            }
+            }
         }
-        .scrollPosition(id: $scrollPosition)
-        .onChange(of: workspace.messages.count) { _, _ in
-            scrollPosition = workspace.messages.last?.id
-        }
-        .onAppear { if let last = workspace.messages.last { scrollPosition = last.id } }
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
     }
-
     private var composer: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .bottom, spacing: 12) {
+        @Bindable var chat = workspace.chat
+        return VStack(spacing: 8) {
+            if let quote = chat.quote {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "text.quote").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Passage cité").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                        Text(quote.text).font(.subheadline).lineLimit(3)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Button { chat.quote = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .accessibilityLabel("Retirer la citation").disabled(chat.sending)
+                }.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            }
+            if !chat.attachments.isEmpty { ChatAttachmentBar(workspace: workspace) }
+            HStack(alignment: .bottom, spacing: 10) {
                 TextField("Poursuivre la réflexion…", text: $workspace.draft, axis: .vertical)
-                    .lineLimit(1...5).focused($composing)
-                    .accessibilityIdentifier("chatDraft")
-                Button {
-                    workspace.send()
-                    composing = false
-                    scrollPosition = workspace.messages.last?.id
-                } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 32, height: 32) }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
-                    .disabled(workspace.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel("Ajouter le message local")
-            }
-            .padding(12)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
-            ChatControls(workspace: workspace)
-            if !workspace.configuration.tools.isEmpty {
-                Text(ChatConfiguration.Tool.allCases.filter { workspace.configuration.tools.contains($0) }.map(\.rawValue).joined(separator: " · ") + " · au prochain envoi local")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Text(workspace.feedback.isEmpty ? "Démonstration locale · aucun envoi au Mac" : workspace.feedback)
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(.background)
+                    .lineLimit(1...5).focused($composing).accessibilityIdentifier("chatDraft")
+                if chat.sending {
+                    ProgressView("Envoi…").labelsHidden()
+                } else if chat.running {
+                    Button { Task { await chat.stop(using: workspace.gallery) } } label: { Image(systemName: "stop.fill") }
+                        .accessibilityLabel("Arrêter la réponse")
+                } else {
+                    Button {
+                        let prompt = workspace.draft
+                        let thread = chat.selected?.id
+                        Task {
+                            if await chat.send(prompt, using: workspace.gallery, includingAttachments: true), chat.selected?.id == thread, workspace.draft == prompt { workspace.draft = ""; composing = false }
+                        }
+                    } label: {
+                        if chat.sending { ProgressView() } else { Image(systemName: "arrow.up").fontWeight(.semibold) }
+                    }.buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                        .disabled(chat.sending || (workspace.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && chat.attachments.isEmpty && chat.quote == nil))
+                        .accessibilityLabel("Envoyer au Mac")
+                }
+            }.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
+            HStack(spacing: 12) {
+                ChatAttachMenu(workspace: workspace)
+                Menu {
+                    Picker("Modèle", selection: $chat.model) {
+                        if !chat.model.isEmpty && !(chat.provider?.models.contains(chat.model) ?? false) { Text(chat.model).tag(chat.model) }
+                        ForEach(chat.provider?.models ?? [], id: \.self) { model in Text(chat.provider?.modelLabels?[model] ?? model).tag(model) }
+                    }
+                } label: { Text(chat.provider?.modelLabels?[chat.model] ?? (chat.model.isEmpty ? "Modèle du Mac" : chat.model)).lineLimit(1) }
+                Spacer(minLength: 0)
+                Menu {
+                    Picker("Réflexion", selection: $chat.effort) {
+                        Text("Auto").tag("")
+                        ForEach(chat.provider?.efforts ?? [], id: \.self) { Text($0).tag($0) }
+                    }
+                } label: { Label(chat.effort.isEmpty ? "Auto" : chat.effort, systemImage: "brain") }
+            }.font(.caption).foregroundStyle(.secondary).disabled(chat.sending || chat.running)
+        }.padding(.horizontal, 16).padding(.vertical, 8).background(.background)
     }
+}
+
+private struct ChatEventRow: View {
+    let row: RemoteChatModel.Row
+    let workspace: WorkspaceModel
+    @State private var selecting = false
+    @State private var copied = false
+    var body: some View {
+        Group {
+                VStack(alignment: row.kind == "user" ? .trailing : .leading, spacing: 6) {
+                    if row.kind != "user" { Text(row.kind == "error" ? "Erreur" : "Atelier").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                    Group {
+                        if row.kind == "text" { RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
+                        else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
+                    }
+                        .padding(row.kind == "user" ? 12 : 0)
+                        .background(row.kind == "user" ? Color(uiColor: .secondarySystemBackground) : .clear, in: RoundedRectangle(cornerRadius: 16))
+                    if !workspace.chat.files(for: row).isEmpty {
+                        ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
+                    }
+                    if !row.id.hasPrefix("live:") && !row.id.hasPrefix("pending:") {
+                        HStack(spacing: 2) {
+                            Button { UIPasteboard.general.string = row.text; copied = true } label: {
+                                Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: 44, height: 44)
+                            }.accessibilityLabel("Copier le message")
+                            Button { selecting = true } label: {
+                                Image(systemName: "text.quote").frame(width: 44, height: 44)
+                            }.accessibilityLabel("Sélectionner un passage à citer")
+                            Menu {
+                                Button("Citer le message", systemImage: "text.quote") { workspace.chat.quotePassage(row.text, from: row.id) }
+                                if row.kind == "user" {
+                                    Button("Modifier dans le brouillon", systemImage: "pencil") { workspace.chat.prepareRevision(row, workspace: workspace) }
+                                } else if workspace.chat.retryPrompt(for: row) != nil {
+                                    Button("Redemander une réponse", systemImage: "arrow.clockwise") {
+                                        Task { await workspace.chat.retry(row, using: workspace.gallery) }
+                                    }
+                                }
+                            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                                .accessibilityLabel("Actions du message")
+                                .disabled(workspace.chat.running || workspace.chat.sending)
+                        }.font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
+                    }
+                }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
+        }
+        .sheet(isPresented: $selecting) {
+            NavigationStack {
+                ScrollView {
+                    SelectableChatText(text: row.text) { passage in
+                        workspace.chat.quotePassage(passage, from: row.id); selecting = false
+                    }.padding()
+                }
+                .navigationTitle("Sélectionner un passage").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { selecting = false } } }
+            }.presentationDetents([.medium, .large])
+        }
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2)); copied = false
+        }
+    }
+}
+
+private struct ConversationPicker: View {
+    @Bindable var workspace: WorkspaceModel
+    var embedded = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var creating = false
+    @State private var error: String?
+    var body: some View {
+        Group {
+            if embedded { content } else { NavigationStack { content } }
+        }
+    }
+    private var content: some View {
+        let chat = workspace.chat
+        return List {
+                Section {
+                    Menu("Nouvelle conversation", systemImage: "plus") {
+                        ForEach(chat.creationProviders) { provider in
+                            Button(provider.label) {
+                                creating = true
+                                Task {
+                                    defer { creating = false }
+                                    do { try await chat.create(provider: provider, workspace: workspace); if !embedded { dismiss() } }
+                                    catch { self.error = error.localizedDescription }
+                                }
+                            }
+                        }
+                    }.disabled(creating || chat.creationProviders.isEmpty)
+                }
+                if creating || chat.loading { ProgressView() }
+                if let error = error ?? chat.error { Text(error).foregroundStyle(.red) }
+                ForEach(chat.threads.filter { query.isEmpty || $0.title.localizedStandardContains(query) }) { thread in
+                    Button {
+                        chat.select(thread, workspace: workspace); if !embedded { dismiss() }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(thread.title).foregroundStyle(.primary)
+                            Text([thread.provider, thread.model ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.disabled(creating)
+                }
+            }
+            .navigationTitle("Conversations").navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "Rechercher une conversation")
+            .refreshable { await chat.loadCatalog(using: workspace.gallery) }
+            .task { await chat.loadCatalog(using: workspace.gallery) }
+            .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } } }
+    }
+}
+
+private struct ChatScrollMetrics: Equatable {
+    var offset: Double = 0
+    var height: Double = 0
+    var bottom = true
 }

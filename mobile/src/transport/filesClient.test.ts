@@ -50,6 +50,19 @@ describe("filesClient", () => {
     expect(idx.items[0].fileId).toBe("f_1");
   });
 
+  it("loads subsequent gallery pages and deduplicates IDs", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const later = String(input).endsWith("offset=500");
+      return Response.json({ items: later
+        ? [{ fileId: "f_1", name: "plot.png" }, { fileId: "f_2", name: "main.tex" }]
+        : [{ fileId: "f_1", name: "plot.png" }], nextOffset: later ? null : 500 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const index = await fetchGalleryIndex(creds, "p_abc");
+    expect(index.items.map(item => item.fileId)).toEqual(["f_1", "f_2"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("file by opaque id + range/etag headers", async () => {
     vi.stubGlobal(
       "fetch",

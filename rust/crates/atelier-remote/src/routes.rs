@@ -11,12 +11,12 @@ use atelier_protocol::remote::{
     MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
@@ -28,9 +28,12 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/health", get(health))
         .route("/remote/v1/pair", post(pair_complete))
         .route("/remote/v1/projects", get(list_projects))
+        .route("/remote/v1/providers", get(live_providers))
+        .route("/remote/v1/threads/{thread_id}/live", get(live_events))
         .route("/remote/v1/threads", get(list_threads).post(create_thread))
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))
         .route("/remote/v1/send", post(send_msg))
+        .route("/remote/v1/attachments/{name}", post(upload_attachment).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
         .route("/remote/v1/interrupt", post(interrupt_msg))
         .route("/remote/v1/interaction", post(interaction_msg))
         .route("/remote/v1/gallery/{project_id}", get(gallery_index))
@@ -116,6 +119,30 @@ async fn relay_sidecar(
                 "commande impossible",
             )
         })?;
+    if payload["type"] == "send" {
+        let accepted = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            while let Some(Ok(frame)) = socket.next().await {
+                if let Message::Text(text) = frame {
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        if value["type"] == "error" {
+                            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "send_rejected",
+                                value["message"].as_str().unwrap_or("Le moteur a refusé le message")));
+                        }
+                        if value["type"] == "event" && value["threadId"] == payload["threadId"] {
+                            let event = &value["event"];
+                            if event["kind"] == "user" && (payload["clientMessageId"].is_null() ||
+                                event["meta"]["messageId"] == payload["clientMessageId"]) { return Ok(()); }
+                            if event["kind"] == "error" {
+                                return Err(ApiError::new(StatusCode::BAD_GATEWAY, "send_rejected", "Le moteur a refusé le message"));
+                            }
+                        }
+                    }
+                }
+            }
+            Err(ApiError::new(StatusCode::BAD_GATEWAY, "send_unconfirmed", "Transmission non confirmée ; vérifiez l’historique"))
+        }).await.map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "send_unconfirmed", "Transmission non confirmée ; vérifiez l’historique"))?;
+        accepted?;
+    }
     let _ = socket.close(None).await;
     Ok(true)
 }
@@ -324,7 +351,8 @@ async fn list_threads(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
-    let g = state.inner.lock().await;
+    let mut g = state.inner.lock().await;
+    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
     let mut threads: Vec<Value> = g
         .threads
         .list()
@@ -410,6 +438,7 @@ async fn create_thread(
         ));
     }
     let mut g = state.inner.lock().await;
+    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
     let project_root = match body.project_id.as_deref() {
         Some(id) => g
             .projects
@@ -422,6 +451,18 @@ async fn create_thread(
     };
     let id = uuid::Uuid::new_v4().to_string();
     let title = body.title.trim();
+    if g.config.sidecar_base.is_some() {
+        let patch = json!({"id":id,"title":if title.is_empty() {"Nouveau chat"} else {title},
+            "provider":provider,"model":body.model.as_deref().unwrap_or(""),"projectRoot":project_root,"status":"idle"});
+        drop(g);
+        let response = query_readonly(&state, &format!("mobile-create-{id}"),
+            json!({"type":"upsertThread","thread":patch}), "threads").await?;
+        let thread = response["threads"].as_array().and_then(|rows| rows.iter().find(|row| row["id"] == id))
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY,"thread_create_failed","création non confirmée"))?;
+        return Ok(Json(json!({"id":id,"title":thread["title"],"provider":provider,
+            "model":body.model,"status":thread["status"],"projectId":body.project_id,
+            "updatedAt":thread["updatedAt"],"lastSequence":0})));
+    }
     let thread = g
         .threads
         .upsert(
@@ -483,12 +524,19 @@ async fn get_history(
         })));
     }
 
-    let events = if let Some(fix) = g.fixture_history.get(&thread_id) {
+    let mut events = if let Some(fix) = g.fixture_history.get(&thread_id) {
         fix.clone()
     } else {
         g.journal.materialize(&thread_id)
     };
 
+    let has_sidecar = g.config.sidecar_base.is_some();
+    drop(g);
+    if after == 0 && has_sidecar {
+        if let Ok(history) = query_readonly(&state, "mobile-history", json!({"type":"getHistory","threadId":thread_id}), "history").await {
+            if let Some(native) = history.get("events").and_then(Value::as_array) { if native.len() >= events.len() { events = native.clone(); } }
+        }
+    }
     let sliced = slice_after(&events, after);
     let from = sliced
         .first()
@@ -515,11 +563,17 @@ async fn get_history(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SendBody {
+    #[serde(default)]
+    file_ids: Vec<String>,
     thread_id: String,
     prompt: String,
     client_request_id: String,
     #[serde(default)]
     client_message_id: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    effort: Option<String>,
 }
 
 async fn send_msg(
@@ -533,7 +587,26 @@ async fn send_msg(
         return Err(ApiError::payload_too_large());
     }
     let mut g = state.inner.lock().await;
-    let fp = format!("send:{}:{}", body.thread_id, body.prompt.len());
+    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+    if g.threads.get(&body.thread_id).is_none() && !g.fixture_history.contains_key(&body.thread_id) {
+        return Err(ApiError::not_found("conversation introuvable"));
+    }
+    if let Some(effort) = body.effort.as_deref() {
+        if !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].contains(&effort) {
+            return Err(ApiError::bad_request("invalid_effort", "niveau de réflexion invalide"));
+        }
+    }
+    if body.file_ids.len() > 6 { return Err(ApiError::bad_request("too_many_files", "six pièces jointes maximum")); }
+    let mut files = Vec::new();
+    if !body.file_ids.is_empty() {
+        if !has_scope(&dev.scopes, Scope::FilesRead) { return Err(ApiError::forbidden_scope("files:read")); }
+        for id in &body.file_ids {
+            let (_, path, _) = g.projects.resolve_file_id(id)?;
+            let (_, mime) = check_file_readable(&path)?;
+            files.push((path, mime));
+        }
+    }
+    let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids]).to_string());
     match g
         .idempotency
         .check_or_insert(&body.client_request_id, &dev.device_id, &fp)
@@ -564,7 +637,7 @@ async fn send_msg(
         .threads
         .get(&body.thread_id)
         .is_some_and(|thread| matches!(thread.title.as_str(), "Nouveau chat" | "Sans titre"));
-    if should_title {
+    if should_title && g.config.sidecar_base.is_none() {
         let automatic_title: String = body
             .prompt
             .lines()
@@ -580,13 +653,23 @@ async fn send_msg(
         );
     }
     let thread = g.threads.get(&body.thread_id).cloned();
+    let imports = g.config.atelier_dir.join("mobile-uploads");
+    let names: Vec<_> = files.iter().map(|(p,_)| {
+        let name = p.file_name().unwrap_or_default().to_string_lossy();
+        if p.starts_with(&imports) { name.get(65..).unwrap_or(&name).to_string() } else { name.into_owned() }
+    }).collect();
     drop(g);
+    let display = if names.is_empty() { body.prompt.clone() } else { format!("{}\n\nPièces jointes : {}",body.prompt,names.join(", ")) };
+    let prompt = if files.is_empty() { body.prompt.clone() } else {
+        format!("{}\n\nFichiers joints par l’utilisateur, à consulter pour répondre :\n{}", body.prompt,
+            files.iter().map(|(path,_)| serde_json::to_string(&path.to_string_lossy()).unwrap()).collect::<Vec<_>>().join("\n"))
+    };
+    let image_paths: Vec<_> = files.iter().filter(|(_,mime)| mime.starts_with("image/") && mime != "image/svg+xml")
+        .map(|(p,_)| p.to_string_lossy().into_owned()).collect();
+    let mut inputs = vec![json!({"type":"text","text":prompt})];
+    inputs.extend(image_paths.iter().map(|path| json!({"type":"local_image","path":path})));
     let proxied = if let Some(thread) = thread {
-        let model = thread
-            .extra
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let model = body.model.as_deref().unwrap_or_else(|| thread.extra.get("model").and_then(Value::as_str).unwrap_or(""));
         relay_sidecar(
             &state,
             &dev.device_id,
@@ -596,7 +679,11 @@ async fn send_msg(
                 "projectRoot": thread.project_root,
                 "provider": thread.provider,
                 "model": model,
-                "prompt": body.prompt,
+                "effort": body.effort,
+                "prompt": prompt,
+                "displayEvent": {"kind":"user","text":display,"imagePaths":image_paths},
+                "inputs": inputs,
+                "attachments": image_paths.iter().map(|path| json!({"path":path})).collect::<Vec<_>>(),
                 "title": thread.title,
                 "permissionMode": "default",
                 "clientMessageId": body.client_message_id,
@@ -717,35 +804,67 @@ async fn interaction_msg(
 
 // ----- gallery / files -----
 
+#[derive(Deserialize, Default)]
+struct GalleryQuery {
+    snapshot: Option<String>,
+    #[serde(default)]
+    offset: usize,
+}
+
 async fn gallery_index(
     State(state): State<GatewayState>,
     headers: HeaderMap,
     Path(project_id): Path<String>,
+    Query(query): Query<GalleryQuery>,
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::GalleryRead).await?;
-    let mut g = state.inner.lock().await;
-    let proj = g
-        .projects
-        .get(&project_id)
-        .cloned()
-        .ok_or_else(|| ApiError::not_found("projet inconnu"))?;
-
-    let mut items = Vec::new();
-    // Bounded recursive scan: enough for nested scientific outputs without
-    // descending into dependency/build trees.
-    let mut pending = vec![(proj.root.clone(), 0usize)];
-    while let Some((dir, depth)) = pending.pop() {
-        if depth > 10 || items.len() >= 1_000 {
-            continue;
+    let (snapshot, items) = if let Some(key) = query.snapshot {
+        let g = state.inner.lock().await;
+        let (project, created, items) = g.gallery_snapshots.get(&key)
+            .ok_or_else(|| ApiError::bad_request("gallery_expired", "Actualisez la galerie"))?;
+        if project != &project_id || created.elapsed().as_secs() > 600 {
+            return Err(ApiError::bad_request("gallery_expired", "Actualisez la galerie"));
         }
+        (key, items.clone())
+    } else {
+        if query.offset != 0 { return Err(ApiError::bad_request("gallery_cursor", "Instantané de galerie requis")); }
+        let proj = state.inner.lock().await.projects.get(&project_id).cloned()
+            .ok_or_else(|| ApiError::not_found("projet inconnu"))?;
+        let items = std::sync::Arc::new(tokio::task::spawn_blocking(move || scan_gallery(proj)).await
+            .map_err(|_| ApiError::bad_request("gallery_scan", "Lecture du projet interrompue"))?);
+        let key = uuid::Uuid::new_v4().to_string();
+        let mut g = state.inner.lock().await;
+        g.gallery_snapshots.retain(|_, (_, created, _)| created.elapsed().as_secs() <= 600);
+        if g.gallery_snapshots.len() >= 8 {
+            if let Some(oldest) = g.gallery_snapshots.iter().min_by_key(|(_, (_, time, _))| *time).map(|(key, _)| key.clone()) { g.gallery_snapshots.remove(&oldest); }
+        }
+        g.gallery_snapshots.insert(key.clone(), (project_id.clone(), std::time::Instant::now(), items.clone()));
+        (key, items)
+    };
+    let total = items.len();
+    let offset = query.offset.min(total);
+    let mut page: Vec<Value> = items.iter().skip(offset).take(500).cloned().collect();
+    let mut g = state.inner.lock().await;
+    for item in &mut page {
+        if let Some(rel) = item.as_object_mut().and_then(|obj| obj.remove("_relative")) {
+            g.projects.register_file(&project_id, rel.as_str().unwrap_or_default())?;
+        }
+    }
+    let end = offset + page.len();
+    Ok(Json(json!({"projectId": project_id, "count": page.len(), "total": total,
+        "snapshot": snapshot, "nextOffset": if end < total { Some(end) } else { None }, "items": page})))
+}
+
+fn scan_gallery(proj: crate::path_policy::ProjectEntry) -> Vec<Value> {
+    let mut items = Vec::new();
+    // Scan outside the async runtime and registry lock; paginate only after sorting.
+    let mut pending = vec![proj.root.clone()];
+    while let Some(dir) = pending.pop() {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
         for ent in rd.flatten() {
-            if items.len() >= 1_000 {
-                break;
-            }
             let path = ent.path();
             let Ok(file_type) = ent.file_type() else {
                 continue;
@@ -766,7 +885,7 @@ async fn gallery_index(
                         | "__pycache__"
                 ) && !name.starts_with('.')
                 {
-                    pending.push((path, depth + 1));
+                    pending.push(path);
                 }
                 continue;
             }
@@ -788,9 +907,7 @@ async fn gallery_index(
             if !crate::path_policy::is_allowed_ext(&ext) {
                 continue;
             }
-            let Ok(fid) = g.projects.register_file(&project_id, &rel) else {
-                continue;
-            };
+            let fid = crate::path_policy::file_id_for(&proj.project_id, &rel);
             let meta = ent.metadata().ok();
             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
             let modified = meta
@@ -802,7 +919,7 @@ async fn gallery_index(
             items.push(json!({
                 "fileId": fid,
                 "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-                // relativePath is server-side only for debugging; clients must use fileId
+                "_relative": rel, // Removed before returning the page.
                 "size": size,
                 "ext": ext,
                 "kind": kind,
@@ -818,14 +935,10 @@ async fn gallery_index(
         mb.cmp(&ma).then_with(|| {
             let na = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let nb = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            na.cmp(nb)
+            na.cmp(nb).then_with(|| a["fileId"].as_str().cmp(&b["fileId"].as_str()))
         })
     });
-    Ok(Json(json!({
-        "projectId": project_id,
-        "items": items,
-        "count": items.len(),
-    })))
+    items
 }
 
 async fn trash_file_by_id(
@@ -1191,4 +1304,112 @@ pub fn check_body_size(bytes: &Bytes, max: usize) -> ApiResult<()> {
     } else {
         Ok(())
     }
+}
+
+async fn read_socket(state: &GatewayState, device: &str) -> ApiResult<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>> {
+    let (base, token) = { let g = state.inner.lock().await; (g.config.sidecar_base.clone(), g.config.sidecar_token.clone()) };
+    let base = base.ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "offline", "Atelier est déconnecté"))?;
+    let base = base.replacen("http://", "ws://", 1).replacen("https://", "wss://", 1);
+    let url = match token { Some(token) => format!("{}/?token={token}", base.trim_end_matches('/')), None => format!("{}/",base.trim_end_matches('/')) };
+    let (mut socket, _) = connect_async(url).await.map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Atelier est déconnecté"))?;
+    socket.send(Message::Text(json!({"type":"clientHello","clientInstanceId":device}).to_string().into())).await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Connexion impossible"))?;
+    Ok(socket)
+}
+
+async fn query_readonly(state: &GatewayState, device: &str, query: Value, expected: &str) -> ApiResult<Value> {
+    let mut socket = read_socket(state, device).await?;
+    socket.send(Message::Text(query.to_string().into())).await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Lecture indisponible"))?;
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        while let Some(Ok(frame)) = socket.next().await {
+            if let Message::Text(text) = frame {
+                if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                    if value.get("type").and_then(Value::as_str) == Some(expected) {
+                        let confirms_creation = query["type"] != "upsertThread" ||
+                            value["threads"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == query["thread"]["id"]));
+                        if confirms_creation { return Some(value); }
+                    }
+                }
+            }
+        }
+        None
+    }).await.ok().flatten().ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Lecture indisponible"))
+}
+
+async fn live_providers(State(state): State<GatewayState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let device = require_device(&state, &headers, Scope::ChatRead).await?;
+    query_readonly(&state, &format!("{}-catalog",device.device_id), json!({"type":"providerStatus"}), "providerStatus").await.map(Json)
+}
+
+async fn live_events(State(state): State<GatewayState>, headers: HeaderMap, Path(thread_id): Path<String>) -> ApiResult<Response> {
+    guard_headers(&state, &headers).await?;
+    let device = require_device(&state, &headers, Scope::ChatRead).await?;
+    let socket = read_socket(&state, &format!("{}-live",device.device_id)).await?;
+    let token = extract_bearer(&headers).ok_or_else(ApiError::unauthorized)?;
+    let stream = futures_util::stream::unfold((socket, thread_id, state, token), |(mut socket, thread_id, state, token)| async move {
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_secs(15), socket.next()).await {
+                Err(_) => {
+                    if state.inner.lock().await.auth.lookup_token(&token).is_none() { return None; }
+                    return Some((Ok::<Bytes,std::io::Error>(Bytes::from_static(b"{}\n")), (socket,thread_id,state,token)));
+                },
+                Ok(Some(Ok(Message::Text(text)))) => {
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        if value.get("type").and_then(Value::as_str) == Some("event") && value.get("threadId").and_then(Value::as_str) == Some(&thread_id) {
+                            if state.inner.lock().await.auth.lookup_token(&token).is_none() { return None; }
+                            let event = value.get("event").cloned().unwrap_or(Value::Null);
+                            return Some((Ok(Bytes::from(format!("{}\n",event))), (socket,thread_id,state,token)));
+                        }
+                    }
+                }
+                Ok(Some(Ok(_))) => {},
+                _ => return None,
+            }
+        }
+    });
+    let stream = futures_util::stream::once(async { Ok::<Bytes,std::io::Error>(Bytes::from_static(b"{}\n")) }).chain(stream);
+    Ok(Response::builder().header(header::CONTENT_TYPE,"application/x-ndjson")
+        .header(header::CACHE_CONTROL,"no-store").body(axum::body::Body::from_stream(stream)).unwrap())
+}
+
+/// Imports are isolated from project sources. Clients never choose a Mac path.
+async fn upload_attachment(
+    State(state): State<GatewayState>, headers: HeaderMap, Path(name): Path<String>, bytes: Bytes
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    let device = require_device(&state, &headers, Scope::FilesWrite).await?;
+    let name = normalize_relative(&name)?;
+    if name.contains('/') || name.len() > 180 || bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+        return Err(ApiError::bad_request("invalid_attachment", "fichier invalide ou supérieur à 8 Mo"));
+    }
+    let ext = std::path::Path::new(&name).extension().and_then(|v| v.to_str()).unwrap_or("");
+    if !crate::path_policy::is_allowed_ext(ext) {
+        return Err(ApiError::bad_request("mime_not_allowed", "type de fichier non autorisé"));
+    }
+    let mut g = state.inner.lock().await;
+    let root = g.config.atelier_dir.join("mobile-uploads").join(&device.device_id);
+    std::fs::create_dir_all(&root).map_err(|_| ApiError::bad_request("upload_failed", "import impossible"))?;
+    use sha2::{Digest, Sha256};
+    let stored_name = format!("{}-{}", hex::encode(Sha256::digest(&bytes)), name);
+    let path = root.join(&stored_name);
+    if !path.is_file() {
+        let used: u64 = std::fs::read_dir(&root).into_iter().flatten().flatten()
+            .filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum();
+        if used + bytes.len() as u64 > 128 * 1024 * 1024 {
+            return Err(ApiError::bad_request("upload_quota", "quota des imports atteint (128 Mo)"));
+        }
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)
+            .map_err(|_| ApiError::bad_request("upload_failed", "import impossible"))?;
+        if file.write_all(&bytes).is_err() {
+            let _ = std::fs::remove_file(&path);
+            return Err(ApiError::bad_request("upload_failed", "import impossible"));
+        }
+    }
+    let project = g.projects.register_project(&root, Some("Imports iPhone".into()));
+    let id = g.projects.register_file(&project.project_id, &stored_name)?;
+    Ok(Json(json!({"fileId":id,"name":name,"size":bytes.len()})))
 }

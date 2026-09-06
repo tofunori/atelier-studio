@@ -619,3 +619,63 @@ test("LaTeX notes persist exact passages, keep their mark until authenticated de
   assert.equal(sends.length,1);assert.equal(input.value,'Garder ce brouillon');assert.equal(doc.getElementById('pop').style.display,'block');assert.match(doc.querySelector('[role=status]').textContent,/impossible/);
   dom.window.close();
 });
+
+test("studio controls expose automatic states and return focus after closing line settings", async () => {
+  const html = await readFile(new URL("../../assets/latex_studio.html", import.meta.url), "utf8");
+  const dom = new JSDOM(html, {url: "https://atelier.test"});
+  const doc = dom.window.document;
+  const sandbox = {fetch: async () => ({json: async () => ({})}), CSS: {escape: value => value}, Event: dom.window.Event};
+  vm.runInNewContext(source, sandbox);
+  const values = new Map();
+  doc.getElementById("wrapSel").onchange = () => values.set("cmWrap", doc.getElementById("wrapSel").value);
+  let compilations = 0;
+  let reformats = 0;
+  const controller = sandbox.AtelierStudioLatex.createStudioStatusBar({
+    document: doc, window: dom.window,
+    storage: {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value)},
+    extension: "tex", mode: "stex", path: "/fixture.tex",
+    getEditor: () => null, applyWrap() {}, revealLine() {},
+    autoCompile: () => { compilations++; },
+    rewrapAll: () => ++reformats,
+  });
+  try {
+    const compile = doc.getElementById("sbAutoCompile");
+    const rewrap = doc.getElementById("sbRewrap");
+    assert.equal(compile.tagName, "BUTTON");
+    assert.equal(compile.getAttribute("aria-pressed"), "false");
+    assert.equal(rewrap.getAttribute("aria-pressed"), "false");
+    assert.equal(reformats, 0, "opening an editor must not reformat the file");
+    compile.click();
+    assert.equal(compile.getAttribute("aria-pressed"), "true");
+    assert.equal(compilations, 1);
+    compile.click();
+    assert.equal(compile.getAttribute("aria-pressed"), "false");
+    assert.equal(compilations, 1);
+    rewrap.click();
+    assert.equal(rewrap.getAttribute("aria-pressed"), "true");
+    assert.equal(reformats, 1);
+    const wrap = doc.getElementById("sbWrap");
+    wrap.click();
+    assert.equal(wrap.getAttribute("aria-expanded"), "true");
+    assert.equal(doc.activeElement.dataset.wrap, "win");
+    doc.activeElement.dispatchEvent(new dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+    assert.equal(wrap.getAttribute("aria-expanded"), "false");
+    assert.equal(doc.activeElement, wrap);
+    wrap.click();
+    doc.querySelector('[data-wrap="80"]').click();
+    assert.equal(values.get("cmWrap"), "80");
+    assert.equal(doc.querySelector('[data-wrap="80"]').getAttribute("aria-pressed"), "true");
+    assert.equal(doc.querySelector('[data-wrap="win"]').getAttribute("aria-pressed"), "false");
+    assert.equal(doc.activeElement, wrap);
+    wrap.click();
+    assert.equal(doc.activeElement.dataset.wrap, "80");
+    const custom = doc.getElementById("wrapMenuInput");
+    custom.focus();
+    custom.dispatchEvent(new dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+    assert.equal(wrap.getAttribute("aria-expanded"), "false");
+    assert.equal(doc.activeElement, wrap);
+  } finally {
+    controller.destroy();
+    dom.window.close();
+  }
+});

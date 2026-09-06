@@ -27,7 +27,7 @@ export interface StudioStatusBarOptions {
   getEditor(): StatusEditor | null;
   applyWrap(value: string): void;
   rewrapAll?(): number;
-  /** Compilation immédiate quand on bascule « Compile: auto » — réaligne
+  /** Compilation immédiate quand on bascule « Compilation : auto » — réaligne
    * synctex sans attendre la prochaine sauvegarde. */
   autoCompile?(): void;
   revealLine(editor: StatusEditor, line: number): void;
@@ -186,16 +186,17 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
 
   const wrapLabel = (): string => {
     const value = storage.getItem("cmWrap") || "win";
-    return `Wrap: ${value === "win" ? "window" : value}`;
+    return `Lignes : ${value === "win" ? "fenêtre" : value === "off" ? "sans retour" : `${value} col.`}`;
   };
   const refreshWrap = (): void => {
     const label = wrapLabel();
     sbWrap.textContent = label;
     const menuValue = doc.getElementById("moreWrapVal");
-    if (menuValue) menuValue.textContent = label.replace("Wrap: ", "");
+    if (menuValue) menuValue.textContent = label.replace("Lignes : ", "");
     const current = storage.getItem("cmWrap") || "win";
     wrapMenu.querySelectorAll<HTMLElement>(".wm-it").forEach((item) => {
       item.classList.toggle("on", item.dataset.wrap === current);
+      item.setAttribute("aria-pressed", String(item.dataset.wrap === current));
     });
   };
   const setWrap = (value: string): void => {
@@ -206,7 +207,11 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     } else options.applyWrap(value);
     refreshWrap();
   };
-  const closeWrapMenu = (): void => { wrapMenu.style.display = "none"; };
+  const closeWrapMenu = (restoreFocus = false): void => {
+    wrapMenu.style.display = "none";
+    sbWrap.setAttribute("aria-expanded", "false");
+    if (restoreFocus) sbWrap.focus();
+  };
   const openWrapMenu = (): void => {
     const anchor = sbWrap.getBoundingClientRect();
     wrapMenu.style.display = "block";
@@ -220,6 +225,8 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     wrapMenu.style.left = `${position.left}px`;
     wrapMenu.style.top = `${position.top}px`;
     wrapMenu.style.visibility = "visible";
+    sbWrap.setAttribute("aria-expanded", "true");
+    (wrapMenu.querySelector<HTMLElement>(".wm-it.on") || wrapMenu.querySelector<HTMLElement>(".wm-it"))?.focus();
     const current = storage.getItem("cmWrap") || "";
     wrapMenuInput.value = /^\d+$/.test(current) && !PRESET_WRAP_COLUMNS.has(current) ? current : "";
   };
@@ -233,23 +240,30 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     const value = (event.target as Element | null)?.closest<HTMLElement>(".wm-it")?.dataset.wrap;
     if (value) {
       setWrap(value);
-      closeWrapMenu();
+      closeWrapMenu(true);
     }
   };
   const commitCustomWrap = (): void => {
     const value = Number.parseInt(wrapMenuInput.value, 10);
     if (value > 0) {
       setWrap(String(value));
-      closeWrapMenu();
+      closeWrapMenu(true);
     }
   };
   wrapMenuInput.addEventListener("keydown", (event) => {
     event.stopPropagation();
     if (event.key === "Enter") commitCustomWrap();
-    else if (event.key === "Escape") closeWrapMenu();
+    else if (event.key === "Escape") closeWrapMenu(true);
   });
   wrapMenuInput.addEventListener("click", (event) => event.stopPropagation());
-  listen(doc, "click", closeWrapMenu);
+  listen(doc, "click", () => closeWrapMenu());
+  listen(doc, "keydown", (event) => {
+    if (event.key === "Escape" && wrapMenu.style.display === "block") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeWrapMenu(true);
+    }
+  });
 
   const refreshAutoRewrap = (): void => {
     const enabled = isAutoRewrapEnabled(storage);
@@ -257,8 +271,9 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     if (label) label.textContent = enabled ? "activé" : "désactivé";
     doc.getElementById("rewrapAllBtn")?.classList.toggle("auto", enabled);
     if (sbRewrap) {
-      sbRewrap.textContent = enabled ? "Rewrap: auto" : "Rewrap: off";
+      sbRewrap.textContent = enabled ? "Reformatage : auto" : "Reformatage : manuel";
       sbRewrap.classList.toggle("on", enabled);
+      sbRewrap.setAttribute("aria-pressed", String(enabled));
     }
   };
   const toggleAutoRewrap = (): void => {
@@ -281,8 +296,9 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   const refreshAutoCompile = (): void => {
     if (!sbAutoCompile) return;
     const enabled = isAutoCompileEnabled(storage);
-    sbAutoCompile.textContent = enabled ? "Compile: auto" : "Compile: off";
+    sbAutoCompile.textContent = enabled ? "Compilation : auto" : "Compilation : manuelle";
     sbAutoCompile.classList.toggle("on", enabled);
+    sbAutoCompile.setAttribute("aria-pressed", String(enabled));
   };
   if (sbAutoCompile) {
     sbAutoCompile.style.display = options.extension === "tex" ? "" : "none";

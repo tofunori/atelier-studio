@@ -60,3 +60,6 @@
   .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
+
+.code-selection-actions,.code-annotation-editor{position:fixed;z-index:310}
+.texc-comment{background:transparent;border-bottom:1px solid #969da6;cursor:pointer}

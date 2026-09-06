@@ -218,25 +218,40 @@
   .cm-s-material-darker span.cm-error{background:transparent;color:#e09aa0}
 
 /* ---- option B : status bar + menus (sobre) ---- */
-#statusbar{display:flex;gap:16px;align-items:center;padding:2px 12px;min-height:22px;
-  background:#1a1d22;border-top:1px solid #333a45;font-size:var(--fs-label, 11px);color:#868d9a;
+#statusbar{display:flex;gap:12px;align-items:center;padding:2px 12px;min-height:24px;overflow-x:auto;scrollbar-width:thin;
+  background:var(--card);border-top:1px solid var(--border);font-size:var(--fs-label, 11px);color:var(--text-secondary,var(--muted));
   font-variant-numeric:tabular-nums}
+#statusbar > *{flex-shrink:0;white-space:nowrap}
+#statusbar #sbSaved{flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#statusbar button{font:inherit;color:inherit;background:transparent;border:1px solid transparent;border-radius:5px;min-height:24px;padding:2px 5px;cursor:pointer}
+#statusbar button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#statusbar button:hover{border-color:var(--border-strong,var(--border))}
+#statusbar button span{cursor:inherit}
+@media(max-width:720px){#statusbar{gap:8px}#sbMode{display:none}}
 #statusbar span{cursor:default}
-#sbWrap:hover,#sbRewrap:hover,#sbLint:hover{color:#dbdfe5;cursor:pointer}
-#sbRewrap.on{color:var(--accent)}
+#sbWrap:hover,#sbRewrap:hover,#sbLint:hover{color:var(--txt);cursor:pointer}
+#statusbar button[aria-pressed="true"]{background:var(--toolbar-active);color:var(--toolbar-active-text);border-color:var(--border-strong,var(--border))}
 #sbCompile{display:none;align-items:center;gap:6px;border-radius:999px;padding:1px 10px;font-size:var(--fs-label, 11px);
   cursor:pointer;transition:background .13s,color .13s}
 #sbCompile .sbdot{width:6px;height:6px;border-radius:999px;background:currentColor;flex:none}
-#sbCompile.run{background:rgba(217,119,87,.14);color:#e5a389}
+#sbCompile.run{background:color-mix(in srgb,var(--txt) 6%,var(--card));color:var(--txt)}
+#sbCompile.run .sbdot{background:var(--accent)}
 #sbCompile.run .sbdot{animation:sbpulse 1.1s infinite}
-#sbCompile.ok{background:rgba(142,196,154,.12);color:#8ec49a}
-#sbCompile.err{background:rgba(224,114,106,.14);color:#e0726a}
+#sbCompile.ok{background:color-mix(in srgb,var(--txt) 6%,var(--card));color:var(--txt)}
+#sbCompile.ok .sbdot{background:#8ec49a}
+#sbCompile.err{background:color-mix(in srgb,var(--txt) 6%,var(--card));color:var(--txt);border-color:var(--border-strong,var(--border));font-weight:600}
+#sbCompile.err .sbdot{background:#e0726a}
 @keyframes sbpulse{50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){ #sbCompile.run .sbdot{animation:none} }
-#sbConsole:hover{color:#dbdfe5;cursor:pointer}
+#sbConsole:hover{color:var(--txt);cursor:pointer}
 #wrapMenu{position:fixed;z-index:400;background:#1b1f26;border:1px solid #333a45;border-radius:10px;
   padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:var(--fs-body, 13px);color:#b6bdc7;display:none}
 #wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
+#statusbar #wrapMenu .wm-it{display:block;width:100%;text-align:left;color:var(--txt);padding:6px 10px}
+#statusbar #wrapMenu{background:var(--card);color:var(--txt);border-color:var(--border)}
+#statusbar #wrapMenu .wm-it:hover,#statusbar #wrapMenu .wm-it.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
+#statusbar #wrapMenu .wm-custom{border-color:var(--border);color:var(--txt)}
+#statusbar #wrapMenu .wm-custom input{background:var(--bg);color:var(--txt);border-color:var(--border-strong,var(--border))}
 #wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:#dbdfe5}
 #wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #2c313a;margin-top:3px}
 #wrapMenu .wm-custom input{width:52px;background:#20242b;color:#dbdfe5;border:1px solid #3f3f46;
@@ -562,6 +577,7 @@
 
 /* Reading and writing share clear controls, while prose keeps its own rhythm. */
 header button:not(:disabled){color:var(--text-secondary,var(--txt))}
+header button.on:not(:disabled){background:var(--toolbar-active);color:var(--toolbar-active-text)}
 .modeseg button{width:auto;min-width:28px;gap:5px;padding:0 7px}
 .mode-label{font-size:11px}
 @media(max-width:720px){.mode-label{display:none}}

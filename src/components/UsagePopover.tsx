@@ -4,17 +4,9 @@ import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { Button } from "./ui";
 
-type Limit = { used_percent?: number | null; window_minutes?: number; resets_at?: number | null } | null;
-type LimitsData = { primary?: Limit; secondary?: Limit };
-type ProviderUsage =
-  | { kind: "limits"; ts: number; stale_s?: number; label?: string | null; data: LimitsData }
-  | { kind: "tokens"; ts: number; data: { input: number; output: number; turns: number } }
-  | { kind: "ledger" }
-  | null;
-type Usage = {
-  providers?: Record<string, ProviderUsage>;
-  models: Record<string, { turns: number; output: number }>;
-};
+import type { ProviderUsage, Usage } from "../lib/usageSummary";
+import { readUsageSnapshot } from "../lib/usageSummary";
+export { worstOf } from "../lib/usageSummary";
 
 /** Ordre d'affichage fixe des providers du popover. */
 const PROVIDERS: { id: string; name: string }[] = [
@@ -70,18 +62,6 @@ function Gauge({ pct, label }: { pct: number | null; label: string }) {
       </div>
     </div>
   );
-}
-
-/** Pire pourcentage toutes limites confondues — pour le point sur l'icône. */
-export function worstOf(u: Usage | null): number | null {
-  if (!u) return null;
-  const vals: number[] = [];
-  for (const p of Object.values(u.providers ?? {})) {
-    if (p?.kind !== "limits") continue;
-    if (p.data?.primary?.used_percent != null) vals.push(p.data.primary.used_percent);
-    if (p.data?.secondary?.used_percent != null) vals.push(p.data.secondary.used_percent);
-  }
-  return vals.length ? Math.max(...vals) : null;
 }
 
 function ProviderRow({ name, p }: { name: string; p: ProviderUsage }) {
@@ -150,11 +130,12 @@ function ProviderRow({ name, p }: { name: string; p: ProviderUsage }) {
 }
 
 export default function UsagePopover({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(readUsageSnapshot);
 
   useEffect(() => {
     const onUsage = (e: Event) => setUsage((e as CustomEvent).detail);
     window.addEventListener("usage-data", onUsage);
+    setUsage(readUsageSnapshot());
     return () => window.removeEventListener("usage-data", onUsage);
   }, []);
 

@@ -278,7 +278,7 @@ export function ChatTimeline(p: {
   // Même source que le tour actif : chercher `thinking_live` seul laissait
   // cette ligne vide avec Grok, dont les blocs durables remplacent le live.
   const liveThought = useMemo(() => currentThought(null, events), [events]);
-  const { quote, setQuote, quoteCtx, addAnnotation, removeAnnotation, marks, addTextHighlight } = p.selection;
+  const { quote, setQuote, quoteCtx, addAnnotation, removeAnnotation, marks } = p.selection;
   // La barre de sélection est centrée sur le passage : près du bord gauche
   // elle passait sous le rail. On la borne à la colonne de lecture, une fois
   // sa largeur connue (mesure avant peinture, pas de saut visible).
@@ -310,7 +310,7 @@ export function ChatTimeline(p: {
     if(!quote || noteDraft || !selToolbarRef.current)return;
     const close=()=>{setQuote(null);window.getSelection()?.removeAllRanges();};
     createSelectionActions(selToolbarRef.current,{
-      onColor:addTextHighlight?color=>{addTextHighlight(quote.text,color);close();}:undefined,
+      onAdd:()=>{onQuote(quote.text);close();},
       onAnnotate:()=>{const existing=marks.find(m=>m.text===quote.text.trim());setNoteDraft({x:quote.x,y:quote.y,text:quote.text,note:existing?.note || ""});window.getSelection()?.removeAllRanges();},
       onAsk:()=>{window.dispatchEvent(new CustomEvent("quick-ask-open",{detail:{context:quoteCtx}}));close();},
     });

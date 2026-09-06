@@ -35,7 +35,7 @@ import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConn
 import { useAtelierServer } from "./hooks/useAtelierServer";
 import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
 import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHome";
-import { ContextInspector, type InspectedFile } from "./components/ContextInspector";
+import type { InspectedFile } from "./components/ContextInspector";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
@@ -47,6 +47,9 @@ import { agentsFromActions, isAgentActivityAction, type AgentDisplay } from "./c
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
+const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/ContextInspector"))["ContextInspector"]>[0]>(
+  () => import("./components/ContextInspector").then((m) => ({ default: m.ContextInspector })),
+);
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
@@ -65,7 +68,8 @@ import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { RowButton } from "./components/ui";
-import UsagePopover, { worstOf } from "./components/UsagePopover";
+import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
+const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills, type PluginCatalogEntry } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
@@ -107,7 +111,7 @@ import {
   type QueuedTurn,
 } from "./lib/chatDraftStore";
 import { localImagePathsForAttachments } from "./lib/chatAttachments";
-import { PdfAnnotationDelivery } from "./lib/pdfAnnotationDelivery";
+import { PdfAnnotationDelivery, removeDeliveredAnnotation } from "./lib/pdfAnnotationDelivery";
 import { createStreamCoalescer, STREAM_COALESCE_KINDS } from "./lib/streamCoalesce";
 import { parseAnnotationNotes } from "./lib/annotationNotes";
 import {
@@ -125,6 +129,8 @@ import "./styles/tokens.css";
 import "./styles/shadcn.css";
 import "./styles/typeset.css";
 import "./styles/primitives.css";
+// The inspector stylesheet also owns the workspace host geometry at startup.
+import "./styles/inspector.css";
 import "./App.css";
 
 // Task 25 (perf) : TopBar/Rail sont la coquille de l'appli — figée pour
@@ -774,6 +780,8 @@ export default function App() {
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
   const [usageOpen, setUsageOpen] = useState(false);
+  const [usageLoaded, setUsageLoaded] = useState(false);
+  useEffect(() => { if (usageOpen) setUsageLoaded(true); }, [usageOpen]);
   const usageOpenRef = useRef(false);
   usageOpenRef.current = usageOpen;
   const [pluginsOpen, setPluginsOpen] = useState(false);
@@ -1841,14 +1849,7 @@ export default function App() {
         if (msg.event.kind === "user") {
           const deliveredId = msg.event.meta?.messageId;
           if (deliveredId) void pdfAnnotationDelivery.current.acknowledge(deliveredId, async annotation => {
-            const endpoint = new URL("/pdfannot", annotation.origin);
-            if (!["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)) throw new Error("Invalid gallery origin");
-            const response = await fetch(endpoint, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", ...(galleryTokenRef.current ? { "x-atelier-token": galleryTokenRef.current } : {}) },
-              body: JSON.stringify({ rel: annotation.rel, removeIds: [annotation.id] }),
-            });
-            if (!response.ok || (await response.json()).error) throw new Error("Annotation cleanup failed");
+            await removeDeliveredAnnotation(annotation, galleryTokenRef.current);
             document.querySelectorAll("iframe").forEach(frame => frame.contentWindow?.postMessage({
               type: "atelier-pdf-annotation-consumed", nonce: atelierNonce, rel: annotation.rel, id: annotation.id,
             }, annotation.origin));
@@ -2244,6 +2245,7 @@ export default function App() {
         }));
       }
       if (msg.type === "usage") {
+        writeUsageSnapshot(msg as unknown as Usage);
         window.dispatchEvent(new CustomEvent("usage-data", { detail: msg }));
         const worst = worstOf(msg as any);
         const dot = document.getElementById("usage-dot");
@@ -4584,7 +4586,9 @@ export default function App() {
           />
         </LazyBoundary>
       )}
-      <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
+      {usageLoaded && <LazyBoundary fallback={null}>
+        <UsagePopover open={usageOpen} onClose={() => setUsageOpen(false)} />
+      </LazyBoundary>}
       {pluginsOpen &&
         <LazyBoundary fallback={null}>
           <PluginPanel plugins={plugins} loading={pluginsLoading} error={pluginsError}
@@ -5013,7 +5017,7 @@ export default function App() {
               overlayOpen={overlayOpen}
             />
             {inspected && (
-              <>
+              <LazyBoundary fallback={null}>
                 {/* scrim du mode tiroir (visible <900px de conteneur via CSS) */}
                 <div className="ci-scrim" onClick={closeInspector} aria-hidden="true" />
                 <ContextInspector
@@ -5023,7 +5027,7 @@ export default function App() {
                 onAddToChat={addInspectedToChat}
                 addState={inspectorAdd}
               />
-              </>
+              </LazyBoundary>
             )}
             </div>
           </Panel>

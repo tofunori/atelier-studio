@@ -136,7 +136,7 @@ test('color selection marks text directly; only Annoter opens the editor', () =>
    selectionModel:()=>({spans:[span],segments:[{index:0,text:'Passage'}]}),
    selectionClientRects:()=>[{span,rect:{left:100,top:200,width:150,height:20}}],
    drawAnnots(){},saveAnnots(){},clearHl(){},selHide(){},annotMenu:a=>opened.push(a.kind)});
- vm.runInContext(html.slice(html.indexOf('function addHighlightFromSel('),html.indexOf('// Barre d\'annotation à la sélection')),dom.getInternalVMContext());
+ vm.runInContext(html.slice(html.indexOf('function addHighlightFromSel('),html.indexOf('// PDF marks live')),dom.getInternalVMContext());
  win.addHighlightFromSel('hl','yellow');
  assert.equal(win.PDF_ANNOTS.length,1);assert.deepEqual(opened,[]);
  win.addHighlightFromSel('comment','yellow');
@@ -158,13 +158,35 @@ test('PDF selection offers Quick Ask and Annoter, with source page and no redund
  assert.equal(hidden,true);win.close();
 });
 
-test('shared color capsules are opaque and only invoke highlighting',()=>{
+test('shared capsules expose the three chat actions in order, without colors',()=>{
  const dom=new JSDOM('<div id="actions"></div>',{runScripts:'outside-only'}),win=dom.window,calls=[];
  vm.runInContext(sharedUI,dom.getInternalVMContext());
- win.AtelierAnnotationUI.createSelectionActions(win.document.getElementById('actions'),{onColor:(name,color)=>calls.push([name,color]),onAnnotate:()=>calls.push('note'),onAsk:()=>calls.push('ask')});
- const swatches=[...win.document.querySelectorAll('.atelier-swatch')];
- assert.equal(swatches.length,4);
- for(const swatch of swatches){assert.match(swatch.style.getPropertyValue('--annotation-color'),/,1\)$/);swatch.click();}
- assert.deepEqual(calls.map(c=>c[0]),['amber','green','blue','red']);
- assert.equal(win.document.querySelector('textarea'),null);dom.window.close();
+ win.AtelierAnnotationUI.createSelectionActions(win.document.getElementById('actions'),{onAdd:()=>calls.push('add'),onAnnotate:()=>calls.push('note'),onAsk:()=>calls.push('ask')});
+ const buttons=[...win.document.querySelectorAll('button')];
+ assert.deepEqual(buttons.map(b=>b.getAttribute('aria-label')),['Add to Chat','Annoter','Quick Ask']);
+ buttons.forEach(b=>b.click());assert.deepEqual(calls,['add','note','ask']);
+ assert.equal(win.document.querySelector('.atelier-swatch'),null);win.close();
+});
+test('PDF header tools apply color and underline without opening a note',()=>{
+ const dom=new JSDOM('<header><span id="selinfo"></span><span id="status"></span></header>',{runScripts:'outside-only'}),win=dom.window,calls=[];
+ win.HL_COLORS=['rgba(255,213,74,.40)','rgba(120,220,140,.40)','rgba(120,170,255,.40)','rgba(255,140,160,.40)'];
+ win.addHighlightFromSel=(kind,color)=>calls.push([kind,color]);
+ vm.runInContext(html.slice(html.indexOf('// PDF marks live'),html.indexOf('// Référence courte')),dom.getInternalVMContext());
+ const bar=win.document.querySelector('.pdf-mark-tools');assert.ok(bar);
+ bar.querySelector('[aria-label="Bleu"]').click();
+ bar.querySelector('[aria-label="Souligner"]').click();
+ assert.deepEqual(calls,[['hl',win.HL_COLORS[2]],['ul',win.HL_COLORS[2]]]);
+ assert.equal(win.document.querySelector('textarea'),null);
+ bar.querySelector('[aria-label="Effacer un marquage"]').click();
+ assert.match(win.document.getElementById('status').textContent,/retirer/);win.close();
+});
+
+test('pointerdown on header colors preserves the live PDF selection',()=>{
+ const dom=new JSDOM('<div class="pdf-mark-tools"><button>Yellow</button></div>',{runScripts:'outside-only'}),win=dom.window;
+ let cleared=0;Object.assign(win,{btn:{style:{}},selHide(){},clearHl(){cleared++}});
+ const start=html.indexOf('document.addEventListener("pointerdown", e => {');
+ const end=html.indexOf('document.addEventListener("pointermove"',start);
+ vm.runInContext(html.slice(start,end),dom.getInternalVMContext());
+ win.document.querySelector('button').dispatchEvent(new win.MouseEvent('pointerdown',{bubbles:true}));
+ assert.equal(cleared,0);win.close();
 });

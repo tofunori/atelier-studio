@@ -31,7 +31,7 @@ export function createNoteEditor(host: HTMLElement, options: {
   }};
 }
 export function createSelectionActions(host: HTMLElement, options: {
-  onColor?(name: string, value: string): void; onAnnotate(): void; onAsk?(): void;
+  onColor?(name: string, value: string): void; onAdd?(): void; onAnnotate(): void; onAsk?(): void;
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
   const doc=host.ownerDocument;
@@ -40,10 +40,7 @@ export function createSelectionActions(host: HTMLElement, options: {
     button.setAttribute("aria-label",label);button.title=label;button.innerHTML=html;
     button.onmousedown=e=>e.preventDefault();button.onclick=e=>{e.stopPropagation();action();};host.appendChild(button);return button;
   };
-  if(options.onColor) for(const color of annotationColors){
-    const button=add(color.label,"",()=>options.onColor?.(color.name,color.value),"atelier-swatch");
-    button.style.setProperty("--annotation-color",color.value.replace(",.40)",",1)"));
-  }
-  if(options.onAsk) add("Quick Ask",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg> Quick Ask',options.onAsk);
-  add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg> Annoter',options.onAnnotate);
+  if(options.onAdd) add("Add to Chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg> Add to Chat',options.onAdd);
+  add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg> Annoter',options.onAnnotate);
+  if(options.onAsk) add("Quick Ask",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg> Quick Ask',options.onAsk);
 }

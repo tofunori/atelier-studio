@@ -63,11 +63,11 @@
     <button id="saveBtn" title="Sauvegarder (&#8984;S)" style="display:none">Save</button>
     <button id="openFile" title="Ouvrir un autre fichier" style="display:none">Open&hellip;</button>
     <select id="wrapSel" title="Retour à la ligne" style="display:none">
-      <option value="win">Wrap: window</option>
-      <option value="off">Wrap: off</option>
-      <option value="80">Wrap: 80</option>
-      <option value="100">Wrap: 100</option>
-      <option value="120">Wrap: 120</option>
+      <option value="win">Lignes : fenêtre</option>
+      <option value="off">Lignes : sans retour</option>
+      <option value="80">Lignes : 80</option>
+      <option value="100">Lignes : 100</option>
+      <option value="120">Lignes : 120</option>
     </select>
     <button id="rewrapBtn" style="display:none">&#9166;80</button>
   </span>
@@ -93,7 +93,7 @@
   <span class="grp editonly" id="toolbarActions">
     <button id="outlineBtn" aria-label="Plan du document" title="Plan du document (&#8984;&#8679;O)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><path d="M5.5 3.5h8M5.5 8h8M5.5 12.5h8M2 3.5h.01M2 8h.01M2 12.5h.01"/></svg></button>
     <button id="findBtn" style="display:none" title="Rechercher (&#8984;F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
-    <button id="rewrapAllBtn" aria-label="Rewrap tout le document" title="Rewrap tout le document (&#8679;&#8997;Q)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.2h12M2 7.2h9.2M2 11.2h6"/><path d="M11.2 7.2h.8a2.6 2.6 0 0 1 0 5.2H9.5"/><path d="m11 10.6-1.8 1.8 1.8 1.8"/></svg><span id="rewrapAutoDot"></span></button>
+    <button id="rewrapAllBtn" aria-label="Reformater les lignes du document" title="Reformater les lignes du document (&#8679;&#8997;Q)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.2h12M2 7.2h9.2M2 11.2h6"/><path d="M11.2 7.2h.8a2.6 2.6 0 0 1 0 5.2H9.5"/><path d="m11 10.6-1.8 1.8 1.8 1.8"/></svg><span id="rewrapAutoDot"></span></button>
     <button id="texcBtn" aria-label="Commentaires" title="Commentaires"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 2.5h9.6A1.7 1.7 0 0 1 14.5 4v6a1.7 1.7 0 0 1-1.7 1.5H8L3.5 15v-3.5h-.3A1.7 1.7 0 0 1 1.5 10V4a1.7 1.7 0 0 1 1.7-1.5Z"/><path d="M4.7 6h6.6M4.7 8.5h4.5" opacity=".7"/></svg></button>
     <button id="moreBtn" aria-label="Plus d’actions" title="Plus&hellip;"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="13" cy="8" r="1.1"/></svg></button>
   </span>
@@ -110,13 +110,13 @@
   <div id="morePop" style="display:none">
     <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
     <div data-act="open">Ouvrir un fichier&hellip;</div>
-    <div data-act="rewrap">Rewrap paragraphe <em>&#8997;Q</em></div>
-    <div data-act="rewrapall">Rewrap tout le document <em>&#8679;&#8997;Q</em></div>
-    <div data-act="autorewrap">Rewrap auto (&#8984;S) : <span id="moreAutoRw"></span></div>
+    <div data-act="rewrap">Reformater les lignes du paragraphe <em>&#8997;Q</em></div>
+    <div data-act="rewrapall">Reformater les lignes du document <em>&#8679;&#8997;Q</em></div>
+    <div data-act="autorewrap">Reformatage auto (&#8984;S) : <span id="moreAutoRw"></span></div>
     <div data-act="outline">Plan du document <em>&#8984;&#8679;O</em></div>
     <div data-act="find">Rechercher <em>&#8984;F</em></div>
     <div data-act="read">Vue lecture (rendu seul)</div>
-    <div data-act="wrap">Wrap : <span id="moreWrapVal"></span></div>
+    <div data-act="wrap">Retour à la ligne : <span id="moreWrapVal"></span></div>
     <div data-act="help">Raccourcis clavier</div>
   </div>
 </header>
@@ -144,26 +144,26 @@
 <button class="tc-claude" title="Envoyer à Claude (passage + commentaire dans le composer)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></button>
 <button class="tc-save" title="Enregistrer (⏎)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 14H3a1 1 0 01-1-1V3a1 1 0 011-1h7.5L14 5.5V13a1 1 0 01-1 1zM5 2v3.5h5V2M5 14v-4.5h6V14"/></svg></button>
 </div></div>
-<div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-chat" id="tlChat" title="Envoyer le log au chat"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp;Add to chat</button><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
+<div id="texlog"><div class="tl-head"><b>Compilation</b><span id="tlStatus"></span><button class="tl-chat" id="tlChat" title="Envoyer le log au chat"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp;Ajouter au chat</button><button class="tl-close" id="tlClose">✕</button></div><pre id="tlBody"></pre></div>
 <div id="statusbar" class="editonly">
   <span id="sbPos">Ln 1, Col 1</span>
-  <span id="sbCompile" title="Afficher/masquer la console de compilation"><span class="sbdot"></span><span id="sbCompileTxt"></span></span>
-  <span id="sbConsole" style="display:none" title="Afficher/masquer la console de compilation">Console</span>
+  <button type="button" id="sbCompile" aria-controls="texlog" title="Afficher/masquer la console de compilation"><span class="sbdot" aria-hidden="true"></span><span id="sbCompileTxt"></span></button>
+  <button type="button" id="sbConsole" aria-controls="texlog" style="display:none" title="Afficher/masquer la console de compilation">Console</button>
   <span id="sbMode"></span>
-  <span id="sbWrap" title="Cliquer pour changer le retour à la ligne"></span>
-  <span id="sbRewrap" title="Rewrap physique automatique à la sauvegarde — cliquer pour changer"></span>
-  <span id="sbAutoCompile" title="Compilation automatique après sauvegarde ou passage d'un agent — garde synctex aligné. Cliquer pour changer"></span>
-  <div id="wrapMenu">
-    <div class="wm-it" data-wrap="win">Window</div>
-    <div class="wm-it" data-wrap="off">Off</div>
-    <div class="wm-it" data-wrap="50">50</div>
-    <div class="wm-it" data-wrap="60">60</div>
-    <div class="wm-it" data-wrap="70">70</div>
-    <div class="wm-it" data-wrap="80">80</div>
-    <div class="wm-it" data-wrap="90">90</div>
-    <div class="wm-it" data-wrap="100">100</div>
-    <div class="wm-it" data-wrap="120">120</div>
-    <div class="wm-custom"><span>Autre :</span><input id="wrapMenuInput" type="number" min="20" max="400" step="1" placeholder="cols" title="Colonne de wrap"></div>
+  <button type="button" id="sbWrap" aria-expanded="false" aria-controls="wrapMenu" title="Retour à la ligne visuel — ne modifie pas le fichier"></button>
+  <button type="button" id="sbRewrap" aria-pressed="false" title="Reformater les sauts de ligne du fichier automatiquement à la sauvegarde"></button>
+  <button type="button" id="sbAutoCompile" aria-pressed="false" title="Compiler automatiquement après une modification du fichier"></button>
+  <div id="wrapMenu" role="group" aria-label="Retour à la ligne visuel">
+    <button type="button" class="wm-it" data-wrap="win">Largeur de la fenêtre</button>
+    <button type="button" class="wm-it" data-wrap="off">Sans retour à la ligne</button>
+    <button type="button" class="wm-it" data-wrap="50">50 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="60">60 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="70">70 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="80">80 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="90">90 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="100">100 colonnes</button>
+    <button type="button" class="wm-it" data-wrap="120">120 colonnes</button>
+    <div class="wm-custom"><span>Autre :</span><input id="wrapMenuInput" type="number" min="20" max="400" step="1" placeholder="cols" title="Largeur de ligne en colonnes"></div>
   </div>
   <span id="sbLint" style="display:none"></span>
   <span style="flex:1"></span>

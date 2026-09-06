@@ -13,6 +13,14 @@ struct NativeGalleryView: View {
             (filter == "Tous" || $0.kind == filter) && (query.isEmpty || $0.name.localizedStandardContains(query))
         }
     }
+    private func open(_ item: GalleryArtifact) {
+        opening = item.id
+        Task {
+            defer { opening = nil }
+            do { try workspace.openArtifact(item, data: await workspace.gallery.contents(item)) }
+            catch { self.error = error.localizedDescription }
+        }
+    }
     var body: some View {
         @Bindable var gallery = workspace.gallery
         ScrollView {
@@ -70,6 +78,18 @@ struct NativeGalleryView: View {
                             }
                         }.buttonStyle(.plain).disabled(opening != nil || !item.supported)
                         .accessibilityLabel("Ouvrir \(item.name)")
+                        .contextMenu {
+                            Button("Afficher", systemImage: "eye") { open(item) }
+                            Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            Menu {
+                                Button("Afficher", systemImage: "eye") { open(item) }.disabled(!item.supported)
+                                Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
+                            } label: {
+                                Image(systemName: "ellipsis").padding(10).background(.regularMaterial, in: Circle())
+                            }.padding(5).accessibilityLabel("Actions pour " + item.name)
+                        }
                     }
                 }
                 Text("Les fichiers ouverts restent en mémoire dans cet aperçu. Les originaux sur le Mac ne sont pas modifiés.")
@@ -87,17 +107,29 @@ struct NativeGalleryView: View {
     }
 }
 
-private struct ArtifactThumbnail: View {
+struct ArtifactThumbnail: View {
     let item: GalleryArtifact
     let gallery: GalleryModel
     @State private var thumbnail: UIImage?
+    @State private var excerpt: String?
     var body: some View {
         Group {
             if let thumbnail { Image(uiImage: thumbnail).resizable().scaledToFit().padding(6) }
+            else if let excerpt {
+                Text(AttributedString(SourceSyntax.attributed(excerpt, name: item.name, size: 8)))
+                    .lineLimit(11).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(10).clipped().accessibilityLabel("Aperçu de " + item.name)
+            }
             else { Image(systemName: item.kind == "PDF" ? "doc.richtext" : item.kind == "Figures" ? "photo" : "doc.text").font(.largeTitle).foregroundStyle(.secondary) }
         }
         .task(id: item.id) {
-            guard ["PDF", "Figures"].contains(item.kind), item.size < 5 * 1024 * 1024,
+            let visual = ["PDF", "Figures"].contains(item.kind)
+            guard item.supported else { return }
+            if !visual {
+                if let text = try? await gallery.previewText(item) { excerpt = String(text.prefix(900)) }
+                return
+            }
+            guard (item.data?.count ?? item.size) < 5 * 1024 * 1024,
                   let data = try? await gallery.contents(item) else { return }
             if item.kind == "PDF" {
                 thumbnail = PDFDocument(data: data)?.page(at: 0)?.thumbnail(of: CGSize(width: 300, height: 300), for: .cropBox)

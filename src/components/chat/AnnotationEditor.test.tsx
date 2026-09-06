@@ -52,7 +52,10 @@ async function openEditor(fragment: string): Promise<HTMLTextAreaElement> {
     await new Promise((r) => setTimeout(r, 0)); // le handler diffère d'un tick
   });
 
-  fireEvent.click(await screen.findByRole("button",{name:"Annoter"}));
+  await screen.findByRole("button",{name:"Annoter"});
+  expect([...document.querySelectorAll(".atelier-chat-selection button")].map(button=>button.getAttribute("aria-label"))).toEqual(["Add to Chat","Annoter","Quick Ask"]);
+  expect(document.querySelector(".atelier-chat-selection .atelier-swatch")).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Annoter"}));
   return await waitFor(() => {
     const field = document.querySelector(".atelier-chat-note textarea") as HTMLTextAreaElement | null;
     if (!field) throw new Error("éditeur d'annotation absent");

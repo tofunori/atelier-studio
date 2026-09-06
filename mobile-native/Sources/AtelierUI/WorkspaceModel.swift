@@ -37,7 +37,16 @@ final class WorkspaceModel {
         let note: String
     }
 
+    init(resumeStore: ChatResumeStore? = nil) { chat.resumeStore = resumeStore }
+    var chatPickerRequested = false
+    var importToChat = false
+    var viewedArtifact: GalleryArtifact?
+    func attachToChat(_ item: GalleryArtifact) {
+        chat.attach(item); surface = .chat
+        if chat.selected == nil { chatPickerRequested = true }
+    }
     var gallery = GalleryModel()
+    var chat = RemoteChatModel()
     var image: UIImage?
     var imageName = ""
     var savedDocuments: [UUID: DocumentState] = [:]
@@ -59,6 +68,7 @@ final class WorkspaceModel {
         } else {
             try loadDocument(data: data, name: item.name)
         }
+        viewedArtifact = item
         documentID = item.id
         selection = nil; pdfPassage = nil; annotationDraft = nil
         surface = .document
@@ -66,7 +76,7 @@ final class WorkspaceModel {
 
     var surface: Surface = .chat
     var documentMode: DocumentMode = .pdf
-    var draft = ""
+    var draft = "" { didSet { chat.updateDraft(draft) } }
     var configuration = ChatConfiguration()
     var importRequested = false
     var messages: [Message] = []
@@ -158,8 +168,8 @@ final class WorkspaceModel {
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         let data = try Data(contentsOf: url)
         let item = GalleryArtifact(name: url.lastPathComponent, data: data)
-        try openArtifact(item, data: data)
         gallery.localItems.append(item)
+        if importToChat { importToChat = false; attachToChat(item) } else { try openArtifact(item, data: data) }
     }
 
     private func loadDocument(data: Data, name: String) throws {

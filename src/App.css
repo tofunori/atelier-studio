@@ -454,15 +454,16 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
     linear-gradient(to left, var(--bg) 40%, transparent) right / 28px 100% no-repeat local,
     radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.22), transparent) left / 10px 100% no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.22), transparent) right / 10px 100% no-repeat scroll; }
-.chat-md table { width: max-content; min-width: 100%; border-collapse: collapse;
+.chat-md table { width: 100%; min-width: 0; max-width: 100%; border-collapse: collapse;
   table-layout: auto; font-variant-numeric: tabular-nums; }
 .chat-md th { font-size: var(--fs-s); font-weight: 500; color: var(--text-muted); text-align: left;
   padding: 4px 8px; vertical-align: bottom; }
 .chat-md td { padding: 5px 8px; vertical-align: top;
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
-/* Un chemin ou un identifiant ne se coupe jamais en plein token dans une
-   cellule : il tient d'un bloc, la cellule s'élargit ou le tableau défile. */
-.chat-md td code, .chat-md th code { white-space: nowrap; }
+/* La prose et les chemins se replient à la largeur du panneau. Le calcul
+   automatique garde les colonnes courtes compactes (numéro, année, valeur). */
+.chat-md th, .chat-md td { min-width: 6ch; white-space: normal; overflow-wrap: anywhere; }
+.chat-md td code, .chat-md th code { white-space: normal; overflow-wrap: anywhere; }
 .tool, .done { color: var(--text-muted); font-size: var(--fs-m); }
 .tool-output, .todos { color: var(--text-muted); font-size: var(--fs-m); }
 .tool-output-head { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
@@ -2457,8 +2458,10 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-s);
   color: var(--text-secondary); font-family: var(--code-font); font-size: var(--fs-m);
   padding: 1px 7px; margin: 0 1px; cursor: pointer; line-height: 1.5; }
-/* Dans une cellule de tableau, un chemin ne se coupe pas au milieu. */
-.chat-md td .file-ref, .chat-md th .file-ref { white-space: nowrap; }
+/* Les références cliquables se replient aussi, sans masquer leur chemin. */
+.chat-md td .file-ref, .chat-md th .file-ref { display: inline-block; max-width: 100%; min-width: 0;
+  white-space: normal; overflow-wrap: anywhere; text-align: start; }
+.chat-md td .file-ref svg, .chat-md th .file-ref svg { vertical-align: -1px; margin-right: 4px; }
 .file-ref:hover { border-color: var(--accent); color: var(--text-primary); }
 .file-ref svg { opacity: 0.6; flex-shrink: 0; }
 /* panneau de vue (Chats/Surlignés) hors PanelGroup : largeur fixe, poignée de
