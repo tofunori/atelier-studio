@@ -894,7 +894,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .working-divider { width: 100%; height: 1px; margin-top: 8px; background: var(--border); }
 @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 .suggest { list-style: none; padding: 5px; margin: 0 0 4px;
-  background: color-mix(in srgb, var(--bg-side) 82%, black); border: 1px solid var(--border);
+  background: var(--bg-pop);
   border-radius: var(--r-m); max-height: 320px; overflow-y: auto;
   box-shadow: var(--elev); }
 .suggest li { display: flex; justify-content: space-between; align-items: center; gap: 12px;
@@ -906,7 +906,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
  * la géométrie interne et l'action destructive, via tokens */
 .pin-menu { min-width: 190px; padding: 4px; }
 .pin-menu .pin-unpin { display: block; width: 100%; padding: 6px 10px;
-  border-radius: var(--radius-control); font-size: var(--fs-l);
+  border-radius: var(--radius-control); font-size: var(--fs-m);
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .pin-menu .pin-unpin:hover { background: color-mix(in srgb, var(--status-error) 20%, transparent);
   color: var(--status-error); }
@@ -1049,7 +1049,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   text-transform: uppercase; color: var(--text-disabled); padding: 6px 10px 4px; }
 .pm-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 10px;
   border: none; background: transparent; border-radius: var(--r-s); cursor: pointer;
-  color: var(--text-secondary); font-size: var(--fs-s); font-weight: 500; font-family: inherit;
+  color: var(--text-secondary); font-size: var(--fs-m); font-weight: 500; font-family: inherit;
   text-align: left; transition: background-color var(--ease); }
 .pm-row:hover { background: var(--bg-ctl); color: var(--text-primary); }
 .pm-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; background: var(--pc); }
@@ -2052,16 +2052,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 /* panneaux du composer : positionnés par le Positioner Base UI (PopoverContent
  * plain) — la classe ne porte plus que le skin */
 .mp-menu { min-width: 220px;
-  background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--bg-pop); border-radius: var(--r-m);
   padding: 8px; box-shadow: var(--elev); max-height: 420px; overflow-y: auto; }
 /* cascade : panneau providers ancré au bouton, sous-menu modèles à sa gauche */
 .model-menu { background: transparent; border: none; box-shadow: none; padding: 0;
   overflow: visible; max-height: none; min-width: 0; }
 .model-provider-list { display: flex; flex-direction: column; gap: 1px; width: 208px;
-  background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--bg-pop); border-radius: var(--r-m);
   padding: 4px; box-shadow: var(--elev); max-height: 390px; overflow-y: auto; }
 .model-menu .model-list { position: absolute; right: calc(100% + 6px); bottom: 0;
-  width: 178px; background: var(--bg-pop); border: 1px solid var(--border);
+  width: 178px; background: var(--bg-pop);
   border-radius: var(--r-m); padding: 4px; box-shadow: var(--elev);
   max-height: 390px; overflow-y: auto; }
 .model-menu.model-only .model-effort-legacy { display: none; }
@@ -2080,8 +2080,12 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .model-provider-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-provider-row small { color: var(--text-disabled); font-size: var(--fs-s); }
 .model-provider-row:hover, .model-provider-row.active { background: var(--bg-ctl); color: var(--text-primary); }
+/* Convention shadcn = coche SVG en fin de rangée ; le balisage de la rangée
+   (ComposerControls.tsx, hors scope de cette passe) n'a pas d'emplacement
+   pour une icône — la pastille reste, alignée sur la même taille (6px) et
+   la même couleur (--accent) que les autres marqueurs d'état de sélection. */
 .model-provider-row.selected { color: var(--text-primary); }
-.model-provider-row.selected::before { content: ""; width: 5px; height: 5px; border-radius: var(--r-pill);
+.model-provider-row.selected::before { content: ""; width: 6px; height: 6px; border-radius: var(--r-pill);
   background: var(--accent, #e8894a); position: absolute; margin-left: -4px; }
 .model-list { min-width: 0; overflow-y: auto; padding-right: 2px; }
 .model-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -2119,14 +2123,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
   padding: 4px; border-radius: var(--r-s); cursor: default; }
 .ctx-ring-wrap:hover { background: var(--bg-ctl); }
 .ctx-pop { display: none; position: absolute; bottom: 30px; right: -10px; width: 240px;
-  background: var(--bg-pop); border: 1px solid var(--border); border-radius: var(--r-m);
+  background: var(--bg-pop); border-radius: var(--r-m);
   padding: 12px 14px; box-shadow: var(--elev);
   flex-direction: column; gap: 6px; font-size: var(--fs-m); color: var(--text-secondary); z-index: 95; }
 .ctx-pop b { color: var(--text-muted); font-weight: 500; font-size: var(--fs-s);
   text-transform: uppercase; letter-spacing: 0.05em; }
 .ctx-pop { display: flex; opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity var(--motion-fast) var(--ease-out); }
-.ctx-ring-wrap:hover .ctx-pop { opacity: 1; visibility: visible; }
+/* ouverture au CLIC (décision Thierry) — .is-open posé par ComposerControls,
+   plus de :hover : seul menu du corpus à s'ouvrir au survol jusqu'ici */
+.ctx-ring-wrap.is-open .ctx-pop { opacity: 1; visibility: visible; pointer-events: auto; }
 /* la zone titre est l'unique drag region désormais — side-top garde son
    rôle visuel (bouton replier) mais ne drague plus la fenêtre */
 .side-top { display: flex; align-items: center; min-height: 26px; padding-left: 12px; }
@@ -3203,10 +3209,10 @@ body.dragging iframe { pointer-events: none; }
 .mp-item:focus-within .mp-star, .mp-star:focus-visible { opacity: 1; }
 .reviewer-bar:focus-within .rb-close, .reviewer-bar:focus-within .rb-min { opacity: 1; }
 
-/* anneau de contexte du composer : désormais un bouton — popover au focus aussi */
+/* anneau de contexte du composer : désormais un bouton — l'ouverture au clic
+   (.is-open, App.css ~l.2135) est la SEULE voie d'affichage du popover. */
 button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   background: transparent; padding: 4px; appearance: none; -webkit-appearance: none; }
-.ctx-ring-wrap:focus-visible .ctx-pop, .ctx-ring-wrap:focus .ctx-pop { opacity: 1; visibility: visible; }
 .ctx-ring-wrap:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }
 
@@ -3517,7 +3523,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .reviewer-bar:hover .rb-close { opacity: .5; }
 .rb-close:hover { opacity: 1 !important; color: var(--text-secondary); background: var(--bg-ctl); }
 .reviewer-menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
-  background: var(--bg-pop); border: 1px solid var(--border2); border-top: none;
+  background: var(--bg-pop);
   border-radius: 0 0 var(--r-m) var(--r-m); padding: 10px 14px; display: flex; flex-direction: column;
   gap: 10px; box-shadow: var(--elev); max-height: 340px; overflow-y: auto; }
 .rm-issue { border-left: 2px solid var(--border2); padding: 2px 0 2px 10px; font-size: var(--fs-m); }

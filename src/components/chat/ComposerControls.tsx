@@ -273,6 +273,26 @@ export function ComposerControls(p: {
       else if (e.key === "Escape") { e.stopPropagation(); close(); anchor.current?.focus(); }
     };
   }
+  // anneau de contexte : popover au CLIC (décision Thierry, plan menus
+  // uniformes) — c'était le seul menu du corpus encore ouvert au survol.
+  // Fermeture au clic extérieur et à Échap, comme les autres popovers.
+  const [ctxPopOpen, setCtxPopOpen] = useState(false);
+  const ctxWrapRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!ctxPopOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!ctxWrapRef.current?.contains(e.target as Node)) setCtxPopOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setCtxPopOpen(false); ctxWrapRef.current?.focus(); }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [ctxPopOpen]);
   return (
     <>
         <div className="composer-bar">
@@ -382,8 +402,13 @@ export function ComposerControls(p: {
             </>
           )}
           {p.usage && (
-            <RowButton className="ctx-ring-wrap"
-              aria-label={t("chat.context-window")}>
+            <RowButton
+              ref={ctxWrapRef}
+              className={`ctx-ring-wrap${ctxPopOpen ? " is-open" : ""}`}
+              aria-label={t("chat.context-window")}
+              aria-expanded={ctxPopOpen}
+              aria-haspopup="true"
+              onClick={() => setCtxPopOpen((v) => !v)}>
               {(() => {
                 // Priorité : window fourni par le provider (Codex, Grok registry),
                 // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI,

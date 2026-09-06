@@ -894,4 +894,50 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
     expect(offenders, `border-radius px hors échelle : ${offenders.join(", ")}`).toEqual([]);
   });
+
+  // Unification des menus/popovers React (passe 2026-09-06, décision Thierry) :
+  // un seul modèle — celui de DropdownMenuContent/ContextMenuContent shadcn —
+  // fond + ombre d'élévation, JAMAIS de bordure. Chaque nom ci-dessous peut
+  // porter plusieurs règles dans App.css (ex. `.model-menu .model-list` en
+  // plus de `.model-list` nu) ; on les regroupe toutes par nom de classe et on
+  // vérifie l'ensemble — allowlist gelée si une exception se justifie un jour
+  // (aucune pour l'instant).
+  it("menus : fond + ombre, jamais de bordure", () => {
+    const names = [
+      "proj-menu", "mp-menu", "model-provider-list", "model-list",
+      "ctx-pop", "suggest", "reviewer-menu", "pin-menu",
+    ];
+    const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selector: m[1].trim().replace(/\s+/g, " "),
+      body: m[2],
+    }));
+    for (const name of names) {
+      // le nom doit apparaître comme un TOKEN de classe complet, et comme la
+      // CIBLE (dernier maillon) d'un des sélecteurs de la liste — `.proj-menu`
+      // mais pas `.proj-menu-head`, `.model-provider-list` ne doit pas
+      // capturer `.model-list`, et `.mp-menu input[type="checkbox"]` (widget
+      // interne, pas la surface) ne doit pas capturer `.mp-menu`.
+      const token = new RegExp(`\\.${name}(?![\\w-])`);
+      const isTarget = (selector: string) =>
+        selector.split(",").some((part) => token.test(part.trim().split(/\s+/).pop() ?? ""));
+      const matches = rules.filter((r) => isTarget(r.selector));
+      expect(matches.length, `aucune règle trouvée pour .${name}`).toBeGreaterThan(0);
+      for (const r of matches) {
+        expect(r.body, `.${name} (« ${r.selector} ») porte encore une bordure`).not.toMatch(/border(?!-radius):/);
+      }
+      // .pin-menu ne possède pas son propre fond : le chrome (fond + ombre +
+      // rayon-surface, sans bordure) vient du PopoverContent partagé
+      // (shadcn/popover.tsx : bg-popover + shadow-[var(--elevation-overlay)]),
+      // vérifié par le contrat « géométrie commune » plus haut. Une classe qui
+      // ne pose pas de `background:` elle-même délègue donc légitimement
+      // l'ombre au primitif — seules celles qui possèdent leur PROPRE fond
+      // doivent aussi porter leur propre box-shadow: var(--elev...).
+      const ownsBackground = matches.some((r) => /\bbackground:/.test(r.body));
+      const hasElev = matches.some((r) => /box-shadow:\s*var\(--elev/.test(r.body));
+      expect(
+        hasElev || !ownsBackground,
+        `.${name} : possède son propre fond mais aucune de ses règles ne porte box-shadow: var(--elev...)`,
+      ).toBe(true);
+    }
+  });
 });

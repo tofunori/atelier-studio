@@ -10,6 +10,7 @@
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#1e2124; --card:#24282d; --card2:#2c2f34; --txt:#dadee3; --muted:#90969d; --faint:#62666c;
          --primary:#e77f3e; --primary-soft:color-mix(in srgb,var(--primary) 16%,transparent); --arch:#3a2f1a; --border:#2a2d31; --border-strong:#43474c;
          --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
+         --elev:0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18); --hot:#e06c75;
          --radius-control:6px;--radius-surface:10px;--fs-body-s:12px;--fs-caption:10px;--fs-label:11px;
          --focus-ring-color:var(--ring);--ease-out:ease-out;--motion-fast:120ms;--motion-panel:150ms;--motion-standard:140ms;
          --z-sticky:30;--z-popover:120;--z-modal:200;--z-toast:260; }
@@ -132,7 +133,7 @@
   #inspBody .iact{display:flex;flex-wrap:wrap;gap:6px}
   #inspBody .iact button{height:28px}
   #inspNotice{display:none;border:1px solid #7a2a2a;border-radius:6px;padding:6px 9px;
-    font-size:calc(var(--ui-base-size, 15px) * 0.76666667);color:#ff9b9b}
+    font-size:calc(var(--ui-base-size, 15px) * 0.76666667);color:var(--hot)}
   #inspNotice.show{display:block}
   .icoll label{display:flex;align-items:center;gap:6px;font-size:var(--fs-body-s, 12px);cursor:pointer}
   @media (max-width:800px){
@@ -195,16 +196,16 @@
   @keyframes rescan-spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){#rescan.spinning svg{animation:none;opacity:.5}}
   .menu{position:fixed;z-index:60;display:none;flex-direction:column;gap:2px;
-        background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
-        max-height:62vh;overflow:auto;box-shadow:0 8px 28px rgba(0,0,0,.5)}
+        background:var(--card);border-radius:10px;padding:7px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
+        max-height:62vh;overflow:auto;box-shadow:var(--elev)}
   .menu .trow{cursor:pointer}
   .menu .tck{color:var(--primary)}
   .menu .mhd{font-size:var(--fs-label, 11px);color:var(--muted);padding:3px 6px 5px}
   .menu .mi{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px;border-radius:6px;font-size:var(--fs-body, 13px)}
-  .menu .mi:hover{background:rgba(255,255,255,.05)}
+  .menu .mi:hover{background:var(--card2)}
   .menu .mi.on{color:var(--primary)}
   .menu .mi.muted,.menu .mi.muted:hover{color:var(--muted);background:none}
-  .menu .mi.clr{color:#ff9b9b}
+  .menu .mi.clr{color:var(--hot)}
   .menu .lbl{cursor:pointer;flex:1;word-break:break-all}
   .menu .lbl.mono{font-family:var(--code-font);font-size:var(--fs-body-s, 12px)}
   .menu .ct{color:var(--muted);font-size:var(--fs-label, 11px)}
@@ -369,13 +370,21 @@
   #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
       color:#646d7b;font-size:var(--fs-body-s, 12px)}
   #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:var(--card2);border:none;color:#7aa2f7}
-  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:10px;cursor:pointer}
-  #tgMenu .it:hover{background:rgba(255,255,255,.06)}
+  #annotPill svg{width:13px;height:13px;display:block;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  #annotPill button#annotPillSend .ic-arrow{display:block}
+  #annotPill button#annotPillSend.is-busy .ic-arrow,
+  #annotPill button#annotPillSend.is-ok .ic-arrow,
+  #annotPill button#annotPillSend.is-err .ic-arrow{display:none}
+  #annotPill button#annotPillSend.is-busy::after{content:'\23F3'}
+  #annotPill button#annotPillSend.is-ok::after{content:'\2713'}
+  #annotPill button#annotPillSend.is-err::after{content:'!'}
+  #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;cursor:pointer}
+  #tgMenu .it:hover{background:var(--card2)}
   #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-      color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}
+      color:var(--primary);border:1px solid color-mix(in srgb,var(--primary) 40%,transparent);border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #tgMenu .it.on .t{color:#8ab4ff}
-  #tgMenu .hd{font-size:var(--fs-label, 11px);color:#9aa3b2;text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+  #tgMenu .it.on .t{color:var(--primary)}
+  #tgMenu .hd{font-size:var(--fs-label, 11px);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
   #lb.annot #annotCv{display:block;cursor:crosshair}
   #lbClose{position:fixed;top:10px;right:14px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--muted);cursor:pointer;z-index:101}
   /* ── Panneau Provenance du viewer (spec 2026-08-27-provenance-figures-design,
@@ -586,9 +595,12 @@
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,color var(--motion-fast) ease-out}
   .menu,.csel-menu{background:color-mix(in srgb,var(--card) 96%,#000 4%);border-color:var(--border-strong);
     box-shadow:var(--shadow-float);backdrop-filter:blur(18px) saturate(1.08)}
+  /* .menu suit le jeton d'ombre canonique --elev (pas --shadow-float, réservé à .csel-menu). */
+  .menu{box-shadow:var(--elev)}
   .menu .mhd{font-size:var(--fs-caption, 10px);font-weight:650;letter-spacing:.065em;text-transform:uppercase;color:var(--faint)}
   .menu .mi,.csel-menu div{transition:background-color var(--motion-fast) ease-out,color var(--motion-fast) ease-out}
   .menu .mi:hover,.csel-menu div:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}
+  .menu .mi:hover{background:var(--card2)}
 
   main{padding:18px;gap:14px}
   .card{border-color:color-mix(in srgb,var(--hairline) 78%,transparent);border-radius:var(--radius-surface,10px);background:color-mix(in srgb,var(--card) 97%,var(--txt) 3%);
@@ -763,8 +775,8 @@
     <textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea>
     <button class="anSave" title="Envoyer l'annotation (Entr&eacute;e)" aria-label="Envoyer l'annotation" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button>
   </div>
-  <div id="annotPill"><span class="ic">&#128172;</span><span id="annotPillN"></span><button id="annotPillTarget" title="Choisir la session Claude cible">&#9678;</button><button class="x" id="annotPillCancel" title="Annuler : supprimer les commentaires sans envoyer">&#10005;</button><button id="annotPillSend" title="Envoyer directement dans la session Claude (avec soumission)">&#8593;</button></div>
-  <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:13px"></div>
+  <div id="annotPill"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4V5z"/></svg></span><span id="annotPillN"></span><button id="annotPillTarget" title="Choisir la session Claude cible"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg></button><button class="x" id="annotPillCancel" title="Annuler : supprimer les commentaires sans envoyer">&#10005;</button><button id="annotPillSend" title="Envoyer directement dans la session Claude (avec soumission)"><svg class="ic-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button></div>
+  <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:var(--card);border-radius:10px;padding:6px;box-shadow:var(--elev);font-size:13px"></div>
   <iframe id="lbPdf" style="display:none;width:94vw;height:86vh;border:none;border-radius:6px;background:#fff"></iframe>
   <video id="lbVid" controls playsinline style="display:none;max-width:94vw;max-height:86vh;border-radius:6px;background:#000"></video>
   <aside id="provPanel" aria-label="Provenance de la figure"><div id="provBody"></div></aside>
@@ -3057,7 +3069,7 @@ function annotInit(){
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-flex !important} .embHide{display:none !important}'
-      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#2a2d31;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 16%,transparent)}'
+      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#2a2d31;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 16%,transparent);--elev:0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18);--hot:#e06c75}'
       +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
   function annotRender(maxW){
     const img=document.getElementById('lbImg');
@@ -3157,17 +3169,17 @@ function annotInit(){
   })();
   document.getElementById('annotPillSend').onclick=async function(){
     const lbl=document.getElementById('annotPillN');
-    this.textContent='⏳';
+    this.classList.remove('is-ok','is-err'); this.classList.add('is-busy');
     try{
       const j=await annotPost(true);
       if(!ANNOT_EMBEDDED)annotStrokes=[];annotSent=true;
       document.getElementById('annotNote').style.display='none';
       if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();
-      this.textContent='✓';
+      this.classList.remove('is-busy'); this.classList.add('is-ok');
       lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
     }catch(e){
-      // Les marques restent en place : un nouveau clic sur ↑ rejoue l'envoi.
-      this.textContent='!';
+      // Les marques restent en place : un nouveau clic sur la flèche rejoue l'envoi.
+      this.classList.remove('is-busy'); this.classList.add('is-err');
       // Trois échecs distincts, trois messages : l'ACK du chat, une réponse
       // HTTP du serveur (413 = image trop lourde), ou pas de serveur du tout.
       // « Serveur off » sur un 413 envoyait chercher un serveur qui tournait.
@@ -3177,7 +3189,7 @@ function annotInit(){
         : e&&e.status ? 'Erreur serveur '+e.status
         : 'Serveur off — démarrer le serveur';
     }
-    setTimeout(()=>{this.textContent='↑'; annotPillUpdate();},2400);
+    setTimeout(()=>{this.classList.remove('is-busy','is-ok','is-err'); annotPillUpdate();},2400);
   };
 }
 annotInit();

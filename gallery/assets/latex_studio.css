@@ -1,4 +1,4 @@
-:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--card:#1a1d22;--card2:#1a1d22;--txt:#dadee3;--muted:#868d9a;--accent:#e77f3e;--border:#333a45;--border-strong:#3f4652;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31;--border-strong:#43474c;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--radius-control:7px;--control-height:28px;--elev:0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)}
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
@@ -152,20 +152,23 @@
   #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
       background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:var(--fs-body, 13px);user-select:none;-webkit-user-select:none}
-  #selPill .nb{font-size:var(--fs-body, 13px);flex:none;line-height:1}
+  #selPill .nb{flex:none;line-height:1;display:flex;align-items:center;color:var(--muted)}
+  #selPill .nb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
-  #selPill textarea::placeholder{color:#6d7480}
+  #selPill textarea::placeholder{color:var(--muted)}
   #selPill > button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
+  #selPill .del{width:26px;height:26px;border-radius:999px;background:none;color:var(--muted);flex:none;padding:0}
   #selPill .del:hover{color:#ff7a76}
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
-  #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);font-size:var(--fs-body, 13px);flex:none}
+  #selPill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;
+      border:1px solid #3a4150;color:var(--muted);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
-  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
-  #selPill .go:hover{background:#e0714a}
+  #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
+  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--bg);flex:none}
+  #selPill .go:hover{background:color-mix(in srgb,var(--accent) 88%,white)}
+  #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;
       box-shadow:0 14px 48px rgba(0,0,0,.55);color:var(--txt);font-size:var(--fs-body, 13px)}
@@ -244,11 +247,11 @@
 @keyframes sbpulse{50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){ #sbCompile.run .sbdot{animation:none} }
 #sbConsole:hover{color:var(--txt);cursor:pointer}
-#wrapMenu{position:fixed;z-index:400;background:#1b1f26;border:1px solid #333a45;border-radius:10px;
-  padding:5px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:var(--fs-body, 13px);color:#b6bdc7;display:none}
+#wrapMenu{position:fixed;z-index:400;background:var(--card, #24282d);border:none;border-radius:10px;
+  padding:5px;min-width:150px;box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));font-size:var(--fs-body, 13px);color:#b6bdc7;display:none}
 #wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
 #statusbar #wrapMenu .wm-it{display:block;width:100%;text-align:left;color:var(--txt);padding:6px 10px}
-#statusbar #wrapMenu{background:var(--card);color:var(--txt);border-color:var(--border)}
+#statusbar #wrapMenu{background:var(--card);color:var(--txt);border:none}
 #statusbar #wrapMenu .wm-it:hover,#statusbar #wrapMenu .wm-it.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
 #statusbar #wrapMenu .wm-custom{border-color:var(--border);color:var(--txt)}
 #statusbar #wrapMenu .wm-custom input{background:var(--bg);color:var(--txt);border-color:var(--border-strong,var(--border))}

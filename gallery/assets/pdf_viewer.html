@@ -71,18 +71,20 @@
   #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
       background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:var(--fs-body, 13px);user-select:none;-webkit-user-select:none}
-  #selPill .nb{font-size:var(--fs-body, 13px);flex:none;line-height:1}
+  #selPill .nb{flex:none;line-height:1;display:flex;align-items:center;color:var(--muted)}
+  #selPill .nb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
   #selPill textarea::placeholder{color:#6d7480}
   #selPill > button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  #selPill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}
+  #selPill .del{width:26px;height:26px;border-radius:999px;background:none;color:#6d7480;flex:none;padding:0}
   #selPill .del:hover{color:#ff7a76}
   #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
       stroke-linecap:round;stroke-linejoin:round}
-  #selPill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;
-      border:1px solid #3a4150;color:var(--muted);font-size:var(--fs-body, 13px);flex:none}
+  #selPill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;
+      border:1px solid #3a4150;color:var(--muted);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
+  #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
   /* Barre d'annotation À LA SÉLECTION (refonte 2026-08-16, variante A) : les
      couleurs sont ici, sous le texte visé — plus de mode à armer d'avance
      dans la barre du haut. Un clic sur une pastille = surligné. */
@@ -98,8 +100,9 @@
     flex:none;padding:0}
   #selPill .ulb:hover{color:var(--txt)}
   @media (prefers-reduced-motion: reduce){ #selPill .sw{transition:none} #selPill .sw:hover{transform:none} }
-  #selPill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}
-  #selPill .go:hover{background:#e0714a}
+  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--bg);flex:none}
+  #selPill .go:hover{background:color-mix(in srgb,var(--accent) 88%,white)}
+  #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:#2c313a;color:var(--txt);border:1px solid #3a414d;white-space:nowrap;font-family:inherit;font-size:13px}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
   .pdfcomment{position:absolute;z-index:8;background:#f7f7f5;color:#41454a}
@@ -255,7 +258,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 </header>
 <div id="pages"></div>
 <button id="sendBtn">➜ Claude</button>
-<div id="selPill"><span class="nb">&#128172;</span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible">&#9678;</button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)">&#8593;</button></div>
+<div id="selPill"><span class="nb"><svg viewBox="0 0 16 16" stroke-width="1.4"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible"><svg viewBox="0 0 16 16" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)"><svg viewBox="0 0 16 16" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button></div>
 <div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl">Annotations</span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div></div>
 <div id="findBar"><input type="text" placeholder="Rechercher dans le document&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
