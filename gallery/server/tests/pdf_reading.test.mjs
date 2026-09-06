@@ -178,6 +178,12 @@ test("contrat lecteur (fix 1) : bouton actif visible, barre sous l'en-tête, jet
   // constat n°3 — un fetch /reflow en vol ne doit pas ressusciter reset()/leave().
   assert.match(html, /let gen = 0;/);
   assert.ok(html.includes("gen !== "), "jeton de génération vérifié quelque part (enter/load)");
+  // M1 — seul reset() coupe le fetch partagé ; leave() garde la page capturée
+  // par enter() comme repli quand l'analyse n'a pas abouti.
+  const leaveBody = html.slice(html.indexOf("function leave(){"), html.indexOf("function reset(){"));
+  assert.doesNotMatch(leaveBody, /loading = null/, "leave() ne coupe plus le fetch partagé");
+  assert.match(leaveBody, /currentBlockId\(\)\) : enteredPage/);
+  assert.match(html.slice(html.indexOf("function reset(){")), /loading = null/);
 });
 
 test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur en dur", () => {
@@ -187,6 +193,16 @@ test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur 
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /--read-fs/); assert.match(css, /--read-width/); assert.match(css, /--read-lh/);
   assert.match(css, /:disabled/, "boutons désactivés sans chrome UA — fix 1, aussi trivial du ruling");
+  // aucune teinte rgba en dur : seules les variables de marquage et l'ombre
+  // documentée du système de design en portent.
+  for (const line of css.split("\n")) {
+    if (!line.includes("rgba(")) continue;
+    assert.ok(/^\s*--read-[a-z-]+:rgba\(/.test(line) || line.includes("box-shadow:0 4px 16px rgba(0,0,0,.25)"),
+      "rgba en dur hors variable de teinte / ombre du système : " + line.trim());
+  }
+  // légendes et notes ne passent pas sous 13 px quand le corps est à 13
+  assert.match(css, /#reading p\.caption\{font-size:max\(13px,/);
+  assert.match(css, /#reading p\.footnote\{font-size:max\(13px,/);
 });
 
 test("contrat lecteur : la navigation par page quitte la colonne, outils de page éteints", () => {

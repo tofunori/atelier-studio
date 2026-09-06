@@ -471,6 +471,23 @@ fn is_superscript_marker(text: &str, size: f32, body: f32, width: f32) -> bool {
     size < body * 0.9 && width < 25.0 && !compact.is_empty() && compact.chars().count() <= 3
 }
 
+/// Clé d'en-tête / de pied : `None` hors des bandes de 6 % en haut et en bas
+/// de page ; sinon le texte normalisé, un numéro de page seul étant ramené à
+/// `#pagenum` (il change d'une page à l'autre mais désigne la même chose).
+/// UNE seule définition, utilisée pour compter les répétitions ET pour décider
+/// de la suppression : les deux ne peuvent plus diverger.
+fn band_key(b: &RawBlock, page_h: f32) -> Option<String> {
+    if !(b.bbox[1] < page_h * 0.06 || b.bbox[3] > page_h * 0.94) {
+        return None;
+    }
+    let key = norm_text(&join_lines(&b.lines));
+    Some(if key.chars().all(|c| c.is_ascii_digit()) {
+        "#pagenum".to_string()
+    } else {
+        key
+    })
+}
+
 /// Taille du corps : médiane des tailles de ligne pondérée par le nombre de caractères.
 fn body_size(blocks: &[RawBlock]) -> f32 {
     let mut samples: Vec<(f32, usize)> = blocks
@@ -526,29 +543,14 @@ pub(crate) fn analyze(parsed: &Parsed) -> ReflowDoc {
     let mut band_counts: std::collections::HashMap<String, std::collections::BTreeSet<u16>> =
         Default::default();
     for b in &raw {
-        let ph = parsed.pages[(b.page - 1) as usize].h;
-        if b.bbox[1] < ph * 0.06 || b.bbox[3] > ph * 0.94 {
-            let key = norm_text(&join_lines(&b.lines));
-            let key = if key.chars().all(|c| c.is_ascii_digit()) {
-                "#pagenum".to_string()
-            } else {
-                key
-            };
+        if let Some(key) = band_key(b, parsed.pages[(b.page - 1) as usize].h) {
             band_counts.entry(key).or_default().insert(b.page);
         }
     }
     let is_running = |b: &RawBlock| {
-        let ph = parsed.pages[(b.page - 1) as usize].h;
-        if !(b.bbox[1] < ph * 0.06 || b.bbox[3] > ph * 0.94) {
-            return false;
-        }
-        let key = norm_text(&join_lines(&b.lines));
-        let key = if key.chars().all(|c| c.is_ascii_digit()) {
-            "#pagenum".to_string()
-        } else {
-            key
-        };
-        band_counts.get(&key).is_some_and(|pages| pages.len() >= 2)
+        band_key(b, parsed.pages[(b.page - 1) as usize].h)
+            .and_then(|key| band_counts.get(&key))
+            .is_some_and(|pages| pages.len() >= 2)
     };
 
     // 2) niveaux de titre : rang décroissant des tailles > 1,15 × corps
@@ -879,7 +881,11 @@ pub(crate) fn write_cache(path: &Path, doc: &ReflowDoc) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec(doc).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // un rename raté laisserait un .json.tmp orphelin à chaque analyse
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 /// Spawn `pdftohtml -xml -zoom 1 -stdout -q` : le zoom 1 explicite est
@@ -1008,7 +1014,11 @@ pub async fn reflow(
     .and_then(|r| r);
     match analysed {
         Ok(doc) => {
-            let _ = write_cache(&cache, &doc); // un cache non écrit n'empêche pas la réponse
+            // un cache non écrit n'empêche pas la réponse, mais il fait
+            // respawner pdftohtml à chaque ouverture : il faut le voir passer.
+            if let Err(e) = write_cache(&cache, &doc) {
+                eprintln!("reflow: cache non écrit ({}): {e}", cache.display());
+            }
             Json(doc).into_response()
         }
         Err(msg) => (

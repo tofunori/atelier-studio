@@ -415,6 +415,9 @@ window.__readingMode = (function(){
   const KEYS = {fs: "pdfRead.fs", width: "pdfRead.width", lh: "pdfRead.lh", font: "pdfRead.font"};
   const FS_MIN = 13, FS_MAX = 24;
   let doc = null, loading = null, on = false, cropObserver = null;
+  // page vue en haut de fenêtre à l'entrée : repli de sortie quand l'analyse
+  // n'a pas abouti (doc null) — sans elle on retombait toujours page 1.
+  let enteredPage = 1;
   // jeton de génération : reset()/leave() l'incrémentent pour périmer tout
   // fetch /reflow en vol (un enter() abandonné par un reload externe ne doit
   // pas ressusciter un `doc` périmé — revue plan 078 T5 fix 1, constat n°3).
@@ -541,7 +544,7 @@ window.__readingMode = (function(){
   }
   async function enter(){
     if (on) return;
-    const page = topPage();
+    const page = enteredPage = topPage();
     const g = ++gen;
     on = true; btn.setAttribute("aria-pressed", "true"); section.hidden = false; body.classList.add("read-mode");
     disablePageTools(true);
@@ -566,8 +569,11 @@ window.__readingMode = (function(){
   }
   function leave(){
     if (!on) return;
-    const page = doc ? R.pageForBlock(doc, currentBlockId()) : 1;
-    gen++; loading = null; cancelCrops(); crops.clear();
+    const page = doc ? R.pageForBlock(doc, currentBlockId()) : enteredPage;
+    // `loading` n'est PAS remis à null ici : le fetch en vol reste partagé
+    // (le jeton de génération suffit à le périmer), sinon une entrée/sortie
+    // rapide relançait une analyse par aller-retour. Seul reset() le coupe.
+    gen++; cancelCrops(); crops.clear();
     on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
     disablePageTools(false);
     const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
