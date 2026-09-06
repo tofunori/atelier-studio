@@ -22,7 +22,10 @@ interface PdfDocument {
 }
 
 export interface PdfJs {
+  /** pdf.js < 4 seulement — supprimé en 4.x au profit de la classe TextLayer. */
   renderTextLayer?(options: Record<string, unknown>): {promise: Promise<unknown>};
+  /** pdf.js >= 4 : remplaçant de renderTextLayer(). */
+  TextLayer?: new (options: Record<string, unknown>) => {render(): Promise<unknown>};
   getDocument(options: Record<string, unknown>): {promise: Promise<PdfDocument>};
 }
 
@@ -216,6 +219,10 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       const loaded = await options.pdfjs.getDocument({
         url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}&t=${Date.now()}`,
         standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+        // pdf.js >= 5 décode JPEG2000/ICC en WebAssembly : sans ces deux URL
+        // il va chercher les modules à la racine du site et échoue.
+        wasmUrl: "/.fig_thumbs/pdfjs/wasm/",
+        iccUrl: "/.fig_thumbs/pdfjs/iccs/",
         cMapUrl: "/.fig_thumbs/pdfjs/cmaps/",
         cMapPacked: true,
       }).promise;
@@ -286,14 +293,21 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
           element.prepend(canvas);
           liveCanvases.set(pageNumber, canvas);
           if (liveCanvases.size > MAX_LIVE_PAGES) evictFarthest(pageNumber);
-          if (!element.querySelector(".textLayer") && page.getTextContent && options.pdfjs.renderTextLayer) {
+          const TextLayerClass = options.pdfjs.TextLayer;
+          if (!element.querySelector(".textLayer") && page.getTextContent
+              && (TextLayerClass || options.pdfjs.renderTextLayer)) {
             const layer = doc.createElement("div"); layer.className = "textLayer";
             layer.style.setProperty("--scale-factor", String(info.scale));
             element.appendChild(layer);
             try {
               const text = await page.getTextContent();
               if (token !== loadToken) return;
-              await options.pdfjs.renderTextLayer({textContentSource: text, container: layer, viewport}).promise;
+              // pdf.js >= 4 : renderTextLayer() a disparu, TextLayer le remplace.
+              if (TextLayerClass) {
+                await new TextLayerClass({textContentSource: text, container: layer, viewport}).render();
+              } else {
+                await options.pdfjs.renderTextLayer!({textContentSource: text, container: layer, viewport}).promise;
+              }
             } catch { layer.remove(); /* a text extraction failure never discards the page image */ }
           }
         } finally {

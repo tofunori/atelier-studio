@@ -12,7 +12,23 @@
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
 })();</script>
-<script src="/.fig_thumbs/pdfjs/pdf.min.js"></script>
+<!-- pdf.js >= 4 est ESM seul. Le script inline de cette page reste CLASSIQUE
+     (ses globales sont extraites par vm dans les tests) : on charge donc pdf.js
+     par un shim module qui le republie sur window.pdfjsLib. Les modules sont
+     différés — cette promesse, posée par un script classique AVANT le shim, est
+     le point de rendez-vous ; main() l'attend. -->
+<script>window.__pdfjsReady = new Promise(function(res, rej){ window.__pdfjsResolve = res; window.__pdfjsReject = rej; });</script>
+<script type="module">
+  import * as pdfjsLib from "/.fig_thumbs/pdfjs/pdf.min.mjs";
+  window.pdfjsLib = pdfjsLib;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.mjs";
+  window.__pdfjsResolve(pdfjsLib);
+</script>
+<script type="module">
+  // Un échec d'import module ne rejette rien tout seul : sans ce filet, main()
+  // attendrait indéfiniment et la page resterait blanche.
+  setTimeout(function(){ if(!window.pdfjsLib) window.__pdfjsReject(new Error("pdf.js (module) n'a pas pu être chargé")); }, 15000);
+</script>
 <script src="sel_pill.js"></script>
 <script src="annotation_ui.bundle.js"></script>
 <link rel="stylesheet" href="annotation_ui.css">
@@ -279,7 +295,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
+// workerSrc : posé par le shim module en tête de page (pdf.js est ESM depuis la 4.x).
 
 const rel = new URLSearchParams(location.search).get("file");
 const __passageParams = new URLSearchParams(location.search);
@@ -367,8 +383,10 @@ async function findTexSource(){
 async function main(){
   let pdf;
   try {
+    await window.__pdfjsReady;   // shim module (voir en tête de page)
     pdf = await pdfjsLib.getDocument({url: "/" + rel,
       standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+      wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
       cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
   } catch(e) {
     const p = document.getElementById("pages");
@@ -529,7 +547,7 @@ async function main(){
         // intent "display" : "print" demande à pdf.js la variante d'impression
         // (annotations aplaties, optimisations écran désactivées) — plus lente,
         // et destinée à une imprimante, pas à cet écran.
-        const task = slot.page.render({canvasContext: ctx, viewport: vp, intent: "display"});
+        const task = slot.page.render({canvas: cv, canvasContext: ctx, viewport: vp, intent: "display"});
         slot.task = task;
         let cancelled = false;
         try {
@@ -650,6 +668,7 @@ async function main(){
     try{
       const doc = await pdfjsLib.getDocument({url: "/" + rel + "?t=" + Date.now(),
         standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+        wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
         cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
       if(t !== _rlTok) return;
       pdf = doc;

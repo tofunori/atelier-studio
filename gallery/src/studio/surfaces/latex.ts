@@ -146,7 +146,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const doc = dependencies.document || document;
   const win = (dependencies.window || window) as LatexSurfaceWindow;
   if (dependencies.pdfjs.GlobalWorkerOptions) {
-    dependencies.pdfjs.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.js";
+    dependencies.pdfjs.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.mjs";
   }
   const parameters = new URLSearchParams(win.location.search);
   const path = parameters.get("path");

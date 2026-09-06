@@ -1,10 +1,14 @@
 pdf.js
 Copyright Mozilla Foundation and contributors.
 
-This directory bundles a prebuilt copy of Mozilla pdf.js
-(pdf.min.js, pdf.worker.min.js, cmaps/, standard_fonts/), used by the
-PDF viewer (assets/pdf_viewer.html).
+This directory bundles a prebuilt copy of Mozilla pdf.js 6.3.289
+(pdf.min.mjs, pdf.worker.min.mjs, cmaps/, standard_fonts/, wasm/, iccs/),
+used by the PDF viewer (assets/pdf_viewer.html).
 
-pdf.js is licensed under the Apache License, Version 2.0.
+Since pdf.js 4.x the build is ESM only: pdf.min.mjs is loaded by a small
+<script type="module"> shim in pdf_viewer.html that exposes it as
+window.pdfjsLib for the classic inline script.
+
+pdf.js is licensed under the Apache License, Version 2.0 (see LICENSE).
 Full text: https://www.apache.org/licenses/LICENSE-2.0
 Source: https://github.com/mozilla/pdf.js
