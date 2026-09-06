@@ -421,6 +421,13 @@ window.__readingMode = (function(){
   let gen = 0;
   const crops = new Map();       // blockId → {canvas, task}
   function headerHeight(){ const h = document.querySelector("header"); return h ? h.offsetHeight : 44; }
+  // Outils liés à la GÉOMÉTRIE des pages : sans page à l'écran ils n'ont pas
+  // de cible. Le CSS les grise, `disabled` les retire aussi du clavier et des
+  // lecteurs d'écran (revue de branche, I5).
+  const PAGE_TOOLS = '#areaBtn, #pdftools [data-t="note"], .pdf-mark-tools [data-t="erase"]';
+  function disablePageTools(off){
+    for (const el of document.querySelectorAll(PAGE_TOOLS)) el.disabled = off;
+  }
   function cancelCrops(){
     for (const entry of crops.values()) { if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; } }
   }
@@ -537,6 +544,7 @@ window.__readingMode = (function(){
     const page = topPage();
     const g = ++gen;
     on = true; btn.setAttribute("aria-pressed", "true"); section.hidden = false; body.classList.add("read-mode");
+    disablePageTools(true);
     section.style.setProperty("--read-top", headerHeight() + "px");
     applyPrefs(); skeleton();
     try {
@@ -561,6 +569,7 @@ window.__readingMode = (function(){
     const page = doc ? R.pageForBlock(doc, currentBlockId()) : 1;
     gen++; loading = null; cancelCrops(); crops.clear();
     on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
+    disablePageTools(false);
     const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
     if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
     document.dispatchEvent(new CustomEvent("atelier-reading-left"));
@@ -1305,6 +1314,9 @@ const annPane = (function(){
       ((a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0) - (b.rects?.[0]?.[1] ?? b.pin?.[1] ?? 0)));
   }
   function jump(a){
+    // toute navigation qui vise une PAGE quitte d'abord la colonne : sans ça
+    // le scroll portait sur #pages, masqué (revue de branche, I5).
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
     if (!pg) return;
     const y = a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0;
@@ -1712,6 +1724,7 @@ loadAnnots(0);
 let __annotTarget = new URLSearchParams(location.search).get("annot");
 function revealTargetAnnot(){
   if (!__annotTarget) return;
+  if (window.__readingMode?.isOn()) window.__readingMode.leave();
   const a = PDF_ANNOTS.find(x => String(x.id) === __annotTarget);
   __annotTarget = null;
   if (!a) return;
@@ -1982,7 +1995,7 @@ let eraseMark = false;
     button.onclick=()=>{LAST_COLOR=color;eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
     palette.appendChild(button);colors.push(button);
   });
-  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});tools.push([eraser,"erase"]);
+  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
   document.getElementById("selinfo").before(bar);refresh();
 })();
@@ -2228,6 +2241,7 @@ if(window.self !== window.top){
   fn.after(tools);
   let annIdx = -1;
   function gotoAnn(dir){
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const sorted = [...PDF_ANNOTS].sort((a, b) =>
       (+a.page - +b.page) || ((a.rects[0]?.[1] ?? (a.pin?.[1] ?? 0)) - (b.rects[0]?.[1] ?? (b.pin?.[1] ?? 0))));
     if (!sorted.length) return;

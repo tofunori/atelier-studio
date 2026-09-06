@@ -189,6 +189,20 @@ test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur 
   assert.match(css, /:disabled/, "boutons désactivés sans chrome UA — fix 1, aussi trivial du ruling");
 });
 
+test("contrat lecteur : la navigation par page quitte la colonne, outils de page éteints", () => {
+  // I5 — jump (panneau), gotoAnn (flèches de la barre) et revealTargetAnnot
+  // (?annot=) visent une page : sans sortie du mode lecture ils défilaient
+  // dans #pages, masqué.
+  for (const fn of ["function jump(a){", "function gotoAnn(dir){", "function revealTargetAnnot(){"]) {
+    const body = html.slice(html.indexOf(fn), html.indexOf(fn) + 400);
+    assert.match(body, /window\.__readingMode\?\.isOn\(\) *\) *window\.__readingMode\.leave\(\)|__readingMode\?\.isOn\(\)\) window\.__readingMode\.leave\(\)/, fn);
+  }
+  assert.match(html, /function disablePageTools\(off\)/);
+  assert.match(html, /disablePageTools\(true\)/); assert.match(html, /disablePageTools\(false\)/);
+  assert.match(html, /eraser\.dataset\.t="erase"/);
+  assert.match(css, /body\.read-mode \.pdf-mark-tools \[data-t="erase"\]/);
+});
+
 test("contrat css : la recherche en lecture est un repère, pas un aplat", () => {
   // Un résultat = un BLOC entier : pas de fond pleine largeur sur le
   // paragraphe, un filet en marge et un voile très léger.

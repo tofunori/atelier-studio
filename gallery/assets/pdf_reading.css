@@ -67,4 +67,5 @@ body.read-mode #readBar{display:flex}
 /* Outils liés à la géométrie des pages : sans page à l'écran, ils n'ont pas
    de cible en mode lecture — capture de zone et note libre sont éteintes. */
 body.read-mode #pdftools #areaBtn,
-body.read-mode #pdftools [data-t="note"]{opacity:.4;pointer-events:none}
+body.read-mode #pdftools [data-t="note"],
+body.read-mode .pdf-mark-tools [data-t="erase"]{opacity:.4;pointer-events:none}
