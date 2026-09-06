@@ -73,6 +73,15 @@
   #invBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
   #invBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
   @media (prefers-reduced-motion: reduce){ #invBtn{transition:none} }
+  /* Même gabarit que #invBtn — le toggle du mode lecture doit avoir un état
+     "actif" visible (revue plan 078 T5 fix 1, constat n°2). */
+  #readBtn{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center;
+    margin-left:8px;flex:none;background:transparent;border:none;border-radius:6px;
+    color:var(--muted,#868d9a);cursor:pointer;padding:0;
+    transition:color 140ms ease, background 140ms ease}
+  #readBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
+  #readBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
+  @media (prefers-reduced-motion: reduce){ #readBtn{transition:none} }
   body.pdf-invert .pg{background:#141414}
   body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
@@ -406,7 +415,15 @@ window.__readingMode = (function(){
   const KEYS = {fs: "pdfRead.fs", width: "pdfRead.width", lh: "pdfRead.lh", font: "pdfRead.font"};
   const FS_MIN = 13, FS_MAX = 24;
   let doc = null, loading = null, on = false, cropObserver = null;
+  // jeton de génération : reset()/leave() l'incrémentent pour périmer tout
+  // fetch /reflow en vol (un enter() abandonné par un reload externe ne doit
+  // pas ressusciter un `doc` périmé — revue plan 078 T5 fix 1, constat n°3).
+  let gen = 0;
   const crops = new Map();       // blockId → {canvas, task}
+  function headerHeight(){ const h = document.querySelector("header"); return h ? h.offsetHeight : 44; }
+  function cancelCrops(){
+    for (const entry of crops.values()) { if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; } }
+  }
 
   function pref(k, d){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
   function setPref(k, v){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
@@ -431,12 +448,15 @@ window.__readingMode = (function(){
     host.innerHTML = "";
     for (let i = 0; i < 12; i++) { const s = document.createElement("div"); s.className = "skeleton" + (i % 4 === 3 ? " w60" : ""); host.appendChild(s); }
   }
-  async function load(){
+  async function load(g){
     if (doc) return doc;
     if (!loading) loading = fetch("/reflow?path=" + encodeURIComponent(rel)).then(async r => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-      doc = j; return doc;
+      // Ne réinstalle le document que si cette génération est toujours la
+      // courante : reset()/leave() ont pu être appelés pendant le fetch.
+      if (gen === g) doc = j;
+      return j;
     }).finally(() => { loading = null; });
     return loading;
   }
@@ -466,7 +486,16 @@ window.__readingMode = (function(){
       for (const e of entries) {
         const entry = crops.get(Number(e.target.dataset.crop)); if (!entry) continue;
         if (e.isIntersecting) void paintCrop(entry);
-        else if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; entry.canvas.width = entry.canvas.height = 0; delete entry.canvas.dataset.done; }
+        else {
+          // Toujours libérer le bitmap en sortie d'écran, peinture terminée
+          // ou non — sinon une découpe déjà peinte (task=null, done="1")
+          // gardait son canvas plein format indéfiniment (revue plan 078 T5
+          // fix 1, constat n°4). La ré-entrée dans le viewport repeint via
+          // paintCrop (dataset.done supprimé ci-dessous).
+          if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; }
+          entry.canvas.width = entry.canvas.height = 0;
+          delete entry.canvas.dataset.done;
+        }
       }
     }, {rootMargin: "100% 0px"});
     for (const {canvas} of crops.values()) cropObserver.observe(canvas);
@@ -487,7 +516,12 @@ window.__readingMode = (function(){
   }
   function scrollToBlockOfPage(page){
     const el = host.querySelector('[data-page="' + page + '"]');
-    if (el) el.scrollIntoView({block: "start"});
+    if (!el) return;
+    // scrollIntoView({block:"start"}) ignore le header ET la barre collants :
+    // la première ligne du bloc atterrissait dessous (revue plan 078 T5
+    // fix 1, constat n°1). Position explicite sur l'élément défilant.
+    const sc = document.scrollingElement || document.documentElement;
+    sc.scrollTop = el.offsetTop - headerHeight() - bar.offsetHeight - 8;
   }
   function currentBlockId(){
     const sc = document.scrollingElement || document.documentElement;
@@ -497,21 +531,39 @@ window.__readingMode = (function(){
   async function enter(){
     if (on) return;
     const page = topPage();
+    const g = ++gen;
     on = true; btn.setAttribute("aria-pressed", "true"); section.hidden = false; body.classList.add("read-mode");
+    section.style.setProperty("--read-top", headerHeight() + "px");
     applyPrefs(); skeleton();
-    try { await load(); render(); scrollToBlockOfPage(page); }
-    catch(e){ host.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "Mode lecture indisponible — " + (e.message || e); host.appendChild(p); }
+    try {
+      await load(g);
+      // Périmé par un leave()/reset() pendant le fetch (compile LaTeX,
+      // __reloadPdf) : ne pas peindre dans une section qu'on a quittée
+      // (revue plan 078 T5 fix 1, constat n°3).
+      if (gen !== g || !on) return;
+      render(); scrollToBlockOfPage(page);
+    }
+    catch(e){
+      if (gen !== g || !on) return;
+      host.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "Mode lecture indisponible — " + (e.message || e); host.appendChild(p);
+    }
   }
   function leave(){
     if (!on) return;
     const page = doc ? R.pageForBlock(doc, currentBlockId()) : 1;
+    gen++; loading = null; cancelCrops(); crops.clear();
     on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
     const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
     if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
   }
   /** Le document recomposé est lié au PDF affiché : un rechargement en place
    *  (compile LaTeX, mtime) le périme — __reloadPdf appelle reset(). */
-  function reset(){ doc = null; if (cropObserver) { cropObserver.disconnect(); cropObserver = null; } crops.clear(); host.innerHTML = ""; }
+  function reset(){
+    gen++; loading = null; doc = null;
+    if (cropObserver) { cropObserver.disconnect(); cropObserver = null; }
+    cancelCrops(); crops.clear();
+    host.innerHTML = "";
+  }
   btn.onclick = () => on ? leave() : enter();
   window.addEventListener("keydown", e => {
     const t = document.activeElement;

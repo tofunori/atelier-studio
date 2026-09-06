@@ -104,10 +104,26 @@ test("contrat lecteur : bouton, colonne, script compagnon, clés persistées", (
   assert.doesNotMatch(html, /intent:\s*"print"/);
 });
 
+test("contrat lecteur (fix 1) : bouton actif visible, barre sous l'en-tête, jeton de génération", () => {
+  // constat n°2 — #readBtn a son propre état :hover et [aria-pressed="true"],
+  // comme #invBtn (même gabarit, --accent au repos actif).
+  assert.match(html, /#readBtn\[aria-pressed="true"\]\{background:var\(--card2,#2c313a\);color:var\(--accent,#e77f3e\)\}/);
+  // constat n°1 — la barre est calée sous le <header> collant via une
+  // variable posée en JS à l'entrée, pas un top:0 fixe qui la fait
+  // disparaître sous l'en-tête au scroll.
+  assert.match(html, /--read-top/);
+  assert.match(css, /--read-top/);
+  assert.match(css, /#readBar\{[^}]*top:var\(--read-top/);
+  // constat n°3 — un fetch /reflow en vol ne doit pas ressusciter reset()/leave().
+  assert.match(html, /let gen = 0;/);
+  assert.ok(html.includes("gen !== "), "jeton de génération vérifié quelque part (enter/load)");
+});
+
 test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur en dur", () => {
   assert.match(css, /body\.read-mode #pages\{display:none\}/);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b/i, "hex en dur interdit — variables CSS seulement");
   for (const m of css.matchAll(/transition:[^;]*?(\d+)ms/g)) assert.ok(Number(m[1]) <= 200, m[0]);
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /--read-fs/); assert.match(css, /--read-width/); assert.match(css, /--read-lh/);
+  assert.match(css, /:disabled/, "boutons désactivés sans chrome UA — fix 1, aussi trivial du ruling");
 });

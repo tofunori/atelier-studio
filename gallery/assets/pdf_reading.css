@@ -27,8 +27,12 @@ body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
 #reading mark.pdfhl{background:rgba(255,213,74,.4);color:inherit;border-radius:2px;cursor:pointer}
 #reading .find-hit{background:rgba(120,170,255,.42);border-radius:2px}
 #reading .find-cur{outline:1px solid var(--ring);outline-offset:2px;border-radius:6px}
+/* top : hauteur du <header> collant du lecteur (44-46px), posée en JS via
+   --read-top sur #reading à l'entrée — sinon la barre glisse sous l'en-tête
+   opaque au scroll (revue plan 078 T5 fix 1, constat n°1). z-index:3 lui
+   suffit : elle n'a qu'à dominer la colonne, pas l'en-tête (z-index:10). */
 #readBar{
-  display:none;position:sticky;top:0;z-index:2;gap:8px;align-items:center;
+  display:none;position:sticky;top:var(--read-top, 48px);z-index:3;gap:8px;align-items:center;
   padding:8px 12px;margin:0 0 16px;border-radius:10px;background:var(--popover,var(--card));box-shadow:0 4px 16px rgba(0,0,0,.25);
   font:400 12px/1.5 var(--ui-font);color:var(--fg);
 }
@@ -38,4 +42,5 @@ body.read-mode #readBar{display:flex}
 #readBar button{min-width:24px;height:24px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:500 12px/1 var(--ui-font);cursor:pointer;transition:background 120ms ease}
 #readBar button:hover{background:var(--card2)}
 #readBar button[aria-pressed="true"]{background:var(--card2);color:var(--txt)}
+#readBar button:disabled{opacity:.4;pointer-events:none}
 @media (prefers-reduced-motion:reduce){#reading,#readBar button{transition:none}}
