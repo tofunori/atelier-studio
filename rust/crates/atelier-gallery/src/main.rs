@@ -5,6 +5,7 @@ mod gallery;
 mod git;
 mod host;
 mod openable;
+mod ranged;
 mod suggest;
 mod workspace;
 mod zotero;
@@ -1141,90 +1142,14 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 async fn serve_video(
     path: &std::path::Path,
-    metadata: &std::fs::Metadata,
+    _metadata: &std::fs::Metadata,
     method: Method,
     headers: &HeaderMap,
 ) -> axum::response::Response {
-    let fsize = metadata.len();
     let ctype = mime_guess::from_path(path)
         .first_or_octet_stream()
         .to_string();
-    let mut start = 0u64;
-    let mut end = fsize.saturating_sub(1);
-    let mut partial = false;
-    if let Some(rng) = headers.get(header::RANGE).and_then(|v| v.to_str().ok())
-        && let Some(spec) = rng.strip_prefix("bytes=")
-    {
-        let (s, e) = spec.split_once('-').unwrap_or((spec, ""));
-        if !s.is_empty() {
-            if let Ok(s) = s.parse::<u64>() {
-                start = s;
-                end = if e.is_empty() {
-                    fsize.saturating_sub(1)
-                } else {
-                    e.parse::<u64>().unwrap_or(fsize.saturating_sub(1))
-                };
-                partial = true;
-            }
-        } else if let Ok(suffix) = e.parse::<u64>() {
-            start = fsize.saturating_sub(suffix);
-            end = fsize.saturating_sub(1);
-            partial = true;
-        }
-        if start > end || start >= fsize {
-            return (
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                [(
-                    header::CONTENT_RANGE,
-                    HeaderValue::from_str(&format!("bytes */{fsize}"))
-                        .unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
-                )],
-                Body::empty(),
-            )
-                .into_response();
-        }
-        end = end.min(fsize.saturating_sub(1));
-    }
-    let length = end - start + 1;
-    let Ok(mut file) = tokio::fs::File::open(path).await else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "read failed").into_response();
-    };
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-    if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "seek failed").into_response();
-    }
-    let mut buf = vec![0u8; length as usize];
-    if method != Method::HEAD {
-        let _ = file.read_exact(&mut buf).await;
-    } else {
-        buf.clear();
-    }
-    let status = if partial {
-        StatusCode::PARTIAL_CONTENT
-    } else {
-        StatusCode::OK
-    };
-    let mut builder = axum::response::Response::builder()
-        .status(status)
-        .header(header::CONTENT_TYPE, ctype)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header(
-            header::CONTENT_LENGTH,
-            if method == Method::HEAD {
-                length
-            } else {
-                buf.len() as u64
-            },
-        );
-    if partial {
-        builder = builder.header(
-            header::CONTENT_RANGE,
-            format!("bytes {start}-{end}/{fsize}"),
-        );
-    }
-    builder
-        .body(Body::from(buf))
-        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "response").into_response())
+    ranged::serve_file_ranged(path, &ctype, &method, headers).await
 }
 
 async fn quote(

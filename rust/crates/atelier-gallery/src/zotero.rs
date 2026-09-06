@@ -5,7 +5,7 @@ use axum::{
     Json,
     body::Bytes,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     response::IntoResponse,
 };
 use md5::{Digest, Md5};
