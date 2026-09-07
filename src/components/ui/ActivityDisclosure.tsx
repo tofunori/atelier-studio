@@ -14,7 +14,7 @@ export function ActivityDisclosure({ open, onToggle, label, meta, icon, status =
     >
       <CollapsibleTrigger render={<button type="button" className={cx("ui-activity-trigger", icon && "has-icon")} />}>
         {icon && <span className="ui-activity-icon" data-activity-icon={icon.cat}><ToolGlyph icon={icon} /></span>}
-        <span className={cx("ui-activity-label", shimmer && status === "running" && "is-shimmering")}>{label}</span>
+        <span className={cx("ui-activity-label", shimmer && status !== "failed" && "is-shimmering")}>{label}</span>
         {meta && <span className="ui-activity-meta">{meta}</span>}
         <Tick open={open} />
       </CollapsibleTrigger>

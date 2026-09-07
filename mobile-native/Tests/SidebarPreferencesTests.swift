@@ -46,6 +46,27 @@ final class SidebarPreferencesTests: XCTestCase {
         XCTAssertTrue(SidebarProjectPreferences(defaults: defaults).visible(groups).isEmpty)
         XCTAssertEqual(ConversationProjectGroup.groups(threads: threads, projects: [], query: "Un chat").first?.threads.count, 2)
     }
+    @MainActor func testMacActivityPromotesProjectAndSelectedConversation() throws {
+        let suite = "atelier-sidebar-test-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = SidebarProjectPreferences(defaults: defaults)
+        let chat = RemoteChatModel()
+        let old = RemoteChatModel.Thread(id: "frq", title: "Bourse", provider: "codex", model: nil, projectId: "frq", status: "idle", updatedAt: "2026-09-06T10:00:00Z")
+        chat.selected = old
+        var fresh = old; fresh.updatedAt = "2026-09-06T12:00:00.500Z"
+        let other = RemoteChatModel.Thread(id: "other", title: "Autre", provider: "codex", model: nil, projectId: "other", status: "idle", updatedAt: "2026-09-06T12:00:00Z")
+        chat.threads = [other, fresh]
+        XCTAssertEqual(chat.conversationThreads.map(\.id), ["frq", "other"])
+        XCTAssertEqual(chat.conversationThreads.first?.updatedAt, fresh.updatedAt)
+        XCTAssertEqual(chat.selected?.updatedAt, old.updatedAt)
+        let projects = [GalleryModel.Project(projectId: "frq", name: "FRQNT"), .init(projectId: "other", name: "Autre")]
+        let groups = ConversationProjectGroup.groups(threads: chat.conversationThreads, projects: projects, query: "")
+        XCTAssertEqual(preferences.visible(groups, now: try XCTUnwrap(SidebarProjectPreferences.date(fresh.updatedAt))).map(\.id), ["frq", "other"])
+        let recovered = ConversationProjectGroup.groups(threads: [fresh], projects: [], query: "")
+        XCTAssertEqual(recovered.first?.id, ConversationProjectGroup.unavailableID)
+        XCTAssertEqual(ConversationProjectGroup.groups(threads: [fresh], projects: projects, query: "Bourse").first?.id, "frq")
+    }
     func testEffortGaugeUsesOrderedLevelsAndDoesNotInventAutomaticEffort() {
         let levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].compactMap { ThinkingEffortLevel($0).value }
         XCTAssertEqual(levels, levels.sorted())

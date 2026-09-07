@@ -78,6 +78,22 @@ pub struct GatewayState {
     pub inner: Arc<Mutex<GatewayInner>>,
 }
 
+impl GatewayInner {
+    /// Discover projects created on the Mac after this gateway started.
+    /// Keep the registry and its opaque file IDs intact while refreshing threads.
+    pub fn refresh_catalog(&mut self) {
+        self.threads = ThreadStore::open(self.config.atelier_dir.join("threads.json"));
+        for thread in self.threads.list() {
+            let root = PathBuf::from(&thread.project_root);
+            if !thread.project_root.is_empty() && root.is_dir()
+                && self.projects.get(&crate::path_policy::project_id_for(&root)).is_none()
+            {
+                self.projects.register_project(&root, None);
+            }
+        }
+    }
+}
+
 impl GatewayState {
     pub fn open(config: GatewayConfig) -> Result<Self, String> {
         std::fs::create_dir_all(&config.data_dir).map_err(|e| e.to_string())?;

@@ -338,7 +338,8 @@ async fn list_projects(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
-    let g = state.inner.lock().await;
+    let mut g = state.inner.lock().await;
+    g.refresh_catalog();
     let projects: Vec<Value> = g
         .projects
         .list()
@@ -360,7 +361,7 @@ async fn list_threads(
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
     let mut g = state.inner.lock().await;
-    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+    g.refresh_catalog();
     let mut threads: Vec<Value> = g
         .threads
         .list()

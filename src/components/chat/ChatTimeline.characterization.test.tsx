@@ -78,7 +78,8 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     // "chat-md" (App.css) plutôt que le moteur shadcn/typeset — inchangé
     // ailleurs (AgentActivity, SourceReader).
     expect(streamBlocks()[0].classList.contains("chat-md")).toBe(true);
-    expect(document.querySelector(".stream-caret")).toBeTruthy();
+    expect(document.querySelector(".stream-caret")).toBeNull();
+    expect(document.querySelector(".is-streaming")).toBeTruthy();
 
     // le flux grandit : toujours UN SEUL bloc streaming
     rerender(

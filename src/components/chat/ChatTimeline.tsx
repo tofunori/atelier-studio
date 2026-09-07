@@ -400,12 +400,18 @@ export function ChatTimeline(p: {
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
   const derniereLigneTravail = React.useMemo(() => {
-    // ... et seulement si RIEN ne l'a close depuis : une narration assistant
-    // qui suit fige la ligne, comme n'importe quelle tranche terminée.
+    // Une narration clôt les résultats terminés, mais pas un outil encore
+    // en cours. Ne jamais remonter au-delà du début du tour actif.
+    let narrationAfter = false;
     for (let i = renderedEvents.length - 1; i >= 0; i -= 1) {
       const row = renderedEvents[i];
-      if (row.type === "actions") return row.index;
-      if (row.type === "event" && (row.event.kind === "text" || row.event.kind === "streaming")) return -1;
+      if (row.type === "active-turn-header" || row.type === "fold") return -1;
+      if (row.type === "actions" && (!narrationAfter || row.actions.some(action =>
+        action.kind === "tool_update" && /^(running|pending|in[-_]?progress)$/i.test(action.status ?? "")))) return row.index;
+      if (row.type === "event") {
+        if (["user", "done", "error"].includes(row.event.kind)) return -1;
+        if (row.event.kind === "text" || row.event.kind === "streaming") narrationAfter = true;
+      }
     }
     return -1;
   }, [renderedEvents]);
@@ -946,43 +952,13 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-header") {
-            const cumulativeKey = `fold:${item.turn.key}`;
             return (
-              <ActiveTurnHeader
-                plugins={plugins}
-                key={item.key}
-                turn={item.turn}
-                since={workingSince ?? Date.now()}
-                tokens={liveTokens}
-                open={openFolds.has(cumulativeKey)}
-                onToggle={() => setOpenFolds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(cumulativeKey)) next.delete(cumulativeKey);
-                  else next.add(cumulativeKey);
-                  return next;
-                })}
-                renderToolLine={renderToolLine}
-              />
+              <ActiveTurnHeader key={item.key} turn={item.turn}
+                since={workingSince ?? Date.now()} tokens={liveTokens} />
             );
           }
           if (item.type === "active-turn-tail") {
-            return (
-              <ActiveTurnTail
-                key={item.key}
-                turn={item.turn}
-                events={events}
-                plugins={plugins}
-                openToolGroups={openToolGroups}
-                expandedByDefault={vue === "detaille"}
-                onToggleTool={(key) => setOpenToolGroups(prev => {
-                  const next = new Set(prev);
-                  if (next.has(key)) next.delete(key); else next.add(key);
-                  return next;
-                })}
-                renderToolLine={renderToolLine}
-                onStop={onStop}
-              />
-            );
+            return <ActiveTurnTail key={item.key} turn={item.turn} events={events} onStop={onStop} />;
           }
           if (item.type === "actions") {
             const insideOpenFold = renderedEvents.some(row => row.type === "fold" && row.open &&
@@ -1017,6 +993,7 @@ export function ChatTimeline(p: {
                 plugins={plugins}
                 open={open}
                 live={live}
+                active={workingSince != null && item.index === derniereLigneTravail}
                 onToggle={() =>
                   setOpenToolGroups((prev) => {
                     const next = new Set(prev);

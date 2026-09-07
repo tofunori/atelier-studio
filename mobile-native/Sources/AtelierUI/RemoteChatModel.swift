@@ -165,16 +165,22 @@ import SwiftUI
     }
     var title: String { selected?.title ?? "Conversations" }
 
-    func loadCatalog(using gateway: GalleryModel) async {
+    func loadCatalog(using gateway: GalleryModel, refreshProviders: Bool = true) async {
+        guard !isPreview, gateway.connected, !loading else { return }
         loading = true; defer { loading = false }
         do {
             struct Threads: Decodable { let threads: [Thread] }
-            threads = try JSONDecoder().decode(Threads.self, from: await gateway.chatRequest(["threads"])).threads
-            struct Providers: Decodable { let providers: [Provider] }
-            providers = try JSONDecoder().decode(Providers.self, from: await gateway.chatRequest(["providers"])).providers
-            error = nil
+            let refreshed = try JSONDecoder().decode(Threads.self, from: await gateway.chatRequest(["threads"])).threads
+            try await gateway.loadProjects()
+            try Task.checkCancellation()
+            threads = refreshed
+            if refreshProviders || providers.isEmpty {
+                struct Providers: Decodable { let providers: [Provider] }
+                providers = try JSONDecoder().decode(Providers.self, from: await gateway.chatRequest(["providers"])).providers
+            }
+            if refreshProviders { error = nil }
         } catch {
-            if !Task.isCancelled && !(error is CancellationError) && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
+            if (refreshProviders || threads.isEmpty) && !Task.isCancelled && !(error is CancellationError) && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
         }
     }
     func showConversations(workspace: WorkspaceModel) {

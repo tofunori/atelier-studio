@@ -76,6 +76,29 @@ import Foundation
                 .init(id: "quiet-final", kind: "text", text: "Il apparaît maintenant dans **Calculs → NAS** sous « Copernicus — Peyto / Haig — janvier 2014 », avec l’état **En cours**.\n\nLa requête Copernicus existante a bien été conservée.", turn: "quiet")
             ]
         }
+        if ProcessInfo.processInfo.arguments.contains("--scroll-fixture") {
+            workspace.chat.rows = (1...12).flatMap { index in
+                [RemoteChatModel.Row(id: "scroll-user-\(index)", kind: "user", text: "Passage \(index)", turn: "scroll-\(index)"),
+                 .init(id: "scroll-text-\(index)", kind: "text", text: "## Passage \(index)\n\n" + response, turn: "scroll-\(index)")]
+            }
+            workspace.chat.rows.append(.init(id: "scroll-end", kind: "text", text: "**Fin du fil.**", turn: "scroll-end"))
+            workspace.chat.bookmarks["preview-render"] = ChatBookmark(rowID: nil, followsTail: false, offsetY: 0, contentHeight: 0)
+            if ProcessInfo.processInfo.arguments.contains("--scroll-stream-fixture") {
+                workspace.chat.running = true
+                workspace.chat.rows[workspace.chat.rows.count - 1].isStreaming = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(15))
+                    for index in 1...80 {
+                        guard workspace.chat.isPreview else { return }
+                        workspace.chat.rows[workspace.chat.rows.count - 1].text += "\n\nSuite du texte \(index) : la position reste au bas pendant que cette réponse s’allonge."
+                        try? await Task.sleep(for: .milliseconds(350))
+                    }
+                    workspace.chat.rows[workspace.chat.rows.count - 1].text += "\n\n**Dernière ligne — réponse terminée.**"
+                    workspace.chat.rows[workspace.chat.rows.count - 1].isStreaming = false
+                    workspace.chat.running = false
+                }
+            }
+        }
         #endif
     }
 }

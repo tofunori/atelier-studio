@@ -2,11 +2,55 @@
 // progressive du retard, FINITION déroulée en fin de tour (décision Thierry
 // 2026-08-25 : « la réponse arrive tout d'un coup » — le flush téléportait
 // tout le reliquat non révélé au done).
-import { describe, expect, it } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { publishStreamHandoff, takeStreamHandoff, useSmoothedStream } from "./useSmoothedStream";
 
 describe("useSmoothedStream — typewriter du flux", () => {
+  it("les deltas alimentent la même boucle, y compris lors de la finition", () => {
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockReturnValue(42);
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const view = renderHook(({ text, working }) => useSmoothedStream(text, working, "continuous-loop"), {
+      initialProps: { text: "Premier paquet de texte.", working: true },
+    });
+    try {
+      view.rerender({ text: "Premier paquet de texte. Deuxième paquet.", working: true });
+      view.rerender({ text: "Premier paquet de texte. Deuxième paquet. Fin.", working: false });
+      expect(raf).toHaveBeenCalledTimes(1);
+      expect(cancel).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      raf.mockRestore(); cancel.mockRestore();
+    }
+  });
+
+  it("une reprise après une pause ne révèle pas un paquet entier à la première frame", () => {
+    let now = 0;
+    let pending: FrameRequestCallback | null = null;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { pending = callback; return 1; });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const initial = "Un début.";
+    const view = renderHook(({ text }) => useSmoothedStream(text, true, "idle-resume"), { initialProps: { text: initial } });
+    try {
+      for (let i = 0; i < 60 && pending; i++) {
+        now += 16;
+        const callback: FrameRequestCallback = pending;
+        pending = null;
+        act(() => callback(now));
+      }
+      expect(view.result.current).toBe(initial);
+      now += 10000;
+      view.rerender({ text: initial + " glacier".repeat(30) });
+      now += 16;
+      act(() => pending?.(now));
+      expect(view.result.current.length - initial.length).toBeLessThan(30);
+      expect(view.result.current.length).toBeGreaterThan(initial.length);
+    } finally {
+      view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
+    }
+  });
+
   it("au montage d'un tour frais, la révélation part du début", async () => {
     // Le premier delta d'un provider rapide (grok) peut faire 800 caractères :
     // affiché d'un bloc au montage, c'était le début du « tout d'un coup ».
@@ -108,6 +152,19 @@ import { newStreamPace, paceGrowth, paceStep } from "./useSmoothedStream";
 
 describe("paceStep — débit constant adaptatif", () => {
   const texte = (n: number) => Array.from({ length: Math.ceil(n / 6) }, (_, i) => `mot${String(i).padStart(2, "0")}`).join(" ").slice(0, n);
+
+  it("compléter les mots respecte le débit sur une seconde", () => {
+    const p = newStreamPace(0);
+    const full = "glacier ".repeat(100);
+    p.rate = 90;
+    // Petit retard constant : le plancher domine le rattrapage.
+    for (let now = 16; now <= 1000; now += 16) {
+      paceStep(p, full.slice(0, p.revealed + 16), now);
+    }
+    // 90 chars/s + au plus un mot anticipé ; ancien snap : ~500 chars/s.
+    expect(p.revealed).toBeGreaterThan(80);
+    expect(p.revealed).toBeLessThan(105);
+  });
 
   it("une rafale ne provoque pas de pointe : la révélation reste proche du débit d'arrivée", () => {
     const p = newStreamPace(0);

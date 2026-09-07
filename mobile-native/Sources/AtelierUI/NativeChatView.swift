@@ -10,7 +10,9 @@ struct NativeChatView: View {
     @State private var userScrolling = false
     @State private var hasInteracted = false
     @State private var nearBottom = true
-    @State private var readingPosition = ScrollPosition(edge: .bottom)
+    @State private var returningToBottom = false
+    @State private var returnTask: Task<Void, Never>?
+    @State private var scrollController = ChatScrollController()
     @State private var pendingBookmark: ChatBookmark?
     @State private var scrollMetrics = ChatScrollMetrics()
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -48,6 +50,7 @@ struct NativeChatView: View {
                 }
             }
         }
+        .onDisappear { cancelReturn() }
         .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing = true }
         .sheet(isPresented: $showingOptions) { ChatOptionsView(chat: chat) }
         .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
@@ -66,13 +69,12 @@ struct NativeChatView: View {
             if chat.connection != .live {
                 Label(chat.statusLabel, systemImage: chat.statusIcon).font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
             }
-            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: density == "compact" ? 12 : 20) {
                     ForEach(ChatTimelineItem.group(chat.rows)) { item in
                         if item.isActivity {
                             ChatActivityView(rows: item.rows, active: item.rows.first.map { chat.isTurnRunning($0.turn) } ?? false, workspace: workspace, onInspect: {
-                                followsResponse = false; pendingBookmark = nil
+                                cancelReturn(); followsResponse = false; pendingBookmark = nil
                             }).id(item.id)
                         } else if let row = item.rows.first {
                             ChatEventRow(row: row, workspace: workspace, isFinalText: finalTextIDs.contains(row.id)).id(item.id)
@@ -89,15 +91,15 @@ struct NativeChatView: View {
                     }
                     Color.clear.frame(height: 1).id("chat-bottom")
                 }.padding(16)
+                .background(ChatScrollProbe(controller: scrollController))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    if followPreference && followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                    if (returningToBottom || (followPreference && followsResponse)) && !userScrolling { scrollController.scrollToBottom() }
                 }
             }
-            .scrollPosition($readingPosition)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in
                 userScrolling = phase == .tracking || phase == .interacting || phase == .decelerating
                 if userScrolling { pendingBookmark = nil; hasInteracted = true }
+                if phase == .tracking || phase == .interacting { cancelReturn() }
                 if phase == .idle && nearBottom && pendingBookmark == nil { followsResponse = true }
                 if phase == .idle && pendingBookmark == nil && hasInteracted && !chat.rows.isEmpty {
                     chat.rememberPosition(rowID: nil, followsTail: followsResponse, offsetY: scrollMetrics.offset, contentHeight: scrollMetrics.height)
@@ -105,51 +107,98 @@ struct NativeChatView: View {
             }
             .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
                 ChatScrollMetrics(offset: geometry.contentOffset.y, height: geometry.contentSize.height,
-                                  bottom: geometry.contentSize.height - geometry.visibleRect.maxY < 60)
-            } action: { _, metrics in
-                scrollMetrics = metrics; nearBottom = metrics.bottom
-                if userScrolling { followsResponse = metrics.bottom }
+                                  viewport: geometry.containerSize.height,
+                                  bottom: geometry.contentSize.height - geometry.visibleRect.maxY < 28)
+            } action: { previous, metrics in
+                scrollMetrics = metrics; nearBottom = scrollController.isNearBottom ?? metrics.bottom
+                if userScrolling { followsResponse = nearBottom }
+                if previous.viewport != metrics.viewport && (returningToBottom || (followPreference && followsResponse)) && !userScrolling {
+                    scrollController.scrollToBottom()
+                }
                 if let bookmark = pendingBookmark, !chat.rows.isEmpty, !userScrolling {
                     let target = bookmark.offsetY ?? 0
-                    if abs(metrics.offset - target) > 1 { readingPosition.scrollTo(y: target) }
+                    if abs(metrics.offset - target) > 1 { scrollController.scrollTo(y: target) }
                     if metrics.height >= (bookmark.contentHeight ?? 0) - 2 && abs(metrics.offset - target) <= 1 { pendingBookmark = nil }
                 }
             }
             .onChange(of: chat.rows.count) { _, _ in
-                if followPreference && followsResponse && !userScrolling { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                if (returningToBottom || (followPreference && followsResponse)) && !userScrolling { scrollController.scrollToBottom() }
             }
             .onChange(of: chat.selected?.id, initial: true) { _, _ in
-                userScrolling = false; hasInteracted = false; nearBottom = true
+                cancelReturn(); userScrolling = false; hasInteracted = false; nearBottom = true
                 let bookmark = chat.selected.flatMap { chat.bookmarks[$0.id] }
-                followsResponse = bookmark?.followsTail ?? followPreference
+                followsResponse = bookmark?.followsTail ?? true
                 pendingBookmark = followsResponse ? nil : bookmark
-                if followsResponse { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                if followsResponse { scrollController.scrollToBottom() }
+                else if let offset = bookmark?.offsetY { scrollController.scrollTo(y: offset) }
             }
             .onChange(of: chat.sending) { _, sending in
-                if sending { pendingBookmark = nil; followsResponse = true; chat.rememberPosition(rowID: nil, followsTail: true); proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                if sending { pendingBookmark = nil; followsResponse = true; chat.rememberPosition(rowID: nil, followsTail: true); scrollController.scrollToBottom() }
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: chat.quote?.id) { _, quoteID in
                 if quoteID != nil { composing = true }
                 pendingBookmark = nil; followsResponse = true
-                proxy.scrollTo("chat-bottom", anchor: .bottom)
+                scrollController.scrollToBottom()
             }
-            .overlay(alignment: .bottomTrailing) {
-                if !followsResponse {
-                    Button {
-                        pendingBookmark = nil; followsResponse = true
+            .overlay(alignment: .bottom) {
+                if !nearBottom || returningToBottom {
+                    ChatReturnToBottomButton(returning: returningToBottom, reduceMotion: reduceMotion) {
+                        cancelReturn()
+                        pendingBookmark = nil; userScrolling = false; followsResponse = true; returningToBottom = true
                         chat.rememberPosition(rowID: nil, followsTail: true)
-                        proxy.scrollTo("chat-bottom", anchor: .bottom)
-                    } label: { Image(systemName: "arrow.down").font(.body.weight(.semibold)) }
-                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
-                        .accessibilityLabel("Revenir au bas de la réponse")
-                        .padding(12)
+                        returnTask = Task { @MainActor in
+                            _ = await scrollController.returnToBottom(animated: !reduceMotion)
+                            guard !Task.isCancelled else { return }
+                            nearBottom = scrollController.isNearBottom ?? nearBottom
+                            returningToBottom = false
+                            returnTask = nil
+                        }
+                    }
+                    .padding(.bottom, 12)
+                    .transition(.opacity)
                 }
-            }
             }
         }
     }
+    private func cancelReturn() {
+        returnTask?.cancel(); returnTask = nil; returningToBottom = false
+    }
     private var composer: some View { NativeComposerView(workspace: workspace, composing: $composing) }
+}
+
+private struct ChatReturnToBottomButton: View {
+    let returning: Bool
+    let reduceMotion: Bool
+    var action: () -> Void
+    @AppStorage("atelier.accent") private var accent = "sage"
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if returning {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                        Circle().trim(from: 0, to: 0.72)
+                            .stroke(style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                            .rotationEffect(.degrees(reduceMotion ? -90 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.85) / 0.85 * 360))
+                    }.frame(width: 18, height: 18)
+                } else {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
+                }
+            }
+                .foregroundStyle(AtelierTheme.accent(named: accent))
+                .frame(width: 44, height: 44)
+                .background(AtelierTheme.surface, in: Circle())
+                .overlay { Circle().strokeBorder(AtelierTheme.accent(named: accent).opacity(0.24), lineWidth: 0.75) }
+                .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Revenir au bas de la réponse")
+        .accessibilityValue(returning ? "Défilement en cours" : "")
+        .accessibilityHint("Affiche le dernier message de la conversation")
+        .accessibilityIdentifier("chat.returnToBottom")
+    }
 }
 
 private struct ChatEventRow: View {
@@ -332,5 +381,6 @@ struct ConversationPicker: View {
 private struct ChatScrollMetrics: Equatable {
     var offset: Double = 0
     var height: Double = 0
+    var viewport: Double = 0
     var bottom = true
 }

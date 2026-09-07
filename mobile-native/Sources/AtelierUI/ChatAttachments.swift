@@ -51,21 +51,40 @@ struct ChatAttachMenu: View {
     @State private var showPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var importing = false
+    @State private var showingMenu = false
+    @State private var pendingAction: AttachmentAction?
+    @AppStorage("atelier.accent") private var accent = "sage"
+    private enum AttachmentAction { case gallery, photos, files }
 
     var body: some View {
-        Menu {
-            Button("Joindre depuis la galerie", systemImage: "square.grid.2x2") { workspace.surface = .gallery }
-            Button("Photothèque", systemImage: "photo.on.rectangle") { showPhotos = true }
-            Button("Joindre depuis Fichiers", systemImage: "folder") {
-                workspace.importToChat = true; workspace.importRequested = true
-            }
-            Text("Les outils sont pilotés par l’agent sur le Mac.")
-        } label: {
+        Button { showingMenu = true } label: {
             if importing { ProgressView() }
             else { Image(systemName: "plus").frame(width: 44, height: 44) }
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Joindre un fichier ou une photo")
+        .accessibilityIdentifier("chat.attachMenu")
         .disabled(importing || workspace.chat.sending)
+        .popover(isPresented: $showingMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            VStack(spacing: 4) {
+                attachmentAction("Galerie", icon: "square.grid.2x2", action: .gallery)
+                attachmentAction("Photos", icon: "photo.on.rectangle", action: .photos)
+                attachmentAction("Fichiers", icon: "paperclip", action: .files)
+            }
+            .padding(12).frame(width: 260)
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(.regularMaterial)
+            .onDisappear {
+                let action = pendingAction
+                pendingAction = nil
+                switch action {
+                case .gallery: workspace.surface = .gallery
+                case .photos: showPhotos = true
+                case .files: workspace.importToChat = true; workspace.importRequested = true
+                case nil: break
+                }
+            }
+        }
         .photosPicker(isPresented: $showPhotos, selection: $photos, maxSelectionCount: max(1, 6 - workspace.chat.attachments.count), matching: .images)
         .onChange(of: photos) { _, selection in
             guard !selection.isEmpty else { return }
@@ -84,6 +103,25 @@ struct ChatAttachMenu: View {
                 }
             }
         }
+    }
+
+    private func attachmentAction(_ title: String, icon: String, action: AttachmentAction) -> some View {
+        Button {
+            pendingAction = action
+            showingMenu = false
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(AtelierTheme.accent(named: accent))
+                    .frame(width: 40, height: 40)
+                    .background(.primary.opacity(0.06), in: Circle())
+                Text(title).font(.body).foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 }
 

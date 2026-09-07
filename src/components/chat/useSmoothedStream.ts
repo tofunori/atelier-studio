@@ -113,7 +113,6 @@ export function paceStep(p: StreamPace, full: string, now: number, finishing = f
   p.fractional += (cps * dt) / 1000;
   const step = Math.floor(p.fractional);
   if (step <= 0) return false;
-  p.fractional -= step;
   let next = Math.min(total, p.revealed + step);
   // Snap à la fin du mot en cours (plan 067) : un mot apparaît entier, son
   // fade (rehypeWordFade) joue une fois — jamais un mot tronqué qui grandit
@@ -124,6 +123,9 @@ export function paceStep(p: StreamPace, full: string, now: number, finishing = f
     const cap = Math.min(total, next + 24);
     while (next < cap && !/\s/.test(full[next])) next += 1;
   }
+  // Le mot complété dépense aussi son avance : sans cette dette, chaque
+  // frame gagnait gratuitement un mot et vidait les petits deltas trop vite.
+  p.fractional -= next - p.revealed;
   p.revealed = next;
   return true;
 }
@@ -154,22 +156,25 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
     pace.current = newStreamPace(initial);
   }
   const target = useRef(text);
+  const active = useRef(working);
+  active.current = working;
   const frame = useRef<number | null>(null);
   const [, force] = useState(0);
   target.current = text;
 
+  useEffect(() => () => {
+    if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
+  }, []);
+
   useEffect(() => {
     if (reduceMotion) return;
     const p = pace.current!;
-    const cancel = () => {
-      if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
-    };
     if (working) paceGrowth(p, text.length, performance.now());
-    const finishing = !working;
     const tick = (time: number) => {
       frame.current = null;
+      const finishing = !active.current;
       if (paceStep(p, target.current, time, finishing)) {
-        if (working && handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
+        if (!finishing && handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
         force((n) => n + 1);
       }
       if (p.revealed < target.current.length) {
@@ -179,9 +184,10 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
       }
     };
     if (frame.current == null && p.revealed < target.current.length) {
+      // Une pause réseau n'est pas du temps de frappe à rattraper d'un coup.
+      p.lastTickAt = performance.now();
       frame.current = requestAnimationFrame(tick);
     }
-    return cancel;
   }, [text, working, reduceMotion, handoffKey]);
 
   if (reduceMotion) return text;

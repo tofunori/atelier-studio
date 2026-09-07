@@ -14,7 +14,7 @@ import { Button, IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
-import { ToolOutputLine, turnToolActivity, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import type { ResearchHomeBundle } from "./ResearchHome";
@@ -902,11 +902,9 @@ export default function Chat(p: {
     const isStandaloneTool = (event: ToolAction) =>
       toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image" ||
       isAgentActivityAction(event);
-    const grouped = new Set<ToolAction>();
-    for (const turn of turnViewModels.filter(turn => turn.activeHeaderIndex != null)) {
-      for (const action of turnToolActivity(turn).routed) grouped.add(action);
-    }
-    const visibleTimeline = projectedTimeline.filter(row => !(row.type === "event" && grouped.has(row.event as ToolAction)));
+    // Les outils gardent leur position chronologique pendant le tour.
+    // Le regroupement terminal est déjà porté par projectChatTimeline.
+    const visibleTimeline = projectedTimeline;
     for (let offset = 0; offset < visibleTimeline.length; offset += 1) {
       const row = visibleTimeline[offset];
       if (row.type !== "event") {
@@ -957,13 +955,11 @@ export default function Chat(p: {
       }
       const actions = distinctToolActions(actionRows.map(({ action }) => action));
       const firstIdentity = actionId(actionRows[0].action, actionRows[0].index);
-      const lastAction = actionRows[actionRows.length - 1];
-      const lastIdentity = actionId(lastAction.action, lastAction.index);
       rows.push({
         type: "actions",
         actions,
         index: row.index,
-        key: `tools:${firstIdentity}:${lastIdentity}`,
+        key: `tools:${firstIdentity}`,
       });
       offset = nextOffset - 1;
     }

@@ -37,6 +37,7 @@ public struct AtelierRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { Task { await workspace.chat.flushResume(); await workspace.flushDocumentResume() } }
+            else { Task { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) } }
         }
         .onOpenURL { url in
             Task { await connect(url.absoluteString) }

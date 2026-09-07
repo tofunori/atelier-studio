@@ -21,9 +21,13 @@ struct MessageEditDraft: Identifiable {
 extension RemoteChatModel {
     var conversationThreads: [Thread] {
         var seen: Set<String> = []
-        return threads.compactMap { thread in
+        return threads.sorted { (SidebarProjectPreferences.date($0.updatedAt) ?? .distantPast, $0.id) > (SidebarProjectPreferences.date($1.updatedAt) ?? .distantPast, $1.id) }.compactMap { thread in
             guard seen.insert(thread.conversationID).inserted else { return nil }
-            if let selected, selected.conversationID == thread.conversationID { return selected }
+            if let selected, selected.conversationID == thread.conversationID {
+                var current = threads.first { $0.id == selected.id } ?? selected
+                current.updatedAt = thread.updatedAt
+                return current
+            }
             return thread
         }
     }

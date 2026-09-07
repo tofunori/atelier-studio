@@ -108,6 +108,40 @@ async fn health_public_no_token() {
 }
 
 #[tokio::test]
+async fn catalog_discovers_mac_projects_after_gateway_start() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "catalog").await;
+    let root = tempfile::tempdir().unwrap();
+    let (thread_path, original_file) = {
+        let mut g = h.state.inner.lock().await;
+        let p = g.projects.register_project(root.path(), Some("Nom personnalisé".into()));
+        let file = g.projects.register_file(&p.project_id, "notes.md").unwrap();
+        (g.config.atelier_dir.join("threads.json"), file)
+    };
+    std::fs::write(root.path().join("notes.md"), "test").unwrap();
+    let frq = root.path().join("FRQNT");
+    std::fs::create_dir(&frq).unwrap();
+    // Simulate the Mac writing a new conversation after the gateway is running.
+    let mut mac = atelier_store::ThreadStore::open(thread_path);
+    mac.upsert(json!({"id":"new-frq", "title":"Bourse", "provider":"codex", "projectRoot":frq}), false).unwrap();
+    let c = client();
+    let response = c.get(format!("{base}/remote/v1/projects")).header("host", &host)
+        .bearer_auth(&token).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    let project = body["projects"].as_array().unwrap().iter().find(|p| p["name"] == "FRQNT").unwrap();
+    assert!(project.get("root").is_none());
+    let response: Value = c.get(format!("{base}/remote/v1/threads")).header("host", &host)
+        .bearer_auth(&token).send().await.unwrap().json().await.unwrap();
+    assert_eq!(response["threads"][0]["projectId"], project["projectId"]);
+    let g = h.state.inner.lock().await;
+    assert_eq!(g.projects.resolve_file_id(&original_file).unwrap().0.name, "Nom personnalisé");
+    drop(g);
+    h.shutdown().await;
+}
+
+#[tokio::test]
 async fn health_degrades_without_device_token() {
     // SEC-08 : sans jeton, /remote/health confirme la disponibilité mais ne
     // doit divulguer ni le nombre d'appareils appairés ni l'heure de démarrage.

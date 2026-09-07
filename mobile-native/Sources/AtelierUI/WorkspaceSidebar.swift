@@ -15,7 +15,7 @@ struct ConversationProjectGroup: Identifiable {
         var result = grouped.compactMap { id, threads -> Self? in
             let name = id.isEmpty ? "Sans projet" : id == unavailableID ? "Anciens projets" : names[id] ?? ""
             let matches = threads.filter { query.isEmpty || name.localizedStandardContains(query) || $0.title.localizedStandardContains(query) }
-                .sorted { ($0.updatedAt ?? "", $0.id) > ($1.updatedAt ?? "", $1.id) }
+                .sorted { (SidebarProjectPreferences.date($0.updatedAt) ?? .distantPast, $0.id) > (SidebarProjectPreferences.date($1.updatedAt) ?? .distantPast, $1.id) }
             return matches.isEmpty ? nil : Self(id: id, name: name, threads: matches)
         }
         if query.isEmpty {
@@ -33,6 +33,7 @@ struct WorkspaceSidebar: View {
     private var query: String { workspace.sidebarQuery }
     private var collapsed: Set<String> { workspace.sidebarCollapsed }
     @FocusState private var searching: Bool
+    @Environment(\.scenePhase) private var scenePhase
     @State private var managingProjects = false
     @State private var expandedHistory: Set<String> = []
     private var groups: [ConversationProjectGroup] {
@@ -84,6 +85,7 @@ struct WorkspaceSidebar: View {
                     }
                 }.padding(.horizontal, 10)
             }.scrollDismissesKeyboard(.interactively)
+                .refreshable { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) }
             Divider()
             Button {
                 workspace.sidebarRequested = false; openSettings()
@@ -106,10 +108,12 @@ struct WorkspaceSidebar: View {
             workspace.sidebarGroupsInitialized = true
             workspace.sidebarCollapsed = Set(ids.filter { $0 != (workspace.chat.selected?.projectId ?? "") })
         }
-        .task {
-            if !workspace.chat.isPreview {
-                try? await workspace.gallery.loadProjects()
-                await workspace.chat.loadCatalog(using: workspace.gallery)
+        .task(id: scenePhase) {
+            guard scenePhase == .active, !workspace.chat.isPreview else { return }
+            while !Task.isCancelled {
+                await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false)
+                do { try await Task.sleep(for: .seconds(8)) }
+                catch { return }
             }
         }
     }
@@ -230,7 +234,6 @@ struct NewConversationView: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() }.disabled(creating) } }
                 .task {
                     if !workspace.chat.isPreview {
-                        try? await workspace.gallery.loadProjects()
                         await workspace.chat.loadCatalog(using: workspace.gallery)
                     }
                 }

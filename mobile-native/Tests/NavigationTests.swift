@@ -3,6 +3,67 @@ import SwiftUI
 @testable import AtelierUI
 
 final class NavigationTests: XCTestCase {
+    @MainActor func testReturnToBottomCompletesWithoutGeometryCallbacks() async {
+        let view = UIScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 600))
+        view.contentSize = CGSize(width: 320, height: 1600)
+        let controller = ChatScrollController()
+        controller.attach(view)
+        controller.scrollToBottom()
+        let arrived = await controller.returnToBottom(animated: false)
+        XCTAssertTrue(arrived)
+        XCTAssertEqual(controller.isNearBottom, true)
+    }
+    @MainActor func testReturnToBottomStopsWhenScrollViewNeverAttaches() async {
+        let controller = ChatScrollController()
+        let arrived = await controller.returnToBottom(animated: false)
+        XCTAssertFalse(arrived)
+        XCTAssertNil(controller.isNearBottom)
+    }
+    @MainActor func testChatProbeFindsAncestorAfterSuperviewChanges() async throws {
+        let controller = ChatScrollController()
+        let probe = ChatScrollProbe.Probe()
+        probe.controller = controller
+        let wrapper = UIView()
+        wrapper.addSubview(probe)
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 600))
+        scroll.contentSize = CGSize(width: 320, height: 1600)
+        scroll.addSubview(wrapper)
+        await Task.yield()
+        let arrived = await controller.returnToBottom(animated: false)
+        XCTAssertTrue(arrived)
+        XCTAssertEqual(scroll.contentOffset.y, 1000, accuracy: 0.5)
+    }
+    @MainActor func testChatScrollTargetsActualBottomAfterContentAndKeyboardResize() {
+        let view = UIScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 600))
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset = UIEdgeInsets(top: 40, left: 0, bottom: 20, right: 0)
+        view.contentSize = CGSize(width: 320, height: 1600)
+        let controller = ChatScrollController()
+        controller.attach(view)
+        controller.scrollToBottom()
+        XCTAssertEqual(view.contentOffset.y, 1020, accuracy: 0.5)
+        view.bounds.size.height = 350
+        view.contentSize.height = 1900
+        controller.scrollToBottom()
+        XCTAssertEqual(view.contentOffset.y, 1570, accuracy: 0.5)
+        controller.scrollTo(y: 120)
+        XCTAssertEqual(view.contentOffset.y, 120, accuracy: 0.5)
+        view.contentSize.height = 100
+        controller.scrollToBottom()
+        XCTAssertEqual(view.contentOffset.y, -40, accuracy: 0.5)
+    }
+    @MainActor func testChatScrollKeepsLatestRequestUntilViewAttaches() {
+        let controller = ChatScrollController()
+        controller.scrollToBottom()
+        controller.scrollTo(y: 75)
+        let view = UIScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 600))
+        view.contentSize = CGSize(width: 320, height: 1600)
+        controller.attach(view)
+        XCTAssertEqual(view.contentOffset.y, 75, accuracy: 0.5)
+        view.setContentOffset(CGPoint(x: 0, y: 200), animated: false)
+        controller.attach(view)
+        XCTAssertEqual(view.contentOffset.y, 200, accuracy: 0.5, "A layout update must not replay the old request over user scrolling")
+    }
     @MainActor func testAdaptiveColorsCanResolveOnBackgroundRenderer() async {
         let accent = UIColor(AtelierTheme.accent(named: "sage"))
         let surface = UIColor(AtelierTheme.surface)

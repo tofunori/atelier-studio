@@ -2563,11 +2563,6 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 ::highlight(reader-quote) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparent); color: inherit;
   border-radius: var(--r-s); }
-/* curseur de frappe : présent, pas clignotant — l'anneau de .working-label est
-   déjà la boucle du tour en cours (§9) */
-.stream-caret { display: inline-block; width: 7px; height: 15px; margin-left: 2px;
-  background: var(--accent); opacity: 0.7; vertical-align: text-bottom; }
-
 /* Palette de commandes */
 .cmdk-dialog-overlay { z-index: 240; background: rgba(0,0,0,0.34); }
 .cmdk-panel { width: min(520px, calc(100vw - 28px)); max-height: min(480px, 76vh);
@@ -3259,7 +3254,7 @@ body.dragging iframe { pointer-events: none; }
   .active-activity-transition,
   .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
   .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open,
-  .msg.is-streaming > *, .msg.is-streaming > .stream-caret,
+  .msg.is-streaming > *,
   .msg.is-streaming .sw, .thinking-live-stream .sw { animation: none; }
 }
 
@@ -3751,7 +3746,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    La lumière court sur l'action en cours : c'est la SECONDE boucle du fil,
    assumée, à côté du pulse de .working-label — voir la justification amendée
    du §9 dans css-contract.test.ts. Un seul libellé la porte à la fois :
-   `shimmer` n'est passé que par le groupe LIVE du tour (ActivityGroup).
+   `shimmer` suit la dernière étape du tour, même entre deux appels courts.
 
    Le dégradé est FONCTIONNEL — il encode « ça tourne », il ne décore pas.
    C'est l'unique exception au « pas de gradients » du système de design.
@@ -3777,35 +3772,19 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    ne le signalait : le texte restait simplement plat (vécu 2026-08-26). */
 .ui-activity-label.is-shimmering .tool-ticker-row,
 .ui-activity-label.is-shimmering:not(:has(.tool-ticker)) {
-  /* Une OMBRE qui passe sur un texte lisible — parti pris de l'app ChatGPT
-     (`_activity-shimmer_`), retenu par Thierry contre la lumière qui passe sur
-     un texte éteint : le libellé reste pleinement lisible en permanence, la
-     bande ne fait que le nuancer au passage.
-
-     Trois emprunts à ChatGPT :
-       - PLATEAU plutôt que pic : la bande a un cœur plat de 6 ch encadré de
-         deux rampes de 3 ch, au lieu d'un sommet unique (plus doux) ;
-       - FOND PLEIN sous le dégradé (`background-color` ci-dessous) : sous
-         `background-clip: text`, la moindre zone non peinte rendrait le
-         libellé TRANSPARENT. La couleur pleine est le filet de sécurité ;
-       - RYTHME passe-puis-repos : la tuile de 90 ch est bien plus large que
-         la bande, donc l'ombre traverse puis le texte respire. Sur un libellé
-         de 30 ch : ~1,2 s de passage, ~1,4 s de calme.
-
-     Ce que ChatGPT fait MOINS bien et qu'on ne reprend pas : leur
-     `background-size: 35%` est relatif à la largeur, donc leur vitesse dépend
-     de la longueur du texte. Tout est en `ch` ici — 90 ch / 2,6 s = 34,6 ch/s,
-     quel que soit le libellé. */
+  /* Reflet clair sur une phrase atténuée, comme la référence ChatGPT.
+     Le fond plein empêche les glyphes de disparaître hors de la bande.
+     Une tuile en ch garde la même vitesse quelle que soit la longueur. */
   color: transparent;
   -webkit-text-fill-color: transparent;
-  background-color: var(--text-primary);
+  background-color: var(--text-muted);
   background-image: linear-gradient(100deg,
-    var(--text-primary) 0%,
-    var(--text-primary) 43.33%,
-    var(--text-disabled) 46.67%,
-    var(--text-disabled) 53.33%,
-    var(--text-primary) 56.67%,
-    var(--text-primary) 100%);
+    var(--text-muted) 0%,
+    var(--text-muted) 43.33%,
+    var(--text-primary) 46.67%,
+    var(--text-primary) 53.33%,
+    var(--text-muted) 56.67%,
+    var(--text-muted) 100%);
   background-size: 90ch 100%;
   background-repeat: repeat-x;
   -webkit-background-clip: text;
@@ -3842,20 +3821,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Ticker une-ligne du tour actif (adapté de Hermes Desktop, MIT) : le reel
-   empile toutes les actions, la fenêtre n'en montre qu'une ; chaque nouvelle
-   action translate le reel d'une ligne — le travail tique sur place. */
-/* `block`, jamais `inline-block` : rétréci à son contenu, la rangée avait la
-   largeur du texte et le fondu de bord fanait la FIN de chaque libellé, même
-   court (« methods_en.tex » → « methods_en.te… », vécu 2026-08-27). Étiré sur
-   la colonne du trigger, la zone fanée reste au bord droit, loin d'un texte
-   qui ne déborde pas. */
+/* Libellé d'activité sur une ligne fixe, sans translation verticale. */
 .tool-ticker { display: block; height: 1lh; overflow: hidden; min-width: 0; }
-.tool-ticker-reel {
-  display: flex; flex-direction: column;
-  transform: translateY(calc(var(--tick-i, 0) * -1lh));
-  transition: transform 140ms ease;
-}
 /* même fondu de bord que .ui-activity-label (le masque du parent ne suffit
    pas : chaque rangée porte son propre clip de texte pour le balayage) */
 .tool-ticker-row { height: 1lh; overflow: hidden; text-overflow: clip; white-space: nowrap;
@@ -3865,7 +3832,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    sous le verbe — pas de fond ni bordure, c'est une ligne de statut. */
 .tool-ticker-code { font-family: var(--code-font); font-size: var(--fs-m);
   color: var(--text-secondary); background: none; border: none; padding: 0; }
-@media (prefers-reduced-motion: reduce) { .tool-ticker-reel { transition: none; } }
 
 /* ===== motion des dépliages (système : 120-150ms, opacity/transform) =====
    Une seule passe au MONTAGE du contenu (les corps sont démontés repliés) :
@@ -3880,14 +3846,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* streaming : chaque NOUVEAU bloc (paragraphe, liste, bloc de code…) entre en
-   fondu une seule fois à son montage ; les blocs déjà rendus sont mis à jour
-   en place par React et ne rejouent jamais l'animation. Pas de boucle (§9). */
-.msg.is-streaming > * { animation: chunk-in 180ms ease-out; }
-@keyframes chunk-in {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* Le flux révèle déjà les mots en opacité : aucun déplacement du bloc
+   Markdown entier à l'arrivée d'un paragraphe. */
+.msg.is-streaming > * { animation: none; }
 /* fade par mots (plan 067) : chaque mot du bloc de queue (span .sw posé par
    rehypeWordFade) entre en fondu une seule fois à son montage — opacity
    seule, `both` fige l'état final. One-shot par mot, pas de boucle (§9). */
@@ -3905,14 +3866,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    ils apparaissaient d'un coup, secs. Un seul jeu par mot, pas de boucle (§9). */
 .thinking-live-stream .sw { animation: word-in var(--motion-panel) var(--ease-stream) both; }
 .no-stream-fade .thinking-live-stream .sw { animation: none; }
-/* caret : remonté à chaque lot de texte reçu (key côté React) — il « respire »
-   au rythme du flux puis se pose quand le flux s'arrête. Piloté par les
-   événements, jamais par une horloge : ce n'est pas une boucle (§9). */
-.msg.is-streaming > .stream-caret { animation: caret-live 400ms ease-out both; }
-@keyframes caret-live {
-  from { opacity: 0.95; }
-  to { opacity: 0.55; }
-}
 /* ===== carte permission (mode Ask) ===== */
 .perm-card { border: 1px solid var(--border2); border-left: 2.5px solid var(--accent);
   border-radius: var(--r-m); padding: 10px 14px; margin: 6px 0; background: var(--bg-card);
@@ -5497,7 +5450,6 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 /* Entrée brève des événements actifs, sans animer la hauteur mesurée par
    LegendList. Les mises à jour d’un outil existant gardent le même nœud :
    ce fondu ne redémarre pas à chaque delta ou changement de statut. */
-.turn-current-tools > .ui-activity,
 .thinking-live-indicator.is-arriving {
   animation: chat-event-arrive var(--motion-standard) var(--ease-out) both;
 }
@@ -5506,11 +5458,5 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .turn-current-tools > .ui-activity,
   .thinking-live-indicator.is-arriving { animation: none; }
 }
-
-
-/* Le premier cumul ne pousse plus une narration déjà en lecture. Le slot
-   reste muet tant qu’aucune réussite antérieure n’est à résumer. */
-.turn-summary-slot { min-height: 24px; }

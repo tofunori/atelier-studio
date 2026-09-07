@@ -486,7 +486,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     //    Filet de sécurité repris de l'app ChatGPT : une couleur PLEINE sous le
     //    dégradé. Même si l'image venait à ne pas couvrir, le texte garde une
     //    peinture au lieu de devenir invisible.
-    expect(regle![1], "fond plein manquant sous le dégradé").toMatch(/background-color:\s*var\(--text-primary\)/);
+    expect(regle![1], "fond plein manquant sous le dégradé").toMatch(/background-color:\s*var\(--text-muted\)/);
 
     // 3. Le déplacement vaut EXACTEMENT une tuile. Sinon la boucle saute à
     //    chaque tour, et la vitesse cesse d'être celle qu'on croit.

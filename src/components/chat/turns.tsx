@@ -17,8 +17,8 @@ import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnParts";
 import type { ChangedFile } from "./changedFiles";
 import {
-  activityIconForAction, completedTurnActions, turnToolActivity, toolOutcome,
-  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature, toolCategory,
+  activityIconForAction, toolOutcome,
+  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
@@ -301,9 +301,6 @@ export function StreamingText(p: { text: string; working: boolean; streamKey?: s
     <Message align="start" className="chat-message assistant-message">
     <MessageContent className="msg-wrap">
       <Bubble variant="ghost" className="tw:w-full">
-      {/* is-streaming : fondu d'entrée des nouveaux blocs (chunk-in) ; le
-          caret est re-monté à chaque lot (key) pour « respirer » au rythme
-          du flux — one-shot par événement, pas de boucle (§9). */}
       <BubbleContent className="msg chat-md is-streaming tw:w-full">
         <MdBody
           text={decorateKbCites(normalizeMathDelimiters(text), kbCiteSources)}
@@ -312,9 +309,6 @@ export function StreamingText(p: { text: string; working: boolean; streamKey?: s
           remarkPlugins={plugins.remark}
           rehypePlugins={plugins.rehype}
         />
-        {/* keyé sur le texte CIBLE (pas révélé) : le caret « respire » à
-            l'arrivée des données, pas à chaque tick du typewriter. */}
-        {p.working && <span key={p.text.length} className="stream-caret" />}
       </BubbleContent>
       </Bubble>
     </MessageContent>
@@ -516,61 +510,32 @@ function findLast<T, U extends T>(items: T[], is: (item: T) => item is U): U | u
   return undefined;
 }
 
-/** Le travail réussi se regroupe dans un seul volet, conservé à la fin. */
+/** Chronomètre unique : les outils restent dans la chronologie du tour. */
 export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
   since: number;
   tokens?: number | null;
-  open?: boolean;
-  onToggle?: () => void;
-  renderToolLine?: (action: ToolAction, key: React.Key) => ReactNode;
-  plugins?: PluginCatalogEntry[];
 }) {
-  const actions = completedTurnActions(p.turn);
-  const summary = summarizeActivity(actions, p.plugins);
   return (
     <div className="working-stack active-turn-header" data-turn-id={p.turn.turnId ?? p.turn.key}>
       <div className="working-row"><Working since={p.turn.startedAtMs ?? p.since} tokens={p.tokens} /></div>
-      <div className="turn-summary-slot">
-      {actions.length > 0 && (
-        <ActivityDisclosure summary open={p.open ?? false} onToggle={p.onToggle ?? (() => {})}
-          icon={summary.icon} label={summary.label}>
-          <div className="tool-group-list turn-completed-detail">
-            {actions.map((action, offset) => p.renderToolLine?.(action, action.kind === "tool_update" ? action.id : offset))}
-          </div>
-        </ActivityDisclosure>
-      )}
-      </div>
     </div>
   );
 }
 
-/** Fenêtre d'une ligne sur la liste croissante des actions du tour : chaque
- * nouvelle action fait glisser la précédente vers le haut, hors du cadre —
- * un tour qui touche trente fichiers tique sur place au lieu de défiler.
- * Adapté de Hermes Desktop (ToolRunTicker, nousresearch/hermes-agent, MIT). */
+/** Libellé courant sans rouleau vertical : un appel bref ne fait plus
+ * défiler les anciens noms avant de rendre le résumé des résultats. */
 export function ToolRunTicker(
   { rows }: { rows: { key: string; label: string; pre?: string; code?: string; post?: string }[] },
 ) {
-  const label = rows[rows.length - 1]?.label ?? "";
+  const row = rows[rows.length - 1];
+  if (!row) return null;
   return (
-    // role="status" + aria-live="polite" : la ligne qui tique est du même
-    // échafaudage que « en attente · Ns » — annoncée aux lecteurs d'écran
-    // (façon Hermes StatusRow), sans crier sur le reste du fil.
     <span className="tool-ticker" role="status" aria-live="polite">
-      <span
-        className="tool-ticker-reel"
-        style={{ "--tick-i": rows.length - 1 } as React.CSSProperties}
-      >
-        {rows.map((row) => (
-          <span key={row.key} className="tool-ticker-row" aria-hidden={row.label !== label}>
-            {/* Une commande se lit en mono : le verbe reste en police UI,
-                le segment code passe par .tool-ticker-code. */}
-            {row.code != null
-              ? <>{row.pre}<code className="tool-ticker-code">{row.code}</code>{row.post}</>
-              : row.label}
-          </span>
-        ))}
+      <span className="tool-ticker-row">
+        {row.code != null
+          ? <>{row.pre}<code className="tool-ticker-code">{row.code}</code>{row.post}</>
+          : row.label}
       </span>
     </span>
   );
@@ -580,15 +545,9 @@ export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
   onStop: () => void;
-  plugins?: PluginCatalogEntry[];
-  openToolGroups: Set<string>;
-  expandedByDefault?: boolean;
-  onToggleTool: (key: string) => void;
-  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
 }) {
   const state = p.turn.activeState;
-  // Slot permanent : les appels ouverts et le dernier résultat restent au
-  // bas du fil. Le silence partage la ligne d’interruption sans la déplacer.
+  // Le silence partage la ligne d’interruption sans déplacer les événements.
   const lastStreamingEvent = findLast(p.events, (e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
   const answerLength = lastStreamingEvent?.text.length ?? 0;
   const actions = p.turn.actionGroups.flatMap((group) => group.actions);
@@ -621,16 +580,6 @@ export function ActiveTurnTail(p: {
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      <div className="turn-current-tools">
-        {turnToolActivity(p.turn).current.filter(action => !(toolCategory(action.name, "detail" in action ? action.detail : undefined) === "edit" && p.events.slice(p.turn.startIndex, p.turn.endIndex).some(event => event.kind === "edit"))).map((action, offset) => {
-          const meta = action.meta && "itemId" in action.meta ? action.meta : null;
-          const key = `current:${p.turn.key}:${meta?.itemId ?? ("id" in action ? action.id : offset)}`;
-          return <ActivityGroup key={key} actions={[action]} plugins={p.plugins}
-            open={p.expandedByDefault ? !p.openToolGroups.has(key) : p.openToolGroups.has(key)} onToggle={() => p.onToggleTool(key)}
-            live={action.kind === "tool" || toolOutcome(action) === "running"}
-            renderToolLine={p.renderToolLine} />;
-        })}
-      </div>
       {/* Le silence chronométré vit SUR la ligne d'interruption, jamais sur une
           ligne à lui : montée puis démontée, elle poussait tout le fil vers le
           haut et le relâchait à chaque aller-retour (le fil est ancré en bas —
@@ -665,6 +614,8 @@ export function ActivityGroup(p: {
    * figé. C'est la ligne du run qui vit (parti pris Hermes) — il n'existe pas
    * d'autre endroit où l'action courante s'affiche, donc jamais de doublon. */
   live?: boolean;
+  /** Étape courante du tour, y compris la pause entre deux outils. */
+  active?: boolean;
   /** dernière action REÇUE, même terminée : entre deux outils rapides, plus
    * rien n'est « en cours » et le fil paraissait mort (Thierry 2026-08-21). */
 }) {
@@ -674,16 +625,37 @@ export function ActivityGroup(p: {
   const failed = updates.some((a) => toolOutcome(a) === "failed");
   const running = (p.live && distinctActions.some(a => a.kind === "tool")) || updates.some((a) => toolOutcome(a) === "running");
   const status = failed ? "failed" : running ? "running" : "completed";
-  // Le nom technique (Bash, Read, execute_command…) n'est jamais le libellé
-  // principal. Une action reste compréhensible avant d'ouvrir son détail brut.
+  // Seul le libellé attend un court moment stable. Les appels, les sorties,
+  // le statut et les erreurs restent toujours ceux des événements reçus.
+  const activeActions = distinctActions.filter(action => action.kind === "tool" || toolOutcome(action) === "running");
+  const current = activeActions[activeActions.length - 1] ?? distinctActions[distinctActions.length - 1];
+  const currentRows = tickerRows(current ? [current] : []);
+  const nextPresentation = {
+    key: p.live ? `live:${currentRows[0]?.label}` : `summary:${summary.label}`,
+    live: Boolean(p.live),
+    rows: currentRows,
+    label: summary.label,
+    icon: p.live && current ? activityIconForAction(current, p.plugins) : summary.icon,
+  };
+  const nextPresentationRef = useRef(nextPresentation);
+  nextPresentationRef.current = nextPresentation;
+  const [presentation, setPresentation] = useState(nextPresentation);
+  const presentationTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (presentationTimer.current != null || nextPresentation.key === presentation.key) return;
+    presentationTimer.current = window.setTimeout(() => {
+      presentationTimer.current = null;
+      setPresentation(nextPresentationRef.current);
+    }, 160);
+  }, [nextPresentation.key, presentation.key]);
+  useEffect(() => () => {
+    if (presentationTimer.current != null) window.clearTimeout(presentationTimer.current);
+  }, []);
   return (
-    // Balayé tant que le TOUR tourne, pas seulement pendant qu'un outil tourne :
-    // la condition `running` excluait mécaniquement les attentes, puisque
-    // « en attente · Ns » ne s'affiche QUE lorsque plus rien ne tourne. Le
-    // balayage disparaissait donc au moment précis où il sert le plus.
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status} shimmer={p.live}
-      icon={p.live ? activityIconForAction(distinctActions[distinctActions.length - 1], p.plugins) : summary.icon}
-      label={p.live ? <ToolRunTicker rows={tickerRows(distinctActions)} /> : summary.label}
+    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
+      shimmer={p.active ?? (Boolean(p.live) && presentation.live)}
+      icon={presentation.icon}
+      label={<ToolRunTicker rows={presentation.live ? presentation.rows : [{ key: "summary", label: presentation.label }]} />}
       meta={p.stamp}>
         <div className="tool-group-list">
           {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}
