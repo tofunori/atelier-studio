@@ -343,8 +343,12 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 
 const rel = new URLSearchParams(location.search).get("file");
 const __passageParams = new URLSearchParams(location.search);
-const targetPage = Math.max(1, parseInt(__passageParams.get("page") || "1", 10) || 1);
-const targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
+// Lien de citation interne : `page`/`quote` (passage exact) OU `section`
+// (numérotation résolue plus bas sur l'analyse du mode lecture, qui POSE
+// alors page et citation) — d'où des `let` et non des `const`.
+let targetPage = Math.max(1, parseInt(__passageParams.get("page") || "1", 10) || 1);
+let targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
+const targetSection = (__passageParams.get("section") || "").slice(0, 12);
 let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
@@ -618,7 +622,10 @@ window.__readingMode = (function(){
     if (e.key === "=" || e.key === "+") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsp").click(); }
     if (e.key === "-") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsm").click(); }
   }, true);   // capture : passe avant le raccourci de zoom du lecteur
-  return {enter, leave, isOn: () => on, doc: () => doc, reset, host, crops};
+  // Chargement PARTAGÉ de l'analyse /reflow : le saut de section (?section=)
+  // s'en sert sans ouvrir le mode lecture et sans second fetch — même cache,
+  // même jeton de génération.
+  return {enter, leave, isOn: () => on, doc: () => doc, loadDoc: () => load(gen), reset, host, crops};
 })();
 
 async function main(){
@@ -950,12 +957,31 @@ async function main(){
   try {
     const k = "pdfv_scroll_" + location.search;
     const r = parseFloat(sessionStorage.getItem(k));
-    if (!targetQuote && r > 0) {
+    if (!targetQuote && !targetSection && r > 0) {
       sessionStorage.removeItem(k);
       const el = document.scrollingElement || document.documentElement;
       el.scrollTop = r * el.scrollHeight;
     }
   } catch(e){}
+  if (targetSection && !targetQuote) await revealLinkedSection();
+}
+
+/** `?section=2.4` : la numérotation se résout sur l'analyse du mode lecture
+ *  (GET /reflow, cache serveur — 0,1 à 6 s au premier appel), puis le titre
+ *  trouvé devient la cible page+citation du même mécanisme que ?quote=. */
+async function revealLinkedSection(){
+  const status = document.getElementById("status");
+  status.textContent = "Analyse du document…";
+  let doc = null;
+  try { doc = await window.__readingMode.loadDoc(); }
+  catch(e){ status.textContent = "Section " + targetSection + " introuvable — analyse indisponible"; return; }
+  const hit = window.AtelierPdfReading.sectionHeading(doc, targetSection);
+  if(!hit){ status.textContent = "Section " + targetSection + " introuvable"; return; }
+  targetPage = hit.page;
+  targetQuote = hit.text;
+  targetRevealed = false;
+  revealLinkedPassage(true);
+  status.textContent = "Section " + targetSection + " — p. " + targetPage;
 }
 
 function revealLinkedPassage(shouldScroll){

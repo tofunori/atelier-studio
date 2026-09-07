@@ -66,6 +66,7 @@ function openPin(pin: EvidencePin) {
     pdfFile: pin.pdfFile,
     page: pin.page,
     quote: pin.quote,
+    section: "",
   });
 }
 

@@ -69,13 +69,20 @@ export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
   }));
 }
 
+// Deux niveaux de lien interne (citation par section ou page) : seule la clé
+// Zotero est obligatoire. `pdfKey`/`file` (le PDF joint), `page`, `quote` et
+// `section` sont facultatifs — un lien à clé seule ouvre l'article page 1,
+// `section=2.4` se résout dans le lecteur via l'analyse du mode lecture.
+// Champ absent = chaîne vide (`page` = null), pour ne pas multiplier les
+// gardes chez les consommateurs.
 export type ZoteroPassageRef = {
   kind: "zotero";
   key: string;
   pdfKey: string;
   pdfFile: string;
-  page: number;
+  page: number | null;
   quote: string;
+  section: string;
 };
 
 export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
@@ -85,12 +92,27 @@ export function parseZoteroPassageRef(href: string): ZoteroPassageRef | null {
   const key = params.get("key") ?? "";
   const pdfKey = params.get("pdfKey") ?? "";
   const pdfFile = params.get("file") ?? "";
-  const page = Number(params.get("page"));
+  const rawPage = params.get("page");
   const quote = (params.get("quote") ?? "").slice(0, 900);
-  if (!/^[A-Za-z0-9_-]{1,80}$/.test(key) || !/^[A-Za-z0-9_-]{1,80}$/.test(pdfKey)) return null;
-  if (!pdfFile || pdfFile.length > 255 || /[/\\]/.test(pdfFile) || !pdfFile.toLowerCase().endsWith(".pdf")) return null;
-  if (!Number.isInteger(page) || page < 1 || page > 100_000 || !quote.trim()) return null;
-  return { kind: "zotero", key, pdfKey, pdfFile, page, quote };
+  const section = params.get("section") ?? "";
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(key)) return null;
+  if (pdfKey && !/^[A-Za-z0-9_-]{1,80}$/.test(pdfKey)) return null;
+  if (pdfFile && (pdfFile.length > 255 || /[/\\]/.test(pdfFile) || !pdfFile.toLowerCase().endsWith(".pdf"))) return null;
+  let page: number | null = null;
+  if (rawPage !== null && rawPage !== "") {
+    page = Number(rawPage);
+    if (!Number.isInteger(page) || page < 1 || page > 100_000) return null;
+  }
+  if (section && (section.length > 12 || !/^\d+(\.\d+)*$/.test(section))) return null;
+  return { kind: "zotero", key, pdfKey, pdfFile, page, quote, section };
+}
+
+/** Le lien dit où il mène : une section numérotée, une page, ou l'article
+ *  entier quand il ne porte que sa clé Zotero. */
+export function zoteroPassageTitle(ref: ZoteroPassageRef): string {
+  if (ref.section) return `Ouvrir le PDF à la section ${ref.section}`;
+  if (ref.page) return `Ouvrir le PDF à la page ${ref.page}`;
+  return "Ouvrir le PDF dans le lecteur";
 }
 
 export function openZoteroPassage(ref: ZoteroPassageRef) {
@@ -491,7 +513,7 @@ export const MD_COMPONENTS = {
     const passage = parseZoteroPassageRef(href);
     if (passage)
       return (
-        <RowButton className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={`Ouvrir le PDF à la page ${passage.page}`}>
+        <RowButton className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={zoteroPassageTitle(passage)}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M3 1.8h7l3 3v9.4H3z" /><path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
           </svg>

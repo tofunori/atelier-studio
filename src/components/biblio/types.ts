@@ -24,7 +24,17 @@ export type FilterMode = "all" | "fav" | "collection";
 
 export type SortBy = "added" | "year" | "author" | "title";
 
-export type PassageTarget = { key: string; pdfKey: string; pdfFile: string; page: number; quote: string };
+// Cible de passage : seule la clé Zotero est obligatoire (lien de citation
+// interne par section ou page). Le PDF ouvert est celui de l'item
+// sélectionné ; `page`/`quote`/`section` disent seulement OÙ aller dedans.
+export type PassageTarget = {
+  key: string;
+  pdfKey?: string;
+  pdfFile?: string;
+  page?: number | null;
+  quote?: string;
+  section?: string;
+};
 
 export type ZoteroAddResult = {
   name: string;

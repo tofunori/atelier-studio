@@ -8,12 +8,46 @@ describe("lien de passage Zotero dans le chat", () => {
 
   it("valide et décode un lien généré par l'outil", () => {
     expect(parseZoteroPassageRef(href)).toEqual({
-      kind: "zotero", key: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: 7, quote: "resultat important",
+      kind: "zotero", key: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: 7, quote: "resultat important", section: "",
     });
   });
 
   it("rejette les noms de fichiers traversants", () => {
     expect(parseZoteroPassageRef(href.replace("paper.pdf", "..%2Fsecret.pdf"))).toBeNull();
+  });
+
+  // Lien de citation interne par section ou page : l'agent peut renvoyer vers
+  // l'article lui-même (clé seule), vers une page, ou vers une section
+  // numérotée — le passage exact (pdfKey/file/page/quote) reste le cas
+  // complet produit par l'outil de recherche de passages.
+  it("accepte un lien à clé seule (ouvre l'article dans le lecteur)", () => {
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1")).toEqual({
+      kind: "zotero", key: "ITEM1", pdfKey: "", pdfFile: "", page: null, quote: "", section: "",
+    });
+  });
+
+  it("accepte une page sans citation", () => {
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&pdfKey=PDF1&file=paper.pdf&page=4")).toEqual({
+      kind: "zotero", key: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: 4, quote: "", section: "",
+    });
+  });
+
+  it("accepte une section numérotée", () => {
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&pdfKey=PDF1&file=paper.pdf&section=2.4")).toEqual({
+      kind: "zotero", key: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: null, quote: "", section: "2.4",
+    });
+  });
+
+  it("rejette une section qui n'est pas une numérotation", () => {
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&section=2.a")).toBeNull();
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&section=..")).toBeNull();
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&section=" + "1.".repeat(8))).toBeNull();
+  });
+
+  it("rejette une clé absente ou une page nulle", () => {
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?pdfKey=PDF1&file=paper.pdf")).toBeNull();
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&page=0")).toBeNull();
+    expect(parseZoteroPassageRef("#atelier-zotero-passage?key=ITEM1&page=abc")).toBeNull();
   });
 
   it("émet l'action d'ouverture vers la Bibliothèque", () => {

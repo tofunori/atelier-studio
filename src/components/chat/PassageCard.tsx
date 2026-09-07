@@ -48,7 +48,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const fullLabel = isGbrain ? humanizeGbrainSlug(refData.slug) : refData.pdfFile;
   const pin = isGbrain
     ? isPinned({ gbrainSlug: refData.slug, quote: refData.quote })
-    : isPinned({ pdfKey: refData.pdfKey, page: refData.page, quote: refData.quote });
+    : isPinned({ pdfKey: refData.pdfKey, page: refData.page ?? undefined, quote: refData.quote });
 
   const togglePin = () => {
     const { projectRoot } = store;
@@ -92,7 +92,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
           <DocIcon />
           <span className="evidence-meta-src" title={fullLabel}>{label}</span>
         </RowButton>
-        {!isGbrain && <span className="evidence-meta-page">p. {refData.page}</span>}
+        {!isGbrain && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}
         <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
           <IconButton
             className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}

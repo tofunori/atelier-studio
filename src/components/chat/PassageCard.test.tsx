@@ -16,6 +16,7 @@ const REF: ZoteroPassageRef = {
   pdfKey: "PDFKEY01",
   pdfFile: "Williamson et al. - 2021 - Ice sheet response to warming.pdf",
   page: 42,
+  section: "",
   quote:
     "Un passage assez long pour vérifier que la troncature visuelle par ellipsis CSS ne casse rien à l'affichage replié de la carte.",
 };
@@ -34,7 +35,7 @@ const PIN1: EvidencePin = {
   zoteroKey: REF.key,
   pdfKey: REF.pdfKey,
   pdfFile: REF.pdfFile,
-  page: REF.page,
+  page: REF.page ?? 1,
   citeLabel: "Williamson et al. 2021",
   gbrainSlug: null,
   supports: null,
@@ -97,7 +98,7 @@ describe("PassageCard", () => {
         zoteroKey: REF.key,
         pdfKey: REF.pdfKey,
         pdfFile: REF.pdfFile,
-        page: REF.page,
+        page: REF.page ?? 1,
         citeLabel: "Williamson et al. 2021",
       },
     });

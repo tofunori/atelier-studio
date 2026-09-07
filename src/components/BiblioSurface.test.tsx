@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 import { setLanguage } from "../lib/i18n";
 import { renderUi } from "../test/render";
 import { resetPendingPassageOpenForTests, setPendingPassageOpen } from "../lib/pendingPassageOpen";
-import BiblioSurface, { summarizeZoteroAddResults } from "./BiblioSurface";
+import BiblioSurface, { pdfViewerUrl, summarizeZoteroAddResults } from "./BiblioSurface";
 
 describe("BiblioSurface Zotero add feedback", () => {
   beforeEach(() => setLanguage("fr"));
@@ -387,5 +387,44 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(screen.getByText("Ouvrir le PDF")).toBeTruthy();
     fireEvent.click(copy);
     expect(writeText).toHaveBeenCalledWith("B");
+  });
+});
+
+// Lien de citation interne par section ou page : un lien de chat peut ne
+// porter QUE la clé Zotero (ouvrir l'article), une page, ou une section
+// numérotée. L'URL du lecteur vient toujours du PDF de l'item SÉLECTIONNÉ —
+// le passage ne dit plus quel fichier ouvrir, seulement où aller dedans.
+describe("pdfViewerUrl — cible de passage partielle (section / page / clé seule)", () => {
+  const item = {
+    key: "ITEM1", dateAdded: "", title: "T", creators: "C", year: "2020", publication: "",
+    tags: [], hasPdf: true, pdfKey: "PDF1", pdfFile: "paper.pdf", citeKey: "c", fav: false,
+  };
+  const gallery = "http://127.0.0.1:8805/figures_index.html";
+
+  it("passage à clé seule : l'article s'ouvre sans page ni citation", () => {
+    const url = pdfViewerUrl(item, gallery, { key: "ITEM1" });
+    expect(url).toContain("file=zotero%2FPDF1%2Fpaper.pdf");
+    expect(url).not.toContain("page=");
+    expect(url).not.toContain("quote=");
+    expect(url).not.toContain("section=");
+  });
+
+  it("passage de section : section=2.4 est transmis au lecteur", () => {
+    const url = pdfViewerUrl(item, gallery, { key: "ITEM1", section: "2.4" });
+    expect(url).toContain("section=2.4");
+    expect(url).not.toContain("page=");
+  });
+
+  it("passage complet : page et citation comme avant", () => {
+    const url = pdfViewerUrl(item, gallery, {
+      key: "ITEM1", pdfKey: "PDF1", pdfFile: "paper.pdf", page: 7, quote: "extrait",
+    });
+    expect(url).toContain("page=7");
+    expect(url).toContain("quote=extrait");
+  });
+
+  it("passage d'un AUTRE article : rien n'est transmis", () => {
+    const url = pdfViewerUrl(item, gallery, { key: "AUTRE", page: 3 });
+    expect(url).not.toContain("page=");
   });
 });

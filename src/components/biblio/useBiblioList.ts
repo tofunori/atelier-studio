@@ -196,7 +196,7 @@ export function useBiblioList({ ws, openReader }: { ws: WebSocket | null; openRe
     const pending = consumePendingPassageOpen();
     if (pending?.kind !== "zotero") return;
     const detail = pending.detail as PassageTarget | undefined;
-    if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
+    if (!detail || typeof detail.key !== "string") return;
     applyPassageTarget(detail);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- montage seul, cf. commentaire
   }, []);
@@ -266,7 +266,7 @@ export function useBiblioList({ ws, openReader }: { ws: WebSocket | null; openRe
       // rapport (finding 1, revue finale de branche).
       clearPendingPassageOpen();
       const detail = (e as CustomEvent<PassageTarget>).detail;
-      if (!detail || typeof detail.key !== "string" || !Number.isInteger(detail.page)) return;
+      if (!detail || typeof detail.key !== "string") return;
       applyPassageTarget(detail);
     };
     window.addEventListener("zotero-changed", onChanged);

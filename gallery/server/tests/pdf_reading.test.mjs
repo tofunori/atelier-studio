@@ -153,6 +153,42 @@ test("blockAtScrollTop et pageForBlock", () => {
   assert.equal(R.pageForBlock(DOC, 99), 1);
 });
 
+// ---- résolution d'une section numérotée (lien de citation interne) --------
+// `#atelier-zotero-passage?section=2.4` ouvre le PDF au titre numéroté « 2.4 »
+// : la numérotation doit être suivie d'une espace, d'un point, d'un deux-points
+// ou de la fin du titre — sinon « 2.4 » attraperait « 2.41 » et « 12.4 ».
+const SECTIONED = {
+  version: 1, pages: [{w: 600, h: 800}],
+  blocks: [
+    {id: 0, page: 1, kind: "paragraph", bbox: [0, 0, 1, 1], text: "2.4 is discussed below.", lines: []},
+    {id: 1, page: 2, kind: "heading", level: 1, bbox: [0, 0, 1, 1], text: "2 Study site and methods", lines: []},
+    {id: 2, page: 3, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "12.4 Not this one", lines: []},
+    {id: 3, page: 4, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "2.41 Neither this one", lines: []},
+    {id: 4, page: 5, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "  2.4  Energy balance", lines: []},
+    {id: 5, page: 6, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "2.4 A later duplicate", lines: []},
+    {id: 6, page: 7, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "3. Results", lines: []},
+    {id: 7, page: 8, kind: "heading", level: 2, bbox: [0, 0, 1, 1], text: "4", lines: []},
+  ],
+};
+
+test("sectionHeading : le PREMIER titre dont la numérotation correspond", () => {
+  assert.deepEqual(R.sectionHeading(SECTIONED, "2.4"), {page: 5, text: "2.4  Energy balance"});
+  assert.deepEqual(R.sectionHeading(SECTIONED, "2"), {page: 2, text: "2 Study site and methods"});
+  // séparateurs acceptés : espace, point, deux-points, fin de chaîne
+  assert.equal(R.sectionHeading(SECTIONED, "3").page, 7);
+  assert.equal(R.sectionHeading(SECTIONED, "4").page, 8);
+});
+
+test("sectionHeading : pas de collision de préfixe, pas de faux positif hors titre", () => {
+  assert.equal(R.sectionHeading(SECTIONED, "2.41").page, 4, "2.41 se résout sur SON titre");
+  assert.equal(R.sectionHeading(SECTIONED, "12.4").page, 3);
+  assert.equal(R.sectionHeading(SECTIONED, "9.9"), null, "aucune section 9.9");
+  assert.equal(R.sectionHeading({blocks: []}, "2.4"), null, "document sans titre");
+  assert.equal(R.sectionHeading(DOC, "2.4"), null, "les paragraphes ne comptent pas");
+  assert.equal(R.sectionHeading(SECTIONED, ""), null);
+  assert.equal(R.sectionHeading(null, "2.4"), null);
+});
+
 // ---- contrat du lecteur ---------------------------------------------------
 const html = fs.readFileSync(new URL("../../assets/pdf_viewer.html", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../../assets/pdf_reading.css", import.meta.url), "utf8");
@@ -167,6 +203,16 @@ test("contrat lecteur : bouton, colonne, script compagnon, clés persistées", (
   assert.match(html, /fetch\("\/reflow\?path=" \+ encodeURIComponent\(rel\)\)/);
   assert.match(html, /window\.__readingMode\s*=/);
   assert.doesNotMatch(html, /intent:\s*"print"/);
+});
+
+test("contrat lecteur : lien de citation par section", () => {
+  assert.match(html, /__passageParams\.get\("section"\)/);
+  assert.ok(html.includes("AtelierPdfReading.sectionHeading("), "le lecteur résout la section via le helper pur");
+  // targetPage/targetQuote deviennent réassignables : la section les pose.
+  assert.doesNotMatch(html, /const targetPage =/);
+  assert.doesNotMatch(html, /const targetQuote =/);
+  // un seul chargement /reflow partagé avec le mode lecture (pas de 2e fetch)
+  assert.equal((html.match(/fetch\("\/reflow\?path="/g) || []).length, 1);
 });
 
 test("contrat lecteur (fix 1) : bouton actif visible, barre sous l'en-tête, jeton de génération", () => {

@@ -47,9 +47,13 @@ export function pdfViewerUrl(item: ZoteroItem, galleryUrl: string, passage?: Pas
   const params = new URLSearchParams();
   params.set("file", rel);
   params.set("path", pdfUrl);
-  if (passage && passage.key === item.key && passage.pdfKey === item.pdfKey && passage.pdfFile === item.pdfFile) {
-    params.set("page", String(passage.page));
-    params.set("quote", passage.quote.slice(0, 900));
+  // Le passage s'applique dès qu'il désigne CET article : le PDF ouvert est
+  // toujours celui de l'item sélectionné, le lien ne fait que dire où aller
+  // dedans (page, citation exacte, ou section numérotée résolue par le lecteur).
+  if (passage && passage.key === item.key) {
+    if (passage.page) params.set("page", String(passage.page));
+    if (passage.quote) params.set("quote", passage.quote.slice(0, 900));
+    if (passage.section) params.set("section", passage.section);
   }
   return inheritHash(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, galleryUrl);
 }

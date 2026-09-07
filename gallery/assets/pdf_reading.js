@@ -153,7 +153,29 @@
     return b ? b.page : 1;
   }
 
-  return {readingText: readingText, lineOffsets: lineOffsets, buildReadingDom: buildReadingDom, cropViewport: cropViewport,
+  /** Lien de citation interne par section : `section` = une numérotation
+   *  (« 2 », « 2.4 »). On retient le PREMIER bloc `heading` dont le texte
+   *  commence par cette numérotation SUIVIE d'un séparateur — espace, point,
+   *  deux-points, ou fin de titre. Sans ce séparateur, « 2.4 » attraperait
+   *  « 2.41 Something » et « 12.4 » attraperait… rien de bon. Renvoie
+   *  {page, text} du titre, ou null. */
+  function sectionHeading(doc, section){
+    if (!doc || !section || !/^\d+(\.\d+)*$/.test(section)) return null;
+    var blocks = (doc && doc.blocks) || [];
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (!b || b.kind !== "heading") continue;
+      var text = String(b.text || "").replace(/^\s+/, "");
+      if (text.slice(0, section.length) !== section) continue;
+      var next = text.charAt(section.length);
+      if (next === "" || next === " " || next === "." || next === ":" || next === "\t") {
+        return {page: b.page, text: text};
+      }
+    }
+    return null;
+  }
+
+  return {sectionHeading: sectionHeading, readingText: readingText, lineOffsets: lineOffsets, buildReadingDom: buildReadingDom, cropViewport: cropViewport,
     selectionToAnnotation: selectionToAnnotation, anchorAnnotations: anchorAnnotations,
     blockAtScrollTop: blockAtScrollTop, pageForBlock: pageForBlock};
 });
