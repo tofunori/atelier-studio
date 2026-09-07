@@ -54,6 +54,22 @@ describe("Codex subagent activity", () => {
     }
   });
 
+  it("keeps a parent completion received just after the child's final event", () => {
+    const [agent] = agentsFromActions([action({
+      ts: 1788738060767,
+      agentActivity: {
+        ...action().agentActivity,
+        activityKind: "completed",
+        agentsStates: { "child-1": { status: "completed" } },
+      },
+    })]);
+    const settled = agentWithTranscriptState(agent, [
+      { kind: "done", ok: true, result: "Lecture terminée.", ts: 1788738060764 },
+    ]);
+    renderUi(<AgentDetailPanel agent={settled} onClose={() => {}} events={[]} />);
+    expect(screen.getByRole("status").textContent).toBe("Done");
+  });
+
   it("shows readable activity rather than orchestration code or opaque messages", () => {
     renderUi(<AgentDetailPanel agent={agentsFromActions([action()])[0]} onClose={() => {}}
       events={[

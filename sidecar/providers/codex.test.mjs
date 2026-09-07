@@ -11,6 +11,7 @@ import {
   buildThreadOptions,
   imageViewEvent,
   normalizeCodexEffort,
+  subagentActivityEvent,
 } from "./codex.mjs";
 
 describe("codex provider helpers (app-server)", () => {
@@ -55,6 +56,25 @@ describe("codex provider helpers (app-server)", () => {
       input: { paths: ["/tmp/figure.png"] },
       source: "codex",
     });
+  });
+
+  it("termine les activités de sous-agents selon leur kind", () => {
+    for (const [kind, status, agentStatus] of [
+      ["completed", "completed", "completed"],
+      ["done", "completed", "completed"],
+      ["finished", "completed", "completed"],
+      ["failed", "failed", "failed"],
+    ]) {
+      const event = subagentActivityEvent({
+        id: `activity-${kind}`,
+        kind,
+        agent_thread_id: "child-terminal",
+        agent_path: "/root/test_alpha",
+      });
+      expect(event.status, kind).toBe(status);
+      expect(event.agentActivity.agentsStates["child-terminal"].status, kind).toBe(agentStatus);
+      expect(event.agentActivity.agentPath, kind).toBe("/root/test_alpha");
+    }
   });
 
   it("expose les options de thread app-server (bypassPermissions explicite → full access)", () => {

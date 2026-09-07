@@ -85,6 +85,50 @@ export function imageViewEvent(item = {}) {
   };
 }
 
+function normalizedSubagentActivityKind(kind) {
+  return String(kind ?? "started")
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+}
+
+export function subagentActivityEvent(item = {}) {
+  const threadId = String(item.agentThreadId ?? item.agent_thread_id ?? "unknown");
+  const activityKind = String(item.kind ?? "started");
+  const normalizedKind = normalizedSubagentActivityKind(activityKind);
+  let toolStatus = "inProgress";
+  let agentStatus = "running";
+  if (["completed", "complete", "done", "finished", "succeeded", "success"].includes(normalizedKind)) {
+    toolStatus = "completed";
+    agentStatus = "completed";
+  } else if (["failed", "failure", "errored", "error", "aborted"].includes(normalizedKind)) {
+    toolStatus = "failed";
+    agentStatus = "failed";
+  } else if (["interrupted", "cancelled", "canceled"].includes(normalizedKind)) {
+    // Keep the existing interruption contract: the tool is terminal while the
+    // agent state retains the more precise interrupted status.
+    toolStatus = "completed";
+    agentStatus = "interrupted";
+  }
+  return {
+    kind: "tool_update",
+    id: item.id ?? `subagent:${threadId}:${activityKind}`,
+    name: "agent:activity",
+    output: "",
+    status: toolStatus,
+    source: "codex",
+    agentActivity: {
+      tool: "activity",
+      receiverThreadIds: [threadId],
+      agentsStates: {
+        [threadId]: { status: agentStatus, message: null },
+      },
+      agentThreadId: threadId,
+      agentPath: item.agentPath ?? item.agent_path ?? null,
+      activityKind,
+    },
+  };
+}
+
 // Registre des sessions Codex actives : un codexId (thread app-server) ne peut
 // porter qu'UN tour à la fois. Deux threads Atelier qui reprennent la même
 // session native (ex. fork avant premier send) ne doivent pas cross-wirer
@@ -1150,26 +1194,7 @@ export async function run({
     });
   };
   const emitSubagentActivity = (item) => {
-    const threadId = String(item.agentThreadId ?? "unknown");
-    const interrupted = item.kind === "interrupted";
-    onEvent({
-      kind: "tool_update",
-      id: item.id ?? `subagent:${threadId}:${item.kind ?? "started"}`,
-      name: "agent:activity",
-      output: "",
-      status: interrupted ? "completed" : "inProgress",
-      source: "codex",
-      agentActivity: {
-        tool: "activity",
-        receiverThreadIds: [threadId],
-        agentsStates: {
-          [threadId]: { status: interrupted ? "interrupted" : "running", message: null },
-        },
-        agentThreadId: threadId,
-        agentPath: item.agentPath ?? null,
-        activityKind: item.kind ?? "started",
-      },
-    });
+    onEvent(subagentActivityEvent(item));
   };
   const approvalDecision = (result) => String(result?.decision ?? "");
   const approvalAccepted = (result) => {

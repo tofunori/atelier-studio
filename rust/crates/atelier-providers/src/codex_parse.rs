@@ -678,14 +678,26 @@ fn collab_agent_update(item: &Value) -> Value {
 fn subagent_activity_update(item: &Value) -> Value {
     let thread_id = item
         .get("agentThreadId")
+        .or_else(|| item.get("agent_thread_id"))
         .and_then(Value::as_str)
         .unwrap_or("unknown");
     let activity_kind = item
         .get("kind")
         .and_then(Value::as_str)
         .unwrap_or("started");
-    let (tool_status, agent_status) = match activity_kind {
-        "interrupted" => ("completed", "interrupted"),
+    let normalized_kind: String = activity_kind
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .flat_map(char::to_lowercase)
+        .collect();
+    let (tool_status, agent_status) = match normalized_kind.as_str() {
+        "completed" | "complete" | "done" | "finished" | "succeeded" | "success" => {
+            ("completed", "completed")
+        }
+        "failed" | "failure" | "errored" | "error" | "aborted" => ("failed", "failed"),
+        // An interruption is terminal for the tool event, while retaining its
+        // more precise agent state for the activity renderer.
+        "interrupted" | "cancelled" | "canceled" => ("completed", "interrupted"),
         _ => ("inProgress", "running"),
     };
     json!({
@@ -702,7 +714,7 @@ fn subagent_activity_update(item: &Value) -> Value {
                 (thread_id): { "status": agent_status, "message": Value::Null }
             },
             "agentThreadId": thread_id,
-            "agentPath": item.get("agentPath").cloned().unwrap_or(Value::Null),
+            "agentPath": item.get("agentPath").or_else(|| item.get("agent_path")).cloned().unwrap_or(Value::Null),
             "activityKind": activity_kind,
         },
     })
@@ -979,6 +991,37 @@ mod tests {
     }
 
     #[test]
+    fn subagent_activity_maps_terminal_kinds_and_snake_case_ids() {
+        for (kind, tool_status, agent_status) in [
+            ("completed", "completed", "completed"),
+            ("done", "completed", "completed"),
+            ("finished", "completed", "completed"),
+            ("failed", "failed", "failed"),
+        ] {
+            let mut st = TurnMapState::default();
+            let events = map_turn_notification(
+                "item/completed",
+                &json!({"item": {
+                    "id": format!("activity-{kind}"),
+                    "type": "subAgentActivity",
+                    "kind": kind,
+                    "agent_thread_id": "child-terminal",
+                    "agent_path": "/root/test_alpha"
+                }}),
+                &mut st,
+            );
+            assert_eq!(events.len(), 1, "kind={kind}");
+            assert_eq!(events[0]["status"], tool_status, "kind={kind}");
+            assert_eq!(
+                events[0]["agentActivity"]["agentsStates"]["child-terminal"]["status"],
+                agent_status,
+                "kind={kind}"
+            );
+            assert_eq!(events[0]["agentActivity"]["agentPath"], "/root/test_alpha");
+        }
+    }
+
+    #[test]
     fn web_search_has_a_stable_running_and_completed_lifecycle() {
         let mut st = TurnMapState::default();
         let item = json!({"item":{
@@ -1137,10 +1180,16 @@ mod tests {
             &json!({"itemId":"rs_1","summaryIndex":0,"delta":"sseur le plus rapide** Je compare"}),
             &mut st,
         );
-        let steps: Vec<_> = e2.iter().filter(|e| e["name"] == "__thinking-step").collect();
+        let steps: Vec<_> = e2
+            .iter()
+            .filter(|e| e["name"] == "__thinking-step")
+            .collect();
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0]["kind"], "tool");
-        assert_eq!(steps[0]["detail"], "Identifie le fournisseur le plus rapide");
+        assert_eq!(
+            steps[0]["detail"],
+            "Identifie le fournisseur le plus rapide"
+        );
         // le texte continue d'arriver : pas de ré-émission
         let e3 = map_turn_notification(
             "item/reasoning/summaryTextDelta",
@@ -1163,7 +1212,10 @@ mod tests {
             &json!({"itemId":"rs_1","summaryIndex":1,"delta":"**Second pas** suite"}),
             &mut st,
         );
-        let steps: Vec<_> = e.iter().filter(|e| e["name"] == "__thinking-step").collect();
+        let steps: Vec<_> = e
+            .iter()
+            .filter(|e| e["name"] == "__thinking-step")
+            .collect();
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0]["detail"], "Second pas");
     }

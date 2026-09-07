@@ -295,6 +295,53 @@ fn event_message(payload: &Value) -> Option<String> {
         .map(bound_output)
 }
 
+fn native_subagent_activity_update(item: &Value, timestamp: Option<i64>) -> Value {
+    let thread_id = item
+        .get("agent_thread_id")
+        .or_else(|| item.get("agentThreadId"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let activity_kind = item
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("started");
+    let normalized_kind: String = activity_kind
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .flat_map(char::to_lowercase)
+        .collect();
+    let (tool_status, agent_status) = match normalized_kind.as_str() {
+        "completed" | "complete" | "done" | "finished" | "succeeded" | "success" => {
+            ("completed", "completed")
+        }
+        "failed" | "failure" | "errored" | "error" | "aborted" => ("failed", "failed"),
+        "interrupted" | "cancelled" | "canceled" => ("completed", "interrupted"),
+        _ => ("inProgress", "running"),
+    };
+    let mut event = json!({
+        "kind": "tool_update",
+        "id": item.get("id").cloned().unwrap_or_else(|| json!(format!("subagent:{thread_id}:{activity_kind}"))),
+        "name": "agent:activity",
+        "output": "",
+        "status": tool_status,
+        "source": "codex",
+        "agentActivity": {
+            "tool": "activity",
+            "receiverThreadIds": [thread_id],
+            "agentsStates": {
+                (thread_id): { "status": agent_status, "message": Value::Null }
+            },
+            "agentThreadId": thread_id,
+            "agentPath": item.get("agent_path").or_else(|| item.get("agentPath")).cloned().unwrap_or(Value::Null),
+            "activityKind": activity_kind,
+        },
+    });
+    if let Some(ts) = timestamp {
+        event["ts"] = json!(ts);
+    }
+    event
+}
+
 fn row_timestamp(row: &Value) -> Option<i64> {
     row.get("timestamp")
         .and_then(Value::as_str)
@@ -377,6 +424,19 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
                         }
                         events.push(event);
                     }
+                }
+                continue;
+            }
+            "item_completed" => {
+                let Some(item) = payload.get("item") else {
+                    continue;
+                };
+                let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+                if matches!(
+                    item_type,
+                    "SubAgentActivity" | "subAgentActivity" | "sub_agent_activity"
+                ) {
+                    events.push(native_subagent_activity_update(item, timestamp));
                 }
                 continue;
             }
@@ -774,6 +834,46 @@ mod tests {
             .iter()
             .any(|event| event.to_string().contains("gAAAAA")));
         assert!(!events.iter().any(|event| event["name"] == "send_message"));
+    }
+
+    #[test]
+    fn replays_subagent_completed_three_ms_after_child_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad1";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        // This preserves the ordering observed in the native rollout: the
+        // child's task_complete precedes the parent SubAgentActivity by 3 ms.
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:41:00.764Z","payload":{"type":"task_complete","last_agent_message":"Résultat enfant."}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:41:00.767Z","payload":{"type":"item_completed","item":{"type":"SubAgentActivity","id":"subagent-completed-child-1","kind":"completed","agent_thread_id":"child-1","agent_path":"/root/test_alpha"}}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        let done = events.iter().find(|event| event["kind"] == "done").unwrap();
+        let activity = events
+            .iter()
+            .find(|event| event["name"] == "agent:activity")
+            .unwrap();
+        assert_eq!(done["ok"], true);
+        assert_eq!(activity["status"], "completed");
+        assert_eq!(
+            activity["agentActivity"]["agentsStates"]["child-1"]["status"],
+            "completed"
+        );
+        assert_eq!(activity["agentActivity"]["agentPath"], "/root/test_alpha");
+        assert_eq!(
+            activity["ts"].as_i64().unwrap() - done["ts"].as_i64().unwrap(),
+            3
+        );
     }
 
     #[test]
