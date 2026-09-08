@@ -92,11 +92,15 @@
   display: inline-flex; align-items: center; justify-content: center;
   min-width: var(--control-height-compact); height: var(--control-height-compact); padding: 0; background: transparent; border: none;
   color: var(--text-muted); border-radius: var(--radius-control); cursor: pointer;
+  white-space: nowrap;
   transition: background-color var(--motion-standard) var(--ease-out),
               color var(--motion-standard) var(--ease-out);
 }
-.ui-seg button:hover:not(.on) { color: var(--text-secondary); }
-.ui-seg button.on { background: var(--surface-app); color: var(--text-primary); }
+.ui-seg button:hover:not(.on):not([data-pressed="true"]):not([aria-checked="true"]) { color: var(--text-secondary); }
+.ui-seg button:is(.on, [data-pressed="true"], [aria-checked="true"]) {
+  background: var(--surface-app); color: var(--text-primary);
+}
+.ui-seg button:disabled { cursor: default; opacity: .6; }
 
 /* ---- SurfaceHeader --------------------------------------------------------------- */
 .ui-surface-header {
@@ -187,6 +191,28 @@
 /* wrapper Tooltip : neutre pour la mise en page (les handlers vivent dessus) */
 .ui-tooltip-wrap { display: inline-flex; }
 
+/* ---- Tabs — façade Base UI riche + navigation dockée compacte ------------
+ * Les wrappers ui-tabs-* sont la surface produit des panneaux riches. Les
+ * sélecteurs métier peuvent encore préciser leur disposition dans App.css;
+ * ils ne repeignent donc pas la mécanique Base UI. .ui-tab reste la façade
+ * compacte de TabList et partage seulement les mêmes rôles de couleur. */
+.ui-tabs-root { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ui-tabs-list { display: flex; align-items: center; min-width: 0; gap: var(--sp-1); }
+.ui-tabs-trigger {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 0; min-height: var(--control-height-compact); padding: 0 var(--sp-2);
+  border: 0; border-radius: var(--radius-control); background: transparent;
+  color: var(--text-muted); font: 400 var(--fs-body-s)/1 var(--font-chrome);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out);
+}
+.ui-tabs-trigger:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--surface-inset) 42%, transparent); }
+.ui-tabs-trigger[data-active] { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
+.ui-tabs-trigger:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
+.ui-tabs-trigger:disabled { cursor: default; opacity: .5; }
+.ui-tabs-content { min-width: 0; min-height: 0; }
+
 /* ---- Tabs — navigation dockée compacte, neutre ------------------------- */
 .ui-tabs { display: flex; align-items: center; gap: var(--sp-1); }
 .ui-tab { position: relative; display: inline-flex; align-items: center; height: 28px; max-width: 168px;
@@ -194,13 +220,16 @@
   color: var(--text-muted); font: 400 var(--fs-body-s)/1 var(--font-chrome); cursor: pointer;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out); }
 .ui-tab:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--surface-inset) 42%, transparent); }
+.ui-tab[data-active] { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
 .ui-tab.is-active { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
+.ui-tab[data-active]::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: var(--border-strong); opacity: .72; }
 .ui-tab.is-active::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: var(--border-strong); opacity: .72; }
 .ui-tab.is-compact { width: 30px; min-width: 30px; padding: 0; justify-content: center; }
 .ui-tab-icon, .ui-tab-close { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ui-tab-label { min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-tab-close { color: var(--text-disabled); opacity: .42; border-radius: var(--radius-control); }
 .ui-tab:hover .ui-tab-close, .ui-tab:focus-within .ui-tab-close, .ui-tab.is-active .ui-tab-close { opacity: .86; }
+.ui-tab[data-active] .ui-tab-close { opacity: .86; }
 .ui-tab-close:hover { color: var(--status-error); }
 .ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
 

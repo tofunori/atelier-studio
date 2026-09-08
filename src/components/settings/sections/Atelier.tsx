@@ -20,8 +20,7 @@ import {
   type AppSnapPermission,
   type AppSnapState,
 } from "../../../lib/appSnap";
-import { Select } from "../../Select";
-import { Button, showError } from "../../ui";
+import { Button, Select, showError } from "../../ui";
 import { Input } from "../../shadcn/input";
 import { ScanLineIcon } from "lucide-react";
 

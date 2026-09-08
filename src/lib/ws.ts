@@ -454,7 +454,9 @@ export function requestCatalog(ws: WebSocket, projectRoot: string, provider?: st
   // context, hooks-list…), absentes du disque et donc introuvables au scan.
   ws.send(JSON.stringify({ type: "listCommands", projectRoot, provider: provider ?? undefined }));
   ws.send(JSON.stringify({ type: "listFiles", projectRoot }));
-  ws.send(JSON.stringify({ type: "listPlugins", projectRoot }));
+  // App.requestPlugins owns the Codex catalog and correlates its replies.
+  // An uncorrelated request here was ignored, yet repeated costly plugin RPCs
+  // on every project/provider switch (including chats using other providers).
 }
 
 export function requestFileCatalog(ws: WebSocket, projectRoot: string) {

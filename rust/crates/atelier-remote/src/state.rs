@@ -32,11 +32,17 @@ pub struct GatewayConfig {
     pub max_body_bytes: usize,
     /// Min retained sequence for history window (snapshot if afterSequence below).
     pub min_retained_sequence: u64,
+    /// Native Codex image artifacts. The route only accepts paths resolved
+    /// below this configured directory; clients never provide this value.
+    pub generated_images_dir: PathBuf,
 }
 
 impl Default for GatewayConfig {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let codex_home = std::env::var_os("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(&home).join(".codex"));
         let atelier = PathBuf::from(format!("{home}/Library/Application Support/atelier-studio"));
         Self {
             data_dir: atelier.join("remote"),
@@ -54,6 +60,7 @@ impl Default for GatewayConfig {
             require_explicit_any_bind: true,
             max_body_bytes: 256 * 1024,
             min_retained_sequence: 0,
+            generated_images_dir: codex_home.join("generated_images"),
         }
     }
 }

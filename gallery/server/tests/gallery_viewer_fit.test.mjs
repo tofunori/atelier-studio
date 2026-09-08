@@ -6,10 +6,10 @@ const html=readFileSync(new URL('../../assets/gallery_template.html',import.meta
 test('gallery inline scripts remain valid JavaScript',()=>{
   for(const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))new vm.Script(match[1]);
 });
-function fit(width,height,naturalWidth,naturalHeight,zoom=1){
+function fit(width,height,naturalWidth,naturalHeight,zoom=1,padding=0){
   const stage={clientWidth:width,clientHeight:height},wrap={style:{}},img={naturalWidth,naturalHeight};
   const nodes={lbViewport:stage,lbWrap:wrap,lbImg:img,lbFit:{setAttribute(){}}};
-  const context={document:{getElementById:id=>nodes[id]},lb:()=>({classList:{contains:c=>c==='show'}}),lbZoomLevel:zoom};
+  const context={getComputedStyle:()=>({paddingLeft:'0px',paddingRight:'0px',paddingTop:padding+'px',paddingBottom:padding+'px'}),document:{getElementById:id=>nodes[id]},lb:()=>({classList:{contains:c=>c==='show'}}),lbZoomLevel:zoom};
   vm.createContext(context);
   vm.runInContext(html.slice(html.indexOf('function lbFitImage(){'),html.indexOf('function lbSetZoom(value){')),context);
   context.lbFitImage();return {stage,wrap,context};
@@ -29,4 +29,10 @@ test('recomputes fit after a pane or fullscreen resize',()=>{
 test('only deliberate zoom can exceed the fitted viewport',()=>{
   const fitted=fit(800,600,4000,3000),zoomed=fit(800,600,4000,3000,2);
   assert.equal(parseInt(zoomed.wrap.style.height),2*parseInt(fitted.wrap.style.height));
+});
+
+test('annotation toolbar and footer space leave the entire portrait visible',()=>{
+  const {wrap}=fit(500,600,1200,3000,1,40);
+  assert.ok(parseFloat(wrap.style.height)+80<=588);
+  assert.ok(Math.abs(parseFloat(wrap.style.width)/parseFloat(wrap.style.height)-.4)<.01);
 });

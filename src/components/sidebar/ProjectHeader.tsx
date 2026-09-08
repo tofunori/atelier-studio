@@ -9,6 +9,7 @@ import { Input } from "../shadcn/input";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { PlusIcon, SearchIcon, ChatsIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
+import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
 export type ProjMetaLite = { color?: string; label?: string };
 
@@ -43,10 +44,10 @@ export function ProjectHeader(p: {
   onQueryChange: (q: string) => void;
   onToggleSearch: (open: boolean) => void;
   onNew: () => void;
-  onOpenResume: (provider: "claude" | "codex") => void;
+  onOpenResume: (provider: "claude" | "codex", anchor?: Element | null) => void;
   onRevealFinder?: () => void;
   /** ouvre le popover couleur/icône, ancré sous le bouton overflow */
-  onCustomize?: (anchor: { x: number; y: number }) => void;
+  onCustomize?: (anchor: ProjectStyleAnchor) => void;
   onRemoveProject?: () => void;
   onProjectSettings?: () => void;
 }) {
@@ -66,9 +67,10 @@ export function ProjectHeader(p: {
     searchWrapRef.current?.querySelector("button")?.focus();
   }
 
-  function customizeAnchor(): { x: number; y: number } {
-    const r = overflowRef.current?.getBoundingClientRect();
-    return r ? { x: Math.max(8, r.right - 220), y: r.bottom + 4 } : { x: 60, y: 80 };
+  function customizeAnchor(): ProjectStyleAnchor {
+    const element = overflowRef.current;
+    if (element) return element;
+    return { x: 60, y: 80 };
   }
 
   const icon = p.meta?.label?.startsWith("icon:") ? (
@@ -130,12 +132,12 @@ export function ProjectHeader(p: {
             {
               key: "resume-claude",
               label: t("sidebar.resume-claude"),
-              onSelect: () => p.onOpenResume("claude"),
+              onSelect: () => p.onOpenResume("claude", overflowRef.current),
             },
             {
               key: "resume-codex",
               label: t("sidebar.resume-codex"),
-              onSelect: () => p.onOpenResume("codex"),
+              onSelect: () => p.onOpenResume("codex", overflowRef.current),
             },
             ...(p.mode === "project"
               ? [

@@ -44,12 +44,10 @@ import { ModelsGrid } from "../models/ModelsGrid";
 import { groupRoutes, type Route } from "../models/groupRoutes";
 import { OpenCodeRouter } from "../models/OpenCodeRouter";
 import { PlusIcon } from "../../icons";
-import { Select } from "../../Select";
-import { Button, InlineNotice } from "../../ui";
+import { Button, InlineNotice, Select, SegmentedControl } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
-import { ToggleGroup, ToggleGroupItem } from "../../shadcn/toggle-group";
 import { CheckIcon } from "lucide-react";
 
 // Copié tel quel de Settings.tsx:85-109 — seul consommateur restant.
@@ -598,22 +596,18 @@ export default function Models(p: SectionProps) {
                 </Field>
                 <Field>
                   <FieldLabel className="tw:sr-only">Protocol</FieldLabel>
-                  <ToggleGroup
-                    aria-label="Protocol"
-                    value={[apiForm.protocol]}
-                    onValueChange={(next) => {
-                      const protocol = next[0];
+                  <SegmentedControl
+                    label="Protocol"
+                    value={apiForm.protocol}
+                    onChange={(protocol) => {
                       if (protocol === "openai" || protocol === "anthropic") setApiForm({ ...apiForm, protocol });
                     }}
                     className="api-protocol"
-                  >
-                    <ToggleGroupItem value="openai" aria-label="OpenAI" className="tw:px-2.5">
-                      OpenAI (/chat/completions)
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="anthropic" aria-label="Anthropic" className="tw:px-2.5">
-                      Anthropic (/v1/messages)
-                    </ToggleGroupItem>
-                  </ToggleGroup>
+                    options={[
+                      { value: "openai", label: "OpenAI (/chat/completions)", ariaLabel: "OpenAI", className: "tw:px-2.5" },
+                      { value: "anthropic", label: "Anthropic (/v1/messages)", ariaLabel: "Anthropic", className: "tw:px-2.5" },
+                    ]}
+                  />
                 </Field>
                 <Field>
                   <FieldLabel className="tw:sr-only">{t("settings.api-key-ph")}</FieldLabel>

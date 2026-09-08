@@ -2,6 +2,133 @@ import XCTest
 @testable import AtelierUI
 
 final class ChatTests: XCTestCase {
+    @MainActor func testUploadStageRestartKeepsRetryStateWithoutPhantomRunningMessage() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let first = WorkspaceModel(resumeStore: store)
+        let thread = RemoteChatModel.Thread(id: "upload", title: "Upload", provider: "codex", model: nil, projectId: nil, status: "idle")
+        first.chat.select(thread, workspace: first)
+        first.draft = "Analyse cette photo"
+        first.chat.updateDraft(first.draft)
+        let photo = GalleryArtifact(name: "photo.png", data: Data([1, 2, 3]))
+        first.chat.attach(photo)
+        first.chat.sendAttempts[thread.id] = SendAttempt(requestID: "retry-id", fingerprint: "same-prompt")
+        first.chat.prepared = [PreparedChatMessage(threadID: thread.id, text: "Question suivante", files: [], model: "", effort: "")]
+        first.chat.rows.append(.init(id: "pending:retry-id", kind: "user", text: first.draft, turn: "retry-id", messageID: "retry-id"))
+        first.chat.sending = true; first.chat.running = true
+        await first.chat.flushResume()
+        let saved = try await store.load()
+        XCTAssertTrue(saved?.transcript?.rows.isEmpty == true)
+        XCTAssertEqual(saved?.transcript?.running, false)
+        let second = WorkspaceModel(resumeStore: store)
+        await second.chat.restore(workspace: second)
+        XCTAssertTrue(second.chat.rows.isEmpty)
+        XCTAssertFalse(second.chat.running)
+        XCTAssertFalse(second.chat.sending)
+        XCTAssertEqual(second.draft, "Analyse cette photo")
+        XCTAssertEqual(second.chat.attachments.first?.data, photo.data)
+        XCTAssertEqual(second.chat.sendAttempts[thread.id]?.requestID, "retry-id")
+        XCTAssertEqual(second.chat.prepared.first?.text, "Question suivante")
+    }
+
+    @MainActor func testTranscriptRestoresOfflineAndResumesStreamingWithoutReplayDuplicates() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let first = WorkspaceModel(resumeStore: store)
+        let thread = RemoteChatModel.Thread(id: "transcript", title: "Transcript", provider: "codex", model: nil, projectId: nil, status: "running")
+        first.chat.select(thread, workspace: first)
+        let user: [String: Any] = ["kind": "user", "text": "Question", "meta": ["eventId": "u", "turnId": "t", "messageId": "m"]]
+        let delta: [String: Any] = ["kind": "delta", "text": "Bon", "meta": ["eventId": "d1", "turnId": "t"]]
+        first.chat.apply(user); first.chat.apply(delta)
+        let streamID = try XCTUnwrap(first.chat.rows.last?.id)
+        await first.chat.flushResume()
+        let second = WorkspaceModel(resumeStore: store)
+        await second.chat.restore(workspace: second)
+        XCTAssertEqual(second.chat.rows.map(\.text), ["Question", "Bon"])
+        XCTAssertEqual(second.chat.rows.last?.id, streamID)
+        XCTAssertTrue(second.chat.isTurnRunning("t"))
+        XCTAssertTrue(second.chat.running)
+        XCTAssertTrue(second.chat.rows.last?.isStreaming == true)
+        second.chat.apply(user); second.chat.apply(delta)
+        XCTAssertEqual(second.chat.rows.map(\.text), ["Question", "Bon"])
+        second.chat.apply(["kind": "delta", "text": "jour", "meta": ["eventId": "d2", "turnId": "t"]])
+        XCTAssertEqual(second.chat.rows.last?.text, "Bonjour")
+        XCTAssertEqual(second.chat.rows.last?.id, streamID)
+        second.chat.apply(["kind": "text", "text": "Bonjour", "meta": ["eventId": "final", "turnId": "t"]])
+        second.chat.apply(["kind": "done", "meta": ["eventId": "done", "turnId": "t"]])
+        await second.chat.flushResume()
+        let third = WorkspaceModel(resumeStore: store)
+        await third.chat.restore(workspace: third)
+        third.chat.apply(["kind": "delta", "text": "stale", "meta": ["eventId": "late", "turnId": "t"]])
+        third.chat.apply(["kind": "started", "meta": ["eventId": "start", "turnId": "t"]])
+        XCTAssertEqual(third.chat.rows.map(\.text), ["Question", "Bonjour"])
+        XCTAssertFalse(third.chat.running)
+        XCTAssertFalse(third.chat.rows.last?.isStreaming == true)
+    }
+
+    @MainActor func testTranscriptCacheSurvivesConversationListAndIsolatesThreads() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let first = WorkspaceModel(resumeStore: store)
+        let a = RemoteChatModel.Thread(id: "cache-a", title: "A", provider: "codex", model: nil, projectId: nil, status: "idle")
+        let b = RemoteChatModel.Thread(id: "cache-b", title: "B", provider: "codex", model: nil, projectId: nil, status: "idle")
+        first.chat.select(a, workspace: first)
+        first.chat.apply(["kind": "interaction", "text": "Autoriser", "requestId": "request", "state": "accepted", "interactionType": "approval", "meta": ["eventId": "approval", "turnId": "t"]])
+        first.chat.showConversations(workspace: first)
+        await first.chat.flushResume()
+        let second = WorkspaceModel(resumeStore: store)
+        await second.chat.restore(workspace: second)
+        XCTAssertNil(second.chat.selected)
+        second.chat.select(a, workspace: second)
+        XCTAssertEqual(second.chat.rows.count, 1)
+        XCTAssertTrue(second.chat.rows[0].resolved)
+        second.chat.apply(["kind": "interaction", "text": "Autoriser", "requestId": "request", "state": "pending", "interactionType": "approval", "meta": ["eventId": "approval-update", "turnId": "t"]])
+        XCTAssertTrue(second.chat.rows[0].resolved)
+        second.chat.select(b, workspace: second)
+        XCTAssertTrue(second.chat.rows.isEmpty)
+        second.chat.select(a, workspace: second)
+        XCTAssertEqual(second.chat.rows.count, 1)
+        XCTAssertTrue(second.chat.rows[0].resolved)
+    }
+
+    @MainActor func testLegacyResumeWithoutTranscriptStillRestoresDraft() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let thread = RemoteChatModel.Thread(id: "legacy", title: "Legacy", provider: "codex", model: nil, projectId: nil, status: "idle")
+        try await store.save(ChatResumeSnapshot(selected: thread, drafts: [thread.id: "Brouillon ancien"]))
+        let workspace = WorkspaceModel(resumeStore: store)
+        await workspace.chat.restore(workspace: workspace)
+        XCTAssertEqual(workspace.chat.selected?.id, thread.id)
+        XCTAssertEqual(workspace.draft, "Brouillon ancien")
+        XCTAssertTrue(workspace.chat.rows.isEmpty)
+        XCTAssertNil(workspace.chat.error)
+    }
+
+    @MainActor func testWebQuoteSurvivesSelectionClearedWhileMenuDismisses() async {
+        let view = QuotingWebView()
+        let received = expectation(description: "Quoted after menu dismissal")
+        let passage = "un été 🌲"
+        view.onQuote = { value in XCTAssertEqual(value, passage); received.fulfill() }
+        view.selectedPassage = ""
+        view.quoteSelection(fallback: passage)
+        await fulfillment(of: [received], timeout: 2)
+    }
+
+    @MainActor func testAnnotationSelectionPreservesOccurrenceAfterMenuDismissal() async {
+        let view = QuotingWebView()
+        let received = expectation(description: "Annotation callback")
+        view.onAnnotate = { value in
+            XCTAssertEqual(value.text, "neige"); XCTAssertEqual(value.occurrence, 1); XCTAssertEqual(value.occurrences, 2)
+            received.fulfill()
+        }
+        view.onQuote = { _ in XCTFail("Annoter must not add a direct quote") }
+        view.quoteSelection(fallback: "neige", detail: .init(text: "neige", occurrence: 1, occurrences: 2), annotate: true)
+        await fulfillment(of: [received], timeout: 2)
+    }
     @MainActor func testSelectedQuotePreservesUnicodeDraftAndThreadOwnership() async throws {
         let source = "Un été 🌲 et de la neige"
         let range = (source as NSString).range(of: "été 🌲")
@@ -225,6 +352,32 @@ final class ChatTests: XCTestCase {
         let interrupted = RemoteChatModel.Row(id: "stop", kind: "tool", text: "Arrêt", turn: "t", toolName: "web_search", toolStatus: "interrupted")
         XCTAssertTrue(ChatActivityPresentation(row: interrupted, turnRunning: true).interrupted)
     }
+    @MainActor func testToolDetailsRetainCommandWhenResultArrives() throws {
+        let chat = RemoteChatModel()
+        chat.apply(["kind":"tool_update", "id":"shell", "name":"Bash", "detail":"rg albedo notes.md", "input":["command":"rg albedo notes.md"], "status":"running", "meta":["turnId":"t", "eventId":"s1"]])
+        chat.apply(["kind":"tool_update", "id":"shell", "name":"Bash", "output":"42: albedo", "exitCode":0, "status":"completed", "meta":["turnId":"t", "eventId":"s2"]])
+        let row = try XCTUnwrap(chat.rows.first)
+        XCTAssertEqual(ChatActivityPresentation(row: row, turnRunning: true).summary, "rg albedo notes.md")
+        XCTAssertTrue(row.detail.contains("42: albedo"))
+        XCTAssertTrue(row.detail.contains("rg albedo notes.md"))
+        let restored = try JSONDecoder().decode(RemoteChatModel.Row.self, from: JSONEncoder().encode(row))
+        XCTAssertEqual(restored.toolFields, row.toolFields)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as? [String: Any])
+        legacy.removeValue(forKey: "toolFields")
+        XCTAssertNil(try JSONDecoder().decode(RemoteChatModel.Row.self, from: JSONSerialization.data(withJSONObject: legacy)).toolFields)
+    }
+    @MainActor func testActivityUsesRealQueryAndHidesEmptyThinkingMarkers() {
+        let chat = RemoteChatModel()
+        chat.apply(["kind":"tool", "name":"__thinking", "meta":["turnId":"t", "eventId":"marker"]])
+        chat.apply(["kind":"tool_update", "id":"search", "name":"web_search", "input":["query":"glacier albedo"], "meta":["turnId":"t", "eventId":"search"]])
+        let items = ChatTimelineItem.group(chat.rows)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].rows.count, 1)
+        XCTAssertEqual(ChatActivityPresentation(row: items[0].rows[0], turnRunning: true).summary, "Recherche · glacier albedo")
+        let thought = RemoteChatModel.Row(id: "thought", kind: "thinking", text: "Vérifier les périodes", turn: "t")
+        XCTAssertEqual(ChatTimelineItem.group([thought])[0].rows[0].text, thought.text)
+    }
+
     @MainActor func testActivityIdentitySurvivesStreamingPromotionAndTextBoundary() {
         let chat = RemoteChatModel()
         chat.apply(["kind":"thinking_delta", "text":"Examiner", "meta":["turnId":"t"]])
@@ -255,29 +408,45 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(presentation.state, "Activité terminée")
     }
 
-    @MainActor func testPermissionChoiceIsPerConversationAndRestoresWithoutChangingLegacyDefaults() async throws {
+    @MainActor func testGlobalPermissionChoicePersistsAcrossChatsAndRestart() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ChatResumeStore(directory: directory)
         let workspace = WorkspaceModel(resumeStore: store)
         let a = RemoteChatModel.Thread(id: "permission-a", title: "A", provider: "codex", model: nil, projectId: nil, status: "idle")
         let b = RemoteChatModel.Thread(id: "permission-b", title: "B", provider: "codex", model: nil, projectId: nil, status: "idle")
-        workspace.chat.select(a, workspace: workspace)
-        XCTAssertEqual(workspace.chat.permissionMode, .ask)
-        workspace.chat.permissionMode = .full
-        workspace.chat.select(b, workspace: workspace)
-        XCTAssertEqual(workspace.chat.permissionMode, .ask)
-        workspace.chat.permissionMode = .edits
+        workspace.chat.settings[a.id] = ChatSettings(model: "m", effort: "high", permissionMode: "default")
         workspace.chat.select(a, workspace: workspace)
         XCTAssertEqual(workspace.chat.permissionMode, .full)
+        workspace.chat.permissionMode = .edits
+        workspace.chat.select(b, workspace: workspace)
+        XCTAssertEqual(workspace.chat.permissionMode, .edits)
         await workspace.chat.flushResume()
         let restored = WorkspaceModel(resumeStore: store)
         await restored.chat.restore(workspace: restored)
-        XCTAssertEqual(restored.chat.permissionMode, .full)
-        restored.chat.select(b, workspace: restored)
         XCTAssertEqual(restored.chat.permissionMode, .edits)
-        let legacy = try JSONDecoder().decode(ChatSettings.self, from: Data(#"{"model":"m","effort":"high"}"#.utf8))
-        XCTAssertNil(legacy.permissionMode)
+        restored.chat.select(a, workspace: restored)
+        XCTAssertEqual(restored.chat.permissionMode, .edits)
+    }
+    @MainActor func testLegacySessionUsesRequestedFullAccessDefault() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let thread = RemoteChatModel.Thread(id: "legacy", title: "Legacy", provider: "codex", model: nil, projectId: nil, status: "idle")
+        try await store.save(ChatResumeSnapshot(selected: thread, settings: [thread.id: ChatSettings(model: "m", effort: "", permissionMode: "default")]))
+        let workspace = WorkspaceModel(resumeStore: store)
+        await workspace.chat.restore(workspace: workspace)
+        XCTAssertEqual(workspace.chat.permissionMode, .full)
+    }
+    @MainActor func testProviderWithoutPermissionModesPreservesGlobalFullAccess() {
+        let chat = RemoteChatModel()
+        chat.providers = [.init(id: "custom", label: "Custom", models: [], defaultModel: "", efforts: [], ok: true, modelLabels: nil)]
+        chat.selected = .init(id: "custom-chat", title: "Custom", provider: "custom", model: nil, projectId: nil, status: "idle")
+        XCTAssertEqual(chat.effectivePermissionMode, .ask)
+        XCTAssertEqual(chat.permissionMode, .full)
+        chat.providers.append(.init(id: "codex", label: "Codex", models: [], defaultModel: "", efforts: [], ok: true, modelLabels: nil, capabilities: .init(permissionModes: ["bypassPermissions"])))
+        chat.selected = .init(id: "codex-chat", title: "Codex", provider: "codex", model: nil, projectId: nil, status: "idle")
+        XCTAssertEqual(chat.effectivePermissionMode, .full)
     }
     @MainActor func testPermissionModesUseProviderCapabilities() throws {
         let chat = RemoteChatModel()
@@ -301,4 +470,93 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(ChatTimelineItem.group(rows).flatMap(\.rows).map(\.id), rows.map(\.id))
     }
 
+}
+
+final class AnnotationMessagePresentationTests: XCTestCase {
+    @MainActor func testDocumentQuoteFromComposerKeepsFullPassageSeparateFromQuestion() throws {
+        let passage = #"At the cell level, all 30 fire slopes have 95\,\% intervals."# + "\n\nSuite 🌲."
+        let quote = RemoteChatModel.Quote(text: passage, sourceRowID: "source", sourceLabel: "results_en.tex · lignes 30–42")
+        let prompt = RemoteChatModel.promptWithQuote("Ce passage se lit comme une liste.\n\nReformule-le.", quote: quote)
+        let parts = try XCTUnwrap(AnnotationMessageParts(prompt))
+        XCTAssertEqual(parts.citation, "results_en.tex · lignes 30–42")
+        XCTAssertEqual(parts.passage, passage)
+        XCTAssertEqual(parts.note, "Ce passage se lit comme une liste.\n\nReformule-le.")
+        XCTAssertTrue(prompt.contains("> " + passage.components(separatedBy: "\n")[0]))
+    }
+    func testExistingZoteroAnnotationEnvelopeAndAttachmentFooter() throws {
+        let parts = try XCTUnwrap(AnnotationMessageParts("Article Zotero : ABC\nDocument : article.pdf · page 3\n\nPassage cité :\n> Une phrase.\n> Une autre.\n\nMa note :\nPrécise ceci.\n\nPièces jointes : figure.png", attachmentNames: ["figure.png"]))
+        XCTAssertEqual(parts.citation, "article.pdf · page 3")
+        XCTAssertEqual(parts.passage, "Une phrase.\nUne autre.")
+        XCTAssertEqual(parts.note, "Précise ceci.")
+    }
+    @MainActor func testConversationQuoteAndEmptyQuestionAreSupported() throws {
+        let prompt = RemoteChatModel.promptWithQuote("", quote: .init(text: "Passage cité", sourceRowID: "row"))
+        let parts = try XCTUnwrap(AnnotationMessageParts(prompt))
+        XCTAssertEqual(parts.citation, "Passage de la conversation")
+        XCTAssertEqual(parts.passage, "Passage cité")
+        XCTAssertEqual(parts.note, "")
+    }
+    @MainActor func testUserHeadingsAreNeverMistakenForEnvelopeMetadata() throws {
+        let note = "Ma note :\nAnalyse ceci.\n\nPièces jointes : voici les données\nExplique la suite."
+        let prompt = RemoteChatModel.promptWithQuote(note, quote: .init(text: "Extrait", sourceRowID: "row", sourceLabel: "results.tex"))
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(prompt)).note, note)
+        let withFooter = prompt + "\n\nPièces jointes : figure.png"
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(withFooter)).note, note + "\n\nPièces jointes : figure.png")
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(withFooter, attachmentNames: ["figure.png"])).note, note)
+    }
+    func testOrdinaryAndMalformedMessagesKeepOriginalPresentation() {
+        for text in ["Mon commentaire", "Document : results.tex\nTexte normal", "Document : results.tex\nPassage cité :\nTexte sans citation", "Document : results.tex\nPassage cité :\n> Citation\nPas de séparateur"] {
+            XCTAssertNil(AnnotationMessageParts(text))
+        }
+    }
+}
+
+final class UnifiedActivityTests: XCTestCase {
+    @MainActor func testWaitingBecomesThinkingThenToolsWithoutChangingCellIdentity() {
+        let chat = RemoteChatModel()
+        func apply(_ kind: String, _ text: String = "", _ fields: [String: Any] = [:]) {
+            var event = fields; event["kind"] = kind; event["text"] = text; event["meta"] = ["turnId": "t"]
+            chat.apply(event)
+        }
+        apply("user", "Ma question")
+        apply("started")
+        let waiting = ChatTimelineItem.displayItems(chat.rows, running: chat.running)
+        let id = waiting.last!.id
+        XCTAssertTrue(waiting.last!.awaitingActivity)
+        apply("tool", "", ["name": "__thinking"])
+        XCTAssertEqual(ChatTimelineItem.displayItems(chat.rows, running: chat.running).last?.id, id)
+        XCTAssertTrue(ChatTimelineItem.displayItems(chat.rows, running: chat.running).last!.awaitingActivity)
+        apply("thinking_live", "")
+        XCTAssertTrue(ChatTimelineItem.displayItems(chat.rows, running: chat.running).last!.awaitingActivity)
+        XCTAssertEqual(ChatTimelineItem.displayItems(chat.rows, running: chat.running).last?.id, id)
+        apply("thinking_delta", "Vérification des sources")
+        let thought = ChatTimelineItem.displayItems(chat.rows, running: chat.running).last!
+        XCTAssertEqual(thought.id, id); XCTAssertFalse(thought.awaitingActivity)
+        XCTAssertEqual(thought.rows.last?.text, "Vérification des sources")
+        apply("tool", "", ["name": "__thinking-step", "detail": "Comparaison des résultats"])
+        let heading = ChatActivityPresentation.current(in: ChatTimelineItem.displayItems(chat.rows, running: true).last!.rows, active: true)!
+        XCTAssertEqual(ChatActivityPresentation(row: heading, turnRunning: true).summary, "Comparaison des résultats")
+        apply("thinking", "Vérification des sources")
+        apply("tool_update", "Recherche", ["name": "web_search", "id": "search", "status": "inProgress"])
+        let tool = ChatTimelineItem.displayItems(chat.rows, running: chat.running).last!
+        XCTAssertEqual(tool.id, id); XCTAssertEqual(tool.rows.count, 3)
+        XCTAssertEqual(tool.rows.last?.toolName, "web_search")
+        apply("done")
+        let complete = ChatTimelineItem.displayItems(chat.rows, running: chat.running)
+        XCTAssertEqual(complete.last?.id, id)
+        XCTAssertFalse(complete.contains(where: \.awaitingActivity))
+    }
+    func testStreamingResponseDoesNotShowSecondThinkingLineAndCellsStayUnique() {
+        let rows: [RemoteChatModel.Row] = [
+            .init(id: "u", kind: "user", text: "Question", turn: "a"),
+            .init(id: "t1", kind: "thinking", text: "Une étape", turn: "a"),
+            .init(id: "t2", kind: "tool", text: "Une autre", turn: "b"),
+            .init(id: "text", kind: "text", text: "Réponse", turn: "b", isStreaming: true)
+        ]
+        let items = ChatTimelineItem.displayItems(rows, running: true)
+        XCTAssertEqual(Set(items.map(\.id)).count, items.count)
+        XCTAssertFalse(items.contains(where: \.awaitingActivity))
+        XCTAssertFalse(ChatTimelineItem.displayItems([], running: false).contains(where: \.awaitingActivity))
+        XCTAssertTrue(ChatTimelineItem.displayItems([], running: true).last!.awaitingActivity)
+    }
 }

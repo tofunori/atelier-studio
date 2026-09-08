@@ -1,3 +1,4 @@
+import { ChatAnnotationBadges } from "./ChatAnnotationBadges";
 import {createNoteEditor,createSelectionActions} from "../../../gallery/src/studio/features/annotation_ui";
 // ChatTimeline (plan 015, correction 3) : composant de PRODUCTION de la
 // timeline — barre du reviewer, liste des tours (streaming/outils/résultats),
@@ -396,7 +397,7 @@ export function ChatTimeline(p: {
       stable.filter((r) => r.type === "rendered").map((r) => [r.key, r]),
     );
     return stable;
-  }, [events.length, renderedEvents, threadId, workingSince]);
+  }, [events.length, renderedEvents, threadId, workingSince, p.empty.home]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
   const derniereLigneTravail = React.useMemo(() => {
@@ -679,40 +680,6 @@ export function ChatTimeline(p: {
     }, 300);
     return () => window.clearInterval(id);
   }, [autoFollow, messagesRef, workingSince]);
-
-  // Pastilles numérotées : calculées depuis les Range des passages annotés et
-  // rendues dans un calque `position: fixed` — jamais insérées dans le DOM du
-  // markdown, que React reconstruit à chaque frame de streaming.
-  const [badges, setBadges] = React.useState<{ n: number; x: number; y: number; mark: Mark }[]>([]);
-  React.useEffect(() => {
-    const host = messagesRef.current;
-    if (!host || !marks.length) { setBadges([]); return; }
-    let frame = 0;
-    const compute = () => {
-      frame = 0;
-      const bounds = host.getBoundingClientRect();
-      const next: { n: number; x: number; y: number; mark: Mark }[] = [];
-      marks.filter(mark=>!mark.color).forEach((mark, i) => {
-        const ranges = findTextRanges(host, mark.text);
-        const rects = ranges[ranges.length - 1]?.getClientRects();
-        const rect = rects?.[rects.length - 1];
-        if (!rect) return;
-        // hors du scroller (virtualisation, défilement) : pas de pastille
-        if (rect.bottom < bounds.top + 2 || rect.top > bounds.bottom - 2) return;
-        next.push({ n: i + 1, x: rect.right, y: rect.top, mark });
-      });
-      setBadges(next);
-    };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(compute); };
-    compute();
-    host.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      host.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-    };
-  }, [marks, events, messagesRef]);
 
   React.useEffect(() => {
     phaseRef.current = phase;
@@ -1065,14 +1032,14 @@ export function ChatTimeline(p: {
               />
             );
           if (e.kind === "streaming")
-            return <StreamingText key={i} text={e.text} working={workingSince != null} streamKey={item.key} />;
+            return <StreamingText key={i} text={e.text} working={workingSince != null} streamKey={`${threadId ?? "home"}:${item.key}`} />;
           if (e.kind === "text")
             return (
               <React.Fragment key={i}>
                 <AssistantText
                   event={e}
                   index={i}
-                  streamKey={item.key}
+                  streamKey={`${threadId ?? "home"}:${item.key}`}
                   timeFormat={defaults.timeFormat}
                   pinned={pins.some((c) => c.index === i)}
                   onFork={onFork}
@@ -1319,19 +1286,7 @@ export function ChatTimeline(p: {
       {quote && !noteDraft && (
         <div className="sel-toolbar atelier-chat-selection" ref={selToolbarRef} style={{left:selToolbarLeft ?? quote.x,top:quote.y-44}} />
       )}
-      {badges.map((badge) => (
-        <RowButton
-          key={badge.mark.text}
-          className="anno-badge atelier-annotation-number"
-          style={{ left: badge.x, top: badge.y }}
-          title={badge.mark.note || t("chat.annotation-no-note")}
-          onClick={() => setNoteDraft({
-            x: badge.x, y: badge.y + 18, text: badge.mark.text, note: badge.mark.note ?? "",
-          })}
-        >
-          {badge.n}
-        </RowButton>
-      ))}
+      <ChatAnnotationBadges hostRef={timelineWrapRef} marks={marks} revision={events} onOpen={setNoteDraft} />
       {noteDraft && (
         <div className="atelier-chat-note" ref={annoEditorRef} role="dialog" aria-label={t("chat.annotate")} style={{left:noteDraft.x,top:noteDraft.y-44}} />
       )}

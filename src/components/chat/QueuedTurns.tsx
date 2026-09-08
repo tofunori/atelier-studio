@@ -8,14 +8,8 @@ import {
 } from "lucide-react";
 import type { FollowUpMode, QueuedTurn } from "../../lib/chatDraftStore";
 import { t } from "../../lib/i18n";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../shadcn/dropdown-menu";
 import { IconButton, RowButton } from "../ui";
+import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 
 export function QueuedTurns({
   turns,
@@ -34,6 +28,7 @@ export function QueuedTurns({
   followUpMode: FollowUpMode;
   onFollowUpModeChange?: (mode: FollowUpMode) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   if (!turns.length) return null;
@@ -101,29 +96,46 @@ export function QueuedTurns({
             >
               <Trash2Icon aria-hidden="true" />
             </IconButton>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={(
-                  <RowButton className="queued-turn-icon" aria-label={t("queue.more")} title={t("queue.more")}>
-                    <MoreHorizontalIcon aria-hidden="true" />
-                  </RowButton>
-                )}
-              />
-              <DropdownMenuContent side="top" align="end" sideOffset={6} className="queued-turn-menu tw:w-48">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={() => onEdit(turn.id)}>
-                    <PencilIcon aria-hidden="true" />
-                    <span>{t("queue.edit")}</span>
-                  </DropdownMenuItem>
-                  {onFollowUpModeChange ? (
-                    <DropdownMenuItem onClick={() => onFollowUpModeChange(followUpMode === "queue" ? "steer" : "queue")}>
-                      <CornerUpRightIcon aria-hidden="true" />
-                      <span>{t(followUpMode === "queue" ? "queue.disable" : "queue.enable")}</span>
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <LazyDropdownMenu
+              open={menuOpen === turn.id}
+              onOpenChange={(open) => setMenuOpen(open ? turn.id : null)}
+              side="top"
+              align="end"
+              sideOffset={6}
+              className="queued-turn-menu tw:w-48"
+              label={t("queue.more")}
+              trigger={
+                <RowButton className="queued-turn-icon" aria-label={t("queue.more")} title={t("queue.more")}>
+                  <MoreHorizontalIcon aria-hidden="true" />
+                </RowButton>
+              }
+              items={[
+                {
+                  key: "edit",
+                  label: (
+                    <>
+                      <PencilIcon aria-hidden="true" />
+                      <span>{t("queue.edit")}</span>
+                    </>
+                  ),
+                  onSelect: () => onEdit(turn.id),
+                },
+                ...(onFollowUpModeChange
+                  ? [
+                      {
+                        key: "follow-up",
+                        label: (
+                          <>
+                            <CornerUpRightIcon aria-hidden="true" />
+                            <span>{t(followUpMode === "queue" ? "queue.disable" : "queue.enable")}</span>
+                          </>
+                        ),
+                        onSelect: () => onFollowUpModeChange(followUpMode === "queue" ? "steer" : "queue"),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           </div>
         </div>
       ))}

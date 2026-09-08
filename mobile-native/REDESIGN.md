@@ -191,3 +191,274 @@ une amélioration distincte, non intégrée à cette version.
 - Le retour au bas termine désormais sa tâche à partir de la position UIKit réelle, avec une attente maximale de deux secondes environ. Il attend aussi la stabilisation de la hauteur du contenu, pour absorber les dimensions tardives des messages WebKit. Un geste de lecture annule la tâche ; l’anneau ne dépend plus d’un dernier événement de géométrie SwiftUI.
 - 67 XCTest réussis avant le dernier ajustement du délai de stabilisation ; builds simulateur et appareil réussis après cet ajustement. Revue indépendante sans blocage. Essai final sur douze longues réponses : un seul appui rejoint « Fin du fil » et fait disparaître l’anneau.
 - Ouverture visuelle vérifiée des trois destinations du panneau ; Photos et Fichiers annulés sans import. Simulateur remis en fonctionnement normal après les scénarios. Signature, installation et lancement sur l’iPhone physique réussis à 22 h 17.
+
+## Accès complet permanent et sélection directe — 6 septembre, 23 h 08
+
+- À la demande explicite de l’utilisateur, le mode Accès complet devient le défaut global des chats iPhone. Il est sauvegardé séparément des options par conversation ; les anciennes sessions adoptent ce défaut. Un changement explicite ultérieur reste conservé globalement. Les assistants sans politique réglable conservent leur mode effectif standard sans effacer le choix global destiné aux autres assistants.
+- Le moteur Codex Rust et son équivalent JavaScript accordent les autorisations classiques et les consentements MCP sans champs avant le relais interactif en danger-full-access. Les modes form/openai/form/openaiForm et la métadonnée $schema sont couverts. Une saisie de données ou authentification URL n’est pas fabriquée automatiquement.
+- Validation : 20 tests Rust du parseur, 44 tests fournisseur JavaScript et suite sidecar 656 tests ; TypeScript et Vite réussis. Bundle Mac reconstruit puis relancé depuis le checkout ; processus vérifié et backend Rust HTTP 200/ok, nouveau hash 3a204f4584ce43b408758043bb941983. Pas de nouveau test réseau complet d’un appel gbrain réel.
+- Chat iPhone : retrait du menu contextuel de message qui interceptait l’appui long. Les actions restent dans les menus ellipsis, y compris la lecture vocale des messages utilisateur. « Ajouter au chat » est inséré à la racine du menu d’édition WebKit ; capture du passage et callback différé après fermeture. Suppression du bouton additionnel sous la réponse. Texte simple et enrichi partagent le libellé.
+- 70 XCTest réussis, incluant la migration du mode global, la persistance, les assistants sans modes et une citation Unicode après effacement de sélection. Essai visuel natif : appui long sur « Columbia » dans un tableau enrichi, menu « Ajouter au chat / Copy / Look Up », ajout du texte exact au-dessus du brouillon et ouverture du clavier. Scénario local remis en mode normal après validation. Revue indépendante effectuée ; conservation de la lecture vocale ajoutée après sa remarque.
+
+## Annotations de lecture et messages en attente — 6 septembre, 23 h 32
+
+- Lecture LaTeX : menu natif « Ajouter au chat / Annoter », avec citation directe distincte de la remarque. Fiche compacte, sauvegarde locale atomique des notes, compteur, liste et reprise des remarques dans le brouillon sans l’effacer. Les citations incluent la source exacte et leurs lignes. Le stockage utilise le projet et l’identifiant stable du fichier distant ; deux fichiers homonymes restent séparés.
+- Les ancrages UTF-16 conservent les occurrences répétées et l’empreinte du source. Le surlignage WebKit utilise CSS Highlight sans insérer de balises dans le texte ; toucher un passage surligné ouvre sa remarque. Le nombre d’occurrences est contrôlé aussi côté DOM : un commentaire LaTeX masqué ne doit pas déplacer le surlignage. Après modification du source, les notes restent lisibles et modifiables, mais leur surlignage est suspendu.
+- Les messages préparés apparaissent au bas du chat avec menu Modifier / Intervenir (Steer) / Annuler. L’éditeur conserve le brouillon courant et suspend immédiatement la file. Les échecs avant transmission restent modifiables ; après une transmission incertaine, la reprise conserve identifiant, mode et autorisation du premier envoi. L’intervention est proposée seulement si le fournisseur l’annonce.
+- Validation finale : 82 XCTest réussis ; tests du renderer Markdown, sécurité HTML, occurrences répétées, surlignage après réconciliation et refus des comptes divergents réussis. Revue indépendante des notes, du menu et des reprises de file ; corrections intégrées. Diff des sources propre ; le bundle JavaScript généré conserve des espaces de template literals de highlight.js signalés par git diff --check.
+- Simulateur : menu natif Ajouter au chat / Annoter observé après appui long ; surlignage « glacier », liste, modification et sauvegarde de remarque vérifiés ; ajout au chat avec brouillon préexistant et source exacte observé. Menu de file, modification d’un message, conservation du brouillon et annulation du second vérifiés. Les erreurs prétransmission et reprises sont couvertes par les tests ; aucune intervention Steer réelle sur un tour distant n’a été déclenchée. Simulateur relancé sans fixtures.
+- Build iPhone final réussi, signature stricte valide. Le lot actuel modifie uniquement l’app native ; le bundle Mac validé à 23 h 04 reste actif.
+- Installation physique réussie à 23 h 32 (bundle com.tofunori.atelier.companion, séquence 4820). La relance à 23 h 33 a été refusée par iOS parce que l’iPhone est verrouillé ; ouvrir l’app après déverrouillage reste à faire.
+
+## Retour dans l’app sans fil vide — 7 septembre, 7 h 29
+
+- Le passage réel en arrière-plan est distingué des transitions inactives (menus système, interruptions brèves). Au retour actif, une nouvelle génération de connexion remplace immédiatement le flux suspendu sans attendre sa temporisation. Les anciens retours asynchrones sont ignorés et leur tâche URLSession est annulée explicitement. Le catalogue des assistants charge indépendamment du flux.
+- Le transcript de la conversation courante est désormais sauvegardé avec ses identifiants d’événements et marqueurs de tours. Il se restaure avant toute requête réseau avec le brouillon et la position existants. Les lignes optimistes pending ne sont pas archivées ; running est déduit des tours réellement actifs, afin qu’un arrêt pendant upload ne bloque pas le chat au redémarrage. Les snapshots précédents restent lisibles.
+- Une reprise brève n’affiche pas de bannière de connexion pendant la première seconde ; une panne durable et une association expirée restent visibles. Les messages ne sont pas masqués pendant la synchronisation.
+- Validation : 88 XCTest réussis, dont reprise de streaming sans doublon, isolation des conversations, ancien snapshot, envoi interrompu, conservation du brouillon/position au retour actif et expiration de l’association. Revue indépendante : deux réserves corrigées (chargement initial du catalogue et état optimiste d’envoi).
+- Essai simulateur avec serveur localhost isolé et historique retardé de deux secondes : passage Home puis retour au même processus (52704), ouverture immédiate du nouveau flux et fermeture de l’ancien, transcript/brouillon conservés, nouveaux messages intégrés une seule fois. Le serveur temporaire a été arrêté et le simulateur relancé sans fixtures. Le scénario réseau réel Facebook/Google sur l’iPhone n’a pas été mesuré.
+- Build appareil réussi et signature stricte vérifiée ; changements de ce lot limités à l’app native iOS.
+- Installation iPhone réussie à 7 h 29 (séquence 4828), puis lancement confirmé à 7 h 30.
+
+## Fil vide et défilement du chat — 7 septembre, 7 h 47
+
+- Régression reproduite à l’écran sur douze longues réponses enrichies : un appui sur la flèche conduisait à une zone durablement vide avec la navigation UIKit directe. Les premières corrections de délai n’y suffisaient pas. Le retour et le suivi utilisent désormais ScrollViewReader et l’ancre chat-bottom, afin que SwiftUI affiche les lignes de destination. UIKit mesure encore l’arrivée ; il ne choisit plus l’offset du retour en bas.
+- Demandes de suivi regroupées sur une frame, navigation animée protégée des invalidations concurrentes et annulation des requêtes pendantes dès un geste manuel. La mesure du défilement est stockée hors de l’état invalidant tout le fil. La flèche reste une flèche, sans anneau ; elle disparaît à l’arrivée. Le contrôleur n’attend plus la stabilisation de la hauteur de toute la réponse.
+- Continuité WebKit : chaque nouvelle vue démarre avec une couverture UIKit contenant le texte, même si SwiftUI conserve rendered=true. Une capture de la zone visible peut préserver son apparence pendant le réveil du moteur ; cache limité à huit captures / 16 Mio. Les captures attendent la mise en page et la dernière mise à jour. Le retour au premier plan et le redémarrage d’un processus WebKit conservent cette couverture jusqu’à l’ACK après deux frames de rendu. Texte et sélection enrichie reprennent ensuite leur vue normale.
+- Essais visuels : le scénario initialement vide rejoint maintenant « Fin du fil » ; streaming au bas sans anneau persistant. Envoi réel au serveur localhost isolé depuis le début d’un fil long : fermeture du clavier, ancien contenu, nouveau message et réponse progressive restent affichés. Retour au même processus du simulateur avec réveil renderer retardé artificiellement de dix secondes : contenu conservé. Le serveur temporaire a été fermé et le simulateur relancé sans fixtures.
+- 96 XCTest réussis après modifications finales ; tests JavaScript renderer réussis, y compris ACK asynchrone de reprise. Revue indépendante finale sans réserve après correction de l’ACK prématuré. Build iPhone et signature stricte réussis. Ces observations ne constituent pas une mesure Instruments des pertes de frames sur toutes les conversations réelles de l’iPhone.
+- Installation physique réussie à 7 h 48 (séquence 4836), lancement confirmé à 7 h 48 min 46 s.
+
+### Appels d’outils lisibles — 7 septembre, 07 h 56
+
+Les lignes d’activité utilisent la police native body (17 pt à taille standard),
+une icône et un chevron, sans fil vertical. Le résumé replié reprend l’action
+courante (commande, recherche ou fichier) et la conserve après la fin du tour.
+Les marqueurs `__thinking` sans contenu sont masqués ; les réflexions réelles
+et les demandes d’autorisation restent accessibles. Les paramètres et résultats
+sont fusionnés par champ à chaque mise à jour, sans perdre la commande initiale.
+Les anciennes sauvegardes sans champs structurés restent décodables.
+
+Validation : 98 XCTest réussis ; revue indépendante avec correction du résumé
+après fin du tour ; simulateur avec quatre outils, ouverture du résultat de
+commande et code de sortie, puis progression repliée observée de « Recherche ·
+glacier albedo » à « Lecture de notes.md ». Build iPhone signé vérifié et
+installation confirmée sur l’appareil associé (séquence 4844). Ces changements
+sont limités au client SwiftUI natif.
+
+### Retour en bas : dernier échange matérialisé — 7 septembre, 08 h 10
+
+Écran noir reproduit après remontée/retour dans le simulateur avec douze longs
+échanges et une réponse de 80 ajouts. Une position mesurée proche du bas pouvait
+coexister avec un dernier message non dessiné : déplacer uniquement le repère
+hors de LazyVStack était insuffisant. Le dernier échange, à partir du dernier
+message utilisateur, reste maintenant dans la pile immédiate ; seul l’historique
+précédent est paresseux. La frontière reste stable pendant le streaming.
+Les grands retours sautent directement au bas, les petits gardent l’animation.
+Une destination bloquée est réessayée sans animation même à hauteur inchangée,
+et un dépassement inférieur n’est plus classé comme une arrivée réussie.
+
+Validation : 102 XCTest, revue indépendante ; trois parcours de retour visibles,
+dont streaming, remontée tactile puis retour, et remontée jusqu’au premier
+échange suivie du bouton vers la dernière ligne. Build iPhone réussi et signature
+vérifiée. Cela valide ces parcours reproduits, pas tous les longs fils possibles.
+
+### Défilement UIKit et contraste figure — 7 septembre, 08 h 32
+
+Les solutions précédentes (dernier échange immédiat et reprises répétées) ont
+été signalées comme une régression par l’utilisateur. Le chat utilise désormais
+NativeChatList, UITableView avec cellules SwiftUI UIHostingConfiguration et
+identifiants diffables stables. NativeChatView ne fait plus appel au pilote
+ChatScrollController ni au découpage du dernier échange. UIKit gère animation,
+réutilisation et mesure ; un geste manuel suspend le suivi. Les retours tiennent
+compte de Réduire les animations. Les callbacks de changement de conversation
+sont filtrés, et les états d’outils/actions finales sont rafraîchis séparément.
+
+Preuve du blocage précédent : /private/tmp/atelier-scroll-hang.sample.txt, thread
+principal occupé dans LazySubviewPlacements/AttributeGraph sur toute la capture.
+Après remplacement : /private/tmp/atelier-table-idle.sample.txt, 743/751
+échantillons du thread principal en attente normale. Ces captures courtes ne sont
+pas une mesure générale de FPS. Vidéo de 142 s :
+/private/tmp/atelier-table-scroll.mp4, remontée manuelle pendant le flux, retour
+au bas et retour depuis le début du fil ; aucune plage noire observée dans les
+captures examinées. 106 XCTest passent, dont quatre nouveaux tests de liste
+UIKit, et revue indépendante finale sans anomalie évidente.
+
+FigureAnnotationView utilise un bleu soutenu, un libellé blanc et un double
+contour blanc/bleu. Vérification simulateur sur figure moitié claire/moitié
+sombre avec sélection traversante. Build iPhone réussi, signature vérifiée.
+La comparaison directe avec ChatGPT n’a pas été possible : Mac verrouillé.
+
+### 7 septembre, 09:05 — outils défilants et correction des hauteurs du chat
+
+Les détails d’un outil déplié sont contenus dans une carte à défilement vertical
+et horizontal (240 pt pour la zone de code), avec catégorie et état persistants.
+Validation visuelle : 100 lignes, passage de la ligne 1 à la ligne 7 sans déplacer
+le titre ni l’étape suivante.
+
+Le défilement UIKit précédent restait incorrect : la trace montrait une perte
+de 652 pt de hauteur du fil pendant un geste manuel, sans rappel automatique.
+Le redimensionnement automatique des cellules est maintenant désactivé. Chaque
+hauteur réellement rendue est publiée avec sa disponibilité dans une préférence
+atomique, conservée indépendamment de la cellule et appliquée sans animation.
+Une vue de chargement ne remplace plus cette mesure. Un cache de huit cellules
+hors écran garde les rendus récents; les mesures subsistent après leur éviction.
+Le texte brut temporaire n’est plus substitué au rendu Markdown à l’apparition;
+les événements texte encore vides ne créent pas de cellule.
+
+Le suivi utilise une tolérance de 1 pt (36 pt reste le seuil de proximité destiné
+à l’interface). La lecture manuelle conserve son ancre; aucune réassignation de
+position identique ne vient couper la décélération. Les signets attendent la
+mesure du message avant d’appliquer leur décalage interne. Le retour-bas annule
+une restauration en attente et les mesures tardives sont filtrées par génération
+de conversation.
+
+Validation : 112 tests XCTest passent, compilation iPhone et vérification stricte
+de signature réussies. Sur le même geste en simulateur, la nouvelle trace ne
+montre plus de changement de hauteur sur les messages terminés. Pendant une
+réponse progressive, la décélération se poursuit à travers trois augmentations
+de hauteur (1688,33 → 1859,33 pt), sans rappel automatique vers le bas.
+Retour-bas final vérifié après la lecture manuelle. Revue indépendante appliquée.
+Référence consultée : Apple, WWDC22 « What’s new in UIKit », section sur les
+animations du redimensionnement des cellules; recherche Firecrawl et lecture du
+cas de réutilisation UIHostingConfiguration publié par Lucas van Dongen.
+
+Après confirmation explicite de l’utilisateur, le build iPhone final a été
+installé à 09:07 (com.tofunori.atelier.companion, séquence 4876). La fluidité sur
+l’appareil physique reste à confirmer; les parcours décrits ci-dessus ont été
+observés en simulateur.
+
+### 7 septembre, 09:14 — connexion discrète dans le titre
+
+Le statut de connexion apparaît sous la forme d’un point de 6 pt à côté du titre :
+vert connecté, orange connexion/reconnexion, gris inactif et rouge association
+requise. Le titre conserve sa couleur principale. Un toucher ouvre un petit
+popover contenant le statut, l’explication complète et Réessayer si applicable.
+Le libellé accessible indique aussi l’état de connexion.
+
+Les erreurs de connexion ont leur propre propriété connectionError : elles ne
+s’affichent plus sous le fil, contrairement aux erreurs d’envoi ou d’outil.
+Le bandeau de statut au-dessus du fil et le bouton de reconnexion dans le footer
+sont retirés. Le scénario simulateur de reconnexion confirme le point orange,
+l’absence de texte sous le chat et le détail complet dans le popover.
+112 tests XCTest passent, build iPhone et signature vérifiés. Installé sur
+l’iPhone à 09:13 (séquence 4884).
+
+### 7 septembre, 09:20 — saisie compacte puis développée au focus
+
+NativeComposerView affiche au repos une ligne de 52 pt avec +, Message…, micro
+et envoi/arrêt. Au focus, le même TextField reste monté, devient multiligne
+(jusqu’à cinq lignes) et les commandes modèle/effort apparaissent sur la ligne
+inférieure. Les citations et pièces jointes restent visibles. L’envoi, l’arrêt
+et l’ajout à la file conservent leurs conditions précédentes.
+
+Compilation simulateur/iPhone et signature vérifiées. Parcours visuel : barre
+compacte, focus → champ développé, saisie d’un brouillon, ouverture/fermeture du
+modèle → texte conservé. Le clavier logiciel n’a pas été observé dans ce parcours
+(le simulateur utilisait le clavier matériel et le Mac était verrouillé).
+Build installé sur l’iPhone à 09:20, séquence 4892. Pas de nouveau test XCTest
+spécifique pour cette modification de présentation.
+
+### 2026-09-07 — libellés Steer et contrôles du composeur
+
+- Le marqueur interne `__steered` s’affiche comme « Steered », avec une flèche de redirection. Le menu du message en attente affiche « Steer » et « Check Steer » pour vérifier une tentative.
+- Nom du modèle en `subheadline`, chevron de 13 points et indicateur de réflexion de 24 points dans le composeur (zone tactile de 44 points).
+- Builds simulateur et iPhone réussis ; signature vérifiée, composeur déplié inspecté dans le simulateur. Mise à jour installée sur l’iPhone (séquence 4900). Ouverture automatique refusée par iOS car l’appareil était verrouillé ; lancement physique non confirmé.
+
+### 2026-09-07 — Calculs sur iPhone (maquette)
+
+Nouvelle destination Calculs dans le menu latéral, conservée au retour dans l’app. Liste compacte filtrable Tous/Mac/NAS/Narval ; cartes avec projet, état, étape, durée et avancement quand il est connu. Fiche au toucher avec dernières nouvelles. Exemples explicitement simulés, sans connexion aux processus ni commande de contrôle. Le futur raccordement peut reprendre le contrat `computeSnapshot` de `src/components/CalculsSurface.tsx`.
+
+Validation : revue indépendante statique sans problème signalé, builds simulateur/iPhone réussis, signature vérifiée. Navigation depuis le menu, fiche et filtre Narval vérifiés dans le simulateur. Installée sur iPhone (séquence 4908), ouverture confirmée. Suivi réel des calculs non implémenté à ce stade de maquette.
+
+### 2026-09-07 — Calculs : raccordement réel
+
+La surface native utilise désormais `GET /remote/v1/compute?host=all|mac|nas|narval` et `GET /remote/v1/compute/log?runId=…`. La passerelle exige `files:read` et relaie exclusivement les commandes de lecture desktop `computeSnapshot` (7 jours) et `computeReadLog` (100 lignes). UUID de corrélation par requête et délai global de 90 secondes. Aucun contrôle, arrêt ou lancement de processus ajouté.
+
+L’iPhone distingue les hôtes inaccessibles, le relevé vide et la progression inconnue. Le dernier relevé est conservé sur erreur de transport et daté ; un changement d’hôte ou d’association efface l’ancien relevé. Actualisation visible/active seulement, 30 s Mac et 60 s distant, ainsi que geste tirer pour actualiser. Dernières lignes sélectionnables dans la fiche. La maquette web conserve ses exemples explicitement simulés.
+
+Validation : 35 tests Rust de passerelle, 114 tests iOS et 656 tests sidecar réussis ; TypeScript et Vite passent. Revue indépendante statique sans blocage. Signature iPhone vérifiée et installation séquence 4916. Validation du bundle Mac et du parcours connecté consignée après relance.
+
+Validation connectée : bundle Mac reconstruit et relancé depuis ce checkout (tauri-app 97924, sidecar 97996, gateway 98104 ; serveurs galerie anciens nettoyés). Dans le simulateur associé, le relevé réel affiche Copernicus 02-03 2017–2023 sur NAS (0/275 fichiers), le run 2014 terminé (68/68 lots) et un run local ; ouverture de la fiche NAS et lecture de ses dernières lignes confirmées. Narval renvoie actuellement « authentification SSH Narval requise », visible comme erreur partielle. Aucun état Narval actuel affirmé au-delà de cette erreur.
+Ouverture de l’app installée sur l’iPhone physique confirmée par devicectl après la mise à jour Mac.
+
+### 2026-09-07 — Prévention des passerelles orphelines
+
+Incident : après remplacement du sidecar, un ancien `atelier-remote-gateway` gardait le port 18765. Le démarrage suivant écrivait son PID avant d’avoir acquis le port ; un simple test TCP validait ensuite la réponse de l’ancien processus. Le lock pouvait ainsi désigner un processus déjà terminé, tandis que le téléphone restait relié à l’ancien moteur.
+
+Correction dans `src-tauri/src/remote_gateway.rs` : verrou interprocessus au démarrage, priorité au lock partagé actuel, rejet d’une tâche planifiée pour un ancien sidecar, recherche du véritable propriétaire du port indépendamment du lock, arrêt limité au binaire gateway du même utilisateur, attente de libération du port. Le lock n’est écrit qu’après vérification du child vivant et propriétaire de l’écoute. Un PID réutilisé par un autre programme n’est pas signalé. Test de régression avec un ancien listener et un nouveau child qui ne possède pas son port.
+
+Vérification : 8 tests du cycle de vie et 656 tests sidecar passent ; TypeScript/Vite valides ; revue indépendante sans blocage. La passerelle a été rétablie au préalable en conservant devices.json et les associations. Livraison du bundle installée après validation runtime.
+Livraison validée : bundle du checkout testé (gateway 76413), puis installation propre dans /Applications/Atelier.app avec signature stricte vérifiée. Au lancement installé : gateway 79134 réellement propriétaire de 18765, sidecar 61906 et empreinte concordants, /remote/health HTTP 200. Le simulateur déjà associé recharge les conversations et affiche « Mac connecté » dans le chat. Associations conservées ; bundle précédent sauvegardé dans /private/tmp/Atelier-before-gateway-fix-20260907.app.
+
+### Chargement des longs chats — 2026-09-07
+
+- Décodage JSON de l’historique hors du MainActor, puis application par lots de
+  128 événements avec restitution à l’interface entre les lots.
+- Index temporaire des lignes/turns pendant chaque lot; reconstruction après
+  suppression, abandon avant suspension. Les gardes de conversation restent
+  appliquées entre les lots. Sauvegarde regroupée par lot.
+- Galerie, articles, calculs et document montés à leur première ouverture puis
+  conservés pour préserver leur état de navigation.
+- Mesure simulateur, 6 000 événements / 3 000 messages : reconstruction initiale
+  2,843 s avant, 0,100 s après en lots de production. Cela exclut le transfert
+  réseau et le rendu. Replay doublonné : 0,111 s.
+- Validation : 116 tests iOS réussis, dont équivalence des contenus/ordre/outils,
+  suppression des lignes optimistes et streaming périmé. Revue indépendante
+  sans blocage. Fil `--chat-render-fixture --long-history-fixture` affiché et
+  parcouru dans le simulateur avec le message « Question 1500 » visible.
+- Build iPhone signé et vérifié réussi. Installation actuellement empêchée par
+  l’état `unavailable` de l’iPhone dans CoreDevice; ne pas confondre avec une
+  installation effectuée ou une mesure de vitesse sur appareil physique.
+
+### Indicateur de réflexion — 2026-09-07
+
+« Préparation de la réponse » est remplacé par « Thinking », avec un reflet
+qui traverse le mot en 2,2 secondes. Animation confinée au libellé (30 Hz),
+hauteur stable, désactivée en arrière-plan et lorsque les animations sont
+réduites ou désactivées. VoiceOver : « Thinking ».
+Builds simulateur et iPhone réussis; affichage et libellé accessible vérifiés
+dans le simulateur avec `--chat-render-fixture --thinking-label-fixture`.
+Installation physique en attente, téléphone actuellement à distance.
+
+### Suggestions du composer — 2026-09-07
+
+- `/` en tête de message : catalogue des skills utilisateur/projet du Mac,
+  filtrage pendant la saisie et insertion sans envoi. `/model` et `/permissions`
+  ouvrent leurs réglages et conservent le texte qui suit la commande.
+- `@` après un espace : catalogue paginé des fichiers du projet; sélection
+  insère le nom et joint le fichier (limite existante de six pièces jointes).
+- Remplacement à la position du curseur, suffixe conservé; l’index de sélection
+  est validé contre le texte courant avant conversion UTF-16, car SwiftUI peut
+  publier la nouvelle sélection avant le nouveau texte.
+- Route authentifiée `threads/{id}/commands` : racine dérivée du fil stocké sur
+  le Mac, chemins locaux absents de la réponse. L’envoi d’un `/skill` reconnu
+  est résolu côté Mac et fournit son fichier au provider, tout en conservant
+  le message original dans l’historique.
+- Validation : 120 tests iOS, 37 tests passerelle, 656 tests sidecar, TypeScript,
+  Vite, parité galerie et 207 tests de différences réussis. Revue indépendante
+  sans blocage après correction de la conservation du suffixe du brouillon.
+- UI compilée : `/reda` → `/redaction-article`, `@man` → pièce jointe et mention
+  vérifiés en fixture; skills et fichiers réels vérifiés avec l’association
+  existante du simulateur. Aucun message de test envoyé.
+- Mac construit selon le protocole, installé dans `/Applications/Atelier.app`
+  et processus vérifié. Bundle iPhone construit et signature vérifiée;
+  installation physique toujours en attente du retour du téléphone.
+
+### Citations compactes dans les messages — 2026-09-07
+
+Le parseur de présentation reconnaît maintenant les passages ajoutés au composer
+(une seule nouvelle ligne avant « Passage cité », question libre) et les notes
+d’annotation (ligne vide, « Ma note »). Le document et sa localisation figurent
+dans une carte compacte; le commentaire reste visible. Toucher la carte ouvre
+le passage intégral dans une sheet consultable, sélectionnable et copiable.
+Le texte transmis et l’historique restent intacts; les messages anciens qui
+utilisent ces formats bénéficient également de l’affichage compact.
+
+La suppression d’un footer de pièces jointes exige les noms issus des métadonnées
+et une correspondance exacte du suffixe. Une question contenant « Ma note » ou
+« Pièces jointes » est conservée. Formats non reconnus : affichage original.
+
+125 tests iOS réussis, revue indépendante sans blocage, carte fermée et passage
+complet ouverts vérifiés dans le simulateur avec `--annotation-card-fixture`.
+Build iPhone signé vérifié; installation physique en attente, téléphone distant.

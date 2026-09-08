@@ -4,13 +4,11 @@ import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { normalizeMathDelimiters } from "../../lib/markdown";
-import { Badge } from "../shadcn/badge";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
-import { Button } from "../shadcn/button";
 import { Message, MessageContent, MessageGroup } from "../shadcn/message";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
-import { RowButton } from "../ui";
+import { Button, RowButton, StatusBadge, type BadgeStatus } from "../ui";
 import { MdBody, MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { ToolGlyph, activityIconForAction, activeToolLabel } from "./toolPresentation";
 
@@ -229,10 +227,11 @@ function statusLabel(agent: AgentDisplay) {
   return t("chat.subagent-failed");
 }
 
-function statusVariant(agent: AgentDisplay) {
-  if (agent.status === "failed") return "destructive" as const;
-  if (agent.status === "working") return "secondary" as const;
-  return "outline" as const;
+function statusTone(agent: AgentDisplay): BadgeStatus {
+  if (agent.status === "failed") return "error";
+  if (agent.status === "working") return "running";
+  if (agent.status === "done") return "success";
+  return "warning";
 }
 
 export function AgentDetailPanel({
@@ -277,7 +276,7 @@ export function AgentDetailPanel({
       <Separator />
       <ScrollArea className="agent-detail-scroll">
         <div className="agent-detail-body">
-          <Badge variant={statusVariant(agent)} role="status">{statusLabel(agent)}</Badge>
+          <StatusBadge status={statusTone(agent)} role="status">{statusLabel(agent)}</StatusBadge>
           {agent.prompt && !opaqueAgentText(agent.prompt) ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
           {(agent.model || agent.reasoningEffort) ? (
             <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>

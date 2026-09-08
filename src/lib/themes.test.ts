@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAppearanceTheme, xtermThemeFor } from "./themes";
+import { galleryLegacyThemeVars, resolveAppearanceTheme, themeContractVars, xtermThemeFor } from "./themes";
 
 describe("Appearance mode", () => {
   it("honors explicit light mode and preserves canonical dark tokens", () => {
@@ -19,5 +19,17 @@ describe("Appearance mode", () => {
     expect(terminal.background).toBe(resolved.vars["--bg-side"]);
     expect(terminal.foreground).toBe(resolved.vars["--fg"]);
     expect(terminal.red).toBe(resolved.ansi?.[1]);
+  });
+
+  it("keeps the gallery's secondary --fg alias at the iframe boundary", () => {
+    const raw: Record<string, string> = {
+      ...resolveAppearanceTheme({ themePreset: "atelier", theme: "dark" }, true).vars,
+      "--fg": "#custom-primary",
+    };
+    const contract = themeContractVars({ dark: true, vars: raw });
+    const gallery = galleryLegacyThemeVars({ vars: raw });
+    expect(contract["--fg"]).toBe("#custom-primary");
+    expect(contract["--text-primary"]).toBe("#custom-primary");
+    expect(gallery["--fg"]).toBe(raw["--fg2"]);
   });
 });

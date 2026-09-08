@@ -22,7 +22,6 @@ import {
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
-import { Button as ShadcnButton } from "../shadcn/button";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 import { Textarea } from "../shadcn/textarea";
 
@@ -231,7 +230,7 @@ export const UserTurn = memo(function UserTurn(p: {
               />
             </div>
             <div className="edit-actions">
-              <ShadcnButton
+              <Button
                 type="button"
                 variant="outline"
                 size="sm"
@@ -239,15 +238,16 @@ export const UserTurn = memo(function UserTurn(p: {
                 onClick={() => p.onEditingChange(null)}
               >
                 {t("action.cancel")}
-              </ShadcnButton>
-              <ShadcnButton
+              </Button>
+              <Button
                 type="submit"
+                variant="primary"
                 size="sm"
                 className="edit-send tw:rounded-full tw:px-3"
                 disabled={!p.editingText.trim()}
               >
                 {t("action.send")}
-              </ShadcnButton>
+              </Button>
             </div>
           </form>
         </div>

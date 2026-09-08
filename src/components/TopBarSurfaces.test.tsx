@@ -27,6 +27,11 @@ async function openMenu() {
   await act(async () => { await vi.dynamicImportSettled(); });
 }
 
+async function openSurfaceActions(label: string) {
+  fireEvent.click(screen.getByRole("menuitem", { name: label }));
+  await act(async () => { await vi.dynamicImportSettled(); });
+}
+
 beforeEach(() => {
   resetTestState();
   // Les épingles vivent dans localStorage : sans ce nettoyage, un cas qui en
@@ -95,11 +100,20 @@ describe("TopBarSurfaces", () => {
     expect(screen.getByText(t("atelier.biblio"))).toBeTruthy();
   });
 
+  it("ouvre les actions d'une surface au clavier", async () => {
+    renderUi(<TopBarSurfaces {...props()} />);
+    await openMenu();
+    const surface = screen.getByRole("menuitem", { name: t("atelier.connaissances") });
+    surface.focus();
+    fireEvent.keyDown(surface, { key: "ArrowRight" });
+    expect(await screen.findByRole("menuitem", { name: t("topbar.unpin") })).toBeInTheDocument();
+  });
+
   it("épingle depuis le menu, et le choix survit au remontage", async () => {
     const { unmount } = renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    const row = screen.getByText(t("atelier.calculs")).closest(".topbar-menu-row");
-    fireEvent.click(row!.querySelector(".topbar-menu-pin")!);
+    await openSurfaceActions(t("atelier.calculs"));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.pin") }));
     expect(readPinned()).toContain("calculs");
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);
 
@@ -112,9 +126,9 @@ describe("TopBarSurfaces", () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
     const before = readPinned();
-    const row = screen.getByText(t("atelier.connaissances")).closest(".topbar-menu-row");
     // Connaissances est en 3ᵉ position par défaut : une flèche gauche la remonte
-    fireEvent.click(row!.querySelectorAll(".topbar-menu-move")[0]);
+    await openSurfaceActions(t("atelier.connaissances"));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.move-up") }));
     const after = readPinned();
     expect(after.indexOf("connaissances")).toBe(before.indexOf("connaissances") - 1);
     expect(after).toHaveLength(before.length);
@@ -123,19 +137,19 @@ describe("TopBarSurfaces", () => {
   it("la première épinglée ne peut pas remonter, la dernière pas descendre", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    const rows = document.querySelectorAll(".topbar-menu-row");
-    const firstUp = rows[0].querySelectorAll(".topbar-menu-move")[0];
-    expect(firstUp.classList.contains("off")).toBe(true);
+    await openSurfaceActions(t("atelier.file-explorer"));
+    const firstUp = screen.getByRole("menuitem", { name: t("topbar.move-up") });
+    expect(firstUp).toHaveAttribute("data-disabled");
     fireEvent.click(firstUp);
     expect(readPinned()).toEqual(DEFAULT_PINNED);
   });
 
   it("accepte d'épingler au-delà de la sélection courte", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
-    await openMenu();
     for (const label of [t("atelier.calculs"), t("atelier.biblio"), t("atelier.browser")]) {
-      const row = screen.getByText(label).closest(".topbar-menu-row");
-      fireEvent.click(row!.querySelector(".topbar-menu-pin")!);
+      await openMenu();
+      await openSurfaceActions(label);
+      fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.pin") }));
     }
     expect(readPinned().length).toBe(DEFAULT_PINNED.length + 3);
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);

@@ -1,6 +1,9 @@
 // src/lib/streamCoalesce.test.ts
 import { describe, expect, it, vi } from "vitest";
 import { createStreamCoalescer, pacingBudget, STREAM_COALESCE_KINDS } from "./streamCoalesce";
+import { reduceHarnessEvent } from "./harnessEvents";
+import { makeMeta } from "../test/fixtures";
+import type { AgentEvent } from "./ws";
 
 describe("streamCoalesce", () => {
   it("connaît les kinds à lisser", () => {
@@ -77,6 +80,25 @@ describe("streamCoalesce", () => {
     }
     return { clock, now, raf, caf, fireIfPending, hasPending, advanceTo, jumpTo };
   }
+
+  it("préserve les paquets identifiés avec la déduplication du réducteur, avant le texte final", () => {
+    const { now, raf, caf, advanceTo } = makeHarness();
+    let transcript: AgentEvent[] = [];
+    const c = createStreamCoalescer((_id, ev) => {
+      transcript = reduceHarnessEvent(transcript, ev);
+    }, raf, caf, now);
+    const first = "Début du message. " + "Texte à conserver intégralement. ".repeat(8);
+    const second = "Suite du message. " + "Aucun fragment ne doit disparaître. ".repeat(5);
+    const event: AgentEvent = { kind: "delta", text: first, meta: makeMeta({ eventId: "packet-1", durable: false }) };
+    c.push("t1", event);
+    advanceTo(1000);
+    expect(transcript).toMatchObject([{ kind: "streaming", text: first }]);
+    c.push("t1", event); // répétition du réseau, toujours ignorée
+    c.push("t1", { kind: "delta", text: second, meta: makeMeta({ eventId: "packet-2", sequence: 2, durable: false }) });
+    advanceTo(1016);
+    c.flush("t1"); // un outil peut interrompre le lissage
+    expect(transcript).toMatchObject([{ kind: "streaming", text: first + second }]);
+  });
 
   it("pacingBudget : ne découpe jamais un paquet fin, quel que soit le débit", () => {
     expect(pacingBudget({ remainingLen: 8, rateCharsPerMs: null, dtMs: 16, ageMs: 0 })).toBe(8);
@@ -246,4 +268,21 @@ describe("streamCoalesce", () => {
     expect(revealed).toBe(120);
     expect(h.clock.t - t0).toBeLessThan(400);
   });
+});
+
+
+it("livre une rafale identifiée en un seul lot, puis flushe avant le terminal", () => {
+  let frame: (() => void) | undefined;
+  const single = vi.fn();
+  const batch = vi.fn();
+  const c = createStreamCoalescer(single, cb => { frame = cb; return 1; }, vi.fn(), () => 0, batch);
+  const events = Array.from({ length: 1000 }, (_, i) => ({ kind: "delta", text: "x", meta: makeMeta({ eventId: `batch-${i}` }) }));
+  for (const event of events) c.push("thread", event);
+  frame!();
+  expect(single).not.toHaveBeenCalled();
+  expect(batch).toHaveBeenCalledExactlyOnceWith("thread", events);
+  c.push("thread", { kind: "delta", text: "fin", meta: makeMeta({ eventId: "fin" }) });
+  c.flush("thread");
+  expect(batch).toHaveBeenCalledTimes(2);
+  expect(batch.mock.calls[1][1][0].text).toBe("fin");
 });

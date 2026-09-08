@@ -1,3 +1,4 @@
+import UIKit
 import Foundation
 
 @MainActor enum ChatPreviewFixture {
@@ -39,6 +40,136 @@ import Foundation
             .init(id: "preview-user", kind: "user", text: "Explique ce document.\n\nPièces jointes : notes.pdf", turn: "preview-turn", messageID: "preview-message"),
             .init(id: "preview-answer", kind: "text", text: response, turn: "preview-turn")
         ]
+        if ProcessInfo.processInfo.arguments.contains("--attachment-polish-fixture") {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 400)).image { context in
+                UIColor(red: 0.8, green: 0.88, blue: 0.93, alpha: 1).setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+                let mountain = UIBezierPath()
+                mountain.move(to: CGPoint(x: 0, y: 400)); mountain.addLine(to: CGPoint(x: 230, y: 55))
+                mountain.addLine(to: CGPoint(x: 600, y: 400)); mountain.close()
+                UIColor.white.setFill(); mountain.fill()
+                ("Glacier · aperçu" as NSString).draw(at: CGPoint(x: 28, y: 345),
+                    withAttributes: [.font: UIFont.systemFont(ofSize: 24), .foregroundColor: UIColor.darkGray])
+            }
+            let photo = GalleryArtifact(name: "Photo-test.jpg", data: image.jpegData(compressionQuality: 0.9))
+            workspace.chat.historyFiles["preview-render"] = ["photo-message": [photo], "document-message": [file]]
+            workspace.chat.rows = [
+                .init(id: "photo-user", kind: "user", text: "Peux-tu regarder cette image ?\n\nPièces jointes : Photo-test.jpg", turn: "photo-turn", messageID: "photo-message"),
+                .init(id: "document-user", kind: "user", text: "\n\nPièces jointes : notes.pdf", turn: "document-turn", messageID: "document-message")
+            ]
+            workspace.chat.attachments = [photo, file]
+            workspace.surface = .chat
+        }
+        if ProcessInfo.processInfo.arguments.contains("--long-history-fixture") {
+            workspace.chat.rows = (0..<1500).flatMap { turn in
+                [RemoteChatModel.Row(id: "long-user-\(turn)", kind: "user", text: "Question \(turn + 1)", turn: "long-\(turn)"),
+                 RemoteChatModel.Row(id: "long-answer-\(turn)", kind: "text", text: turn % 100 == 99 ? response : "Réponse \(turn + 1). " + String(repeating: "Le glacier réfléchit une partie du rayonnement solaire. ", count: 10), turn: "long-\(turn)")]
+            }
+            workspace.surface = .chat
+        }
+        if ProcessInfo.processInfo.arguments.contains("--annotation-card-fixture") {
+            let passage = String(repeating: "At the cell level, all 30 fire slopes are negative and have a 95% interval below zero.\n", count: 15)
+            let quote = RemoteChatModel.Quote(text: passage, sourceRowID: "document", sourceLabel: "results_en.tex · lignes 30–42")
+            workspace.chat.rows = [.init(id: "annotation-card", kind: "user", text: RemoteChatModel.promptWithQuote("Le problème avec les résultats, c’est que ça se lit comme une liste. Peux-tu améliorer l’enchaînement ?", quote: quote), turn: "annotation-card")]
+            workspace.surface = .chat
+        }
+        if ProcessInfo.processInfo.arguments.contains("--thinking-label-fixture") {
+            workspace.chat.running = true
+            workspace.surface = .chat
+        }
+        if ProcessInfo.processInfo.arguments.contains("--connection-dot-fixture") {
+            workspace.chat.connection = .reconnecting
+            workspace.chat.connectionError = "Le Mac est momentanément injoignable. Reconnexion automatique…"
+        }
+        if ProcessInfo.processInfo.arguments.contains("--resume-fixture") {
+            workspace.chat.resumeStore = nil
+            workspace.gallery = GalleryModel(address: URL(string: "http://127.0.0.1:8769")!, token: "local-fixture", session: URLSession(configuration: .ephemeral))
+            workspace.chat.isPreview = false
+            workspace.chat.select(.init(id: "resume-demo", title: "Retour dans Atelier", provider: "codex", model: nil, projectId: nil, status: "idle"), workspace: workspace)
+            workspace.chat.apply(["kind": "user", "text": "Ce fil reste visible quand je change d’app.", "meta": ["eventId": "resume-user", "turnId": "resume-turn"]])
+            workspace.chat.apply(["kind": "text", "text": "Le texte déjà reçu reste affiché pendant la reprise de connexion.", "meta": ["eventId": "resume-answer", "turnId": "resume-turn"]])
+            workspace.chat.apply(["kind": "done", "meta": ["eventId": "resume-done", "turnId": "resume-turn"]])
+            workspace.draft = "Mon brouillon reste ici."
+        }
+        if ProcessInfo.processInfo.arguments.contains("--figure-contrast-fixture") {
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 400))
+            let image = renderer.image { context in
+                UIColor(white: 0.96, alpha: 1).setFill(); context.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+                UIColor(white: 0.08, alpha: 1).setFill(); context.fill(CGRect(x: 300, y: 0, width: 300, height: 400))
+            }
+            if let data = image.pngData() {
+                try? workspace.openArtifact(GalleryArtifact(name: "Contraste.png", data: data), data: data)
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--reading-notes-fixture") {
+            workspace.readingNotes = DocumentReadingNotes(directory: nil)
+            let source = "\\section{Lecture}\n\nLa neige et la neige. Le \\textbf{glacier} reflète la lumière.\n\nCe passage permet de conserver une remarque et de la reprendre dans le chat."
+            let file = GalleryArtifact(name: "lecture.tex", data: Data(source.utf8))
+            try? workspace.openArtifact(file, data: Data(source.utf8))
+            workspace.documentMode = .reading
+            workspace.draft = "Mon brouillon conservé."
+            if ProcessInfo.processInfo.arguments.contains("--saved-notes-fixture") {
+                let range = (source as NSString).range(of: "glacier")
+                _ = try? workspace.readingNotes.upsert(documentKey: workspace.readingNoteKey, fileName: file.name,
+                    location: "ligne 3", selectedText: "glacier", sourceText: "glacier", sourceRange: range,
+                    source: source, note: "Préciser la période de mesure.")
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--pdf-compact-fixture") {
+            workspace.pdfAnnotations = PDFAnnotations(directory: nil)
+            if let data = WorkspaceModel.initialPDFData {
+                try? workspace.openArtifact(GalleryArtifact(name: "notes.pdf", data: data), data: data)
+                workspace.documentMode = .pdf
+                if let page = workspace.pdfDocument?.page(at: 0), let raw = page.string,
+                   let selection = page.selection(for: NSRange(location: 0, length: min(90, raw.utf16.count))) {
+                    let passage = DocumentPassage(documentID: workspace.documentID, fileName: "notes.pdf", location: "page 1", text: selection.string ?? "", regions: selection.selectionsByLine().map { .init(pageIndex: 0, bounds: $0.bounds(for: page)) })
+                    workspace.annotationDraft = AnnotationDraft(passage: passage)
+                }
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--scientific-notes-fixture") {
+            workspace.readingNotes = DocumentReadingNotes(directory: nil)
+            let source = "\\subsection*{Darkening is concentrated in three regions and seven summers}\n\nThree regions account for 61% of the cumulative attributable darkening: the Mackenzie and Selwyn Mountains (27%), Northern Alaska (18%) and the Northern Rocky Mountains (16%).\n\nThese shares refer to the full study period, rather than an individual summer."
+            let file = GalleryArtifact(name: "results_en.tex", data: Data(source.utf8))
+            try? workspace.openArtifact(file, data: Data(source.utf8))
+            workspace.documentMode = .reading
+            for (text, note) in [("the Mackenzie and Selwyn Mountains (27%), Northern Alaska (18%) and the Northern Rocky Mountains (16%)", "Préciser la période de référence."), ("These shares refer to the full study period", "")] {
+                let range = (source as NSString).range(of: text)
+                _ = try? workspace.readingNotes.upsert(documentKey: workspace.readingNoteKey, fileName: file.name, location: "lignes 88–90", selectedText: text, sourceText: text, sourceRange: range, source: source, note: note)
+            }
+            if let note = workspace.documentReadingNotes.first { workspace.annotationDraft = workspace.readingDraft(for: note) }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--queue-fixture") {
+            workspace.chat.providers = [.init(id: "codex", label: "Codex", models: ["GPT-6-Astra"], defaultModel: "GPT-6-Astra", efforts: [], ok: true, modelLabels: nil, capabilities: .init(permissionModes: ["default", "bypassPermissions"], steering: true))]
+            workspace.chat.running = true
+            workspace.draft = "Ajoute les incertitudes à cette comparaison."
+            workspace.chat.enqueue(workspace: workspace)
+            workspace.draft = "Présente ensuite les sources."
+            workspace.chat.enqueue(workspace: workspace)
+            workspace.draft = "Mon brouillon conservé."
+        }
+        if ProcessInfo.processInfo.arguments.contains("--tool-detail-fixture") {
+            workspace.chat.rows = [.init(id: "tools-user", kind: "user", text: "Vérifie les sources du bilan d’énergie.", turn: "tools")]
+            let events: [[String: Any]] = [
+                ["kind":"tool", "name":"__thinking"],
+                ["kind":"tool_update", "id":"search", "name":"web_search", "input":["query":"glacier surface energy balance"], "status":"completed", "output":"Deux sources trouvées."],
+                ["kind":"tool_update", "id":"read", "name":"read_file", "input":["path":"notes/bilan-energie.md"], "status":"completed", "output":"Le bilan comprend le rayonnement net et les flux turbulents."],
+                ["kind":"tool_update", "id":"cmd", "name":"Bash", "detail":"rg -n 'albedo' manuscript/main.tex", "status":"completed", "output":"42: albedo", "exitCode":0],
+                ["kind":"tool_update", "id":"edit", "name":"apply_patch", "input":["path":"manuscript/main.tex"], "status":"running"]
+            ]
+            for (index, event) in events.enumerated() {
+                var value = event; value["meta"] = ["turnId":"tools", "eventId":"tools-\(index)"]
+                workspace.chat.apply(value)
+            }
+            workspace.chat.apply(["kind":"started", "meta":["turnId":"tools"]])
+            workspace.chat.activityDisclosure["preview-render:tool:tools:search"] = true
+            if ProcessInfo.processInfo.arguments.contains("--tool-box-fixture") {
+                if let index = workspace.chat.rows.firstIndex(where: { $0.toolName == "Bash" }) {
+                    workspace.chat.rows[index].detail = (1...100).map { "ligne \($0): let résultat = analyser(glacier: \"Peyto\", année: 2014, conserverLesDétails: true)" }.joined(separator: "\n")
+                    workspace.chat.activityDisclosure["preview-render:tool:tools:search:detail:" + workspace.chat.rows[index].id] = true
+                }
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--activity-fixture") {
             workspace.chat.rows = [.init(id: "activity-user", kind: "user", text: "Compare ces sources et explique les étapes.", turn: "activity")]
             Task { @MainActor in
@@ -47,6 +178,10 @@ import Foundation
                     value["meta"] = ["turnId": "activity"]
                     workspace.chat.apply(value)
                 }
+                event("started")
+                try? await Task.sleep(for: .seconds(5))
+                event("tool", "", ["name": "__thinking"])
+                try? await Task.sleep(for: .seconds(3))
                 event("thinking_delta", "Je repère les sources pertinentes, puis je compare leurs résultats.")
                 try? await Task.sleep(for: .seconds(8))
                 event("thinking", "Je repère les sources pertinentes, puis je compare leurs résultats.")
@@ -98,6 +233,34 @@ import Foundation
                     workspace.chat.running = false
                 }
             }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--arrival-fixture") {
+            workspace.chat.bookmarks["preview-render"] = ChatBookmark(rowID: nil, followsTail: true)
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                workspace.chat.rows.append(.init(id: "arrival-user", kind: "user", text: "Ajoute une réponse progressivement.", turn: "arrival"))
+                workspace.chat.running = true
+                try? await Task.sleep(for: .seconds(1))
+                workspace.chat.rows.append(.init(id: "arrival-text", kind: "text", text: "", turn: "arrival", isStreaming: true))
+                let fragments = ("## Nouvelle réponse\n\n" + response + "\n\n" + response).components(separatedBy: " ")
+                for fragment in fragments {
+                    guard workspace.chat.isPreview else { return }
+                    if let index = workspace.chat.rows.firstIndex(where: { $0.id == "arrival-text" }) {
+                        workspace.chat.rows[index].text += fragment + " "
+                    }
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
+                if let index = workspace.chat.rows.firstIndex(where: { $0.id == "arrival-text" }) { workspace.chat.rows[index].isStreaming = false }
+                workspace.chat.running = false
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--send-scroll-fixture") {
+            workspace.chat.resumeStore = nil
+            workspace.gallery = GalleryModel(address: URL(string: "http://127.0.0.1:8769")!, token: "local-fixture", session: URLSession(configuration: .ephemeral))
+            workspace.chat.providers = [.init(id: "codex", label: "Codex", models: ["test"], defaultModel: "test", efforts: [], ok: true, modelLabels: nil, capabilities: .init(permissionModes: ["default", "bypassPermissions"]))]
+            workspace.chat.model = "test"
+            workspace.chat.isPreview = false
+            workspace.chat.reconnect()
         }
         #endif
     }

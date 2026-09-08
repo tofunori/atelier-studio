@@ -20,6 +20,7 @@ fn test_config(tmp: &std::path::Path) -> GatewayConfig {
         require_explicit_any_bind: true,
         max_body_bytes: 64 * 1024,
         min_retained_sequence: 0,
+        generated_images_dir: tmp.join("generated_images"),
     }
 }
 
@@ -28,7 +29,12 @@ async fn boot() -> (atelier_remote::GatewayHandle, String, String) {
     // leak tempdir for process lifetime of test handle — store path
     let path = tmp.keep();
     std::fs::create_dir_all(path.join("atelier")).unwrap();
-    let mut cfg = test_config(&path);
+    boot_with_config(test_config(&path)).await
+}
+
+async fn boot_with_config(
+    mut cfg: GatewayConfig,
+) -> (atelier_remote::GatewayHandle, String, String) {
     // Fix allowed hosts after bind — we'll update after we know port
     let handle = serve(cfg.clone()).await.expect("serve");
     let host = format!("127.0.0.1:{}", handle.port);
@@ -774,6 +780,7 @@ async fn refuse_any_bind_without_env() {
         require_explicit_any_bind: true,
         max_body_bytes: 1024,
         min_retained_sequence: 0,
+        generated_images_dir: tmp.path().join("generated_images"),
     };
     // Ensure env not set
     std::env::remove_var("ATELIER_REMOTE_ALLOW_ANY_BIND");
@@ -1065,5 +1072,275 @@ async fn send_forwards_explicit_permission_mode_and_keeps_default_for_old_client
             .json(&json!({"threadId":"permission-chat","prompt":"Test","clientRequestId":"invalid-mode","permissionMode":mode})).send().await.unwrap();
         assert_eq!(response.status(), 400);
     }
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn compute_is_authenticated_bounded_and_correlates_responses() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let c = client();
+    let url = format!("{base}/remote/v1/compute");
+    assert_eq!(c.get(&url).header("host", &host).send().await.unwrap().status(), 401);
+    let (_, token) = pair_device(&base, &admin, &host, "Compute phone").await;
+    assert_eq!(c.get(&url).query(&[("host", "unknown")]).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().status(), 400);
+    assert_eq!(c.get(format!("{url}/log")).query(&[("runId", "")]).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().status(), 400);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    h.state.inner.lock().await.config.sidecar_base = Some(format!("http://{}", listener.local_addr().unwrap()));
+    let stub = tokio::spawn(async move {
+        for kind in ["computeSnapshot", "computeReadLog"] {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(frame)) = ws.next().await {
+                let Ok(text) = frame.to_text() else { continue };
+                let value: Value = serde_json::from_str(text).unwrap();
+                if value["type"] == "clientHello" { continue; }
+                assert_eq!(value["type"], kind);
+                let response_type = if kind == "computeSnapshot" { "computeSnapshot" } else { "computeLog" };
+                let data = if kind == "computeSnapshot" {
+                    assert_eq!(value["hosts"], json!(["nas"])); assert_eq!(value["days"], 7);
+                    json!({"observedAt":"2026-09-07T13:00:00Z","runs":[],"errors":[{"host":"nas","code":"offline","message":"NAS indisponible"}]})
+                } else {
+                    assert_eq!(value["runId"], "nas:docker:run-1"); assert_eq!(value["tailLines"], 100);
+                    json!({"lines":["7/12 mois"],"truncated":true})
+                };
+                ws.send(Message::Text(json!({"type":response_type,"requestId":"another-request","data":{"wrong":true}}).to_string().into())).await.unwrap();
+                ws.send(Message::Text(json!({"type":response_type,"requestId":value["requestId"],"data":data}).to_string().into())).await.unwrap();
+                break;
+            }
+        }
+    });
+    let result: Value = c.get(&url).query(&[("host", "nas")]).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+    assert_eq!(result["errors"][0]["host"], "nas"); assert!(result.get("wrong").is_none());
+    let result: Value = c.get(format!("{url}/log")).query(&[("runId", "nas:docker:run-1")]).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+    assert_eq!(result["lines"], json!(["7/12 mois"])); assert_eq!(result["truncated"], true);
+    stub.await.unwrap(); h.shutdown().await;
+}
+
+#[tokio::test]
+async fn composer_commands_require_auth_and_use_the_selected_thread_project() {
+    let (h, admin, host) = boot().await;
+    let base = format!("http://{host}");
+    let project = tempfile::tempdir().unwrap();
+    let skill = project.path().join(".agents/skills/mobile-only-this-project");
+    std::fs::create_dir_all(&skill).unwrap();
+    std::fs::write(skill.join("SKILL.md"), "Project skill").unwrap();
+    {
+        let mut g = h.state.inner.lock().await;
+        g.threads.upsert(json!({"id":"composer-thread", "provider":"codex", "title":"Composer", "projectRoot":project.path()}), false).unwrap();
+    }
+    let url = format!("{base}/remote/v1/threads/composer-thread/commands");
+    assert_eq!(client().get(&url).header("host", &host).send().await.unwrap().status(), 401);
+    let (_, token) = pair_device(&base, &admin, &host, "Composer phone").await;
+    let body: Value = client().get(&url).header("host", &host).header("x-atelier-device-token", &token)
+        .send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+    let commands = body["commands"].as_array().unwrap();
+    assert!(commands.iter().any(|c| c["name"] == "mobile-only-this-project" && c["source"] == "project"));
+    assert!(commands.iter().all(|c| c.get("path").is_none()));
+    assert!(commands.iter().all(|c| c["name"] != "clear" && c["name"] != "goal"));
+    assert_eq!(client().get(format!("{base}/remote/v1/threads/missing/commands")).header("host", &host)
+        .header("x-atelier-device-token", &token).send().await.unwrap().status(), 404);
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn generated_image_requires_chat_and_files_read_and_never_accepts_a_path() {
+    let (h, admin, host) = boot().await;
+    let base = format!("http://{host}");
+    let (device_id, token) = pair_device(&base, &admin, &host, "image-security").await;
+    let event = json!({
+        "kind": "tool_update",
+        "id": "exec-image-security",
+        "name": "image_generation",
+        "output": "/etc/passwd",
+        "status": "completed",
+        "meta": {
+            "threadId": "image-security-thread",
+            "eventId": "image-security-event",
+            "durable": true
+        }
+    });
+    h.state
+        .inner
+        .lock()
+        .await
+        .fixture_history
+        .insert("image-security-thread".into(), vec![event]);
+    let url = format!(
+        "{base}/remote/v1/threads/image-security-thread/images/image-security-event"
+    );
+    let c = client();
+
+    assert_eq!(c.get(&url).header("host", &host).send().await.unwrap().status(), 401);
+
+    // A device with only files:read cannot use the chat event lookup.
+    let auth_path = {
+        let g = h.state.inner.lock().await;
+        g.auth.path().to_path_buf()
+    };
+    let mut data: Value = serde_json::from_str(&std::fs::read_to_string(&auth_path).unwrap()).unwrap();
+    data["devices"][0]["scopes"] = json!(["files:read"]);
+    std::fs::write(&auth_path, serde_json::to_string_pretty(&data).unwrap()).unwrap();
+    h.state.inner.lock().await.auth.reload().unwrap();
+    assert_eq!(
+        c.get(&url)
+            .header("host", &host)
+            .header("x-atelier-device-token", &token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+
+    // Conversely, chat:read alone cannot turn this into arbitrary file read.
+    data["devices"][0]["scopes"] = json!(["chat:read"]);
+    std::fs::write(&auth_path, serde_json::to_string_pretty(&data).unwrap()).unwrap();
+    h.state.inner.lock().await.auth.reload().unwrap();
+    assert_eq!(
+        c.get(&url)
+            .header("host", &host)
+            .header("x-atelier-device-token", &token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+
+    // Restore the paired grant: the journal's /etc/passwd output is still
+    // rejected, and a query-supplied path is ignored because this route has
+    // no path input beyond the opaque event reference.
+    data["devices"][0]["scopes"] = json!([
+        "chat:read", "chat:send", "chat:interact", "gallery:read", "files:read", "files:write"
+    ]);
+    std::fs::write(&auth_path, serde_json::to_string_pretty(&data).unwrap()).unwrap();
+    h.state.inner.lock().await.auth.reload().unwrap();
+    let response = c
+        .get(format!("{url}?path=/etc/passwd"))
+        .header("host", &host)
+        .header("x-atelier-device-token", &token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    let body = response.text().await.unwrap();
+    assert!(!body.contains("/etc/passwd"), "absolute path leaked: {body}");
+    assert!(!body.contains("root:"), "arbitrary file bytes leaked: {body}");
+
+    // Keep the variable meaningful for the revoke/reload assertion below and
+    // ensure a revoked device cannot replay an image fetch.
+    h.state.inner.lock().await.auth.revoke_device(&device_id).unwrap();
+    assert_eq!(
+        c.get(&url)
+            .header("host", &host)
+            .header("x-atelier-device-token", &token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn generated_image_serves_the_legacy_output_only_event_after_history_reload() {
+    // This is the durable event shape emitted before meta.itemId was added.
+    // Keep the bytes and storage tree temporary so CI exercises the HTTP
+    // success path without depending on a developer's ~/.codex state.
+    let tmp = tempfile::tempdir().unwrap();
+    let image = tmp
+        .path()
+        .join("generated_images/fixture-run/exec-legacy.png");
+    std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+    let expected = b"\x89PNG\r\n\x1a\nlegacy-output-only";
+    std::fs::write(&image, expected).unwrap();
+    let mut cfg = test_config(tmp.path());
+    cfg.generated_images_dir = tmp.path().join("generated_images");
+    let (h, admin, host) = boot_with_config(cfg).await;
+    let base = format!("http://{host}");
+    let (_, token) = pair_device(&base, &admin, &host, "image-legacy").await;
+    let thread_id = "3aeb7f6a-1d40-47df-b4a5-a7f64737af19";
+    let event_id = "e4c455e9-c202-4e3e-a80e-529f95089d4a";
+    let event = json!({
+        "kind": "tool_update",
+        "id": "exec-1f2483b3-32e2-42f3-b5fb-297affef41b0",
+        "name": "image_generation",
+        "output": image,
+        "status": "completed",
+        "meta": {
+            "threadId": thread_id,
+            "eventId": event_id,
+            "durable": true,
+            "sequence": 1
+        }
+    });
+    {
+        let mut g = h.state.inner.lock().await;
+        assert!(g.journal.append(&event));
+        // Recreate the journal handle to model a gateway process reload. The
+        // request below must resolve the event from durable JSONL state.
+        g.journal = atelier_store::HarnessJournal::new(&g.config.atelier_dir);
+    }
+
+    let response = client()
+        .get(format!(
+            "{base}/remote/v1/threads/{thread_id}/images/{event_id}"
+        ))
+        .header("host", &host)
+        .header("x-atelier-device-token", &token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(response.bytes().await.unwrap().as_ref(), expected);
+
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn generated_image_save_uses_thread_project_and_requires_write_scope() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = test_config(tmp.path());
+    let source = cfg.generated_images_dir.join("run/image.png");
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+    let bytes = b"\x89PNG\r\n\x1a\noriginal";
+    std::fs::write(&source, bytes).unwrap();
+    let project = tmp.path().join("project");
+    std::fs::create_dir(&project).unwrap();
+    let (h, admin, host) = boot_with_config(cfg).await;
+    let base = format!("http://{host}");
+    let (_, token) = pair_device(&base, &admin, &host, "save-test").await;
+    {
+        let mut g = h.state.inner.lock().await;
+        g.projects.register_project(&project, None);
+        g.threads.upsert(json!({"id":"save-thread","provider":"codex","projectRoot":project}), false).unwrap();
+        g.fixture_history.insert("save-thread".into(), vec![json!({"kind":"tool_update","name":"image_generation","status":"completed","output":source,"meta":{"threadId":"save-thread","eventId":"save-event","durable":true}})]);
+    }
+    let url = format!("{base}/remote/v1/threads/save-thread/images/save-event/gallery");
+    assert_eq!(client().post(&url).header("host",&host).send().await.unwrap().status(),401);
+    let mut first = String::new();
+    for _ in 0..2 {
+        let response = client().post(&url).header("host",&host).header("x-atelier-device-token",&token)
+            .json(&json!({"projectRoot":"/tmp/wrong-project"})).send().await.unwrap();
+        assert_eq!(response.status(),200);
+        let body: Value = response.json().await.unwrap();
+        let relative = body["relativePath"].as_str().unwrap();
+        assert_eq!(std::fs::read(project.join(relative)).unwrap(),bytes);
+        if first.is_empty() { first = relative.to_string(); } else { assert_eq!(first,relative); }
+    }
+    assert_eq!(std::fs::read_dir(project.join("images-generees")).unwrap().count(),1);
+    let auth_path = h.state.inner.lock().await.auth.path().to_path_buf();
+    let mut auth: Value = serde_json::from_slice(&std::fs::read(&auth_path).unwrap()).unwrap();
+    auth["devices"][0]["scopes"] = json!(["chat:read","files:read"]);
+    std::fs::write(&auth_path, serde_json::to_vec(&auth).unwrap()).unwrap();
+    h.state.inner.lock().await.auth.reload().unwrap();
+    assert_eq!(client().post(&url).header("host",&host).header("x-atelier-device-token",&token).send().await.unwrap().status(),403);
     h.shutdown().await;
 }

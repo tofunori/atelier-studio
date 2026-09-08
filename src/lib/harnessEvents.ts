@@ -165,6 +165,76 @@ function findThinkingLiveIdx(list: AgentEvent[], ev: AgentEvent): number {
   return -1;
 }
 
+type StreamEvent = Extract<AgentEvent, { kind: "delta" | "stream_set" | "thinking_delta" }>;
+function isStreamEvent(ev: AgentEvent): ev is StreamEvent {
+  return ev.kind === "delta" || ev.kind === "stream_set" || ev.kind === "thinking_delta";
+}
+
+/** Réduit un lot sans recopier/scanner l'historique à chaque fragment.
+ * Les runs compatibles partagent une copie et une recherche de destination.
+ * La dédup suit exactement les identités actuellement matérialisées : une
+ * ancienne identité disparaît quand la bulle adopte celle du delta suivant.
+ * Les outils, terminaux et changements d'identité restent des barrières. */
+export function reduceHarnessEvents(list: AgentEvent[], events: readonly AgentEvent[]): AgentEvent[] {
+  let out = list;
+  for (let start = 0; start < events.length;) {
+    const first = events[start];
+    if (!isStreamEvent(first)) {
+      out = reduceHarnessEvent(out, first);
+      start += 1;
+      continue;
+    }
+    const firstMeta = harnessMeta(first);
+    let end = start + 1;
+    while (end < events.length) {
+      const ev = events[end];
+      const meta = harnessMeta(ev);
+      if (ev.kind !== first.kind || Boolean(meta) !== Boolean(firstMeta)
+        || meta?.turnId !== firstMeta?.turnId || meta?.itemId !== firstMeta?.itemId) break;
+      end += 1;
+    }
+    if (end === start + 1) {
+      out = reduceHarnessEvent(out, first);
+      start = end;
+      continue;
+    }
+    const ids = new Map<string, number>();
+    for (const row of out) {
+      const id = harnessMeta(row)?.eventId;
+      if (id != null) ids.set(id, (ids.get(id) ?? 0) + 1);
+    }
+    let next = out;
+    let index = first.kind === "thinking_delta"
+      ? (lastIsAttachableThinking(out, first) ? out.length - 1 : -1)
+      : findStreamingIdx(out, first);
+    for (let i = start; i < end; i += 1) {
+      const ev = events[i] as StreamEvent;
+      const meta = harnessMeta(ev);
+      if (meta && ids.has(meta.eventId)) continue;
+      if (next === out) next = [...out];
+      if (index < 0) {
+        index = next.length;
+        next.push({ kind: ev.kind === "thinking_delta" ? "thinking_live" : "streaming",
+          text: ev.text, ts: stamp(ev), meta: ev.meta });
+      } else {
+        const row = next[index] as Extract<AgentEvent, { kind: "streaming" | "thinking_live" }>;
+        const oldId = harnessMeta(row)?.eventId;
+        if (oldId != null) {
+          const count = ids.get(oldId)!;
+          if (count === 1) ids.delete(oldId); else ids.set(oldId, count - 1);
+        }
+        next[index] = { ...row, text: ev.kind === "stream_set" ? ev.text : row.text + ev.text,
+          meta: ev.meta ?? row.meta };
+      }
+      const newId = harnessMeta(next[index])?.eventId;
+      if (newId != null) ids.set(newId, (ids.get(newId) ?? 0) + 1);
+    }
+    out = next;
+    start = end;
+  }
+  return out;
+}
+
 /**
  * Réduit UN événement dans la liste d'un thread. Pure : retourne une NOUVELLE
  * liste, ou la même référence si l'événement est un no-op (éphémère jamais
@@ -509,6 +579,22 @@ export function threadIsSettled(events: AgentEvent[]): boolean {
     return kind === "done" || kind === "error";
   }
   return false;
+}
+
+/** Recover a missed terminal without clearing a newer local send. Durable
+ * journals timestamp events in meta; legacy events timestamp their body. */
+export function reconcileWorkingSince(events: AgentEvent[], since: number | null): number | null {
+  if (since == null || !threadIsSettled(events)) return since;
+  let terminalIndex = events.length - 1;
+  while (REGLE_IGNORE.has(events[terminalIndex].kind)) terminalIndex -= 1;
+  const terminal = events[terminalIndex];
+  const timestamp = harnessMeta(terminal)?.ts ?? tsOf(terminal);
+  // Older journals can omit the terminal timestamp. Only preceding events
+  // provide evidence; a later heartbeat must not settle a newer submission.
+  const settledAt = timestamp ?? events.slice(0, terminalIndex).reduce(
+    (latest, event) => Math.max(latest, harnessMeta(event)?.ts ?? tsOf(event) ?? 0), 0,
+  );
+  return Number.isFinite(settledAt) && since <= settledAt ? null : since;
 }
 
 export function eventIdentity(ev: AgentEvent): string {

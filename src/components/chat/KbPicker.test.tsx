@@ -220,7 +220,7 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
 
 
 describe("KbPickerPanel — sélection multiple (plan 052)", () => {
-  it("mode sélection : groupe entier, lot vers collection, archivage groupé", () => {
+  it("mode sélection : groupe entier, lot vers collection, archivage groupé", async () => {
     const onBatchTag = vi.fn();
     const onBatchArchive = vi.fn();
     renderUi(
@@ -242,7 +242,10 @@ describe("KbPickerPanel — sélection multiple (plan 052)", () => {
     fireEvent.click(screen.getByText("PDF"));
     expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
     fireEvent.click(screen.getByText("Ajouter à…"));
-    fireEvent.click(screen.getByText("AGU26"));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "AGU26" }));
     expect(onBatchTag).toHaveBeenCalledWith(["aaaa1111"], "agu26");
     // la barre se ferme après l'action
     expect(screen.queryByText("Ajouter à…")).toBeNull();

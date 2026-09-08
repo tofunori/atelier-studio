@@ -136,7 +136,7 @@ test("CM6 exposes the official merge renderer behind the engine-neutral diff jou
   assert.match(source, /hideMergeDiff:/);
   assert.match(source, /unifiedMergeView/);
   assert.match(source, /allowInlineDiffs:\s*true/);
-  assert.match(source, /mergeControls:\s*false/);
+  assert.match(source, /mergeControls:\s*review\?\.onDecision/);
   assert.match(source, /collapseUnchanged/);
   assert.match(diffVersionsSource, /cm\.hasNativeMergeDiff/);
   assert.match(diffVersionsSource, /cm\.getViewportAnchor/);
@@ -197,7 +197,7 @@ test("all editor surfaces delegate document lifecycle to the shared TypeScript s
   for (const implementation of [latexSurfaceSource, codeSurfaceSource, markdownSurfaceSource]) {
     assert.match(implementation, /(?:AtelierStudioCore\.)?createDocumentSession/);
   }
-  assert.match(latexSurfaceSource, /externalReload:\s*["']always["']/);
+  assert.match(latexSurfaceSource, /externalReload:\s*["']when-clean["']/);
   assert.match(codeSurfaceSource, /externalReload:\s*["']always["']/);
   assert.match(markdownSurfaceSource, /externalReload:\s*["']when-clean["']/);
 });

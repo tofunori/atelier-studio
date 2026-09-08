@@ -29,6 +29,22 @@ function status(
   });
 }
 
+async function openBranchMenu() {
+  fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+}
+
+async function openBranchActions(branch: string) {
+  const trigger = await screen.findByRole("menuitem", { name: branch });
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+}
+
 beforeAll(() => {
   Element.prototype.getAnimations = () => [];
 });
@@ -62,8 +78,9 @@ describe("GitSurface staging-first", () => {
       status: { branch: "main", branches: ["main", "topic"], ahead: 0, behind: 0, files: [] },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
-    fireEvent.click(await screen.findByRole("button", { name: "topic" }));
+    await openBranchMenu();
+    await openBranchActions("topic");
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: t("git.switch-branch", { branch: "topic" }) }));
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
       type: "gitSwitchBranch",
       projectRoot,
@@ -122,8 +139,8 @@ describe("GitSurface staging-first", () => {
       status: { branch: "main", branches: ["main", "topic"], ahead: 0, behind: 0, files: [] },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
-    fireEvent.click(await screen.findByRole("button", { name: t("git.create-branch") }));
+    await openBranchMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: t("git.create-branch") }));
     fireEvent.change(screen.getByRole("textbox", { name: t("git.branch-name") }), {
       target: { value: "figures-2026" },
     });
@@ -135,8 +152,9 @@ describe("GitSurface staging-first", () => {
     }));
 
     emit("git-sync-done", { projectRoot, op: "create-branch", out: "figures-2026" });
-    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
-    fireEvent.click(await screen.findByRole("button", {
+    await openBranchMenu();
+    await openBranchActions("topic");
+    fireEvent.click(await screen.findByRole("menuitem", {
       name: t("git.merge-branch-into", { branch: "topic", current: "main" }),
     }));
     expect(screen.getByText(t("git.merge-branch-title", { branch: "topic", current: "main" }))).toBeTruthy();
@@ -148,8 +166,9 @@ describe("GitSurface staging-first", () => {
     }));
 
     emit("git-sync-done", { projectRoot, op: "merge-branch", out: "topic" });
-    fireEvent.click(screen.getByRole("button", { name: t("git.switch-branch", { branch: "main" }) }));
-    fireEvent.click(await screen.findByRole("button", { name: t("git.delete-branch-named", { branch: "topic" }) }));
+    await openBranchMenu();
+    await openBranchActions("topic");
+    fireEvent.click(await screen.findByRole("menuitem", { name: t("git.delete-branch-named", { branch: "topic" }) }));
     expect(screen.getByText(t("git.delete-branch-title", { branch: "topic" }))).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: t("git.delete-branch-action") }));
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({

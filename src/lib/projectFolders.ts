@@ -5,6 +5,20 @@ export type ProjectFolder = {
   gallery: boolean;
 };
 export type ProjectFolders = { mainGallery: boolean; folders: ProjectFolder[] };
+/** Resolve absolute chat links against associated folders, independent of gallery visibility. */
+export function resolveAssociatedFile(root: string, config: ProjectFolders | undefined, path: string) {
+  if (!path.startsWith("/")) return null;
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "..") parts.pop();
+    else if (part && part !== ".") parts.push(part);
+  }
+  const absolute = `/${parts.join("/")}`;
+  const folder = normalizeProjectFolders(root, config).folders
+    .filter(folder => absolute.startsWith(folder.path === "/" ? "/" : `${folder.path}/`))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  return folder ? { root: folder.path, rel: absolute.slice(folder.path === "/" ? 1 : folder.path.length + 1) } : null;
+}
 export function normalizeProjectFolders(root: string, value?: Partial<ProjectFolders>): ProjectFolders {
   const seen = new Set([root.replace(/\/+$/, "") || "/"]);
   const folders: ProjectFolder[] = [];

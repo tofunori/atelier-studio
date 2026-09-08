@@ -159,7 +159,7 @@ class FullscreenRegressionTests(unittest.TestCase):
         self.assertIn("if(EMB || el.tagName==='BUTTON') openInContext(rel);", gallery)
         self.assertIn("selectedRel=rel;\n  document.body.classList.remove('has-insp');\n  paintSelection();", gallery)
         self.assertNotIn("document.addEventListener('dblclick'", gallery)
-        self.assertIn("if(!EMB) lbFsToggle();", gallery)
+        self.assertNotIn("if(!EMB) lbFsToggle();", gallery)
 
     def test_orca_native_viewer_uses_notch_safe_image_area(self):
         viewer = (ROOT / "native_fullscreen_viewer.py").read_text()

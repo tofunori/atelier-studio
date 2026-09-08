@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTitle } from "../shadcn/popover";
 import { IconButton, RowButton } from "../ui";
 
 export type ProjMetaLite = { color?: string; label?: string };
+export type ProjectStyleAnchor = { x: number; y: number } | Element;
 
 // libellé accessible d'une icône : PROJ_ICONS n'a pas de traduction dédiée
 // (24 icônes purement décoratives) — un nom lisible dérivé de la clé vaut
@@ -23,7 +24,7 @@ export function ProjectStyleMenu(props: {
   /** ferme le popover — appelé après le choix d'une icône ou la validation de la lettre */
   onClose: () => void;
   /** point d'ancrage (coordonnées viewport du clic ou du bouton déclencheur) */
-  anchor: { x: number; y: number };
+  anchor: ProjectStyleAnchor;
   /** retire le projet de la liste — l'action n'apparaît que si fournie
       (le menu contextuel du rail la donne ; le popover « Personnaliser » du
       panneau déplié non, son menu ⋯ la porte déjà) */
@@ -32,6 +33,21 @@ export function ProjectStyleMenu(props: {
   className?: string;
 }) {
   const { root, meta, onSetMeta, onClose, anchor, className, onRemove } = props;
+  const anchorTarget = typeof Element !== "undefined" && anchor instanceof Element
+    ? anchor
+    : (() => {
+      const point = anchor as { x: number; y: number };
+      return {
+        getBoundingClientRect: () => ({
+          x: point.x, y: point.y, left: point.x, top: point.y,
+          right: point.x, bottom: point.y, width: 0, height: 0,
+          toJSON: () => ({}),
+        }),
+      };
+    });
+  const finalFocusRef = useRef<HTMLElement | null>(
+    typeof HTMLElement !== "undefined" && anchor instanceof HTMLElement ? anchor : null,
+  );
 
   const [appearance, setAppearance] = useState(!props.onProjectSettings && !onRemove);
   const backRef = useRef<HTMLButtonElement>(null);
@@ -50,13 +66,8 @@ export function ProjectStyleMenu(props: {
       align="start"
       sideOffset={4}
       className={["project-context-panel", className].filter(Boolean).join(" ")}
-      anchor={() => ({
-        getBoundingClientRect: () => ({
-          x: anchor.x, y: anchor.y, left: anchor.x, top: anchor.y,
-          right: anchor.x, bottom: anchor.y, width: 0, height: 0,
-          toJSON: () => ({}),
-        }),
-      })}
+      anchor={anchorTarget}
+      finalFocus={finalFocusRef}
     >
       <div className="project-context-heading">
         <span className="project-context-avatar" style={{ color: meta?.color }} aria-hidden="true">

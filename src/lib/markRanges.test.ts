@@ -39,3 +39,10 @@ describe("findTextRanges", () => {
     expect(findTextRanges(root("<p>albédo</p>"), "")).toHaveLength(0);
   });
 });
+
+it("ignores annotation numbers when matching quoted text", () => {
+  const host = root('<p>Version 1</p><button class="anno-badge">1</button>');
+  const ranges = findTextRanges(host, "1");
+  expect(ranges).toHaveLength(1);
+  expect(ranges[0].endContainer.parentElement?.tagName).toBe("P");
+});

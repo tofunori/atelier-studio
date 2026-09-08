@@ -7,18 +7,19 @@ import { Badge } from "../shadcn/badge";
 
 export type BadgeStatus = "neutral" | "running" | "success" | "warning" | "error";
 
-export function StatusBadge(props: {
+export type StatusBadgeProps = Omit<React.HTMLAttributes<HTMLSpanElement>, "children"> & {
   children: React.ReactNode;
   status?: BadgeStatus;
-  className?: string;
-  title?: string;
-}) {
-  const { children, status = "neutral", className, title } = props;
+};
+
+export function StatusBadge(props: StatusBadgeProps) {
+  const { children, status = "neutral", className, ...rest } = props;
   return (
     <Badge
       variant="secondary"
       className={cx("ui-badge", status !== "neutral" && `ui-badge--${status}`, className)}
-      title={title}
+      data-status={status}
+      {...rest}
     >
       <span className="dot" aria-hidden="true" />
       {children}

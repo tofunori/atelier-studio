@@ -42,6 +42,7 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
 // 0.144.6) ; les autres (gpt-5.1-codex*, mini, auto-review) ont un
 // `service_tiers` vide → contrôle désactivé côté UI, jamais de tier forcé.
 export const CODEX_FAST_TIER_MODELS = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

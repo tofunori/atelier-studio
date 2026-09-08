@@ -21,10 +21,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./
 import { Input } from "./shadcn/input";
 import { ScrollArea } from "./shadcn/scroll-area";
 import { Skeleton } from "./shadcn/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
 import { Button } from "./ui/Button";
 import { StatusBadge } from "./ui/StatusBadge";
-import { IconButton, RowButton, SegmentedControl } from "./ui";
+import { IconButton, RowButton, SegmentedControl, Select, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
 // Grappes Alliance surveillées (même contrat côté Rust : atelier-workspace
@@ -665,11 +664,17 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
                 />
                 <label className="narval-run-period">
                   <span>{t("narval.period")}</span>
-                  <select value={runDays} onChange={(event) => setRunDays(Number(event.target.value))}>
-                    <option value={7}>{t("narval.days-7")}</option>
-                    <option value={30}>{t("narval.days-30")}</option>
-                    <option value={90}>{t("narval.days-90")}</option>
-                  </select>
+                  <Select
+                    compact
+                    title={t("narval.period")}
+                    value={String(runDays)}
+                    onChange={(value) => setRunDays(Number(value))}
+                    options={[
+                      { value: "7", label: t("narval.days-7") },
+                      { value: "30", label: t("narval.days-30") },
+                      { value: "90", label: t("narval.days-90") },
+                    ]}
+                  />
                 </label>
               </div>
               )}

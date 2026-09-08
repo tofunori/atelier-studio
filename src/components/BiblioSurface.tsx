@@ -3,10 +3,9 @@ import { ArrowUpDownIcon, CheckIcon, FilePlus2Icon, PinIcon, QuoteIcon } from "l
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
-import { Select } from "./Select";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
-import { IconButton, RowButton, showError, showSuccess } from "./ui";
+import { IconButton, RowButton, Select, showError, showSuccess } from "./ui";
 import { ContextMenuTrigger } from "./shadcn/context-menu";
 import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu";
 import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";

@@ -7,8 +7,7 @@ import type { SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import { resolveAppearanceTheme, THEME_PRESETS } from "../../../lib/themes";
-import { Select } from "../../Select";
-import { Button, SegmentedControl } from "../../ui";
+import { Button, Select, SegmentedControl } from "../../ui";
 import { Input } from "../../shadcn/input";
 import { Slider as ShadcnSlider } from "../../shadcn/slider";
 

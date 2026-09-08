@@ -1,0 +1,12 @@
+/* Shared by the host chat and embedded editors: same narrow, quiet edge. */
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList){
+  --scroll-thumb:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 38%,transparent);
+  --scroll-thumb-hover:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 65%,transparent);
+  scrollbar-width:thin;
+  scrollbar-color:var(--scroll-thumb) transparent;
+}
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList)::-webkit-scrollbar{width:6px;height:6px}
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList)::-webkit-scrollbar-track{background:transparent}
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList)::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
+:is(.messages,.exp-tree,.cm-scroller,#right,#pickerList)::-webkit-scrollbar-corner{background:transparent}

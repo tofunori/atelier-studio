@@ -17,13 +17,22 @@ export {
   PopoverDescription,
 } from "./Popover";
 export { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
+export { Select, type SelectOption, type SelectOptionGroup } from "../Select";
 export { SurfaceHeader } from "./SurfaceHeader";
 export { EmptyState } from "./EmptyState";
 export { InlineNotice, type NoticeTone } from "./InlineNotice";
-export { StatusBadge, type BadgeStatus } from "./StatusBadge";
+export { StatusBadge, type BadgeStatus, type StatusBadgeProps } from "./StatusBadge";
 export { InspectorPanel } from "./InspectorPanel";
 export { ContextChip } from "./ContextChip";
-export { TabList, Tab } from "./Tabs";
+export {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  TabList,
+  Tab,
+  type TabProps,
+} from "./Tabs";
 export { ActivityDisclosure } from "./ActivityDisclosure";
 export { AppOverlays } from "./AppOverlays";
 export { showSuccess, showError, showInfo, showUndo } from "./toast";

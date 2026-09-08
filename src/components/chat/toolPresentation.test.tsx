@@ -214,6 +214,35 @@ describe("Codex-style activity presentation", () => {
     ])).toEqual([]);
   });
 
+  it("extrait l’artefact d’une génération Codex sans attendre un markdown final", () => {
+    const generated = tool("image-1", "image_generation", "Scientific map", {
+      status: "completed",
+      source: "codex",
+      output: "/tmp/map.png",
+      input: { revisedPrompt: "Scientific map", paths: ["/tmp/map.png"] },
+    });
+    expect(imagePathsForActions([generated])).toEqual(["/tmp/map.png"]);
+    // Un message d’erreur porté par output ne doit jamais être interprété
+    // comme un chemin local à ouvrir dans le WebView.
+    const missing = tool("image-2", "image_generation", "Scientific map", {
+      status: "failed",
+      source: "codex",
+      output: "Image générée introuvable : Codex n’a renvoyé aucun fichier.",
+      input: { error: "Image générée introuvable : Codex n’a renvoyé aucun fichier." },
+    });
+    expect(imagePathsForActions([missing])).toEqual([]);
+  });
+
+  it("écarte les URL temporaires qui ne survivent pas au rechargement", () => {
+    const generated = tool("image-urls", "image_generation", "Scientific map", {
+      output: "blob:image-1",
+      input: {
+        paths: ["file:///tmp/from-url.png", "blob:image-2", "relative/map.png", "/tmp/durable.png"],
+      },
+    });
+    expect(imagePathsForActions([generated])).toEqual(["/tmp/durable.png"]);
+  });
+
   it("réduit une commande shell à sa clause significative (rangée d'outil pro)", () => {
     const cmd = 'f=$(find . -name "panel_bayes_JJA.csv" 2>/dev/null | head -1); echo "FILE: $f"';
     const running = tool("c-sig", "Bash", cmd, { status: "inProgress", input: { command: cmd } });

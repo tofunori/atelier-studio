@@ -3,6 +3,8 @@
 mod catalog;
 mod compute;
 mod git;
+mod generated_images;
+pub use generated_images::save_generated_image;
 mod narval;
 mod pasted;
 mod scan;

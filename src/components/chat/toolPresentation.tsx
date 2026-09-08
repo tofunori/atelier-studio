@@ -372,24 +372,66 @@ export function toolCategory(name: string, detail?: string): ToolCat {
  * conversations déjà enregistrées gagnent aussi leur miniature. */
 export function imagePathsForActions(actions: ToolAction[]): string[] {
   const paths = actions.flatMap((action) => {
+    const generated = action.kind === "tool_update" && isImageGenerationName(action.name);
     // Seuls les outils d'IMAGE fournissent des chemins à prévisualiser : un
     // `input.path` est porté par n'importe quelle lecture (Read methods_en.tex
     // → vignette cassée, vécu 2026-08-21). Le nom de l'outil fait foi.
-    if (action.kind === "tool_update" && toolCategory(action.name, action.detail) === "image"
+    if (action.kind === "tool_update" && (toolCategory(action.name, action.detail) === "image" || generated)
       && action.input && typeof action.input === "object") {
       const input = action.input as Record<string, unknown>;
       const listed = Array.isArray(input.paths)
-        ? input.paths.filter((value): value is string => typeof value === "string")
+        ? input.paths
+            .filter((value) => generated ? localImagePath(value) : previewImageReference(value))
+            .map((value) => String(value).trim())
         : [];
-      const single = typeof input.path === "string" ? [input.path] : [];
+      const single = (generated ? localImagePath(input.path) : previewImageReference(input.path))
+        ? [String(input.path).trim()]
+        : [];
       if (listed.length || single.length) return [...listed, ...single];
     }
+    // Compatibility with native events produced before `input.paths` was
+    // added. `output` is considered only for image_generation and only when it
+    // resembles an image reference, so its missing-artifact error cannot be
+    // sent to the local image reader.
+    if (action.kind === "tool_update" && isImageGenerationName(action.name)
+      && imageReference(action.output)) return [action.output.trim()];
     if (action.kind === "tool" && action.name.toLowerCase().startsWith("image ")) {
-      return [action.name.slice("image ".length).trim()];
+      const legacyPath = action.name.slice("image ".length).trim();
+      return localImagePath(legacyPath) ? [legacyPath] : [];
     }
     return [];
   });
   return [...new Set(paths.filter(Boolean))];
+}
+
+function isImageGenerationName(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return normalized.includes("image_generation") || normalized.includes("image-generation")
+    || normalized.includes("generate_image") || normalized.includes("generate-image");
+}
+
+function imageReference(value: unknown): value is string {
+  if (!localImagePath(value)) return false;
+  const normalized = value.trim().toLowerCase();
+  return /\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/iu.test(normalized);
+}
+
+/** The native Codex image item returns `savedPath` as an absolute path. Keep
+ * preview inputs in that durable form: `file:`/`blob:` URLs cannot be handed
+ * to the Tauri local reader and blob URLs disappear after a reload. */
+function localImagePath(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const path = value.trim();
+  return path.length > 0
+    && !/[\u0000-\u001f]/u.test(path)
+    && /^(?:\/|[A-Za-z]:[\\/])/u.test(path);
+}
+
+/** Existing `view_image` events may carry an embedded data URL. It is already
+ * journal-safe; generated native artifacts stay restricted to local paths. */
+function previewImageReference(value: unknown): value is string {
+  if (localImagePath(value)) return true;
+  return typeof value === "string" && /^data:image\//iu.test(value.trim());
 }
 
 function shellCommand(value: string): string {

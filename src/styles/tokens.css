@@ -30,6 +30,7 @@
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
+  --surface-hover: color-mix(in srgb, var(--text-primary) 6%, transparent);
 
   /* -- texte -------------------------------------------------------------- */
   --text-primary: var(--fg);
@@ -81,6 +82,8 @@
   /* -- typographie (rôles ; tailles héritées 10/11/12/13/15) --------------- */
   --font-chrome: var(--ui-font);
   --font-code: var(--code-font);
+  --font-heading: var(--ui-font);
+  --font-mono: var(--code-font);
   --fs-caption: var(--fs-xs);   /* 10 — micro-badges */
   --fs-label: var(--fs-s);      /* 11 — méta, labels   */
   --fs-body-s: var(--fs-m);     /* 12 — secondaire     */
@@ -116,6 +119,7 @@
   --radius-control: var(--r-s);   /* 6  */
   --radius-surface: var(--r-m);   /* 10 */
   --radius-pill: var(--r-pill);
+  --radius-composer: 18px;
 
   /* -- mouvement : contrat Quiet Instrument (014/016, approuvé) ------------- */
   --motion-fast: 120ms;      /* hover, sortie de menu, échange d'icône */

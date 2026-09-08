@@ -18,7 +18,7 @@ test('settings selection stays compact and usable without decorative arrows', as
   await expect(trigger).toBeFocused();
   await trigger.press('ArrowDown');
   await expect(page.getByRole('listbox')).toBeVisible();
-  await trigger.press('Escape');
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('listbox')).not.toBeVisible();
   await expect(trigger).toBeFocused();
 });

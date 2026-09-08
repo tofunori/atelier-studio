@@ -36,6 +36,7 @@ describe("modelDisplayLabel", () => {
 
 describe("codexSupportsFastMode", () => {
   it("reconnaît les modèles Codex qui annoncent le niveau priority", () => {
+    expect(codexSupportsFastMode("gpt-6-astra")).toBe(true);
     expect(codexSupportsFastMode("gpt-5.6-sol")).toBe(true);
     expect(codexSupportsFastMode("gpt-5.6-terra")).toBe(true);
     expect(codexSupportsFastMode("gpt-5.6-luna")).toBe(true);

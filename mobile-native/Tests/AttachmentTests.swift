@@ -55,6 +55,7 @@ final class AttachmentTests: XCTestCase {
         let gateway = GalleryModel(address: URL(string: "https://gateway.invalid")!, token: "test", session: URLSession(configuration: config))
         let chat = RemoteChatModel()
         chat.selected = .init(id: "thread", title: "Test", provider: "codex", model: nil, projectId: nil, status: "idle")
+        chat.providers = [.init(id: "codex", label: "Codex", models: [], defaultModel: "", efforts: [], ok: true, modelLabels: nil, capabilities: .init(permissionModes: ["default", "bypassPermissions"]))]
         let pending = GalleryArtifact(name: "draft.png", data: Data([9]))
         let historical = GalleryArtifact(name: "old.png", data: Data([1,2,3]))
         chat.attach(pending)

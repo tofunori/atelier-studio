@@ -201,6 +201,31 @@ impl ClaudeProvider {
         }
     }
 
+    async fn reap_after_eof(&self, thread_id: &str, pid: Option<u32>) {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let expired_run = {
+                let mut runs = self.runs.lock().await;
+                let Some(run) = runs.get_mut(thread_id) else { return };
+                if run.child.id() != pid { return; }
+                match run.child.try_wait() {
+                    Ok(Some(_)) => { runs.remove(thread_id); return; }
+                    Ok(None) if tokio::time::Instant::now() < deadline => None,
+                    _ => runs.remove(thread_id),
+                }
+            };
+            if let Some(mut run) = expired_run {
+                if let Some(pid) = run.child.id() { kill_process_group(pid); }
+                let _ = run.child.start_kill();
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(2), run.child.wait(),
+                ).await;
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+
     /// Surcharge la fenêtre d'inactivité (tests uniquement) : injectée sur la
     /// struct plutôt que lue dans `send()`.
     #[cfg(test)]
@@ -973,13 +998,10 @@ impl Provider for ClaudeProvider {
             }
         }
 
-        // Reap child
-        {
-            let mut runs = self.runs.lock().await;
-            if let Some(mut r) = runs.remove(&thread_id) {
-                let _ = r.child.wait().await;
-            }
-        }
+        // EOF ne garantit pas que le processus soit sorti. Le laisser
+        // joignable par Stop, sans attendre sa sortie sous le verrou global.
+        // Un ancien tour ne doit jamais récolter le processus de son remplaçant.
+        self.reap_after_eof(&thread_id, pid).await;
 
         if !state.saw_terminal {
             let mut flush = Vec::new();
@@ -1159,19 +1181,20 @@ impl Provider for ClaudeProvider {
     }
 
     async fn interrupt(&self, thread_id: &str) -> bool {
-        let mut runs = self.runs.lock().await;
-        if let Some(mut r) = runs.remove(thread_id) {
-            // Marqueur AVANT le kill : l'EOF du process tué peut conclure le
-            // tour avant que le flag asynchrone ne se propage (watcher 50 ms).
-            self.interrupted
-                .lock()
-                .await
-                .insert(thread_id.to_string());
-            if let Some(pid) = r.child.id() {
-                kill_process_group(pid);
+        let run = {
+            let mut runs = self.runs.lock().await;
+            if runs.contains_key(thread_id) {
+                // Le lecteur peut constater le retrait dès le déverrouillage.
+                self.interrupted.lock().await.insert(thread_id.to_string());
             }
-            let _ = r.child.kill().await;
-            let _ = r.child.wait().await;
+            runs.remove(thread_id)
+        };
+        if let Some(mut run) = run {
+            if let Some(pid) = run.child.id() { kill_process_group(pid); }
+            let _ = run.child.start_kill();
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(2), run.child.wait(),
+            ).await;
             true
         } else {
             false
@@ -1676,11 +1699,25 @@ mod interrupt_tests {
     /// un stop pourtant volontaire (2026-08-24).
     #[tokio::test]
     async fn un_stop_direct_termine_en_interrupted() {
+        assert_interrupt("#!/bin/sh\nsleep 30\n", true).await;
+    }
+
+    #[tokio::test]
+    async fn stop_apres_eof_ne_reste_pas_bloque_sur_le_processus() {
+        assert_interrupt("#!/bin/sh\nexec 1>&-\nexec sleep 30\n", true).await;
+    }
+
+    #[tokio::test]
+    async fn eof_sans_stop_termine_sans_attendre_le_delai_inactivite() {
+        assert_interrupt("#!/bin/sh\nexec 1>&-\nexec sleep 30\n", false).await;
+    }
+
+    async fn assert_interrupt(script: &str, stop: bool) {
         let dir = std::env::temp_dir().join(format!("claude-fake-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("fake-claude");
         // Faux CLI : silence prolongé, comme une phase de réflexion.
-        std::fs::write(&bin, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::write(&bin, script).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1717,12 +1754,25 @@ mod interrupt_tests {
         let p2 = Arc::clone(&provider);
         let handle = tokio::spawn(async move { p2.send(req).await });
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert!(provider.interrupt("t-stop").await, "le run devait être enregistré");
+        if stop {
+            let stopped = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                provider.interrupt("t-stop"),
+            ).await;
+            if stopped.is_err() {
+                handle.abort();
+            }
+            assert!(stopped.expect("Stop ne doit pas attendre le verrou du processus"), "le run devait être enregistré");
+        }
         let res = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
             .await
             .expect("send doit se terminer après le kill")
             .unwrap();
-        assert_eq!(res.error.as_deref(), Some("interrupted"));
+        assert_eq!(res.error.as_deref(), Some(if stop {
+            "interrupted"
+        } else {
+            "session terminée sans résultat"
+        }));
         assert!(!res.ok);
         // Le tour a donné une trace de vie AVANT toute sortie du CLI (le faux
         // CLI n'écrit rien) : la note de démarrage occupe l'attente.

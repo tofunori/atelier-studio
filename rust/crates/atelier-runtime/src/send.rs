@@ -1446,7 +1446,13 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             if kind == "done" || kind == "error" {
                 g.terminal(&turn_pump, ev);
             } else {
-                g.emit(&turn_pump, ev, None);
+                // Keep the provider item identity alongside the turn identity
+                // in the durable harness metadata. This matters for image
+                // artifacts: two image-generation items in one turn (or the
+                // same item across reconnects) must not collapse into one UI
+                // action or one history record.
+                let item_id = ev.get("id").and_then(Value::as_str).map(str::to_owned);
+                g.emit(&turn_pump, ev, item_id.as_deref());
             }
         }
     });
@@ -1641,10 +1647,9 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
         return vec![err_json("threadId requis")];
     }
     state.harness().request_cancel(thread_id).await;
-    if let Some(t) = state.threads().lock().await.get(thread_id) {
-        if let Some(p) = state.provider(&t.provider) {
-            let _ = p.interrupt(thread_id).await;
-        }
+    let provider = state.threads().lock().await.get(thread_id).map(|t| t.provider.clone());
+    if let Some(p) = provider.as_deref().and_then(|id| state.provider(id)) {
+        let _ = p.interrupt(thread_id).await;
     }
     vec![]
 }

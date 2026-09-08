@@ -177,6 +177,10 @@ describe("webview vierge : le miroir disque doit aussi OUVRIR un projet", () => 
       type: "settingsFile",
       settings: { projMeta: {}, projects: [PROJECT_ROOT, OTHER_PROJECT_ROOT] },
     });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await flushMicrotasks(10);
+    });
 
     // L'invite « aucun projet ouvert » ne doit plus être là : le premier projet
     // du disque a été adopté, comme le ferait l'initialiseur avec un

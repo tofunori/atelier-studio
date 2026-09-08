@@ -2,12 +2,15 @@ mod appsnap;
 mod atelier;
 mod boot_metrics;
 mod browser;
+mod dictation;
 mod identity;
 mod local_image;
 mod macos_badge_permission;
 mod process_registry;
 mod remote_gateway;
 mod sidecar;
+#[cfg(target_os = "macos")]
+mod single_instance;
 mod ui_state;
 
 use std::path::{Path, PathBuf};
@@ -45,6 +48,15 @@ fn application_support_root() -> Option<PathBuf> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    let _instance = match single_instance::enter() {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("Atelier ne peut pas protéger ses conversations : {error}");
+            return;
+        }
+    };
     let boot_clock = boot_metrics::BootClock::new();
     let _ = fix_path_env::fix();
     tauri::Builder::default()
@@ -62,6 +74,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dictation::dictation_start,
+            dictation::dictation_stop,
+            dictation::dictation_cancel,
             atelier::start_atelier,
             remote_gateway::remote_device_action,
             atelier::gallery_token,
@@ -70,6 +85,7 @@ pub fn run() {
             appsnap::appsnap_request_permissions,
             appsnap::appsnap_set_enabled,
             local_image::local_image_read,
+            local_image::local_image_save_to_gallery,
             macos_badge_permission::request_badge_authorization,
             macos_badge_permission::set_badge_count,
             sidecar::sidecar_port,

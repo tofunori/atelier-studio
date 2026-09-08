@@ -13,7 +13,21 @@ struct ChatBookmark: Codable, Sendable {
     var followsTail = true
     var offsetY: Double?
     var contentHeight: Double?
+    var rowOffsetY: Double? = nil
 }
+/// One conversation only; preserve its event ledger together with rows so replay stays idempotent.
+struct ChatTranscriptSnapshot: Codable, Sendable {
+    var threadID: String
+    var rows: [RemoteChatModel.Row]
+    var seen: Set<String>
+    var liveRows: [String: String]
+    var completedTurns: Set<String>
+    var failedTurns: Set<String>
+    var activeTurns: Set<String>
+    var interactionStates: [String: String]
+    var running: Bool
+}
+
 struct ChatResumeSnapshot: Codable, Sendable {
     var version = 1
     var selected: RemoteChatModel.Thread?
@@ -29,6 +43,8 @@ struct ChatResumeSnapshot: Codable, Sendable {
     var pins: [String: [String]]?
     var sendAttempts: [String: SendAttempt]?
     var pausedQueues: [String]?
+    var globalPermissionMode: String? = nil
+    var transcript: ChatTranscriptSnapshot? = nil
 }
 
 actor ChatResumeStore {

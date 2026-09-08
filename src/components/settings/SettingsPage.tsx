@@ -5,8 +5,7 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../../lib/settings";
 import { t } from "../../lib/i18n";
-import { Button, RowButton } from "../ui";
-import { Select } from "../Select";
+import { Button, RowButton, Select } from "../ui";
 import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
@@ -106,6 +105,12 @@ export default function SettingsPage(p: {
       if (e.key !== "Escape") return;
       const el = document.activeElement;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable)) return;
+      // Let an open Base UI select consume Escape first. Its option/listbox
+      // focus lives outside the page shell, so this capture listener would
+      // otherwise close Settings before the popup's own dismiss handler runs.
+      if (el?.closest('[data-slot="select-content"], [role="listbox"]')
+        || el?.getAttribute("role") === "option"
+        || document.querySelector('[data-slot="select-content"]')?.parentElement?.hasAttribute("data-open")) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       p.onClose();

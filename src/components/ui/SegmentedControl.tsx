@@ -14,6 +14,7 @@ export type SegmentedOption = {
   ariaLabel?: string;
   title?: string;
   disabled?: boolean;
+  className?: string;
 };
 
 export function SegmentedControl(props: {
@@ -22,14 +23,23 @@ export function SegmentedControl(props: {
   onChange: (value: string) => void;
   /** Nom accessible du groupe. Obligatoire. */
   label: string;
+  disabled?: boolean;
   className?: string;
 }) {
-  const { options, value, onChange, label, className } = props;
+  const { options, value, onChange, label, disabled = false, className } = props;
   const groupRef = useRef<HTMLDivElement | null>(null);
   const enabled = options.filter((option) => !option.disabled);
 
-  const move = (direction: 1 | -1) => {
-    if (!enabled.length) return;
+  // Base UI supplies the roving tabindex and pressed state, but its toggle
+  // group deliberately does not select on arrow keys. Keep that fallback in
+  // this one owner so keyboard selection follows the same public callback as
+  // pointer selection; do not react when a future Base UI handler has already
+  // consumed the event.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.defaultPrevented || !enabled.length) return;
+    if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
     const currentIndex = enabled.findIndex((option) => option.value === value);
     const next = enabled[(currentIndex + direction + enabled.length) % enabled.length];
     onChange(next.value);
@@ -37,16 +47,6 @@ export function SegmentedControl(props: {
       groupRef.current?.querySelectorAll<HTMLButtonElement>("button[data-value]") ?? [],
     );
     buttons.find((button) => button.dataset.value === next.value)?.focus();
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      event.preventDefault();
-      move(1);
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      event.preventDefault();
-      move(-1);
-    }
   };
 
   return (
@@ -62,6 +62,7 @@ export function SegmentedControl(props: {
       }}
       role="radiogroup"
       aria-label={label}
+      disabled={disabled}
       className={cx("ui-seg", className)}
       onKeyDown={onKeyDown}
     >
@@ -73,11 +74,12 @@ export function SegmentedControl(props: {
             value={o.value}
             role="radio"
             aria-checked={checked}
+            aria-pressed={undefined}
             aria-label={o.ariaLabel}
             title={o.title}
             data-value={o.value}
-            className={cx(checked && "on")}
-            disabled={o.disabled}
+            className={cx(checked && "on", o.className)}
+            disabled={disabled || o.disabled}
           >
             {o.label}
           </ToggleGroupItem>

@@ -32,6 +32,8 @@ function flatten(root: HTMLElement): { text: string; map: CharMap } {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node: Node | null;
   while ((node = walker.nextNode())) {
+    // Annotation controls are UI, not part of the quoted message.
+    if (node.parentElement?.closest(".anno-badge")) continue;
     const own = blockOf(node);
     if (text && own !== block && !text.endsWith(" ")) {
       // espace de frontière : jamais une extrémité de match (le besoin est trimé)

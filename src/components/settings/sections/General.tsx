@@ -22,8 +22,7 @@ import { Advanced, Group, Row, Toggle } from "../primitives";
 import type { SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
-import { Select } from "../../Select";
-import { Button, InlineNotice } from "../../ui";
+import { Button, InlineNotice, Select } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
 

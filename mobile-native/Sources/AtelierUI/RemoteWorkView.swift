@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct RemoteFileChange: Identifiable, Codable, Sendable {
+struct RemoteFileChange: Identifiable, Codable, Sendable, Equatable {
     var id: String
     var path: String
     var before: String?
@@ -27,6 +27,9 @@ struct PreparedChatMessage: Identifiable, Codable, Sendable {
     var model: String
     var effort: String
     var attempted = false
+    // Persist the delivery intent so an uncertain steer never becomes a new turn.
+    var attemptedMode: String? = nil
+    var permissionModeAtTransmission: String? = nil
 }
 
 extension RemoteChatModel {
@@ -45,23 +48,84 @@ extension RemoteChatModel {
         guard ids.indices.contains(next), !sending else { return }
         prepared.swapAt(ids[position], ids[next]); scheduleSave()
     }
-    func removePrepared(_ id: String) { guard !sending else { return }; prepared.removeAll { $0.id == id }; scheduleSave() }
+    var supportsSteering: Bool { provider?.capabilities?.steering == true }
+    func permissionForPrepared(_ item: PreparedChatMessage) -> ChatPermissionMode {
+        item.permissionModeAtTransmission.flatMap(ChatPermissionMode.init(rawValue:)) ?? effectivePermissionMode
+    }
+    func markPreparedTransmitting(_ id: String, mode: String, permission: ChatPermissionMode? = nil) {
+        guard let index = prepared.firstIndex(where: { $0.id == id }) else { return }
+        prepared[index].attempted = true; prepared[index].attemptedMode = mode
+        if prepared[index].permissionModeAtTransmission == nil, let permission {
+            prepared[index].permissionModeAtTransmission = permission.rawValue
+        }
+        scheduleSave()
+    }
+    /// Pause synchronously before presenting the editor, including its animation.
+    func beginPreparedEditing(_ id: String) -> Bool? {
+        guard !sending, let item = preparedForThread.first(where: { $0.id == id }), !item.attempted else { return nil }
+        let wasPaused = pausedQueues.contains(item.threadID)
+        pausedQueues.insert(item.threadID); scheduleSave()
+        return wasPaused
+    }
+    func endPreparedEditing(threadID: String, wasPaused: Bool) {
+        if !wasPaused && error == nil { pausedQueues.remove(threadID) }
+        scheduleSave()
+    }
+    func updatePrepared(_ id: String, text: String) -> Bool {
+        guard !sending, let index = prepared.firstIndex(where: { $0.id == id && $0.threadID == selected?.id }),
+              !prepared[index].attempted,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !prepared[index].files.isEmpty else { return false }
+        prepared[index].text = text; scheduleSave(); return true
+    }
+    func removePrepared(_ id: String) {
+        guard !sending else { return }
+        prepared.removeAll { $0.id == id && $0.threadID == selected?.id && !$0.attempted }; scheduleSave()
+    }
+    func preparedWasAcknowledged(_ item: PreparedChatMessage) -> Bool {
+        selected?.id == item.threadID && rows.contains { $0.kind == "user" && $0.messageID == item.id && !$0.id.hasPrefix("pending:") }
+    }
+    func reconcilePreparedAcknowledgements() {
+        let acknowledged = Set(prepared.filter { preparedWasAcknowledged($0) }.map(\.id))
+        guard !acknowledged.isEmpty else { return }
+        prepared.removeAll { acknowledged.contains($0.id) }; scheduleSave()
+    }
+    func steerPrepared(_ id: String, using gateway: GalleryModel) async {
+        guard !sending, let item = preparedForThread.first(where: { $0.id == id }) else { return }
+        if preparedWasAcknowledged(item) { reconcilePreparedAcknowledgements(); return }
+        guard supportsSteering else { error = "Cet assistant ne permet pas d’intervenir pendant sa réponse. Le message reste en attente."; return }
+        guard (!item.attempted || item.attemptedMode == "steer"), running || item.attemptedMode == "steer" else { return }
+        let accepted = await intervene(item.text, using: gateway, requestID: item.id, files: item.files, retry: item.attemptedMode == "steer") {
+            self.markPreparedTransmitting(item.id, mode: "steer")
+        }
+        if accepted || preparedWasAcknowledged(item) { prepared.removeAll { $0.id == id }; scheduleSave() }
+    }
     func deliverPrepared(using gateway: GalleryModel, automatic: Bool = false) async {
-        guard !running, !sending, let item = preparedForThread.first, (!automatic || (!item.attempted && !pausedQueues.contains(item.threadID))) else { return }
+        reconcilePreparedAcknowledgements()
+        guard !running, !sending, let item = preparedForThread.first, item.attemptedMode != "steer",
+              (!automatic || (!item.attempted && !pausedQueues.contains(item.threadID))) else { return }
         if !automatic { pausedQueues.remove(item.threadID); scheduleSave() }
-        if let index = prepared.firstIndex(where: { $0.id == item.id }) { prepared[index].attempted = true; scheduleSave() }
         let oldModel = model, oldEffort = effort
         model = item.model; effort = item.effort
-        let accepted = await send(item.text, using: gateway, explicitFiles: item.files, requestID: item.id)
+        let requestPermission = permissionForPrepared(item)
+        let accepted = await send(item.text, using: gateway, explicitFiles: item.files, requestID: item.id, permissionOverride: requestPermission) {
+            self.markPreparedTransmitting(item.id, mode: "send", permission: requestPermission)
+        }
         if selected?.id == item.threadID { model = oldModel; effort = oldEffort }
-        if accepted { prepared.removeAll { $0.id == item.id }; scheduleSave() }
+        if accepted || preparedWasAcknowledged(item) { prepared.removeAll { $0.id == item.id }; scheduleSave() }
     }
-    func intervene(_ text: String, using gateway: GalleryModel, requestID: String) async -> Bool {
-        guard running, !sending, let thread = selected, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        sending = true; defer { sending = false }
+    func intervene(_ text: String, using gateway: GalleryModel, requestID: String, files: [GalleryArtifact] = [], retry: Bool = false, onWillTransmit: (() -> Void)? = nil) async -> Bool {
+        guard !isPreview, (running || retry), !sending, let thread = selected,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return false }
+        guard supportsSteering else { error = "Cet assistant ne permet pas d’intervenir pendant sa réponse. Ajoutez le message à la suite."; return false }
+        sending = true; error = nil; defer { sending = false }
+        if !files.isEmpty { historyFiles[thread.id, default: [:]][requestID] = files; scheduleSave() }
         do {
+            var fileIDs: [String] = []
+            for file in files { fileIDs.append(try await gateway.attachmentID(file)) }
+            guard gateway.hasAddress else { throw GalleryModel.GalleryError.invalidAddress }
+            onWillTransmit?()
             let data = try await gateway.chatRequest(["send"], body: ["threadId":thread.id,"prompt":text,
-                "clientRequestId":requestID,"clientMessageId":requestID,"mode":"steer"])
+                "clientRequestId":requestID,"clientMessageId":requestID,"mode":"steer", "fileIds":fileIDs])
             let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard result?["proxied"] as? Bool == true else { throw ChatError.notSent }
             AtelierTheme.confirmation(); return true
@@ -81,7 +145,7 @@ struct RemoteWorkView: View {
                     Label(chat.statusLabel, systemImage: chat.statusIcon)
                     Text(chat.title).font(.headline)
                     if chat.running {
-                        Button("Préciser la consigne", systemImage: "bubble") { steering = true }
+                        Button("Préciser la consigne", systemImage: "bubble") { steering = true }.disabled(!chat.supportsSteering)
                         Button("Arrêter le travail", systemImage: "stop") { Task { await chat.stop(using: workspace.gallery) } }
                     }
                 }

@@ -219,6 +219,21 @@ export function buildApprovalResponse(method, fullAccess, params = {}, scope = "
   return {};
 }
 
+// Full access authorizes tools, but does not supply form data or finish URL auth.
+export function automaticApprovalResponse(method, fullAccess, params = {}) {
+  if (!fullAccess) return null;
+  if (APPROVAL_METHODS.has(method)) return buildApprovalResponse(method, true, params);
+  if (method !== "mcpServer/elicitation/request") return null;
+  if (params.url != null || (params.mode != null && params.mode !== "form" && params.mode !== "openai/form" && params.mode !== "openaiForm")) return null;
+  const schema = params.requestedSchema;
+  const consent = schema === undefined || (schema?.type === "object" &&
+    schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties) &&
+    Object.keys(schema.properties).length === 0 &&
+    (schema.required === undefined || (Array.isArray(schema.required) && schema.required.length === 0)) &&
+    Object.keys(schema).every(k => ["$schema", "type", "properties", "required", "title", "description", "additionalProperties"].includes(k)));
+  return consent ? { action: "accept", content: {}, _meta: null } : null;
+}
+
 export function buildServerRequestFallback(method) {
   if (method === "item/tool/call") {
     return { contentItems: [{ type: "inputText", text: "Unsupported client-side dynamic tool in Atelier." }], success: false };
@@ -401,6 +416,8 @@ async function handleServerRequest(msg) {
   const m = msg.method ?? "";
   const params = msg.params ?? {};
   const tid = requestThreadId(msg);
+  const automatic = automaticApprovalResponse(m, tid ? threadSandbox.get(tid) === "danger-full-access" : false, params);
+  if (automatic) return automatic;
   const relay = tid ? threadInteractions.get(tid) : null;
   if (relay) {
     const spec = describeServerRequest(m, params);

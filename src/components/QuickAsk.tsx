@@ -12,9 +12,7 @@ import { useMdPlugins } from "./chat/md";
 import type { ProviderInfo } from "../lib/providers";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { Textarea } from "./shadcn/textarea";
-import { Button, IconButton, RowButton } from "./ui";
-import { Select as ProductSelect } from "./Select";
-import { Button as ShadcnButton } from "./shadcn/button";
+import { Button, IconButton, RowButton, Select as ProductSelect } from "./ui";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import {
   Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger,
@@ -490,7 +488,7 @@ export default function QuickAsk({
           <Popover modal={false}>
             <PopoverTrigger
               render={
-                <ShadcnButton
+                <Button
                   type="button"
                   variant="ghost"
                   size="xs"

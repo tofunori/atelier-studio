@@ -6,6 +6,7 @@
 import { act, render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import AtelierPane, { relFromTabUrl } from "./AtelierPane";
+import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import { setLanguage } from "../lib/i18n";
 
 afterEach(cleanup);
@@ -40,7 +41,7 @@ function pane(overrides: Partial<Parameters<typeof AtelierPane>[0]> = {}) {
     onInspectFile: vi.fn(),
     ...overrides,
   };
-  return { props, ...render(<AtelierPane {...props} />) };
+  return { props, ...render(<><WorkspacePaneMenuSlot /><AtelierPane {...props} /></>) };
 }
 
 const PDF_TAB = {
@@ -100,14 +101,16 @@ describe("AtelierPane — chrome du pane (plan 057)", () => {
 
   it("le rechargement de la galerie vit dans les contrôles du pane", () => {
     const { props } = pane({ tabs: [PDF_TAB], activeTab: "gallery" });
-    fireEvent.click(screen.getByRole("button", { name: "Recharger (relance le serveur si mort)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Recharger (relance le serveur si mort)" }));
     expect(props.onGalleryReload).toHaveBeenCalledTimes(1);
   });
 
   it("document actif : pas de rechargement galerie, mais le menu du pane", () => {
     const { container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
     expect(screen.queryByRole("button", { name: "Recharger (relance le serveur si mort)" })).toBeNull();
-    expect(container.querySelector(".workspace-pane-controls")).toBeInTheDocument();
+    expect(container.querySelector(".workspace-pane-menu-slot .workspace-pane-controls")).toBeInTheDocument();
+    expect(container.querySelector(".modular-workspace .workspace-pane-controls")).toBeNull();
   });
 });
 
@@ -117,13 +120,15 @@ describe("AtelierPane — joindre le document ouvert au chat", () => {
   it("la bulle des contrôles envoie le rel du document actif", () => {
     const onAddFileToChat = vi.fn();
     pane({ tabs: [PDF_TAB], activeTab: "t1", onAddFileToChat });
-    fireEvent.click(screen.getByRole("button", { name: "Ajouter au chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ajouter au chat" }));
     expect(onAddFileToChat).toHaveBeenCalledWith("figs/albedo.pdf");
   });
 
   it("sans câblage, pas de bouton mort", () => {
     pane({ tabs: [PDF_TAB], activeTab: "t1", onAddFileToChat: undefined });
-    expect(screen.queryByRole("button", { name: "Ajouter au chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
+    expect(screen.queryByRole("menuitem", { name: "Ajouter au chat" })).toBeNull();
   });
 });
 
@@ -153,31 +158,34 @@ describe("AtelierPane — étoile de favori d'un document ouvert", () => {
   async function renderAvecFavoris(favs: string[], postOk = true) {
     const calls = mockGallery(favs, postOk);
     await act(async () => { pane({ tabs: [PDF_TAB], activeTab: "t1" }); });
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
     return calls;
   }
 
   it("ajoute le document ouvert aux favoris du projet, sans passer par la galerie", async () => {
     const calls = await renderAvecFavoris([]);
-    const etoile = screen.getByRole("button", { name: "Ajouter aux favoris" });
+    const etoile = screen.getByRole("menuitem", { name: "Ajouter aux favoris" });
 
     await act(async () => { fireEvent.click(etoile); });
 
     const post = calls.find((call) => call.url === `${ORIGIN}/favorite`);
     expect(post?.body).toEqual({ rel: "figs/albedo.pdf", on: true });
-    // l'étoile bascule : le prochain clic retire
-    expect(screen.getByRole("button", { name: "Retirer des favoris" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
+    // Le prochain clic retire le favori.
+    expect(screen.getByRole("menuitem", { name: "Retirer des favoris" })).toBeInTheDocument();
   });
 
   it("montre l'étoile déjà pleine quand le projet connaît le favori", async () => {
     await renderAvecFavoris(["figs/albedo.pdf"]);
-    expect(screen.getByRole("button", { name: "Retirer des favoris" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Retirer des favoris" })).toBeInTheDocument();
   });
 
   it("remet l'étoile comme elle était quand le serveur refuse", async () => {
     await renderAvecFavoris([], false);
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajouter aux favoris" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Ajouter aux favoris" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Actions du pane" }));
     // pas de favori fantôme : l'app ne prétend pas avoir écrit
-    expect(screen.getByRole("button", { name: "Ajouter aux favoris" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Ajouter aux favoris" })).toBeInTheDocument();
   });
 });
 

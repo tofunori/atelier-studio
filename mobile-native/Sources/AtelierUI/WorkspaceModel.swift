@@ -13,21 +13,26 @@ struct DocumentPassage: Identifiable {
     var figure: GalleryArtifact?
     var articleKey: String?
     var articleAttachmentKey: String?
+    var sourceRange: NSRange?
+    var selectedText: String?
 
     var citation: String { "\(fileName) · \(location)" }
 }
 
 @MainActor @Observable
 final class AnnotationDraft: Identifiable {
-    let id = UUID()
+    let id: UUID
     let passage: DocumentPassage
     var note = ""
-    init(passage: DocumentPassage) { self.passage = passage }
+    var readingNoteID: UUID?
+    var markingStyle: PDFMark.Style = .highlight
+    var ink: AnnotationInk = .sage
+    init(passage: DocumentPassage, id: UUID = UUID()) { self.passage = passage; self.id = id }
 }
 
 @MainActor @Observable
 final class WorkspaceModel {
-    enum Surface: Hashable { case chat, document, gallery, articles }
+    enum Surface: Hashable { case chat, document, gallery, articles, calculations }
     enum DocumentMode: String, CaseIterable { case reading = "Lecture", source = "Source", pdf = "PDF" }
     struct Message: Identifiable {
         let id = UUID()
@@ -41,7 +46,14 @@ final class WorkspaceModel {
         let note: String
     }
 
-    init(resumeStore: ChatResumeStore? = nil) { chat.resumeStore = resumeStore }
+    init(resumeStore: ChatResumeStore? = nil) {
+        chat.resumeStore = resumeStore
+        if let data = Self.initialPDFData {
+            pdfFingerprint = PDFAnnotations.fingerprint(data)
+            if let document = pdfDocument { PDFAnnotations.apply(documentPDFMarks, to: document) }
+        }
+    }
+    static let initialPDFData = Bundle.module.url(forResource: "notes", withExtension: "pdf").flatMap { try? Data(contentsOf: $0) }
     var documentResumeStore = DocumentResumeStore.live()
     @ObservationIgnored var documentSaveTask: Task<Void, Never>?
     var documentBytes: Data?
@@ -55,6 +67,12 @@ final class WorkspaceModel {
         chat.attach(item); surface = .chat
         if chat.selected == nil { chatPickerRequested = true }
     }
+    var readingNotes = DocumentReadingNotes()
+    var pdfAnnotations = PDFAnnotations()
+    var pdfFingerprint = ""
+    var pdfNavigationRequest = UUID()
+    var pendingDocumentPrompt: String?
+    var pendingDocumentPassage: DocumentPassage?
     var library = LibraryModel()
     var currentArticle: LibraryArticle?
     var documentOrigin: Surface = .gallery
@@ -78,6 +96,11 @@ final class WorkspaceModel {
         lastDocuments[documentOrigin] = OpenDocumentBookmark(artifact: artifact, data: data, article: currentArticle)
     }
     func navigate(to section: Surface) {
+        sidebarRequested = false
+        if surface == .document && documentOrigin == section {
+            returnToDocumentList()
+            return
+        }
         rememberOpenDocument()
         if section != .chat, let bookmark = lastDocuments[section] {
             do {
@@ -106,16 +129,18 @@ final class WorkspaceModel {
         let source: String; let sourceName: String; let pdfName: String
         let sourceAvailable: Bool; let pdf: PDFDocument?; let page: Int
         let mode: DocumentMode; let image: UIImage?; let imageName: String
+        let pdfFingerprint: String
     }
     func saveCurrentDocument() {
         savedDocuments[documentID] = DocumentState(source: source, sourceName: sourceName, pdfName: pdfName,
-            sourceAvailable: sourceAvailable, pdf: pdfDocument, page: pdfPage, mode: documentMode, image: image, imageName: imageName)
+            sourceAvailable: sourceAvailable, pdf: pdfDocument, page: pdfPage, mode: documentMode, image: image, imageName: imageName, pdfFingerprint: pdfFingerprint)
     }
     func openArtifact(_ item: GalleryArtifact, data: Data) throws {
         rememberOpenDocument()
         saveCurrentDocument()
         currentArticle = nil; documentOrigin = .gallery; editingSource = false
-        if let saved = savedDocuments[item.id] {
+        let incomingFingerprint = PDFAnnotations.fingerprint(data)
+        if let saved = savedDocuments[item.id], saved.pdf == nil || saved.pdfFingerprint == incomingFingerprint {
             source = saved.source; sourceName = saved.sourceName; pdfName = saved.pdfName
             sourceAvailable = saved.sourceAvailable; pdfDocument = saved.pdf; pdfPage = saved.page
             documentMode = saved.mode; image = saved.image; imageName = saved.imageName
@@ -125,7 +150,9 @@ final class WorkspaceModel {
         if originalSources[item.id] == nil && sourceAvailable { originalSources[item.id] = source }
         viewedArtifact = item
         documentBytes = data
+        pdfFingerprint = pdfDocument == nil ? "" : incomingFingerprint
         documentID = item.id
+        if let document = pdfDocument { PDFAnnotations.apply(documentPDFMarks, to: document) }
         selection = nil; pdfPassage = nil; annotationDraft = nil
         surface = .document
     }
@@ -150,9 +177,14 @@ final class WorkspaceModel {
     var selection: TextSelection?
     var pdfPassage: DocumentPassage?
     var feedback = ""
-    var pdfDocument = Bundle.module.url(forResource: "notes", withExtension: "pdf").flatMap(PDFDocument.init(url:))
+    var pdfDocument = WorkspaceModel.initialPDFData.flatMap(PDFDocument.init(data:))
 
-    var currentName: String { image != nil ? imageName : (documentMode != .pdf ? sourceName : pdfName) }
+    var currentName: String { image != nil ? imageName : (sourceAvailable && documentMode != .pdf ? sourceName : pdfName) }
+    var availableDocumentModes: [DocumentMode] {
+        if image != nil { return [] }
+        if sourceAvailable { return DocumentMode.allCases.filter { $0 != .pdf || pdfDocument != nil } }
+        return pdfDocument == nil ? [] : [.pdf, .reading]
+    }
     var activePassage: DocumentPassage? {
         if image != nil { return nil }
         if documentMode == .pdf { return pdfPassage }
@@ -163,7 +195,7 @@ final class WorkspaceModel {
         let firstLine = source[..<range.lowerBound].filter { $0.isNewline }.count + 1
         let lastLine = firstLine + text.dropLast().filter { $0.isNewline }.count
         let location = firstLine == lastLine ? "ligne \(firstLine)" : "lignes \(firstLine)–\(lastLine)"
-        return DocumentPassage(documentID: documentID, fileName: sourceName, location: location, text: text)
+        return DocumentPassage(documentID: documentID, fileName: sourceName, location: location, text: text, sourceRange: NSRange(range, in: source), selectedText: text)
     }
 
     func reloadDocument() async {

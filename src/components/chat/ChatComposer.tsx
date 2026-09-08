@@ -2,7 +2,7 @@
 // orchestration du composer. Composition pure — tout l'état vit chez Chat,
 // passé en QUELQUES bundles typés par domaine (au lieu de ~50 props à plat) :
 // input · model · menus · catalog · context · host.
-import React, { useEffect, type MutableRefObject } from "react";
+import React, { useEffect, useRef, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
@@ -20,6 +20,8 @@ import { Button } from "../ui/Button";
 import { parseNativeSlashCommand, permissionModeFromSlash } from "../../lib/slashCommands";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { codexSupportsFastMode } from "../../lib/modelCatalog";
+import { useComposerDictation } from "./useComposerDictation";
+import { ComposerDictationBar } from "./ComposerDictationBar";
 
 type ModelEntry = { id: string; label: string };
 type Dispatch<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -125,6 +127,7 @@ export type ComposerHost = {
 };
 
 export function ChatComposer(props: {
+  scopeKey?: string;
   input: ComposerInput;
   model: ComposerModel;
   menus: ComposerMenus;
@@ -135,6 +138,11 @@ export function ChatComposer(props: {
 }) {
   const { input, model, menus, catalog, context, host, kb } = props;
   const { text, setText } = input;
+  const pendingDictationSubmit = useRef(false);
+  const dictation = useComposerDictation({
+    text, setText, taRef: input.taRef,
+    scopeKey: props.scopeKey ?? "composer", disabled: host.disabled,
+  });
   const { goalOpen, goalText, setGoalText, setGoalOpen } = menus;
   const hasContent = Boolean(text.trim()) || context.attachments.length > 0
     || (context.annotations?.length ?? 0) > 0;
@@ -145,6 +153,7 @@ export function ChatComposer(props: {
   // reconstruit le contrat plat attendu par ComposerControls à partir des
   // bundles — plumbing local, aucune logique
   const controlsProps = {
+    dictation,
     hasContent,
     ...model, ...menus, ...catalog, ...host,
     kb,
@@ -176,9 +185,10 @@ export function ChatComposer(props: {
       && codexSupportsFastMode(catalog.resolvedModelId(model.provider, model.model));
   }
 
-  function submit(mode: FollowUpMode) {
-    const prompt = text.trim();
-    if (!hasContent) return;
+  function submit(mode: FollowUpMode, value = text) {
+    dictation.cancel();
+    const prompt = value.trim();
+    if (!prompt && context.attachments.length === 0 && (context.annotations?.length ?? 0) === 0) return;
     const command = parseNativeSlashCommand(prompt);
     if (command?.name === "model") {
       const requested = command.args.toLowerCase();
@@ -213,17 +223,34 @@ export function ChatComposer(props: {
       setText("");
       return;
     }
-    host.onSubmit(text, model.provider, model.model, model.effort, model.permissionMode, mode, effectiveFastMode());
+    host.onSubmit(value, model.provider, model.model, model.effort, model.permissionMode, mode, effectiveFastMode());
     setText("");
+  }
+
+  async function requestSubmit(mode: FollowUpMode) {
+    if (pendingDictationSubmit.current) return;
+    if (!dictation.active) { submit(mode); return; }
+    pendingDictationSubmit.current = true;
+    const value = await dictation.finish();
+    pendingDictationSubmit.current = false;
+    // Cancellation, errors and changing chats invalidate a pending send.
+    if (value !== null) submit(mode, value);
   }
 
   return (
       <form
         className="composer"
         ref={input.formRef}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape" && dictation.active) {
+            event.preventDefault();
+            event.stopPropagation();
+            dictation.stop();
+          }
+        }}
         onSubmit={(ev) => {
           ev.preventDefault();
-          submit(host.workingSince != null ? resolvedFollowUpMode() : "steer");
+          void requestSubmit(host.workingSince != null ? resolvedFollowUpMode() : "steer");
         }}
       >
         <InputGroup className="composer-input-group">
@@ -276,22 +303,27 @@ export function ChatComposer(props: {
               images) restent dans le ContextShelf ci-dessus. */}
           <PromptTextarea
             text={input.text}
-            setText={input.setText}
+            setText={(next) => { dictation.cancel(); input.setText(next); }}
             taRef={input.taRef}
             suggestions={input.suggestions}
             selIdx={input.selIdx}
             setSelIdx={input.setSelIdx}
-            applySuggestion={input.applySuggestion}
+            applySuggestion={(suggestion) => { dictation.cancel(); input.applySuggestion(suggestion); }}
             commands={input.commands}
             workingSince={host.workingSince}
             disabled={host.disabled}
             onStop={host.onStop}
-            onAlternateSubmit={host.workingSince != null ? () => submit(alternateFollowUpMode()) : undefined}
+            onAlternateSubmit={host.workingSince != null ? () => { void requestSubmit(alternateFollowUpMode()); } : undefined}
             onPasteImage={input.onPasteImage}
             onPasteText={input.onPasteText}
           />
           <InputGroupAddon align="block-end" className="composer-input-actions">
-            <ComposerControls {...controlsProps} />
+            {dictation.active ? (
+              <ComposerDictationBar phase={dictation.phase} levels={dictation.levels}
+                hasContent={hasContent} disabled={host.disabled} onDiscard={dictation.discard} onStop={dictation.stop}
+                sendLabel={t(host.workingSince != null
+                  ? resolvedFollowUpMode() === "queue" ? "action.queue" : "action.steer" : "action.send")} />
+            ) : <ComposerControls {...controlsProps} />}
           </InputGroupAddon>
         </InputGroup>
       </form>

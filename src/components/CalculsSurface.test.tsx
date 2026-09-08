@@ -143,6 +143,58 @@ describe("CalculsSurface", () => {
     expect(alert?.textContent).toContain("Connection timed out");
   });
 
+  it("conserve les derniers runs NAS au timeout puis accepte une liste vide confirmée", () => {
+    localStorage.setItem("atelier.calculs.host", "nas");
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    const nasRuns = RUNS.filter((entry) => entry.host === "nas");
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, { runs: nasRuns }));
+    vi.setSystemTime(NOW + 60_000);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, {
+      observedAt: new Date(NOW + 60_000).toISOString(), runs: [],
+      errors: [{ host: "nas", code: "timeout", message: "ssh timeout" }],
+    }));
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(1);
+    expect(container.querySelector(".calculs-alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/NAS.*actualisation en attente|NAS.*update pending/);
+    expect(screen.getByText(/dernier état|last known/)).toBeTruthy();
+    expect(screen.getByText(/observé il y a 60 s|observed 60 s ago/)).toBeTruthy();
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, { runs: [] }));
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(0);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText(/Aucun calcul sur 7 jours|No runs in the last 7 days/)).toBeTruthy();
+  });
+
+  it("ne confond pas un premier timeout avec une absence de calculs", () => {
+    render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, {
+      runs: [], errors: [{ host: "nas", code: "timeout", message: "ssh timeout" }],
+    }));
+    expect(screen.getByText(/^Actualisation en attente$|^Update pending$/)).toBeTruthy();
+    expect(screen.queryByText(/Aucun calcul sur 7 jours|No runs in the last 7 days/)).toBeNull();
+  });
+
+  it("isole le cache par hôte et renouvelle les hôtes qui répondent", () => {
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    fireEvent.click(screen.getByRole("radio", { name: "Mac" }));
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(1);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, { runs: [] }));
+    fireEvent.click(screen.getByRole("radio", { name: "NAS" }));
+    expect(screen.getByText("Export GEE")).toBeTruthy();
+    expect(screen.queryByText(/Aucun calcul sur 7 jours|No runs in the last 7 days/)).toBeNull();
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, {
+      runs: [], errors: [{ host: "nas", code: "unavailable", message: "offline" }],
+    }));
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(1);
+    expect(screen.getByText("Export GEE")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /Tous|All/ }));
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, {
+      runs: [], errors: [{ host: "nas", code: "timeout", message: "timeout" }],
+    }));
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(1);
+    expect(screen.queryByText("M42a-full")).toBeNull();
+  });
+
   it("un snapshot identique au repos ne re-rend ni la liste ni les rangées", () => {
     const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
     const request = lastRequest("computeSnapshot");

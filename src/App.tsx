@@ -1,6 +1,6 @@
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { interfaceTypography, interfaceGeometry } from "./lib/interfaceTheme";
-import { projectWritableDirectories } from "./lib/projectFolders";
+import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -16,10 +16,10 @@ import {
   AgentEvent,
   Command,
 } from "./lib/ws";
-import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, threadIsSettled } from "./lib/harnessEvents";
+import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
-import { createPin, resolvePins } from "./lib/pins";
+import { createPin } from "./lib/pins";
 import { stableTabId } from "./lib/workspaceLayout";
 import type { QaContext } from "./lib/quickAskContext";
 import { qaPromotePayload } from "./lib/quickAskModel";
@@ -43,8 +43,10 @@ import Sidebar from "./components/Sidebar";
 import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
-import Chat from "./components/Chat";
-import { agentsFromActions, agentWithTranscriptState, isAgentActivityAction, type AgentDisplay } from "./components/chat/AgentActivity";
+import ThreadChat from "./components/ThreadChat";
+import { createThreadEventStore } from "./lib/threadEventStore";
+import { useHomeThreadEvents } from "./hooks/useThreadEvents";
+import { type AgentDisplay } from "./components/chat/AgentActivity";
 import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
@@ -80,7 +82,7 @@ import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } f
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
-import { THEME_PRESETS, resolveAppearanceTheme } from "./lib/themes";
+import { THEME_PRESETS, galleryLegacyThemeVars, resolveAppearanceTheme, themeContractVars } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
 import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
@@ -361,46 +363,60 @@ function buildHighlightsMarkdown(list: HighlightEntry[]): string {
 const CANON_UI_FONT = "-apple-system, 'SF Pro Text', 'Inter Variable', sans-serif";
 const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
 
-// vars de thème poussées aux iframes : couleurs du preset + police effective
-// (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
-// une police uniforme dans la galerie et les visionneuses comme dans l'app.
-function themeVars(settings: Settings): Record<string, string> {
-  const preset = resolveAppearanceTheme(settings, window.matchMedia("(prefers-color-scheme: dark)").matches);
+const THEME_GEOMETRY_VARS = new Set([
+  "--radius-control", "--radius-surface", "--radius-pill", "--radius-composer",
+  "--control-height", "--control-height-compact", "--surface-header-height",
+  "--motion-fast", "--motion-standard", "--motion-panel", "--ease-out",
+  "--elevation-overlay", "--elev", "--elev-soft", "--focus-ring-color",
+  "--focus-ring-width", "--focus-ring-offset",
+]);
+
+function effectiveTheme(settings: Settings, systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches) {
+  const preset = resolveAppearanceTheme(settings, systemDark);
   const base = { ...preset.vars };
   if (settings.accentColor) base["--accent"] = settings.accentColor;
   if (settings.bgColor) base["--bg"] = settings.bgColor;
   if (settings.fgColor) base["--fg"] = settings.fgColor;
-  return {
-    ...base,
-    "--surface-app": base["--bg"],
-    // Les webviews (éditeurs LaTeX/code, galerie) mappent --surface-panel et
-    // --surface-header sur leurs --card/--bar. Les envoyer en --bg-side y
-    // peignait une barre d'outils nettement plus sombre que l'app : les
-    // iframes suivent la même décision « une seule couleur de carte ».
-    "--surface-panel": base["--bg"],
-    "--surface-header": base["--bg"],
-    "--surface-raised": base["--bg-card"],
-    "--surface-inset": base["--bg-ctl"],
-    "--text-primary": base["--fg"],
-    "--text-secondary": base["--fg2"],
-    "--text-tertiary": base["--muted"],
-    "--text-disabled": base["--muted2"],
-    "--border-subtle": base["--border"],
-    "--border-interactive": base["--border2"],
-    ...interfaceGeometry(getComputedStyle(document.documentElement)),
+  return { ...preset, vars: base };
+}
+
+// vars de thème poussées aux iframes : couleurs du preset + police effective
+// (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
+// une police uniforme dans la galerie et les visionneuses comme dans l'app.
+// Le shell ne reçoit pas la géométrie inline : data-density et les tokens CSS
+// restent la source canonique pour ses dimensions, tandis que les iframes
+// reçoivent le style calculé à la frontière du message.
+function themeVars(
+  settings: Settings,
+  includeRuntimeGeometry = true,
+  preset = effectiveTheme(settings),
+): Record<string, string> {
+  const contract = themeContractVars({ dark: preset.dark, vars: preset.vars });
+  const vars: Record<string, string> = {
+    ...contract,
     ...interfaceTypography(settings.baseFontSize),
     "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
     "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
   };
+  if (includeRuntimeGeometry) {
+    Object.assign(vars, interfaceGeometry(getComputedStyle(document.documentElement)));
+  } else {
+    THEME_GEOMETRY_VARS.forEach((name) => delete vars[name]);
+  }
+  return vars;
 }
 
 function themeMessage(settings: Settings, nonce: string): AtelierOutboundMessage {
+  const preset = effectiveTheme(settings);
   return {
     type: "atelier-theme",
     version: 2,
-    colorScheme: resolveAppearanceTheme(settings, window.matchMedia("(prefers-color-scheme: dark)").matches).dark ? "dark" : "light",
+    colorScheme: preset.dark ? "dark" : "light",
     nonce,
-    vars: themeVars(settings),
+    vars: {
+      ...themeVars(settings, true, preset),
+      ...galleryLegacyThemeVars(preset),
+    },
   };
 }
 
@@ -562,9 +578,9 @@ export default function App() {
   );
   const [hlFilterProject, setHlFilterProject] = useState<string | null>(null);
   const marksMigratedRef = useRef(false);
-  const [events, setEvents] = useState<Record<string, AgentEvent[]>>({});
-  const eventsRef = useRef<Record<string, AgentEvent[]>>({});
-  eventsRef.current = events;
+  const [eventStore] = useState(createThreadEventStore);
+  const setEvents = eventStore.update;
+  const eventsRef = eventStore.ref;
   // Lissage réseau (plan 066, L1 ; réparé 2026-08-28, plan perf) : les
   // providers émettent "delta"/"thinking_delta" (jamais "streaming", qui
   // n'existe pas côté backend) — le coalesceur file tous les deltas d'une
@@ -582,7 +598,14 @@ export default function App() {
   // premier) — un coalesceur jetable créé puis abandonné par rendu pour rien.
   const streamCoalescerRef = useRef<ReturnType<typeof createStreamCoalescer> | null>(null);
   if (!streamCoalescerRef.current) {
-    streamCoalescerRef.current = createStreamCoalescer((id, ev) => applyThreadEvent(id, ev));
+    streamCoalescerRef.current = createStreamCoalescer(
+      (id, ev) => applyThreadEvent(id, ev), undefined, undefined, undefined,
+      (id, batch) => setEvents((prev) => {
+        const cur = prev[id] ?? [];
+        const next = reduceHarnessEvents(cur, batch);
+        return next === cur ? prev : { ...prev, [id]: next };
+      }),
+    );
   }
   const streamCoalescer = streamCoalescerRef.current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
@@ -720,13 +743,9 @@ export default function App() {
     // One resolver serves the shell and its embedded views.
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const applyPalette = () => {
-      const preset = resolveAppearanceTheme(settings, systemTheme.matches);
+      const preset = effectiveTheme(settings, systemTheme.matches);
       root.setAttribute("data-theme", preset.dark ? "dark" : "light");
-      const colors = { ...preset.vars };
-      if (settings.accentColor) colors["--accent"] = settings.accentColor;
-      if (settings.bgColor) colors["--bg"] = settings.bgColor;
-      if (settings.fgColor) colors["--fg"] = settings.fgColor;
-      for (const [key, value] of Object.entries(colors)) r.setProperty(key, value);
+      for (const [key, value] of Object.entries(themeVars(settings, false, preset))) r.setProperty(key, value);
       window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
     };
     // propager aux iframes atelier (galerie, viewers)
@@ -1003,35 +1022,7 @@ export default function App() {
   const previousAtelierTab = useRef("gallery");
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
-  // Épingles du fil actif, recalées sur le tableau d'événements courant : au
-  // redémarrage celui-ci est reconstruit par rejeu, donc les index glissent
-  // (cf. src/lib/pins.ts). Le recalage est ensuite REPERSISTÉ, ce qui migre au
-  // passage les épingles héritées vers leur eventId durable.
-  const activePins = useMemo(
-    () => activeId ? resolvePins(events[activeId] ?? [], pins[activeId] ?? []) : [],
-    [activeId, events, pins],
-  );
-  useEffect(() => {
-    if (!activeId) return;
-    setPins((current) => (
-      current[activeId] && current[activeId] !== activePins && activePins.length
-        ? { ...current, [activeId]: activePins }
-        : current
-    ));
-  }, [activeId, activePins]);
-  // Les mises à jour Codex arrivent sur le fil parent. Garder l'id de l'agent
-  // ouvert, mais dériver son état actuel depuis ce fil afin que le panneau droit
-  // évolue sans devoir être refermé puis rouvert.
-  const activeAgent = useMemo(() => {
-    if (!openedAgent || !activeId) return null;
-    const refreshed = agentsFromActions((events[activeId] ?? []).filter(isAgentActivityAction));
-    const agent = refreshed.find((agent) => agent.threadId === openedAgent.threadId) ?? openedAgent;
-    return agentWithTranscriptState(agent, events[agent.threadId] ?? []);
-  }, [activeId, events, openedAgent]);
-  const activeAgentEvents = useMemo(
-    () => activeAgent ? (events[activeAgent.threadId] ?? []) : [],
-    [activeAgent, events],
-  );
+  const homeEvents = useHomeThreadEvents(eventStore, activeId == null);
   const openAgentInAtelier = (agent: AgentDisplay) => {
     const nextId = `agent:${agent.threadId}`;
     setOpenedAgent(agent);
@@ -1046,33 +1037,6 @@ export default function App() {
     setOpenedAgent(null);
     setActiveTab((current) => current === closingId ? previousAtelierTab.current : current);
   };
-  // Le flux d'activité parent indique qu'un sous-agent existe mais ne contient
-  // pas son transcript. Celui-ci vit dans le rollout enfant Codex : on le
-  // charge à l'ouverture, puis on le rafraîchit doucement tant qu'il travaille.
-  // Un sous-agent ne travaille que pendant un tour du fil parent : sans tour
-  // parent vivant, un statut « working » est un reliquat (done manqué) et le
-  // polling tournerait pour toujours — le serveur relit et renvoie alors le
-  // rollout COMPLET toutes les 2,5 s, ce qui gonflait le WebContent WKWebView
-  // de ~35 Mo/min au repos (mesure 2026-08-31). On garde l'envoi unique à
-  // l'ouverture du panneau ; seul l'intervalle exige le tour parent.
-  const parentTurnStartedAt = activeId ? workingSince[activeId] ?? null : null;
-  useEffect(() => {
-    const agentThreadId = activeAgent?.threadId;
-    const agentWorking = activeAgent?.status === "working";
-    if (!activeId || !agentThreadId || !wsReady) return;
-    const request = () => {
-      if (ws.current?.readyState !== WebSocket.OPEN) return;
-      ws.current.send(JSON.stringify({
-        type: "getAgentHistory",
-        parentThreadId: activeId,
-        agentThreadId,
-      }));
-    };
-    request();
-    if (!agentWorking || parentTurnStartedAt == null) return;
-    const timer = window.setInterval(request, 2500);
-    return () => window.clearInterval(timer);
-  }, [activeAgent?.status, activeAgent?.threadId, activeId, wsReady, parentTurnStartedAt]);
   useEffect(() => {
     setOpenedAgent(null);
     setActiveTab((current) => current.startsWith("agent:") ? previousAtelierTab.current : current);
@@ -1582,6 +1546,8 @@ export default function App() {
       getGalleryFrame: () =>
         document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"][data-atelier-ready="true"]'),
       onValidated: () => {
+        // Commands carry the main project root: reveal that folder before applying them.
+        window.dispatchEvent(new CustomEvent("atelier-gallery-reveal-folder", { detail: { root: activeProject } }));
         switchToSurface("atelier");
         setActiveTab("gallery");
       },
@@ -1803,6 +1769,13 @@ export default function App() {
         const prevThreads = threadsRef.current;
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
+        // A successful ws.send only queues bytes. Keep locally created chats
+        // visible until the server actually includes them in its thread list.
+        const acknowledgedIds = new Set<string>(msg.threads.map((thread: Thread) => thread.id));
+        setDraftThreads((current) => {
+          const pending = current.filter((thread) => !acknowledgedIds.has(thread.id));
+          return pending.length === current.length ? current : pending;
+        });
         const linkedSelection = pendingLinkedSelection.current;
         if (linkedSelection && msg.threads.some((thread: Thread) => thread.id === linkedSelection.threadId)) {
           pendingLinkedSelection.current = null;
@@ -1912,7 +1885,7 @@ export default function App() {
         // (workingSince, usage, notifications…) restent ici.
         // les deltas de texte (kinds réels émis par le backend, jamais
         // "streaming") sont lissés au rAF via le coalesceur (plan 066, L1,
-        // un seul setState par frame et par fil) ; tout le reste flush
+        // une seule transaction par frame et par fil) ; tout le reste flush
         // d'abord les deltas en attente puis s'applique tout de suite, sans
         // jamais changer l'ordre d'arrivée.
         if (STREAM_COALESCE_KINDS.has(msg.event.kind)) {
@@ -1991,16 +1964,12 @@ export default function App() {
         // (socket coupée) : le compteur tournerait alors pour toujours. On ne
         // touche PAS à un tour démarré après le dernier événement connu — ce
         // serait effacer un envoi tout frais dont l'historique ne sait rien.
-        if (threadIsSettled(histEvents)) {
-          const dernierTs = histEvents.reduce(
-            (max, event) => ("ts" in event && typeof event.ts === "number" && event.ts > max ? event.ts : max),
-            0,
-          );
-          setWorkingSince((p) => {
-            const depuis = p[msg.threadId];
-            return depuis == null || depuis > dernierTs ? p : { ...p, [msg.threadId]: null };
-          });
-        }
+        setWorkingSince((p) => {
+          const since = p[msg.threadId];
+          if (since == null) return p;
+          const next = reconcileWorkingSince(histEvents, since);
+          return next === since ? p : { ...p, [msg.threadId]: next };
+        });
       }
       if (msg.type === "agentHistory" && typeof msg.agentThreadId === "string") {
         // Les rollouts natifs ne portent pas tous la meta durable des events
@@ -2508,6 +2477,7 @@ export default function App() {
       }));
       if (response?.cancelTurn && threadId) {
         ws.current?.send(JSON.stringify({ type: "interrupt", threadId }));
+        ws.current?.send(JSON.stringify({ type: "getHistory", threadId }));
       }
       setEvents((p) => ({
         ...p,
@@ -2834,6 +2804,11 @@ export default function App() {
   type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null };
 
   function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
+    const associated = activeProject && resolveAssociatedFile(activeProject, settingsRef.current.projectFolders?.[activeProject], rel);
+    if (associated) {
+      void openSourceFile(associated.root, associated.rel, line, options).catch(error => void showError(String(error)));
+      return;
+    }
     // JAMAIS de non-op muet : un clic sur une pilule fichier doit répondre
     // quelque chose (vécu 2026-08-16 — serveur galerie pas encore démarré
     // après relance, clics sans aucun effet ni message).
@@ -2930,12 +2905,12 @@ export default function App() {
     // fichier — pas la galerie (voir revealAtelierTab).
     revealAtelierTab(focusId);
   }
-  async function openSourceFile(sourceRoot: string, rel: string) {
+  async function openSourceFile(sourceRoot: string, rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     if (sourceRoot === activeProject) { openFileTab(rel); return; }
     const owner = activeProject;
-    if (!owner || !settings.projectFolders?.[owner]?.folders.some(f => f.path === sourceRoot && f.gallery)) return;
+    if (!owner || !normalizeProjectFolders(owner, settingsRef.current.projectFolders?.[owner]).folders.some(f => f.path === sourceRoot)) return;
     const server = await invoke<string>("start_atelier", { root: sourceRoot, galleryDir: settings.galleryPath, galleryExts: settings.galleryExts });
-    if (activeProjectRef.current !== owner || !settingsRef.current.projectFolders?.[owner]?.folders.some(f => f.path === sourceRoot && f.gallery)) return;
+    if (activeProjectRef.current !== owner || !normalizeProjectFolders(owner, settingsRef.current.projectFolders?.[owner]).folders.some(f => f.path === sourceRoot)) return;
     const origin = new URL(server).origin;
     const ext = rel.split(".").pop()?.toLowerCase() || "";
     const encoded = rel.split("/").map(encodeURIComponent).join("/");
@@ -2943,6 +2918,12 @@ export default function App() {
     let target = `${origin}/${encoded}`;
     if (ext === "pdf" || ext === "svg") target = `${origin}/.fig_thumbs/${ext}_viewer.html?file=${encodeURIComponent(rel)}`;
     else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
+    if (line || options.diff) {
+      target = `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
+      if (line) target += `&line=${encodeURIComponent(line)}`;
+      if (options.diff) target += "&diff=1";
+      if (options.baseSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(options.baseSha)) target += `&base=${encodeURIComponent(options.baseSha)}`;
+    }
     const url = withAtelierNonce(target, atelierNonce);
     const id = stableTabId(`${owner}\0${url}`);
     setAtelierTabs(current => current.some(tab => tab.id === id) ? current : [...current, { id, url, title: `${rel.split("/").pop()} · ${sourceRoot.split("/").pop()}`, projectRoot: owner }]);
@@ -3130,6 +3111,7 @@ export default function App() {
         const id = activeIdRef.current;
         if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
           ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));
+          ws.current.send(JSON.stringify({ type: "getHistory", threadId: id }));
           return;
         }
       }
@@ -3242,7 +3224,7 @@ export default function App() {
     if (!projectRoot) {
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       // (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde `!length`)
-      if ((!events[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
+      if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
         ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
         evictedThreadsRef.current.delete(threadId);
       }
@@ -3258,7 +3240,7 @@ export default function App() {
     // conversation pas encore en mémoire → recharger l'historique de la
     // session (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde
     // `!length`, sans danger : mergeHarnessHistory fusionne sans écraser)
-    if ((!events[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
+    if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
       ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
       evictedThreadsRef.current.delete(threadId);
     }
@@ -3515,7 +3497,7 @@ export default function App() {
         ws.current.send(JSON.stringify({
           type: "exportThread",
           threadId: activeId,
-          events: (events[activeId] ?? []).filter((ev) => ev.kind === "user" || ev.kind === "text"),
+          events: (eventsRef.current[activeId] ?? []).filter((ev) => ev.kind === "user" || ev.kind === "text"),
         }));
       }
       return;
@@ -3523,7 +3505,7 @@ export default function App() {
     // Synara : un provider est immuable dès que le fil possède un historique.
     // Le changement crée une destination distincte; le backend copie le journal
     // et injecte le contexte dans la même transaction que le premier send.
-    const priorEvents = activeId ? (events[activeId] ?? []) : [];
+    const priorEvents = activeId ? (eventsRef.current[activeId] ?? []) : [];
     let id = activeId;
     let handoffFromThreadId: string | undefined;
     if (
@@ -3767,8 +3749,8 @@ export default function App() {
         signalerEnvoiImpossible();
         return;
       }
-      // le sidecar prend le relais : retirer le brouillon local homonyme
-      setDraftThreads((p) => p.filter((t) => t.id !== id));
+      // The draft is retired by the authoritative `threads` acknowledgement,
+      // not by transport acceptance: a slow backend must not hide the chat.
     }
   }
 
@@ -4145,7 +4127,7 @@ export default function App() {
       activeProject,
       projectName: projLabelRaw && !projLabelRaw.startsWith("icon:") ? projLabelRaw : null,
       threads: allThreads,
-      events,
+      events: homeEvents,
       workingSince,
       usageByThread,
       recentFiles: diskRecents.length
@@ -4611,7 +4593,7 @@ export default function App() {
     <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
-      <Panel id="chat" order={2} defaultSize={58} minSize={layout === "atelier" ? 0 : 30}
+      <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (
           <div className="annot-banner">
@@ -4638,10 +4620,10 @@ export default function App() {
             onClose={appBanner.closable ? () => setAppBanner(null) : undefined}
           />
         )}
-        <Chat
+        <ThreadChat
           threadId={activeId}
           home={homeBundle}
-          events={activeId ? (events[activeId] ?? []) : []}
+          eventStore={eventStore}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
           liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
@@ -4652,6 +4634,7 @@ export default function App() {
           zoteroItems={zoteroItems}
           plugins={plugins}
           projectRoot={activeProject}
+          imageProjectRoot={activeId ? allThreads.find((th) => th.id === activeId)?.projectRoot : undefined}
           projectName={displayProjectName}
           threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
@@ -4735,7 +4718,8 @@ export default function App() {
             }
             if (edit) setInjectText(text);
           }}
-          pins={activePins}
+          threadPins={activeId ? pins[activeId] : undefined}
+          setPins={setPins}
           onStylePin={(index, patch) => {
             if (!activeId) return;
             const id = activeId;
@@ -4764,7 +4748,6 @@ export default function App() {
             const id = activeId;
             const snapshot = eventsRef.current[id] ?? [];
             const eventId = (snapshot[index]?.meta as any)?.eventId;
-            const checkpoint = checkpointAfterUser(snapshot, index);
             pendingResend.current = {
               threadId: id,
               prompt: newText,
@@ -4775,7 +4758,7 @@ export default function App() {
             };
             if (ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({
-                type: "revert", scope: "thread", threadId: id, text: oldText, eventId, ...checkpoint,
+                type: "revert", scope: "thread", threadId: id, text: oldText, eventId,
               }));
             }
           }}
@@ -4881,6 +4864,7 @@ export default function App() {
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
+              ws.current.send(JSON.stringify({ type: "getHistory", threadId: activeId }));
             }
           }}
           onPasteImage={(dataURL) => {
@@ -4935,7 +4919,7 @@ export default function App() {
       {showAtelier && activeProject && (
         <>
           <PanelResizeHandle className="handle" onDragging={setDragging} />
-          <Panel id="atelier" order={3} defaultSize={42} minSize={20}>
+          <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
             <div className="atelier-host">
             <AtelierPane
               key={activeProject}
@@ -5020,8 +5004,9 @@ export default function App() {
                   { path, name, previewUrl },
                 );
               }}
-              agent={activeAgent}
-              agentEvents={activeAgentEvents}
+              agent={openedAgent}
+              agentEventStore={eventStore}
+              agentParentWorkingSince={activeId ? workingSince[activeId] ?? null : null}
               onCloseAgent={closeAgentInAtelier}
               overlayOpen={overlayOpen}
             />

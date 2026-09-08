@@ -3,6 +3,7 @@ import PDFKit
 
 struct NativeGalleryView: View {
     @Bindable var workspace: WorkspaceModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var filterState: GalleryFilterState { workspace.galleryFilters[workspace.gallery.selectedProject] ?? GalleryFilterState() }
     private var query: String { filterState.query }
     private var filter: String { filterState.type }
@@ -25,28 +26,52 @@ struct NativeGalleryView: View {
             catch { self.error = error.localizedDescription }
         }
     }
+    private var projectSelector: some View {
+        Group {
+            if workspace.gallery.connected {
+                Menu {
+                    ForEach(workspace.gallery.projects) { project in
+                        Button {
+                            workspace.gallery.selectedProject = project.id
+                            workspace.sidebarPreferences.markOpened(project.id)
+                        } label: {
+                            if project.id == workspace.gallery.selectedProject { Label(project.name, systemImage: "checkmark") }
+                            else { Text(project.name) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(workspace.gallery.projects.first { $0.id == workspace.gallery.selectedProject }?.name ?? "Projet")
+                            .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption)
+                    }.frame(minHeight: 44)
+                }.accessibilityLabel("Projet")
+                    .accessibilityValue(workspace.gallery.projects.first { $0.id == workspace.gallery.selectedProject }?.name ?? "Aucun")
+            } else {
+                Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private var filterActions: some View {
+        HStack(spacing: 8) {
+            Button("Filtrer les fichiers", systemImage: "line.3.horizontal.decrease") {
+                updateFilter { $0.expanded.toggle() }
+            }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+                .accessibilityValue(filterState.expanded ? "Déplié" : "Replié")
+            Button("Importer un fichier", systemImage: "plus") { workspace.importRequested = true }
+                .labelStyle(.iconOnly).frame(width: 44, height: 44)
+        }
+    }
     var body: some View {
         @Bindable var gallery = workspace.gallery
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    if gallery.connected {
-                        Picker("Projet", selection: Binding(get: { gallery.selectedProject }, set: { project in
-                            gallery.selectedProject = project; workspace.sidebarPreferences.markOpened(project)
-                        })) {
-                            ForEach(gallery.projects) { Text($0.name).tag($0.id) }
-                        }.labelsHidden()
-                    } else {
-                        Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        projectSelector
+                        filterActions.frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    Spacer()
-                    Button("Filtrer les fichiers", systemImage: "line.3.horizontal.decrease") {
-                        updateFilter { $0.expanded.toggle() }
-                    }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-                        .accessibilityValue(filterState.expanded ? "Déplié" : "Replié")
-                    Button("Importer un fichier", systemImage: "plus") { workspace.importRequested = true }
-                        .labelStyle(.iconOnly).frame(width: 44, height: 44)
-                }
+                } else { HStack(spacing: 8) { projectSelector; filterActions } }
                 if filterState.expanded {
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
@@ -73,7 +98,7 @@ struct NativeGalleryView: View {
                         else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered) }
                     }
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 16) {
+                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 16) {
                     ForEach(items) { item in
                         Button {
                             opening = item.id
@@ -147,17 +172,18 @@ struct ArtifactThumbnail: View {
             else { Image(systemName: item.kind == "PDF" ? "doc.richtext" : item.kind == "Figures" ? "photo" : "doc.text").font(.largeTitle).foregroundStyle(.secondary) }
         }
         .task(id: item.id) {
+            thumbnail = nil; excerpt = nil
             let visual = ["PDF", "Figures"].contains(item.kind)
             guard item.supported else { return }
             if !visual {
-                if let text = try? await gallery.previewText(item) { excerpt = String(text.prefix(900)) }
+                if let text = try? await gallery.previewText(item), !Task.isCancelled { excerpt = String(text.prefix(900)) }
                 return
             }
             guard (item.data?.count ?? item.size) < 5 * 1024 * 1024,
                   let data = try? await gallery.contents(item) else { return }
-            if item.kind == "PDF" {
-                thumbnail = PDFDocument(data: data)?.page(at: 0)?.thumbnail(of: CGSize(width: 300, height: 300), for: .cropBox)
-            } else { thumbnail = UIImage(data: data) }
+            let image = await ArtifactPreviewRenderer.shared.render(data, pdf: item.kind == "PDF")
+            guard !Task.isCancelled else { return }
+            thumbnail = image
         }
     }
 }

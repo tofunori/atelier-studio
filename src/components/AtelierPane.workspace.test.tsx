@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AtelierPane, { type AtelierTab } from "./AtelierPane";
+import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 
@@ -44,7 +45,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof AtelierPane>[0]> =
     onToggleExpand: vi.fn(),
     ...overrides,
   };
-  return { props, ...render(<AtelierPane {...props} />) };
+  return { props, ...render(<><WorkspacePaneMenuSlot /><AtelierPane {...props} /></>) };
 }
 
 function mockWorkspaceGeometry(container: HTMLElement) {
@@ -83,13 +84,15 @@ describe("AtelierPane — workspace modulaire", () => {
 
     const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
     expect(pane).toHaveAttribute("data-pane-chrome", "native");
-    await waitFor(() => expect(container.querySelector(".kb-head .workspace-pane-controls-slot")).toBeInTheDocument());
+    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    expect(container.querySelector(".kb-head .workspace-pane-controls-slot")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
     fireEvent.click(screen.getByText(t("atelier.gallery")));
     expect(pane).toHaveAttribute("data-pane-chrome", "workspace");
-    // plan 057 : plus de bande d'onglets — les contrôles flottent sur le pane
-    expect(pane.querySelector(".workspace-pane-controls.is-floating")).toBeInTheDocument();
+    // Aucun contrôle ne recouvre la galerie.
+    expect(pane.querySelector(".workspace-pane-controls")).toBeNull();
+    expect(container.querySelectorAll(".workspace-pane-menu-slot button")).toHaveLength(1);
   });
 
   it("scinde un onglet de code à droite et garde un document actif dans chaque pane", () => {
@@ -149,10 +152,11 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
-    await waitFor(() => expect(container.querySelector(".biblio-surface .workspace-pane-controls-slot")).toBeInTheDocument());
+    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    expect(container.querySelector(".biblio-surface .workspace-pane-controls-slot")).toBeNull();
   });
 
-  it("laisse Terminal propriétaire de son chrome et y intègre les commandes du pane", async () => {
+  it("laisse Terminal propriétaire de son chrome sans superposer les commandes du panneau", async () => {
     const { container } = renderWorkspace();
     mockWorkspaceGeometry(container);
     act(() => {
@@ -165,12 +169,11 @@ describe("AtelierPane — workspace modulaire", () => {
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
     expect(container.querySelectorAll('[data-pane-chrome="workspace"]')).toHaveLength(1);
-    await waitFor(() => expect(container.querySelector(".term-bar .workspace-pane-controls-slot")).toBeInTheDocument());
+    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    expect(container.querySelector(".term-bar .workspace-pane-controls-slot")).toBeNull();
 
-    fireEvent.click(
-      container.querySelector<HTMLElement>('.term-bar .workspace-pane-close')
-      ?? screen.getAllByRole("button", { name: t("workspace.close-pane") })[0],
-    );
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("workspace.close-pane") }));
     expect(container.querySelector('[data-pane-chrome="native"]')).toBeNull();
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
     expect(container.querySelector(".workspace-split")).toBeNull();
@@ -182,11 +185,32 @@ describe("AtelierPane — workspace modulaire", () => {
     fireEvent.click(screen.getByText(t("workspace.split-right")));
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
 
-    // la croix de la bande a disparu : la fermeture passe par les contrôles du
-    // pane, et il faut viser celui qui vient d'être créé par le split
-    const panes = container.querySelectorAll<HTMLElement>(".workspace-pane");
-    fireEvent.click(panes[1].querySelector<HTMLElement>(".workspace-pane-close")!);
+    // Le menu suit le panneau focalisé par le split.
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("workspace.close-pane") }));
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
     expect(container.querySelector(".workspace-split")).toBeNull();
+  });
+
+  it("le menu suit le document focalisé dans une iframe après un split", () => {
+    const { container, props } = renderWorkspace();
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("workspace.split-right") }));
+    const focusedId = container.querySelector<HTMLElement>(".workspace-pane.is-focused")!.dataset.paneId;
+    const frame = [...container.querySelectorAll<HTMLIFrameElement>("iframe[data-atelier-tab]")]
+      .find((candidate) => candidate.closest<HTMLElement>("[data-owner-pane]")?.dataset.ownerPane !== focusedId)!;
+    const owner = frame.closest<HTMLElement>("[data-owner-pane]")!.dataset.ownerPane;
+    const sendFocus = (origin: string) => act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "atelier-pane-focus" }, source: frame.contentWindow, origin,
+      }));
+    });
+    sendFocus("https://unrelated.example");
+    expect(container.querySelector<HTMLElement>(".workspace-pane.is-focused")!.dataset.paneId).toBe(focusedId);
+    sendFocus(ORIGIN);
+    expect(container.querySelector<HTMLElement>(".workspace-pane.is-focused")!.dataset.paneId).toBe(owner);
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
+    fireEvent.click(screen.getByRole("menuitem", { name: t("workspace.close-pane") }));
+    expect(props.onCloseTab).toHaveBeenCalledWith(frame.dataset.atelierTab);
   });
 });

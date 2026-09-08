@@ -3,3 +3,15 @@
 .project-gallery-preview{position:relative}.project-gallery-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--bg-card)}
 
 .project-gallery-toolbar-space{flex:1;min-width:0}
+
+.project-gallery-snippet{position:absolute;inset:0;margin:0;padding:10px 12px;overflow:hidden;background:var(--bg-card);color:var(--muted);font-family:var(--font-mono,monospace);font-size:10px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;pointer-events:none}
+
+.project-gallery-preview img[data-pdf]{background:white}
+
+/* All folders retain the complete gallery, grouped without per-card root labels. */
+.project-gallery-section{display:flex;flex-direction:column;flex:1;min-height:0}
+.project-gallery-all{overflow:auto;display:block}
+.project-gallery-all>.project-gallery-section{flex:none;min-height:240px}
+.project-gallery-heading{margin:0;padding:14px 16px 8px;font-size:var(--fs-body-s,12px);font-weight:600;color:var(--muted);border-top:1px solid var(--border)}
+.project-gallery-section>p{padding:12px 16px;color:var(--muted);font-size:var(--fs-body-s,12px)}
+.project-gallery-section>iframe.atelier{position:relative;inset:auto;width:100%;border:0}

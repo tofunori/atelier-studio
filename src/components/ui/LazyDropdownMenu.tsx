@@ -9,6 +9,10 @@ import {
   type ReactNode,
   type RefObject,
 } from "react"
+import type {
+  DropdownMenuSurfaceGroup,
+  DropdownMenuSurfaceItem,
+} from "./DropdownMenuSurface"
 
 // Composant résolu stocké au niveau module (pas de React.lazy/Suspense : on
 // piste déjà le chargement nous-mêmes — une fois le chunk arrivé, le rendu
@@ -20,17 +24,12 @@ const dropdownMenuModule = import("./DropdownMenuSurface").then((module) => {
   return module
 })
 
-export type LazyDropdownMenuItem = {
-  key: string
-  label: ReactNode
-  onSelect?: () => void
+export type LazyDropdownMenuItem = Omit<DropdownMenuSurfaceItem, "children"> & {
   children?: LazyDropdownMenuItem[]
-  destructive?: boolean
-  disabled?: boolean
-  separatorBefore?: boolean
-  className?: string
-  /** Keep the controlled menu open when the action changes its item set. */
-  keepOpen?: boolean
+}
+
+export type LazyDropdownMenuGroup = Omit<DropdownMenuSurfaceGroup, "items"> & {
+  items: LazyDropdownMenuItem[]
 }
 
 export function LazyDropdownMenu(props: {
@@ -40,36 +39,30 @@ export function LazyDropdownMenu(props: {
   triggerRef?: RefObject<HTMLButtonElement | null>
   label?: string
   align?: "start" | "center" | "end"
+  side?: "top" | "right" | "bottom" | "left"
+  sideOffset?: number
   className?: string
   header?: ReactNode
-  items: LazyDropdownMenuItem[]
+  footer?: ReactNode
+  items?: LazyDropdownMenuItem[]
+  groups?: LazyDropdownMenuGroup[]
 }) {
   const fallbackAnchorRef = useRef<HTMLButtonElement | null>(null)
   const anchorRef = props.triggerRef ?? fallbackAnchorRef
   const [ready, setReady] = useState(LoadedSurface != null)
-  const keepOpenRef = useRef(false)
-
-  const onOpenChange = (open: boolean) => {
-    if (!open && keepOpenRef.current) {
-      keepOpenRef.current = false
-      return
-    }
-    props.onOpenChange(open)
-  }
-
-  const invoke = (item: LazyDropdownMenuItem) => {
-    if (item.keepOpen) keepOpenRef.current = true
-    item.onSelect?.()
-  }
 
   const bindItems = (source: LazyDropdownMenuItem[]): LazyDropdownMenuItem[] =>
     source.map((item) => ({
       ...item,
-      onSelect: item.children ? undefined : () => invoke(item),
+      onSelect: item.children ? undefined : item.onSelect,
       children: item.children ? bindItems(item.children) : undefined,
     }))
 
-  const items = bindItems(props.items)
+  const items = bindItems(props.items ?? [])
+  const groups = props.groups?.map((group) => ({
+    ...group,
+    items: bindItems(group.items),
+  }))
 
   useEffect(() => {
     void dropdownMenuModule.then(() => setReady(true))
@@ -90,5 +83,5 @@ export function LazyDropdownMenu(props: {
   }
 
   const Surface = LoadedSurface
-  return <Surface {...props} items={items} onOpenChange={onOpenChange} triggerRef={anchorRef} />
+  return <Surface {...props} items={items} groups={groups} triggerRef={anchorRef} />
 }

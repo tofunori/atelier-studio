@@ -46,13 +46,14 @@ extension RemoteChatModel {
 
     func commitRevision(_ draft: MessageEditDraft, text: String, requestID: String, workspace: WorkspaceModel) async throws {
         guard selected?.id == draft.thread.id, !running, !sending else { throw ChatError.notSent }
-        guard permissionMode == .ask || availablePermissionModes.contains(permissionMode) else { throw ChatError.notSent }
+        let requestPermission = effectivePermissionMode
+        guard requestPermission == .ask || availablePermissionModes.contains(requestPermission) else { throw ChatError.notSent }
         sending = true
         defer { sending = false }
         var ids: [String] = []
         for file in draft.files { ids.append(try await workspace.gallery.attachmentID(file)) }
         var body: [String: Any] = ["eventId":draft.row.id, "originalText":draft.row.text,
-            "prompt":text, "requestId":requestID, "fileIds":ids, "permissionMode":permissionMode.rawValue]
+            "prompt":text, "requestId":requestID, "fileIds":ids, "permissionMode":requestPermission.rawValue]
         if !model.isEmpty { body["model"] = model }
         if !effort.isEmpty { body["effort"] = effort }
         struct Reply: Decodable { let proxied: Bool; let thread: Thread }

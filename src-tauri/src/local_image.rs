@@ -36,6 +36,10 @@ fn valid_image_signature(path: &Path, bytes: &[u8]) -> bool {
 
 #[tauri::command]
 pub fn local_image_read(path: String) -> Result<tauri::ipc::Response, String> {
+    Ok(tauri::ipc::Response::new(read_image_bytes(&path)?))
+}
+
+fn read_image_bytes(path: &str) -> Result<Vec<u8>, String> {
     let path = PathBuf::from(path);
     if !path.is_absolute() {
         return Err("Image preview path must be absolute".into());
@@ -54,7 +58,22 @@ pub fn local_image_read(path: String) -> Result<tauri::ipc::Response, String> {
     if !valid_image_signature(&path, &bytes) {
         return Err("Image preview signature does not match its format".into());
     }
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
+}
+
+#[tauri::command]
+pub async fn local_image_save_to_gallery(path: String, thread_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = dirs::home_dir().ok_or("Dossier utilisateur introuvable")?
+            .join("Library/Application Support/atelier-studio");
+        let threads = atelier_store::ThreadStore::open(directory.join("threads.json"));
+        let thread = threads.get(&thread_id).ok_or("Conversation introuvable")?;
+        if thread.project_root.is_empty() { return Err("Ce chat n’est associé à aucun projet".into()); }
+        let project_root = thread.project_root.clone();
+        let bytes = read_image_bytes(&path)?;
+        let extension = Path::new(&path).extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        atelier_workspace::save_generated_image(Path::new(&project_root), &bytes, &extension)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

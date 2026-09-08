@@ -1,89 +1,103 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { File, Folder, RefreshCw, Search } from "lucide-react";
-import { Button, IconButton, RowButton } from "./ui";
-import { Popover, PopoverTrigger, PopoverContent, PopoverTitle } from "./shadcn/popover";
-import { Input } from "./shadcn/input";
-import { normalizeProjectFolders, type ProjectFolders } from "../lib/projectFolders";
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeProjectFolders, type ProjectFolders } from "../lib/projectFolders";
 import { t } from "../lib/i18n";
-import "./ProjectGallery.css";
 import { ProjectFolderMenu, type FolderMenuState } from "./ProjectFolderMenu";
+import "./ProjectGallery.css";
 
-type Source = { root: string; name: string; files: string[]; truncated?: boolean; error?: string };
-const artifact = /\.(pdf|png|jpe?g|webp|gif|svg|html?|md|tex|ipynb)$/i;
+// Retained for catalog consumers that identify same-name files across folders.
 export function sourceFileIdentity(root: string, rel: string) { return JSON.stringify([root, rel]); }
-export default function ProjectGallery({ root, config, ws, mainGallery, onManage, onOpen, reloadKey, galleryDir, galleryExts }: {
+
+export default function ProjectGallery({ root, config, mainGallery, onManage, reloadKey, galleryDir, galleryExts, galleryUrl }: {
   root: string; config?: ProjectFolders; ws: WebSocket | null; mainGallery: React.ReactNode;
-  onManage: () => void; onOpen: (source: string, rel: string) => Promise<void>; reloadKey: number; galleryDir?: string; galleryExts?: string;
+  onManage: () => void; onOpen: (source: string, rel: string) => Promise<void>; reloadKey: number;
+  galleryDir?: string; galleryExts?: string; galleryUrl?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const normalized = useMemo(() => normalizeProjectFolders(root, config), [root, config]);
-  const availableFolders = [...(normalized.mainGallery ? [{ path: root, name: root.split("/").pop() || root }] : []), ...normalized.folders.filter(f => f.gallery)];
-  const [sources, setSources] = useState<Source[]>([]);
-  const [filter, setFilter] = useState(availableFolders.length === 1 ? availableFolders[0].path : "all");
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [revision, setRevision] = useState(0);
-  const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
-  const [opening, setOpening] = useState<string | null>(null);
-  const [limit, setLimit] = useState(120);
+  const folders = useMemo(() => [
+    ...(normalized.mainGallery ? [{ path: root, name: root.split("/").pop() || root }] : []),
+    ...normalized.folders.filter(folder => folder.gallery),
+  ], [root, normalized]);
+  const [filter, setFilter] = useState(folders.length === 1 ? folders[0].path : "all");
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const all = filter === "all";
+
   useEffect(() => {
-    if (!ws || ws.readyState !== 1) { setError(t("project.folders-offline")); return; }
-    let alive = true;
-    const requestId = crypto.randomUUID(); setLoading(true); setError(""); setSources([]);
-    const timer = window.setTimeout(() => { if (alive) { setLoading(false); setError(t("project.folders-timeout")); } }, 30000);
-    function message(event: MessageEvent) {
-      let data; try { data = JSON.parse(event.data); } catch { return; }
-      if (!alive || data.type !== "projectFolderCatalog" || data.requestId !== requestId || data.projectRoot !== root) return;
-      clearTimeout(timer); setSources(Array.isArray(data.sources) ? data.sources : []); setLoading(false); if (data.error) setError(t("project.folders-timeout"));
-    }
-    ws.addEventListener("message", message);
-    ws.send(JSON.stringify({ type: "projectFolderCatalog", projectRoot: root, requestId, config: normalized }));
-    return () => { alive = false; clearTimeout(timer); ws.removeEventListener("message", message); };
-  }, [root, normalized, ws, revision, reloadKey]);
-  useEffect(() => { if (filter === "all" && availableFolders.length === 1) setFilter(availableFolders[0].path); }, [normalized, filter, root]);
-  useEffect(() => { setLimit(120); }, [filter, query]);
-  useEffect(() => { if (filter !== "all" && filter !== root && !normalized.folders.some(f => f.path === filter && f.gallery)) setFilter("all"); if (filter === root && !normalized.mainGallery) setFilter("all"); }, [normalized, filter, root]);
+    if (filter !== "all" && !folders.some(folder => folder.path === filter)) setFilter("all");
+    if (filter === "all" && folders.length === 1) setFilter(folders[0].path);
+  }, [filter, folders]);
+
   useEffect(() => {
-    if (filter === root) return;
     let alive = true;
-    for (const source of sources.filter(s => !s.error && (filter === "all" || s.root === filter))) {
-      if (!source.files.some(rel => /\.(pdf|png|jpe?g|webp|gif|svg)$/i.test(rel))) continue;
-      void invoke<string>("start_atelier", { root: source.root, galleryDir: galleryDir || "", galleryExts: galleryExts || "" })
-        .then(url => { if (alive) setSourceUrls(current => ({ ...current, [source.root]: new URL(url).origin })); })
-        .catch(() => { /* The filename remains usable; opening reports the server error. */ });
+    for (const folder of folders.filter(folder => folder.path !== root && (all || folder.path === filter))) {
+      setErrors(current => ({ ...current, [folder.path]: "" }));
+      void invoke<string>("start_atelier", { root: folder.path, galleryDir: galleryDir || "", galleryExts: galleryExts || "" })
+        .then(url => { if (alive) setUrls(current => ({ ...current, [folder.path]: url })); })
+        .catch(error => { if (alive) setErrors(current => ({ ...current, [folder.path]: String(error) })); });
     }
     return () => { alive = false; };
-  }, [sources, filter, root, galleryDir, galleryExts]);
-  const visibleSources = sources.filter(s => filter === "all" || s.root === filter);
-  const entries = visibleSources.flatMap(s => s.files.filter(rel => artifact.test(rel) && rel.toLowerCase().includes(query.toLowerCase())).map(rel => ({ source: s, rel })));
-  const filters = [...(availableFolders.length > 1 ? [{ path: "all", name: t("project.folders-all") }] : []), ...availableFolders];
-  const menuState: FolderMenuState = { folders: filters, selected: filter, label: t("project.folders"), manageLabel: t("project.folders-manage") };
-  // The iframe owns its toolbar. Exchange only folder state and validated actions.
+  }, [root, folders, all, filter, galleryDir, galleryExts, reloadKey]);
+
   useEffect(() => {
-    const frame = containerRef.current?.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
-    if (!frame) return;
-    const origin = new URL(frame.src, window.location.href).origin;
-    const send = () => frame.contentWindow?.postMessage({ type: "atelier-folder-state", state: menuState }, origin);
+    const reveal = (event: Event) => {
+      const path = (event as CustomEvent<{ root: string }>).detail?.root;
+      if (folders.some(folder => folder.path === path)) setFilter(path);
+    };
+    window.addEventListener("atelier-gallery-reveal-folder", reveal);
+    return () => window.removeEventListener("atelier-gallery-reveal-folder", reveal);
+  }, [folders]);
+
+  const choices = [...(folders.length > 1 ? [{ path: "all", name: t("project.folders-all") }] : []), ...folders];
+  const menuState: FolderMenuState = { folders: choices, selected: filter, label: t("project.folders"), manageLabel: t("project.folders-manage") };
+  useEffect(() => {
+    const frames = [...(containerRef.current?.querySelectorAll<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]') || [])];
+    const known = frames.map(frame => ({ frame, origin: new URL(frame.src, window.location.href).origin,
+      path: frame.dataset.folderRoot || root }));
+    const send = (entry: typeof known[number]) => {
+      entry.frame.contentWindow?.postMessage({ type: "atelier-folder-state", state: menuState }, entry.origin);
+    };
     const receive = (event: MessageEvent) => {
-      if (event.source !== frame.contentWindow || event.origin !== origin) return;
-      if (event.data?.type === "atelier-folder-ready") send();
-      if (event.data?.type === "atelier-folder-select" && filters.some(f => f.path === event.data.path)) setFilter(event.data.path);
+      const entry = known.find(item => item.frame.contentWindow === event.source && item.origin === event.origin);
+      if (!entry) return;
+      if (event.data?.type === "atelier-folder-ready") send(entry);
+      // Hidden galleries cannot change the current folder selection.
+      if (!all && entry.path !== filter) return;
+      if (event.data?.type === "atelier-folder-select" && choices.some(folder => folder.path === event.data.path)) setFilter(event.data.path);
       if (event.data?.type === "atelier-folder-manage") onManage();
     };
-    window.addEventListener("message", receive); frame.addEventListener("load", send); send();
-    return () => { window.removeEventListener("message", receive); frame.removeEventListener("load", send); };
-  }, [filter, normalized, root, onManage, mainGallery]);
-  return <div className="project-gallery" ref={containerRef}>
-    {filter !== root && <div className="project-gallery-toolbar"><ProjectFolderMenu state={menuState} onSelect={setFilter} onManage={onManage}/><span className="project-gallery-toolbar-space"/><Popover><PopoverTrigger render={<IconButton label={t("project.folders-search")}><Search size={16}/></IconButton>}/><PopoverContent align="end"><PopoverTitle className="tw:sr-only">{t("project.folders-search")}</PopoverTitle><Input type="search" aria-label={t("project.folders-search")} placeholder={t("project.folders-search")} value={query} onChange={e => setQuery(e.target.value)} /></PopoverContent></Popover><IconButton label={t("project.folders-refresh")} onClick={() => setRevision(v => v + 1)}><RefreshCw size={14}/></IconButton></div>}
-    {/* Main gallery remains mounted: preserve annotations, selection and command bridge. */}
-    <div className="project-gallery-native" style={{ display: filter === root ? "flex" : "none" }}>{mainGallery}</div>
-    {filter !== root && <div className="project-gallery-catalog">
-      {loading && <p role="status">{t("project.folders-loading")}</p>}{error && <p role="alert">{error}</p>}
-      {visibleSources.filter(s => s.error || s.truncated).map(s => <p key={s.root} role="status">{s.name} — {s.error || t("project.folders-truncated")}</p>)}
-      <div className="project-gallery-grid">{entries.slice(0, limit).map(({ source, rel }) => { const id = sourceFileIdentity(source.root, rel); return <RowButton type="button" className="project-gallery-file" key={id} disabled={opening !== null} title={`${source.root}/${rel}`} onClick={async () => { setOpening(id); setError(""); try { await onOpen(source.root, rel); } catch (e) { setError(String(e)); } finally { setOpening(null); } }}><div className="project-gallery-preview"><File size={30}/>{sourceUrls[source.root] && /\.(pdf|png|jpe?g|webp|gif|svg)$/i.test(rel) && <img loading="lazy" alt="" src={`${sourceUrls[source.root]}/thumb?path=${encodeURIComponent(rel)}&w=480&rev=${reloadKey}-${revision}`} onError={e => { e.currentTarget.style.display = "none"; }} />}<span>{opening === id ? "…" : rel.split(".").pop()?.toUpperCase()}</span></div><strong>{rel.split("/").pop()}</strong><span className="project-gallery-origin"><Folder size={12}/>{source.name}</span><span className="project-gallery-relative">{rel}</span></RowButton>; })}</div>
-      {!loading && !error && <p className="project-gallery-count">{entries.length} {t("project.folders-files")}</p>}{entries.length > limit && <Button onClick={() => setLimit(v => v + 120)}>{t("project.folders-more")}</Button>}
-    </div>}
+    const cleanup = known.map(entry => {
+      const onLoad = () => send(entry);
+      entry.frame.addEventListener("load", onLoad); send(entry);
+      return () => entry.frame.removeEventListener("load", onLoad);
+    });
+    window.addEventListener("message", receive);
+    return () => { window.removeEventListener("message", receive); cleanup.forEach(fn => fn()); };
+  }, [filter, all, folders, root, urls, mainGallery, onManage, galleryUrl, reloadKey]);
+
+  const embeddedUrl = (url: string) => {
+    const embedded = new URL(url);
+    embedded.searchParams.set("embedded", "atelier");
+    if (galleryUrl) embedded.hash = new URL(galleryUrl).hash;
+    return embedded.toString();
+  };
+  const pending = folders.some(folder => folder.path !== root && (all || folder.path === filter) && !urls[folder.path]);
+  return <div className={`project-gallery${all ? " project-gallery-all" : ""}`} ref={containerRef}>
+    {(pending || !folders.length) && <div className="project-gallery-toolbar"><ProjectFolderMenu state={menuState} onSelect={setFilter} onManage={onManage}/></div>}
+    {/* One renderer in every mode; mounted frames retain favorites, filters and selection. */}
+    <section className="project-gallery-section" style={{ display: normalized.mainGallery && (all || filter === root) ? "flex" : "none" }}>
+      {all && <h2 className="project-gallery-heading">{root.split("/").pop()}</h2>}
+      <div className="project-gallery-native" style={all ? { height: "clamp(400px, 70vh, 720px)", flex: "none" } : undefined}>{mainGallery}</div>
+    </section>
+    {folders.filter(folder => folder.path !== root).map(folder => <section key={folder.path} className="project-gallery-section"
+      style={{ display: all || filter === folder.path ? "flex" : "none" }}>
+      {all && <h2 className="project-gallery-heading">{folder.name}</h2>}
+      {urls[folder.path] ? <iframe key={`${folder.path}-${reloadKey}`} className="atelier" data-atelier-role="gallery"
+        data-folder-root={folder.path} src={embeddedUrl(urls[folder.path])}
+        style={all ? { height: "clamp(400px, 70vh, 720px)", flex: "none" } : { flex: 1, minHeight: 0 }}
+        title={`Galerie — ${folder.name}`} />
+        : <p role={errors[folder.path] ? "alert" : "status"}>{errors[folder.path] || t("project.folders-loading")}</p>}
+    </section>)}
   </div>;
 }

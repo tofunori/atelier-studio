@@ -227,6 +227,20 @@ impl HarnessThread {
     }
 
     pub fn emit(&mut self, turn_id: &str, event: Value, item_id: Option<&str>) {
+        // The provider announces its native turn in the first `started` event.
+        // Capture it before decorating that event so every following durable
+        // item (especially image artifacts) carries the exact native turn
+        // alongside the Atelier turn and item identities.
+        if event.get("kind").and_then(Value::as_str) == Some("started") {
+            if let Some(native) = event
+                .get("nativeTurnId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|native| !native.is_empty())
+            {
+                self.set_native_turn_id(turn_id, native);
+            }
+        }
         let decorated = self.decorate(event, turn_id, None, item_id, "provider", None);
         self.dispatch(decorated);
     }
@@ -300,6 +314,54 @@ mod tests {
         assert_eq!(events[2]["meta"]["sequence"], 3);
         let mat = journal.materialize("t1");
         assert_eq!(mat.len(), 3);
+    }
+
+    #[test]
+    fn image_artifact_keeps_turn_native_and_item_identity_after_replay() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        let captured = Arc::new(StdMutex::new(Vec::new()));
+        let cap = Arc::clone(&captured);
+        let emit: EmitFn = Arc::new(move |event| {
+            cap.lock().unwrap().push(event);
+        });
+        let mut h = HarnessThread::new("chat-images", "codex", emit, journal.clone());
+        let turn = h.start_turn(Some("atelier-turn"), None, Some(json!({
+            "kind": "user",
+            "text": "génère une carte",
+        })));
+        h.emit(
+            &turn,
+            json!({"kind": "started", "nativeTurnId": "codex-turn"}),
+            None,
+        );
+        h.emit(
+            &turn,
+            json!({
+                "kind": "tool_update",
+                "id": "image-item",
+                "name": "image_generation",
+                "status": "completed",
+                "input": {"paths": ["/tmp/map.png"]},
+                "output": "/tmp/map.png",
+            }),
+            Some("image-item"),
+        );
+
+        let live = captured.lock().unwrap();
+        let event = live.iter().find(|event| event["kind"] == "tool_update").unwrap();
+        assert_eq!(event["meta"]["threadId"], "chat-images");
+        assert_eq!(event["meta"]["turnId"], "atelier-turn");
+        assert_eq!(event["meta"]["nativeTurnId"], "codex-turn");
+        assert_eq!(event["meta"]["itemId"], "image-item");
+        drop(live);
+
+        let replay = journal.materialize("chat-images");
+        let event = replay.iter().find(|event| event["kind"] == "tool_update").unwrap();
+        assert_eq!(event["input"]["paths"][0], "/tmp/map.png");
+        assert_eq!(event["meta"]["turnId"], "atelier-turn");
+        assert_eq!(event["meta"]["nativeTurnId"], "codex-turn");
+        assert_eq!(event["meta"]["itemId"], "image-item");
     }
 
     #[test]

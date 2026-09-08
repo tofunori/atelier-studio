@@ -1,16 +1,51 @@
-import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderUi } from "../../test/render";
-import { ActivityDisclosure, ScrollToBottomButton, Tab, TabList } from ".";
+import {
+  ActivityDisclosure,
+  ScrollToBottomButton,
+  Tab,
+  TabList,
+} from ".";
+
+afterEach(cleanup);
 
 describe("patterns officiels du design system", () => {
   it("Tabs expose sélection, variante compacte et fermeture", () => {
     const close = vi.fn();
-    renderUi(<TabList><Tab compact active label="Gallery" /><Tab label="main.tex" onClose={close}>main.tex</Tab></TabList>);
+    renderUi(
+      <TabList value="gallery" onValueChange={() => {}}>
+        <Tab compact tabId="gallery" label="Gallery" />
+        <Tab tabId="main" label="main.tex" onClose={close}>main.tex</Tab>
+      </TabList>,
+    );
     expect(screen.getByRole("tab", { name: "Gallery" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Gallery" })).toHaveClass("is-compact");
     fireEvent.click(screen.getByRole("button"));
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("TabList garde des valeurs stables quand les libellés se répètent", () => {
+    function Fixture() {
+      const [value, setValue] = useState("left");
+      return (
+        <TabList value={value} onValueChange={setValue}>
+          <Tab label="Même" value="left" tabId="left-tab" />
+          <Tab label="Même" value="right" tabId="right-tab" />
+        </TabList>
+      );
+    }
+
+    renderUi(<Fixture />);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.click(tabs[1]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "false");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
   });
 
   it("ActivityDisclosure garde chaque détail indépendamment repliable", () => {

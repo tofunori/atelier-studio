@@ -31,16 +31,6 @@ import {
 } from "../shadcn/dialog";
 import { Field, FieldGroup, FieldLabel } from "../shadcn/field";
 import { Input } from "../shadcn/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "../shadcn/popover";
-import { ScrollArea } from "../shadcn/scroll-area";
-import { Separator } from "../shadcn/separator";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
@@ -74,7 +64,6 @@ export function GitToolbar({
       if (right === "main") return 1;
       return left.localeCompare(right);
     });
-  const branchListHeight = Math.min(Math.max(branches.length * 32, 32), 420);
 
   useEffect(() => {
     if (!menuOpen) setUndoArmed(false);
@@ -84,8 +73,14 @@ export function GitToolbar({
     <div className="git-head">
       <div className="git-title">
         {mode === "git" ? (
-          <Popover open={branchMenuOpen} onOpenChange={setBranchMenuOpen}>
-            <PopoverTrigger render={
+          <LazyDropdownMenu
+            open={branchMenuOpen}
+            onOpenChange={setBranchMenuOpen}
+            align="start"
+            label={t("git.branches")}
+            header={t("git.branches")}
+            footer={files.length > 0 ? t("git.branch-clean-required") : t("git.branch-actions-help")}
+            trigger={(
               <Button
                 variant="ghost"
                 className="git-branch-btn"
@@ -96,89 +91,63 @@ export function GitToolbar({
                 <span>{currentBranch}</span>
                 <ChevronDownIcon className="git-branch-chevron" />
               </Button>
-            } />
-            <PopoverContent plain align="start" sideOffset={5} className="git-branch-popover">
-              <PopoverHeader className="git-branch-popover-head">
-                <PopoverTitle>{t("git.branches")}</PopoverTitle>
-                <PopoverDescription>
-                  {files.length > 0 ? t("git.branch-clean-required") : t("git.branch-actions-help")}
-                </PopoverDescription>
-              </PopoverHeader>
-              <Button
-                variant="ghost"
-                className="git-branch-create"
-                disabled={syncBusy != null}
-                onClick={() => {
-                  setBranchMenuOpen(false);
+            )}
+            items={[
+              {
+                key: "create-branch",
+                label: <><PlusIcon data-icon="inline-start" />{t("git.create-branch")}</>,
+                disabled: syncBusy != null,
+                onSelect: () => {
                   setBranchDraft("");
                   setCreateBranchOpen(true);
-                }}
-              >
-                <PlusIcon data-icon="inline-start" />
-                {t("git.create-branch")}
-              </Button>
-              <Separator />
-              <ScrollArea className="git-branch-scroll" style={{ height: branchListHeight }}>
-                <div className="git-branch-list">
-                  {branches.map((branch) => {
-                    const isCurrent = branch === currentBranch;
-                    const switchDisabled = isCurrent || files.length > 0 || syncBusy != null;
-                    const mergeLabel = t("git.merge-branch-into", { branch, current: currentBranch });
-                    const deleteLabel = t("git.delete-branch-named", { branch });
-                    return (
-                      <div key={branch} className="git-branch-row">
-                        <Button
-                          variant="ghost"
-                          className="git-branch-row-main"
-                          aria-current={isCurrent ? "true" : undefined}
-                          disabled={switchDisabled}
-                          onClick={() => {
-                            controller.switchBranch(branch);
-                            setBranchMenuOpen(false);
-                          }}
-                        >
-                          <CheckIcon className={isCurrent ? "" : "git-branch-check-hidden"} />
-                          <span>{branch}</span>
-                        </Button>
-                        {!isCurrent && (
-                          <span className="git-branch-row-actions">
-                            <IconButton
-                              size="s"
-                              className="git-branch-row-action git-branch-merge"
-                              label={mergeLabel}
-                              title={files.length > 0 ? t("git.branch-clean-required") : mergeLabel}
-                              disabled={files.length > 0 || syncBusy != null}
-                              onClick={() => {
-                                setBranchMenuOpen(false);
-                                setMergeTarget(branch);
-                                setMergeBranchOpen(true);
-                              }}
-                            >
-                              <GitMergeIcon />
-                            </IconButton>
-                            <IconButton
-                              size="s"
-                              className="git-branch-row-action git-branch-delete"
-                              label={deleteLabel}
-                              title={deleteLabel}
-                              disabled={syncBusy != null}
-                              onClick={() => {
-                                setBranchMenuOpen(false);
-                                setDeleteTarget(branch);
-                                setDeleteBranchOpen(true);
-                              }}
-                            >
-                              <Trash2Icon />
-                            </IconButton>
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </PopoverContent>
-          </Popover>
+                },
+              },
+              ...branches.map((branch) => {
+                const isCurrent = branch === currentBranch;
+                const switchDisabled = isCurrent || files.length > 0 || syncBusy != null;
+                const mergeLabel = t("git.merge-branch-into", { branch, current: currentBranch });
+                const deleteLabel = t("git.delete-branch-named", { branch });
+                return {
+                  key: `branch-${branch}`,
+                  separatorBefore: branch === branches[0],
+                  label: <><CheckIcon className={isCurrent ? "" : "git-branch-check-hidden"} /><span>{branch}</span></>,
+                  children: [
+                    {
+                      key: `switch-${branch}`,
+                      label: t("git.switch-branch", { branch }),
+                      checked: isCurrent,
+                      disabled: switchDisabled,
+                      onSelect: () => {
+                        controller.switchBranch(branch);
+                        setBranchMenuOpen(false);
+                      },
+                    },
+                    ...(!isCurrent ? [
+                      {
+                        key: `merge-${branch}`,
+                        label: <><GitMergeIcon />{mergeLabel}</>,
+                        disabled: files.length > 0 || syncBusy != null,
+                        onSelect: () => {
+                          setMergeTarget(branch);
+                          setMergeBranchOpen(true);
+                        },
+                      },
+                      {
+                        key: `delete-${branch}`,
+                        label: <><Trash2Icon />{deleteLabel}</>,
+                        disabled: syncBusy != null,
+                        destructive: true,
+                        onSelect: () => {
+                          setDeleteTarget(branch);
+                          setDeleteBranchOpen(true);
+                        },
+                      },
+                    ] : []),
+                  ],
+                };
+              }),
+            ]}
+          />
         ) : controller.mode === "commits" ? (
           <><HistoryIcon /><span>{t("git.commits")}</span></>
         ) : (

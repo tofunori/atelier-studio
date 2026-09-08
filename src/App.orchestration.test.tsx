@@ -147,6 +147,24 @@ afterEach(() => {
 });
 
 describe("orchestration App — caractérisation", () => {
+  it("Stop resynchronise un tour terminé dont le done direct a été perdu", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+    const before = sock.sent.length;
+    fireEvent.click(screen.getAllByTitle(t("action.interrupt"))[0]);
+    const messages = sock.sent.slice(before).map(value => JSON.parse(value));
+    expect(messages).toContainEqual({ type: "interrupt", threadId: "thread-A" });
+    expect(messages).toContainEqual({ type: "getHistory", threadId: "thread-A" });
+    await push(sock, { type: "history", threadId: "thread-A", events: [{
+      kind: "done", ok: true, result: "",
+      meta: { schemaVersion: 1, eventId: "recovered-done", provider: "codex", threadId: "thread-A",
+        turnId: "recovered-turn", sequence: 9, ts: Date.now(), durable: true, origin: "provider" },
+    }] });
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
   it("isole et restaure le brouillon du composer pour chaque conversation", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
@@ -302,6 +320,34 @@ describe("orchestration App — caractérisation", () => {
 
     const sends = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
     expect(sends[sends.length - 1]).toMatchObject({ provider: "codex", prompt: "Analyse ce projet" });
+  });
+
+  it("garde le nouveau chat dans la barre après envoi jusqu’à son accusé serveur", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, []);
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
+    await act(async () => { await flushMicrotasks(4); });
+    const created = sock.sent.map((raw) => JSON.parse(raw)).find((msg) => msg.type === "upsertThread").thread;
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Allo" } });
+    fireEvent.submit(textarea.closest("form")!);
+    await act(async () => { await flushMicrotasks(4); });
+    expect(sock.sent.map((raw) => JSON.parse(raw))).toContainEqual(expect.objectContaining({
+      type: "send", threadId: created.id, prompt: "Allo",
+    }));
+    expect(within(sidebar).getAllByText(created.title)).toHaveLength(1);
+    // An older snapshot can arrive while the create/send still waits.
+    await pushThreads(sock, []);
+    expect(within(sidebar).getAllByText(created.title)).toHaveLength(1);
+    await pushThreads(sock, [makeThread({ ...created, title: "Chat confirmé" })]);
+    expect(within(sidebar).getAllByText("Chat confirmé")).toHaveLength(1);
+    expect(within(sidebar).queryByText(created.title)).toBeNull();
+    // Once acknowledged, a server-side deletion must not resurrect the draft.
+    await pushThreads(sock, []);
+    expect(within(sidebar).queryByText("Chat confirmé")).toBeNull();
+    expect(within(sidebar).queryByText(created.title)).toBeNull();
   });
 
   it("un chat vide est persisté dès sa création (il survit à la relance)", async () => {
@@ -653,6 +699,10 @@ describe("orchestration App — caractérisation", () => {
       projectRoot: PROJECT_ROOT,
       files: ["ancien-local.md", "frais.ts", "notes.md"],
       recentFiles: ["frais.ts", "notes.md"],
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await flushMicrotasks(10);
     });
 
     expect(screen.getByText("frais.ts")).toBeTruthy();
@@ -1106,25 +1156,21 @@ describe("orchestration App — caractérisation", () => {
   });
 
   it("ouvre une surface du rail après être passé par le layout Chat", async () => {
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["biblio"]));
     await mountApp();
 
     const chatBtn = screen.getAllByTitle(/⌘1/)[0];
     await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeNull();
 
-    // plan 055 : les surfaces vivent dans la barre du haut ; Bibliothèque
-    // n'est pas épinglée par défaut, on passe donc par le menu des surfaces
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
-    // le menu est chargé en différé : laisser l'import dynamique se poser
-    await act(async () => { await vi.dynamicImportSettled(); await flushMicrotasks(4); });
     const switches: unknown[] = [];
     const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
     window.addEventListener("switch-surface", onSwitch);
 
-    // les entrées du menu sont des menuitem, pas des boutons
-    fireEvent.click(screen.getByText(t("atelier.biblio")));
+    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
     await act(async () => {
       await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(0);
       await flushMicrotasks(6);
     });
 
@@ -1396,6 +1442,7 @@ describe("orchestration App — caractérisation", () => {
     const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
     const sent = reverts[reverts.length - 1];
     expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
+    expect(sent.snapshotSha).toBeUndefined();
     expect(dialogMock.confirm).not.toHaveBeenCalled();
 
     await push(sock, { type: "reverted", threadId: "thread-A" });
@@ -1423,6 +1470,25 @@ describe("orchestration App — caractérisation", () => {
     const bubbles = [...document.querySelectorAll(".user-bubble")]
       .filter((el) => el.textContent === "Question corrigée");
     expect(bubbles).toHaveLength(1);
+  });
+
+  it("Edit & resend conserve le brouillon et ne renvoie rien après un refus", async () => {
+    const { sock } = await mountApp();
+    await loadExactHistory(sock);
+    await act(async () => {
+      screen.getByRole("button", { name: t("action.edit-resend") }).click();
+      await flushMicrotasks(2);
+    });
+    fireEvent.change(document.querySelector(".edit-box textarea")!, { target: { value: "Texte corrigé conservé" } });
+    await act(async () => {
+      (document.querySelector(".edit-send") as HTMLButtonElement).click();
+      await flushMicrotasks(2);
+    });
+    const sendsBefore = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send").length;
+    await push(sock, { type: "error", threadId: "thread-A", message: "Session corrigée indisponible" });
+    expect(sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send")).toHaveLength(sendsBefore);
+    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("Texte corrigé conservé");
+    expect(screen.getByText("Session corrigée indisponible")).toBeTruthy();
   });
 
   it("Fork transmet l'eventId exact du point de bifurcation", async () => {

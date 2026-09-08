@@ -236,18 +236,77 @@ fn gateway_healthy(bind: &str) -> bool {
         .is_some()
 }
 
+/// Serialize gateway replacement across app instances/worktrees, not just threads.
+struct GatewayStartGuard(File);
+impl GatewayStartGuard {
+    fn acquire(path: &Path) -> Result<Self, String> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = OpenOptions::new().create(true).read(true).write(true).mode(0o600)
+            .open(path).map_err(|e| e.to_string())?;
+        for _ in 0..60 {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                return Ok(Self(file));
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        Err("Une autre instance initialise la connexion iPhone".into())
+    }
+}
+impl Drop for GatewayStartGuard {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN); }
+    }
+}
+
+fn parse_listener_pids(output: &str, bind: &str) -> Vec<u32> {
+    let mut pid = None;
+    let mut found = Vec::new();
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix('p') { pid = value.parse::<u32>().ok(); }
+        if line.strip_prefix('n') == Some(bind) {
+            if let Some(pid) = pid { if !found.contains(&pid) { found.push(pid); } }
+        }
+    }
+    found
+}
+fn listener_pids(bind: &str) -> Result<Vec<u32>, String> {
+    let addr: SocketAddr = bind.parse().map_err(|_| "Adresse de passerelle invalide")?;
+    let output = Command::new("/usr/sbin/lsof")
+        .args(["-nP", "-a", &format!("-iTCP:{}", addr.port()), "-sTCP:LISTEN", "-Fpn"])
+        .output().map_err(|_| "Impossible d’identifier la passerelle sur le port iPhone")?;
+    // lsof returns 1 with empty output when no socket matches.
+    if !output.status.success() && output.status.code() != Some(1) {
+        return Err("Impossible de vérifier le port iPhone".into());
+    }
+    Ok(parse_listener_pids(&String::from_utf8_lossy(&output.stdout), bind))
+}
+fn managed_gateway(pid: u32) -> bool {
+    let output = Command::new("/bin/ps").args(["-p", &pid.to_string(), "-o", "uid=,comm="]).output();
+    let Ok(output) = output else { return false };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.trim().splitn(2, char::is_whitespace);
+    let uid = parts.next().and_then(|s| s.parse::<u32>().ok());
+    let path = parts.next().unwrap_or("").trim();
+    uid == Some(unsafe { libc::geteuid() }) && Path::new(path).is_absolute()
+        && Path::new(path).file_name().is_some_and(|s| s == "atelier-remote-gateway")
+}
 fn terminate(info: &GatewayLock) {
-    if info.pid > 0 {
-        let _ = Command::new("kill")
-            .args(["-TERM", &info.pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        thread::sleep(Duration::from_millis(250));
+    // A stale lock may point to a reused PID. Never signal an unrelated process.
+    if info.pid > 0 && managed_gateway(info.pid) {
+        let _ = Command::new("kill").args(["-TERM", &info.pid.to_string()])
+            .stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
-    if let Some(path) = lock_path() {
-        let _ = std::fs::remove_file(path);
+    if read_lock().is_some_and(|stored| stored.pid == info.pid) {
+        if let Some(path) = lock_path() { let _ = std::fs::remove_file(path); }
     }
+}
+fn child_owns_listener(child: &mut std::process::Child, bind: &str) -> Result<bool, String> {
+    if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+        return Err(format!("La nouvelle passerelle a quitté ({status})"));
+    }
+    Ok(listener_pids(bind)?.contains(&child.id()) && gateway_healthy(bind))
 }
 
 /// Ensure the private gateway matches the current sidecar session.
@@ -257,11 +316,25 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
     let expected_hash = token_hash(&sidecar.token);
     let mut process_guard = REMOTE_GATEWAY.lock().map_err(|e| e.to_string())?;
 
-    let existing = process_guard.clone().or_else(read_lock);
+    let root = app_dir().ok_or("dossier utilisateur introuvable")?;
+    std::fs::create_dir_all(root.join("remote")).map_err(|e| e.to_string())?;
+    let _start_guard = GatewayStartGuard::acquire(&root.join("remote/gateway-start.lock"))?;
+    // Ignore a delayed scheduler task for a sidecar that has since been replaced.
+    if let Ok(raw) = std::fs::read(root.join("sidecar.lock")) {
+        if let Ok(current) = serde_json::from_slice::<serde_json::Value>(&raw) {
+            if current["port"].as_u64() != Some(sidecar.port as u64)
+                || current["token"].as_str().map(token_hash).as_deref() != Some(expected_hash.as_str()) {
+                return Err("Le moteur a changé ; la nouvelle session initialisera la passerelle".into());
+            }
+        }
+    }
+    let existing = read_lock().or_else(|| process_guard.clone());
     if let Some(info) = existing {
         if info.bind == bind
             && info.sidecar_port == sidecar.port
             && info.sidecar_token_hash == expected_hash
+            && listener_pids(&bind)?.contains(&info.pid)
+            && managed_gateway(info.pid)
             && gateway_healthy(&bind)
         {
             *process_guard = Some(info);
@@ -269,6 +342,18 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
         }
         terminate(&info);
     }
+
+    *process_guard = None;
+    // Recover an orphan even if a failed launch previously overwrote gateway.lock.
+    for pid in listener_pids(&bind)? {
+        if !managed_gateway(pid) { return Err("Le port iPhone est utilisé par un autre programme".into()); }
+        terminate(&GatewayLock { pid, bind: bind.clone(), sidecar_port: 0, sidecar_token_hash: String::new() });
+    }
+    for _ in 0..20 {
+        if listener_pids(&bind)?.is_empty() { break; }
+        thread::sleep(Duration::from_millis(150));
+    }
+    if !listener_pids(&bind)?.is_empty() { return Err("L’ancienne passerelle ne s’est pas encore arrêtée".into()); }
 
     let binary = resolve_gateway(app)?;
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
@@ -297,7 +382,7 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
     let dns = tailscale_dns_name().unwrap_or_default();
     let allowed_hosts =
         format!("127.0.0.1,localhost,tauri.localhost,{ip},{ip}:{GATEWAY_PORT},{dns},{dns}:8443");
-    let child = Command::new(binary)
+    let mut child = Command::new(binary)
         .env("ATELIER_REMOTE_BIND", &bind)
         .env("ATELIER_REMOTE_ALLOWED_HOSTS", allowed_hosts)
         .env("ATELIER_APP_DIR", &root)
@@ -318,15 +403,20 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
         sidecar_port: sidecar.port,
         sidecar_token_hash: expected_hash,
     };
-    write_lock(&info)?;
     for _ in 0..20 {
-        if gateway_healthy(&bind) {
-            *process_guard = Some(info);
-            return Ok(());
+        match child_owns_listener(&mut child, &bind) {
+            Ok(true) => {
+                if let Err(error) = write_lock(&info) { let _ = child.kill(); let _ = child.wait(); return Err(error); }
+                *process_guard = Some(info);
+                return Ok(());
+            }
+            Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error); }
+            Ok(false) => {}
         }
         thread::sleep(Duration::from_millis(150));
     }
-    terminate(&info);
+    let _ = child.kill();
+    let _ = child.wait();
     let mut log = String::new();
     if let Some(path) = app_dir().map(|p| p.join("remote/gateway.log")) {
         let _ = File::open(path).and_then(|mut f| f.read_to_string(&mut log));
@@ -371,6 +461,31 @@ fn push_run(out: &mut String, run: &[char]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listener_identity_ignores_other_addresses_and_deduplicates() {
+        let output = "p41\nn127.0.0.1:18765\np52\nn100.72.242.97:18765\nn100.72.242.97:18765\np63\nn*:18765\n";
+        assert_eq!(parse_listener_pids(output, "100.72.242.97:18765"), vec![52]);
+        assert_eq!(parse_listener_pids(output, "127.0.0.1:18765"), vec![41]);
+    }
+
+    #[test]
+    fn another_process_listening_does_not_validate_a_new_child() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let bind = listener.local_addr().unwrap().to_string();
+        assert!(gateway_healthy(&bind));
+        let mut child = Command::new("/bin/sleep").arg("5").spawn().unwrap();
+        let result = child_owns_listener(&mut child, &bind);
+        let _ = child.kill(); let _ = child.wait();
+        assert_eq!(result.unwrap(), false);
+        // Even a responsive old listener cannot hide a new child's failure.
+        assert!(child_owns_listener(&mut child, &bind).is_err());
+    }
+
+    #[test]
+    fn unrelated_current_process_is_not_a_managed_gateway() {
+        assert!(!managed_gateway(std::process::id()));
+    }
 
     #[test]
     fn redact_and_truncate_strips_long_hex_runs_and_caps_length() {

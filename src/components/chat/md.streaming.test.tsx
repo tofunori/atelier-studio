@@ -4,7 +4,7 @@
 // au suivant, (b) fermer gras/fence sur le bloc de queue pendant le stream,
 // (c) ne rien réparer une fois streaming=false (message final).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import remarkGfm from "remark-gfm";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
@@ -129,4 +129,26 @@ describe("MdBody — non-régression du jitter en streaming (plan 066, L4)", () 
     expect(container.querySelector("strong")).toBeNull();
     expect(container.textContent).toContain("**gras");
   });
+});
+
+
+it("le code conserve son texte exact et sa couleur pendant la cadence de coloration", () => {
+  vi.useFakeTimers();
+  const view = (code: string) => <MdBody text={"```python\n" + code} streaming components={MD_COMPONENTS_STREAMING} remarkPlugins={REMARK} rehypePlugins={REHYPE} />;
+  const { container, rerender, unmount } = render(view("def hello():"));
+  try {
+    const code = container.querySelector(".codeblock code")!;
+    expect(code.querySelector(".hljs-keyword")?.textContent).toBe("def");
+    rerender(view("def hello(): # <script>alert(1)</script>"));
+    expect(container.querySelector(".codeblock code")).toBe(code);
+    expect(code.textContent).toBe("def hello(): # <script>alert(1)</script>\n");
+    expect(code.querySelector("script")).toBeNull();
+    expect(code.querySelector(".hljs-keyword")?.textContent).toBe("def");
+    expect(code.querySelector(".hljs-comment")).toBeNull();
+    act(() => vi.advanceTimersByTime(160));
+    expect(code.querySelector(".hljs-comment")?.textContent).toContain("<script>");
+    expect(code.textContent).toBe("def hello(): # <script>alert(1)</script>\n");
+  } finally {
+    unmount(); vi.useRealTimers();
+  }
 });

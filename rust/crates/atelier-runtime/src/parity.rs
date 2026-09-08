@@ -264,9 +264,9 @@ mod tests {
             }
             if matches!(
                 *t,
-                "computeSnapshot" | "computeReadLog" | "computeForgetRun"
+                "computeSnapshot" | "computeReadLog" | "computeForgetRun" | "prepareMessageEdit"
             ) {
-                continue; // calculs : contrat Rust seulement
+                continue; // calculs et révisions transactionnelles : contrat Rust seulement
             }
             assert!(
                 node_cases.contains(&format!("case \"{t}\"")),

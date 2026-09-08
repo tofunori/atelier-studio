@@ -6,6 +6,7 @@ struct FigureAnnotationView: View {
     let onAnnotate: (DocumentPassage) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var region: CGRect?
+    private let annotationColor = Color(red: 0.08, green: 0.32, blue: 0.72)
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -17,8 +18,9 @@ struct FigureAnnotationView: View {
                     ZStack(alignment: .topLeading) {
                         Image(uiImage: image).resizable().frame(width: width, height: height)
                         if let region {
-                            Rectangle().fill(AtelierTheme.accent.opacity(0.12))
-                                .overlay(Rectangle().stroke(AtelierTheme.accent, lineWidth: 2))
+                            Rectangle().fill(annotationColor.opacity(0.12))
+                                .overlay(Rectangle().stroke(.white, lineWidth: 5))
+                                .overlay(Rectangle().stroke(annotationColor, lineWidth: 2.5))
                                 .frame(width: region.width * width, height: region.height * height)
                                 .offset(x: region.minX * width, y: region.minY * height)
                         }
@@ -43,9 +45,15 @@ struct FigureAnnotationView: View {
                             location: location, text: "Figure : \(workspace.currentName)", figureRegion: region, figure: file)
                         dismiss()
                         onAnnotate(passage)
-                    }.buttonStyle(.borderedProminent).frame(minHeight: 44)
+                    }.buttonStyle(.borderedProminent).tint(annotationColor)
+                        .foregroundStyle(.white).frame(minHeight: 44)
                 }
             }.padding(20)
+            .onAppear {
+                #if targetEnvironment(simulator)
+                if ProcessInfo.processInfo.arguments.contains("--figure-contrast-fixture") { region = CGRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6) }
+                #endif
+            }
             .navigationTitle("Annoter la figure").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
         }

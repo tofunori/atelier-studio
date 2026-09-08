@@ -4,14 +4,31 @@ import PDFKit
 struct NativeDocumentView: View {
     @Bindable var workspace: WorkspaceModel
     @State private var annotatingFigure = false
+    @State private var showingReadingNotes = false
     @State private var pendingFigure: DocumentPassage?
+    @State private var pdfReading = PDFReadingModel()
+    @State private var showingPDFAnnotations = false
+
+    private var readingDraft: AnnotationDraft? {
+        guard let draft = workspace.annotationDraft,
+              draft.passage.sourceRange != nil, draft.passage.articleKey == nil else { return nil }
+        return draft
+    }
+    private var pdfDraft: AnnotationDraft? {
+        guard let draft = workspace.annotationDraft, !draft.passage.regions.isEmpty else { return nil }
+        return draft
+    }
+    private var modalDraft: Binding<AnnotationDraft?> {
+        Binding(get: { readingDraft == nil && pdfDraft == nil ? workspace.annotationDraft : nil },
+                set: { if $0 != nil || (readingDraft == nil && pdfDraft == nil) { workspace.annotationDraft = $0 } })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if workspace.sourceAvailable {
+            if workspace.image == nil && !workspace.availableDocumentModes.isEmpty {
                 Picker("Vue du document", selection: $workspace.documentMode) {
-                    ForEach(WorkspaceModel.DocumentMode.allCases, id: \.self) { mode in
-                        if mode != .pdf || workspace.pdfDocument != nil { Text(mode.rawValue).tag(mode) }
+                    ForEach(workspace.availableDocumentModes, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 8)
@@ -19,7 +36,8 @@ struct NativeDocumentView: View {
             if let image = workspace.image {
                 ZoomableArtifactImage(image: image)
             } else if workspace.documentMode == .reading {
-                LatexReadingView(workspace: workspace)
+                if workspace.sourceAvailable { LatexReadingView(workspace: workspace) }
+                else { PDFReadingView(workspace: workspace, model: pdfReading).id(workspace.documentID) }
             } else if workspace.documentMode == .source {
                 SyntaxSourceEditor(workspace: workspace)
             } else {
@@ -31,17 +49,38 @@ struct NativeDocumentView: View {
         .onChange(of: workspace.documentMode) { _, _ in workspace.scheduleDocumentResume() }
         .onDisappear { workspace.scheduleDocumentResume() }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 6) {
+            if let draft = pdfDraft {
+                PDFAnnotationEditor(workspace: workspace, passage: draft.passage, close: { workspace.annotationDraft = nil })
+                    .id(draft.id).padding(.horizontal, 8).padding(.vertical, 6)
+            } else if let draft = readingDraft {
+                ReadingAnnotationEditor(workspace: workspace, draft: draft) {
+                    workspace.annotationDraft = nil
+                    showingReadingNotes = !workspace.documentReadingNotes.isEmpty
+                }
+                .id(draft.id).padding(.horizontal, 8).padding(.vertical, 6)
+            } else if showingReadingNotes && workspace.sourceAvailable {
+                ReadingAnnotationsCard(workspace: workspace) { showingReadingNotes = false }
+                    .padding(.horizontal, 8).padding(.vertical, 6)
+            } else {
+                VStack(spacing: 6) {
                 if workspace.image != nil {
                     Button("Annoter la figure", systemImage: "highlighter") { annotatingFigure = true }.frame(minHeight: 44)
+                } else if workspace.documentMode == .reading && !workspace.sourceAvailable {
+                    Text("Figures, tableaux et annotations dans le PDF")
+                        .font(.caption).foregroundStyle(.secondary)
                 } else if let passage = workspace.activePassage {
                     HStack {
                         Text(passage.location).font(.caption).foregroundStyle(.secondary)
                         Spacer()
+                        Button("Ajouter au chat") { workspace.addDocumentPassageToChat(passage) }.font(.caption)
                         Button { workspace.beginAnnotation() } label: {
                             Label("Annoter", systemImage: "highlighter")
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 14).frame(minHeight: 44)
+                                .foregroundStyle(Color(uiColor: .systemBackground))
+                                .background(AtelierTheme.accent(named: "sage"), in: Capsule())
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.plain)
                         .accessibilityIdentifier("annotateSelection")
                     }
                 } else {
@@ -50,11 +89,31 @@ struct NativeDocumentView: View {
                          : "Sélectionnez un passage pour l’annoter")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if workspace.sourceAvailable {
+                    Button { showingReadingNotes = true } label: {
+                        Label("\(workspace.documentReadingNotes.count) annotation\(workspace.documentReadingNotes.count == 1 ? "" : "s")", systemImage: "text.bubble")
+                            .font(.caption).padding(.horizontal, 16).frame(minHeight: 44)
+                    }.buttonStyle(.plain).background(AtelierTheme.surface, in: Capsule())
+                        .accessibilityIdentifier("readingAnnotations")
+                }
+                if workspace.pdfDocument != nil && workspace.image == nil && (workspace.documentMode == .pdf || !workspace.sourceAvailable) {
+                    Button { showingPDFAnnotations = true } label: {
+                        Label("Annotations (\(workspace.documentPDFMarks.count))", systemImage: "text.bubble")
+                            .font(.caption).frame(minHeight: 44)
+                    }.accessibilityIdentifier("pdfAnnotations")
+                }
             }
             .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(.background)
+            }
         }
+        .onChange(of: workspace.documentID) { _, _ in showingReadingNotes = false }
         .alert("Sauvegarde impossible", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if workspace.documentMode == .reading && !workspace.sourceAvailable && workspace.pdfDocument != nil {
+                    PDFReadingSettings()
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if workspace.sourceAvailable && workspace.documentMode == .source {
                     Button(workspace.editingSource ? "Terminer l’édition" : "Modifier", systemImage: workspace.editingSource ? "checkmark.circle" : "pencil") { workspace.editingSource.toggle() }
@@ -82,9 +141,14 @@ struct NativeDocumentView: View {
         .sheet(isPresented: $annotatingFigure, onDismiss: {
             if let passage = pendingFigure { workspace.annotationDraft = AnnotationDraft(passage: passage); pendingFigure = nil }
         }) { if let image = workspace.image { FigureAnnotationView(workspace: workspace, image: image) { pendingFigure = $0 } } }
-        .sheet(item: $workspace.annotationDraft) { draft in
-            AnnotationSheet(workspace: workspace, draft: draft)
+        .sheet(item: modalDraft) { draft in
+            if !draft.passage.regions.isEmpty {
+                PDFAnnotationEditor(workspace: workspace, passage: draft.passage)
+            } else {
+                AnnotationSheet(workspace: workspace, draft: draft)
+            }
         }
+        .sheet(isPresented: $showingPDFAnnotations) { PDFAnnotationsList(workspace: workspace) }
     }
 }
 
@@ -94,13 +158,13 @@ struct NativePDFView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
 
     func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
+        let view = PageRestoringPDFView()
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .secondarySystemBackground
         view.document = workspace.pdfDocument
-        if let target = view.document?.page(at: workspace.pdfPage) { view.go(to: target) }
+        view.restorePageWhenReady(workspace.pdfPage)
         context.coordinator.observe(view)
         return view
     }
@@ -109,7 +173,11 @@ struct NativePDFView: UIViewRepresentable {
         if view.document !== workspace.pdfDocument {
             let targetPage = workspace.pdfPage
             view.document = workspace.pdfDocument
-            if let target = view.document?.page(at: targetPage) { view.go(to: target) }
+            (view as? PageRestoringPDFView)?.restorePageWhenReady(targetPage)
+        }
+        if context.coordinator.navigationRequest != workspace.pdfNavigationRequest {
+            context.coordinator.navigationRequest = workspace.pdfNavigationRequest
+            (view as? PageRestoringPDFView)?.restorePageWhenReady(workspace.pdfPage)
         }
     }
 
@@ -117,8 +185,9 @@ struct NativePDFView: UIViewRepresentable {
 
     @MainActor final class Coordinator {
         let workspace: WorkspaceModel
+        var navigationRequest: UUID
         private var observers: [NSObjectProtocol] = []
-        init(workspace: WorkspaceModel) { self.workspace = workspace }
+        init(workspace: WorkspaceModel) { self.workspace = workspace; navigationRequest = workspace.pdfNavigationRequest }
         func observe(_ view: PDFView) {
             observers.append(NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak self, weak view] _ in
                 MainActor.assumeIsolated {
@@ -135,6 +204,18 @@ struct NativePDFView: UIViewRepresentable {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
             observers.removeAll()
         }
+    }
+}
+
+/// PDFKit can ignore go(to:) before it has a usable layout during a reader-mode transition.
+final class PageRestoringPDFView: PDFView {
+    private var pendingPage: Int?
+    func restorePageWhenReady(_ index: Int) { pendingPage = index; setNeedsLayout() }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0, let index = pendingPage, let target = document?.page(at: index) else { return }
+        pendingPage = nil
+        go(to: target)
     }
 }
 

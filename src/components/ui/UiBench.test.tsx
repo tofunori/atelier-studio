@@ -1,4 +1,4 @@
-// UiBench (plan 016, étape 5) — le banc rend les douze primitives sans
+// UiBench (plan 016, étape 5) — le banc rend les primitives canoniques sans
 // erreur (gate « RTL renders OK » avant captures dans l'app).
 import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
@@ -19,6 +19,8 @@ describe("UiBench", () => {
       "Menu",
       "Popover",
       "SegmentedControl",
+      "Select",
+      "Tabs",
       "SurfaceHeader",
       "EmptyState",
       "InlineNotice",

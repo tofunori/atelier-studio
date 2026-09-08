@@ -306,6 +306,25 @@ describe("chat turn view model", () => {
     expect(turn.activeState).toEqual({ kind: "thinking" });
   });
 
+  it("garde le résultat image visible dans un tour replié sans réponse markdown", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Génère une image", meta: meta("user-image", "turn-image", 1) },
+      {
+        kind: "tool_update", id: "image-1", name: "image_generation",
+        output: "/tmp/atelier.png", status: "completed",
+        input: { paths: ["/tmp/atelier.png"] },
+        meta: meta("image-done", "turn-image", 2),
+      },
+      { kind: "done", ok: true, result: "", meta: meta("done-image", "turn-image", 3) },
+    ];
+    const turn = buildChatTurnViewModels(events, null)[0];
+    const rows = projectChatTimeline(events, [turn], new Set());
+    expect(rows.some((row) => row.type === "fold" && !row.open)).toBe(true);
+    expect(rows.some((row) => (
+      row.type === "event" && row.event.kind === "tool_update" && row.event.id === "image-1"
+    ))).toBe(true);
+  });
+
   it("distingue commentary et réponse finale pour le pli terminé", () => {
     const commentaryThenTool: AgentEvent[] = [
       { kind: "user", text: "Q", ts: T0 },
@@ -701,4 +720,19 @@ describe("widget dans la projection de timeline", () => {
     expect(turns.map((turn) => turn.key)).toEqual(["turn:turn-1"]);
     expect(turns[0].activeState).not.toBeNull();
   });
+});
+
+
+it("une réflexion antérieure ne masque pas la réponse actuellement en streaming", () => {
+  for (const reasoning of [
+    { kind: "thinking", text: "Réflexion terminée" },
+    { kind: "thinking_live", text: "Résumé reçu" },
+    { kind: "tool", name: "__thinking" },
+  ] as AgentEvent[]) {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Question", ts: T0 }, reasoning,
+      { kind: "streaming", text: "Il faudrait dimensionner et valider le traitement avant de", ts: T0 + 100 },
+    ];
+    expect(buildChatTurnViewModels(events, T0)[0].activeState).toEqual({ kind: "answering", eventIndex: 2 });
+  }
 });

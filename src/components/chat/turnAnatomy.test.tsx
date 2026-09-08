@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
+vi.mock("../../lib/localImage", () => ({
+  localImagePreviewUrl: vi.fn(async () => "data:image/png;base64,AAAA"),
+}));
 
 import Chat from "../Chat";
 import { LiveThinking, ThinkingBlock, ThinkingShimmer } from "./turnParts";
@@ -430,6 +433,25 @@ describe("anatomie du tour — header d'activité", () => {
     expect(fold.textContent).toContain("1s"); // durée user→done (600 ms → ≥1s)
     expect(fold.textContent).not.toContain(t("chat.activity-steps", { n: 2 }));
     // replié : le détail des outils n'est pas rendu
+    expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
+  });
+
+  it("rend l’image Codex directement quand le tour est replié", async () => {
+    const evs: AgentEvent[] = [
+      events.user("Génère une image.", FIXED_TS),
+      {
+        kind: "tool_update", id: "image-1", name: "image_generation",
+        output: "/tmp/atelier.png", status: "completed",
+        input: { paths: ["/tmp/atelier.png"] },
+      },
+      events.done({ ts: FIXED_TS + 700 }),
+    ];
+    renderUi(<Chat {...chatProps({ events: evs })} />);
+
+    expect(document.querySelector(".ui-activity.is-summary")).toBeTruthy();
+    await waitFor(() => {
+      expect(document.querySelector(".image-view-thumbnails img")).toBeTruthy();
+    });
     expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
   });
 

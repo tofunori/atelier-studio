@@ -26,6 +26,14 @@ function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<t
   };
 }
 
+function openModelPicker() {
+  if (!document.querySelector(".ef-model-link")) {
+    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+  }
+  const link = document.querySelector(".ef-model-link");
+  if (link) fireEvent.click(link);
+}
+
 const ta = () => document.querySelector(".composer textarea") as HTMLTextAreaElement;
 
 beforeEach(resetTestState);
@@ -335,7 +343,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
       threadProvider: "claude",
       providers: [makeProviderInfo({ models: claudeModels })],
     })} />);
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    openModelPicker();
   }
 
   it("ouvre la liste du provider courant dès le premier clic", () => {
@@ -346,7 +354,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
         efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
       })],
     })} />);
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    openModelPicker();
     const modelList = document.querySelector(".model-list") as HTMLElement;
     expect(modelList).toBeTruthy();
     expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
@@ -390,6 +398,32 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     expect(effortButton().textContent).toContain("Medium");
   });
 
+  it("mémorise un choix après un rafraîchissement identique du catalogue puis un aller-retour entre chats", async () => {
+    const defaults = { defaultProvider: "codex", defaultModel: { codex: "gpt-5.6-sol" },
+      defaultEffort: { codex: "medium" }, defaultPermissionMode: "bypassPermissions" };
+    const providers = [makeProviderInfo({ id: "codex", label: "Codex",
+      models: ["gpt-5.6-sol", "gpt-5.5"], defaultModel: "gpt-5.6-sol", efforts: ["low", "medium", "high"] })];
+    const props = chatProps({ threadProvider: "codex", defaults, providers });
+    const view = renderUi(<Chat {...props} />);
+    const button = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
+    await waitFor(() => expect(button().textContent).toContain("GPT-5.6 Sol"));
+    // Réponse providers/settings fraîche mais identique : aucun setState de
+    // sélection ne change de valeur, contrairement au premier chargement.
+    const refreshed = { ...props, providers: [...providers], defaults: { ...defaults } };
+    view.rerender(<Chat {...refreshed} />);
+    openModelPicker();
+    fireEvent.click(within(document.querySelector(".model-list") as HTMLElement)
+      .getByRole("menuitemradio", { name: "GPT-5.5" }));
+    await waitFor(() => expect(button().textContent).toContain("GPT-5.5"));
+    view.rerender(<Chat {...refreshed} threadId="thread-B" />);
+    await waitFor(() => expect(button().textContent).toContain("GPT-5.6 Sol"));
+    view.rerender(<Chat {...refreshed} threadId="thread-A" />);
+    await waitFor(() => expect(button().textContent).toContain("GPT-5.5"));
+    fireEvent.change(ta(), { target: { value: "continue" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(props.onSubmit).toHaveBeenCalledWith("continue", "codex", "gpt-5.5", "medium", "bypassPermissions", "steer", false);
+  });
+
   it("un modèle présent dans info.models apparaît sans modification frontend", () => {
     openClaudeModelList(["claude-fable-5", "claude-nova-6-preview"]);
     // id inconnu du front : affiché tel quel, directement depuis le catalogue
@@ -415,7 +449,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     })} />);
     const button = document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
     const effortButton = document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement;
-    fireEvent.click(button);
+    openModelPicker();
     fireEvent.click(screen.getByText("Opus 4.8"));
     await waitFor(() => expect(button.textContent).toContain("Opus 4.8 · 1M"));
     expect(effortButton.textContent).toContain("Extra High");
@@ -516,7 +550,7 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
       ],
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
-    fireEvent.click(btn());
+    openModelPicker();
     expect(document.querySelector(".model-provider-tabs")).toBeNull();
     expect(screen.queryByText("Claude")).toBeNull();
     fireEvent.click(screen.getByText("gpt-5.6"));
@@ -542,7 +576,7 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
     })} />);
     const btn = () => document.querySelector(".model-pick .mp-btn") as HTMLButtonElement;
     expect(btn().textContent).toContain("GPT-5.6 Sol");
-    fireEvent.click(btn());
+    openModelPicker();
     expect(screen.getByRole("menuitemradio", { name: "GPT-5.6 Sol" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByText(/Default model/)).toBeNull();
   });
@@ -614,11 +648,12 @@ describe("composer — caractérisation complémentaire (plan 020)", () => {
 // Le modèle et l'effort ont chacun leur déclencheur : changer l'un ne doit
 // jamais ouvrir le menu de l'autre.
 describe("composer — barre hiérarchisée (plan 020)", () => {
-  it("affiche deux boutons indépendants pour le modèle et l'effort", () => {
+  it("regroupe le modèle et l'effort dans un seul bouton", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     expect(document.querySelector(".model-pick .mp-model")).toBeTruthy();
     expect(document.querySelector(".effort-pick .mp-effort")).toBeTruthy();
-    expect(document.querySelector(".mp-model .mp-effort-sum")).toBeNull();
+    expect(document.querySelector(".mp-model .mp-effort-sum")).toBeTruthy();
+    expect(document.querySelector(".mp-model")).toBe(document.querySelector(".mp-effort"));
   });
 
   it("le bouton effort ouvre seulement son popover et répond aux flèches", () => {
@@ -661,9 +696,21 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(document.querySelector(".ef-thumb.ultra")).toBeTruthy();
   });
 
-  it("le bouton modèle ouvre seulement la liste des modèles", () => {
+  it("annonce le catalogue ouvert et le referme depuis le bouton partagé", async () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
-    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+    const trigger = document.querySelector(".mp-model") as HTMLButtonElement;
+    openModelPicker();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const controlled = document.getElementById(trigger.getAttribute("aria-controls")!);
+    expect(controlled).toHaveClass("model-menu");
+    fireEvent.click(trigger);
+    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+    expect(document.querySelector(".model-menu")).toBeNull();
+  });
+
+  it("le titre du modèle ouvre le catalogue et ferme le panneau effort", () => {
+    renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
+    openModelPicker();
     const menu = document.querySelector(".model-menu") as HTMLElement;
     expect(menu).toBeTruthy();
     expect(menu.textContent).not.toContain("Default model");
@@ -674,7 +721,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
 
   it("le favori modèle est un Toggle shadcn avec état pressed", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    openModelPicker();
     const favorite = screen.getAllByLabelText(t("action.add-favorite"))[0] as HTMLButtonElement;
     expect(favorite).toHaveAttribute("data-slot", "toggle");
     expect(favorite).toHaveAttribute("aria-pressed", "false");
@@ -710,7 +757,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
       onOpenModelSettings,
     })} />);
 
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    openModelPicker();
     expect(document.querySelector(".model-provider-tabs")).toBeNull();
     const list = document.querySelector(".model-menu .model-list") as HTMLElement;
     expect(within(list).queryByText("Claude Code")).toBeNull();
@@ -733,7 +780,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
       (document.querySelector(".model-pick .mp-btn") as HTMLButtonElement).textContent,
     ).toContain("Kimi K3 · For Coding"));
 
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    openModelPicker();
     const reopenedList = document.querySelector(".model-menu .model-list") as HTMLElement;
     fireEvent.click(within(reopenedList).getByText(t("chat.manage-models")));
     expect(onOpenModelSettings).toHaveBeenCalledTimes(1);
@@ -825,15 +872,18 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     expect(onGoal).toHaveBeenCalledWith("set", "Polir le compositeur", undefined);
   });
 
-  it("contexte : l’indicateur expose un libellé et les métriques de session", () => {
+  it("contexte : l’indicateur expose un libellé et les métriques de session", async () => {
     renderUi(<Chat {...chatProps({
       usage: { context: 150_000, output: 2_500, cost: 1.25, turns: 7, window: 200_000 },
     })} />);
     const indicator = screen.getByRole("button", { name: t("chat.context-window") });
     expect(indicator).toBeTruthy();
-    expect(indicator.textContent).toContain("75");
-    expect(indicator.textContent).toContain("7");
-    expect(indicator.textContent).toContain("1.25");
+    expect(indicator).toHaveAttribute("aria-haspopup", "dialog");
+    fireEvent.click(indicator);
+    const context = await screen.findByRole("heading", { name: t("chat.context-window") });
+    expect(context.parentElement).toHaveTextContent("75");
+    expect(context.parentElement).toHaveTextContent("7");
+    expect(context.parentElement).toHaveTextContent("1.25");
   });
 });
 
@@ -882,16 +932,14 @@ describe("Kimi — modèles dynamiques et thinking par modèle (plan 046)", () =
       defaults: { defaultProvider: "kimi", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "default" },
       providers: [kimiInfo({ models: ["kimi-du-serveur"] })],
     })} />);
-    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+    openModelPicker();
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("kimi-du-serveur")).toBeInTheDocument();
     expect(within(menu).queryByText("kimi-k3")).toBeNull();
   });
 });
 
-// Grappe de méta du composer (raffinage 2026-08-26). Permission et modèle
-// décrivent l'état du tour à venir : ils vivent ensemble à droite, et un id
-// long se scinde en route dégradée + nom, au lieu de plier la barre.
+// Permissions à gauche, modèle à droite ; les noms longs restent tronqués.
 describe("composer — grappe de méta", () => {
   it("scinde un id de modèle sur le dernier /", () => {
     expect(splitModelLabel("openrouter/z-ai-glm-5.3-flash"))
@@ -902,18 +950,17 @@ describe("composer — grappe de méta", () => {
     expect(splitModelLabel("")).toEqual({ route: "", name: "" });
   });
 
-  it("le sélecteur de permission suit l'espaceur et précède le modèle", () => {
+  it("le sélecteur de permission reste à gauche et le modèle à droite", () => {
     renderUi(<Chat {...chatProps({ providers: [makeProviderInfo()] })} />);
     const bar = document.querySelector(".composer-bar") as HTMLElement;
     const kids = [...bar.children];
     const iSpacer = kids.findIndex((el) => el.classList.contains("flex"));
     const iSelect = kids.findIndex((el) => el.classList.contains("custom-select"));
-    const iSep = kids.findIndex((el) => el.classList.contains("composer-meta-sep"));
     const iModel = kids.findIndex((el) => el.classList.contains("model-pick"));
     expect(iSpacer).toBeGreaterThanOrEqual(0);
-    expect(iSelect).toBeGreaterThan(iSpacer);
-    expect(iSep).toBe(iSelect + 1);
-    expect(iModel).toBeGreaterThan(iSep);
+    expect(iSelect).toBeGreaterThanOrEqual(0);
+    expect(iSelect).toBeLessThan(iSpacer);
+    expect(iModel).toBeGreaterThan(iSpacer);
   });
 
   it("le libellé du modèle expose route et nom, l'id entier restant en title", () => {

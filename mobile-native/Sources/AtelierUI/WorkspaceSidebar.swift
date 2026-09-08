@@ -62,6 +62,7 @@ struct WorkspaceSidebar: View {
                     destination("Chats", symbol: "bubble", section: .chat)
                     destination("Galerie", symbol: "square.grid.2x2", section: .gallery)
                     destination("Articles", symbol: "books.vertical", section: .articles)
+                    destination("Calculs", symbol: "chart.bar.xaxis", section: .calculations)
                     HStack {
                         Text(query.isEmpty ? "Projets" : "Résultats · tous les projets").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                         Spacer()
@@ -132,7 +133,8 @@ struct WorkspaceSidebar: View {
                     if workspace.sidebarPreferences.settings.pinned.contains(group.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
                     Text("\(group.threads.count)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                }.padding(.horizontal, 12).frame(minHeight: 46)
+                }.padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 46)
+                .contentShape(Rectangle())
             }.accessibilityValue(isExpanded ? "Déplié" : "Replié")
             .contextMenu {
                 if !group.id.isEmpty && group.id != ConversationProjectGroup.unavailableID {

@@ -31,7 +31,7 @@ import {
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
-import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
+import { ProjectStyleMenu, type ProjectStyleAnchor } from "./sidebar/ProjectStyleMenu";
 import { Popover, PopoverContent } from "./shadcn/popover";
 import { conversationFamilies, linkedConversations } from "../lib/threadLinks";
 
@@ -148,8 +148,10 @@ export default function Sidebar(p: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selAnchor = useRef<string | null>(null);
   const [menu, setMenu] = useState<ThreadMenu | null>(null);
-  const [projMenu, setProjMenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [projMenu, setProjMenu] = useState<{ root: string; anchor: ProjectStyleAnchor } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeAnchor, setResumeAnchor] = useState<Element | null>(null);
+  const resumeFallbackAnchor = useRef<HTMLDivElement>(null);
   const [resumeProv, setResumeProv] = useState<"claude" | "codex">("claude");
   const [sessions, setSessions] = useState<{ id: string; title: string; mtime: number; projectRoot?: string }[] | null>(null);
   const [resumeQuery, setResumeQuery] = useState("");
@@ -212,8 +214,9 @@ export default function Sidebar(p: {
     return () => window.removeEventListener("atelier-open-resume", onOpenResume);
   }, [p.activeProject]);
 
-  function openResume(prov: "claude" | "codex") {
+  function openResume(prov: "claude" | "codex", anchor?: Element | null) {
     setResumeProv(prov);
+    setResumeAnchor(anchor ?? null);
     setSessions(null);
     setResumeQuery("");
     setResumeOpen(true);
@@ -497,7 +500,7 @@ export default function Sidebar(p: {
   return (
     <SidebarProvider className="tw:w-full tw:min-h-0">
       <ShadcnSidebar collapsible="none" className="sidebar pnav">
-        <SidebarHeader className="tw:gap-0 tw:p-0">
+        <SidebarHeader ref={resumeFallbackAnchor} tabIndex={-1} className="tw:gap-0 tw:p-0">
           <ProjectHeader
             mode={model.mode}
             name={headerName}
@@ -514,8 +517,8 @@ export default function Sidebar(p: {
               if (root) revealItemInDir(root).catch(() => openUrl("file://" + root).catch(() => {}));
             }}
             onProjectSettings={() => { if (p.activeProject) p.onProjectSettings?.(p.activeProject); }}
-            onCustomize={(at) => {
-              if (p.activeProject) setProjMenu({ root: p.activeProject, x: at.x, y: at.y });
+            onCustomize={(anchor) => {
+              if (p.activeProject) setProjMenu({ root: p.activeProject, anchor });
             }}
             onRemoveProject={() => {
               if (p.activeProject) p.onRemoveProject(p.activeProject);
@@ -585,18 +588,12 @@ export default function Sidebar(p: {
           <PopoverContent
             plain
             className="rail-menu resume-pop"
-            anchor={() => ({
-              getBoundingClientRect: () => ({
-                x: 240,
-                y: 120,
-                left: 240,
-                top: 120,
-                right: 240,
-                bottom: 120,
-                width: 0,
-                height: 0,
-              }),
-            })}
+            anchor={resumeAnchor ?? resumeFallbackAnchor}
+            finalFocus={() => (
+              typeof HTMLElement !== "undefined" && resumeAnchor instanceof HTMLElement
+                ? resumeAnchor
+                : resumeFallbackAnchor.current
+            )}
             side="right"
             align="start"
             sideOffset={0}
@@ -604,7 +601,7 @@ export default function Sidebar(p: {
             <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
             <div className="seg">
               {(["claude", "codex"] as const).map((pv) => (
-                <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv)}>
+                <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv, resumeAnchor)}>
                   {pv === "claude" ? "Claude" : "Codex"}
                 </RowButton>
               ))}
@@ -624,7 +621,7 @@ export default function Sidebar(p: {
                 const needle = resumeQuery.trim().toLocaleLowerCase();
                 return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
               }).map((s) => (
-                <div key={s.id} className="resume-item"
+                <RowButton key={s.id} className="resume-item"
                   onClick={() => {
                     p.onImportSession(resumeProv, s.id, s.title, s.projectRoot);
                     setResumeOpen(false);
@@ -635,7 +632,7 @@ export default function Sidebar(p: {
                     {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
                     {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                </div>
+                </RowButton>
               ))}
             </div>
             <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
@@ -649,7 +646,7 @@ export default function Sidebar(p: {
           meta={p.projMeta[projMenu.root]}
           onSetMeta={p.onSetMeta}
           onClose={() => setProjMenu(null)}
-          anchor={{ x: projMenu.x, y: projMenu.y }}
+          anchor={projMenu.anchor}
         />
       )}
       </ShadcnSidebar>

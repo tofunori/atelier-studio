@@ -9,12 +9,12 @@ import SwiftUI
         var conversationID: String { messageRevision?.rootThreadId ?? id }
     }
     struct Provider: Decodable, Identifiable {
-        struct Capabilities: Decodable { var permissionModes: [String]? }
+        struct Capabilities: Decodable { var permissionModes: [String]?; var steering: Bool? = nil }
         let id: String; let label: String; let models: [String]; let defaultModel: String
         let efforts: [String]; let ok: Bool; let modelLabels: [String: String]?
         var capabilities: Capabilities? = nil
     }
-    struct Row: Identifiable {
+    struct Row: Identifiable, Codable, Sendable, Equatable {
         let id: String; let kind: String; var text: String; let turn: String
         var detail = ""
         var isStreaming = false
@@ -26,11 +26,13 @@ import SwiftUI
         var messageID: String?
         var toolName = ""
         var toolStatus = ""
+        var toolFields: [String: String]? = nil
     }
     struct Quote: Identifiable, Equatable, Codable, Sendable {
         let id = UUID()
         let text: String
         let sourceRowID: String
+        var sourceLabel: String? = nil
     }
     var quote: Quote? { didSet { scheduleSave() } }
     private var threadQuotes: [String: Quote] = [:]
@@ -41,7 +43,7 @@ import SwiftUI
     static func promptWithQuote(_ prompt: String, quote: Quote?) -> String {
         guard let quote else { return prompt }
         let citation = quote.text.components(separatedBy: "\n").map { "> " + $0 }.joined(separator: "\n")
-        return "Passage cité de la conversation :\n" + citation + "\n\n" + prompt
+        return (quote.sourceLabel.map { "Document : \($0)\nPassage cité :\n" } ?? "Passage cité de la conversation :\n") + citation + "\n\n" + prompt
     }
     var attachments: [GalleryArtifact] = [] { didSet { scheduleSave() } }
     private var threadAttachments: [String: [GalleryArtifact]] = [:]
@@ -59,7 +61,12 @@ import SwiftUI
     func isTurnRunning(_ turn: String) -> Bool { activeTurns.contains(turn) }
     var model = "" { didSet { scheduleSave() } }
     var effort = "" { didSet { scheduleSave() } }
-    var permissionMode: ChatPermissionMode = .ask { didSet { scheduleSave() } }
+    var permissionMode: ChatPermissionMode = .full { didSet { scheduleSave() } }
+    var effectivePermissionMode: ChatPermissionMode {
+        // Providers with no adjustable policy must not erase the global choice.
+        if provider != nil && availablePermissionModes.isEmpty { return .ask }
+        return permissionMode
+    }
     var availablePermissionModes: [ChatPermissionMode] {
         let supported = provider?.capabilities?.permissionModes ?? []
         return ChatPermissionMode.allCases.filter { supported.contains($0.rawValue) }
@@ -73,7 +80,42 @@ import SwiftUI
     var loading = false
     enum Connection { case idle, connecting, live, reconnecting, associationRequired }
     var connection: Connection = .idle
+    var connectionError: String?
+    var connectionLabel: String {
+        if isPreview { return "Aperçu local" }
+        switch connection {
+        case .live: return "Mac connecté"
+        case .connecting: return "Connexion au Mac…"
+        case .reconnecting: return "Reconnexion au Mac…"
+        case .associationRequired: return "Associer le Mac"
+        case .idle: return "Mac hors connexion"
+        }
+    }
     var reconnectGeneration = 0
+    private var enteredBackground = false
+    private(set) var resumingInBackground = false
+    @ObservationIgnored private var resumeStatusTask: Task<Void, Never>?
+    var showsConnectionStatus: Bool { connection != .live && !resumingInBackground }
+    func sceneDidEnterBackground() { enteredBackground = true }
+    func sceneDidBecomeActive() {
+        guard enteredBackground else { return }
+        enteredBackground = false
+        guard selected != nil, !isPreview, connection != .associationRequired else { return }
+        // A suspended socket may still look live. Replace it immediately on return,
+        // retaining the transcript, draft and reading position throughout the handoff.
+        reconnectGeneration += 1
+        resumingInBackground = true
+        let generation = reconnectGeneration
+        resumeStatusTask?.cancel()
+        resumeStatusTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard let self, self.reconnectGeneration == generation else { return }
+            self.resumingInBackground = false
+        }
+    }
+    private func finishForegroundResume() {
+        resumeStatusTask?.cancel(); resumeStatusTask = nil; resumingInBackground = false
+    }
     var live = false
     var statusLabel: String {
         if isPreview { return "Aperçu local" }
@@ -91,16 +133,19 @@ import SwiftUI
         if rows.contains(where: { $0.kind == "interaction" && !$0.resolved }) { return "hand.raised" }
         return sending || running || !live ? "circle.dotted" : "circle.fill"
     }
-    func reconnect() { reconnectGeneration += 1 }
+    func reconnect() { finishForegroundResume(); reconnectGeneration += 1 }
 
     var error: String?
     private var seen: Set<String> = []
     private var interactionStates: [String: String] = [:]
     private var liveRows: [String: String] = [:]
     private var completedTurns: Set<String> = []
+    private var cachedTranscript: ChatTranscriptSnapshot?
     private var drafts: [String: String] = [:]
     @ObservationIgnored var resumeStore: ChatResumeStore?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var replayIndex: ChatReplayIndex?
+    @ObservationIgnored private var replayingHistory = false
     private var restoring = false
     private var restoreFailed = false
     var sendAttempts: [String: SendAttempt] = [:]
@@ -116,10 +161,25 @@ import SwiftUI
         guard let selected else { return }
         drafts[selected.id] = text; scheduleSave()
     }
-    func rememberPosition(rowID: String?, followsTail: Bool, offsetY: Double? = nil, contentHeight: Double? = nil) {
+    func rememberPosition(rowID: String?, followsTail: Bool, offsetY: Double? = nil, contentHeight: Double? = nil, rowOffsetY: Double? = nil) {
         guard let selected, !isPreview else { return }
-        bookmarks[selected.id] = ChatBookmark(rowID: rowID, followsTail: followsTail, offsetY: offsetY, contentHeight: contentHeight)
+        bookmarks[selected.id] = ChatBookmark(rowID: rowID, followsTail: followsTail, offsetY: offsetY, contentHeight: contentHeight, rowOffsetY: rowOffsetY)
         scheduleSave()
+    }
+    private func currentTranscript() -> ChatTranscriptSnapshot? {
+        guard let selected else { return cachedTranscript }
+        // An optimistic row may still be uploading and must not become a delivered message on restart.
+        let durableRows = rows.filter { !$0.id.hasPrefix("pending:") }
+        return ChatTranscriptSnapshot(threadID: selected.id, rows: durableRows, seen: seen, liveRows: liveRows,
+                                      completedTurns: completedTurns, failedTurns: failedTurns,
+                                      activeTurns: activeTurns, interactionStates: interactionStates, running: !activeTurns.isEmpty)
+    }
+    private func restoreTranscript(_ transcript: ChatTranscriptSnapshot?, for thread: Thread) {
+        let saved = transcript.flatMap { $0.threadID == thread.id ? $0 : nil }
+        rows = saved?.rows.filter { !$0.id.hasPrefix("pending:") } ?? []; seen = saved?.seen ?? []; liveRows = saved?.liveRows ?? [:]
+        completedTurns = saved?.completedTurns ?? []; failedTurns = saved?.failedTurns ?? []
+        activeTurns = saved?.activeTurns ?? []; interactionStates = saved?.interactionStates ?? [:]
+        running = saved != nil ? !activeTurns.isEmpty : (thread.status == "running")
     }
     private func snapshot() -> ChatResumeSnapshot {
         var files = threadAttachments, quotes = threadQuotes, settings = settings
@@ -128,10 +188,10 @@ import SwiftUI
             settings[selected.id] = ChatSettings(model: model, effort: effort, permissionMode: permissionMode.rawValue)
         }
         return ChatResumeSnapshot(selected: selected, pendingAttachments: selected == nil ? attachments : [], drafts: drafts, quotes: quotes, attachments: files,
-                                  settings: settings, bookmarks: bookmarks, galleryProjectID: galleryProjectID, historyFiles: historyFiles, prepared: prepared, pins: pins, sendAttempts: sendAttempts, pausedQueues: Array(pausedQueues))
+                                  settings: settings, bookmarks: bookmarks, galleryProjectID: galleryProjectID, historyFiles: historyFiles, prepared: prepared, pins: pins, sendAttempts: sendAttempts, pausedQueues: Array(pausedQueues), globalPermissionMode: permissionMode.rawValue, transcript: currentTranscript())
     }
     func scheduleSave() {
-        guard resumeStore != nil, !restoring, !restoreFailed, !isPreview else { return }
+        guard resumeStore != nil, !restoring, !replayingHistory, !restoreFailed, !isPreview else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
@@ -148,6 +208,7 @@ import SwiftUI
         restorationAttempted = true; restoring = true; defer { restoring = false }
         do {
             guard let saved = try await resumeStore.load() else { return }
+            permissionMode = saved.globalPermissionMode.flatMap(ChatPermissionMode.init(rawValue:)) ?? .full
             drafts = saved.drafts; threadQuotes = saved.quotes; threadAttachments = saved.attachments
             settings = saved.settings; bookmarks = saved.bookmarks; galleryProjectID = saved.galleryProjectID; historyFiles = saved.historyFiles
             pausedQueues = Set(saved.pausedQueues ?? [])
@@ -155,6 +216,7 @@ import SwiftUI
             prepared = saved.prepared ?? []; pins = saved.pins ?? [:]
             attachments = saved.pendingAttachments ?? []
             workspace.gallery.selectedProject = saved.galleryProjectID
+            cachedTranscript = saved.transcript
             if let thread = saved.selected { select(thread, workspace: workspace) }
         } catch { restoreFailed = true; self.error = "La session précédente n’a pas pu être restaurée : " + error.localizedDescription }
     }
@@ -184,6 +246,7 @@ import SwiftUI
         }
     }
     func showConversations(workspace: WorkspaceModel) {
+        cachedTranscript = currentTranscript()
         if let thread = selected { drafts[thread.id] = workspace.draft; threadAttachments[thread.id] = attachments; threadQuotes[thread.id] = quote; settings[thread.id] = ChatSettings(model: model, effort: effort, permissionMode: permissionMode.rawValue) }
         selected = nil; attachments = []; quote = nil; workspace.draft = ""; live = false; scheduleSave()
     }
@@ -193,16 +256,19 @@ import SwiftUI
             if navigateToChat { workspace.surface = .chat }
             return
         }
+        let targetTranscript = cachedTranscript
+        cachedTranscript = currentTranscript()
         let pending = selected == nil ? attachments : []
         if let old = selected { drafts[old.id] = workspace.draft; threadAttachments[old.id] = attachments; threadQuotes[old.id] = quote; settings[old.id] = ChatSettings(model: model, effort: effort, permissionMode: permissionMode.rawValue) }
         attachments = threadAttachments[thread.id] ?? []
         quote = threadQuotes[thread.id]
         selected = thread; live = false; connection = .connecting; workspace.draft = drafts[thread.id] ?? ""
         model = settings[thread.id]?.model ?? thread.model.flatMap { $0.isEmpty ? nil : $0 } ?? provider?.defaultModel ?? ""
-        permissionMode = settings[thread.id]?.permissionMode.flatMap(ChatPermissionMode.init(rawValue:)) ?? .ask
-        effort = settings[thread.id]?.effort ?? ""; rows = []; seen = []; liveRows = [:]; completedTurns = []; failedTurns = []; activeTurns = []; running = thread.status == "running"; error = nil
+        effort = settings[thread.id]?.effort ?? ""
+        restoreTranscript(targetTranscript, for: thread); error = nil; connectionError = nil
         for item in pending { attach(item) }
         creationProjectID = thread.projectId ?? ""
+        workspace.applyPendingDocumentChat()
         if navigateToChat { workspace.surface = .chat }
         scheduleSave()
     }
@@ -240,39 +306,69 @@ import SwiftUI
     }
     func observe(using gateway: GalleryModel) async {
         guard !isPreview, let thread = selected else { return }
-        let id = thread.id
-        connection = .connecting
-        if providers.isEmpty { await loadCatalog(using: gateway) }
-        while !Task.isCancelled && selected?.id == id {
+        let id = thread.id, generation = reconnectGeneration
+        func current() -> Bool { !Task.isCancelled && selected?.id == id && reconnectGeneration == generation }
+        live = false; connection = .connecting
+        // Catalog refresh is independent of restoring the current conversation.
+        while current() {
             do {
-                // Subscribe first, then replay history; event IDs deduplicate overlap.
+                // Subscribe before history to avoid missing events during replay.
                 let bytes = try await gateway.chatStream(id)
-                guard selected?.id == id else { return }
-                let history = try await gateway.chatRequest(["threads", id, "history"])
-                guard !Task.isCancelled, selected?.id == id else { return }
-                if let body = try JSONSerialization.jsonObject(with: history) as? [String: Any],
-                   let events = body["events"] as? [[String: Any]] {
-                    for event in events { apply(event) }
-                }
-                live = true; connection = .live; error = nil
-                for try await line in bytes.lines {
-                    try Task.checkCancellation()
-                    guard selected?.id == id else { return }
-                    if let data = line.data(using: .utf8), let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] { apply(event) }
-                }
+                let streamTask = bytes.task
+                defer { streamTask.cancel() }
+                guard current() else { return }
+                try await withTaskCancellationHandler {
+                    let history = try await gateway.chatRequest(["threads", id, "history"])
+                    guard current() else { return }
+                    let decoded = try await ChatHistoryEnvelope.decode(history)
+                    guard current() else { return }
+                    for start in stride(from: 0, to: decoded.events.count, by: 128) {
+                        guard current() else { return }
+                        applyHistoryBatch(decoded.events[start..<min(start + 128, decoded.events.count)])
+                        await Task.yield()
+                    }
+                    guard current() else { return }
+                    live = true; connection = .live; connectionError = nil; finishForegroundResume()
+                    for try await line in bytes.lines {
+                        guard current() else { return }
+                        if let data = line.data(using: .utf8), let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] { apply(event) }
+                    }
+                } onCancel: { streamTask.cancel() }
             } catch {
-                if Task.isCancelled || selected?.id != id { return }
+                guard current() else { return }
                 if case GalleryModel.GalleryError.server(401) = error {
-                    live = false; connection = .associationRequired
-                    self.error = "L’association a expiré. Reconnectez ce téléphone depuis les options d’Atelier. Votre brouillon est conservé."
+                    live = false; connection = .associationRequired; finishForegroundResume()
+                    self.connectionError = "L’association a expiré. Reconnectez ce téléphone depuis les options d’Atelier. Votre brouillon est conservé."
                     return
                 }
-                self.error = "Le Mac est momentanément injoignable. Reconnexion automatique…"
+                self.connectionError = "Le Mac est momentanément injoignable. Reconnexion automatique…"
             }
+            guard current() else { return }
             live = false; connection = .reconnecting
-            try? await Task.sleep(for: .seconds(3))
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
         }
     }
+    func applyHistoryBatch(_ events: ArraySlice<[String: Any]>) {
+        replayingHistory = true
+        replayIndex = ChatReplayIndex(rows)
+        defer { replayIndex = nil; replayingHistory = false; scheduleSave() }
+        for event in events {
+            apply(event)
+            replayIndex?.synchronize(rows)
+        }
+    }
+    private func replayRowIndex(_ id: String) -> Int? {
+        if let replayIndex { return replayIndex.ids[id] }
+        return rows.firstIndex { $0.id == id }
+    }
+    private func replayTurnIndices(_ turn: String) -> [Int] {
+        if let replayIndex { return replayIndex.turns[turn] ?? [] }
+        return rows.indices.filter { rows[$0].turn == turn }
+    }
+    private var replayInteractionIndices: [Int] {
+        replayIndex?.interactions ?? rows.indices.filter { rows[$0].kind == "interaction" }
+    }
+
     func apply(_ event: [String: Any]) {
         guard let kind = event["kind"] as? String else { return }
         let meta = event["meta"] as? [String: Any] ?? [:]
@@ -280,10 +376,11 @@ import SwiftUI
         let turn = meta["turnId"] as? String ?? "legacy"
         if let eventID, !seen.insert(eventID).inserted {
             if kind == "text" || kind == "thinking", let stale = liveRows.removeValue(forKey: "\(turn):\(kind)") {
-                rows.removeAll { $0.id == stale }
+                rows.removeAll { $0.id == stale }; scheduleSave()
             }
             return
         }
+        defer { if !["heartbeat", "usage"].contains(kind) { scheduleSave() } }
         let text = event["text"] as? String ?? event["message"] as? String ?? event["result"] as? String ?? ""
         if kind == "started" { if !completedTurns.contains(turn) { activeTurns.insert(turn); running = true }; return }
         if kind == "done" {
@@ -294,19 +391,19 @@ import SwiftUI
                 completedResponse = UUID()
                 NativeNotifications.received(thread: selected.id, title: selected.title)
             }
-            for index in rows.indices where rows[index].turn == turn || meta["turnId"] == nil {
+            for index in meta["turnId"] == nil ? Array(rows.indices) : replayTurnIndices(turn) {
                 rows[index].isStreaming = false
                 if rows[index].kind == "interaction" { rows[index].resolved = true }
             }
             return
         }
         if kind == "user" {
-            for index in rows.indices where rows[index].turn != turn && rows[index].kind == "interaction" { rows[index].resolved = true }
+            for index in replayInteractionIndices where rows[index].turn != turn { rows[index].resolved = true }
         }
         if kind == "error" {
             failedTurns.insert(turn); activeTurns.remove(turn); running = !activeTurns.isEmpty
             if let selected { pausedQueues.insert(selected.id); scheduleSave() }
-            for index in rows.indices where rows[index].turn == turn { rows[index].isStreaming = false }
+            for index in replayTurnIndices(turn) { rows[index].isStreaming = false }
             self.error = text.isEmpty ? "Le travail s’est interrompu. La file est en pause." : text
         }
         if ["heartbeat", "usage"].contains(kind) { return }
@@ -317,38 +414,43 @@ import SwiftUI
             let key = "\(turn):\(thinking ? "thinking" : "text")"
             let id = liveRows[key] ?? "stream:\(UUID().uuidString)"
             liveRows[key] = id
-            if let index = rows.firstIndex(where: { $0.id == id }) {
+            if let index = replayRowIndex(id) {
                 if kind == "delta" || kind == "thinking_delta" { rows[index].text += text }
                 else { rows[index].text = text }
             } else { rows.append(Row(id: id, kind: thinking ? "thinking" : "text", text: text, turn: turn, isStreaming: true)) }
             return
         }
-        if kind == "user", let message = meta["messageId"] as? String { rows.removeAll { $0.id == "pending:\(message)" } }
+        if kind == "user", let message = meta["messageId"] as? String { rows.removeAll { $0.id == "pending:\(message)" }; replayIndex?.synchronize(rows) }
         let label = text.isEmpty ? (event["name"] as? String ?? event["title"] as? String ?? kind) : text
         guard ["user", "text", "thinking", "error", "tool", "tool_update", "interaction", "edit"].contains(kind) else { return }
         let id = kind == "interaction", requestID = event["requestId"] as? String
         let stableID = (kind == "text" || kind == "thinking") ? liveRows.removeValue(forKey: "\(turn):\(kind)") : nil
         let rowID = stableID ?? (id && requestID != nil ? "interaction:\(requestID!)" : ["tool", "tool_update"].contains(kind) ? "tool:\(turn):\(meta["itemId"] as? String ?? event["id"] as? String ?? eventID ?? label)" : eventID ?? "history:\(turn):\(kind):\(label)")
-        if let index = rows.firstIndex(where: { $0.id == rowID }) { rows[index].text = label }
+        if let index = replayRowIndex(rowID) { rows[index].text = label }
         else { rows.append(Row(id: rowID, kind: kind, text: label, turn: turn)) }
-        if let index = rows.firstIndex(where: { $0.id == rowID }) {
+        replayIndex?.synchronize(rows)
+        if let index = replayRowIndex(rowID) {
             rows[index].isStreaming = false
             if let name = event["name"] as? String { rows[index].toolName = name }
             if let status = event["status"] as? String { rows[index].toolStatus = status }
             rows[index].eventID = eventID
-            rows[index].changes = RemoteFileChange.parse(event, eventID: rowID)
+            if event["files"] != nil { rows[index].changes = RemoteFileChange.parse(event, eventID: rowID) }
             rows[index].messageID = meta["messageId"] as? String
-            var detail = event["detail"] as? String ?? ""
-            for key in ["command", "input", "arguments", "output", "result"] {
-                guard let value = event[key] else { continue }
+            var fields = rows[index].toolFields ?? [:]
+            if fields.isEmpty && !rows[index].detail.isEmpty { fields["detail"] = rows[index].detail }
+            for key in ["detail", "command", "input", "arguments", "output", "result", "exitCode", "durationMs", "truncated", "files"] {
+                guard let value = event[key], !(value is NSNull) else { continue }
                 let formatted: String
                 if let text = value as? String { formatted = text }
                 else if let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]) {
                     formatted = String(decoding: data, as: UTF8.self)
                 } else { continue }
-                if !formatted.isEmpty && formatted != label { detail += "\n" + key + " :\n" + formatted }
+                if !formatted.isEmpty { fields[key] = formatted }
             }
-            if !detail.isEmpty { rows[index].detail = detail.trimmingCharacters(in: .whitespacesAndNewlines) }
+            rows[index].toolFields = fields.isEmpty ? nil : fields
+            rows[index].detail = ["detail", "command", "input", "arguments", "output", "result", "exitCode", "durationMs", "truncated", "files"].compactMap { key in
+                fields[key].map { key == "detail" ? $0 : key + " :\n" + $0 }
+            }.joined(separator: "\n\n")
             if let request = event["requestId"] as? String {
                 rows[index].requestId = request
                 rows[index].approval = event["interactionType"] as? String == "approval"
@@ -357,28 +459,31 @@ import SwiftUI
             }
         }
     }
-    @discardableResult func send(_ prompt: String, using gateway: GalleryModel, includingAttachments: Bool = false, explicitFiles: [GalleryArtifact] = [], requestID: String? = nil) async -> Bool {
+    @discardableResult func send(_ prompt: String, using gateway: GalleryModel, includingAttachments: Bool = false, explicitFiles: [GalleryArtifact] = [], requestID: String? = nil, permissionOverride: ChatPermissionMode? = nil, onWillTransmit: (() -> Void)? = nil) async -> Bool {
         guard !isPreview, let thread = selected, !sending, !running, (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !explicitFiles.isEmpty || (includingAttachments && (!attachments.isEmpty || quote != nil))) else { return false }
-        guard permissionMode == .ask || availablePermissionModes.contains(permissionMode) else { error = "Ce mode d’autorisation n’est pas proposé par cet assistant. Choisissez un autre mode dans les options du chat."; return false }
+        let requestPermission = permissionOverride ?? effectivePermissionMode
+        guard requestPermission == .ask || availablePermissionModes.contains(requestPermission) else { error = "Ce mode d’autorisation n’est pas proposé par cet assistant. Choisissez un autre mode dans les options du chat."; return false }
         sending = true; error = nil; defer { sending = false }
         let files = includingAttachments ? attachments : explicitFiles
         let sentQuote = includingAttachments ? quote : nil
         let composedPrompt = Self.promptWithQuote(prompt, quote: sentQuote)
         let display = files.isEmpty ? composedPrompt : composedPrompt + "\n\nPièces jointes : " + files.map(\.name).joined(separator: ", ")
-        let fingerprint = [composedPrompt, model, effort, permissionMode.rawValue, files.map { $0.id.uuidString }.joined(separator: ",")].joined(separator: "\u{1f}")
+        let fingerprint = [composedPrompt, model, effort, requestPermission.rawValue, files.map { $0.id.uuidString }.joined(separator: ",")].joined(separator: "\u{1f}")
         let previous = sendAttempts[thread.id]
         let request = requestID ?? (previous?.fingerprint == fingerprint ? previous!.requestID : UUID().uuidString)
         sendAttempts[thread.id] = SendAttempt(requestID: request, fingerprint: fingerprint); scheduleSave()
         if !files.isEmpty { historyFiles[thread.id, default: [:]][request] = files; scheduleSave() }
         rows.append(Row(id: "pending:\(request)", kind: "user", text: display, turn: request, messageID: request))
         running = true
-        var body: [String: Any] = ["threadId": thread.id, "prompt": composedPrompt, "clientRequestId": request, "clientMessageId": request, "permissionMode": permissionMode.rawValue]
+        var body: [String: Any] = ["threadId": thread.id, "prompt": composedPrompt, "clientRequestId": request, "clientMessageId": request, "permissionMode": requestPermission.rawValue]
         if !model.isEmpty { body["model"] = model }
         if !effort.isEmpty { body["effort"] = effort }
         do {
             var ids: [String] = []
             for item in files { ids.append(try await gateway.attachmentID(item)) }
             body["fileIds"] = ids
+            guard gateway.hasAddress else { throw GalleryModel.GalleryError.invalidAddress }
+            onWillTransmit?()
             let data = try await gateway.chatRequest(["send"], body: body)
             let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard result?["proxied"] as? Bool == true else { throw ChatError.notSent }

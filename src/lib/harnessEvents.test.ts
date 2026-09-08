@@ -8,6 +8,7 @@ import {
   motCoupeEntre,
   eventIdentity,
   threadIsSettled,
+  reconcileWorkingSince,
   materializeHarnessHistory,
   mergeHarnessHistory,
   reduceHarnessEvent,
@@ -621,5 +622,25 @@ describe("motCoupeEntre — lecture de la jointure", () => {
   it("ponctuation ou blanc à la jointure = deux blocs", () => {
     expect(motCoupeEntre("Terminé.", "Ensuite")).toBe(false);
     expect(motCoupeEntre("Terminé ", "ensuite")).toBe(false);
+  });
+});
+
+
+describe("reconcileWorkingSince", () => {
+  const done = { kind: "done", ok: true, result: "", meta: { ...makeMeta(), ts: 2000 } } as AgentEvent;
+  it("clears missed completion with a durable meta timestamp", () => {
+    expect(reconcileWorkingSince([done], 1000)).toBeNull();
+  });
+  it("preserves a newer local send and an unfinished response", () => {
+    expect(reconcileWorkingSince([done], 3000)).toBe(3000);
+    expect(reconcileWorkingSince([done, { kind: "user", text: "next", ts: 4000 }], 3000)).toBe(3000);
+  });
+  it("does not use a late heartbeat as evidence of completion", () => {
+    expect(reconcileWorkingSince([done, { kind: "heartbeat", ts: 5000 }], 3000)).toBe(3000);
+  });
+  it("supports legacy timestamps without inventing a completion date", () => {
+    expect(reconcileWorkingSince([{ kind: "done", ok: true, result: "", ts: 2000 }], 1000)).toBeNull();
+    expect(reconcileWorkingSince([{ kind: "done", ok: true, result: "" }], 1000)).toBe(1000);
+    expect(reconcileWorkingSince([], 1000)).toBe(1000);
   });
 });

@@ -40,6 +40,20 @@ const collectFiles = (dir: string, exts: string[]): string[] => {
 const componentCssFiles = collectFiles(join(root, "components"), [".css"]);
 
 describe("contrat Quiet Instrument (sources CSS)", () => {
+  it("les rôles visuels utilisés sans fallback possèdent une définition CSS", () => {
+    const sheets = [appCss, ...collectFiles(join(root, "styles"), [".css"])
+      .map((file) => stripComments(readFileSync(file, "utf8"))),
+      ...componentCssFiles.map((file) => stripComments(readFileSync(file, "utf8")))].join("\n");
+    const definitions = new Set([...sheets.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
+    // Les variables de positionnement fournies par Base UI et les données de
+    // visualisation sont hors de ce contrat; les rôles visuels appartiennent
+    // au système de design et doivent se résoudre dès le chargement du CSS.
+    const references = new Set([...sheets.matchAll(
+      /var\(\s*(--(?:surface|text|border|status|radius|elevation|sp)-[\w-]+)\s*\)/g,
+    )].map((match) => match[1]));
+    expect([...references].filter((name) => !definitions.has(name)).sort()).toEqual([]);
+  });
+
   it("aucun `transition: all` dans tokens/primitives/App.css", () => {
     for (const [name, css] of [
       ["tokens.css", tokens],
@@ -254,20 +268,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     }
   });
 
-  it("frontière d'imports : shadcn/button et shadcn/tooltip via les wrappers ui/ (allowlist gelée)", () => {
-    // Ces deux primitives ont des wrappers produit complets (Button/IconButton/
-    // RowButton, Tooltip). La liste ci-dessous fige l'existant : elle ne peut
-    // QUE rétrécir — retirer une entrée quand on migre le fichier, ne jamais
-    // en ajouter.
-    const allowed = new Set([
-      "components/RemoteDevicesPanel.tsx",
-      "components/QuickAsk.tsx",
-      "components/Automations.tsx",
-      "components/chat/ContextShelf.tsx",
-      "components/chat/ImageViewPreview.tsx",
-      "components/chat/turns.tsx",
-      "components/chat/AgentActivity.tsx",
-    ]);
+  it("frontière d'imports : boutons et infobulles passent par l'API produit", () => {
+    // Les exceptions historiques ont été migrées. Les primitives composées
+    // restent internes à ui/ et shadcn/; les écrans utilisent l'API produit.
     const offenders: string[] = [];
     const walk = (dir: string, rel: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -278,12 +281,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
           walk(p, r);
         } else if (entry.name.endsWith(".tsx") && !entry.name.includes(".test.")) {
           const src = readFileSync(p, "utf8");
-          if (/from\s+"[^"]*shadcn\/(button|tooltip)"/.test(src) && !allowed.has(r)) offenders.push(r);
+          if (/from\s+"[^"]*shadcn\/(button|tooltip)"/.test(src)) offenders.push(r);
         }
       }
     };
     walk(root, "");
-    expect(offenders, `import direct shadcn/button|tooltip hors allowlist : ${offenders.join(", ")}`).toEqual([]);
+    expect(offenders, `import direct shadcn/button|tooltip hors API produit : ${offenders.join(", ")}`).toEqual([]);
   });
 
   it("aucun clash de nom entre le :root du pont shadcn et les palettes App.css/tokens.css", () => {
@@ -500,8 +503,8 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   // Débordement du fil actif : FONDU de bord (masque), jamais « … » — une
-  // ellipsis dessinée dans la zone fanée ferait double troncature. Les deux
-  // porteurs (libellé d'activité, rangée du ticker) doivent rester alignés.
+  // ellipsis dessinée dans la zone fanée ferait double troncature. Seul le
+  // parent porte le masque, jamais le texte court à l'intérieur du ticker.
   it("fil actif : débordement en fondu de bord, sans ellipsis", () => {
     for (const [source, sel] of [
       [primitives, ".ui-activity-label"],
@@ -511,7 +514,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       // `.is-summary .ui-activity-label`, qui retire volontairement le masque
       const corps = source.match(new RegExp(`(?:^|\\n)\\${sel} \\{([^}]*)\\}`))?.[1] ?? "";
       expect(corps, `règle ${sel} introuvable`).not.toBe("");
-      expect(corps, `${sel} : masque de fondu absent`).toMatch(/mask-image:\s*linear-gradient\(90deg/);
+      if (sel === ".ui-activity-label") {
+        expect(corps, `${sel} : masque de fondu absent`).toMatch(/mask-image:\s*linear-gradient\(90deg/);
+      } else {
+        expect(corps, "un masque sur le ticker efface la fin des libellés courts").not.toMatch(/mask-image:/);
+        expect(corps).toMatch(/display:\s*block/);
+      }
       expect(corps, `${sel} : ellipsis en double du fondu`).not.toMatch(/text-overflow:\s*ellipsis/);
     }
     // et l'exception : un trigger résumé se rétrécit à son contenu, rien n'y
@@ -659,24 +667,18 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).not.toMatch(/@media \(max-width: 720px\)[^}]*\{[^}]*consigne-pilule-nom/);
   });
 
-  it("la barre du composer tient sur UNE assise et DEUX gouttières", () => {
-    // une seule hauteur pour tous les contrôles : 24/24/auto/auto/30 ne donnait
-    // aucune ligne d'assise et la barre se lisait comme huit objets isolés
-    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*--composer-ctl-h:\s*28px/);
+  it("le composer aligne ses contrôles et distingue l'action ronde", () => {
+    expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*--composer-ctl-h:\s*30px/);
     for (const sel of [
       "\\.composer-bar \\.ghost",
-      "\\.composer-bar \\.send",
       "\\.composer-bar \\.permission-select\\.compact \\.custom-select-trigger",
       "\\.composer-bar \\.mp-btn\\.mp-model",
     ]) {
       expect(appCss).toMatch(new RegExp(`${sel}[^{]*\\{[^}]*var\\(--composer-ctl-h\\)`));
     }
-    // 2px dans un groupe (le gap de la barre), l'écart entre groupes est porté
-    // par le ressort central et par la marge de l'envoi
     expect(appCss).toMatch(/\.composer-bar\s*\{[^}]*gap:\s*2px/);
-    expect(appCss).toMatch(/\.composer-bar \.send\s*\{[^}]*margin-left:\s*12px/);
-    // la boîte ne penche plus
-    expect(appCss).toMatch(/\.composer-input-group\s*\{[^}]*padding:\s*10px 12px;/);
+    expect(appCss).toMatch(/\.composer-bar \.send\s*\{[^}]*border-radius:\s*50%/);
+    expect(appCss).toMatch(/\.composer-input-group\s*\{[^}]*border-radius:\s*var\(--radius-composer\)/);
   });
 
   // Le cadre du composeur Quick Ask est porté par .qa-composer (marges
@@ -723,7 +725,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("la consigne active se lit au remplissage, jamais à l'accent de marque", () => {
-    const bloc = appCss.match(/\.consigne-pilule \{[^}]*\}/)?.[0] ?? "";
+    const bloc = appCss.match(/^\.consigne-pilule \{[^}]*\}/m)?.[0] ?? "";
     expect(bloc).toContain("var(--bg-ctl)");
     expect(bloc).not.toContain("--accent");
     expect(bloc).toContain("max-width: 132px");

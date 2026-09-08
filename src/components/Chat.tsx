@@ -33,6 +33,7 @@ import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraft
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import {
   buildChatTurnViewModels,
+  isImageGenerationAction,
   projectChatTimeline,
   type ProjectedTimelineItem,
   type ToolAction,
@@ -137,6 +138,7 @@ export default function Chat(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
   projectRoot?: string | null;
+  imageProjectRoot?: string | null;
   /** nom d'affichage du projet (projMeta) — eyebrow de l'en-tête local */
   projectName?: string | null;
   threadTitle?: string;
@@ -374,7 +376,13 @@ export default function Chat(p: {
       // pour ce fil ET ce provider réactive le niveau priority.
       fastMode: pv === "codex" && providerSelection?.fastMode === true,
     };
-    hydratedSelectionRef.current = selectionKey ? { key: selectionKey, value: next, ready: false } : null;
+    // Un rafraîchissement du catalogue peut restaurer exactement les valeurs
+    // déjà affichées. React ne relance alors pas l'effet de sauvegarde : le
+    // laisser « non prêt » bloquerait tous les choix suivants dans ce chat.
+    const current: ModelSelection = { provider, model, effort, permissionMode, fastMode };
+    const alreadyRestored = Object.keys(next).every((key) =>
+      current[key as keyof ModelSelection] === next[key as keyof ModelSelection]);
+    hydratedSelectionRef.current = selectionKey ? { key: selectionKey, value: next, ready: alreadyRestored } : null;
     setProvider(pv);
     setModel(m);
     setEffort(next.effort);
@@ -901,6 +909,7 @@ export default function Chat(p: {
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
     const isStandaloneTool = (event: ToolAction) =>
       toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image" ||
+      isImageGenerationAction(event) ||
       isAgentActivityAction(event);
     // Les outils gardent leur position chronologique pendant le tour.
     // Le regroupement terminal est déjà porté par projectChatTimeline.
@@ -921,6 +930,13 @@ export default function Chat(p: {
         continue;
       }
       if (!isSummarizableTool(event)) {
+        rows.push(row);
+        continue;
+      }
+      // Image generation/view rows are deliverables. Keep them as direct
+      // timeline rows so the preview is mounted even when the tool disclosure
+      // is closed and the assistant returned no markdown image link.
+      if (isImageGenerationAction(event)) {
         rows.push(row);
         continue;
       }
@@ -986,7 +1002,7 @@ export default function Chat(p: {
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
-    if (imagePaths.length > 0) return <ImageViewPreview key={key} paths={imagePaths} />;
+    if (imagePaths.length > 0) return <ImageViewPreview key={key} paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />;
     // Annotation de fin de tour « bloqué » (`__waiting`) : la question de
     // Claude est déjà la fin de la réponse visible au-dessus — afficher
     // « Attend votre réponse » en plus n'apporte rien (demande 2026-08-23).
@@ -1069,6 +1085,7 @@ export default function Chat(p: {
         onFollowUpModeChange={p.onFollowUpModeChange}
       />
       <ChatComposer
+        scopeKey={`${p.projectRoot ?? ""}:${p.threadId ?? "home"}`}
         input={{
           text, setText, taRef, formRef: composerRef,
           suggestions, selIdx, setSelIdx, applySuggestion,

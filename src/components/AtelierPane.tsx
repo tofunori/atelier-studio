@@ -1,7 +1,9 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { EllipsisIcon, GripVerticalIcon } from "lucide-react";
+import { EllipsisIcon } from "lucide-react";
+import { createPortal } from "react-dom";
+import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
 import AnnotationsPanel from "./AnnotationsPanel";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
@@ -15,20 +17,13 @@ const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
-import { CloseIcon, RefreshIcon } from "./icons";
 import { GallerySkeleton } from "./GallerySkeleton";
 import { Button, IconButton, RowButton } from "./ui";
 import { AgentDetailPanel, type AgentDisplay } from "./chat/AgentActivity";
+import ThreadAgent from "./chat/ThreadAgent";
+import type { ThreadEventStore } from "../lib/threadEventStore";
 import type { AgentEvent } from "../lib/ws";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./shadcn/dropdown-menu";
+import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import {
   activateWorkspaceTab,
@@ -52,7 +47,6 @@ import {
   type WorkspaceTabRef,
 } from "../lib/workspaceLayout";
 import {
-  dispatchWorkspacePointerDragStart,
   markWorkspacePointerDragActivated,
   WORKSPACE_POINTER_DRAG_START,
   type WorkspacePointerDragStartDetail,
@@ -126,11 +120,6 @@ function ownsNativeChrome(ref: WorkspaceTabRef | null): boolean {
   return ref?.kind === "surface" && ref.surface !== "atelier";
 }
 
-function integratesPaneControls(ref: WorkspaceTabRef | null): boolean {
-  return ref?.kind === "surface"
-    && ["terminal", "browser", "biblio", "connaissances", "calculs"].includes(ref.surface);
-}
-
 export default function AtelierPane({
   url,
   projectRoot,
@@ -163,6 +152,8 @@ export default function AtelierPane({
   kbThreadTitle,
   agent,
   agentEvents,
+  agentEventStore,
+  agentParentWorkingSince = null,
   onCloseAgent,
   overlayOpen = false,
   projectFolders,
@@ -205,6 +196,8 @@ export default function AtelierPane({
   kbThreadTitle?: string;
   agent?: AgentDisplay | null;
   agentEvents?: AgentEvent[];
+  agentEventStore?: ThreadEventStore;
+  agentParentWorkingSince?: number | null;
   onCloseAgent?: () => void;
   /** Une surcouche (réglages, palette, quick ask, plugins…) est ouverte
       par-dessus l'app : les webviews natives enfants (navigateur, terminal)
@@ -225,6 +218,8 @@ export default function AtelierPane({
   const documentById = useMemo(() => new Map(documentTabs.map((tab) => [tab.id, tab])), [documentTabs]);
   const [workspace, setWorkspace] = useState<WorkspaceLayout>(() =>
     loadWorkspaceLayout(localStorage, projectRoot, documentIds, activeTab));
+  const paneMenuHost = useWorkspacePaneMenuHost();
+  const [paneMenuOpen, setPaneMenuOpen] = useState<string | null>(null);
   const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
@@ -521,11 +516,6 @@ export default function AtelierPane({
     onSelectTab(externalTabId(ref));
   }, [onActiveSurfaceChange, onSelectTab]);
 
-  const beginPointerDrag = useCallback((event: React.PointerEvent, ref: WorkspaceTabRef) => {
-    if (!dispatchWorkspacePointerDragStart(event.nativeEvent, ref)) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }, []);
-
   const splitTab = useCallback((paneId: string, ref: WorkspaceTabRef, zone: "right" | "bottom") => {
     updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, paneId, zone));
   }, [updateWorkspaceWithFlip]);
@@ -536,6 +526,37 @@ export default function AtelierPane({
     if (ref.kind === "document") onCloseTab(ref.tabId);
     if (ref.kind === "agent") onCloseAgent?.();
   }, [onCloseAgent, onCloseTab, updateWorkspaceWithFlip]);
+
+  const focusPane = useCallback((paneId: string) => {
+    if (workspace.focusedPaneId === paneId) return;
+    const pane = findWorkspacePane(workspace.root, paneId);
+    const ref = pane?.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId);
+    if (!ref) return;
+    setWorkspace((current) => ({ ...current, focusedPaneId: paneId }));
+    onActiveSurfaceChange(ref.kind === "surface" ? ref.surface : "atelier");
+  }, [workspace, onActiveSurfaceChange]);
+
+  useEffect(() => {
+    const onFrameFocus = (event: MessageEvent) => {
+      if (event.data?.type !== "atelier-pane-focus") return;
+      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>("iframe");
+      for (const frame of frames ?? []) {
+        if (frame.contentWindow !== event.source) continue;
+        try {
+          const frameUrl = new URL(frame.src);
+          if (event.origin !== frameUrl.origin) return;
+          const nonce = new URLSearchParams(frameUrl.hash.slice(1)).get("atelier_nonce");
+          if (nonce && event.data.nonce !== nonce) return;
+        } catch { return; }
+        const layer = frame.closest<HTMLElement>("[data-owner-pane]");
+        const pane = layer?.dataset.ownerPane ? findWorkspacePane(workspace.root, layer.dataset.ownerPane) : null;
+        if (pane && pane.activeTabId === layer?.dataset.workspaceContent) focusPane(pane.id);
+        return;
+      }
+    };
+    window.addEventListener("message", onFrameFocus);
+    return () => window.removeEventListener("message", onFrameFocus);
+  }, [workspace.root, focusPane]);
 
   const openHostTerminal = useCallback((command: string) => {
     setTerminalBootstrap(command);
@@ -658,170 +679,121 @@ export default function AtelierPane({
     frame?.contentWindow?.postMessage({ type: "atelier-favorite-changed", rel: relative, fav: confirmed }, "*");
   }
 
-  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, placement: "integrated" | "floating") {
+  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef) {
+    const paneMenuKey = `${paneNode.id}:${workspaceTabId(ref)}`;
     const relative = ref.kind === "document"
       ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
       : null;
+    const currentColor = ref.kind === "document" ? documentById.get(ref.tabId)?.color : undefined;
+    const menuGroups: LazyDropdownMenuGroup[] = [];
+    const headerItems: LazyDropdownMenuItem[] = [];
+    if (ref.kind === "surface" && ref.surface === "atelier" && onGalleryReload) {
+      headerItems.push({ key: "gallery-reload", label: t("action.refresh-hard"), onSelect: onGalleryReload });
+    }
+    menuGroups.push({ key: "header-actions", items: headerItems });
+    menuGroups.push({
+      key: "split",
+      separatorBefore: true,
+      items: [
+        { key: "split-right", label: t("workspace.split-right"), onSelect: () => splitTab(paneNode.id, ref, "right") },
+        { key: "split-bottom", label: t("workspace.split-down"), onSelect: () => splitTab(paneNode.id, ref, "bottom") },
+      ],
+    });
+    const otherPanes = listWorkspacePanes(workspace.root).filter((pane) => pane.id !== paneNode.id);
+    if (otherPanes.length > 0) {
+      menuGroups.push({
+        key: "move-pane",
+        label: t("workspace.move-pane"),
+        items: otherPanes.map((pane) => ({
+          key: `move-${pane.id}`,
+          label: pane.tabs.length
+            ? tabTitle(pane.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId) ?? pane.tabs[0])
+            : EMPTY_TITLE,
+          onSelect: () => updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, pane.id, "center")),
+        })),
+      });
+    }
+    const otherTabs = paneNode.tabs.filter((candidate) => workspaceTabId(candidate) !== workspaceTabId(ref));
+    if (otherTabs.length > 0) {
+      menuGroups.push({
+        key: "pane-tabs",
+        label: t("workspace.pane-tabs"),
+        separatorBefore: true,
+        items: otherTabs.map((candidate) => ({
+          key: `tab-${workspaceTabId(candidate)}`,
+          label: tabTitle(candidate),
+          onSelect: () => selectRef(paneNode.id, candidate),
+        })),
+      });
+    }
+    if (ref.kind === "document" && documentById.get(ref.tabId)) {
+      const documentItems: LazyDropdownMenuItem[] = [
+        { key: "expand", label: t("atelier.full"), onSelect: onToggleExpand },
+        {
+          key: "pin",
+          label: documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab"),
+          onSelect: () => onPinTab(ref.tabId),
+        },
+      ];
+      if (relative && onAddFileToChat) {
+        documentItems.push({ key: "add-to-chat", label: t("action.add-to-chat"), onSelect: () => onAddFileToChat(relative) });
+      }
+      if (relative) {
+        documentItems.push({
+          key: "favorite",
+          label: favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite"),
+          onSelect: () => toggleFavorite(relative),
+        });
+      }
+      if (relative && onInspectFile) {
+        documentItems.push({ key: "inspect", label: t("inspector.open"), onSelect: () => onInspectFile(relative) });
+      }
+      menuGroups.push({ key: "document-actions", items: documentItems, separatorBefore: true });
+      menuGroups.push({
+        key: "colors",
+        label: t("settings.group.colors"),
+        separatorBefore: true,
+        items: [
+          ...TAB_COLORS.map((color) => ({
+            key: `color-${color}`,
+            checked: currentColor === color,
+            label: <><span className="workspace-pane-swatch tw:inline-block tw:shrink-0" style={{ background: color }} aria-hidden="true" /><span className="tw:sr-only">{color}</span></>,
+            onSelect: () => onColorTab(ref.tabId, color),
+          })),
+          {
+            key: "color-none",
+            checked: currentColor == null,
+            label: <><span className="workspace-pane-swatch is-none tw:inline-block tw:shrink-0" aria-hidden="true" /><span className="tw:sr-only">{t("sidebar.without-color")}</span></>,
+            onSelect: () => onColorTab(ref.tabId, undefined),
+          },
+        ],
+      });
+    }
+    menuGroups.push({
+      key: "close",
+      separatorBefore: true,
+      items: [{ key: "close-pane", label: t("workspace.close-pane"), destructive: true, onSelect: () => closeRef(ref) }],
+    });
     return (
-      <div className={`workspace-pane-controls is-${placement}`} data-pane-controls={placement}>
-        {ref.kind === "document" && relative && onAddFileToChat && (
-          <IconButton
-            className="ghost"
-            label={t("action.add-to-chat")}
-            title={t("action.add-to-chat")}
-            size="s"
-            onClick={() => onAddFileToChat(relative)}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
-            </svg>
-          </IconButton>
-        )}
-        {ref.kind === "document" && relative && (
-          <IconButton
-            className={`ghost workspace-fav${favorites.has(relative) ? " is-on" : ""}`}
-            label={favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
-            title={favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
-            aria-pressed={favorites.has(relative)}
-            size="s"
-            onClick={() => toggleFavorite(relative)}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16"
-              fill={favorites.has(relative) ? "currentColor" : "none"}
-              stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 1.9l1.85 3.9 4.15.6-3 3 .71 4.25L8 11.63l-3.71 2.02.71-4.25-3-3 4.15-.6z" />
-            </svg>
-          </IconButton>
-        )}
-        {ref.kind === "surface" && ref.surface === "atelier" && onGalleryReload && (
-          <IconButton className="ghost" label={t("action.refresh-hard")} title={t("action.refresh-hard")} size="s" onClick={onGalleryReload}>
-            <RefreshIcon />
-          </IconButton>
-        )}
-        <span
-          className="workspace-pane-grip"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            beginPointerDrag(event, ref);
-          }}
-        >
-          <IconButton
-            className="ghost"
-            label={t("workspace.move-pane")}
-            title={t("workspace.move-pane")}
-            size="s"
-          >
-            <GripVerticalIcon />
-          </IconButton>
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={(
-              <IconButton
-                className="ghost"
-                label={t("workspace.pane-actions")}
-                title={t("workspace.pane-actions")}
-                size="s"
-              >
-                <EllipsisIcon />
-              </IconButton>
-            )}
-          />
-          <DropdownMenuContent align="end" sideOffset={5}>
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => splitTab(paneNode.id, ref, "right")}>
-                {t("workspace.split-right")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => splitTab(paneNode.id, ref, "bottom")}>
-                {t("workspace.split-down")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            {paneNode.tabs.length > 1 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t("workspace.pane-tabs")}</DropdownMenuLabel>
-                  {paneNode.tabs
-                    .filter((candidate) => workspaceTabId(candidate) !== workspaceTabId(ref))
-                    .map((candidate) => (
-                      <DropdownMenuItem
-                        key={workspaceTabId(candidate)}
-                        onClick={() => selectRef(paneNode.id, candidate)}
-                      >
-                        {tabTitle(candidate)}
-                      </DropdownMenuItem>
-                    ))}
-                </DropdownMenuGroup>
-              </>
-            )}
-            {/* plan 057 : rescapées du menu contextuel des onglets — sans
-                elles, épingler, colorer et inspecter partaient avec la bande. */}
-            {ref.kind === "document" && documentById.get(ref.tabId) && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={onToggleExpand}>{t("atelier.full")}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onPinTab(ref.tabId)}>
-                    {documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab")}
-                  </DropdownMenuItem>
-                  {relative && onAddFileToChat && (
-                    <DropdownMenuItem onClick={() => onAddFileToChat(relative)}>
-                      {t("action.add-to-chat")}
-                    </DropdownMenuItem>
-                  )}
-                  {relative && (
-                    <DropdownMenuItem onClick={() => toggleFavorite(relative)}>
-                      {favorites.has(relative) ? t("action.remove-favorite") : t("action.add-favorite")}
-                    </DropdownMenuItem>
-                  )}
-                  {relative && onInspectFile && (
-                    <DropdownMenuItem onClick={() => onInspectFile(relative)}>
-                      {t("inspector.open")}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t("settings.group.colors")}</DropdownMenuLabel>
-                  <div className="workspace-pane-colors">
-                    {TAB_COLORS.map((color) => (
-                      <RowButton
-                        key={color}
-                        className="workspace-pane-swatch"
-                        style={{ background: color }}
-                        title={color}
-                        aria-label={color}
-                        onClick={() => onColorTab(ref.tabId, color)}
-                      />
-                    ))}
-                    <RowButton
-                      className="workspace-pane-swatch is-none"
-                      title={t("sidebar.without-color")}
-                      aria-label={t("sidebar.without-color")}
-                      onClick={() => onColorTab(ref.tabId, undefined)}
-                    />
-                  </div>
-                </DropdownMenuGroup>
-              </>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem variant="destructive" onClick={() => closeRef(ref)}>
-                {t("workspace.close-pane")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <IconButton
-          className="ghost workspace-pane-close"
-          label={t("workspace.close-pane")}
-          title={t("workspace.close-pane")}
-          size="s"
-          onClick={() => closeRef(ref)}
-        >
-          <CloseIcon />
-        </IconButton>
+      <div className="workspace-pane-controls" data-pane-controls="menu">
+        <LazyDropdownMenu
+          open={paneMenuOpen === paneMenuKey}
+          onOpenChange={(open) => setPaneMenuOpen(open ? paneMenuKey : null)}
+          label={t("workspace.pane-actions")}
+          header={tabTitle(ref)}
+          align="end"
+          groups={menuGroups}
+          trigger={(
+            <IconButton
+              className="ghost"
+              label={t("workspace.pane-actions")}
+              title={t("workspace.pane-actions")}
+              size="s"
+            >
+              <EllipsisIcon />
+            </IconButton>
+          )}
+        />
       </div>
     );
   }
@@ -873,7 +845,10 @@ export default function AtelierPane({
       if (!agent || agent.threadId !== ref.threadId || !onCloseAgent) return null;
       return (
         <div key={workspaceTabId(ref)} className="workspace-tab-content" style={{ display }}>
-          <AgentDetailPanel agent={agent} events={agentEvents} embedded onClose={onCloseAgent} />
+          {agentEventStore ? <ThreadAgent store={agentEventStore} agent={agent}
+            parentThreadId={activeThreadId} parentWorkingSince={agentParentWorkingSince}
+            ws={ws} visible={active && layout !== "chat"} onClose={onCloseAgent} />
+            : <AgentDetailPanel agent={agent} events={agentEvents} embedded onClose={onCloseAgent} />}
         </div>
       );
     }
@@ -896,7 +871,7 @@ export default function AtelierPane({
 
       </>;
       return <div key="surface:atelier" className="workspace-tab-content" style={{ display }}>
-        {onProjectSettings && onOpenSourceFile ? <ProjectGallery galleryDir={galleryDir} galleryExts={galleryExts} root={projectRoot} config={projectFolders} ws={ws} onManage={onProjectSettings} onOpen={onOpenSourceFile} reloadKey={reloadKey} mainGallery={nativeGallery}/> : nativeGallery}
+        {onProjectSettings && onOpenSourceFile ? <ProjectGallery galleryUrl={gallerySrc} galleryDir={galleryDir} galleryExts={galleryExts} root={projectRoot} config={projectFolders} ws={ws} onManage={onProjectSettings} onOpen={onOpenSourceFile} reloadKey={reloadKey} mainGallery={nativeGallery}/> : nativeGallery}
       </div>;
     }
     if (ref.surface === "browser") {
@@ -907,7 +882,7 @@ export default function AtelierPane({
               tabId="main-browser"
               visible={active && !overlayOpen}
               onTitle={() => {}}
-              paneControls={renderPaneControls(paneNode, ref, "integrated")}
+              paneControls={renderPaneControls(paneNode, ref)}
             />
           </LazyBoundary>
         </div>
@@ -923,7 +898,6 @@ export default function AtelierPane({
               visible={active && !overlayOpen}
               bootstrapCommand={terminalBootstrap}
               onBootstrapHandled={() => setTerminalBootstrap(null)}
-              paneControls={renderPaneControls(paneNode, ref, "integrated")}
             />
           </LazyBoundary>
         </div>
@@ -951,7 +925,6 @@ export default function AtelierPane({
               binding={kbBinding ?? null}
               threadTitle={kbThreadTitle ?? ""}
               visible={active}
-              paneControls={renderPaneControls(paneNode, ref, "integrated")}
             />
           </LazyBoundary>
         </div>
@@ -965,7 +938,6 @@ export default function AtelierPane({
               ws={ws}
               projectRoot={projectRoot}
               galleryUrl={url}
-              paneControls={renderPaneControls(paneNode, ref, "integrated")}
             />
           </LazyBoundary>
         </div>
@@ -995,7 +967,6 @@ export default function AtelierPane({
           <CalculsSurface
             visible={active}
             onOpenTerminal={openHostTerminal}
-            paneControls={renderPaneControls(paneNode, ref, "integrated")}
           />
         </LazyBoundary>
       </div>
@@ -1005,7 +976,6 @@ export default function AtelierPane({
   function renderPane(paneNode: WorkspacePaneNode) {
     const activeRef = paneNode.tabs.find((ref) => workspaceTabId(ref) === paneNode.activeTabId) ?? null;
     const nativeChrome = ownsNativeChrome(activeRef);
-    const integratedControls = nativeChrome && integratesPaneControls(activeRef);
     return (
       <section
         key={paneNode.id}
@@ -1013,10 +983,6 @@ export default function AtelierPane({
         data-pane-id={paneNode.id}
         data-pane-chrome={nativeChrome ? "native" : "workspace"}
       >
-        {/* plan 057 : plus de bande d'onglets — le rail les porte, et il en est
-            aussi la source de glisser vers un autre pane. Restent les
-            contrôles, flottants sur le bord droit. */}
-        {activeRef && !integratedControls && renderPaneControls(paneNode, activeRef, "floating")}
         <div className="workspace-pane-body" data-workspace-pane-body={paneNode.id}>
           {paneNode.tabs.length === 0 && (
             <div className="workspace-empty-pane">
@@ -1089,8 +1055,16 @@ export default function AtelierPane({
     })),
   );
 
+  const focusedPane = findWorkspacePane(workspace.root, workspace.focusedPaneId) ?? listWorkspacePanes(workspace.root)[0];
+  const focusedRef = focusedPane?.tabs.find((ref) => workspaceTabId(ref) === focusedPane.activeTabId);
+
   return (
     <div className="atelier-wrap modular-workspace">
+      {/* Le navigateur natif ne transmet pas son focus DOM au workspace :
+          son menu reste dans sa barre réservée, sans recouvrir la page. */}
+      {paneMenuHost && focusedPane && focusedRef && !(focusedRef.kind === "surface" && focusedRef.surface === "browser") && createPortal(
+        renderPaneControls(focusedPane, focusedRef), paneMenuHost, `${focusedPane.id}:${workspaceTabId(focusedRef)}`,
+      )}
       <div className="pane-row">
         <div className="workspace-root" ref={workspaceRootRef}>
           {renderNode(workspace.root)}
@@ -1110,12 +1084,8 @@ export default function AtelierPane({
                     width: bounds?.width ?? 0,
                     height: bounds?.height ?? 0,
                   }}
-                  onMouseDownCapture={() => {
-                    if (workspace.focusedPaneId === paneNode.id) return;
-                    setWorkspace((current) => ({ ...current, focusedPaneId: paneNode.id }));
-                    if (ref.kind === "surface") onActiveSurfaceChange(ref.surface);
-                    else onActiveSurfaceChange("atelier");
-                  }}
+                  onMouseDownCapture={() => focusPane(paneNode.id)}
+                  onFocusCapture={() => focusPane(paneNode.id)}
                 >
                   {renderContent(paneNode, ref, active)}
                 </div>

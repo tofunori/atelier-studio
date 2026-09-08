@@ -1,22 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ImageOffIcon, XIcon } from "lucide-react";
-import { localImagePreviewUrl } from "../../lib/localImage";
+import { DownloadIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ImageOffIcon, XIcon } from "lucide-react";
+import { localImagePreviewUrl, saveLocalImageToGallery } from "../../lib/localImage";
 import { t } from "../../lib/i18n";
-import { Button } from "../shadcn/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../shadcn/dialog";
-import { RowButton } from "../ui";
+import { Button, RowButton } from "../ui";
 
 function imageName(path: string): string {
   const clean = path.split(/[?#]/u, 1)[0] ?? path;
   return clean.split(/[\\/]/u).filter(Boolean).pop() ?? t("context.kind-image");
 }
 
-export function ImageViewPreview({ paths }: { paths: string[] }) {
+export function ImageViewPreview({ paths, projectRoot, threadId }: { paths: string[]; projectRoot?: string; threadId?: string }) {
   const pathKey = paths.join("\u0000");
   const stablePaths = useMemo(() => [...new Set(paths.filter(Boolean))], [pathKey]);
   const [urls, setUrls] = useState<(string | null)[]>(() => stablePaths.map(() => null));
   const [failed, setFailed] = useState<Set<number>>(() => new Set());
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedPaths, setSavedPaths] = useState<Set<string>>(() => new Set());
+  const [saveError, setSaveError] = useState("");
+
+  async function saveImage(path: string) {
+    if (!projectRoot || !threadId || saving) return;
+    setSaving(true); setSaveError("");
+    const key = `${projectRoot}:${path}`;
+    try {
+      await saveLocalImageToGallery(path, threadId);
+      setSavedPaths((current) => new Set(current).add(key));
+    } catch (error) { setSaveError(String(error)); }
+    finally { setSaving(false); }
+  }
+
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +72,9 @@ export function ImageViewPreview({ paths }: { paths: string[] }) {
   if (stablePaths.length === 0) return null;
   const expandedUrl = expandedIndex === null ? null : urls[expandedIndex];
   const expandedName = expandedIndex === null ? "" : imageName(stablePaths[expandedIndex] ?? "");
+  const expandedPath = expandedIndex === null ? "" : stablePaths[expandedIndex] ?? "";
+  const saved = savedPaths.has(`${projectRoot}:${expandedPath}`);
+
 
   return (
     <>
@@ -89,6 +106,14 @@ export function ImageViewPreview({ paths }: { paths: string[] }) {
             </DialogClose>
             <div className="tw:pointer-events-none tw:relative tw:z-10 tw:flex tw:max-h-full tw:max-w-full tw:flex-col tw:items-center tw:justify-center tw:gap-2">
               <img src={expandedUrl} alt={expandedName} className="tw:max-h-[86vh] tw:max-w-[92vw] tw:select-none tw:rounded-lg tw:border tw:border-border tw:bg-popover tw:object-contain tw:shadow-2xl" draggable={false} />
+              <Button type="button" size="sm" variant="secondary"
+                className="tw:pointer-events-auto" disabled={!projectRoot || !threadId || saving || saved}
+                onClick={() => void saveImage(expandedPath)}>
+                {saved ? <CheckIcon data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+                {saved ? "Enregistrée dans la galerie" : saving ? "Enregistrement…" : "Enregistrer dans la galerie du projet"}
+              </Button>
+              {!projectRoot ? <p role="status">Ce chat n’est associé à aucun projet.</p> : null}
+              {saveError ? <p role="alert" className="tw:pointer-events-auto tw:text-destructive">{saveError}</p> : null}
               <p className="tw:m-0 tw:max-w-[92vw] tw:truncate tw:text-center tw:text-xs tw:text-white/75">
                 {expandedName}{stablePaths.length > 1 ? ` (${expandedIndex + 1}/${stablePaths.length})` : ""}
               </p>

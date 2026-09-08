@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.7.0"
+version = "1.8.0"
 description = "Atelier Studio — agentic research environment (Tauri 2 desktop shell)"
 authors = ["Thierry St-Pierre"]
 edition = "2021"
@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
@@ -26,6 +27,8 @@ serde_json = "1"
 md5 = "0.7"
 dirs = "5"
 libc = "0.2"
+atelier-store = { path = "../rust/crates/atelier-store" }
+atelier-workspace = { path = "../rust/crates/atelier-workspace" }
 atelier-fdlimit = { path = "../rust/crates/atelier-fdlimit" }
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
 tauri-plugin-dialog = "2"

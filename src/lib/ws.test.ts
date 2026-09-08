@@ -3,11 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { connectSidecar, sendPrompt } from "./ws";
+import { connectSidecar, requestCatalog, sendPrompt } from "./ws";
 import { getSidecarInfo, resetSidecarInfo } from "./sidecarInfo";
 import { FakeWS, flushMicrotasks } from "../test/fixtures/sidecar";
 
 const invokeMock = vi.mocked(invoke);
+
+it("changer de projet charge les commandes et fichiers sans lancer les plugins Codex", () => {
+  const send = vi.fn();
+  requestCatalog({ send } as unknown as WebSocket, "/project", "claude");
+  const messages = send.mock.calls.map(([text]) => JSON.parse(text));
+  expect(messages).toEqual([
+    { type: "listCommands", projectRoot: "/project", provider: "claude" },
+    { type: "listFiles", projectRoot: "/project" },
+  ]);
+});
 
 describe("connectSidecar", () => {
   beforeEach(() => {

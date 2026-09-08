@@ -1,4 +1,4 @@
-// UiBench (plan 016, étape 5) — banc d'essai des douze primitives, monté par
+// UiBench (plan 016, étape 5) — banc d'essai des primitives canoniques, monté par
 // main.tsx quand l'URL porte #uibench (jamais dans le parcours normal).
 // Sert aux captures de validation (deux thèmes) et à la revue manuelle
 // clavier/focus. Pas de Storybook : une page, états canoniques, zéro réseau.
@@ -21,6 +21,11 @@ import {
   PopoverTitle,
   PopoverTrigger,
   SegmentedControl,
+  Select,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   SurfaceHeader,
   EmptyState,
   InlineNotice,
@@ -50,6 +55,8 @@ export function UiBench() {
   }, []);
   const [seg, setSeg] = useState("split");
   const [effort, setEffort] = useState("medium");
+  const [benchSelect, setBenchSelect] = useState("codex");
+  const [benchTab, setBenchTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [popOpen, setPopOpen] = useState(false);
@@ -198,6 +205,46 @@ export function UiBench() {
             <StatusBadge>{seg}</StatusBadge>
           </div>
           <span className="note">radiogroup : un seul arrêt Tab, flèches = sélection</span>
+        </section>
+
+        <section className="ui-bench-card">
+          <h2>Select</h2>
+          <div className="ui-bench-row">
+            <Select
+              compact
+              title="Modèle"
+              value={benchSelect}
+              onChange={setBenchSelect}
+              options={[
+                { value: "codex", label: "Codex · GPT-5.5" },
+                { value: "claude", label: "Claude · Fable 5" },
+                { value: "grok", label: "Grok · 4.6", disabled: true },
+              ]}
+            />
+            <Select
+              compact
+              title="Indisponible"
+              value=""
+              placeholder="Choisir…"
+              disabled
+              onChange={() => {}}
+              options={[]}
+            />
+          </div>
+          <span className="note">standard compact, valeur vide/placeholder et option désactivée</span>
+        </section>
+
+        <section className="ui-bench-card">
+          <h2>Tabs</h2>
+          <Tabs value={benchTab} onValueChange={setBenchTab}>
+            <TabsList>
+              <TabsTrigger value="overview">Résumé</TabsTrigger>
+              <TabsTrigger value="details">Détails</TabsTrigger>
+            </TabsList>
+            <TabsContent value="overview">Résumé du panneau modèle.</TabsContent>
+            <TabsContent value="details">Détails et provenance.</TabsContent>
+          </Tabs>
+          <span className="note">valeurs métier stables, parent contrôlé, navigation au clavier Base UI</span>
         </section>
 
         <section className="ui-bench-card">

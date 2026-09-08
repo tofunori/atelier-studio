@@ -44,7 +44,12 @@ function codexProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<
 }
 
 const ta = () => document.querySelector(".composer textarea") as HTMLTextAreaElement;
-const fastToggle = () => document.querySelector(".tier-toggle") as HTMLButtonElement | null;
+const fastToggle = () => {
+  if (!document.querySelector(".effort-menu")) {
+    fireEvent.click(document.querySelector(".model-pick .mp-model") as HTMLButtonElement);
+  }
+  return document.querySelector(".tier-toggle") as HTMLButtonElement | null;
+};
 const isFast = () => fastToggle()?.getAttribute("aria-pressed") === "true";
 
 beforeEach(resetTestState);
@@ -54,11 +59,28 @@ afterEach(() => {
 });
 
 describe("composer — mode Fast (niveau de service Codex)", () => {
+  it("Astra peut activer Fast et transmettre priority sans changer Low", async () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...codexProps({ onSubmit,
+      defaults: { defaultProvider: "codex", defaultModel: { codex: "gpt-6-astra" }, defaultEffort: { codex: "low" }, defaultPermissionMode: "bypassPermissions" },
+      providers: [makeProviderInfo({ id: "codex", models: ["gpt-6-astra"], defaultModel: "gpt-6-astra", efforts: CODEX_EFFORTS })],
+    })} />);
+    expect(fastToggle()!.disabled).toBe(false);
+    fireEvent.click(fastToggle()!);
+    await waitFor(() => expect(isFast()).toBe(true));
+    fireEvent.change(ta(), { target: { value: "Bonjour" } });
+    fireEvent.submit(ta().closest("form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][2]).toBe("gpt-6-astra");
+    expect(onSubmit.mock.calls[0][3]).toBe("low");
+    expect(onSubmit.mock.calls[0][6]).toBe(true);
+  });
+
   it("le toggle apparaît pour Codex", () => {
     renderUi(<Chat {...codexProps()} />);
     const toggle = fastToggle();
     expect(toggle).toBeTruthy();
-    expect(toggle!.textContent).toContain("Fast");
+    expect(toggle!.querySelector("svg")).toBeTruthy();
     expect(toggle!.getAttribute("aria-label")).toBe(t("chat.service-tier-fast"));
   });
 
@@ -129,6 +151,21 @@ describe("composer — mode Fast (niveau de service Codex)", () => {
     expect(fastMode).toBe(true);
   });
 
+  it("réinitialise l'effort enregistré et désactive Fast", () => {
+    const onSubmit = vi.fn();
+    renderUi(<Chat {...codexProps({ onSubmit })} />);
+    fireEvent.click(fastToggle()!);
+    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuetext", "Extra High");
+    fireEvent.click(screen.getByRole("button", { name: t("chat.effort-reset") }));
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuetext", "High");
+    expect(isFast()).toBe(false);
+    fireEvent.change(ta(), { target: { value: "analyse" } });
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(onSubmit.mock.calls[0][3]).toBe("high");
+    expect(onSubmit.mock.calls[0][6]).toBe(false);
+  });
+
   it("Fast est persisté par conversation et restauré", async () => {
     const view = renderUi(<Chat {...codexProps({ threadId: "thread-fast" })} />);
     fireEvent.click(fastToggle()!);
@@ -161,7 +198,7 @@ describe("composer — mode Fast (niveau de service Codex)", () => {
     await waitFor(() => expect(isFast()).toBe(true));
 
     // gpt-5.1-codex n'annonce aucun service_tier dans le catalogue Codex
-    fireEvent.click(document.querySelector(".model-pick .mp-btn") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".ef-model-link") as HTMLButtonElement);
     fireEvent.click(screen.getByText("GPT-5.1 Codex"));
     await waitFor(() => expect(fastToggle()!.disabled).toBe(true));
     expect(isFast()).toBe(false);

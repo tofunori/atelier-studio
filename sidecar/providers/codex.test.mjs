@@ -535,3 +535,25 @@ describe("mapGoalTurnNotification (tours autonomes du goal)", () => {
     expect(state.streamText).toBe("");
   });
 });
+
+
+describe("automatic full-access authorization", () => {
+  it("grants approvals and MCP consent but keeps data and URL requests interactive", async () => {
+    const { automaticApprovalResponse: auto } = await import("./codex.mjs");
+    for (const method of ["execCommandApproval", "applyPatchApproval", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"]) {
+      expect(auto(method, true)).not.toBeNull();
+      expect(auto(method, false)).toBeNull();
+    }
+    const permissions = { network: { enabled: true }, fileSystem: { write: ["/tmp"] } };
+    expect(auto("item/permissions/requestApproval", true, { permissions }).permissions).toEqual(permissions);
+    const m = "mcpServer/elicitation/request";
+    for (const params of [{}, { mode: "form", requestedSchema: { type: "object", properties: {} } }, { mode: "openai/form", requestedSchema: { type: "object", properties: {} } }, { mode: "openaiForm", requestedSchema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: {} } }]) {
+      expect(auto(m, true, params)).toEqual({ action: "accept", content: {}, _meta: null });
+      expect(auto(m, false, params)).toBeNull();
+    }
+    for (const params of [{ mode: "openai/form", requestedSchema: { type: "object", properties: { key: { type: "string" } } } }, { mode: "url", url: "https://example.com" }, { mode: "form", requestedSchema: { type: "object", properties: { key: { type: "string" } } } }, { requestedSchema: { type: "object", properties: {}, required: ["key"] } }]) {
+      expect(auto(m, true, params)).toBeNull();
+    }
+    expect(auto("item/tool/requestUserInput", true)).toBeNull();
+  });
+});

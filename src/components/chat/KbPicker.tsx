@@ -22,6 +22,7 @@ import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
+import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 
 // ré-export : les consommateurs historiques importent le type depuis ce module
 export type { KbBinding } from "../../lib/kbSources";
@@ -423,17 +424,34 @@ export function KbPickerPanel(p: {
             <ExpandIcon />
           </IconButton>
           {p.onTag && (p.collections?.length ?? 0) > 0 && (
-            <IconButton
-              size="s"
-              className={`ghost ${collMenuFor === source.id ? "on" : ""}`}
+            <LazyDropdownMenu
+              open={collMenuFor === source.id}
+              onOpenChange={(open) => setCollMenuFor(open ? source.id : null)}
+              align="end"
               label={t("kb.collections-menu")}
-              title={t("kb.collections-menu")}
-              onClick={() => setCollMenuFor((current) => (current === source.id ? null : source.id))}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
-              </svg>
-            </IconButton>
+              trigger={(
+                <IconButton
+                  size="s"
+                  className={`ghost ${collMenuFor === source.id ? "on" : ""}`}
+                  label={t("kb.collections-menu")}
+                  title={t("kb.collections-menu")}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                    <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
+                  </svg>
+                </IconButton>
+              )}
+              items={(p.collections ?? []).map((coll) => {
+                const tagged = ((source as { collections?: string[] }).collections ?? []).includes(coll.slug);
+                return {
+                  key: coll.slug,
+                  label: coll.title,
+                  checked: tagged,
+                  keepOpen: true,
+                  onSelect: () => p.onTag?.(source.id, coll.slug, tagged),
+                };
+              })}
+            />
           )}
           {p.onArchive && (
             <IconButton
@@ -459,23 +477,6 @@ export function KbPickerPanel(p: {
           </IconButton>
         </span>
       </div>
-      {collMenuFor === source.id && p.onTag && (
-        <div className="kb-coll-menu">
-          {(p.collections ?? []).map((coll) => {
-            const tagged = ((source as { collections?: string[] }).collections ?? []).includes(coll.slug);
-            return (
-              <RowButton
-                key={coll.slug}
-                className={`kb-coll-opt ${tagged ? "on" : ""}`}
-                onClick={() => p.onTag?.(source.id, coll.slug, tagged)}
-              >
-                <span className={`kb-check ${tagged ? "on" : ""}`} aria-hidden />
-                <span className="kb-name">{coll.title}</span>
-              </RowButton>
-            );
-          })}
-        </div>
-      )}
     </div>
     );
   };
@@ -846,12 +847,18 @@ export function KbPickerPanel(p: {
             </RowButton>
           )}
           {(p.collections?.length ?? 0) > 0 && p.onBatchTag && (
-            <RowButton
-              className={`kb-batch-act ${batchCollOpen ? "on" : ""}`}
-              onClick={() => setBatchCollOpen((v) => !v)}
-            >
-              {t("kb.batch-add-to")}
-            </RowButton>
+            <LazyDropdownMenu
+              open={batchCollOpen}
+              onOpenChange={setBatchCollOpen}
+              align="center"
+              label={t("kb.batch-add-to")}
+              trigger={<RowButton className={`kb-batch-act ${batchCollOpen ? "on" : ""}`}>{t("kb.batch-add-to")}</RowButton>}
+              items={(p.collections ?? []).map((coll) => ({
+                key: coll.slug,
+                label: coll.title,
+                onSelect: () => { p.onBatchTag?.([...selected], coll.slug); exitSelect(); },
+              }))}
+            />
           )}
           {p.onBatchArchive && (
             <RowButton
@@ -872,20 +879,6 @@ export function KbPickerPanel(p: {
           <RowButton className="kb-batch-act kb-batch-cancel" onClick={exitSelect}>
             {t("kb.select-cancel")}
           </RowButton>
-        </div>
-      )}
-      {selectMode && batchCollOpen && (
-        <div className="kb-coll-menu kb-batch-coll">
-          {(p.collections ?? []).map((coll) => (
-            <RowButton
-              key={coll.slug}
-              className="kb-coll-opt"
-              onClick={() => { p.onBatchTag?.([...selected], coll.slug); exitSelect(); }}
-            >
-              <span className="kb-check" aria-hidden />
-              <span className="kb-name">{coll.title}</span>
-            </RowButton>
-          ))}
         </div>
       )}
       <div className="kb-foot">

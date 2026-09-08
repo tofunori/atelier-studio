@@ -5,6 +5,7 @@ import { IconButton, RowButton, SegmentedControl, Tooltip } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import TopBarSurfaces from "./TopBarSurfaces";
 import TopBarTabs, { type PaneTab } from "./TopBarTabs";
+import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import type { Surface } from "./surfaces";
 import { type ProjMeta } from "./Rail";
 
@@ -185,6 +186,7 @@ export default function TopBar({
             tandis que les contrôles de disposition restent au bord. */}
         <span className="topbar-div" />
         <TopBarTabs tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
+        <WorkspacePaneMenuSlot />
         <span className="flex" />
         {/* Recherche réduite à son icône (lot 068) : le champ occupait
             clamp(280px, 32vw, 420px) pour annoncer un raccourci que tout

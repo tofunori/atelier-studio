@@ -7,14 +7,8 @@ struct NativeChatView: View {
     @State private var showingWork = false
     @State private var showingOptions = false
     @State private var followsResponse = true
-    @State private var userScrolling = false
-    @State private var hasInteracted = false
     @State private var nearBottom = true
-    @State private var returningToBottom = false
-    @State private var returnTask: Task<Void, Never>?
-    @State private var scrollController = ChatScrollController()
-    @State private var pendingBookmark: ChatBookmark?
-    @State private var scrollMetrics = ChatScrollMetrics()
+    @State private var returnRequest = UUID()
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @AppStorage("atelier.motion") private var motion = "native"
     private var reduceMotion: Bool { systemReduceMotion || motion == "off" }
@@ -50,7 +44,7 @@ struct NativeChatView: View {
                 }
             }
         }
-        .onDisappear { cancelReturn() }
+
         .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing = true }
         .sheet(isPresented: $showingOptions) { ChatOptionsView(chat: chat) }
         .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
@@ -61,108 +55,56 @@ struct NativeChatView: View {
         }
         .sheet(isPresented: $workspace.chatPickerRequested) { ConversationPicker(workspace: workspace) }
         .task(id: "\(chat.selected?.id ?? ""):\(chat.reconnectGeneration)") { await chat.observe(using: workspace.gallery) }
+        .task { if chat.providers.isEmpty { await chat.loadCatalog(using: workspace.gallery) } }
     }
     private var chatContent: some View {
         let chat = workspace.chat
         let finalTextIDs = ChatTimelineItem.finalTextIDs(in: chat.rows)
+        let items = ChatTimelineItem.displayItems(chat.rows, running: chat.running)
+        let revision = finalTextIDs.sorted().joined(separator: ":") + items.map { chat.isTurnRunning($0.rows[0].turn) ? "1" : "0" }.joined()
         return VStack(spacing: 0) {
-            if chat.connection != .live {
-                Label(chat.statusLabel, systemImage: chat.statusIcon).font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: density == "compact" ? 12 : 20) {
-                    ForEach(ChatTimelineItem.group(chat.rows)) { item in
-                        if item.isActivity {
-                            ChatActivityView(rows: item.rows, active: item.rows.first.map { chat.isTurnRunning($0.turn) } ?? false, workspace: workspace, onInspect: {
-                                cancelReturn(); followsResponse = false; pendingBookmark = nil
-                            }).id(item.id)
-                        } else if let row = item.rows.first {
-                            ChatEventRow(row: row, workspace: workspace, isFinalText: finalTextIDs.contains(row.id)).id(item.id)
-                        }
+            NativeChatList(items: items, renderRevision: revision, threadID: chat.selected?.id ?? "",
+                           followsTail: followsResponse && followPreference, animateReturn: !reduceMotion, returnRequest: returnRequest,
+                           bookmark: chat.selected.flatMap { chat.bookmarks[$0.id] },
+                           row: { AnyView(timelineRow($0, finalTextIDs: finalTextIDs)) },
+                           footer: AnyView(VStack(alignment: .leading, spacing: 8) {
+                               if let error = chat.error {
+                                   Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                               }
+                               QueuedChatMessages(workspace: workspace)
+                           }), onUserScroll: { followsResponse = false },
+                           onBottomChanged: { nearBottom = $0 },
+                           onRest: { id, offset, height, rowOffset, bottom in
+                               if bottom { followsResponse = true }
+                               chat.rememberPosition(rowID: id, followsTail: followsResponse, offsetY: offset, contentHeight: height, rowOffsetY: rowOffset)
+                           })
+                .onChange(of: chat.selected?.id, initial: true) { _, _ in
+                    followsResponse = chat.selected.flatMap { chat.bookmarks[$0.id]?.followsTail } ?? true
+                }
+                .onChange(of: chat.sending) { _, sending in if sending { returnToBottom() } }
+                .onChange(of: chat.quote?.id) { _, quoteID in if quoteID != nil { composing = true; returnToBottom() } }
+                .overlay(alignment: .bottom) {
+                    if !nearBottom {
+                        ChatReturnToBottomButton(returning: false, reduceMotion: reduceMotion) { returnToBottom() }
+                            .padding(.bottom, 12).transition(.opacity)
                     }
-                    if chat.running && !(chat.rows.last.map { ChatTimelineItem.activityKinds.contains($0.kind) } ?? false) { Label(chat.rows.last?.isStreaming == true ? "Rédaction en cours" : "Préparation de la réponse", systemImage: "circle.dotted").font(.caption).foregroundStyle(.secondary).id("running") }
-                    if let error = chat.error {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
-                            if chat.connection == .reconnecting {
-                                Button("Reconnecter maintenant", systemImage: "arrow.clockwise") { chat.reconnect() }.font(.footnote)
-                            }
-                        }
-                    }
-                    Color.clear.frame(height: 1).id("chat-bottom")
-                }.padding(16)
-                .background(ChatScrollProbe(controller: scrollController))
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    if (returningToBottom || (followPreference && followsResponse)) && !userScrolling { scrollController.scrollToBottom() }
                 }
-            }
-            .onScrollPhaseChange { _, phase in
-                userScrolling = phase == .tracking || phase == .interacting || phase == .decelerating
-                if userScrolling { pendingBookmark = nil; hasInteracted = true }
-                if phase == .tracking || phase == .interacting { cancelReturn() }
-                if phase == .idle && nearBottom && pendingBookmark == nil { followsResponse = true }
-                if phase == .idle && pendingBookmark == nil && hasInteracted && !chat.rows.isEmpty {
-                    chat.rememberPosition(rowID: nil, followsTail: followsResponse, offsetY: scrollMetrics.offset, contentHeight: scrollMetrics.height)
-                }
-            }
-            .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
-                ChatScrollMetrics(offset: geometry.contentOffset.y, height: geometry.contentSize.height,
-                                  viewport: geometry.containerSize.height,
-                                  bottom: geometry.contentSize.height - geometry.visibleRect.maxY < 28)
-            } action: { previous, metrics in
-                scrollMetrics = metrics; nearBottom = scrollController.isNearBottom ?? metrics.bottom
-                if userScrolling { followsResponse = nearBottom }
-                if previous.viewport != metrics.viewport && (returningToBottom || (followPreference && followsResponse)) && !userScrolling {
-                    scrollController.scrollToBottom()
-                }
-                if let bookmark = pendingBookmark, !chat.rows.isEmpty, !userScrolling {
-                    let target = bookmark.offsetY ?? 0
-                    if abs(metrics.offset - target) > 1 { scrollController.scrollTo(y: target) }
-                    if metrics.height >= (bookmark.contentHeight ?? 0) - 2 && abs(metrics.offset - target) <= 1 { pendingBookmark = nil }
-                }
-            }
-            .onChange(of: chat.rows.count) { _, _ in
-                if (returningToBottom || (followPreference && followsResponse)) && !userScrolling { scrollController.scrollToBottom() }
-            }
-            .onChange(of: chat.selected?.id, initial: true) { _, _ in
-                cancelReturn(); userScrolling = false; hasInteracted = false; nearBottom = true
-                let bookmark = chat.selected.flatMap { chat.bookmarks[$0.id] }
-                followsResponse = bookmark?.followsTail ?? true
-                pendingBookmark = followsResponse ? nil : bookmark
-                if followsResponse { scrollController.scrollToBottom() }
-                else if let offset = bookmark?.offsetY { scrollController.scrollTo(y: offset) }
-            }
-            .onChange(of: chat.sending) { _, sending in
-                if sending { pendingBookmark = nil; followsResponse = true; chat.rememberPosition(rowID: nil, followsTail: true); scrollController.scrollToBottom() }
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: chat.quote?.id) { _, quoteID in
-                if quoteID != nil { composing = true }
-                pendingBookmark = nil; followsResponse = true
-                scrollController.scrollToBottom()
-            }
-            .overlay(alignment: .bottom) {
-                if !nearBottom || returningToBottom {
-                    ChatReturnToBottomButton(returning: returningToBottom, reduceMotion: reduceMotion) {
-                        cancelReturn()
-                        pendingBookmark = nil; userScrolling = false; followsResponse = true; returningToBottom = true
-                        chat.rememberPosition(rowID: nil, followsTail: true)
-                        returnTask = Task { @MainActor in
-                            _ = await scrollController.returnToBottom(animated: !reduceMotion)
-                            guard !Task.isCancelled else { return }
-                            nearBottom = scrollController.isNearBottom ?? nearBottom
-                            returningToBottom = false
-                            returnTask = nil
-                        }
-                    }
-                    .padding(.bottom, 12)
-                    .transition(.opacity)
-                }
-            }
         }
     }
-    private func cancelReturn() {
-        returnTask?.cancel(); returnTask = nil; returningToBottom = false
+    @ViewBuilder private func timelineRow(_ item: ChatTimelineItem, finalTextIDs: Set<String>) -> some View {
+        if let row = item.rows.first, let eventID = row.generatedImageEventID, let threadID = workspace.chat.selected?.id {
+            ChatGeneratedImage(threadID: threadID, eventID: eventID, gateway: workspace.gallery, hasProject: !(workspace.chat.selected?.projectId ?? "").isEmpty).id(item.id)
+        } else if item.isActivity {
+            ChatActivityView(rows: item.awaitingActivity ? [] : item.rows, active: item.awaitingActivity || (item.rows.first.map { workspace.chat.isTurnRunning($0.turn) } ?? false), workspace: workspace, onInspect: {
+                followsResponse = false
+            }, disclosureID: item.id).id(item.id)
+        } else if let row = item.rows.first {
+            ChatEventRow(row: row, workspace: workspace, isFinalText: finalTextIDs.contains(row.id)).id(item.id)
+        }
+    }
+    private func returnToBottom() {
+        followsResponse = true; returnRequest = UUID()
+        workspace.chat.rememberPosition(rowID: nil, followsTail: true)
     }
     private var composer: some View { NativeComposerView(workspace: workspace, composing: $composing) }
 }
@@ -174,18 +116,8 @@ private struct ChatReturnToBottomButton: View {
     @AppStorage("atelier.accent") private var accent = "sage"
     var body: some View {
         Button(action: action) {
-            ZStack {
-                if returning {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
-                        Circle().trim(from: 0, to: 0.72)
-                            .stroke(style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-                            .rotationEffect(.degrees(reduceMotion ? -90 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.85) / 0.85 * 360))
-                    }.frame(width: 18, height: 18)
-                } else {
-                    Image(systemName: "arrow.down")
-                        .font(.system(size: 18, weight: .medium, design: .rounded))
-                }
-            }
+            Image(systemName: "arrow.down")
+                .font(.system(size: 18, weight: .medium, design: .rounded))
                 .foregroundStyle(AtelierTheme.accent(named: accent))
                 .frame(width: 44, height: 44)
                 .background(AtelierTheme.surface, in: Circle())
@@ -228,13 +160,15 @@ private struct ChatEventRow: View {
             RichChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) }
                 .opacity(isFinalText ? 1 : 0.82)
         } else if row.kind == "user" {
-            AnnotationMessageText(text: row.text, compactWidth: true) { workspace.chat.quotePassage($0, from: row.id) }
+            AnnotationMessageText(text: userText, compactWidth: true) { workspace.chat.quotePassage($0, from: row.id) }
         } else { SelectableChatText(text: row.text) { workspace.chat.quotePassage($0, from: row.id) } }
     }
+    private var userText: String { workspace.chat.editablePrompt(for: row) }
     private var userMenu: some View {
         Menu {
-            Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
+            Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = userText }
             Button("Sélectionner un passage", systemImage: "text.quote") { selecting = true }
+            Button("Lire à voix haute", systemImage: "speaker.wave.2") { NativeVoice.shared.speak(userText) }
             Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
                 .disabled(workspace.chat.running || workspace.chat.sending)
             Button(isPinned ? "Désépingler" : "Épingler", systemImage: "pin") { togglePin() }
@@ -250,15 +184,22 @@ private struct ChatEventRow: View {
                         HStack(alignment: .bottom, spacing: 2) {
                             Spacer(minLength: 18)
                             if !row.id.hasPrefix("pending:") { userMenu }
-                            messageContent.padding(12)
-                                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                            VStack(alignment: .trailing, spacing: 8) {
+                                if !workspace.chat.files(for: row).isEmpty {
+                                    ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
+                                }
+                                if !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    messageContent.padding(12)
+                                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                                }
+                            }
                         }
                     } else { messageContent }
                     if row.kind == "text", let target = workspace.revisionTarget, target.threadID == workspace.chat.selected?.id, workspace.chat.isReply(row, to: target.messageID), !workspace.chat.running,
                        SourceRevisionTarget.replacement(in: row.text) != nil {
                         Button("Examiner la reformulation", systemImage: "pencil.and.outline") { reviewing = true }.frame(minHeight: 44)
                     }
-                    if editing == nil && !workspace.chat.files(for: row).isEmpty {
+                    if row.kind != "user" && editing == nil && !workspace.chat.files(for: row).isEmpty {
                         ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                     }
                     if row.kind == "user", editing == nil { MessageVersionPicker(row: row, workspace: workspace) }
@@ -288,16 +229,7 @@ private struct ChatEventRow: View {
                         }.font(.system(size: actionIconSize, weight: .regular)).foregroundStyle(.secondary).buttonStyle(.plain)
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
-                .contextMenu {
-                    Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
-                    Button("Sélectionner du texte", systemImage: "text.cursor") { selecting = true }
-                    Button("Citer le message", systemImage: "text.quote") { workspace.chat.quotePassage(row.text, from: row.id) }
-                    Button(isPinned ? "Désépingler" : "Épingler", systemImage: "pin") { togglePin() }
-                    Button("Lire à voix haute", systemImage: "speaker.wave.2") { NativeVoice.shared.speak(row.text) }
-                    if row.kind == "user", !workspace.chat.running, !workspace.chat.sending {
-                        Button("Modifier", systemImage: "pencil") { editing = workspace.chat.prepareRevision(row) }
-                    }
-                }
+
         }
         .sheet(isPresented: $reviewing) {
             if let target = workspace.revisionTarget, let replacement = SourceRevisionTarget.replacement(in: row.text) {
@@ -307,7 +239,7 @@ private struct ChatEventRow: View {
         .sheet(isPresented: $selecting) {
             NavigationStack {
                 ScrollView {
-                    SelectableChatText(text: row.text) { passage in
+                    SelectableChatText(text: row.kind == "user" ? userText : row.text) { passage in
                         workspace.chat.quotePassage(passage, from: row.id); selecting = false
                     }.padding()
                 }
@@ -377,6 +309,8 @@ struct ConversationPicker: View {
             }
     }
 }
+
+private final class ChatScrollMeasurements { var value = ChatScrollMetrics() }
 
 private struct ChatScrollMetrics: Equatable {
     var offset: Double = 0

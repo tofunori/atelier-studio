@@ -9,7 +9,6 @@ import {
   FileTextIcon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
-import { Button } from "../shadcn/button";
 import {
   Dialog,
   DialogClose,
@@ -35,7 +34,7 @@ import {
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
 import type { Mark } from "../../lib/annotations";
-import { IconButton, RowButton } from "../ui";
+import { Button, IconButton, RowButton } from "../ui";
 
 export type ShelfAttachment = {
   name: string;

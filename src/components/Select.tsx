@@ -14,6 +14,39 @@ export type SelectOption = {
   value: string;
   label: string;
   icon?: ReactNode;
+  disabled?: boolean;
+};
+
+export type SelectOptionGroup = {
+  label?: ReactNode;
+  options: SelectOption[];
+};
+
+export type SelectProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options?: SelectOption[];
+  groups?: SelectOptionGroup[];
+  compact?: boolean;
+  disabled?: boolean;
+  placeholder?: ReactNode;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  title?: string;
+  ariaLabel?: string;
+  /** Bulle native au survol. À couper quand un libellé visible dit déjà la
+   *  même chose : elle repasse alors par-dessus le panneau pour répéter le
+   *  label (capture Thierry 2026-08-31). Le nom accessible, lui, reste. */
+  tooltip?: boolean;
+  className?: string;
+  triggerIcon?: ReactNode;
+  menuLabel?: ReactNode;
+  menuClassName?: string;
+  portalContainer?: ComponentProps<typeof SelectContent>["portalContainer"] | null;
+  positionerClassName?: string;
+  alignItemWithTrigger?: ComponentProps<typeof SelectContent>["alignItemWithTrigger"];
+  align?: ComponentProps<typeof SelectContent>["align"];
 };
 
 /**
@@ -21,28 +54,24 @@ export type SelectOption = {
  * The callsites keep their domain-friendly `options` shape while the
  * interaction, focus management and popup positioning come from Base UI.
  */
-export function Select(p: {
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-  compact?: boolean;
-  title?: string;
-  /** Bulle native au survol. À couper quand un libellé visible dit déjà la
-   *  même chose : elle repasse alors par-dessus le panneau pour répéter le
-   *  label (capture Thierry 2026-08-31). Le nom accessible, lui, reste. */
-  tooltip?: boolean;
-  className?: string;
-  triggerIcon?: ReactNode;
-  menuLabel?: string;
-  menuClassName?: string;
-  portalContainer?: ComponentProps<typeof SelectContent>["portalContainer"] | null;
-  positionerClassName?: string;
-  alignItemWithTrigger?: ComponentProps<typeof SelectContent>["alignItemWithTrigger"];
-  align?: ComponentProps<typeof SelectContent>["align"];
-}) {
-  const selected = p.options.find((option) => option.value === p.value);
-  const items = p.options.map(({ value, label }) => ({ value, label }));
+export function Select(p: SelectProps) {
+  const groups = p.groups ?? [];
+  const options = groups.length ? groups.flatMap((group) => group.options) : (p.options ?? []);
+  const selected = options.find((option) => option.value === p.value);
+  const items = options.map(({ value, label }) => ({ value, label }));
   const portalContainer = useRef<HTMLSpanElement>(null);
+  const renderOption = (option: SelectOption) => (
+    <SelectItem
+      key={option.value}
+      value={option.value}
+      label={option.label}
+      disabled={option.disabled}
+      className={`custom-select-option ${option.icon ? "has-icon" : ""}`}
+    >
+      {option.icon && <span className="custom-select-option-icon">{option.icon}</span>}
+      <span className="custom-select-option-label">{option.label}</span>
+    </SelectItem>
+  );
 
   return (
     <span
@@ -53,6 +82,10 @@ export function Select(p: {
       <ShadcnSelect
         value={p.value}
         items={items}
+        disabled={p.disabled}
+        open={p.open}
+        defaultOpen={p.defaultOpen}
+        onOpenChange={(open) => p.onOpenChange?.(open)}
         onValueChange={(value) => {
           if (typeof value === "string") p.onChange(value);
         }}
@@ -60,17 +93,21 @@ export function Select(p: {
       <SelectTrigger
         size={p.compact ? "sm" : "default"}
         title={p.tooltip === false ? undefined : p.title}
-        aria-label={p.title}
+        aria-label={p.ariaLabel ?? p.title}
         className={cn("custom-select-trigger", p.compact && "compact", p.triggerIcon && "icon-only")}
       >
         {p.triggerIcon ? (
           <span className="custom-select-trigger-icon" aria-hidden="true">{p.triggerIcon}</span>
         ) : (
-          <SelectValue>
-            {() => (
+          <SelectValue placeholder={p.placeholder}>
+            {() => selected ? (
               <span className="custom-select-label tw:flex tw:min-w-0 tw:items-center tw:gap-1.5 tw:truncate">
-                {selected?.icon && <span className="custom-select-icon">{selected.icon}</span>}
-                <span>{selected?.label ?? p.value}</span>
+                {selected.icon && <span className="custom-select-icon">{selected.icon}</span>}
+                <span>{selected.label}</span>
+              </span>
+            ) : (
+              <span className="custom-select-label tw:flex tw:min-w-0 tw:items-center tw:gap-1.5 tw:truncate">
+                <span>{p.placeholder ?? p.value}</span>
               </span>
             )}
           </SelectValue>
@@ -80,23 +117,20 @@ export function Select(p: {
         className={cn("custom-select-menu", p.menuClassName)}
         portalContainer={p.portalContainer === null ? undefined : p.portalContainer ?? portalContainer}
         positionerClassName={p.positionerClassName}
-        alignItemWithTrigger={p.alignItemWithTrigger}
+        alignItemWithTrigger={p.alignItemWithTrigger ?? false}
         align={p.align}
       >
-        <SelectGroup>
-          {p.menuLabel && <SelectLabel className="custom-select-menu-label">{p.menuLabel}</SelectLabel>}
-          {p.options.map((option) => (
-            <SelectItem
-              key={option.value}
-              value={option.value}
-              label={option.label}
-              className={`custom-select-option ${option.icon ? "has-icon" : ""}`}
-            >
-              {option.icon && <span className="custom-select-option-icon">{option.icon}</span>}
-              <span className="custom-select-option-label">{option.label}</span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
+        {groups.length ? groups.map((group, index) => (
+          <SelectGroup key={`group-${index}`}>
+            {group.label != null && <SelectLabel className="custom-select-menu-label">{group.label}</SelectLabel>}
+            {group.options.map(renderOption)}
+          </SelectGroup>
+        )) : (
+          <SelectGroup>
+            {p.menuLabel != null && <SelectLabel className="custom-select-menu-label">{p.menuLabel}</SelectLabel>}
+            {options.map(renderOption)}
+          </SelectGroup>
+        )}
       </SelectContent>
       </ShadcnSelect>
     </span>

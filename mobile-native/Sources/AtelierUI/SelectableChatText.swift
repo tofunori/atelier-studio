@@ -4,8 +4,9 @@ import UIKit
 struct SelectableChatText: UIViewRepresentable {
     @AppStorage("atelier.textSize") private var textSize = "standard"
     let text: String
-    var quoteTitle = "Ajouter au message"
+    var quoteTitle = "Ajouter au chat"
     var fitsContentWidth = false
+    var onAnnotate: ((String) -> Void)? = nil
     let onQuote: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIView(context: Context) -> UITextView {
@@ -59,7 +60,14 @@ struct SelectableChatText: UIViewRepresentable {
                     self?.parent.onQuote(selected)
                 }
             }
-            return UIMenu(children: [action] + suggestedActions)
+            var actions: [UIMenuElement] = [action]
+            if let annotate = parent.onAnnotate {
+                actions.append(UIAction(title: "Annoter", image: UIImage(systemName: "highlighter")) { [weak textView] _ in
+                    textView?.selectedTextRange = nil; textView?.resignFirstResponder()
+                    Task { @MainActor in await Task.yield(); annotate(selected) }
+                })
+            }
+            return UIMenu(children: actions + suggestedActions)
         }
     }
 }

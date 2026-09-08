@@ -21,6 +21,7 @@ export const STREAM_COALESCE_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 type Apply = (threadId: string, event: any) => void;
+type ApplyBatch = (threadId: string, events: any[]) => void;
 type Raf = (cb: () => void) => number;
 type Caf = (id: number) => void;
 type Now = () => number;
@@ -101,7 +102,11 @@ interface RawItem {
 type QueueItem = DeltaItem | RawItem;
 
 function isPaceable(event: any): boolean {
-  return event != null && event.kind === "delta" && typeof event.text === "string";
+  // Le réducteur déduplique par eventId. Découper un paquet identifié lui
+  // ferait rejeter tous les fragments après le premier. Garder ce paquet
+  // entier dans la file rAF ; useSmoothedStream lisse ensuite son affichage.
+  return event != null && event.kind === "delta" && typeof event.text === "string"
+    && typeof event.meta?.eventId !== "string";
 }
 
 export function createStreamCoalescer(
@@ -109,6 +114,7 @@ export function createStreamCoalescer(
   raf: Raf = (cb) => window.requestAnimationFrame(cb),
   caf: Caf = (id) => window.cancelAnimationFrame(id),
   now: Now = () => performance.now(),
+  applyBatch?: ApplyBatch,
 ) {
   const queues = new Map<string, QueueItem[]>();
   const frames = new Map<string, number>();
@@ -146,6 +152,12 @@ export function createStreamCoalescer(
     }));
   }
 
+  function emit(threadId: string, events: any[]) {
+    if (events.length === 0) return;
+    if (applyBatch) applyBatch(threadId, events);
+    else for (const event of events) apply(threadId, event);
+  }
+
   function drainFrame(threadId: string) {
     const queue = queues.get(threadId);
     if (!queue || queue.length === 0) return;
@@ -156,11 +168,12 @@ export function createStreamCoalescer(
     lastFrameAt.set(threadId, t);
     const rate = estimateRate(threadId);
 
+    const events: any[] = [];
     while (queue.length > 0) {
       const item = queue[0]!;
       if (item.type === "raw") {
         queue.shift();
-        apply(threadId, item.event);
+        events.push(item.event);
         continue;
       }
       if (item.chars.length === 0) {
@@ -180,17 +193,18 @@ export function createStreamCoalescer(
         // "partiellement révélé", rien ne justifie d'attendre).
         const fragment = item.chars.join("");
         queue.shift();
-        apply(threadId, { ...item.event, text: fragment });
+        events.push({ ...item.event, text: fragment });
         continue;
       }
       // delta partiellement révélé : on s'arrête ici pour cette frame — un
       // événement suivant dans la file ne doit jamais doubler celui-ci.
       const revealed = item.chars.slice(0, budget);
       item.chars = item.chars.slice(budget);
-      apply(threadId, { ...item.event, text: revealed.join("") });
+      events.push({ ...item.event, text: revealed.join("") });
       break;
     }
 
+    emit(threadId, events);
     if (queue.length > 0) {
       scheduleFrame(threadId);
     } else {
@@ -202,13 +216,15 @@ export function createStreamCoalescer(
     const queue = queues.get(threadId);
     if (!queue || queue.length === 0) return;
     queues.delete(threadId);
+    const events: any[] = [];
     for (const item of queue) {
       if (item.type === "raw") {
-        apply(threadId, item.event);
+        events.push(item.event);
       } else if (item.chars.length > 0) {
-        apply(threadId, { ...item.event, text: item.chars.join("") });
+        events.push({ ...item.event, text: item.chars.join("") });
       }
     }
+    emit(threadId, events);
   }
 
   return {

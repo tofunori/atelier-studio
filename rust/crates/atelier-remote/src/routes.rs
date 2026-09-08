@@ -24,6 +24,12 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[path = "zotero_routes.rs"]
 mod zotero_routes;
+#[path = "compute_routes.rs"]
+mod compute_routes;
+#[path = "composer_routes.rs"]
+mod composer_routes;
+#[path = "image_routes.rs"]
+mod image_routes;
 
 pub fn router(state: GatewayState) -> Router {
     Router::new()
@@ -32,12 +38,20 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/pair", post(pair_complete))
         .route("/remote/v1/projects", get(list_projects))
         .route("/remote/v1/providers", get(live_providers))
+        .route("/remote/v1/compute", get(compute_routes::snapshot))
+        .route("/remote/v1/compute/log", get(compute_routes::log))
         .route("/remote/v1/zotero", get(zotero_routes::library))
         .route("/remote/v1/zotero/note/{key}", post(zotero_routes::save_note))
         .route("/remote/v1/zotero/pdf/{key}", get(zotero_routes::pdf))
         .route("/remote/v1/threads/{thread_id}/live", get(live_events))
         .route("/remote/v1/threads", get(list_threads).post(create_thread))
         .route("/remote/v1/threads/{thread_id}/history", get(get_history))
+        .route(
+            "/remote/v1/threads/{thread_id}/images/{event_id}",
+            get(image_routes::image),
+        )
+        .route("/remote/v1/threads/{thread_id}/images/{event_id}/gallery", post(image_routes::save_to_gallery))
+        .route("/remote/v1/threads/{thread_id}/commands", get(composer_routes::commands))
         .route("/remote/v1/threads/{thread_id}/edit", post(edit_message))
         .route("/remote/v1/send", post(send_msg))
         .route("/remote/v1/attachments/{name}", post(upload_attachment).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
@@ -784,10 +798,14 @@ async fn send_msg(
         format!("{}\n\nFichiers joints par l’utilisateur, à consulter pour répondre :\n{}", body.prompt,
             files.iter().map(|(path,_)| serde_json::to_string(&path.to_string_lossy()).unwrap()).collect::<Vec<_>>().join("\n"))
     };
+    let (prompt, skill_input) = if let Some(thread) = &thread {
+        composer_routes::skill_prompt(thread.project_root.clone(), &body.prompt, prompt).await
+    } else { (prompt, None) };
     let image_paths: Vec<_> = files.iter().filter(|(_,mime)| mime.starts_with("image/") && mime != "image/svg+xml")
         .map(|(p,_)| p.to_string_lossy().into_owned()).collect();
     let mut inputs = vec![json!({"type":"text","text":prompt})];
     inputs.extend(image_paths.iter().map(|path| json!({"type":"local_image","path":path})));
+    if let Some(skill) = skill_input { inputs.push(skill); }
     let relay = if let Some(thread) = thread {
         let model = body.model.as_deref().unwrap_or_else(|| thread.extra.get("model").and_then(Value::as_str).unwrap_or(""));
         relay_sidecar(

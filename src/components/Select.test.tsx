@@ -39,6 +39,28 @@ describe("Select product adapter", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("two"));
   });
 
+  it("porte le popup dans le conteneur du trigger pour rester dans un dialog", async () => {
+    renderUi(
+      <div
+        data-testid="dialog-shell"
+        style={{ height: 80, overflow: "hidden", transform: "scale(1)" }}
+      >
+        <Select
+          value="one"
+          title="Mode"
+          options={[{ value: "one", label: "Un" }, { value: "two", label: "Deux" }]}
+          onChange={() => {}}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    const option = await screen.findByRole("option", { name: "Deux" });
+    expect(option.closest("[data-testid='dialog-shell']")).toBeTruthy();
+    expect(option.closest(".custom-select")).toBeTruthy();
+    expect([...document.querySelectorAll("[data-side]")].some((node) => node.getAttribute("data-side") === "none")).toBe(false);
+  });
+
   it("peut ouvrir un menu libellé depuis un trigger icône sans afficher la valeur", async () => {
     renderUi(
       <Select

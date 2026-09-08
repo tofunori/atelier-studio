@@ -3,6 +3,7 @@
 // 2026-08-25 : « la réponse arrive tout d'un coup » — le flush téléportait
 // tout le reliquat non révélé au done).
 import { describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { publishStreamHandoff, takeStreamHandoff, useSmoothedStream } from "./useSmoothedStream";
 
@@ -134,8 +135,8 @@ describe("useSmoothedStream — typewriter du flux", () => {
     const texte = "Un texte final dont seule la première partie était révélée au moment du remplacement.";
     const { result } = renderHook(() => useSmoothedStream(texte, false, "row-1"));
     expect(result.current.length).toBeLessThan(texte.length);
-    expect(takeStreamHandoff("row-1")).toBeNull(); // consommé
     await waitFor(() => expect(result.current).toBe(texte), { timeout: 2000 });
+    expect(takeStreamHandoff("row-1")).toBeNull(); // libéré après la finition
   });
 
   it("sans relais, un texte final monté hors tour s'affiche entier", () => {
@@ -259,4 +260,79 @@ describe("paceStep — débit constant adaptatif", () => {
     expect(p.rate).toBeGreaterThan(15);
     expect(p.rate).toBeLessThan(90);
   });
+});
+
+
+it("à 120 Hz, publie à cadence bornée sans laisser les rendus parents avancer le texte", () => {
+  let now = 0;
+  let callback: FrameRequestCallback | undefined;
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(cb => { callback = cb; return 1; });
+  const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+  const text = "glacier ".repeat(1000);
+  const view = renderHook(() => useSmoothedStream(text, true, "cadence-120"));
+  let changes = 0;
+  let previous = view.result.current;
+  try {
+    for (let i = 0; i < 120; i++) {
+      now += 1000 / 120;
+      act(() => callback?.(now));
+      const published = view.result.current;
+      view.rerender();
+      expect(view.result.current).toBe(published);
+      if (published !== previous) changes += 1;
+      previous = published;
+    }
+    expect(changes).toBeLessThanOrEqual(26);
+    expect(changes).toBeGreaterThan(10);
+    now += 16;
+    while (view.result.current !== text && now < 4000) {
+      act(() => callback?.(now));
+      now += 16;
+    }
+    expect(view.result.current).toBe(text);
+  } finally {
+    view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
+  }
+});
+
+it("une cible raccourcie entre deux publications finit de s'afficher", () => {
+  let now = 0;
+  let callback: FrameRequestCallback | undefined;
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(cb => { callback = cb; return 1; });
+  const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+  const text = "x ".repeat(200);
+  const view = renderHook(({ text }) => useSmoothedStream(text, true, "short-snapshot"), { initialProps: { text } });
+  try {
+    now = 16; act(() => callback?.(now));
+    const first = view.result.current.length;
+    now = 32; act(() => callback?.(now));
+    expect(view.result.current.length).toBe(first);
+    const corrected = text.slice(0, first + 2);
+    view.rerender({ text: corrected });
+    expect(view.result.current).toBe(corrected);
+  } finally {
+    view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
+  }
+});
+
+
+it("un remontage de la même bulle ne retire pas les mots déjà visibles", async () => {
+  const text = "Il faudrait dimensionner et valider le traitement avant de lancer l’ensemble.";
+  const first = renderHook(() => useSmoothedStream(text, true, "remount-live"));
+  await waitFor(() => expect(first.result.current).toBe(text));
+  first.unmount();
+  const second = renderHook(() => useSmoothedStream(text + " Puis vérifier les résultats.", true, "remount-live"));
+  expect(second.result.current.startsWith(text)).toBe(true);
+  await waitFor(() => expect(second.result.current).toBe(text + " Puis vérifier les résultats."));
+  second.unmount();
+});
+
+it("le double rendu StrictMode conserve le même relais vers la finition", () => {
+  publishStreamHandoff("strict-final", 15);
+  const text = "Une réponse terminée dont la fin reste à dérouler.";
+  const view = renderHook(() => useSmoothedStream(text, false, "strict-final"), { wrapper: StrictMode });
+  expect(view.result.current).toBe(text.slice(0, 15));
+  view.unmount();
 });

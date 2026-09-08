@@ -16,7 +16,7 @@ enum ChatPermissionMode: String, CaseIterable, Identifiable {
         switch self {
         case .ask: "L’assistant demande votre accord pour les actions qui nécessitent une autorisation."
         case .edits: "Les fichiers du projet peuvent être modifiés. Certaines commandes et certains accès demandent encore votre accord."
-        case .full: "Les outils s’exécutent sans demande de confirmation, avec un accès plus large au Mac."
+        case .full: "Les outils et leurs autorisations MCP s’exécutent automatiquement, avec accès complet au Mac."
         }
     }
 }
@@ -53,11 +53,11 @@ struct ChatOptionsView: View {
                     }
                 } header: { Text("Autorisations") } footer: {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Pour les prochains messages de cette conversation, y compris ceux en attente.")
+                        Text("Réglage conservé pour tous les chats de cet iPhone, y compris les messages en attente.")
                         if chat.running { Text("Le travail déjà lancé conserve son mode. Une demande d’accord en cours reste à traiter.") }
                         if chat.provider == nil { Text("Connexion au Mac nécessaire pour connaître les modes disponibles.") }
                         else if chat.availablePermissionModes.isEmpty { Text("Cet assistant ne propose pas de mode d’autorisation réglable.") }
-                        if chat.permissionMode != .ask && !chat.availablePermissionModes.contains(chat.permissionMode) {
+                        if !chat.availablePermissionModes.isEmpty && chat.permissionMode != .ask && !chat.availablePermissionModes.contains(chat.permissionMode) {
                             Text("Le mode conservé n’est plus disponible. Choisissez un autre mode avant d’envoyer.")
                         }
                     }

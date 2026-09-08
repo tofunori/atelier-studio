@@ -120,6 +120,16 @@ function isToolAction(event: AgentEvent): event is ToolAction {
   );
 }
 
+/** Generated images are deliverables, so their tool row stays autonomous and
+ * visible after a completed turn instead of being swallowed by the activity
+ * fold. */
+export function isImageGenerationAction(event: AgentEvent): boolean {
+  if (event.kind !== "tool_update") return false;
+  const name = event.name.toLowerCase();
+  return name.includes("image_generation") || name.includes("image-generation")
+    || name.includes("generate_image") || name.includes("generate-image");
+}
+
 function isStandaloneToolAction(event: ToolAction) {
   const name = event.name.toLowerCase();
   if (event.kind === "tool_update" && event.agentActivity != null) return true;
@@ -301,7 +311,7 @@ function activeStateFor(
   if (latestCandidate) {
     return { kind: "activity", eventIndex: latestCandidate.eventIndex, live: latestCandidate.live };
   }
-  if (latestReasoningIndex != null) {
+  if (latestReasoningIndex != null && latestReasoningIndex > (latestAssistantIndex ?? -1)) {
     const latestReasoning = events[latestReasoningIndex];
     return latestReasoning.kind === "thinking_live"
       ? { kind: "reasoning", texts: reasoningTexts, live: true }
@@ -610,7 +620,7 @@ export function projectChatTimeline(
           const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || (innerEvent.kind === "tool_update" && (
             /^(failed|interrupted|cancelled|canceled|declined|denied|stopped)$/i.test(innerEvent.status ?? "") ||
             (innerEvent.exitCode != null && innerEvent.exitCode !== 0)
-          ));
+          )) || isImageGenerationAction(innerEvent);
           if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({

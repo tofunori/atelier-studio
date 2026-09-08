@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import Security
+import ImageIO
 
 struct FigureRegion: Codable, Sendable {
     let x: Double, y: Double, width: Double, height: Double
@@ -43,13 +44,16 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var projects: [Project] = []
     var selectedProject = ""
     var connected = false
+    var connectionRevision = UUID()
     var busy = false
     private var refreshID = UUID()
+    @ObservationIgnored private var projectsRequestID = UUID()
     var error: String?
+    var hasAddress: Bool { baseURL != nil }
     private var baseURL: URL?
     private var token = ""
     private var identities: [String: UUID] = [:]
-    private var cache: [String: Data] = [:]
+    @ObservationIgnored private var cache = ArtifactDataCache()
     private let session: URLSession
 
     init(address: URL, token: String, session: URLSession) {
@@ -101,11 +105,15 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         let paired = try JSONDecoder().decode(Pair.self, from: data)
         try saveCredentials(address: url, token: paired.token)
         baseURL = url; token = paired.token; connected = true
-        remoteItems = []; cache = [:]; identities = [:]; projects = []; selectedProject = ""
+        connectionRevision = UUID()
+        remoteItems = []; cache = ArtifactDataCache(); identities = [:]; projects = []; selectedProject = ""
         try await loadProjects()
     }
     func loadProjects() async throws {
+        let id = UUID(); projectsRequestID = id
         let data = try await get("remote/v1/projects")
+        try Task.checkCancellation()
+        guard projectsRequestID == id else { throw CancellationError() }
         projects = try JSONDecoder().decode(Projects.self, from: data).projects
         if !projects.contains(where: { $0.id == selectedProject }) { selectedProject = projects.first?.id ?? "" }
     }
@@ -117,14 +125,14 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         if projects.isEmpty {
             do { try await loadProjects() }
             catch {
-                if refreshID == requestID && !Task.isCancelled && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
+                if refreshID == requestID && !Task.isCancelled && !(error is CancellationError) && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
                 return
             }
         }
         guard refreshID == requestID, !Task.isCancelled else { return }
         guard !selectedProject.isEmpty else { remoteItems = []; return }
         let project = selectedProject
-        remoteItems = []
+        remoteItems.removeAll { $0.projectID != project }
         do {
             let items = try await galleryItems(project)
             try Task.checkCancellation()
@@ -142,19 +150,26 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     func contents(_ item: GalleryArtifact) async throws -> Data {
         if let data = item.data { return data }
         guard let id = item.fileID else { throw GalleryError.missingFile }
-        if let data = cache[id] { return data }
+        let key = cacheKey(item, id: id)
+        if let data = cache.value(for: key) { return data }
         guard item.size <= 50 * 1024 * 1024 else { throw GalleryError.tooLarge }
         let data = try await remoteContents(item)
-        cache[id] = data
+        try Task.checkCancellation()
+        cache.insert(data, for: key)
         return data
     }
     func previewText(_ item: GalleryArtifact) async throws -> String {
         if let data = item.data { return String(decoding: data.prefix(65_536), as: UTF8.self) }
         guard let id = item.fileID else { throw GalleryError.missingFile }
-        if let data = cache[id] { return String(decoding: data.prefix(65_536), as: UTF8.self) }
+        if let data = cache.value(for: cacheKey(item, id: id)) { return String(decoding: data.prefix(65_536), as: UTF8.self) }
         if item.size == 0 { return "" }
         let data = try await remoteContents(item, range: "bytes=0-65535")
         return String(decoding: data.prefix(65_536), as: UTF8.self)
+    }
+    func composerFiles(project: String) async throws -> [GalleryArtifact] {
+        try await galleryItems(project).map { item in
+            GalleryArtifact(name: item.name, fileID: item.fileId, projectID: project, size: item.size)
+        }
     }
     private func galleryItems(_ project: String, finding fileID: String? = nil) async throws -> [Index.Item] {
         var items: [Index.Item] = []
@@ -223,7 +238,10 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         struct Uploaded: Decodable { let fileId: String }
         return try JSONDecoder().decode(Uploaded.self, from: await response(request)).fileId
     }
-    func invalidate(_ item: GalleryArtifact) { if let id = item.fileID { cache.removeValue(forKey: id) } }
+    private func cacheKey(_ item: GalleryArtifact, id: String) -> String {
+        "\(connectionRevision):\(item.projectID ?? ""):\(id)"
+    }
+    func invalidate(_ item: GalleryArtifact) { if let id = item.fileID { cache.remove(cacheKey(item, id: id)) } }
     func chatRequest(_ components: [String], body: [String: Any]? = nil, timeout: TimeInterval = 20, query: [URLQueryItem] = []) async throws -> Data {
         guard let baseURL else { throw GalleryError.invalidAddress }
         var url = baseURL.appendingPathComponent("remote/v1")
@@ -238,6 +256,26 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         }
         return try await response(request, timeout: timeout)
     }
+    func saveGeneratedChatImage(threadID: String, eventID: String) async throws {
+        struct SavedImage: Decodable { let relativePath: String }
+        let revision = connectionRevision
+        let data = try await chatRequest(["threads", threadID, "images", eventID, "gallery"], body: [:])
+        _ = try JSONDecoder().decode(SavedImage.self, from: data)
+        if revision == connectionRevision { await refresh() }
+    }
+    func generatedChatImage(threadID: String, eventID: String) async throws -> Data {
+        let key = "generated:\(connectionRevision):\(threadID):\(eventID)"
+        if let data = cache.value(for: key) { return data }
+        let data = try await chatRequest(["threads", threadID, "images", eventID])
+        guard data.count <= 20 * 1024 * 1024 else {
+            throw GalleryError.message("Cette image est trop volumineuse pour l’aperçu mobile.")
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else {
+            throw GalleryError.message("Le Mac n’a pas renvoyé une image valide. Vérifiez qu’Atelier est à jour sur le Mac, puis réessayez.")
+        }
+        cache.insert(data, for: key)
+        return data
+    }
     func chatStream(_ thread: String) async throws -> URLSession.AsyncBytes {
         guard let baseURL else { throw GalleryError.invalidAddress }
         let url = baseURL.appendingPathComponent("remote/v1/threads").appendingPathComponent(thread).appendingPathComponent("live")
@@ -248,8 +286,17 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         return bytes
     }
     private func response(_ request: URLRequest, timeout: TimeInterval = 20) async throws -> Data {
+        let revision = connectionRevision
         var request = request; request.timeoutInterval = timeout
-        let (data, response) = try await session.data(for: request)
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: request) }
+        catch {
+            guard revision == connectionRevision else { throw CancellationError() }
+            throw error
+        }
+        let (data, response) = result
+        try Task.checkCancellation()
+        guard revision == connectionRevision else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             if (response as? HTTPURLResponse)?.statusCode == 401 { throw GalleryError.server(401) }
             if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let message = body["error"] as? String {

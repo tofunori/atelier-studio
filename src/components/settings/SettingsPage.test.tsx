@@ -95,6 +95,21 @@ describe("SettingsPage — navigation et fermeture", () => {
     expect(globalHandler).not.toHaveBeenCalled();
     window.removeEventListener("keydown", globalHandler);
   });
+
+  it("laisse le Select Base UI fermer son popup avant de fermer Settings", async () => {
+    const p = props();
+    renderUi(<SettingsPage {...p} initialSection="modeles" />);
+    const trigger = await screen.findByRole("combobox", { name: t("settings.default-provider") }, { timeout: 5000 });
+    fireEvent.click(trigger);
+    const option = await screen.findByRole("option", { name: "Codex" }, { timeout: 5000 });
+    option.focus();
+
+    fireEvent.keyDown(option, { key: "Escape" });
+
+    expect(p.onClose).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(trigger).toHaveFocus();
+  });
 });
 
 describe("SettingsPage — actions destructives confirmées", () => {

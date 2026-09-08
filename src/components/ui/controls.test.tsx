@@ -35,7 +35,9 @@ describe("SegmentedControl", () => {
     const group = screen.getByRole("radiogroup", { name: "Disposition" });
     expect(group).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Chat" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Chat" })).not.toHaveAttribute("aria-pressed");
     expect(screen.getByRole("radio", { name: "Partagé" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "Partagé" })).not.toHaveAttribute("aria-pressed");
     expect(screen.getByRole("radio", { name: "Atelier" })).toBeInTheDocument();
   });
 

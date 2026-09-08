@@ -23,6 +23,124 @@ const T = (
   },
 });
 
+/**
+ * Expand a palette into the contract consumed by the desktop shell and by
+ * embedded gallery documents.  The palette fields above are deliberately
+ * small because they are also persisted as user preferences; this adapter is
+ * the single place where those fields become product roles.
+ *
+ * Values are concrete rather than `var(...)` references so a standalone
+ * iframe can apply the same message without importing the shell stylesheet.
+ */
+export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): Record<string, string> {
+  const raw = preset.vars;
+  const dark = preset.dark;
+  const bg = raw["--bg"];
+  const pop = raw["--bg-pop"];
+  const card = raw["--bg-card"];
+  const ctl = raw["--bg-ctl"];
+  const border = raw["--border"];
+  const border2 = raw["--border2"];
+  const fg = raw["--fg"];
+  const fg2 = raw["--fg2"];
+  const muted = raw["--muted"];
+  const muted2 = raw["--muted2"];
+  const accent = raw["--accent"];
+  const alpha = dark ? "rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)" : "rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.08)";
+  const status = dark
+    ? { ok: "#98c379", warn: "#e0b74a", hot: "#e06c75", info: "#7aa2f7", hl: "#cda44b" }
+    : { ok: "#2f6b41", warn: "#7a5a09", hot: "#a8322a", info: "#3f6fd1", hl: "#a3771e" };
+
+  return {
+    ...raw,
+    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 72 : 91}%, #000)`,
+    "--grip": `color-mix(in srgb, ${fg} ${dark ? 24 : 26}%, ${bg})`,
+    "--scroll-shade": dark ? "rgba(0,0,0,.40)" : "rgba(20,28,38,.13)",
+    "--card-lift": `0 1px 2px ${alpha}`,
+
+    "--surface-app": bg,
+    "--surface-panel": bg,
+    "--surface-header": bg,
+    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 72 : 91}%, #000)`,
+    "--surface-raised": card,
+    "--surface-inset": ctl,
+    "--surface-overlay": pop,
+    "--surface-hover": `color-mix(in srgb, ${fg} 6%, transparent)`,
+
+    "--text-primary": fg,
+    "--text-secondary": fg2,
+    "--text-muted": muted,
+    "--text-tertiary": muted,
+    "--text-disabled": muted2,
+    "--text-inverse": "#1a1408",
+    "--text-on-accent": "#1a1408",
+
+    "--border-subtle": border,
+    "--border-default": border2,
+    "--border-strong": muted2,
+    "--border-focus": accent,
+    "--border-interactive": `color-mix(in srgb, ${border2} 72%, transparent)`,
+
+    "--accent-base": accent,
+    "--accent-hover": `color-mix(in srgb, ${accent} 88%, ${fg} 12%)`,
+    "--accent-active": `color-mix(in srgb, ${accent} 80%, #000 20%)`,
+    "--accent-subtle": `color-mix(in srgb, ${accent} 16%, transparent)`,
+    "--selection-surface": `color-mix(in srgb, ${accent} 14%, ${ctl})`,
+    "--selection-border": `color-mix(in srgb, ${accent} 48%, ${border2})`,
+    "--selection-line": accent,
+
+    "--u-ok": status.ok,
+    "--u-warn": status.warn,
+    "--u-hot": status.hot,
+    "--u-run": accent,
+    "--status-info": status.info,
+    "--status-running": accent,
+    "--status-success": status.ok,
+    "--status-warning": status.warn,
+    "--status-error": status.hot,
+    "--info": status.info,
+    "--hl-line": status.hl,
+    "--quote-rule": `color-mix(in srgb, ${status.info} 55%, ${bg})`,
+
+    "--control-height": "30px",
+    "--control-height-compact": "26px",
+    "--surface-header-height": "44px",
+    "--radius-control": "6px",
+    "--radius-surface": "10px",
+    "--radius-pill": "999px",
+    "--radius-composer": "18px",
+    "--motion-fast": "120ms",
+    "--motion-standard": "140ms",
+    "--motion-panel": "150ms",
+    "--ease-out": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "--elevation-overlay": `0 4px 18px rgba(0,0,0,${dark ? ".28" : ".16"}), 0 1px 4px rgba(0,0,0,${dark ? ".18" : ".10"})`,
+    "--elev": `0 4px 18px rgba(0,0,0,${dark ? ".28" : ".16"}), 0 1px 4px rgba(0,0,0,${dark ? ".18" : ".10"})`,
+    "--elev-soft": `0 2px 10px rgba(0,0,0,${dark ? ".14" : ".08"}), 0 1px 3px rgba(0,0,0,${dark ? ".10" : ".06"})`,
+    "--scrim": dark ? "rgba(0,0,0,.25)" : "rgba(0,0,0,.18)",
+    "--focus-ring-color": accent,
+    "--focus-ring-width": "1px",
+    "--focus-ring-offset": "1px",
+  };
+}
+
+/** Legacy names are emitted only at the gallery boundary. In particular,
+ * gallery `--fg` historically means secondary text while the app's `--fg`
+ * means primary text; putting that alias on the shell would silently recolor
+ * the desktop. */
+export function galleryLegacyThemeVars(preset: Pick<ThemePreset, "vars">): Record<string, string> {
+  const raw = preset.vars;
+  return {
+    "--card": raw["--bg-card"],
+    "--card2": raw["--bg-ctl"],
+    "--bar": raw["--bg"],
+    "--txt": raw["--fg"],
+    "--fg": raw["--fg2"],
+    "--faint": raw["--muted2"],
+    "--toolbar-active": `color-mix(in srgb, ${raw["--accent"]} 14%, ${raw["--bg-ctl"]})`,
+    "--toolbar-active-text": raw["--accent"],
+  };
+}
+
 export const THEME_PRESETS: ThemePreset[] = [
   T("atelier", "Atelier (défaut)", true,
     "#1e2124", "#161a1e", "#24282d", "#24282d", "#2c2f34",

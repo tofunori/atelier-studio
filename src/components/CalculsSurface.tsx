@@ -19,10 +19,9 @@ import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
 import { ScrollArea } from "./shadcn/scroll-area";
 import { Skeleton } from "./shadcn/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./shadcn/tabs";
 import { Button } from "./ui/Button";
 import { StatusBadge, type BadgeStatus } from "./ui/StatusBadge";
-import { IconButton, RowButton, SegmentedControl } from "./ui";
+import { IconButton, RowButton, SegmentedControl, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
 export type ComputeHost = "mac" | "nas" | "narval";
 export type HostFilter = "all" | ComputeHost;
@@ -44,6 +43,8 @@ export type ComputeRun = {
   exitCode?: number | null;
   logTail: string[];
   remoteTasks: unknown[];
+  /** Dernière observation réussie, uniquement pour les rangées conservées. */
+  lastKnownAt?: number;
   detail:
     | { kind: "local"; pid?: number | null }
     | { kind: "docker"; container: string }
@@ -231,6 +232,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const forgetPending = useRef(new Map<string, string>());
   const snapshotRequest = useRef<string | null>(null);
   const fingerprint = useRef<string | null>(null);
+  const hostCache = useRef(new Map<string, { runs: ComputeRun[]; observedAt: number }>());
   // Instant d'observation du dernier snapshot reçu. Volontairement une ref et
   // non un état : « observé il y a N s » est recalculé par le tic d'horloge
   // (CLOCK_MS), si bien qu'une réponse identique au repos ne déclenche AUCUN
@@ -245,7 +247,12 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const openTerminal = useCallback((command: string) => onOpenTerminalRef.current(command), []);
   const openSlurmView = useCallback(() => setSlurmView(true), []);
 
-  const allRuns = useMemo(() => sortRuns(snapshot?.runs ?? []), [snapshot]);
+  const allRuns = useMemo(() => sortRuns((snapshot?.runs ?? []).filter(
+    (run) => hostFilter === "all" || run.host === hostFilter,
+  )), [snapshot, hostFilter]);
+  const hostErrors = (snapshot?.errors ?? []).filter((entry) => hostFilter === "all" || entry.host === hostFilter);
+  const transientErrors = hostErrors.filter((entry) => entry.code === "timeout" || entry.code === "unavailable");
+  const blockingErrors = hostErrors.filter((entry) => entry.code !== "timeout" && entry.code !== "unavailable");
   // Filtre des runs retirés, mémoïsé : snapshot identique + masquage identique
   // → même tableau, aucune rangée re-rendue.
   const runs = useMemo(() => {
@@ -352,22 +359,41 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
       const data = msg.data as ComputeSnapshot | undefined;
       if (!data || !Array.isArray(data.runs)) return;
       const errors = Array.isArray(data.errors) ? data.errors : [];
-      observedAt.current = toMs(data.observedAt) ?? Date.now();
+      const receivedAt = toMs(data.observedAt) ?? Date.now();
+      const requestedHosts = hostFilter === "all" ? HOSTS.slice(1) : [hostFilter];
+      const failedHosts = new Set(errors.map((entry) => entry.host));
+      for (const host of requestedHosts) {
+        if (!failedHosts.has(host)) {
+          hostCache.current.set(host, { runs: data.runs.filter((run) => run.host === host), observedAt: receivedAt });
+        }
+      }
+      const retained = requestedHosts.flatMap((host) => {
+        const cached = hostCache.current.get(host);
+        if (!failedHosts.has(host) || !cached) return [];
+        return cached.runs.filter((run) => !data.runs.some((fresh) => fresh.id === run.id))
+          .map((run) => ({ ...run, lastKnownAt: cached.observedAt }));
+      });
+      const mergedRuns = [...data.runs, ...retained];
+      const observations = requestedHosts.flatMap((host) => {
+        const cached = hostCache.current.get(host);
+        return cached ? [cached.observedAt] : [];
+      });
+      observedAt.current = observations.length ? Math.min(...observations) : null;
       if (hasError.current) {
         hasError.current = false;
         setError(null);
       }
-      const next = snapshotFingerprint(data.runs, errors);
+      const next = snapshotFingerprint(mergedRuns, errors);
       // Réponse identique (cas nominal au repos) : aucun setState — le label
       // « observé il y a » se rafraîchira au prochain tic d'horloge.
       if (next === fingerprint.current) return;
       fingerprint.current = next;
       setNow(Date.now());
-      setSnapshot({ observedAt: data.observedAt, runs: data.runs, errors });
+      setSnapshot({ observedAt: data.observedAt, runs: mergedRuns, errors });
     };
     window.addEventListener("compute-message", onMessage);
     return () => window.removeEventListener("compute-message", onMessage);
-  }, []);
+  }, [hostFilter]);
 
   // Sondage uniquement quand la surface est visible (même mécanisme que Narval) ;
   // cadence selon l'hôte filtré (30 s Mac, 60 s dès qu'un hôte distant est inclus).
@@ -402,6 +428,19 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     setHostFilter(next);
     storeHost(next);
     setOpenRunId(null);
+    const requestedHosts = next === "all" ? HOSTS.slice(1) : [next];
+    const cachedHosts = requestedHosts.flatMap((host) => {
+      const cached = hostCache.current.get(host);
+      return cached ? [cached] : [];
+    });
+    observedAt.current = cachedHosts.length ? Math.min(...cachedHosts.map((cached) => cached.observedAt)) : null;
+    setSnapshot(cachedHosts.length ? {
+      observedAt: observedAt.current!,
+      runs: cachedHosts.flatMap((cached) => cached.runs.map((run) => ({ ...run, lastKnownAt: cached.observedAt }))),
+      errors: [],
+    } : null);
+    hasError.current = false;
+    setError(null);
     fingerprint.current = null;
   };
 
@@ -411,7 +450,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
 
   const terminalCommand = hostTerminalCommand(hostFilter);
   const observedMs = observedAt.current;
-  const stale = observedMs != null && now - observedMs > STALE_MS;
+  const stale = Boolean(error) || hostErrors.length > 0 || (observedMs != null && now - observedMs > STALE_MS);
   const observedSeconds = observedMs == null ? null : Math.max(0, Math.round((now - observedMs) / 1_000));
 
   if (slurmView) {
@@ -443,7 +482,12 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
               {t("calculs.observed-ago", { seconds: observedSeconds })}
             </span>
           )}
-          {stale && <StatusBadge status="warning">{t("calculs.stale")}</StatusBadge>}
+          {stale && transientErrors.length === 0 && <StatusBadge status="warning">{t("calculs.stale")}</StatusBadge>}
+          {transientErrors.map((entry) => (
+            <StatusBadge key={entry.host} status="warning" role="status" title={entry.message}>
+              {t("calculs.waiting-host", { host: hostLabel(entry.host) })}
+            </StatusBadge>
+          ))}
           <div className="calculs-toolbar-actions">
             {hostFilter === "narval" && (
               <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
@@ -476,13 +520,13 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
           {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
         </header>
 
-        {snapshot && snapshot.errors.length > 0 && (
+        {blockingErrors.length > 0 && (
           <Alert variant="destructive" className="calculs-alert">
             <ServerIcon />
             <AlertTitle>{t("calculs.host-errors-title")}</AlertTitle>
             <AlertDescription>
               <ul className="calculs-host-errors">
-                {snapshot.errors.map((hostError) => (
+                {blockingErrors.map((hostError) => (
                   <li key={`${hostError.host}:${hostError.code}`}>
                     <strong>{hostLabel(hostError.host)}</strong> · {hostError.message}
                   </li>
@@ -505,8 +549,8 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
           <Empty className="calculs-empty">
             <EmptyHeader>
               <EmptyMedia className="calculs-empty-icon"><Clock3Icon /></EmptyMedia>
-              <EmptyTitle>{t("calculs.empty-title")}</EmptyTitle>
-              <EmptyDescription>{t("calculs.empty-desc")}</EmptyDescription>
+              <EmptyTitle>{t(hostErrors.length ? "calculs.waiting-title" : "calculs.empty-title")}</EmptyTitle>
+              <EmptyDescription>{t(hostErrors.length ? "calculs.waiting-desc" : "calculs.empty-desc")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
@@ -585,6 +629,7 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
   forgetError?: string;
 }) {
   calculsDebug.rowRenders += 1;
+  const displayNow = run.lastKnownAt ?? now;
   const hasProgress = Boolean(run.progress && run.progress.total > 0);
   const bodyId = `calculs-run-body-${run.id}`;
   return (
@@ -595,7 +640,7 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
         aria-controls={open ? bodyId : undefined}
         onClick={() => onToggle(run.id)}
       >
-        <StatusBadge status={stateTone(run.state)}>{stateLabel(run.state)}</StatusBadge>
+        <StatusBadge status={run.lastKnownAt != null ? "neutral" : stateTone(run.state)}>{run.lastKnownAt != null ? t("calculs.last-known", { state: stateLabel(run.state) }) : stateLabel(run.state)}</StatusBadge>
         <span className="calculs-run-identity">
           <strong title={run.label}>{run.label}</strong>
           <span className="calculs-run-meta">
@@ -607,7 +652,7 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
           )}
         </span>
         <span className="calculs-run-times">
-          <b>{runDuration(run, now)}</b>
+          <b>{runDuration(run, displayNow)}</b>
           <small>{activityAgo(run, now)}</small>
         </span>
         <span className="calculs-run-chevron" aria-hidden="true">

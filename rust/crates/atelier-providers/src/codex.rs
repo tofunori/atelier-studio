@@ -1,14 +1,15 @@
 //! Codex provider via `codex app-server` JSON-RPC (plan 033 Porte 7).
 
 use crate::codex_parse::{answer_from_interaction, map_turn_notification, TurnMapState};
-use crate::codex_rpc::CodexAppServer;
+use crate::codex_rpc::{CodexAppServer, ThreadConnection};
 use crate::traits::{prompts_reformulation, Provider, ProviderCaps, SendMode, SendRequest, SendResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::oneshot;
+use std::time::Duration;
 
 #[derive(Clone)]
 struct ActiveTurn {
@@ -23,6 +24,33 @@ pub struct CodexProvider {
     /// codex_id → dernier modèle posé via `thread/settings/update`. Évite de
     /// répéter l'update quand la sélection n'a pas changé.
     settled_models: Arc<StdMutex<HashMap<String, String>>>,
+    idle: Duration,
+    stop_wait: Duration,
+}
+
+/// Owns cleanup even when the caller drops `send` before its normal return.
+struct TurnScope {
+    connection: ThreadConnection,
+    active: Arc<StdMutex<HashMap<String, ActiveTurn>>>,
+    thread_id: String,
+    finished: Arc<AtomicBool>,
+    released: bool,
+}
+impl Drop for TurnScope {
+    fn drop(&mut self) {
+        self.finished.store(true, Ordering::SeqCst);
+        let turn = self.active.lock().ok().and_then(|mut a| a.remove(&self.thread_id));
+        if !self.released {
+            self.connection.interrupt_on_drop(turn.and_then(|t| t.turn_id));
+        }
+    }
+}
+
+async fn cancellation_requested(probe: &Arc<dyn Fn() -> bool + Send + Sync>) {
+    loop {
+        if probe() { return; }
+        tokio::time::sleep(Duration::from_millis(80)).await;
+    }
 }
 
 impl CodexProvider {
@@ -42,6 +70,8 @@ impl CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
+            idle: crate::turn_idle::idle_from_env(),
+            stop_wait: Duration::from_secs(5),
         })
     }
 
@@ -99,6 +129,8 @@ impl Default for CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
+            idle: crate::turn_idle::idle_from_env(),
+            stop_wait: Duration::from_secs(5),
         }
     }
 }
@@ -576,6 +608,16 @@ async fn open_thread_settings(server: &CodexAppServer, session_id: Option<&str>,
     Ok((id, resp.get("sandbox").cloned().unwrap_or(Value::Null)))
 }
 
+async fn open_bound_thread(server: &CodexAppServer, session_id: Option<&str>, mut opts: Value) -> Result<(String, Value, ThreadConnection), String> {
+    let method = if let Some(id) = session_id.filter(|id| !id.is_empty()) {
+        opts["threadId"] = json!(id);
+        "thread/resume"
+    } else { "thread/start" };
+    let (response, connection) = server.open_thread(method, opts).await?;
+    let id = response["thread"]["id"].as_str().ok_or("thread sans id")?.to_string();
+    Ok((id, response.get("sandbox").cloned().unwrap_or(Value::Null), connection))
+}
+
 fn folder_sandbox(req: &SendRequest, actual: &Value) -> Value {
     let (mode, _) = codex_safety(req.permission_mode.as_deref());
     match mode {
@@ -921,7 +963,7 @@ impl Provider for CodexProvider {
         }
 
         let opts = thread_opts(&req);
-        let (codex_id, actual_sandbox) = match open_thread_settings(&self.server, req.session_id.as_deref(), opts).await {
+        let (codex_id, actual_sandbox, connection) = match open_bound_thread(&self.server, req.session_id.as_deref(), opts).await {
             Ok(result) => result,
             Err(e) => {
                 (req.on_event)(json!({"kind":"error","message": e}));
@@ -947,9 +989,7 @@ impl Provider for CodexProvider {
                 .map(|k| k.get(&codex_id).map(|m| m == model).unwrap_or(false))
                 .unwrap_or(false);
             if !already {
-                match self
-                    .server
-                    .request(
+                match connection.request(
                         "thread/settings/update",
                         json!({"threadId": codex_id, "model": model}),
                     )
@@ -968,7 +1008,7 @@ impl Provider for CodexProvider {
         }
 
         let (sandbox, _) = codex_safety(req.permission_mode.as_deref());
-        self.server.set_sandbox(&codex_id, sandbox).await;
+        connection.set_sandbox(sandbox);
         if let Some(relay) = req.on_interaction.clone() {
             let request_handler = Arc::new(move |method: String, params: Value| {
                 let relay = Arc::clone(&relay);
@@ -978,9 +1018,7 @@ impl Provider for CodexProvider {
                 })
                     as std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>
             });
-            self.server
-                .set_request_handler(&codex_id, request_handler)
-                .await;
+            connection.set_request_handler(request_handler);
         }
 
         if let Ok(mut a) = self.active.lock() {
@@ -993,9 +1031,15 @@ impl Provider for CodexProvider {
             );
         }
 
-        let (done_tx, done_rx) = oneshot::channel::<(bool, Option<String>)>();
-        let done_slot = Arc::new(Mutex::new(Some(done_tx)));
+        let (done_tx, mut done_rx) = oneshot::channel::<(bool, Option<String>)>();
+        let done_slot = Arc::new(StdMutex::new(Some(done_tx)));
         let finished = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stopped_handler = Arc::clone(&stopped);
+        let mut scope = TurnScope {
+            connection, active: Arc::clone(&self.active), thread_id: req.thread_id.clone(),
+            finished: Arc::clone(&finished), released: false,
+        };
         let map_state = Arc::new(StdMutex::new(TurnMapState::default()));
         let on_event = Arc::clone(&req.on_event);
         let active = Arc::clone(&self.active);
@@ -1009,6 +1053,8 @@ impl Provider for CodexProvider {
         let activity_handler = activity.clone();
 
         let handler: Arc<dyn Fn(&str, &Value) + Send + Sync> = Arc::new(move |method, params| {
+            if method == "turn/completed" && params["__transportFailure"] != true { stopped_handler.store(true, Ordering::SeqCst); }
+            if finished2.load(Ordering::SeqCst) { return; }
             activity_handler.bump();
             if method == "turn/started" {
                 if let Some(tid) = params.pointer("/turn/id").and_then(|v| v.as_str()) {
@@ -1050,7 +1096,7 @@ impl Provider for CodexProvider {
                     };
                     on_event(ev);
                     // complete oneshot from sync context
-                    if let Ok(mut slot) = done_slot2.try_lock() {
+                    if let Ok(mut slot) = done_slot2.lock() {
                         if let Some(tx) = slot.take() {
                             let _ = tx.send((ok, err));
                         }
@@ -1061,7 +1107,7 @@ impl Provider for CodexProvider {
             }
         });
 
-        self.server.set_handler(&codex_id, handler).await;
+        scope.connection.set_handler(handler);
 
         let mut turn_params = json!({
             "threadId": codex_id,
@@ -1081,84 +1127,64 @@ impl Provider for CodexProvider {
                     .insert("collaborationMode".into(), plan_mode);
             }
         }
-        if let Err(e) = self.server.request("turn/start", turn_params).await {
-            self.server.clear_handler(&codex_id).await;
-            self.server.clear_request_handler(&codex_id).await;
-            if let Ok(mut a) = self.active.lock() {
-                a.remove(&req.thread_id);
-            }
-            (req.on_event)(json!({"kind":"error","message": e}));
-            return SendResult {
-                session_id: Some(codex_id),
-                ok: false,
-                error: Some(e),
-            };
-        }
-
-        // Cancel watcher
-        let cancel_server = Arc::clone(&self.server);
-        let cancel_active = Arc::clone(&self.active);
-        let cancel_tid = req.thread_id.clone();
-        let is_cancelled = Arc::clone(&req.is_cancelled);
-        tokio::spawn(async move {
-            loop {
-                if is_cancelled() {
-                    let snap = cancel_active
-                        .lock()
-                        .ok()
-                        .and_then(|g| g.get(&cancel_tid).cloned());
-                    if let Some(t) = snap {
-                        if let Some(turn_id) = t.turn_id {
-                            let _ = cancel_server
-                                .request(
-                                    "turn/interrupt",
-                                    json!({"threadId": t.codex_id, "turnId": turn_id}),
-                                )
-                                .await;
-                        }
-                    }
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-            }
-        });
-
-        // Filet anti-CLI-figé, pas une durée maximale de tour : le compte à
-        // rebours repart à chaque notification. Une échéance sèche tuait des
-        // tours EN PLEIN TRAVAIL (2026-08-28 : reconstruction de provenance
-        // coupée à 600 s après 39 commandes exécutées).
-        let idle = crate::turn_idle::idle_from_env();
-        let result = match crate::turn_idle::with_idle_timeout(done_rx, idle, &activity).await {
-            Ok(Ok(r)) => r,
-            Ok(Err(_)) => (false, Some("rpc cancelled".into())),
-            Err(()) => {
-                (req.on_event)(json!({
-                    "kind":"error",
-                    "message": format!("Codex muet depuis {} min — tour interrompu", idle.as_secs() / 60),
-                }));
-                (false, Some("timeout".into()))
-            }
+        // Cancellation is a branch of this future, so no watcher survives it.
+        // It also covers a turn accepted without a turn/start RPC reply.
+        let started = tokio::select! {
+            biased;
+            response = scope.connection.request("turn/start", turn_params) => response,
+            _ = cancellation_requested(&req.is_cancelled) => Err("annulation demandée".into()),
         };
-
-        self.server.clear_handler(&codex_id).await;
-        self.server.clear_request_handler(&codex_id).await;
-        if let Ok(mut a) = self.active.lock() {
-            a.remove(&req.thread_id);
-        }
-
-        if !finished.load(Ordering::SeqCst) {
-            // ensure a terminal event reached the harness
-            if result.0 {
-                (req.on_event)(json!({"kind":"done","ok": true, "result": ""}));
-            } else if result.1.as_deref() != Some("timeout") {
-                // error already emitted or interrupted
-                if !finished.load(Ordering::SeqCst) {
-                    (req.on_event)(json!({
-                        "kind": "error",
-                        "message": result.1.clone().unwrap_or_else(|| "session terminée".into())
-                    }));
+        if let Ok(response) = &started {
+            if let Some(turn_id) = response.pointer("/turn/id").and_then(Value::as_str) {
+                if let Ok(mut active) = self.active.lock() {
+                    if let Some(turn) = active.get_mut(&req.thread_id) { turn.turn_id = Some(turn_id.into()); }
                 }
             }
+        }
+        let result = match started {
+            Err(error) => (false, Some(error)),
+            Ok(_) => tokio::select! {
+                biased;
+                result = crate::turn_idle::with_idle_timeout(&mut done_rx, self.idle, &activity) => match result {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(_)) => (false, Some("connexion Codex fermée".into())),
+                    Err(()) => (false, Some(format!("Codex muet depuis {} s", self.idle.as_secs()))),
+                },
+                _ = cancellation_requested(&req.is_cancelled) => (false, Some("annulation demandée".into())),
+            },
+        };
+        let local_stop = !result.0 && !stopped.load(Ordering::SeqCst);
+        let report_local_stop = local_stop && !finished.swap(true, Ordering::SeqCst);
+        let result = if local_stop {
+            let turn_id = self.active.lock().ok()
+                .and_then(|a| a.get(&req.thread_id).and_then(|t| t.turn_id.clone()));
+            {
+                let wait_stopped = async {
+                    while !stopped.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                };
+                tokio::pin!(wait_stopped);
+                let _ = tokio::time::timeout(self.stop_wait, async {
+                    tokio::select! {
+                        biased;
+                        _ = scope.connection.interrupt_turn(turn_id) => {
+                            (&mut wait_stopped).await;
+                        },
+                        _ = &mut wait_stopped => {},
+                    }
+                }).await;
+            }
+            let confirmation = if stopped.load(Ordering::SeqCst) { "arrêt confirmé" } else { "arrêt non confirmé" };
+            (false, Some(format!("{} — {confirmation}", result.1.unwrap_or_else(|| "échec Codex".into()))))
+        } else { result };
+        scope.released = true;
+        if report_local_stop || !finished.swap(true, Ordering::SeqCst) {
+            (req.on_event)(if result.0 {
+                json!({"kind":"done","ok":true,"result":""})
+            } else {
+                json!({"kind":"error","message":result.1.clone().unwrap_or_else(|| "session terminée".into())})
+            });
         }
 
         SendResult {
@@ -1187,6 +1213,63 @@ impl Provider for CodexProvider {
             )
             .await
             .is_ok()
+    }
+
+    async fn rewind_session(
+        &self,
+        _thread_id: &str,
+        session_id: Option<&str>,
+        prompt_index: usize,
+        native_turn_id: Option<&str>,
+    ) -> Result<Value, String> {
+        let session_id = session_id.filter(|id| !id.is_empty())
+            .ok_or("Session Codex absente : modification impossible")?;
+        let history = self.server.request("thread/read", json!({
+            "threadId": session_id, "includeTurns": true,
+        })).await?;
+        let turns = history.pointer("/thread/turns").and_then(Value::as_array)
+            .ok_or("Historique Codex indisponible")?;
+        if turns.iter().any(|turn| turn["status"] == "inProgress") {
+            return Err("Codex répond encore : réessayez après son arrêt".into());
+        }
+        let target = if let Some(native_id) = native_turn_id {
+            turns.iter().position(|turn| turn["id"] == native_id)
+        } else {
+            // Older journals have no native turn identity. Count actual user
+            // items, not turns: steering can add several prompts to one turn.
+            let mut seen = 0;
+            let mut target = None;
+            for (index, turn) in turns.iter().enumerate() {
+                let count = turn["items"].as_array().map(|items| items.iter()
+                    .filter(|item| item["type"] == "userMessage").count()).unwrap_or(0);
+                if count > 0 && seen == prompt_index { target = Some(index); break; }
+                seen += count;
+            }
+            target
+        }.ok_or("Message introuvable dans les tours Codex : historique conservé")?;
+        // New Codex threads reject thread/rollback. Fork the preserved prefix
+        // instead; the source session remains intact until the runtime commits
+        // the new session id and its local history cut.
+        let result = if target == 0 {
+            self.server.request("thread/start", json!({
+                "cwd": history.pointer("/thread/cwd"),
+                "approvalPolicy": "never", "sandbox": "read-only",
+            })).await?
+        } else {
+            let last = turns[target - 1]["id"].as_str().ok_or("Identité du tour Codex absente")?;
+            self.server.request("thread/fork", json!({
+                "threadId": session_id, "lastTurnId": last,
+            })).await?
+        };
+        let new_id = result.pointer("/thread/id").and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && *id != session_id)
+            .ok_or("Codex n'a pas créé la session corrigée")?;
+        let kept = result.pointer("/thread/turns").and_then(Value::as_array)
+            .ok_or("Historique de la session corrigée indisponible")?;
+        if kept.len() != target || kept.iter().zip(turns.iter()).any(|(a, b)| a["id"] != b["id"]) {
+            return Err("Codex n'a pas conservé les tours attendus : historique original conservé".into());
+        }
+        Ok(json!({"sessionId":new_id, "preservesContext":target > 0}))
     }
 
     async fn reformuler_consigne(
@@ -1929,3 +2012,7 @@ mod native_open_mcp_tests {
         assert_eq!(opts["cwd"], serde_json::Value::Null);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "codex_lifecycle_tests.rs"]
+mod lifecycle_tests;

@@ -600,4 +600,14 @@ describe("Research Navigator — actions projet de l'overflow (câblage réel)",
       expect.objectContaining({ color: expect.any(String) }),
     );
   });
+
+  it("Personnaliser rend le focus au bouton overflow après Échap", async () => {
+    renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
+    const overflow = screen.getByRole("button", { name: t("project.actions") });
+    fireEvent.click(overflow);
+    fireEvent.click(screen.getByText(t("project.customize")));
+    await waitFor(() => expect(document.querySelector(".swatches .swatch")).toBeTruthy());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(overflow));
+  });
 });

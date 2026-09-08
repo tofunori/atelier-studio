@@ -8,8 +8,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
 import { SquareTerminal } from "lucide-react";
-import { IconButton } from "./ui/IconButton";
-import { Tab, TabList } from "./ui/Tabs";
+import { IconButton, Tab, TabList } from "./ui";
 import type { TerminalShortcut } from "../lib/terminalShortcuts";
 
 type Term = { id: string; n: number };
@@ -107,16 +106,20 @@ export default function TerminalSurface(p: {
   return (
     <div className="term-surface" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="term-bar">
-        <TabList className="term-tabs">
+        <TabList
+          className="term-tabs"
+          value={activeId ?? undefined}
+          onValueChange={setActiveId}
+        >
           {terms.map((term) => {
             const label = `${t("atelier.terminal")} ${term.n}`;
             return (
               <Tab
                 key={term.id}
                 active={activeId === term.id}
+                tabId={term.id}
                 label={label}
                 icon={<SquareTerminal />}
-                onClick={() => setActiveId(term.id)}
               >
                 {label}
               </Tab>

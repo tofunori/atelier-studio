@@ -22,6 +22,7 @@ struct ThinkingEffortLevel {
 struct ThinkingEffortIndicator: View {
     let effort: String
     var showLabel = true
+    var iconSize: CGFloat = 18
     private var level: ThinkingEffortLevel { ThinkingEffortLevel(effort) }
     var body: some View {
         let value = level.value
@@ -50,7 +51,7 @@ struct ThinkingEffortIndicator: View {
                     context.stroke(needle, with: .foreground, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 }
                 context.stroke(Path(ellipseIn: CGRect(x: center.x - 1.7, y: center.y - 1.7, width: 3.4, height: 3.4)), with: .foreground, lineWidth: 1.3)
-            }.frame(width: 18, height: 18).accessibilityHidden(true)
+            }.frame(width: iconSize, height: iconSize).accessibilityHidden(true)
             if showLabel { Text(level.label).lineLimit(1).fixedSize() }
         }.font(.caption2).accessibilityElement(children: .ignore)
             .accessibilityLabel("Effort de réflexion : \(level.label)")

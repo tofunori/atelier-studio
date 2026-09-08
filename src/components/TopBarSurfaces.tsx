@@ -233,44 +233,6 @@ export default function TopBarSurfaces(p: {
     });
   }
 
-  const moveButton = (id: TargetId, delta: -1 | 1, disabled: boolean) => (
-    <span
-      className={`topbar-menu-move ${disabled ? "off" : ""}`}
-      title={t(delta === -1 ? "topbar.move-up" : "topbar.move-down")}
-      role="button"
-      tabIndex={-1}
-      onClick={(event: React.MouseEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!disabled) movePinned(id, delta);
-      }}
-    >
-      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {delta === -1 ? <path d="M4 10l4-4 4 4" /> : <path d="M4 6l4 4 4-4" />}
-      </svg>
-    </span>
-  );
-
-  const pinButton = (id: TargetId) => (
-    <span
-      className={`topbar-menu-pin ${pinned.includes(id) ? "on" : ""}`}
-      title={t(pinned.includes(id) ? "topbar.unpin" : "topbar.pin")}
-      role="button"
-      tabIndex={-1}
-      onClick={(event: React.MouseEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        togglePin(id);
-      }}
-    >
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-        strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 2v7M5.4 4.6 8 2l2.6 2.6M4.5 13.5h7" />
-      </svg>
-    </span>
-  );
-
   const button = (target: TopBarTarget) => {
     const node = (
       <Tooltip label={target.label} placement="bottom">
@@ -314,36 +276,56 @@ export default function TopBarSurfaces(p: {
             </svg>
           </IconButton>
         )}
-        items={[
-          ...visible.map((target, index) => ({
-            key: target.id,
-            className: `topbar-menu-row ${target.active ? "on" : ""}`,
-            keepOpen: true,
-            label: (
-              <>
-                <span className="topbar-menu-icon">{target.icon}</span>
-                <span className="topbar-menu-name">{target.label}</span>
-                {moveButton(target.id, -1, index === 0)}
-                {moveButton(target.id, 1, index === visible.length - 1)}
-                {pinButton(target.id)}
-              </>
-            ),
-            onSelect: target.onSelect,
-          })),
-          ...targets.filter((target) => !pinned.includes(target.id)).map((target, index) => ({
-            key: target.id,
-            className: `topbar-menu-row ${target.active ? "on" : ""}`,
-            separatorBefore: index === 0,
-            keepOpen: true,
-            label: (
-              <>
-                <span className="topbar-menu-icon">{target.icon}</span>
-                <span className="topbar-menu-name">{target.label}</span>
-                {pinButton(target.id)}
-              </>
-            ),
-            onSelect: target.onSelect,
-          })),
+        groups={[
+          {
+            key: "surfaces",
+            items: visible.map((target, index) => ({
+              key: target.id,
+              className: `topbar-menu-row ${target.active ? "on" : ""}`,
+              label: <><span className="topbar-menu-icon">{target.icon}</span><span className="topbar-menu-name">{target.label}</span></>,
+              children: [
+                { key: `${target.id}-open`, label: target.label, onSelect: target.onSelect },
+                {
+                  key: `${target.id}-move-up`,
+                  className: "topbar-menu-move",
+                  label: t("topbar.move-up"),
+                  disabled: index === 0,
+                  onSelect: () => movePinned(target.id, -1),
+                },
+                {
+                  key: `${target.id}-move-down`,
+                  className: "topbar-menu-move",
+                  label: t("topbar.move-down"),
+                  disabled: index === visible.length - 1,
+                  onSelect: () => movePinned(target.id, 1),
+                },
+                {
+                  key: `${target.id}-pin`,
+                  className: "topbar-menu-pin",
+                  label: t("topbar.unpin"),
+                  onSelect: () => togglePin(target.id),
+                },
+              ],
+            })),
+          },
+          {
+            key: "available",
+            separatorBefore: visible.length > 0,
+            items: targets.filter((target) => !pinned.includes(target.id)).map((target) => ({
+              key: target.id,
+              className: `topbar-menu-row ${target.active ? "on" : ""}`,
+              label: <><span className="topbar-menu-icon">{target.icon}</span><span className="topbar-menu-name">{target.label}</span></>,
+              children: [
+                { key: `${target.id}-open`, label: target.label, onSelect: target.onSelect },
+                {
+                  key: `${target.id}-pin`,
+                  className: "topbar-menu-pin",
+                  label: t("topbar.pin"),
+                  onSelect: () => togglePin(target.id),
+                },
+              ],
+            })),
+          },
         ]}
       />
     </span>

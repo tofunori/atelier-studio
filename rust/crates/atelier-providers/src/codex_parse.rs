@@ -13,7 +13,6 @@ pub const TOOL_OUTPUT_MAX: usize = 64 * 1024;
 
 #[derive(Debug, Default)]
 pub struct TurnMapState {
-    pub stream_text: String,
     pub native_turn_id: Option<String>,
     command_items: HashMap<String, Value>,
     command_outputs: HashMap<String, String>,
@@ -110,7 +109,6 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
 
     match method {
         "turn/started" => {
-            state.stream_text.clear();
             state.reasoning_summary_index = None;
             state.reasoning_stream.clear();
             state.reasoning_steps_emitted = 0;
@@ -222,10 +220,15 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             }
         }
         "item/agentMessage/delta" => {
-            state
-                .stream_text
-                .push_str(params.get("delta").and_then(|v| v.as_str()).unwrap_or(""));
-            events.push(json!({"kind":"stream_set","text": state.stream_text}));
+            // Le frontend accumule les fragments. Renvoyer tout le préfixe
+            // à chaque token rendait le volume sérialisé quadratique.
+            if let Some(delta) = params
+                .get("delta")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                events.push(json!({"kind":"delta","text": delta}));
+            }
         }
         // Résumé de raisonnement STREAMÉ (2026-08-26). Sans ce bras, la pensée
         // n'arrivait qu'à `item/completed` : le bloc « Réflexion » apparaissait
@@ -292,7 +295,6 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             let ty = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
             match ty {
                 "agentMessage" => {
-                    state.stream_text.clear();
                     events.push(json!({
                         "kind": "text",
                         "text": item.get("text").and_then(|v| v.as_str()).unwrap_or(""),
@@ -409,14 +411,15 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             }
         }
         "turn/completed" => {
-            state.stream_text.clear();
             let status = params
                 .pointer("/turn/status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("completed");
-            let ok = status != "failed";
+            let ok = status == "completed";
             let result = if ok {
                 String::new()
+            } else if matches!(status, "interrupted" | "cancelled" | "canceled") {
+                "tour interrompu".to_string()
             } else {
                 params
                     .pointer("/turn/error/message")
@@ -594,23 +597,135 @@ fn dynamic_tool_update(item: &Value, status: &str) -> Value {
 }
 
 fn image_generation_update(item: &Value, status: &str) -> Value {
-    let output = item
-        .get("savedPath")
-        .or_else(|| item.get("result"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    // `savedPath` is the native app-server contract. Some older bridges used
+    // `path`, while `result` is accepted only when it is an absolute local
+    // image path; otherwise an explanatory result string (or a `blob:`/URL
+    // that cannot survive a reload) would become a broken thumbnail path in
+    // the WebView.
+    let artifact = ["savedPath", "path"]
+        .into_iter()
+        .find_map(|key| item.get(key).and_then(Value::as_str).and_then(local_image_path))
+        .or_else(|| {
+            item.get("result")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| image_reference(value))
+                .map(str::to_string)
+        });
+    let running = matches!(
+        status
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['_', '-'], "")
+            .as_str(),
+        "inprogress" | "running" | "pending" | "queued" | "started"
+    );
+    let missing_message = "Image générée introuvable : Codex n’a renvoyé aucun fichier.";
+    let missing = artifact.is_none() && !running;
+    // A native failed item can carry a useful account/limit error. Keep it in
+    // the durable event; the missing-file message is only the fallback when
+    // Codex completed without returning an artifact or a failure detail.
+    let has_native_failure = item
+        .get("failure")
+        .is_some_and(|value| !value.is_null())
+        || image_status_is_failed(status);
+    let failure = if missing && has_native_failure {
+        native_image_failure(item).unwrap_or_else(|| missing_message.to_string())
+    } else {
+        missing_message.to_string()
+    };
+    let mut input = json!({
+        "revisedPrompt": item.get("revisedPrompt").cloned().unwrap_or(Value::Null),
+    });
+    if let Some(path) = artifact.as_deref() {
+        input["path"] = json!(path);
+        input["paths"] = json!([path]);
+    }
+    if missing {
+        input["error"] = json!(failure);
+    }
     json!({
         "kind": "tool_update",
         "id": item_id(item, "image-generation"),
         "name": "image_generation",
-        "output": output,
-        "status": status,
-        "detail": item.get("revisedPrompt").cloned().unwrap_or(Value::Null),
-        "input": {
-            "revisedPrompt": item.get("revisedPrompt").cloned().unwrap_or(Value::Null),
+        "output": artifact.unwrap_or_else(|| if missing { failure.clone() } else { String::new() }),
+        "status": if missing { "failed" } else { status },
+        "detail": if missing {
+            let prompt = item.get("revisedPrompt").and_then(Value::as_str).unwrap_or("").trim();
+            if prompt.is_empty() { json!(failure) } else { json!(format!("{prompt} — {failure}")) }
+        } else {
+            item.get("revisedPrompt").cloned().unwrap_or(Value::Null)
         },
+        "input": input,
         "source": "codex",
     })
+}
+
+/// The app-server schema guarantees `savedPath` as an absolute path. Keep
+/// only that durable representation at the provider boundary; WebKit's local
+/// image reader intentionally does not resolve `file:`, `blob:`, or remote
+/// URLs.
+fn local_image_path(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.chars().any(char::is_control)
+        || !std::path::Path::new(value).is_absolute()
+    {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn image_status_is_failed(status: &str) -> bool {
+    matches!(
+        status
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['_', '-'], "")
+            .as_str(),
+        "failed" | "error" | "errored" | "cancelled" | "canceled" | "interrupted"
+    )
+}
+
+fn image_reference(value: &str) -> bool {
+    let Some(path) = local_image_path(value) else {
+        return false;
+    };
+    let lower = path.to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+            .iter()
+            .any(|extension| lower.ends_with(extension) || lower.contains(&format!("{extension}?")))
+}
+
+fn native_image_failure(item: &Value) -> Option<String> {
+    let failure = item.get("failure").filter(|value| !value.is_null());
+    let message = failure
+        .and_then(|value| value.get("message"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(message) = message {
+        return Some(message.to_string());
+    }
+    if let Some(failure) = failure {
+        let kind = failure
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Codex");
+        let limit = failure
+            .get("limitId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!(" ({value})"))
+            .unwrap_or_default();
+        return Some(format!("Échec de génération d’image : {kind}{limit}"));
+    }
+    item.get("result")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn simple_codex_activity(item: &Value, name: &str, status: &str) -> Value {
@@ -810,6 +925,63 @@ fn mcp_update(item: &Value, message: Option<&str>) -> Value {
     ev
 }
 
+/// Full access grants authorization only; user data and external authentication
+/// still require the interactive relay. An empty form is MCP consent.
+pub fn automatic_approval_response(
+    method: &str,
+    full_access: bool,
+    params: &Value,
+) -> Option<Value> {
+    if !full_access {
+        return None;
+    }
+    match method {
+        "execCommandApproval"
+        | "applyPatchApproval"
+        | "item/commandExecution/requestApproval"
+        | "item/fileChange/requestApproval"
+        | "item/permissions/requestApproval" => Some(build_approval_response_with_scope(
+            method, true, params, "once",
+        )),
+        "mcpServer/elicitation/request" => {
+            if params.get("url").is_some_and(|v| !v.is_null())
+                || params
+                    .get("mode")
+                    .and_then(Value::as_str)
+                    .is_some_and(|m| m != "form" && m != "openai/form" && m != "openaiForm")
+            {
+                return None;
+            }
+            let schema = params.get("requestedSchema");
+            let consent = schema.is_none()
+                || schema.is_some_and(|s| {
+                    s.get("type").and_then(Value::as_str) == Some("object")
+                        && s.get("properties")
+                            .and_then(Value::as_object)
+                            .is_some_and(|p| p.is_empty())
+                        && s.get("required")
+                            .is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty()))
+                        && s.as_object().is_some_and(|o| {
+                            o.keys().all(|k| {
+                                matches!(
+                                    k.as_str(),
+                                    "$schema"
+                                        | "type"
+                                        | "properties"
+                                        | "required"
+                                        | "title"
+                                        | "description"
+                                        | "additionalProperties"
+                                )
+                            })
+                        })
+                });
+            consent.then(|| json!({"action":"accept","content":{},"_meta":null}))
+        }
+        _ => None,
+    }
+}
+
 pub fn build_approval_response_with_scope(
     method: &str,
     full_access: bool,
@@ -885,15 +1057,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn automatic_authorization_preserves_interactive_data_requests() {
+        for method in [
+            "execCommandApproval",
+            "applyPatchApproval",
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+            "item/permissions/requestApproval",
+        ] {
+            assert!(automatic_approval_response(method, true, &json!({})).is_some());
+            assert!(automatic_approval_response(method, false, &json!({})).is_none());
+        }
+        let permissions =
+            json!({"permissions":{"network":{"enabled":true},"fileSystem":{"write":["/tmp"]}}});
+        assert_eq!(
+            automatic_approval_response("item/permissions/requestApproval", true, &permissions)
+                .unwrap()["permissions"],
+            permissions["permissions"]
+        );
+        let m = "mcpServer/elicitation/request";
+        for params in [
+            json!({}),
+            json!({"mode":"form","requestedSchema":{"type":"object","properties":{}}}),
+            json!({"mode":"openai/form","requestedSchema":{"type":"object","properties":{}}}),
+            json!({"mode":"openaiForm","requestedSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{}}}),
+        ] {
+            assert_eq!(
+                automatic_approval_response(m, true, &params).unwrap()["action"],
+                "accept"
+            );
+            assert!(automatic_approval_response(m, false, &params).is_none());
+        }
+        for params in [
+            json!({"mode":"url","url":"https://example.com"}),
+            json!({"mode":"openai/form","requestedSchema":{"type":"object","properties":{"key":{"type":"string"}}}}),
+            json!({"mode":"form","requestedSchema":{"type":"object","properties":{"key":{"type":"string"}}}}),
+            json!({"requestedSchema":{"type":"object","properties":{},"required":["key"]}}),
+        ] {
+            assert!(automatic_approval_response(m, true, &params).is_none());
+        }
+        assert!(
+            automatic_approval_response("item/tool/requestUserInput", true, &json!({})).is_none()
+        );
+    }
+
+    #[test]
     fn turn_started_and_text() {
         let mut st = TurnMapState::default();
         let e = map_turn_notification("turn/started", &json!({"turn":{"id":"t1"}}), &mut st);
         assert_eq!(e[0]["kind"], "started");
         assert_eq!(e[0]["nativeTurnId"], "t1");
 
-        map_turn_notification("item/agentMessage/delta", &json!({"delta":"Hel"}), &mut st);
+        let e1 = map_turn_notification("item/agentMessage/delta", &json!({"delta":"Hel"}), &mut st);
         let e2 = map_turn_notification("item/agentMessage/delta", &json!({"delta":"lo"}), &mut st);
-        assert_eq!(e2[0]["text"], "Hello");
+        assert_eq!(e1[0], json!({"kind":"delta","text":"Hel"}));
+        assert_eq!(e2[0], json!({"kind":"delta","text":"lo"}));
+        assert!(map_turn_notification("item/agentMessage/delta", &json!({"delta":""}), &mut st).is_empty());
 
         let e3 = map_turn_notification(
             "item/completed",
@@ -909,6 +1128,23 @@ mod tests {
         );
         assert_eq!(e4[0]["kind"], "done");
         assert_eq!(e4[0]["ok"], true);
+    }
+
+    #[test]
+    fn agent_message_stream_payload_is_linear() {
+        let mut state = TurnMapState::default();
+        let mut text = String::new();
+        let mut bytes = 0;
+        for _ in 0..10_000 {
+            let events = map_turn_notification(
+                "item/agentMessage/delta", &json!({"delta":"abcdefghij"}), &mut state,
+            );
+            assert_eq!(events[0]["kind"], "delta");
+            text.push_str(events[0]["text"].as_str().unwrap());
+            bytes += serde_json::to_vec(&events[0]).unwrap().len();
+        }
+        assert_eq!(text, "abcdefghij".repeat(10_000));
+        assert!(bytes < 500_000, "serialized {bytes} bytes for 100 kB of text");
     }
 
     #[test]
@@ -1086,6 +1322,57 @@ mod tests {
         assert_eq!(image[0]["name"], "image_generation");
         assert_eq!(image[0]["status"], "completed");
         assert_eq!(image[0]["output"], "/tmp/map.png");
+        assert_eq!(image[0]["input"]["path"], "/tmp/map.png");
+        assert_eq!(image[0]["input"]["paths"], json!(["/tmp/map.png"]));
+    }
+
+    #[test]
+    fn image_generation_without_artifact_is_an_explicit_durable_failure() {
+        let mut st = TurnMapState::default();
+        let events = map_turn_notification(
+            "item/completed",
+            &json!({"item":{
+                "id":"image-missing", "type":"imageGeneration", "status":"completed",
+                "revisedPrompt":"Scientific map"
+            }}),
+            &mut st,
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["status"], "failed");
+        assert_eq!(events[0]["input"]["paths"], Value::Null);
+        assert_eq!(events[0]["input"]["error"], events[0]["output"]);
+        assert!(events[0]["output"].as_str().unwrap().contains("introuvable"));
+        assert!(events[0]["detail"].as_str().unwrap().contains("Scientific map"));
+    }
+
+    #[test]
+    fn image_generation_accepts_only_absolute_paths_and_preserves_native_failure() {
+        let mut st = TurnMapState::default();
+        let non_local = map_turn_notification(
+            "item/completed",
+            &json!({"item":{
+                "id":"image-url", "type":"imageGeneration", "status":"completed",
+                "savedPath":"file:///tmp/map.png", "result":"blob:image-1"
+            }}),
+            &mut st,
+        );
+        assert_eq!(non_local[0]["status"], "failed");
+        assert!(non_local[0]["output"].as_str().unwrap().contains("introuvable"));
+        assert_eq!(non_local[0]["input"]["paths"], Value::Null);
+
+        let native_failure = map_turn_notification(
+            "item/completed",
+            &json!({"item":{
+                "id":"image-limit", "type":"imageGeneration", "status":"failed",
+                "failure":{"type":"usageLimitExceeded","limitId":"codex-image"}
+            }}),
+            &mut st,
+        );
+        assert_eq!(native_failure[0]["status"], "failed");
+        assert!(native_failure[0]["output"].as_str().unwrap().contains("usageLimitExceeded"));
+        assert!(native_failure[0]["output"].as_str().unwrap().contains("codex-image"));
+        assert!(!native_failure[0]["output"].as_str().unwrap().contains("introuvable"));
+        assert_eq!(native_failure[0]["input"]["error"], native_failure[0]["output"]);
     }
 
     #[test]

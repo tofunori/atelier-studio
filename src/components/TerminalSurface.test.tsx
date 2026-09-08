@@ -26,16 +26,16 @@ describe("TerminalSurface", () => {
 
     const terminalOne = await screen.findByRole("tab", { name: `${t("atelier.terminal")} 1` });
     expect(terminalOne.closest(".term-tabs")).toBeInTheDocument();
-    expect(terminalOne).toHaveClass("is-active");
+    expect(terminalOne).toHaveAttribute("data-active");
 
     fireEvent.click(screen.getByTitle(t("action.new-terminal")));
     const terminalTwo = await screen.findByRole("tab", { name: `${t("atelier.terminal")} 2` });
-    await waitFor(() => expect(terminalTwo).toHaveClass("is-active"));
-    expect(terminalOne).not.toHaveClass("is-active");
+    await waitFor(() => expect(terminalTwo).toHaveAttribute("data-active"));
+    expect(terminalOne).not.toHaveAttribute("data-active");
 
     fireEvent.click(terminalOne);
-    expect(terminalOne).toHaveClass("is-active");
-    expect(terminalTwo).not.toHaveClass("is-active");
+    expect(terminalOne).toHaveAttribute("data-active");
+    expect(terminalTwo).not.toHaveAttribute("data-active");
   });
 
   it("runs a Narval bootstrap command once the PTY reports ready", async () => {

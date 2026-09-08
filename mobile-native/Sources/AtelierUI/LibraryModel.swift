@@ -33,7 +33,7 @@ struct LibraryNote: Codable, Identifiable {
     var collections: [LibraryCollection] = []
     var selectedCollection = 0
     private var refreshID = UUID()
-    private var loadedCollection = 0
+    private var displayedCollection = 0
     var busy = false
     var error: String?
     private let folder: URL?
@@ -47,7 +47,9 @@ struct LibraryNote: Codable, Identifiable {
     func refresh(using gallery: GalleryModel) async {
         let id = UUID(); refreshID = id
         let collection = selectedCollection
-        if collection != loadedCollection {
+        let revision = gallery.connectionRevision
+        if collection != displayedCollection {
+            displayedCollection = collection
             articles = []
             if collection == 0, let folder { articles = (try? JSONDecoder().decode([LibraryArticle].self, from: Data(contentsOf: folder.appendingPathComponent("articles.json")))) ?? [] }
         }
@@ -57,10 +59,13 @@ struct LibraryNote: Codable, Identifiable {
             struct Payload: Decodable { let items: [LibraryArticle]; let collections: [LibraryCollection] }
             let data = try await gallery.chatRequest(["zotero"], query: collection == 0 ? [] : [URLQueryItem(name: "collectionId", value: String(collection))])
             let fresh = try JSONDecoder().decode(Payload.self, from: data)
-            guard refreshID == id else { return }
+            guard refreshID == id, !Task.isCancelled, selectedCollection == collection, gallery.connectionRevision == revision else { return }
             if collection == 0 { try store(JSONEncoder().encode(fresh.items), name: "articles.json") }
-            articles = fresh.items; collections = fresh.collections; loadedCollection = collection
-        } catch { if refreshID == id { self.error = error.localizedDescription } }
+            articles = fresh.items; collections = fresh.collections
+        } catch {
+            if refreshID == id, !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled,
+               selectedCollection == collection, gallery.connectionRevision == revision { self.error = error.localizedDescription }
+        }
     }
     func open(_ article: LibraryArticle, workspace: WorkspaceModel) async throws {
         let name = "\(article.key).pdf"
@@ -111,9 +116,11 @@ struct LibraryNote: Codable, Identifiable {
 
 struct NativeLibraryView: View {
     let workspace: WorkspaceModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var query = ""
     @State private var opening: String?
     @State private var selected: LibraryArticle?
+    private var refreshKey: String { "\(workspace.surface == .articles && scenePhase == .active)-\(workspace.library.selectedCollection)-\(workspace.gallery.connectionRevision)" }
     var body: some View {
         @Bindable var library = workspace.library
         List {
@@ -142,7 +149,10 @@ struct NativeLibraryView: View {
         }
         .searchable(text: $query, prompt: "Titre, auteur, année")
         .refreshable { await library.refresh(using: workspace.gallery) }
-        .task(id: library.selectedCollection) { await library.refresh(using: workspace.gallery) }
+        .task(id: refreshKey) {
+            guard workspace.surface == .articles, scenePhase == .active else { return }
+            await library.refresh(using: workspace.gallery)
+        }
         .sheet(item: $selected) { article in
             NavigationStack {
                 List {

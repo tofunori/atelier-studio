@@ -16,8 +16,7 @@
 // tout seul. Le texte complet reste disponible via `title` en cas de coupure.
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRef } from "react";
-import { EmptyState, RowButton, StatusBadge } from "../../ui";
-import { Select } from "../../Select";
+import { EmptyState, RowButton, Select, StatusBadge } from "../../ui";
 import { ProviderIcon, StarIcon } from "../../icons";
 import { t } from "../../../lib/i18n";
 import type { ModelRow } from "./buildModelRows";

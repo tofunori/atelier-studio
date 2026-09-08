@@ -56,8 +56,11 @@ const FINISH_CATCHUP_MS = 300;
  * rangée (stable au remplacement depuis le fix du flash) porte le compte
  * d'un composant à l'autre. */
 const handoffs = new Map<string, number>();
+const MAX_HANDOFFS = 256;
 export function publishStreamHandoff(key: string, revealed: number): void {
+  handoffs.delete(key);
   handoffs.set(key, revealed);
+  if (handoffs.size > MAX_HANDOFFS) handoffs.delete(handoffs.keys().next().value!);
 }
 export function takeStreamHandoff(key: string): number | null {
   const value = handoffs.get(key);
@@ -136,7 +139,7 @@ export function paceStep(p: StreamPace, full: string, now: number, finishing = f
  * sauts, pas de streaming. On découple donc le rythme réseau du rythme visuel
  * (même principe que smoothStream du Vercel AI SDK) : le texte cible
  * s'accumule, une boucle rAF révèle le retard au débit d'arrivée estimé
- * (voir paceStep). Fin de tour : flush immédiat. Au montage, le texte déjà
+ * (voir paceStep). Fin de tour : finition progressive. Au montage, le texte déjà
  * présent s'affiche sans replay (reprise de fil). Sous
  * prefers-reduced-motion, aucun typewriter : le texte brut passe tel quel. */
 export function useSmoothedStream(text: string, working: boolean, handoffKey?: string): string {
@@ -150,16 +153,20 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
     // et re-taper tout le bloc à chaque fois serait pire que tout. Texte
     // final : reprendre le compte relayé par la bulle qui vient de mourir,
     // sinon tout afficher (relecture d'un vieux message).
-    const initial = working
+    // Read without consuming during render: StrictMode can render twice,
+    // and virtualization can remount a live row with the same identity.
+    const previous = handoffKey != null ? handoffs.get(handoffKey) : undefined;
+    const initial = previous != null ? Math.min(previous, text.length) : working
       ? (handoffKey != null ? Math.max(0, text.length - MOUNT_TAIL_CHARS) : text.length)
-      : (handoffKey != null ? takeStreamHandoff(handoffKey) : null) ?? text.length;
+      : text.length;
     pace.current = newStreamPace(initial);
   }
   const target = useRef(text);
   const active = useRef(working);
   active.current = working;
   const frame = useRef<number | null>(null);
-  const [, force] = useState(0);
+  const [published, setPublished] = useState(pace.current.revealed);
+  const lastPublishAt = useRef<number | null>(null);
   target.current = text;
 
   useEffect(() => () => {
@@ -169,13 +176,30 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
   useEffect(() => {
     if (reduceMotion) return;
     const p = pace.current!;
+    // Un snapshot corrigé peut raccourcir la cible entre deux publications.
+    // Le moteur l'a alors déjà atteinte et n'aura aucun pas pour la publier.
+    if (p.revealed >= text.length) {
+      p.revealed = text.length;
+      p.fractional = 0;
+      setPublished(text.length);
+      if (handoffKey != null) {
+        if (working) publishStreamHandoff(handoffKey, text.length);
+        else handoffs.delete(handoffKey);
+      }
+    }
     if (working) paceGrowth(p, text.length, performance.now());
     const tick = (time: number) => {
       frame.current = null;
       const finishing = !active.current;
-      if (paceStep(p, target.current, time, finishing)) {
-        if (!finishing && handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
-        force((n) => n + 1);
+      const advanced = paceStep(p, target.current, time, finishing);
+      // Le moteur suit les frames ; React/Markdown publient au plus à 25 Hz
+      // pendant le rattrapage. Le premier pas et la cible atteinte passent
+      // immédiatement, sans ajouter de délai aux petits paquets.
+      if (advanced && (lastPublishAt.current == null || time - lastPublishAt.current >= 40
+        || p.revealed >= target.current.length)) {
+        lastPublishAt.current = time;
+        if (handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
+        setPublished(p.revealed);
       }
       if (p.revealed < target.current.length) {
         frame.current = requestAnimationFrame(tick);
@@ -191,5 +215,5 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
   }, [text, working, reduceMotion, handoffKey]);
 
   if (reduceMotion) return text;
-  return text.slice(0, Math.min(pace.current.revealed, text.length));
+  return text.slice(0, Math.min(published, text.length));
 }

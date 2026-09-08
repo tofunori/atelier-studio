@@ -5,6 +5,7 @@ public struct AtelierRootView: View {
     @State private var workspace = WorkspaceModel(resumeStore: ChatResumeStore.live())
     @AppStorage("atelier.lastTab") private var lastTab = "chat"
     @State private var restoredTab = false
+    @State private var visitedSurfaces: Set<WorkspaceModel.Surface> = [.chat]
     @State private var showAbout = false
     @AppStorage("atelier.appearance") private var appearance = "system"
     @AppStorage("atelier.accent") private var accent = "sage"
@@ -26,8 +27,10 @@ public struct AtelierRootView: View {
         .transaction { if systemReduceMotion || motion == "off" { $0.animation = nil } }
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .onChange(of: workspace.surface) { _, surface in
+            visitedSurfaces.insert(surface)
             workspace.scheduleDocumentResume()
             if surface == .chat { lastTab = "chat" }
+            else if surface == .calculations { lastTab = "calculations" }
             else if surface == .articles || (surface == .document && workspace.documentOrigin == .articles) { lastTab = "articles" }
             else { lastTab = "gallery" }
         }
@@ -36,8 +39,12 @@ public struct AtelierRootView: View {
             workspace.chat.galleryProjectID = project; workspace.chat.scheduleSave()
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .background { workspace.chat.sceneDidEnterBackground() }
             if phase != .active { Task { await workspace.chat.flushResume(); await workspace.flushDocumentResume() } }
-            else { Task { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) } }
+            else {
+                workspace.chat.sceneDidBecomeActive()
+                Task { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) }
+            }
         }
         .onOpenURL { url in
             Task { await connect(url.absoluteString) }
@@ -72,7 +79,7 @@ public struct AtelierRootView: View {
             let documentVisible = !restoredTab && !ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") ? await workspace.restoreDocument() : false
             if !restoredTab {
                 restoredTab = true
-                workspace.surface = documentVisible ? .document : desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
+                workspace.surface = documentVisible ? .document : desiredTab == "calculations" ? .calculations : desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
             }
             #if targetEnvironment(simulator)
             let arguments = ProcessInfo.processInfo.arguments
@@ -125,16 +132,28 @@ public struct AtelierRootView: View {
                 if sizeClass != .regular {
                     chatStack.surfaceVisibility(workspace.surface == .chat)
                 }
+                if visitedSurfaces.contains(.gallery) || workspace.surface == .gallery || (sizeClass == .regular && workspace.surface == .chat) {
                 NavigationStack {
                     NativeGalleryView(workspace: workspace)
                         .navigationTitle("Galerie").navigationBarTitleDisplayMode(.inline)
                         .toolbar { workspaceToolbar }
                 }.surfaceVisibility(workspace.surface == .gallery || (sizeClass == .regular && workspace.surface == .chat))
+                }
+                if visitedSurfaces.contains(.articles) || workspace.surface == .articles {
                 NavigationStack {
                     NativeLibraryView(workspace: workspace)
                         .navigationTitle("Articles").navigationBarTitleDisplayMode(.inline)
                         .toolbar { workspaceToolbar }
                 }.surfaceVisibility(workspace.surface == .articles)
+                }
+                if visitedSurfaces.contains(.calculations) || workspace.surface == .calculations {
+                NavigationStack {
+                    NativeCalculationsView(workspace: workspace)
+                        .navigationTitle("Calculs").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .topBarLeading) { sidebarButton } }
+                }.surfaceVisibility(workspace.surface == .calculations)
+                }
+                if visitedSurfaces.contains(.document) || workspace.surface == .document {
                 NavigationStack {
                     NativeDocumentView(workspace: workspace)
                         .navigationBarTitleDisplayMode(.inline)
@@ -152,6 +171,7 @@ public struct AtelierRootView: View {
                             }
                         }
                 }.surfaceVisibility(workspace.surface == .document)
+                }
             }
         }
     }
@@ -161,6 +181,9 @@ public struct AtelierRootView: View {
             NativeChatView(workspace: workspace)
                 .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        ChatConnectionTitle(chat: workspace.chat)
+                    }
                     ToolbarItem(placement: .topBarLeading) { sidebarButton }
                 }
         }
@@ -189,3 +212,41 @@ private extension View {
 }
 
 #Preview("Atelier natif") { AtelierRootView() }
+
+private struct ChatConnectionTitle: View {
+    let chat: RemoteChatModel
+    @State private var showingDetails = false
+    private var color: Color {
+        switch chat.connection {
+        case .live: return .green
+        case .connecting, .reconnecting: return .orange
+        case .associationRequired: return .red
+        case .idle: return .secondary
+        }
+    }
+    var body: some View {
+        Button { showingDetails = true } label: {
+            HStack(spacing: 7) {
+                Circle().fill(color).frame(width: 6, height: 6)
+                Text(chat.title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+            }.frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(chat.title + ", " + chat.connectionLabel)
+        .accessibilityHint("Afficher les détails de connexion")
+        .popover(isPresented: $showingDetails) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(chat.connectionLabel).font(.subheadline.weight(.medium))
+                if let detail = chat.connectionError {
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if chat.connection == .reconnecting || chat.connection == .idle {
+                    Button("Réessayer", systemImage: "arrow.clockwise") { chat.reconnect(); showingDetails = false }
+                        .font(.subheadline)
+                }
+            }
+            .padding(16).frame(width: 260)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}

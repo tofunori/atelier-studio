@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderUi } from "../../test/render";
 import type { QueuedTurn } from "../../lib/chatDraftStore";
@@ -59,7 +59,7 @@ describe("QueuedTurns", () => {
     expect(onReorder).toHaveBeenCalledWith("q-1", "q-2");
   });
 
-  it("garde Steer direct et place Modifier dans le menu secondaire", () => {
+  it("garde Steer direct et place Modifier dans le menu secondaire", async () => {
     const onSteer = vi.fn();
     const onEdit = vi.fn();
     renderUi(
@@ -78,7 +78,10 @@ describe("QueuedTurns", () => {
     expect(onSteer).toHaveBeenCalledWith("q-1");
 
     fireEvent.click(screen.getByRole("button", { name: t("queue.more") }));
-    fireEvent.click(screen.getByRole("menuitem", { name: t("queue.edit") }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: t("queue.edit") }));
     expect(onEdit).toHaveBeenCalledWith("q-1");
   });
 });

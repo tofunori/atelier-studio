@@ -42,8 +42,9 @@ function paint() {
     table.replaceWith(wrapper); wrapper.append(table);
   }
   reconcile(content, next);
+  refreshReadingHighlights();
   reportHeight();
-  send({kind:'rendered'});
+  acknowledgePaint();
 }
 // Keep existing paragraphs, code blocks and text nodes during a stream.
 // Selection already pauses painting; reconciliation avoids remounting the
@@ -80,7 +81,19 @@ window.setFontSize = size => { document.documentElement.style.setProperty('--bod
 window.clearSelection = () => { window.getSelection().removeAllRanges(); paint(); };
 document.addEventListener('selectionchange', () => {
   const text = window.getSelection().toString();
-  send({kind:'selection', text});
+  const selection = window.getSelection();
+  const detail = {kind:'selection', text};
+  if (text && selection.rangeCount) {
+    const selected = selection.getRangeAt(0), index = readingIndex();
+    const matches = readingMatches(index, text);
+    const occurrence = matches.findIndex(match => {
+      const probe = document.createRange();
+      probe.setStart(...index.starts[match.start]); probe.setEnd(...index.ends[match.end - 1]);
+      return probe.compareBoundaryPoints(Range.START_TO_START, selected) === 0 && probe.compareBoundaryPoints(Range.END_TO_END, selected) === 0;
+    });
+    if (occurrence >= 0) { detail.occurrence = occurrence; detail.occurrences = matches.length; }
+  }
+  send(detail);
   if (!text) paint();
 });
 function reportHeight() { send({kind:'height', height: Math.ceil(content.getBoundingClientRect().height)}); }
@@ -97,3 +110,66 @@ window.setReadingStyle = (font, compact, contrast, reduced) => {
   document.documentElement.dataset.reducedMotion = reduced ? 'true' : 'false';
   reportHeight();
 };
+
+// UTF-16 offsets match Foundation NSRange and DOM Range offsets.
+function readingIndex() {
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  let node, text = ''; const starts = [], ends = [];
+  while ((node = walker.nextNode())) {
+    for (let offset = 0; offset < node.length; offset++) {
+      const unit = node.data[offset], whitespace = /\s/.test(unit);
+      if (whitespace && text.endsWith(' ')) { ends[ends.length - 1] = [node, offset + 1]; continue; }
+      text += whitespace ? ' ' : unit; starts.push([node, offset]); ends.push([node, offset + 1]);
+    }
+  }
+  return {text, starts, ends};
+}
+function readingMatches(index, value) {
+  const needle = value.replace(/\s+/g, ' ').trim(), matches = [];
+  if (!needle) return matches;
+  for (let from = 0; from < index.text.length;) {
+    const start = index.text.indexOf(needle, from);
+    if (start < 0) break;
+    matches.push({start, end: start + needle.length}); from = start + needle.length;
+  }
+  return matches;
+}
+let readingNotes = [], readingRanges = [];
+function refreshReadingHighlights() {
+  readingRanges = [];
+  const index = readingIndex();
+  for (const note of readingNotes) {
+    const matches = readingMatches(index, note.text);
+    if (matches.length !== note.occurrences) continue;
+    const match = matches[note.occurrence];
+    if (!match) continue;
+    const range = document.createRange();
+    range.setStart(...index.starts[match.start]); range.setEnd(...index.ends[match.end - 1]);
+    readingRanges.push({id: note.id, range, style: note.style || "highlight", ink: note.ink || "sage"});
+  }
+  if (window.CSS?.highlights && window.Highlight) {
+    for (const style of ['highlight', 'underline']) for (const ink of ['sage', 'sand', 'blue']) {
+      const key = style === 'highlight' && ink === 'sage' ? 'atelier-notes' : `atelier-${style}-${ink}`;
+      CSS.highlights.set(key, new Highlight(...readingRanges.filter(item => item.style === style && item.ink === ink).map(item => item.range)));
+    }
+  }
+}
+window.setReadingHighlights = notes => { readingNotes = notes; refreshReadingHighlights(); };
+content.addEventListener('click', event => {
+  if (!window.getSelection().isCollapsed || event.target.closest('a,button')) return;
+  for (const {id, range} of readingRanges) {
+    if ([...range.getClientRects()].some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)) {
+      send({kind: 'annotation', id}); break;
+    }
+  }
+});
+
+// Acknowledge a foreground repaint only after WebKit has had two paint frames.
+let renderedFrame;
+function acknowledgePaint() {
+  cancelAnimationFrame(renderedFrame);
+  renderedFrame = requestAnimationFrame(() => {
+    renderedFrame = requestAnimationFrame(() => { reportHeight(); send({kind:'rendered'}); });
+  });
+}
+window.resumeRendering = () => { paint(); acknowledgePaint(); };

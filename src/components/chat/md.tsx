@@ -4,6 +4,7 @@
 // le streaming (MdBody/MdBlock).
 import { memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useStreamingHighlight } from "./useStreamingHighlight";
 // `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
 // 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
 // réellement écrite ici — l'entrée crevait son budget de 950 Ko. La liste
@@ -415,9 +416,12 @@ export function renderCodeBlock(props: any, allowAuto: boolean, transient = fals
   const raw = mdText(child.children);
   const label = lang || "text";
   const languageClass = label.replace(/[^\w-]/g, "");
-  const highlighted = allowAuto || hasRegisteredLanguage(lang)
-    ? highlightCode(raw, lang, { transient })
-    : escapeHtml(raw);
+  const canHighlight = allowAuto || hasRegisteredLanguage(lang);
+  const sampled = useStreamingHighlight(raw, lang, transient && canHighlight);
+  const coloredPrefix = useMemo(() => canHighlight
+    ? highlightCode(sampled, lang, { transient })
+    : escapeHtml(sampled), [sampled, lang, transient, canHighlight]);
+  const highlighted = coloredPrefix + escapeHtml(raw.slice(sampled.length));
   return (
     <div className="codeblock not-typeset">
       <div className="codeblock-bar">

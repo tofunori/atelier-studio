@@ -10,5 +10,9 @@
   <false/>
   <key>LSUIElement</key>
   <false/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Atelier utilise le microphone uniquement lorsque vous activez la dictée pour rédiger un message.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Atelier utilise la reconnaissance vocale de macOS pour transcrire votre dictée. Selon la langue et la disponibilité locale, Apple peut traiter l’audio sur ses serveurs.</string>
 </dict>
 </plist>

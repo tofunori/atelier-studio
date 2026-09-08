@@ -3631,6 +3631,21 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
     } else {
         "thread"
     };
+    // Let the old run finish its event pump and persist its session before
+    // touching either history. Otherwise resend is treated as a steer.
+    if scope == "thread" && thread.provider == "codex"
+        && state.harness().is_running(thread_id).await
+    {
+        crate::send::handle_interrupt(state, msg).await;
+        let stopped = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while state.harness().is_running(thread_id).await {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await;
+        if stopped.is_err() {
+            return vec![err_thread(thread_id, "Codex ne s'est pas arrêté : historique conservé")];
+        }
+    }
     if let Some(sha) = msg.get("snapshotSha").and_then(Value::as_str) {
         let turn_id = msg.get("turnId").and_then(Value::as_str);
         let events = state.journal().materialize(thread_id);
@@ -3720,25 +3735,82 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
                 })
                 .filter(|event| event.get("kind").and_then(Value::as_str) == Some("user"))
                 .count();
-            truncated = state.journal().truncate_from(thread_id, &eid);
-            // Le provider doit oublier aussi : tronquer le seul journal
-            // d'Atelier laissait l'agent répondre d'après des tours qu'on
-            // croyait effacés.
-            if truncated {
+            if thread.provider == "codex" {
+                let events = state.journal().materialize(thread_id);
+                let Some(target) = events.iter().position(|event|
+                    event.pointer("/meta/eventId").and_then(Value::as_str) == Some(&eid)
+                        && event["kind"] == "user") else {
+                    return vec![err_thread(thread_id, "Message introuvable : historique conservé")];
+                };
+                let turn_id = events[target].pointer("/meta/turnId").and_then(Value::as_str);
+                // Codex rolls back whole turns. Editing a steer halfway
+                // through a turn must not silently erase its initial prompt.
+                if turn_id.is_some() && events[..target].iter().any(|event|
+                    event["kind"] == "user"
+                        && event.pointer("/meta/turnId").and_then(Value::as_str) == turn_id)
+                {
+                    return vec![err_thread(thread_id,
+                        "Ce message a été ajouté pendant une réponse. Modifiez le premier message de ce tour.")];
+                }
+                let native_id = turn_id.and_then(|turn| events.iter().find_map(|event| {
+                    (event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn))
+                        .then(|| event.pointer("/meta/nativeTurnId").and_then(Value::as_str))
+                        .flatten()
+                }));
+                let session_id = state.threads().lock().await.get(thread_id)
+                    .and_then(|thread| thread.session_id.clone());
+                let Some(provider) = state.provider("codex") else {
+                    return vec![err_thread(thread_id, "Provider Codex indisponible")];
+                };
+                let prepared = match provider.rewind_session(
+                    thread_id, session_id.as_deref(), prompt_index, native_id,
+                ).await {
+                    Ok(prepared) => prepared,
+                    Err(error) => return vec![err_thread(thread_id, error)],
+                };
+                let Some(new_session) = prepared["sessionId"].as_str() else {
+                    return vec![err_thread(thread_id, "Session corrigée absente")];
+                };
+                let mut store = state.threads().lock().await;
+                let original = store.get(thread_id).cloned();
+                let restore = original.as_ref().map(|original| json!({"id":thread_id,
+                    "sessionId":original.session_id,
+                    "blocksSeededFor":original.extra.get("blocksSeededFor"),
+                    "forkPending":original.extra.get("forkPending")}));
+                let patch = json!({"id":thread_id,"sessionId":new_session,
+                    "blocksSeededFor": if prepared["preservesContext"] == true { json!(new_session) } else { Value::Null },
+                    "forkPending":false});
+                if let Err(error) = store.upsert(patch, false) {
+                    // upsert updates memory before persistence; restore it even
+                    // when the underlying disk remains unavailable.
+                    if let Some(restore) = restore { let _ = store.upsert(restore, false); }
+                    return vec![err_thread(thread_id, error.to_string())];
+                }
+                truncated = state.journal().truncate_from(thread_id, &eid);
+                if !truncated {
+                    if let Some(restore) = restore {
+                        if let Err(error) = store.upsert(restore, false)
+                        {
+                            return vec![err_thread(thread_id, format!("Échec de synchronisation de la session : {error}"))];
+                        }
+                    }
+                }
+            } else {
+                truncated = state.journal().truncate_from(thread_id, &eid);
+            }
+            if truncated && thread.provider != "codex" {
                 if let Some(provider) = state.provider(&thread.provider) {
-                    match provider.rewind(thread_id, prompt_index).await {
-                        Ok(_) => {}
-                        Err(error) => tracing::info!(
-                            provider = %thread.provider,
-                            error = %error,
-                            "rewind natif indisponible : seul le journal Atelier est tronqué"
-                        ),
+                    if let Err(error) = provider.rewind(thread_id, prompt_index).await {
+                        tracing::info!(provider = %thread.provider, error = %error,
+                            "rewind natif indisponible : seul le journal Atelier est tronqué");
                     }
                 }
             }
         }
     }
-    let _ = truncated;
+    if thread.provider == "codex" && !truncated {
+        return vec![err_thread(thread_id, "Message introuvable : historique conservé")];
+    }
     let out = json_msg(json!({"type":"reverted","threadId": thread_id,"scope":"thread"}));
     let mut replies = broadcast_threads(state).await;
     replies.insert(0, out);
@@ -5620,6 +5692,21 @@ mod tests {
     /// question) : périmètre vide mais connu → aucune restauration globale,
     /// donc pas de « restauration refusée » à cause d'un fichier créé
     /// ailleurs dans le dépôt entre-temps.
+    #[tokio::test]
+    async fn codex_revert_failure_preserves_journal_and_never_acks_success() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        s.threads().lock().await.upsert(json!({"id":"edit", "provider":"codex"}), false).unwrap();
+        s.journal().append(&json!({"kind":"user", "text":"original",
+            "meta":{"eventId":"user", "threadId":"edit", "turnId":"turn", "sequence":1, "durable":true}}));
+        let before = s.journal().materialize("edit");
+        for event_id in ["user", "missing"] {
+            let replies = handle_revert(&s, &json!({"threadId":"edit", "eventId":event_id})).await;
+            assert_eq!(serde_json::from_str::<Value>(&replies[0]).unwrap()["type"], "error");
+            assert_eq!(s.journal().materialize("edit"), before);
+        }
+    }
+
     #[tokio::test]
     async fn revert_dun_tour_sans_fichier_ne_refuse_pas_sur_creation_etrangere() {
         let dir = tempdir().unwrap();

@@ -7,7 +7,7 @@ struct LatexReadingBlock: Identifiable {
     let firstLine: Int
     let lastLine: Int
 
-    func selectedSource(_ selected: String) -> (text: String, firstLine: Int, lastLine: Int)? {
+    func selectedSource(_ selected: String, occurrence: Int? = nil, occurrences: Int? = nil, anchor: NSRange? = nil) -> (text: String, firstLine: Int, lastLine: Int, range: NSRange, occurrence: Int, occurrences: Int)? {
         let raw = source as NSString
         let units = Array(source.utf16)
         var excluded = Set<Int>()
@@ -28,9 +28,24 @@ struct LatexReadingBlock: Identifiable {
         let needle = selected.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
             .replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
         guard !needle.isEmpty else { return nil }
-        let found = normalized.range(of: needle)
-        guard found.location != NSNotFound, NSMaxRange(found) <= offsets.count,
-              normalized.range(of: needle, range: NSRange(location: NSMaxRange(found), length: normalized.length - NSMaxRange(found))).location == NSNotFound else { return nil }
+        var matches: [NSRange] = [], cursor = 0
+        while cursor < normalized.length {
+            let found = normalized.range(of: needle, range: NSRange(location: cursor, length: normalized.length - cursor))
+            if found.location == NSNotFound { break }
+            matches.append(found); cursor = NSMaxRange(found)
+        }
+        let index: Int
+        if let anchor {
+            guard let found = matches.firstIndex(where: { offsets[$0.location] == anchor.location }) else { return nil }
+            index = found
+        } else if let occurrence, let occurrences {
+            guard occurrences == matches.count, matches.indices.contains(occurrence) else { return nil }
+            index = occurrence
+        } else {
+            guard matches.count == 1 else { return nil }; index = 0
+        }
+        let found = matches[index]
+        guard NSMaxRange(found) <= offsets.count else { return nil }
         let start = offsets[found.location]
         var end = offsets[NSMaxRange(found) - 1] + 1
         var span = raw.substring(with: NSRange(location: start, length: end-start))
@@ -45,7 +60,7 @@ struct LatexReadingBlock: Identifiable {
             if depth < 0 { return nil }
         }
         let first = firstLine + raw.substring(to: start).filter { $0.isNewline }.count
-        return (span, first, first + span.dropLast().filter { $0.isNewline }.count)
+        return (span, first, first + span.dropLast().filter { $0.isNewline }.count, NSRange(location: start, length: end-start), index, matches.count)
     }
 
     static func parse(_ source: String) -> [Self] {
@@ -98,15 +113,15 @@ struct LatexReadingView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 ForEach(LatexReadingBlock.parse(workspace.source)) { block in
-                    RichChatText(text: block.display, quoteTitle: "Annoter") { selected in
-                        guard let source = block.selectedSource(selected) else { selectionError = true; return }
-                        workspace.annotationDraft = AnnotationDraft(passage: DocumentPassage(documentID: workspace.documentID, fileName: workspace.sourceName,
-                            location: source.firstLine == source.lastLine ? "ligne \(source.firstLine)" : "lignes \(source.firstLine)–\(source.lastLine)", text: source.text))
-                    }
-                        .contextMenu {
-                            Button("Annoter ce paragraphe", systemImage: "highlighter") { annotate(block) }
-                            Button("Reformuler avec l’agent", systemImage: "pencil.and.outline") { annotate(block, rewrite: true) }
-                        }
+                    RichChatText(text: block.display, documentStyle: true,
+                        onSelection: { use($0, in: block, annotate: false) },
+                        onAnnotate: { use($0, in: block, annotate: true) },
+                        highlights: highlights(in: block),
+                        onHighlight: { id in
+                            if let note = workspace.documentReadingNotes.first(where: { $0.id.uuidString == id }) {
+                                workspace.annotationDraft = workspace.readingDraft(for: note)
+                            }
+                        }, onQuote: { use(RichTextSelection(text: $0), in: block, annotate: false) })
                 }
                 Text("Lecture simplifiée · les références gardent leurs clés LaTeX. Les citations conservent le texte source.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -132,11 +147,29 @@ struct LatexReadingView: View {
             Button("Annuler", role: .cancel) {}
         } message: { Text("Ce passage ne correspond pas à une portion unique du LaTeX. Sélectionnez un passage plus long, ou annotez-le dans la source.") }
     }
-    private func annotate(_ block: LatexReadingBlock, rewrite: Bool = false) {
+    private func blockOffset(_ block: LatexReadingBlock) -> Int {
+        workspace.source.components(separatedBy: "\n").prefix(block.firstLine - 1).reduce(0) { $0 + $1.utf16.count + 1 }
+    }
+    private func use(_ selection: RichTextSelection, in block: LatexReadingBlock, annotate: Bool) {
+        guard let source = block.selectedSource(selection.text, occurrence: selection.occurrence, occurrences: selection.occurrences) else {
+            selectionError = true; return
+        }
         let passage = DocumentPassage(documentID: workspace.documentID, fileName: workspace.sourceName,
-            location: block.firstLine == block.lastLine ? "ligne \(block.firstLine)" : "lignes \(block.firstLine)–\(block.lastLine)", text: block.source)
-        let draft = AnnotationDraft(passage: passage)
-        if rewrite { draft.note = "Propose une reformulation de ce passage en conservant son sens et ses commandes LaTeX. Donne le remplacement dans un bloc latex, sans modifier le fichier avant ma validation." }
-        workspace.annotationDraft = draft
+            location: source.firstLine == source.lastLine ? "ligne \(source.firstLine)" : "lignes \(source.firstLine)–\(source.lastLine)",
+            text: source.text, sourceRange: NSRange(location: blockOffset(block) + source.range.location, length: source.range.length), selectedText: selection.text)
+        if annotate { workspace.annotationDraft = AnnotationDraft(passage: passage) }
+        else { workspace.addDocumentPassageToChat(passage) }
+    }
+    private func highlights(in block: LatexReadingBlock) -> [RichTextHighlight] {
+        let offset = blockOffset(block)
+        return workspace.documentReadingNotes.compactMap { note in
+            guard let range = note.resolvedRange(in: workspace.source), range.location >= offset,
+                  NSMaxRange(range) <= offset + block.source.utf16.count else { return nil }
+            if let mapped = block.selectedSource(note.selectedText,
+                anchor: NSRange(location: range.location - offset, length: range.length)), mapped.range.length == range.length {
+                return RichTextHighlight(id: note.id.uuidString, text: note.selectedText, occurrence: mapped.occurrence, occurrences: mapped.occurrences, style: note.style, ink: note.color)
+            }
+            return nil
+        }
     }
 }

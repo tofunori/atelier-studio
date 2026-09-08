@@ -26,8 +26,7 @@ import {
   AlertDialogTrigger,
 } from "./shadcn/alert-dialog";
 import { Alert, AlertDescription } from "./shadcn/alert";
-import { Badge } from "./shadcn/badge";
-import { Button } from "./shadcn/button";
+import { Button, StatusBadge } from "./ui";
 import {
   Collapsible,
   CollapsibleContent,
@@ -235,7 +234,7 @@ export function RemoteDevicesPanel(p: Props) {
             </div>
           </div>
         </div>
-        <Button size="sm" disabled={busy || (!native && !admin)} onClick={() => void startPairing()}>
+        <Button variant="primary" size="sm" disabled={busy || (!native && !admin)} onClick={() => void startPairing()}>
           {busy ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
           Ajouter
         </Button>
@@ -284,18 +283,9 @@ export function RemoteDevicesPanel(p: Props) {
                   {connected ? "Actif maintenant" : `Vu ${relativeLastSeen(device.lastSeenAt).toLocaleLowerCase("fr-CA")}`}
                 </div>
               </div>
-              <Badge
-                variant="ghost"
-                className={connected ? "tw:text-[var(--status-success)]" : "tw:text-muted-foreground"}
-              >
-                <span
-                  data-icon="inline-start"
-                  className={connected
-                    ? "tw:size-1.5 tw:rounded-full tw:bg-[var(--status-success)]"
-                    : "tw:size-1.5 tw:rounded-full tw:bg-muted-foreground"}
-                />
+              <StatusBadge status={connected ? "success" : "neutral"}>
                 {connected ? "Connecté" : "Appairé"}
-              </Badge>
+              </StatusBadge>
               <AlertDialog>
                 <AlertDialogTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Oublier ${device.name}`} />}>
                   <Trash2Icon />
@@ -376,8 +366,8 @@ export function RemoteDevicesPanel(p: Props) {
                 <div className="tw:font-mono tw:text-2xl tw:font-semibold tw:tracking-[0.16em] tw:text-foreground">
                   {pairingCode}
                 </div>
-                <Badge variant="secondary">Expire dans {secondsLeft} s</Badge>
-                {pairingUrl && <Button onClick={() => void navigator.clipboard.writeText(pairingUrl)}>Copier le lien de connexion</Button>}
+                <StatusBadge status="warning">Expire dans {secondsLeft} s</StatusBadge>
+                {pairingUrl && <Button variant="primary" onClick={() => void navigator.clipboard.writeText(pairingUrl)}>Copier le lien de connexion</Button>}
               </>
             ) : (
               <Spinner />

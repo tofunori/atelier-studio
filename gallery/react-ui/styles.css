@@ -156,9 +156,6 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 }
 
 /* One quiet row: location, space, then four controls. */
-.gallery-command-bar[data-gallery-toolbar-state="normal"] { gap:12px; }
-.gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-command-group { flex:0 0 auto;gap:8px; }
-.gallery-command-bar [data-project-folder-menu] { flex:0 1 auto;min-width:0;max-width:min(240px,40vw)!important; }
 .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-filter-label { display:inline; }
 .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-view-label { display:none; }
 .gallery-filter-shortcuts { display:flex;flex-wrap:wrap;gap:4px;padding:8px; }
@@ -166,10 +163,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-filter-popover .gallery-active-filters { display:flex;flex-wrap:wrap;max-width:none;padding:8px 12px; }
 .gallery-filter-popover .gallery-active-filters:empty { display:none; }
 @media (max-width:480px) {
-  .gallery-command-bar[data-gallery-toolbar-state="normal"] { gap:6px; }
-  .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-command-group { gap:4px; }
   .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-filter-label { display:none; }
-  .gallery-command-bar [data-project-folder-menu] { max-width:40vw!important; }
   .gallery-command-bar:has([data-project-folder-menu]) .gallery-selection-inline { display:none; }
   .gallery-command-bar:has([data-project-folder-menu]) .gallery-selection-overflow { display:block; }
 }
@@ -178,7 +172,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
    with actions. The embedded host reserves its own controls at the right. */
 .gallery-command-bar[data-gallery-toolbar-state="normal"] { gap:6px; }
 .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-command-group { gap:4px;flex:0 0 auto; }
-.gallery-command-bar[data-gallery-toolbar-state="normal"] button { position:relative;width:36px;height:36px;padding:0;flex:0 0 auto;border-radius:6px; }
+.gallery-command-bar[data-gallery-toolbar-state="normal"] button { position:relative;width:36px;height:36px;padding:0;flex:0 0 auto;border-radius:var(--radius-control); }
 .gallery-command-bar [data-project-folder-menu] { width:44px!important;max-width:44px!important;flex:none!important;gap:4px; }
 .gallery-command-bar [data-project-folder-menu] svg:last-child { width:11px; }
 .gallery-command-bar button:active { transform:scale(.96); }
@@ -186,7 +180,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-command-bar[data-gallery-toolbar-state="normal"] button[aria-pressed="true"],
 .gallery-command-bar[data-gallery-toolbar-state="normal"] button[data-popup-open] { color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent); }
 .gallery-filter-count { position:absolute;right:0;top:0;min-width:13px;height:13px;line-height:13px;font-size:9px;font-weight:500;border-radius:8px;background:var(--primary);color:var(--primary-foreground); }
-.gallery-view-switch { display:flex;gap:2px;padding:2px;border-radius:7px;background:color-mix(in srgb,var(--foreground) 4%,transparent);flex:none; }
+.gallery-view-switch { display:flex;gap:2px;padding:2px;border-radius:var(--radius-control);background:color-mix(in srgb,var(--foreground) 4%,transparent);flex:none; }
 .gallery-command-bar .gallery-view-switch button { width:30px;height:30px;padding:0; }
 .gallery-compact-filters { display:flex;flex-direction:column;gap:9px;padding:4px 14px 14px;font-size:var(--fs-body-s, 12px); }
 .gallery-filter-field { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px; }
@@ -227,7 +221,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 
 /* Unlayered gallery defaults must not turn subtle menu actions into framed
    buttons. Scope the reset here; do not change the app's shared primitives. */
-.gallery-filter-popover { font-size:var(--fs-body-s, 12px);font-weight:400;line-height:1.45;border:0;box-shadow:0 8px 28px #0004,0 0 0 1px color-mix(in srgb,var(--foreground) 7%,transparent); }
+.gallery-filter-popover { font-size:var(--fs-body-s, 12px);font-weight:400;line-height:1.45;border:0;box-shadow:var(--elevation-overlay),0 0 0 1px color-mix(in srgb,var(--foreground) 7%,transparent); }
 .gallery-filter-panel-head { padding:10px 14px 5px;min-height:32px; }
 .gallery-filter-panel-head [data-slot="popover-title"] { font-size:var(--fs-body-s, 12px);font-weight:500;letter-spacing:0; }
 .gallery-filter-popover [data-slot="button"] { border:0;background:transparent;box-shadow:none;font-size:var(--fs-label, 11px);font-weight:400;height:26px;padding:4px 7px;border-radius:5px; }
@@ -249,7 +243,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-filter-popover [data-slot="switch"][data-checked] { background:var(--primary); }
 .gallery-filter-popover [data-slot="switch-thumb"] { position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--foreground);transform:none; }
 .gallery-filter-popover [data-slot="switch-thumb"][data-checked] { transform:translateX(12px);background:var(--primary-foreground); }
-.gallery-filter-select,.gallery-refined-menu { border:0;border-radius:7px;background:var(--popover);padding:4px;font-size:var(--fs-body-s, 12px);font-weight:400;box-shadow:0 8px 24px #0005,0 0 0 1px color-mix(in srgb,var(--foreground) 9%,transparent); }
+.gallery-filter-select,.gallery-refined-menu { border:0;border-radius:var(--radius-control);background:var(--popover);padding:4px;font-size:var(--fs-body-s, 12px);font-weight:400;box-shadow:var(--elevation-overlay),0 0 0 1px color-mix(in srgb,var(--foreground) 9%,transparent); }
 .gallery-filter-select { min-width:150px;max-width:min(280px,calc(100vw - 24px)); }
 .gallery-filter-select [data-slot="select-item"],.gallery-refined-menu [role^="menuitem"] { min-height:28px;padding:5px 26px 5px 8px;border:0;border-radius:4px;font-size:var(--fs-body-s, 12px);font-weight:400;line-height:18px;cursor:pointer; }
 .gallery-filter-select [data-slot="select-item"][data-highlighted],.gallery-refined-menu [role^="menuitem"]:is(:hover,[data-highlighted]) { background:color-mix(in srgb,var(--foreground) 7%,transparent); }

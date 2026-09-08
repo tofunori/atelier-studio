@@ -8,19 +8,13 @@ import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
 import { ProviderInfo } from "../../lib/providers";
 import { ButtonGroup } from "../shadcn/button-group";
 import { Toggle } from "../shadcn/toggle";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../shadcn/dropdown-menu";
+import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Tooltip } from "../ui/Tooltip";
 import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
-import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "../shadcn/popover";
 import { Field, FieldLabel } from "../shadcn/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
@@ -28,7 +22,8 @@ import { KbPicker, type KbBinding } from "./KbPicker";
 import { ConsigneMenu } from "./ConsigneMenu";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
-import { ArrowUpIcon, SearchIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
+import type { DictationPhase } from "./useComposerDictation";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -108,6 +103,7 @@ export function contextRingStroke(pct: number): string {
 }
 
 export function ComposerControls(p: {
+  dictation?: { available: boolean; phase: DictationPhase; toggle: () => void };
   // état composer (possédé par Chat)
   hasContent: boolean;
   provider: string;
@@ -249,7 +245,8 @@ export function ComposerControls(p: {
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement | null>(null);
   const effortMenuRef = useRef<HTMLDivElement | null>(null);
-  const effortBtnRef = useRef<HTMLButtonElement | null>(null);
+  const effortTrackRef = useRef<HTMLDivElement | null>(null);
+  const effortBtnRef = modelBtnRef;
   const [modelQuery, setModelQuery] = useState("");
   useEffect(() => {
     if (!menuOpen) {
@@ -259,9 +256,6 @@ export function ComposerControls(p: {
     const selector = provider === "opencode" ? "input[type=search]" : "button";
     modelMenuRef.current?.querySelector<HTMLElement>(selector)?.focus();
   }, [menuOpen, provider]);
-  useEffect(() => {
-    if (effortOpen) effortMenuRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
-  }, [effortOpen]);
   function menuKeys(close: () => void, anchor: React.RefObject<HTMLButtonElement | null>) {
     return (e: React.KeyboardEvent) => {
       const panel = e.currentTarget as HTMLElement;
@@ -273,39 +267,25 @@ export function ComposerControls(p: {
       else if (e.key === "Escape") { e.stopPropagation(); close(); anchor.current?.focus(); }
     };
   }
-  // anneau de contexte : popover au CLIC (décision Thierry, plan menus
-  // uniformes) — c'était le seul menu du corpus encore ouvert au survol.
-  // Fermeture au clic extérieur et à Échap, comme les autres popovers.
   const [ctxPopOpen, setCtxPopOpen] = useState(false);
-  const ctxWrapRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    if (!ctxPopOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!ctxWrapRef.current?.contains(e.target as Node)) setCtxPopOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setCtxPopOpen(false); ctxWrapRef.current?.focus(); }
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [ctxPopOpen]);
+  const contextWindow = p.usage
+    ? p.usage.window
+      ?? (model.includes("[1m]") ? 1_000_000
+        : /^grok-4\.5\b/.test(model) ? 500_000
+          : /(^|\/)(kimi-)?k3\b/.test(model) ? 1_000_000
+            : /(^|\/)kimi-for-coding/.test(model) ? 262_144
+              : 200_000)
+    : 200_000;
+  const contextPct = p.usage ? Math.min(100, Math.round((p.usage.context / contextWindow) * 100)) : 0;
+  const contextRadius = 6.5;
+  const contextCircumference = 2 * Math.PI * contextRadius;
+  const contextWindowLabel = contextWindow >= 1_000_000
+    ? `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
+    : `${Math.round(contextWindow / 1000)}k`;
   return (
     <>
         <div className="composer-bar">
           <ButtonGroup className="composer-tool-group">
-            <IconButton
-              size="s"
-              className="ghost qa-zap-btn"
-              label={t("qa.open")}
-              title={t("qa.open") + " (⌥⌘K)"}
-              onClick={() => window.dispatchEvent(new CustomEvent("quick-ask-toggle"))}
-            >
-              <ZapIcon />
-            </IconButton>
             {/* Menu.Root ne rend AUCUN élément DOM lui-même (contexte pur) — le
                 borner au trigger+content laisse KbPicker et ConsigneMenu, qui
                 portent chacun leur PROPRE Menu.Root/Popover, en simples
@@ -313,59 +293,61 @@ export function ComposerControls(p: {
                 étranger (deux Menu.Root imbriqués se disputeraient Échap et
                 la détection de clic extérieur — pas prouvé sûr, retiré). Le
                 DOM et la mise en page du groupe restent inchangés. */}
-            <DropdownMenu open={plusOpen} onOpenChange={setPlusOpen}>
-              <DropdownMenuTrigger
-                render={
-                  <IconButton
-                    size="s"
-                    className="ghost"
-                    label={t("action.add-file-image")}
-                    title={t("action.add-file-image")}
-                  >
-                    <PlusIcon />
-                  </IconButton>
-                }
-              />
-              <DropdownMenuContent side="top" align="start" sideOffset={8} className="plus-up tw:w-60">
-                <DropdownMenuItem className="mp-item" onClick={() => attachFiles()}>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                    <path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" />
-                  </svg>
-                  <span>{t("action.add-file-image")}</span>
-                </DropdownMenuItem>
-                {allowedPermissionModes.includes("plan") && (
-                <DropdownMenuCheckboxItem
-                  checked={permissionMode === "plan"}
-                  className="mp-item"
-                  onCheckedChange={(checked) => setPermissionMode(checked ? "plan" : "bypassPermissions")}
+            <LazyDropdownMenu
+              open={plusOpen}
+              onOpenChange={setPlusOpen}
+              side="top"
+              sideOffset={8}
+              align="start"
+              className="plus-up tw:w-60"
+              label={t("action.add-file-image")}
+              trigger={(
+                <IconButton
+                  size="s"
+                  className="ghost"
+                  label={t("action.add-file-image")}
+                  title={t("action.add-file-image")}
                 >
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                    <path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" />
-                  </svg>
-                  <span>{t("permission.plan")}</span>
-                </DropdownMenuCheckboxItem>
-                )}
-                <DropdownMenuCheckboxItem
-                  checked={!!p.defaults.autoReview?.enabled}
-                  className="mp-item"
-                  onCheckedChange={() => window.dispatchEvent(new CustomEvent("autoreview-toggle"))}
-                >
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-                    <path d="M5.8 8l1.6 1.6L10.5 6.3" />
-                  </svg>
-                  <span>Auto-review</span>
-                </DropdownMenuCheckboxItem>
-                {goalsSupported && p.onGoal && (
-                  <DropdownMenuItem className="mp-item" onClick={() => setGoalOpen((v) => !v)}>
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-                      <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
-                    </svg>
-                    <span>{t("goal.menu")}</span>
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <PlusIcon />
+                </IconButton>
+              )}
+              items={[
+                {
+                  key: "attach-files",
+                  className: "mp-item",
+                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" /></svg><span>{t("action.add-file-image")}</span></>,
+                  onSelect: attachFiles,
+                },
+                {
+                  key: "quick-ask",
+                  className: "mp-item",
+                  label: <><ZapIcon /><span>{t("qa.open")}</span><Kbd>⌥⌘K</Kbd></>,
+                  onSelect: () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
+                },
+                ...(allowedPermissionModes.includes("plan") ? [{
+                  key: "permission-plan",
+                  checked: permissionMode === "plan",
+                  keepOpen: false,
+                  className: "mp-item",
+                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span></>,
+                  onSelect: () => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan"),
+                }] : []),
+                {
+                  key: "auto-review",
+                  checked: !!p.defaults.autoReview?.enabled,
+                  keepOpen: false,
+                  className: "mp-item",
+                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="M5.8 8l1.6 1.6L10.5 6.3" /></svg><span>Auto-review</span></>,
+                  onSelect: () => window.dispatchEvent(new CustomEvent("autoreview-toggle")),
+                },
+                ...(goalsSupported && p.onGoal ? [{
+                  key: "goal",
+                  className: "mp-item",
+                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" /></svg><span>{t("goal.menu")}</span></>,
+                  onSelect: () => setGoalOpen((v) => !v),
+                }] : []),
+              ]}
+            />
             {p.kb && <KbPicker binding={p.kb} />}
             <ConsigneMenu
               consignes={p.defaults.consignes ?? []}
@@ -375,15 +357,11 @@ export function ComposerControls(p: {
               onOuvrirReglages={p.onOuvrirReglagesConsignes}
             />
           </ButtonGroup>
-          <span className="flex" />
           {permissionOptions.length > 0 && (
             <>
               <Select
                 compact
                 className="permission-select"
-                // déclencheur = l'icône du mode, sans libellé : le mode est un
-                // état permanent de la barre, pas une phrase à relire à chaque
-                // regard. Le nom vit dans l'infobulle et dans le menu.
                 triggerIcon={<PermissionIcon mode={permissionMode} />}
                 title={`${t("settings.permission-default")} — ${t(
                   (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
@@ -398,88 +376,53 @@ export function ComposerControls(p: {
                   icon: <span className="perm-icon"><PermissionIcon mode={m.id} /></span>,
                 }))}
               />
-              <span className="composer-meta-sep" aria-hidden="true" />
             </>
           )}
+          <span className="flex" />
           {p.usage && (
-            <RowButton
-              ref={ctxWrapRef}
-              className={`ctx-ring-wrap${ctxPopOpen ? " is-open" : ""}`}
-              aria-label={t("chat.context-window")}
-              aria-expanded={ctxPopOpen}
-              aria-haspopup="true"
-              onClick={() => setCtxPopOpen((v) => !v)}>
-              {(() => {
-                // Priorité : window fourni par le provider (Codex, Grok registry),
-                // sinon heuristique modèle (Claude [1m], Grok 4.5 = 500k docs xAI,
-                // Kimi K3 = 1M platform.kimi.ai), sinon défaut historique 200k.
-                const WINDOW = p.usage.window
-                  ?? (model.includes("[1m]") ? 1_000_000
-                    : /^grok-4\.5\b/.test(model) ? 500_000
-                    // ids Kimi réels : `kimi-code/k3` (1M) et
-                    // `kimi-code/kimi-for-coding*` (262 144) — maxContextSize
-                    // du `kimi provider list --json` 0.26.0
-                    : /(^|\/)(kimi-)?k3\b/.test(model) ? 1_000_000
-                    : /(^|\/)kimi-for-coding/.test(model) ? 262_144
-                    : 200_000);
-                const pct = Math.min(100, Math.round((p.usage.context / WINDOW) * 100));
-                const r = 6.5, c = 2 * Math.PI * r;
-                const windowLabel = WINDOW >= 1_000_000
-                  ? `${(WINDOW / 1_000_000).toFixed(WINDOW % 1_000_000 === 0 ? 0 : 1)}M`
-                  : `${Math.round(WINDOW / 1000)}k`;
-                return (
-                  <>
-                    <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18">
-                      <circle cx="9" cy="9" r={r} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
-                      <circle cx="9" cy="9" r={r} fill="none"
-                        stroke={contextRingStroke(pct)}
+            <Popover open={ctxPopOpen} onOpenChange={setCtxPopOpen}>
+              <PopoverTrigger
+                render={
+                  <RowButton
+                    className={`ctx-ring-wrap${ctxPopOpen ? " is-open" : ""}`}
+                    aria-label={t("chat.context-window")}
+                    aria-expanded={ctxPopOpen}
+                    aria-haspopup="dialog"
+                  >
+                    <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                      <circle cx="9" cy="9" r={contextRadius} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
+                      <circle cx="9" cy="9" r={contextRadius} fill="none"
+                        stroke={contextRingStroke(contextPct)}
                         strokeWidth="2.4" strokeLinecap="round"
-                        strokeDasharray={`${(pct / 100) * c} ${c}`}
+                        strokeDasharray={`${(contextPct / 100) * contextCircumference} ${contextCircumference}`}
                         transform="rotate(-90 9 9)" />
                     </svg>
-                    <span className="ctx-pop">
-                      <b>{t("chat.context-window")}</b>
-                      <span>{t("chat.context-used", { pct, used: Math.round(p.usage.context / 1000), window: windowLabel })}</span>
-                      <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
-                      {p.usage.turns != null && <span>{t("chat.session-turns", { turns: p.usage.turns })}</span>}
-                      {p.usage.cost != null && <span>{t("chat.cost", { cost: p.usage.cost.toFixed(2) })}</span>}
-                    </span>
-                  </>
-                );
-              })()}
-            </RowButton>
-          )}
-          <span className="model-pick">
-            <Popover
-              open={menuOpen}
-              onOpenChange={(next) => {
-                if (next) {
-                  setEffortOpen(false);
+                  </RowButton>
                 }
-                setMenuOpen(next);
+              />
+              <PopoverContent plain side="top" align="end" sideOffset={6} className="ctx-pop">
+                <PopoverTitle>{t("chat.context-window")}</PopoverTitle>
+                <span>{t("chat.context-used", { pct: contextPct, used: Math.round(p.usage.context / 1000), window: contextWindowLabel })}</span>
+                <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
+                {p.usage.turns != null && <span>{t("chat.session-turns", { turns: p.usage.turns })}</span>}
+                {p.usage.cost != null && <span>{t("chat.cost", { cost: p.usage.cost.toFixed(2) })}</span>}
+              </PopoverContent>
+            </Popover>
+          )}
+          <span className="model-pick effort-pick">
+            <Popover
+              open={menuOpen || effortOpen}
+              onOpenChange={(next) => {
+                if (!next) {
+                  setMenuOpen(false);
+                  setEffortOpen(false);
+                } else if (effortLevels.length >= 2 || provider === "codex") {
+                  setEffortOpen(true);
+                } else {
+                  setMenuOpen(true);
+                }
               }}
             >
-            <PopoverTrigger
-              render={
-                <RowButton
-                  ref={modelBtnRef}
-                  className="mp-btn mp-model"
-                  title={modelButtonLabel
-                    ? `${t("chat.model-title")} · ${modelButtonLabel}`
-                    : t("chat.model-title")}
-                >
-                  {(() => {
-                    const { route, name } = splitModelLabel(modelButtonLabel);
-                    return (
-                      <span className={`mp-model-label ${!model ? "mp-dim" : ""}`}>
-                        {route && <span className="mp-route">{route}</span>}
-                        <span className="mp-name">{name}</span>
-                      </span>
-                    );
-                  })()}
-                </RowButton>
-              }
-            />
             {menuOpen && (() => {
               // Un fil possède déjà son provider. Le picker de modèles reste
               // strictement dans ce provider; changer de provider se fait lors
@@ -517,6 +460,8 @@ export function ComposerControls(p: {
                   ref={modelMenuRef}
                   role="menu"
                   aria-label={t("chat.model-title")}
+                  anchor={modelBtnRef}
+                  finalFocus={modelBtnRef}
                   onKeyDown={menuKeys(() => setMenuOpen(false), modelBtnRef)}
                 >
                   {false && <div className="model-provider-list model-effort-legacy" aria-hidden="true">
@@ -544,8 +489,7 @@ export function ComposerControls(p: {
                         <div className="ef-block">
                           <div className="mp-sep" />
                           <div className="ef-title">{effortTitle} <b>{labels[effort] ?? effort}</b></div>
-                          <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
-                          <div className="ef-track"
+                                <div className="ef-track"
                             role="slider"
                             tabIndex={0}
                             aria-label={effortTitle}
@@ -694,42 +638,19 @@ export function ComposerControls(p: {
                 </PopoverContent>
               );
             })()}
-            </Popover>
-          </span>
-          {provider === "codex" && (
-            <Tooltip placement="top" label={tierHint}>
-              <span className="tier-pick">
-                <Toggle
-                  size="sm"
-                  className="mp-btn tier-toggle"
-                  pressed={tierValue === "priority"}
-                  disabled={!tierSupported}
-                  aria-label={t("chat.service-tier-fast")}
-                  onPressedChange={(pressed) => setFastMode(pressed)}
-                >
-                  <ZapIcon size={11} />
-                  {t("chat.service-tier-fast")}
-                </Toggle>
-              </span>
-            </Tooltip>
-          )}
-          {effortLevels.length >= 2 && (
-            <span className="effort-pick">
-              <Popover
-                open={effortOpen}
-                onOpenChange={(next) => {
-                  if (next) setMenuOpen(false);
-                  setEffortOpen(next);
-                }}
-              >
               <PopoverTrigger
                 render={
-                  <RowButton ref={effortBtnRef} className="mp-btn mp-effort" title={effortTitle}>
-                    {effortSummary}
+                  <RowButton ref={effortBtnRef} className={`mp-btn mp-model ${effortLevels.length >= 2 || provider === "codex" ? "mp-effort" : ""}`} title={`${t("chat.model-title")} · ${modelButtonLabel} · ${effortTitle}`}>
+                    <span className={`mp-model-label ${!model ? "mp-dim" : ""}`}>
+                      {splitModelLabel(modelButtonLabel).route && <span className="mp-route">{splitModelLabel(modelButtonLabel).route}</span>}
+                      <span className="mp-name">{splitModelLabel(modelButtonLabel).name}</span>
+                    </span>
+                    {effortLevels.length >= 2 && <span className="mp-effort-sum">{effortSummary}</span>}
+                    <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
                   </RowButton>
                 }
               />
-              {effortOpen && (
+              {effortOpen && (effortLevels.length >= 2 || provider === "codex") && (
                 <PopoverContent
                   plain
                   side="top"
@@ -737,14 +658,42 @@ export function ComposerControls(p: {
                   sideOffset={6}
                   className="mp-menu effort-menu"
                   ref={effortMenuRef}
+                  initialFocus={(interaction) => interaction === "keyboard" ? effortTrackRef.current : false}
                   aria-label={effortTitle}
                 >
                   <div className="ef-block">
-                    <div className="ef-title">
-                      {effortTitle}
-                      <b className={effortIsUltra ? "ef-ultra-on" : ""}>{effortSummary}</b>
+                    <div className="ef-header">
+                      {provider === "codex" ? (
+                        <Tooltip placement="top" label={tierHint}>
+                          <Toggle size="sm" className="tier-toggle ef-fast" pressed={tierValue === "priority"}
+                            disabled={!tierSupported} aria-label={t("chat.service-tier-fast")}
+                            onPressedChange={setFastMode}>
+                            <ZapIcon data-icon="inline-start" aria-hidden="true" /><span>Fast</span>
+                          </Toggle>
+                        </Tooltip>
+                      ) : <span aria-hidden="true" />}
+                      <div className="ef-heading">
+                        <div className="ef-title"><b>{effortSummary}</b></div>
+                        <RowButton className="ef-model-link" title={t("chat.model-title")}
+                          onClick={() => { setEffortOpen(false); setMenuOpen(true); }}>
+                          <span>{modelButtonLabel}</span>
+                          <ChevronRightIcon aria-hidden="true" />
+                        </RowButton>
+                      </div>
+                      <IconButton className="ef-reset" size="s" label={t("chat.effort-reset")}
+                        title={t("chat.effort-reset")} onClick={() => {
+                          const preferred = effortFor(provider, resolvedModelId());
+                          const fallback = activeProviderInfo?.modelReasoning?.[resolvedModelId()]?.default_effort ?? "";
+                          if (effortLevels.length) setEffort(effortLevels.includes(preferred) ? preferred
+                            : effortLevels.includes(fallback) ? fallback
+                            : effortLevels.includes("medium") ? "medium" : effortLevels[0]);
+                          setFastMode(false);
+                        }}>
+                        <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
+                      </IconButton>
                     </div>
-                    <div
+                    {effortLevels.length >= 2 && <div
+                      ref={effortTrackRef}
                       className={`ef-track ${effortHasUltra ? "ef-has-ultra" : ""}`}
                       role="slider"
                       tabIndex={0}
@@ -777,7 +726,7 @@ export function ComposerControls(p: {
                         if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
                       }}
                     >
-                      <div className="ef-fill" style={{ width: `${Math.min(effortPos(effortIndex), effortSpanEnd)}%` }} />
+                      <div className="ef-fill" style={{ width: `calc(${Math.min(effortPos(effortIndex), effortSpanEnd)}% + 9px)` }} />
                       {effortHasUltra && (
                         <div className={`ef-ultra ${effortIsUltra ? "on" : ""}`} style={{ left: `${effortSpanEnd + 4}%` }} />
                       )}
@@ -792,13 +741,27 @@ export function ComposerControls(p: {
                         className={`ef-thumb ${effortIsUltra ? "ultra" : ""}`}
                         style={{ left: `${effortPos(effortIndex)}%` }}
                       />
-                    </div>
-                    <div className="ef-scale"><span>{t("effort.faster")}</span><span>{t("effort.smarter")}</span></div>
+                    </div>}
                   </div>
                 </PopoverContent>
               )}
               </Popover>
-            </span>
+          </span>
+          {p.dictation?.available && (
+            <IconButton
+              size="s"
+              className="ghost composer-dictation"
+              label={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
+              title={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
+              aria-pressed={p.dictation.phase !== "idle"}
+              disabled={p.disabled || p.dictation.phase === "finishing"}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={p.dictation.toggle}
+            >
+              {p.dictation.phase === "idle"
+                ? <MicIcon data-icon="inline-start" aria-hidden="true" />
+                : <SquareIcon data-icon="inline-start" aria-hidden="true" />}
+            </IconButton>
           )}
           {p.workingSince != null ? (
             p.hasContent ? (
@@ -850,7 +813,7 @@ export function ComposerControls(p: {
               disabled={p.disabled || !p.hasContent}
               title={t("action.send")}
             >
-              ↑
+              <ArrowUpIcon data-icon="inline-start" aria-hidden="true" />
             </Button>
           )}
         </div>

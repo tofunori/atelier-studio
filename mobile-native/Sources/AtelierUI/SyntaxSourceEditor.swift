@@ -60,6 +60,7 @@ import UIKit
 
 struct SyntaxSourceEditor: UIViewRepresentable {
     let workspace: WorkspaceModel
+    @AppStorage("atelier.accent") private var accentName = "sage"
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
@@ -84,13 +85,31 @@ struct SyntaxSourceEditor: UIViewRepresentable {
         let workspace: WorkspaceModel
         var documentID: UUID?
         var applying = false
+        var noteIDs: [UUID] = []
+        var accentName: String?
         init(workspace: WorkspaceModel) { self.workspace = workspace }
         func update(_ view: UITextView) {
-            guard documentID != workspace.documentID || view.text != workspace.source else { return }
+            let notes = workspace.documentReadingNotes
+            let currentAccent = UserDefaults.standard.string(forKey: "atelier.accent") ?? "sage"
+            let accent = UIColor(AtelierTheme.accent(named: "sage"))
+            view.tintColor = accent
+            guard documentID != workspace.documentID || view.text != workspace.source || noteIDs != notes.map(\.id) || accentName != currentAccent else { return }
+            accentName = currentAccent
+            noteIDs = notes.map(\.id)
             let changedDocument = documentID != workspace.documentID
             applying = true
             let old = view.selectedRange
-            view.attributedText = SourceSyntax.attributed(workspace.source, name: workspace.sourceName)
+            let styled = NSMutableAttributedString(attributedString: SourceSyntax.attributed(workspace.source, name: workspace.sourceName))
+            for note in notes {
+                if let range = note.resolvedRange(in: workspace.source) {
+                    styled.addAttributes([
+                        .backgroundColor: accent.withAlphaComponent(0.3),
+                        .underlineStyle: NSUnderlineStyle.single.rawValue,
+                        .underlineColor: accent
+                    ], range: range)
+                }
+            }
+            view.attributedText = styled
             documentID = workspace.documentID
             if let selection = workspace.selection, case .selection(let range) = selection.indices {
                 view.selectedRange = NSRange(range, in: workspace.source)
@@ -106,7 +125,17 @@ struct SyntaxSourceEditor: UIViewRepresentable {
                 self.workspace.beginAnnotation()
                 view?.resignFirstResponder()
             }
-            return UIMenu(children: [action] + suggestedActions)
+            let addToChat = UIAction(title: "Ajouter au chat", image: UIImage(systemName: "text.quote")) { [weak self, weak view] _ in
+                guard let self else { return }
+                self.workspace.selection = TextSelection(range: selected)
+                guard let passage = self.workspace.activePassage else { return }
+                view?.resignFirstResponder()
+                Task { @MainActor in
+                    await Task.yield()
+                    self.workspace.addDocumentPassageToChat(passage)
+                }
+            }
+            return UIMenu(children: [addToChat, action] + suggestedActions)
         }
         func textViewDidChange(_ view: UITextView) {
             guard !applying else { return }

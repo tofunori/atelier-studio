@@ -23,25 +23,23 @@ struct ChatAttachmentBar: View {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(workspace.chat.attachments) { item in
-                    HStack(spacing: 6) {
-                        Button {
-                            Task {
-                                do { try workspace.openArtifact(item, data: await workspace.gallery.contents(item)) }
-                                catch { workspace.chat.error = error.localizedDescription }
-                            }
-                        } label: {
-                            HStack {
-                                ArtifactThumbnail(item: item, gallery: workspace.gallery).frame(width: 40, height: 40).clipped()
-                                Text(item.name).lineLimit(1).frame(maxWidth: 130)
-                            }
-                        }.accessibilityLabel("Afficher " + item.name)
-                        Button {
-                            workspace.chat.attachments.removeAll { $0.id == item.id }
-                        } label: { Image(systemName: "xmark.circle.fill") }
-                            .accessibilityLabel("Retirer " + item.name)
-                    }.font(.caption).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                    Button {
+                        Task {
+                            do { try workspace.openArtifact(item, data: await workspace.gallery.contents(item)) }
+                            catch { workspace.chat.error = error.localizedDescription }
+                        }
+                    } label: {
+                        ChatAttachmentPreview(item: item, gallery: workspace.gallery, compact: true)
+                    }.buttonStyle(.plain).accessibilityLabel("Afficher " + item.name)
+                        .overlay(alignment: .topTrailing) {
+                            Button { workspace.chat.attachments.removeAll { $0.id == item.id } } label: {
+                                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.primary).frame(width: 22, height: 22)
+                                    .background(.regularMaterial, in: Circle()).frame(width: 44, height: 44)
+                            }.buttonStyle(.plain).accessibilityLabel("Retirer " + item.name)
+                        }
                 }
-            }
+            }.padding(.vertical, 3)
         }.scrollIndicators(.hidden).disabled(workspace.chat.sending)
     }
 }
@@ -131,28 +129,87 @@ struct ChatHistoryFiles: View {
     let workspace: WorkspaceModel
     @State private var opening: UUID?
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(items) { item in
-                    Button {
-                        opening = item.id
-                        Task {
-                            defer { opening = nil }
-                            do { try workspace.openArtifact(item, data: await workspace.gallery.contents(item)) }
-                            catch { workspace.chat.error = "Ouverture de " + item.name + " : " + error.localizedDescription }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if opening == item.id { ProgressView().frame(width: 44, height: 44) }
-                            else { ArtifactThumbnail(item: item, gallery: workspace.gallery).frame(width: 44, height: 44).clipped() }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(item.name).font(.subheadline).lineLimit(1)
-                                Text(item.kind).font(.caption).foregroundStyle(.secondary)
-                            }.frame(maxWidth: 180, alignment: .leading)
-                        }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
-                    }.buttonStyle(.plain).disabled(opening != nil).accessibilityLabel("Ouvrir " + item.name)
-                }
+        VStack(alignment: .trailing, spacing: 8) {
+            ForEach(items) { item in
+                Button {
+                    opening = item.id
+                    Task {
+                        defer { opening = nil }
+                        do { try workspace.openArtifact(item, data: await workspace.gallery.contents(item)) }
+                        catch { workspace.chat.error = "Ouverture de " + item.name + " : " + error.localizedDescription }
+                    }
+                } label: {
+                    ChatAttachmentPreview(item: item, gallery: workspace.gallery)
+                        .overlay { if opening == item.id { ProgressView().padding(12).background(.regularMaterial, in: Circle()) } }
+                }.buttonStyle(.plain).disabled(opening != nil).accessibilityLabel("Ouvrir " + item.name)
             }
-        }.scrollIndicators(.hidden)
+        }
+    }
+}
+
+/// Image decoding stays off the main actor; filenames are only needed for documents or failed previews.
+struct ChatAttachmentPreview: View {
+    let item: GalleryArtifact
+    let gallery: GalleryModel
+    var compact = false
+    @State private var image: UIImage?
+    @State private var failed = false
+    private var isImage: Bool { item.kind == "Figures" }
+    private var imageSize: CGSize {
+        if compact { return CGSize(width: 84, height: 84) }
+        let ratio = image.map { $0.size.width / max(1, $0.size.height) } ?? 1
+        let width = min(220, 300 * ratio)
+        return CGSize(width: width, height: width / ratio)
+    }
+    var body: some View {
+        Group {
+            if isImage && !failed {
+                ZStack {
+                    Color.primary.opacity(0.04)
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .overlay {
+                                if let region = item.annotationRegion {
+                                    GeometryReader { geometry in
+                                        let ratio = image.size.width / max(1, image.size.height)
+                                        let width = min(geometry.size.width, geometry.size.height * ratio)
+                                        let height = width / ratio
+                                        Rectangle().stroke(AtelierTheme.accent, lineWidth: 2)
+                                            .frame(width: region.width * width, height: region.height * height)
+                                            .offset(x: (geometry.size.width - width) / 2 + region.x * width,
+                                                    y: (geometry.size.height - height) / 2 + region.y * height)
+                                    }.allowsHitTesting(false)
+                                }
+                            }
+                    } else { ProgressView().controlSize(.small) }
+                }.frame(width: imageSize.width, height: imageSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: compact ? 12 : 16))
+                    .overlay(RoundedRectangle(cornerRadius: compact ? 12 : 16).strokeBorder(.primary.opacity(0.09), lineWidth: 0.5))
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: isImage ? "photo" : item.kind == "PDF" ? "doc.richtext" : "doc.text")
+                        .font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
+                        .frame(width: 32, height: 38)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.name).font(.subheadline).lineLimit(2).multilineTextAlignment(.leading)
+                        Text(isImage ? "Ouvrir l’image" : item.ext.uppercased())
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }.frame(maxWidth: compact ? 140 : 190, alignment: .leading)
+                }.padding(12).padding(.trailing, compact ? 24 : 0)
+                    .frame(minHeight: compact ? 84 : 64)
+                    .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
+            }
+        }.foregroundStyle(.primary)
+            .task(id: "\(item.id):\(gallery.connectionRevision)") {
+                guard isImage else { return }
+                image = nil; failed = false
+                do {
+                    let data = try await gallery.contents(item)
+                    let rendered = await ArtifactPreviewRenderer.shared.render(data, pdf: false)
+                    guard !Task.isCancelled else { return }
+                    image = rendered; failed = rendered == nil
+                } catch { if !Task.isCancelled { failed = true } }
+            }
     }
 }

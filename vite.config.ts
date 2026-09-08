@@ -47,6 +47,9 @@ export default defineConfig(async () => ({
           // Shared palette data is cacheable independently from application code.
           if (id.endsWith("/src/lib/themes.ts")) return "themes";
           if (id.includes("/node_modules/@base-ui/react/")) return "base-ui";
+          if (id.includes("/node_modules/@tauri-apps/")) return "tauri-vendor";
+          if (id.includes("/node_modules/lucide-react/")) return "icons-vendor";
+          if (id.includes("/node_modules/react-resizable-panels/")) return "panels-vendor";
           if (
             id.includes("/node_modules/react/")
             || id.includes("/node_modules/react-dom/")

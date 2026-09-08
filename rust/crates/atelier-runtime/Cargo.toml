@@ -36,6 +36,7 @@ hex = "0.4"
 notify = "8"
 
 [dev-dependencies]
+tokio-tungstenite = "0.28"
 tempfile = { workspace = true }
 http-body-util = { workspace = true }
 tower = { workspace = true }

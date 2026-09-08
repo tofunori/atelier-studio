@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "../lib/i18n";
 import { Input } from "./shadcn/input";
 import { Textarea } from "./shadcn/textarea";
-import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
-import { Button } from "./ui";
+import { Button, SegmentedControl } from "./ui";
 
 type ImageGeneratedMsg = {
   projectRoot?: string;
@@ -116,49 +115,37 @@ export default function GeneratorSurface({
           rows={6}
         />
         <div className="generateur-label">{t("generateur.engine")}</div>
-        <ToggleGroup
-          aria-label={t("generateur.engine")}
-          value={[engine]}
+        <SegmentedControl
+          label={t("generateur.engine")}
+          value={engine}
           disabled={busy}
-          onValueChange={(next) => {
-            const selected = next[0];
+          onChange={(selected) => {
             if (selected === "seedream" || selected === "codex") setEngine(selected);
           }}
           className="generateur-engines"
-        >
-          {ENGINES.map((eng) => (
-            <ToggleGroupItem
-              key={eng.id}
-              value={eng.id}
-              aria-label={eng.label}
-              className={`generateur-chip ${engine === eng.id ? "sel" : ""}`}
-            >
-              {eng.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+          options={ENGINES.map((eng) => ({
+            value: eng.id,
+            label: eng.label,
+            ariaLabel: eng.label,
+            className: `generateur-chip ${engine === eng.id ? "sel" : ""}`,
+          }))}
+        />
         <div className="generateur-label">{t("generateur.size")}</div>
-        <ToggleGroup
-          aria-label={t("generateur.size")}
-          value={[size]}
+        <SegmentedControl
+          label={t("generateur.size")}
+          value={size}
           disabled={busy}
-          onValueChange={(next) => {
-            const selected = next[0];
+          onChange={(selected) => {
             if (selected === "1K" || selected === "2K") setSize(selected);
           }}
           className="generateur-seg"
-        >
-          {SIZES.map((s) => (
-            <ToggleGroupItem
-              key={s.id}
-              value={s.id}
-              aria-label={s.label}
-              className={size === s.id ? "on" : ""}
-            >
-              {s.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+          options={SIZES.map((s) => ({
+            value: s.id,
+            label: s.label,
+            ariaLabel: s.label,
+            className: size === s.id ? "on" : "",
+          }))}
+        />
         <div className="generateur-cost">
           {engine === "codex" ? t("generateur.cost-codex") : t("generateur.cost-estimate")}
         </div>

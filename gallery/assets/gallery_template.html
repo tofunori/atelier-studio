@@ -343,7 +343,7 @@
   #annotBar button{padding:0;width:26px;height:24px;font-size:var(--fs-body-s, 12px);background:transparent;
       border:none;border-radius:6px;color:#868d9a;display:inline-flex;align-items:center;justify-content:center}
   #annotBar button:hover{background:var(--card2);color:var(--txt);border:none}
-  #annotBar button.sel{background:var(--card2);color:var(--txt);border:none}
+  #annotBar svg,#annotNote .annot-delete svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}#annotBar button.sel{background:var(--card2);color:var(--txt);border:none}
   #annotBar input[type=color]{width:15px;height:15px;border:1px solid rgba(255,255,255,.18);
       border-radius:6px;background:none;cursor:pointer;padding:0;-webkit-appearance:none}
   #annotBar input[type=color]::-webkit-color-swatch-wrapper{padding:0}
@@ -706,6 +706,20 @@
   #lb.fs{padding:0;inset:0;width:100vw;height:100vh}
   @media(max-width:540px){#lb{padding:52px 30px 10px}#lbCap span{display:none}#lbCap b{max-width:65vw}#lbZoom{left:8px}#lbZoom button{padding:0 5px}}
 
+
+  #lb.annot #annotBar{display:flex!important;position:absolute;top:48px;max-width:calc(100% - 16px);padding:3px;gap:2px;background:color-mix(in srgb,var(--card2) 94%,transparent);border:1px solid var(--border-strong);box-shadow:0 3px 12px #0002}
+  #annotBar button{width:28px;height:28px;font-size:16px;flex-shrink:0}#annotBar #annotFit{width:auto;font-size:10px;padding:0 6px}#annotBar i{width:1px;height:14px;background:var(--border-strong);margin:0 2px}
+  #annotBar button.sel{color:var(--primary);background:var(--primary-soft)}#annotBar button:disabled{opacity:.3}
+  #lb.annot #lbViewport{padding-top:40px;padding-bottom:40px;box-sizing:border-box}
+  #lb.annot #annotPill.on{display:flex;position:absolute;bottom:12px;right:14px;left:auto;transform:none;padding:3px 4px;gap:3px;border:1px solid var(--border-strong);background:var(--card2);border-radius:9px}
+  #annotPillCancel[hidden]{display:none}#annotPill #annotPillN{font-size:10px;color:var(--muted)}#annotPill #annotPillSend{font-size:11px;color:var(--primary)}
+  #annotNote{width:264px;max-width:calc(100vw - 16px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:0 6px 22px #0004;overflow:hidden;color:var(--txt)}
+  #annotNote header{display:flex;align-items:center;gap:7px;padding:7px 10px 3px;font-size:10px;color:var(--muted)}#annotNote .annot-number{background:var(--primary);color:#fff;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:9px}
+  #annotNote button{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:4px 7px;font-size:11px;min-height:25px}#annotNote button:hover{background:var(--border-strong)}#annotNote .annot-close{margin-left:auto;font-size:17px;padding:0 4px}
+  #annotNote textarea{display:block;box-sizing:border-box;width:100%;height:44px;min-height:44px;max-height:132px;resize:none;padding:3px 12px;margin:0;border:0;outline:none;background:transparent;color:var(--txt);font:12px/1.6 var(--ui-font)}
+  #annotNote footer{display:flex;align-items:center;gap:3px;padding:4px 8px 8px}#annotNote .annot-status{flex:1;font-size:9px;color:var(--hot)}#annotNote .annot-send{background:var(--primary-soft);color:var(--primary);white-space:nowrap}#annotNote button:disabled{opacity:.35}
+  #annotList{position:absolute;right:14px;bottom:55px;z-index:105;width:290px;max-width:calc(100% - 24px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:0 8px 28px #0004}#annotList[hidden]{display:none}#annotList header{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;font-size:11px;color:var(--muted)}#annotList button{border:0;background:transparent;color:var(--txt)}#annotItems{max-height:240px;overflow:auto;padding:0 5px 5px}#annotItems .annot-row{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 8px;font-size:11px;line-height:1.5;border-radius:6px}#annotItems .annot-row:hover{background:var(--border-strong)}
+  #annotNote button:focus-visible,#annotBar button:focus-visible,#annotPill button:focus-visible,#annotList button:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
 </style>
 <link rel="stylesheet" href="/.fig_thumbs/annotation_ui.css">
 </head>
@@ -784,26 +798,30 @@
 </aside>
 <div id="lb">
   <button id="lbClose" aria-label="Fermer la visionneuse" title="Fermer (Échap)">&#10005;</button>
-  <button id="lbFs" aria-label="Plein écran" title="Plein écran (f)">&#9974;</button>
+  <button id="lbFs" aria-label="Plein écran" title="Plein écran">&#9974;</button>
   <div id="lbZoom"><button id="lbZoomOut" aria-label="Réduire">−</button><button id="lbFit" title="Afficher toute l’image (0)">Ajuster</button><button id="lbZoomIn" aria-label="Agrandir">+</button></div>
   <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
   <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
   <button class="lbBtn" id="lbPrev" aria-label="Image précédente">&#8249;</button>
   <button class="lbBtn" id="lbNext" aria-label="Image suivante">&#8250;</button>
-  <div id="annotBar">
-    <button data-tool="ellipse" title="Encercler (1)">&#9711;</button>
-    <button data-tool="arrow" title="Fl&egrave;che (2)">&#8594;</button>
-    <button data-tool="rect" class="sel" title="Rectangle (3)">&#9645;</button>
-    <input type="color" id="annotColor" value="color-mix(in srgb,var(--primary) 40%,transparent)" title="Couleur">
-    <button id="annotUndo" title="Undo">&#8630;</button>
-    <button id="annotClear" title="Clear all">&#10006;</button>
+  <div id="annotBar" role="toolbar" aria-label="Outils d’annotation">
+    <button data-tool="select" title="Sélectionner" aria-label="Sélectionner"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 14 9-7 1-3 7Z"/></svg></button>
+    <button data-tool="rect" class="sel" title="Rectangle" aria-label="Rectangle" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
+    <button data-tool="ellipse" title="Ellipse" aria-label="Ellipse"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg></button>
+    <button data-tool="arrow" title="Flèche" aria-label="Flèche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M8 5h11v11"/></svg></button>
+    <button data-tool="pan" title="Déplacer la vue" aria-label="Déplacer la vue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-4a2 2 0 0 1 4 0v7c0 5-3 7-7 7-3 0-5-2-7-5l-3-4a2 2 0 0 1 3-2l2 2Z"/></svg></button><i></i>
+    <button id="annotUndo" title="Annuler" aria-label="Annuler"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 6 6v3"/></svg></button>
+    <button id="annotRedo" title="Rétablir" aria-label="Rétablir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v3"/></svg></button><i></i>
+    <button id="annotZoomOut" aria-label="Réduire">−</button><button id="annotFit" title="Ajuster l’image">Ajuster</button><button id="annotZoomIn" aria-label="Agrandir">+</button>
   </div>
   <div id="lbViewport"><div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv"></canvas></div></div>
-  <div id="annotNote">
-    <textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea>
-    <button class="anSave" title="Envoyer l'annotation (Entr&eacute;e)" aria-label="Envoyer l'annotation" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button>
+  <div id="annotNote" role="dialog" aria-label="Commentaire sélectionné">
+    <header><span class="annot-number"></span><span>Commentaire</span><button class="annot-close" aria-label="Fermer le commentaire">×</button></header>
+    <textarea rows="2" aria-label="Commentaire" placeholder="Ajouter une annotation…"></textarea>
+    <footer><button class="annot-delete" title="Supprimer" aria-label="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button class="annot-save" title="Conserver dans cette session">Enregistrer</button><button class="annot-send" disabled>Envoyer ↑</button></footer>
   </div>
-  <div id="annotPill"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4V5z"/></svg></span><span id="annotPillN"></span><button id="annotPillTarget" title="Choisir la session Claude cible"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg></button><button class="x" id="annotPillCancel" title="Annuler : supprimer les commentaires sans envoyer">&#10005;</button><button id="annotPillSend" title="Envoyer directement dans la session Claude (avec soumission)"><svg class="ic-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button></div>
+  <div id="annotPill"><button id="annotPillN" aria-expanded="false" aria-controls="annotList">0 annotation</button><button id="annotPillTarget" title="Choisir la session cible">◎</button><button id="annotPillCancel" title="Supprimer tous les commentaires" aria-label="Supprimer tous les commentaires" hidden>×</button><button id="annotPillSend">Ajouter au chat ↑</button></div>
+  <div id="annotList" hidden><header>Annotations<button id="annotListClose" aria-label="Fermer la liste">×</button></header><div id="annotItems"></div></div>
   <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:var(--card);border-radius:10px;padding:6px;box-shadow:var(--elev);font-size:13px"></div>
   <iframe id="lbPdf" style="display:none;width:94vw;height:86vh;border:none;border-radius:6px;background:#fff"></iframe>
   <video id="lbVid" controls playsinline style="display:none;max-width:94vw;max-height:86vh;border-radius:6px;background:#000"></video>
@@ -832,6 +850,12 @@
     try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
+  function notifyPaneFocus(){
+    if(window.parent !== window) window.__atelierPost({type:'atelier-pane-focus'});
+  }
+  document.addEventListener('pointerdown', notifyPaneFocus, true);
+  document.addEventListener('focusin', notifyPaneFocus, true);
+  window.addEventListener('focus', notifyPaneFocus);
   /* réadoption : le sessionStorage des iframes peut être purgé par WKWebView →
      nonce perdu = clics muets. Les messages du parent (thème, activation)
      portent le nonce : on le réadopte quand le nôtre a disparu. */
@@ -2235,7 +2259,8 @@ function lbFitImage(){
   const stage=document.getElementById('lbViewport'),img=document.getElementById('lbImg'),wrap=document.getElementById('lbWrap');
   if(!lb().classList.contains('show')||!img.naturalWidth||!stage.clientHeight)return;
   const gap=lb().classList.contains('fs')?16:12;
-  const scale=Math.min((stage.clientWidth-gap)/img.naturalWidth,(stage.clientHeight-gap)/img.naturalHeight);
+  const stageStyle=getComputedStyle(stage);
+  const scale=Math.min((stage.clientWidth-gap-parseFloat(stageStyle.paddingLeft)-parseFloat(stageStyle.paddingRight))/img.naturalWidth,(stage.clientHeight-gap-parseFloat(stageStyle.paddingTop)-parseFloat(stageStyle.paddingBottom))/img.naturalHeight);
   if(scale<=0)return;
   wrap.style.width=Math.round(img.naturalWidth*scale*lbZoomLevel)+'px';
   wrap.style.height=Math.round(img.naturalHeight*scale*lbZoomLevel)+'px';
@@ -2244,8 +2269,7 @@ function lbFitImage(){
   if(lb().classList.contains('annot')){const c=cv();c.style.width=wrap.style.width;c.style.height=wrap.style.height;}
 }
 function lbSetZoom(value){
-  if(lb().classList.contains('annot'))return;
-  lbZoomLevel=Math.max(1,Math.min(8,value));lbFitImage();
+  lbZoomLevel=Math.max(.25,Math.min(8,value));lbFitImage();
   const stage=document.getElementById('lbViewport');
   stage.scrollLeft=(stage.scrollWidth-stage.clientWidth)/2;
   stage.scrollTop=(stage.scrollHeight-stage.clientHeight)/2;
@@ -2400,13 +2424,14 @@ document.getElementById('lbImg').addEventListener('dblclick',e=>{
 document.addEventListener('keydown',e=>{
   if(!lb().classList.contains('show'))return;
   if(lb().classList.contains('annot')){
+    if(annotBusy){if(e.key==='Escape')e.preventDefault();return;}
     if((e.metaKey||e.ctrlKey)&&e.key==='z'){
-      e.preventDefault();annotStrokes.pop();annotRenumber();annotRedraw();return;
+      if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName))return;e.preventDefault();annotHistory(e.shiftKey);return;
     }
     if(e.key==='Escape'){
-      if(annotCur){annotCur=null;annotRedraw();return;}
+      if(annotDrag){if(annotDrag.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();return;}
       const box=document.getElementById('annotNote');
-      if(box.style.display==='flex'){box.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return;}
+      if(box.style.display==='block'){box.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return;}
       annotToggle(); return;
     }
   }
@@ -2414,7 +2439,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='0'){lbSetZoom(1);return;}
   if(e.key==='+'||e.key==='='){lbSetZoom(lbZoomLevel*1.5);return;}
   if(e.key==='-'){lbSetZoom(lbZoomLevel/1.5);return;}
-  if(e.key==='f'){lbFsToggle();return;}
+
   if(e.key==='Escape'){
     if(lb().classList.contains('fs')||fsActiveEl()){void lbFsLeave();return;}
     lbClose();
@@ -2911,33 +2936,112 @@ document.addEventListener('keydown',e=>{
 });
 // ---- Annotation ----
 let annotTool='rect', annotStrokes=[], annotCur=null, annotSent=true;
-async function annotGuard(){
-  if(lb().classList.contains('annot') && annotStrokes.length && !annotSent)
-    return await confirmDialog('Discard unsaved annotations?', 'Discard');
-  return true;
-}
+const annotSessions=new Map();
+let annotSession=null, annotSelected=null, annotDrag=null, annotSendOne=null, annotBusy=false;
 const cv=()=>document.getElementById('annotCv');
+const annotGeometryReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/.fig_thumbs/figure_annotation_geometry.js?v=__VER__';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
+const annotGeometry=()=>globalThis.FigureAnnotationGeometry;
+function annotRemember(){if(annotSession)annotSession.strokes=annotStrokes;}
+function annotCheckpoint(){if(!annotSession)return;annotSession.undo.push(structuredClone(annotStrokes));annotSession.redo=[];}
+function annotHistory(redo=false){
+  if(!annotSession||annotBusy)return;
+  const from=redo?annotSession.redo:annotSession.undo,to=redo?annotSession.undo:annotSession.redo;
+  if(!from.length)return;to.push(structuredClone(annotStrokes));annotStrokes=from.pop();annotSelected=null;
+  document.getElementById('annotNote').style.display='none';annotRenumber();annotRedraw();
+}
+async function annotGuard(){if(annotBusy)return false;document.getElementById('annotNote').querySelector('.annot-close').click();annotRemember();document.getElementById('annotNote').style.display='none';document.getElementById('annotList').hidden=true;return true;}
 async function annotToggle(){
-  if(lb().classList.contains('annot') && !(await annotGuard())) return;
+  await annotGeometryReady;
+  if(annotBusy)return;
+  document.getElementById('annotNote').querySelector('.annot-close').click();
   const on=lb().classList.toggle('annot');
   if(on){
-    const img=document.getElementById('lbImg');
-    const c=cv();
-    c.width=img.naturalWidth; c.height=img.naturalHeight;
-    c.style.width=img.clientWidth+'px'; c.style.height=img.clientHeight+'px';
-    annotStrokes=[]; annotSent=true; annotRedraw();
-  } else { document.getElementById('annotNote').style.display='none'; }
+    const img=document.getElementById('lbImg');if(!img.naturalWidth){lb().classList.remove('annot');return;}
+    const rel=lbList[lbIdx]?.rel;
+    if(!annotSessions.has(rel))annotSessions.set(rel,{strokes:[],undo:[],redo:[]});
+    annotSession=annotSessions.get(rel);annotStrokes=annotSession.strokes;annotCur=null;annotSelected=null;
+    cv().width=img.naturalWidth;cv().height=img.naturalHeight;lbFitImage();annotRedraw();
+  }else{annotRemember();document.getElementById('annotNote').style.display='none';document.getElementById('annotList').hidden=true;}
 }
-function annotPos(e){
-  const c=cv(), r=c.getBoundingClientRect();
-  return {x:(e.clientX-r.left)*c.width/r.width, y:(e.clientY-r.top)*c.height/r.height};
+function annotPos(e){const c=cv(),r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*c.width/r.width,y:(e.clientY-r.top)*c.height/r.height};}
+function annotPillUpdate(){
+  const n=annotStrokes.length;
+  document.getElementById('annotPillN').textContent=n+(n>1?' annotations':' annotation');
+  document.getElementById('annotPill').classList.toggle('on',n>0);
+  document.getElementById('annotPillSend').disabled=annotBusy||!annotStrokes.some(s=>s.note?.trim());
+  document.getElementById('annotUndo').disabled=!annotSession?.undo.length;
+  document.getElementById('annotRedo').disabled=!annotSession?.redo.length;
+  annotRemember();annotListRender();
 }
-function annotRedraw(){
+function annotListRender(){
+  const list=document.getElementById('annotItems');list.replaceChildren();
+  annotStrokes.forEach(s=>{const b=document.createElement('button');b.className='annot-row';b.textContent=s.n+'  '+(s.note||'Commentaire à compléter');b.onclick=()=>{document.getElementById('annotList').hidden=true;document.getElementById('annotPillN').setAttribute('aria-expanded','false');annotSelected=s;annotRedraw();const r=cv().getBoundingClientRect();const p=badgeAnchor(s);annotAskNote(s,r.left+p.bx*r.width/cv().width,r.top+p.by*r.height/cv().height);};list.appendChild(b);});
+}
+function annotRenumber(){annotStrokes.forEach((s,i)=>s.n=i+1);annotRemember();}
+async function annotAskNote(stroke,clientX,clientY){
+  annotSelected=stroke;
+  const box=document.getElementById('annotNote'),inp=box.querySelector('textarea');
+  box.querySelector('.annot-number').textContent=stroke.n;
+  inp.value=stroke.note||'';box.style.display='block';
+  const position=()=>{const host=lb().getBoundingClientRect();box.style.maxWidth=Math.max(120,host.width-16)+'px';box.style.left=Math.max(host.left+8,Math.min(clientX+18,host.right-box.offsetWidth-8))+'px';box.style.top=Math.max(host.top+8,Math.min(clientY-24,host.bottom-box.offsetHeight-8))+'px';};
+  const save=()=>{if(inp.value!==stroke.note){annotCheckpoint();stroke.note=inp.value.trim();}annotSent=false;annotRedraw();};
+  const close=()=>{if(annotBusy)return;if(!stroke.note){annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();}box.style.display='none';box.querySelector('.annot-close').onclick=null;annotRedraw();};
+  box.querySelector('.annot-close').onclick=close;
+  box.querySelector('.annot-save').onclick=()=>{if(annotBusy)return;save();box.style.display='none';box.querySelector('.annot-close').onclick=null;};
+  box.querySelector('.annot-delete').onclick=()=>{if(annotBusy)return;annotCheckpoint();annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();box.style.display='none';annotRedraw();};
+  box.querySelector('.annot-send').onclick=async function(){if(annotBusy||this.disabled)return;save();if(!stroke.note)return;annotBusy=true;this.disabled=true;inp.disabled=true;annotPillUpdate();try{await annotSendOne(stroke);box.style.display='none';}catch(error){box.querySelector('.annot-status').textContent='Envoi impossible — réessayer';}finally{annotBusy=false;this.disabled=false;inp.disabled=false;annotPillUpdate();}};
+  inp.oninput=()=>{inp.style.height='44px';inp.style.height=Math.min(132,inp.scrollHeight)+'px';box.querySelector('.annot-send').disabled=annotBusy||!inp.value.trim();position();};
+  inp.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close();}if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();box.querySelector('.annot-send').click();}};
+  box.querySelector('.annot-status').textContent='';inp.oninput();inp.focus();annotRedraw();
+}
+function annotBindCanvas(){
+  const c=cv();
+  c.addEventListener('pointerdown',e=>{
+    if(e.button!==0||annotBusy)return;
+    const p=annotPos(e),g=annotGeometry(),tol=8*c.width/c.getBoundingClientRect().width;
+    document.getElementById('annotNote').querySelector('.annot-close').click();
+    if(annotTool==='pan'){const stage=document.getElementById('lbViewport');annotDrag={kind:'pan',x:e.clientX,y:e.clientY,left:stage.scrollLeft,top:stage.scrollTop};}
+    else{
+      const handle=annotTool==='select'&&annotSelected&&Math.hypot(p.x-annotSelected.x2,p.y-annotSelected.y2)<tol;
+      const hit=handle?annotSelected:badgeHit(p)||(annotTool==='select'?[...annotStrokes].reverse().find(s=>g.hit(s,p,tol)):null);
+      if(hit){annotSelected=hit;annotDrag={kind:handle?'resize':'move',stroke:hit,original:{...hit},p,changed:false};}
+      else if(annotTool==='select'){annotSelected=null;annotDrag=null;}
+      else{annotSelected=null;annotCur={tool:annotTool,x1:p.x,y1:p.y,x2:p.x,y2:p.y,color:'#d88653'};annotDrag={kind:'create',p};}
+    }
+    c.setPointerCapture(e.pointerId);annotRedraw();
+  });
+  c.addEventListener('pointermove',e=>{
+    if(!annotDrag)return;const d=annotDrag,p=annotPos(e),g=annotGeometry();
+    if(d.kind==='pan'){const stage=document.getElementById('lbViewport');stage.scrollLeft=d.left-e.clientX+d.x;stage.scrollTop=d.top-e.clientY+d.y;return;}
+    if(d.kind==='create')annotCur=g.resize(annotCur,p,c.width,c.height);
+    else{if(!d.changed&&Math.hypot(p.x-d.p.x,p.y-d.p.y)>2){annotCheckpoint();d.changed=true;}if(d.changed)Object.assign(d.stroke,d.kind==='resize'?g.resize(d.original,p,c.width,c.height):g.move(d.original,p.x-d.p.x,p.y-d.p.y,c.width,c.height));}
+    annotRedraw();
+  });
+  c.addEventListener('pointerup',e=>{
+    if(!annotDrag)return;const d=annotDrag;annotDrag=null;
+    if(d.kind==='create'){const s=annotGeometry().create(annotCur.tool,{x:annotCur.x1,y:annotCur.y1},{x:annotCur.x2,y:annotCur.y2},c.width,c.height);annotCur=null;if(s){annotCheckpoint();s.id=crypto.randomUUID();s.color='#d88653';annotStrokes.push(s);annotRenumber();annotAskNote(s,e.clientX,e.clientY);}}
+    else if(d.kind!=='pan'){
+      if(d.kind==='resize'&&!annotGeometry().create(d.stroke.tool,{x:d.stroke.x1,y:d.stroke.y1},{x:d.stroke.x2,y:d.stroke.y2},c.width,c.height))Object.assign(d.stroke,d.original);
+      if(!d.changed)annotAskNote(d.stroke,e.clientX,e.clientY);
+    }
+    annotRedraw();
+  });
+  c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
+  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=()=>{if(annotBusy)return;annotTool=b.dataset.tool;document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
+  document.getElementById('annotUndo').onclick=()=>annotHistory();document.getElementById('annotRedo').onclick=()=>annotHistory(true);
+  document.getElementById('annotZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);document.getElementById('annotZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);document.getElementById('annotFit').onclick=()=>lbSetZoom(1);
+  document.getElementById('annotPillN').onclick=function(){document.getElementById('annotNote').querySelector('.annot-close').click();const list=document.getElementById('annotList');list.hidden=!list.hidden;this.setAttribute('aria-expanded',String(!list.hidden));};
+  document.addEventListener('pointerdown',e=>{if(!e.target.closest('#annotList,#annotPillN')){document.getElementById('annotList').hidden=true;document.getElementById('annotPillN').setAttribute('aria-expanded','false');}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('annotList').hidden){e.preventDefault();e.stopImmediatePropagation();document.getElementById('annotListClose').click();}},true);
+  document.getElementById('annotListClose').onclick=()=>{document.getElementById('annotList').hidden=true;document.getElementById('annotPillN').setAttribute('aria-expanded','false');};
+}
+
+function annotRedraw(exportOnly=null){
   const c=cv(), x=c.getContext('2d');
   x.clearRect(0,0,c.width,c.height);
   const lw=Math.max(2,c.width/300);          // badge scale (unchanged)
   const sw=Math.max(1.4,lw*0.65);            // subtle stroke for the marks themselves
-  for(const s of annotStrokes.concat(annotCur?[annotCur]:[])){
+  for(const s of (exportOnly||annotStrokes.concat(annotCur?[annotCur]:[]))){
     x.strokeStyle=s.color; x.fillStyle=s.color; x.lineWidth=sw; x.lineCap='round'; x.lineJoin='round';
     if(s.tool==='pen'){
       x.beginPath(); s.pts.forEach((p,i)=>i?x.lineTo(p.x,p.y):x.moveTo(p.x,p.y)); x.stroke();
@@ -2971,12 +3075,8 @@ function annotRedraw(){
       x.textAlign='start';x.textBaseline='alphabetic';
     }
   }
-  annotPillUpdate();
-}
-function annotPillUpdate(){
-  const n=annotStrokes.filter(s=>s.note).length;
-  document.getElementById('annotPillN').textContent=n+(n>1?' commentaires':' commentaire');
-  document.getElementById('annotPill').classList.toggle('on', n>0);
+  if(!exportOnly&&annotSelected&&annotStrokes.includes(annotSelected)){const s=annotSelected,r=Math.max(3,c.width/c.getBoundingClientRect().width*4);x.fillStyle='#e77f3e';x.fillRect(s.x2-r,s.y2-r,r*2,r*2);}
+  if(!exportOnly)annotPillUpdate();
 }
 function badgeAnchor(s){
   if(s.tool==='ellipse') return {bx:(s.x1+s.x2)/2, by:Math.min(s.y1,s.y2)};
@@ -2994,93 +3094,8 @@ function badgeHit(p){
   }
   return null;
 }
-const annotationUIReady=new Promise((resolve,reject)=>{
-  const script=document.createElement('script');script.src='/.fig_thumbs/annotation_ui.bundle.js';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);
-});
-async function annotAskNote(stroke, clientX, clientY){
-  await annotationUIReady;
-  const box=document.getElementById('annotNote');
-  AtelierAnnotationUI.createNoteEditor(box,{onSubmit(){},onDelete(){
-    const i=annotStrokes.indexOf(stroke);if(i>=0)annotStrokes.splice(i,1);annotRenumber();box.style.display='none';annotRedraw();
-  }});
-  box.querySelector('.send2').classList.add('anSave');
-  const inp=box.querySelector('textarea');
-  const send=box.querySelector('.anSave');
-  const isEdit = !!stroke.note;
-  if(!stroke.n) stroke.n=annotStrokes.filter(s=>s.n).length+1;
-  box.style.display='block';
-  const boxW=Math.min(320,window.innerWidth-24);
-  box.style.left=Math.max(12,Math.min(clientX+18,window.innerWidth-boxW-12))+'px';
-  box.style.top=Math.max(12,Math.min(clientY-24,window.innerHeight-60))+'px';
-  inp.value=stroke.note||''; inp.focus(); inp.select();
-  send.disabled=!inp.value.trim();
-  annotRedraw();
-  const close=()=>{box.style.display='none'; annotRedraw();};
-  const save=()=>{
-    const text=inp.value.trim();
-    if(!text)return;
-    stroke.note=text; annotSent=false; close();
-    document.getElementById('annotPillSend').click();
-  };
-  const cancel=()=>{
-    if(!isEdit){
-      // Cancel on a fresh selection discards the drawn mark entirely
-      const i=annotStrokes.indexOf(stroke);
-      if(i>=0) annotStrokes.splice(i,1);
-      annotRenumber();
-      if(!annotStrokes.length) annotSent=true;
-    }
-    close();
-  };
-  box.querySelector('.anSave').onclick=e=>{e.stopPropagation();save();};
-  inp.oninput=()=>{
-    send.disabled=!inp.value.trim();
-    inp.style.height='19px';
-    inp.style.height=Math.min(120,inp.scrollHeight)+'px';
-    // La capsule grandit vers le bas : remonter si elle déborde de l'écran.
-    const r=box.getBoundingClientRect();
-    if(r.bottom>window.innerHeight-12) box.style.top=Math.max(12,window.innerHeight-12-r.height)+'px';
-  };
-  inp.oninput();
-  inp.onkeydown=e=>{
-    e.stopPropagation();
-    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();save();}
-    else if(e.key==='Escape'){cancel();}
-  };
-}
-function annotRenumber(){
-  let n=0;
-  for(const s of annotStrokes){ if(s.note){s.n=++n;} else {delete s.n; delete s.note;} }
-}
 function annotInit(){
-  const c=cv();
-  c.addEventListener('pointerdown',e=>{
-    const p=annotPos(e), col='#7184ad';
-    const hit=badgeHit(p);
-    if(hit){annotAskNote(hit, e.clientX, e.clientY); return;}
-    annotCur={tool:'rect',x1:p.x,y1:p.y,x2:p.x,y2:p.y,color:col};
-    c.setPointerCapture(e.pointerId);
-  });
-  c.addEventListener('pointermove',e=>{
-    if(!annotCur)return;
-    const p=annotPos(e);
-    if(annotCur.tool==='pen')annotCur.pts.push(p);else{annotCur.x2=p.x;annotCur.y2=p.y;}
-    annotRedraw();
-  });
-  c.addEventListener('pointerup',e=>{
-    if(!annotCur)return;
-    const s=annotCur; annotCur=null;
-    const tiny = Math.hypot(s.x2-s.x1,s.y2-s.y1)<4;
-    if(tiny){annotRedraw(); return;}
-    annotStrokes.push(s); annotSent=false; annotRedraw();
-    annotAskNote(s,e.clientX,e.clientY);
-  });
-  document.querySelectorAll('#annotBar button[data-tool]').forEach(b=>{
-    b.onclick=()=>{annotTool=b.dataset.tool;
-      document.querySelectorAll('#annotBar button[data-tool]').forEach(o=>o.classList.toggle('sel',o===b));};
-  });
-  document.getElementById('annotUndo').onclick=()=>{annotStrokes.pop();annotRenumber();if(!annotStrokes.length)annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
-  document.getElementById('annotClear').onclick=()=>{annotStrokes=[];annotSent=true;document.getElementById('annotNote').style.display='none';annotRedraw();};
+  annotBindCanvas();
   const ANNOT_EMBEDDED=EMB;
   if(ANNOT_EMBEDDED){
     // fichiers html : ouvrir en onglet Studio (target=_blank ne marche pas en iframe)
@@ -3181,16 +3196,20 @@ function annotInit(){
     const d=event.data;
     if(event.source!==window.top || d?.type!=='atelier-pdf-annotation-consumed' || d.nonce!==window.__atelierNonce)return;
     const pending=pendingFigureNotes.get(d.id);if(!pending || pending.rel!==d.rel)return;
-    annotStrokes=annotStrokes.filter(s=>!pending.notes.some(a=>a.stroke===s && a.note===s.note));
-    pendingFigureNotes.delete(d.id);annotRenumber();annotRedraw();
+    pending.session.strokes=pending.session.strokes.filter(s=>!pending.notes.some(a=>a.stroke.id===s.id && a.note===s.note && ['x1','y1','x2','y2','tool'].every(k=>a.stroke[k]===s[k])));
+    pending.session.undo=[];pending.session.redo=[];
+    if(annotSession===pending.session){annotStrokes=pending.session.strokes;annotSelected=null;annotRenumber();annotRedraw();}
+    pendingFigureNotes.delete(d.id);
   });
-  async function annotPost(direct){
+  async function annotPost(direct,only=null){
     const f=lbList[lbIdx];
-    const sentNotes=annotStrokes.filter(s=>s.note).map(s=>({stroke:s,note:s.note,n:s.n}));
+    const sentSession=annotSession;
+    const sentNotes=(only?[only]:annotStrokes).filter(s=>s.note).map(s=>({stroke:structuredClone(s),note:s.note,n:s.n}));
     const body=(dataURL)=>JSON.stringify({name:f.name,dataURL,direct:!!direct,
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:sentNotes.map(s=>({n:s.n,text:s.note}))});
-    const imageLarge=annotRender(2200), imageSmall=annotRender(1400);
+    annotRedraw(sentNotes.map(s=>s.stroke));
+    const imageLarge=annotRender(2200), imageSmall=annotRender(1400);annotRedraw();
     let r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:body(imageLarge)});
     // 413 : une carte dense à 2 200 px dépasse la limite de corps d'un serveur
     // plus ancien (vécu 2026-09-04, fig1 = 3,1 Mo en base64). On rejoue une
@@ -3206,7 +3225,7 @@ function annotInit(){
     // d'une bulle vide (2026-09-04). Le contrat IPC accepte déjà ces champs.
     if(ANNOT_EMBEDDED&&j&&j.message){
       const id=crypto.randomUUID(), rel='figure-comments:'+String(f.rel||f.name);
-      pendingFigureNotes.set(id,{rel,notes:sentNotes});
+      pendingFigureNotes.set(id,{rel,notes:sentNotes,session:sentSession});
       const base={text:j.message,pdfAnnotation:{rel,id}};
       if(j.path){
         base.path=j.path;
@@ -3218,6 +3237,7 @@ function annotInit(){
     }
     return j;
   }
+  annotSendOne=async stroke=>{const session=annotSession;await annotPost(true,stroke);if(!ANNOT_EMBEDDED){session.strokes=session.strokes.filter(s=>s!==stroke);if(session===annotSession){annotStrokes=session.strokes;annotRenumber();annotRedraw();}}};
   document.getElementById('annotPillCancel').onclick=async function(){
     const n=annotStrokes.filter(s=>s.note).length;
     if(!(await confirmDialog(n>1?`Supprimer les ${n} commentaires ?`:'Supprimer le commentaire ?','Supprimer')))return;
@@ -3265,10 +3285,11 @@ function annotInit(){
   })();
   document.getElementById('annotPillSend').onclick=async function(){
     const lbl=document.getElementById('annotPillN');
+    if(this.disabled||annotBusy)return;annotBusy=true;this.disabled=true;const sendingSession=annotSession;
     this.classList.remove('is-ok','is-err'); this.classList.add('is-busy');
     try{
       const j=await annotPost(true);
-      if(!ANNOT_EMBEDDED)annotStrokes=[];annotSent=true;
+      if(!ANNOT_EMBEDDED){sendingSession.strokes=[];if(annotSession===sendingSession)annotStrokes=[];}annotSent=true;
       document.getElementById('annotNote').style.display='none';
       if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();
       this.classList.remove('is-busy'); this.classList.add('is-ok');
@@ -3285,7 +3306,7 @@ function annotInit(){
         : e&&e.status ? 'Erreur serveur '+e.status
         : 'Serveur off — démarrer le serveur';
     }
-    setTimeout(()=>{this.classList.remove('is-busy','is-ok','is-err'); annotPillUpdate();},2400);
+    annotBusy=false;this.disabled=false;setTimeout(()=>{this.classList.remove('is-busy','is-ok','is-err'); annotPillUpdate();},2400);
   };
 }
 annotInit();

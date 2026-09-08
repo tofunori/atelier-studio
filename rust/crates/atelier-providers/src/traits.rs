@@ -248,6 +248,17 @@ pub trait Provider: Send + Sync {
         Err("rewind non supporté par ce provider".into())
     }
 
+    /// Rewind a persisted session, including after the app has restarted.
+    async fn rewind_session(
+        &self,
+        thread_id: &str,
+        _session_id: Option<&str>,
+        prompt_index: usize,
+        _native_turn_id: Option<&str>,
+    ) -> Result<Value, String> {
+        self.rewind(thread_id, prompt_index).await
+    }
+
     /// Duplique la session du CLI jusqu'au prompt `prompt_index` et retourne
     /// l'identifiant de la copie. La branche garde alors l'historique réel
     /// (outils, plan) au lieu d'un texte reconstruit. `Err` = non supporté.

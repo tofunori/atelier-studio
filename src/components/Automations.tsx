@@ -22,7 +22,7 @@ import { showError, showSuccess } from "./ui/toast";
 import { SidebarIcon } from "./icons";
 import { Select } from "./Select";
 import { Badge } from "./shadcn/badge";
-import { Button } from "./shadcn/button";
+import { Button } from "./ui/Button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,13 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./shadcn/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./shadcn/dropdown-menu";
+import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import {
   Empty,
   EmptyContent,
@@ -114,6 +108,7 @@ export default function AutomationsPanel(props: {
   const [schedule, setSchedule] = useState<ScheduleDraft | null>(null);
   const [pending, dispatchPending] = useReducer((_current: string | null, next: string | null) => next, null);
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null);
+  const [automationMenuOpen, setAutomationMenuOpen] = useState<string | null>(null);
   const actionRef = useRef<string | null>(null);
 
   const threadById = useMemo(() => new Map(props.threads.map((thread) => [thread.id, thread])), [props.threads]);
@@ -265,16 +260,18 @@ export default function AutomationsPanel(props: {
                       <Button className="tw:ml-auto" variant="ghost" size="icon-sm" aria-label={automation.status === "ACTIVE" ? t("automations.pause") : t("automations.resume")} onClick={() => changeStatus(automation)}>
                         {automation.status === "ACTIVE" ? <PauseIcon /> : <PlayIcon />}
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Actions" />}><EllipsisIcon /></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuGroup>
-                            <DropdownMenuItem onClick={() => runNow(automation)}><PlayIcon />{t("automations.run-now")}</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => changeStatus(automation)}>{automation.status === "ACTIVE" ? <PauseIcon /> : <PlayIcon />}{automation.status === "ACTIVE" ? t("automations.pause") : t("automations.resume")}</DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(automation)}><Trash2Icon />{t("automations.delete")}</DropdownMenuItem>
-                          </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <LazyDropdownMenu
+                        open={automationMenuOpen === automation.id}
+                        onOpenChange={(open) => setAutomationMenuOpen(open ? automation.id : null)}
+                        align="end"
+                        label={t("action.more")}
+                        trigger={<Button variant="ghost" size="icon-sm" aria-label={t("action.more")}><EllipsisIcon /></Button>}
+                        items={[
+                          { key: "run", label: <><PlayIcon />{t("automations.run-now")}</>, onSelect: () => runNow(automation) },
+                          { key: "status", label: <>{automation.status === "ACTIVE" ? <PauseIcon /> : <PlayIcon />}{automation.status === "ACTIVE" ? t("automations.pause") : t("automations.resume")}</>, onSelect: () => changeStatus(automation) },
+                          { key: "delete", label: <><Trash2Icon />{t("automations.delete")}</>, destructive: true, onSelect: () => setDeleteTarget(automation) },
+                        ]}
+                      />
                     </div>
                   </div>
                 );
