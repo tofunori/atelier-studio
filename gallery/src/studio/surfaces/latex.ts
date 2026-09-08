@@ -199,12 +199,18 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
 
   const wrap = createEditorWrapController({
     getEditor: () => editor,
+    storageKey: isTex ? "texVisualWrap" : "cmWrap",
+    defaultValue: isTex ? "fluid" : "win",
     select: doc.getElementById("wrapSel") as HTMLSelectElement,
     document: doc,
     window: win,
     storage: win.localStorage,
   });
   const wrapValue = (): string => wrap.current();
+  if (!isTex) {
+    doc.querySelector('[data-wrap="fluid"]')?.remove();
+    doc.querySelector('#wrapSel option[value="fluid"]')?.remove();
+  }
 
   // Un CSV ouvert ici est une table de données avant d'être du texte : même
   // contrôleur que l'éditeur de code, branché sur `#split` (le wrap se pilote
@@ -479,7 +485,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       },
       getText: () => editor?.getValue() || "",
       applyText: (text) => { if (editor) editor.setValue(text); else initializeEditor(text); },
-      externalReload: "always",
+      externalReload: "when-clean",
       conflictPolicy: "reload",
       onEvent: (event) => {
         if (event.kind === "loaded") {
@@ -501,7 +507,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
           if (event.previousText !== event.snapshot.text) {
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
-          applyAgentRewrap();
+          if (!diff.isShown()) applyAgentRewrap();
           csv.onDocumentChanged();
           scheduleAutoCompile();
         } else if (event.kind === "conflict" || event.kind === "error") setState("err", event.message);
@@ -744,10 +750,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     storage: win.localStorage,
   });
   diff = createStudioDiffController({
+    individualReview: true,
     factory: dependencies.diffFactory,
     getEditor: () => editor,
     path,
-    notify: (message) => setState("ok", message),
+    notify: (message) => setState(/non enregistr|indisponible|a changé|Sauvegarde tes/.test(message) ? "err" : "ok", message),
     // La vue Lecture masque l'éditeur : sans ce relais, une comparaison
     // ouverte depuis la Lecture ne montrait rien du tout. Et sans le TAMPON,
     // une comparaison ouverte AVANT le premier passage en Lecture publiait
@@ -850,6 +857,8 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   });
   statusBar = createStudioStatusBar({
     extension,
+    wrapStorageKey: isTex ? "texVisualWrap" : "cmWrap",
+    defaultWrapValue: isTex ? "fluid" : "win",
     mode: cmMode,
     path: path || "",
     getEditor: () => editor,

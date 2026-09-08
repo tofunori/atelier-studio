@@ -7,6 +7,7 @@ export interface StudioDiffJournal {
 }
 
 export interface StudioDiffFactoryOptions {
+  individualReview?: boolean;
   getCm(): StudioEditor | null;
   path: string | null;
   notify(message: string): void;
@@ -26,6 +27,7 @@ export interface StudioDiffFactoryOptions {
 }
 
 export interface StudioDiffControllerOptions {
+  individualReview?: boolean;
   factory(options: StudioDiffFactoryOptions): StudioDiffJournal;
   getEditor(): StudioEditor | null;
   path: string | null;
@@ -50,6 +52,7 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
   const win = options.window || window;
   const journal = options.factory({
     getCm: options.getEditor,
+    individualReview: options.individualReview,
     path: options.path,
     notify: options.notify,
     els: {

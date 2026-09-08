@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <title>LaTeX Studio</title>
@@ -37,14 +37,16 @@
 <link rel="stylesheet" href="annotation_ui.css">
 </head>
 <body>
-<header>
-  <span id="fileIdentity"><b id="fname"></b><span id="ddot" title="Modifications non sauvegardées" aria-label="Modifications non sauvegardées"></span></span>
-  <span class="grp editonly">
-    <button id="build" title="Compiler (&#8984;B)" aria-label="Compiler (Commande B)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2 12.4 8 5 12.8Z"/></svg></button>
-    <button id="popPdf" aria-label="Ouvrir le PDF dans un onglet séparé" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 8 8"/><path d="M12 9.8V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.2"/></svg></button>
+<header aria-label="Outils du document">
+  <span id="fileIdentity"><b id="fname"></b></span>
+  <span class="grp editonly" id="compileActions">
+    <button id="build" title="Compiler (&#8984;B)" aria-label="Compiler (Commande B)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play" aria-hidden="true" focusable="false"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"></path></svg><span>Compiler</span></button>
+
+    <button id="popPdf" aria-label="Ouvrir le PDF dans un onglet séparé" title="Ouvrir le PDF dans un onglet séparé — synctex actif (clic PDF &#8594; ligne source ici)"><span>PDF</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true" focusable="false"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></button>
     <button id="saveBtn" title="Sauvegarder (&#8984;S)" style="display:none">Save</button>
     <button id="openFile" title="Ouvrir un autre fichier" style="display:none">Open&hellip;</button>
     <select id="wrapSel" title="Retour à la ligne" style="display:none">
+      <option value="fluid">Lignes : texte fluide</option>
       <option value="win">Lignes : fenêtre</option>
       <option value="off">Lignes : sans retour</option>
       <option value="80">Lignes : 80</option>
@@ -54,30 +56,35 @@
     <button id="rewrapBtn" style="display:none">&#9166;80</button>
   </span>
   <span class="sep editonly"></span>
-  <span class="grp editonly">
+  <span class="grp editonly" id="documentModes">
+    <span id="ddot" title="Modifications non sauvegardées" aria-label="Modifications non sauvegardées"></span>
     <button id="togglePdf" title="Vue scindée éditeur + PDF">Split</button>
   </span>
   <span class="sep"></span>
+
   <span class="grp" id="diffGrp">
-    <button id="diffTag" disabled aria-label="Comparer les modifications" title="Historique des modifications — vide pour l’instant (⌘S ou une modif de l’agent crée une version)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" aria-hidden="true"><path d="M1.5 3.4h3M3 1.9v3M6.8 3.4h7.7M1.5 12.6h3M6.8 12.6h7.7"/><path d="M1.5 8h13" opacity=".38"/></svg><span class="dv-count">0</span></button>
-    <button id="diffRestore" disabled aria-label="Rétablir la version affichée" title="Rétablir la version affichée sur le disque"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.2 4H2V.8"/><path d="M2.2 4A6.1 6.1 0 1 1 2.6 11"/></svg></button>
+    <button id="diffTag" disabled aria-label="Comparer les modifications" title="Historique des modifications — vide pour l’instant (⌘S ou une modif de l’agent crée une version)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-git-compare-arrows" aria-hidden="true" focusable="false"><circle cx="5" cy="6" r="3"></circle><path d="M12 6h5a2 2 0 0 1 2 2v7"></path><path d="m15 9-3-3 3-3"></path><circle cx="19" cy="18" r="3"></circle><path d="M12 18H7a2 2 0 0 1-2-2V9"></path><path d="m9 15 3 3-3 3"></path></svg><span class="dv-label">Diff</span><span class="diff-switch" aria-hidden="true"><span></span></span><span class="dv-count">0</span></button>
+    <button id="diffPrev" aria-label="Passage précédent" title="Passage précédent (⌥↑)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up" aria-hidden="true" focusable="false"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg></button>
+    <button id="diffNext" aria-label="Passage suivant" title="Passage suivant (⌥↓)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-down" aria-hidden="true" focusable="false"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg></button>
+    <button id="diffRestore" disabled aria-label="Rétablir la version affichée" title="Rétablir la version affichée sur le disque"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button>
   </span>
-  <span style="display:none"></span>
+
+  <span class="grp editonly" id="wrapActions"><button id="toolbarWrap" aria-label="Retour à la ligne" aria-pressed="true" title="Retour visuel à la ligne"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true" focusable="false"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button></span>
   <!-- Recharger le PDF rejoint le zoom : même portée (le PDF), et sa flèche
        circulaire ne voisine plus celle de « rétablir la version », dont le
        sens n'a rien à voir. -->
   <span class="grp pdfonly">
-    <button id="zoomOut" title="Zoom arrière">&#8722;</button>
-    <button id="zoomFit" title="Ajuster à la largeur">&#10530;</button>
-    <button id="zoomIn" title="Zoom avant">+</button>
-    <button id="reloadPdf" title="Recharger le PDF">&#8635;</button>
+    <button id="zoomOut" title="Zoom arrière"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-minus" aria-hidden="true" focusable="false"><path d="M5 12h14"></path></svg></button>
+    <button id="zoomFit" title="Ajuster à la largeur"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-maximize" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg></button>
+    <button id="zoomIn" title="Zoom avant"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus" aria-hidden="true" focusable="false"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button>
+    <button id="reloadPdf" title="Recharger le PDF"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg></button>
   </span>
   <span class="grp editonly" id="toolbarActions">
-    <button id="outlineBtn" aria-label="Plan du document" title="Plan du document (&#8984;&#8679;O)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><path d="M5.5 3.5h8M5.5 8h8M5.5 12.5h8M2 3.5h.01M2 8h.01M2 12.5h.01"/></svg></button>
-    <button id="findBtn" style="display:none" title="Rechercher (&#8984;F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></svg></button>
-    <button id="rewrapAllBtn" aria-label="Reformater les lignes du document" title="Reformater les lignes du document (&#8679;&#8997;Q)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.2h12M2 7.2h9.2M2 11.2h6"/><path d="M11.2 7.2h.8a2.6 2.6 0 0 1 0 5.2H9.5"/><path d="m11 10.6-1.8 1.8 1.8 1.8"/></svg><span id="rewrapAutoDot"></span></button>
-    <button id="texcBtn" aria-label="Commentaires" title="Commentaires"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 2.5h9.6A1.7 1.7 0 0 1 14.5 4v6a1.7 1.7 0 0 1-1.7 1.5H8L3.5 15v-3.5h-.3A1.7 1.7 0 0 1 1.5 10V4a1.7 1.7 0 0 1 1.7-1.5Z"/><path d="M4.7 6h6.6M4.7 8.5h4.5" opacity=".7"/></svg></button>
-    <button id="moreBtn" aria-label="Plus d’actions" title="Plus&hellip;"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="13" cy="8" r="1.1"/></svg></button>
+    <button id="outlineBtn" aria-label="Plan du document" title="Plan du document (&#8984;&#8679;O)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list-tree" aria-hidden="true" focusable="false"><path d="M8 5h13"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="M3 10a2 2 0 0 0 2 2h3"></path><path d="M3 5v12a2 2 0 0 0 2 2h3"></path></svg></button>
+    <button id="findBtn" style="display:none" title="Rechercher (&#8984;F)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true" focusable="false"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></svg></button>
+    <button id="rewrapAllBtn" aria-label="Reformater les lignes du document" title="Reformater les lignes du document (&#8679;&#8997;Q)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true" focusable="false"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg><span id="rewrapAutoDot"></span></button>
+    <button id="texcBtn" aria-label="Commentaires" title="Commentaires"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-message-square-text" aria-hidden="true" focusable="false"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path><path d="M7 11h10"></path><path d="M7 15h6"></path><path d="M7 7h8"></path></svg></button>
+    <button id="moreBtn" aria-label="Plus d’actions" title="Plus&hellip;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
   </span>
   <span id="csvTools">
     <span class="csvMode" aria-label="CSV view mode">
@@ -90,16 +97,20 @@
   <span id="state"></span>
   <button id="helpBtn" title="Raccourcis clavier" style="display:none">?</button>
   <div id="morePop" style="display:none">
-    <div data-act="save">Sauvegarder <em>&#8984;S</em></div>
-    <div data-act="open">Ouvrir un fichier&hellip;</div>
-    <div data-act="rewrap">Reformater les lignes du paragraphe <em>&#8997;Q</em></div>
-    <div data-act="rewrapall">Reformater les lignes du document <em>&#8679;&#8997;Q</em></div>
-    <div data-act="autorewrap">Reformatage auto (&#8984;S) : <span id="moreAutoRw"></span></div>
-    <div data-act="outline">Plan du document <em>&#8984;&#8679;O</em></div>
-    <div data-act="find">Rechercher <em>&#8984;F</em></div>
-    <div data-act="read">Vue lecture (rendu seul)</div>
-    <div data-act="wrap">Retour à la ligne : <span id="moreWrapVal"></span></div>
-    <div data-act="help">Raccourcis clavier</div>
+    <button type="button" data-act="console">Console de compilation</button>
+    <button type="button" data-act="autocompile">Compilation automatique</button>
+    <button type="button" data-act="comments">Commentaires</button>
+    <button type="button" data-act="poppdf">Ouvrir le PDF dans un onglet</button>
+    <button type="button" data-act="save">Sauvegarder <em>&#8984;S</em></button>
+    <button type="button" data-act="open">Ouvrir un fichier&hellip;</button>
+    <button type="button" data-act="rewrap">Reformater les lignes du paragraphe <em>&#8997;Q</em></button>
+    <button type="button" data-act="rewrapall">Reformater les lignes du document <em>&#8679;&#8997;Q</em></button>
+    <button type="button" data-act="autorewrap">Reformatage auto (&#8984;S) : <span id="moreAutoRw"></span></button>
+    <button type="button" data-act="outline">Plan du document <em>&#8984;&#8679;O</em></button>
+    <button type="button" data-act="find">Rechercher <em>&#8984;F</em></button>
+    <button type="button" data-act="read">Vue lecture (rendu seul)</button>
+    <button type="button" data-act="wrap">Retour à la ligne : <span id="moreWrapVal"></span></button>
+    <button type="button" data-act="help">Raccourcis clavier</button>
   </div>
 </header>
 <div id="helpPop">
@@ -136,6 +147,7 @@
   <button type="button" id="sbRewrap" aria-pressed="false" title="Reformater les sauts de ligne du fichier automatiquement à la sauvegarde"></button>
   <button type="button" id="sbAutoCompile" aria-pressed="false" title="Compiler automatiquement après une modification du fichier"></button>
   <div id="wrapMenu" role="group" aria-label="Retour à la ligne visuel">
+    <button type="button" class="wm-it" data-wrap="fluid" title="Réunir visuellement les lignes de prose sans modifier le fichier">Texte fluide</button>
     <button type="button" class="wm-it" data-wrap="win">Largeur de la fenêtre</button>
     <button type="button" class="wm-it" data-wrap="off">Sans retour à la ligne</button>
     <button type="button" class="wm-it" data-wrap="50">50 colonnes</button>

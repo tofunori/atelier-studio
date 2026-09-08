@@ -26,6 +26,8 @@ export interface StudioStatusBarOptions {
   path: string;
   getEditor(): StatusEditor | null;
   applyWrap(value: string): void;
+  wrapStorageKey?: string;
+  defaultWrapValue?: string;
   rewrapAll?(): number;
   /** Compilation immédiate quand on bascule « Compilation : auto » — réaligne
    * synctex sans attendre la prochaine sauvegarde. */
@@ -161,6 +163,8 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   const doc = options.document || document;
   const win = options.window || window;
   const storage = options.storage || win.localStorage;
+  const wrapStorageKey = options.wrapStorageKey || "cmWrap";
+  const currentWrap = (): string => storage.getItem(wrapStorageKey) || options.defaultWrapValue || "win";
   const sbMode = doc.getElementById("sbMode");
   if (!sbMode) return null;
   const sbWrap = doc.getElementById("sbWrap") as HTMLElement;
@@ -185,15 +189,16 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   sbMode.textContent = modeLabel(options.mode, options.extension);
 
   const wrapLabel = (): string => {
-    const value = storage.getItem("cmWrap") || "win";
-    return `Lignes : ${value === "win" ? "fenêtre" : value === "off" ? "sans retour" : `${value} col.`}`;
+    const value = currentWrap();
+    return `Lignes : ${value === "fluid" ? "texte fluide" : value === "win" ? "fenêtre" : value === "off" ? "sans retour" : `${value} col.`}`;
   };
   const refreshWrap = (): void => {
     const label = wrapLabel();
     sbWrap.textContent = label;
+    doc.getElementById("toolbarWrap")?.setAttribute("aria-pressed", String(currentWrap() !== "off"));
     const menuValue = doc.getElementById("moreWrapVal");
     if (menuValue) menuValue.textContent = label.replace("Lignes : ", "");
-    const current = storage.getItem("cmWrap") || "win";
+    const current = currentWrap();
     wrapMenu.querySelectorAll<HTMLElement>(".wm-it").forEach((item) => {
       item.classList.toggle("on", item.dataset.wrap === current);
       item.setAttribute("aria-pressed", String(item.dataset.wrap === current));
@@ -206,6 +211,13 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
       select.onchange?.(new Event("change"));
     } else options.applyWrap(value);
     refreshWrap();
+  };
+  let lastEnabledWrap = currentWrap() === "off" ? "fluid" : currentWrap();
+  doc.body.appendChild(wrapMenu);
+  const toolbarWrap = doc.getElementById("toolbarWrap");
+  if (toolbarWrap) toolbarWrap.onclick = () => {
+    if (currentWrap() === "off") setWrap(lastEnabledWrap);
+    else { lastEnabledWrap = currentWrap(); setWrap("off"); }
   };
   const closeWrapMenu = (restoreFocus = false): void => {
     wrapMenu.style.display = "none";
@@ -227,7 +239,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     wrapMenu.style.visibility = "visible";
     sbWrap.setAttribute("aria-expanded", "true");
     (wrapMenu.querySelector<HTMLElement>(".wm-it.on") || wrapMenu.querySelector<HTMLElement>(".wm-it"))?.focus();
-    const current = storage.getItem("cmWrap") || "";
+    const current = currentWrap();
     wrapMenuInput.value = /^\d+$/.test(current) && !PRESET_WRAP_COLUMNS.has(current) ? current : "";
   };
   sbWrap.onclick = (event) => {
@@ -323,6 +335,10 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   morePop.onclick = (event) => {
     event.stopPropagation();
     const action = (event.target as Element | null)?.closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (action === "console") doc.getElementById("sbCompile")?.click();
+    if (action === "autocompile") sbAutoCompile?.click();
+    if (action === "comments") doc.getElementById("texcBtn")?.click();
+    if (action === "poppdf") doc.getElementById("popPdf")?.click();
     if (action === "save") doc.getElementById("saveBtn")?.click();
     if (action === "open") doc.getElementById("openFile")?.click();
     if (action === "rewrap") doc.getElementById("rewrapBtn")?.click();
@@ -344,6 +360,18 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     }
     if (action !== "wrap") morePop.style.display = "none";
   };
+  const revisions = doc.getElementById("revisionMenu") as HTMLDetailsElement | null;
+  listen(doc, "click", (event) => {
+    if (revisions?.open && !(event.target && revisions.contains(event.target as Node))) revisions.open = false;
+  });
+  listen(doc, "keydown", (event) => {
+    if (event.key !== "Escape") return;
+    morePop.style.display = "none";
+    if (revisions?.open) {
+      revisions.open = false;
+      revisions.querySelector<HTMLElement>("summary")?.focus();
+    }
+  });
   const findButton = doc.getElementById("findBtn");
   if (findButton) findButton.onclick = () => options.getEditor()?.execCommand("findPersistent");
   const rewrapAllButton = doc.getElementById("rewrapAllBtn");

@@ -545,38 +545,27 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       }
     })
     .catch(() => { /* serveur muet : le cache local fait foi */ });
-  // Trois vues, un seul segment, icônes seules : les libellés « Édition » et
-  // « Split » coûtaient 114 px de barre pour redire ce que la forme montre.
-  // Lecture entre dans le segment — elle n'était atteignable que par le menu.
-  const glyph = (path: string): string =>
-    `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45"`
-    + ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  // Lucide SVGs share the toolbar's stroke weight and optical sizing.
   const readButton = doc.createElement("button");
   readButton.id = "readBtn";
   readButton.title = "Vue Lecture — prose rendue (KaTeX), sans le code";
   readButton.setAttribute("aria-label", "Vue Lecture");
-  // Un œil, pas un troisième rectangle : « Édition » et « Lecture » dessinés
-  // tous deux en panneau lignés devenaient indiscernables à 14 px.
-  readButton.innerHTML = glyph('<path d="M1.4 8s2.5-4.2 6.6-4.2S14.6 8 14.6 8s-2.5 4.2-6.6 4.2S1.4 8 1.4 8Z"/>'
-    + '<circle cx="8" cy="8" r="1.9"/>');
+  readButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true" focusable="false"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
   const editButton = doc.createElement("button");
   editButton.id = "editBtn";
   editButton.title = "Éditeur seul";
   editButton.setAttribute("aria-label", "Éditeur seul");
-  editButton.innerHTML = glyph('<rect x="2" y="3" width="12" height="10" rx="1.6"/>'
-    + '<path d="M4.6 6.2h5M4.6 8.6h6.4M4.6 11h3.2" opacity=".75"/><path d="M2 5.4h12" opacity=".45"/>');
-  if (!options.splitButton.querySelector("svg")) {
-    options.splitButton.title = "Vue scindée éditeur + PDF";
-    options.splitButton.setAttribute("aria-label", "Vue scindée éditeur et PDF");
-    options.splitButton.innerHTML = glyph('<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8 3v10"/>');
-  }
+  editButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-code-corner" aria-hidden="true" focusable="false"><path d="M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="m5 16-3 3 3 3"></path><path d="m9 22 3-3-3-3"></path></svg>';
+  options.splitButton.title = "Vue scindée éditeur + PDF";
+  options.splitButton.setAttribute("aria-label", "Vue scindée éditeur et PDF");
+  options.splitButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-columns2 lucide-columns-2" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M12 3v18"></path></svg>';
   const segment = doc.createElement("span");
   segment.className = "modeseg";
   options.splitButton.parentNode?.insertBefore(segment, options.splitButton);
   segment.appendChild(editButton);
   segment.appendChild(options.splitButton);
   segment.appendChild(readButton);
-  for (const [button, label] of [[editButton, "Écrire"], [options.splitButton, "PDF"], [readButton, "Lire"]] as const) {
+  for (const [button, label] of [[editButton, "Source"], [options.splitButton, "PDF"], [readButton, "Lire"]] as const) {
     const caption = doc.createElement("span"); caption.className = "mode-label"; caption.textContent = label; button.appendChild(caption);
   }
   let enabled = false;

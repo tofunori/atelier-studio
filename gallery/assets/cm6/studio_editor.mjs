@@ -9,7 +9,7 @@ import {openSearchPanel, searchKeymap, SearchCursor} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
-import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView} from "@codemirror/merge";
+import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
 import {autocompletion, startCompletion, closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
 import {python} from "@codemirror/lang-python";
 import {markdown} from "@codemirror/lang-markdown";
@@ -29,6 +29,7 @@ import {materialDark} from "@uiw/codemirror-theme-material";
 import {solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.mjs";
+import {fluidText} from "./fluid_text.mjs";
 import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.mjs";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, languageKindFor, normalizeScrollTarget} from "./studio_compat.mjs";
 
@@ -522,6 +523,7 @@ const lineClsField = StateField.define({
 
 export function createStudioEditor(parent, opts) {
   const wrapComp = new Compartment();
+  const fluidComp = new Compartment();
   const keymapComp = new Compartment();
   const readOnlyComp = new Compartment();
   const editableComp = new Compartment();
@@ -575,6 +577,7 @@ export function createStudioEditor(parent, opts) {
           },
         }),
         wrapComp.of(opts.wrap === false ? [] : EditorView.lineWrapping),
+        fluidComp.of([]),
         keymapComp.of([]),
         readOnlyComp.of(EditorState.readOnly.of(false)),
         editableComp.of(EditorView.editable.of(true)),
@@ -806,12 +809,14 @@ export function createStudioEditor(parent, opts) {
     // --- options ---
     setOption: (name, v) => {
       if (name === "lineWrapping") view.dispatch({effects: wrapComp.reconfigure(v ? EditorView.lineWrapping : [])});
+      if (name === "fluidText" && opts.ext === "tex") view.dispatch({effects: fluidComp.reconfigure(v ? fluidText : [])});
       if (name === "readOnly") view.dispatch({effects: [
         readOnlyComp.reconfigure(EditorState.readOnly.of(Boolean(v))),
         editableComp.reconfigure(EditorView.editable.of(!v)),
       ]});
     },
     getOption: (name) => name === "tabSize" ? view.state.tabSize
+      : name === "fluidText" ? Boolean(view.state.field(fluidText, false))
       : name === "readOnly" ? view.state.readOnly
       : name === "theme" ? themeId : undefined,
     getThemes: () => STUDIO_THEMES.map((theme) => ({...theme, swatches: [...theme.swatches]})),
@@ -819,15 +824,41 @@ export function createStudioEditor(parent, opts) {
     // --- official CodeMirror merge view -----------------------------------
     // The intervention journal remains owned by diff_versions.js. This seam
     // only swaps its old hand-built marks/widgets for CM6's merge renderer.
-    showMergeDiff: (original) => {
+    showMergeDiff: (original, review) => {
       view.dispatch({effects: mergeDiffComp.reconfigure(unifiedMergeView({
         original: String(original ?? ""),
         highlightChanges: true,
         gutter: true,
         syntaxHighlightDeletions: true,
         allowInlineDiffs: true,
-        mergeControls: false,
-        collapseUnchanged: {margin: 3, minSize: 8},
+        mergeControls: review?.onDecision ? (kind) => {
+          const button = document.createElement("button");
+          button.type = "button";button.textContent = kind === "accept" ? "Accepter" : "Refuser";
+          button.className = "atelier-review-decision";
+          button.onmousedown = e => e.preventDefault();
+          button.onclick = e => {
+            e.preventDefault();
+            const widget = button.closest(".cm-deletedChunk");
+            if(!widget) return;
+            const at = view.posAtDOM(widget), state = view.state;
+            const chunk = getChunks(state)?.chunks.find(c => c.fromB <= at && c.endB >= at);
+            if(!chunk) return;
+            const orig = getOriginalDoc(state), current = state.doc.toString();
+            let text = current, base = orig.toString();
+            if(kind === "reject"){
+              let insert = orig.sliceString(chunk.fromA, Math.max(chunk.fromA, chunk.toA - 1));
+              if(chunk.fromA !== chunk.toA && chunk.toB <= state.doc.length) insert += state.lineBreak;
+              text = current.slice(0, chunk.fromB) + insert + current.slice(Math.min(state.doc.length, chunk.toB));
+            }else{
+              let insert = state.sliceDoc(chunk.fromB, Math.max(chunk.fromB, chunk.toB - 1));
+              if(chunk.fromB !== chunk.toB && chunk.toA <= orig.length) insert += state.lineBreak;
+              base = base.slice(0, chunk.fromA) + insert + base.slice(Math.min(orig.length, chunk.toA));
+            }
+            void review.onDecision({kind, current, text, base});
+          };
+          return button;
+        } : false,
+        collapseUnchanged: review?.individual ? undefined : {margin: 3, minSize: 8},
         diffConfig: {scanLimit: 1000, timeout: 250},
       }))});
       const chunks = getChunks(view.state)?.chunks || [];

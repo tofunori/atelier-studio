@@ -46,6 +46,7 @@ export function createEditorWrapController(options: EditorWrapOptions): EditorWr
       wrapper.style.maxWidth = fixed ? `calc(${value}ch + 70px)` : "";
       wrapper.style.borderRight = fixed ? "1px solid #33384a" : "";
       editor.setOption("lineWrapping", value !== "off");
+      editor.setOption("fluidText", value === "fluid");
       editor.refresh();
     }
     if (select) {

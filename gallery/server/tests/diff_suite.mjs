@@ -1380,8 +1380,8 @@ function editorCallSiteTests() {
       callCarriesMeta(session, spec.callee, "event.previousText", "event.snapshot.text", "user-save", "applied"));
     contractOk(`${spec.name} call site external-reload/applied`,
       callCarriesMeta(session, spec.callee, "event.previousText", "event.snapshot.text", "external-reload", "applied"));
-    contractOk(`${spec.name} politique agent-prioritaire sans fusion ni bandeau`,
-      /externalReload:\s*["']always["']/.test(session)
+    contractOk(`${spec.name} politique de rechargement explicite sans fusion`,
+      (spec.name === "latex_studio" ? /externalReload:\s*["']when-clean["']/.test(session) : /externalReload:\s*["']always["']/.test(session))
       && /conflictPolicy:\s*["']reload["']/.test(session)
       && !/Diff\.applyPatch|conflictGuard/.test(session));
   }
@@ -1445,12 +1445,11 @@ function commitComposerContractTests() {
   contractOk("barre LaTeX déplace Plan et Recherche dans Plus",
     /data-act=["']outline["']/.test(latex) && /data-act=["']find["']/.test(latex)
     && /action === ["']outline["']/.test(latexStatus) && /action === ["']find["']/.test(latexStatus));
-  contractOk("état non sauvegardé reste intégré au nom sans déplacer la barre",
-    /id=["']fileIdentity["'][^>]*>\s*<b id=["']fname["']><\/b>\s*<span id=["']ddot["']/.test(latex)
-    && /#ddot\{position:absolute;display:none;[^}]*width:5px;height:5px;[^}]*background:var\(--toolbar-active-text\)/s.test(latexCss)
-    && /header\.tight #fileIdentity\{display:none\}/.test(latexCss)
-    && /getElementById\(["']fileIdentity["']\)/.test(diffController)
-    && /identity\.style\.display = ["']none["']/.test(diffController));
+  contractOk("état non sauvegardé reste près des modes sans déplacer la barre",
+    /id=["']documentModes["'][^>]*>\s*<span id=["']ddot["']/.test(latex)
+    && /#ddot\{position:absolute;display:none;[^}]*width:5px;height:5px;/s.test(latexCss)
+    && /#documentModes\{position:relative\}/.test(latexCss)
+    && /#documentModes #ddot\{[^}]*background:var\(--accent\)/.test(latexCss));
   // Bouton Compiler de l'onglet PDF (2026-08-24) : l'agent édite le .tex, le
   // PDF se recharge tout seul (veille mtime) — mais quand l'agent n'a pas
   // recompilé, il faut pouvoir le faire d'un clic depuis le PDF lui-même.

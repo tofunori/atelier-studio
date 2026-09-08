@@ -10,6 +10,9 @@ export default defineConfig({
   reporter: [['list']],
   use: {trace: 'retain-on-failure'},
   projects: [
+    {name: 'webkit-review', testMatch: /editor_cm6\.spec\.js/, grep: /latex individual review/, use: {browserName: 'webkit'}},
+    {name: 'webkit-toolbar', testMatch: /editor_cm6\.spec\.js/, grep: /latex toolbar/, use: {browserName: 'webkit'}},
+    {name: 'webkit-fluid', testMatch: /editor_cm6\.spec\.js/, grep: /latex fluid text/, use: {browserName: 'webkit'}},
     {name: 'chromium', use: {browserName: 'chromium'}},
     {
       name: 'webkit-scroll',

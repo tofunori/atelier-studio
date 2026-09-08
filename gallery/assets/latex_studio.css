@@ -147,7 +147,6 @@
   #diffGrp #dvNav{order:2}
   #diffGrp #diffRestore{order:3}
   #diffGrp #dvHist{order:4}
-  #diffGrp #dvCommit.has-changes::after{content:"";position:absolute;right:4px;top:3px;width:4px;height:4px;border-radius:50%;background:var(--toolbar-active-text)}
   #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
 
 /* ---- option B : status bar + menus (sobre) ---- */
@@ -177,18 +176,13 @@
 @keyframes sbpulse{50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){ #sbCompile.run .sbdot{animation:none} }
 #sbConsole:hover{color:var(--txt);cursor:pointer}
-#wrapMenu{position:fixed;z-index:400;background:var(--card, #24282d);border:none;border-radius:10px;
-  padding:5px;min-width:150px;box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));font-size:var(--fs-body, 13px);color:#b6bdc7;display:none}
-#wrapMenu .wm-it{padding:6px 10px;border-radius:6px;cursor:pointer}
-#statusbar #wrapMenu .wm-it{display:block;width:100%;text-align:left;color:var(--txt);padding:6px 10px}
-#statusbar #wrapMenu{background:var(--card);color:var(--txt);border:none}
-#statusbar #wrapMenu .wm-it:hover,#statusbar #wrapMenu .wm-it.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
-#statusbar #wrapMenu .wm-custom{border-color:var(--border);color:var(--txt)}
-#statusbar #wrapMenu .wm-custom input{background:var(--bg);color:var(--txt);border-color:var(--border-strong,var(--border))}
-#wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:#2c313a;color:var(--txt)}
-#wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #2c313a;margin-top:3px}
-#wrapMenu .wm-custom input{width:52px;background:#20242b;color:var(--txt);border:1px solid var(--border);
-  border-radius:4px;padding:2px 5px;font-size:var(--fs-body-s, 12px);font-family:inherit}
+#wrapMenu{position:fixed;z-index:400;background:var(--surface-overlay,var(--card,#24282d));border:none;border-radius:var(--radius-surface,10px);
+  padding:5px;min-width:150px;box-shadow:var(--elevation-overlay,var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18)));font-size:var(--fs-body,13px);color:var(--text-primary,var(--txt,#dadee3));display:none}
+#wrapMenu .wm-it{display:block;width:100%;text-align:left;color:var(--text-primary,var(--txt,#dadee3));padding:6px 10px;border-radius:var(--radius-control,6px);cursor:pointer}
+#wrapMenu .wm-it:hover,#wrapMenu .wm-it.on{background:var(--surface-hover,var(--toolbar-active,var(--card2,#2c313a)));color:var(--text-primary,var(--toolbar-active-text,var(--txt,#dadee3)))}
+#wrapMenu .wm-custom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid var(--border-subtle,var(--border,#2a2d31));margin-top:3px;color:var(--text-primary,var(--txt,#dadee3))}
+#wrapMenu .wm-custom input{width:52px;background:var(--surface-inset,var(--bg,#20242b));color:var(--text-primary,var(--txt,#dadee3));border:1px solid var(--border-subtle,var(--border,#2a2d31));
+  border-radius:var(--radius-control,6px);padding:2px 5px;font-size:var(--fs-body-s,12px);font-family:inherit}
 #sbLint.err{color:#e06c75}
 #sbLint.ok{color:#98c379}
 #morePop{position:fixed;top:40px;right:10px;z-index:400;background:#1b1f26;
@@ -504,7 +498,7 @@ header button:not(:disabled){color:var(--text-secondary,var(--txt))}
 header button.on:not(:disabled){background:var(--toolbar-active);color:var(--toolbar-active-text)}
 .modeseg button{width:auto;min-width:28px;gap:5px;padding:0 7px}
 .mode-label{font-size:11px}
-@media(max-width:720px){.mode-label{display:none}}
+@media(max-width:480px){.mode-label{display:none}}
 #texread{max-width:68ch;padding-inline:clamp(22px,4vw,48px);line-height:1.72}
 #texreadFs{opacity:.85}
 #texreadFs button{width:26px;height:26px;color:var(--txt)}
@@ -531,3 +525,104 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texc-hl.texc-comment{background:transparent;border-bottom:1px solid #969ca599}
 ::highlight(texc-read-comment){background:transparent;text-decoration:underline;text-decoration-color:#969ca599;text-decoration-thickness:1px}
 .texread-annotation-number{position:absolute;z-index:6}
+
+/* La barre appartient au document : commandes fréquentes, puis menus. */
+#fileIdentity{order:0;flex:0 1 220px}
+#fname{flex:1;min-width:0}
+#documentModes{order:1}
+#compileActions{order:2}
+#build{width:auto;gap:6px;padding:0 8px}
+#revisionMenu{order:3;flex:none}
+#revisionMenu summary{list-style:none;cursor:pointer;border-radius:var(--radius-control);padding:5px 9px;color:var(--muted)}
+#revisionMenu summary::-webkit-details-marker{display:none}
+#revisionMenu summary:hover,#revisionMenu[open] summary{background:var(--border);color:var(--txt)}
+#revisionMenu summary:focus-visible{outline:2px solid var(--toolbar-active-text);outline-offset:1px}
+#revisionMenu .revision-pop{position:fixed;top:44px;right:10px;z-index:400;width:320px;max-width:calc(100vw - 20px);
+  max-height:calc(100vh - 60px);overflow:auto;padding:6px;box-sizing:border-box;background:var(--card);
+  border:1px solid var(--border-strong);border-radius:var(--radius-control);box-shadow:var(--elev)}
+#revisionMenu #diffGrp{height:auto;padding:0;border:0;background:transparent;display:flex;flex-direction:column;align-items:stretch;overflow:visible}
+#revisionMenu #diffGrp>button{width:100%;min-height:30px;height:auto;gap:8px;justify-content:flex-start;padding:5px 8px!important;text-align:left;white-space:normal}
+#revisionMenu #diffGrp>button::after{content:attr(aria-label);position:static;width:auto;height:auto;background:none;border-radius:0}
+#revisionMenu #dvNav{align-self:stretch;justify-content:center;margin:4px 0}
+#toolbarActions{order:4}
+#state{order:5}
+#toolbarActions>#outlineBtn,#toolbarActions>#rewrapAllBtn,#toolbarActions>#texcBtn,#compileActions>#popPdf{display:none}
+#morePop>button{width:100%;height:auto;min-height:30px;padding:6px 10px;border-radius:6px;display:flex;justify-content:space-between;gap:14px;text-align:left}
+#morePop>button:hover{background:var(--border)}
+@media(max-width:420px){#build span{display:none}#build{width:28px;padding:0}#revisionMenu summary{padding-inline:5px}}
+
+/* Single-row LaTeX toolbar: views, review, wrapping, then output actions. */
+#statusbar{display:none!important}
+header{height:46px;gap:9px;padding:0 10px}
+#fileIdentity{flex:0 1 160px;display:none}
+#documentModes{order:1}
+#diffGrp{order:2;border:0;background:none;overflow:visible;height:28px;margin-left:0;gap:2px!important;padding:0 0 0 9px;border-left:1px solid var(--border-strong);border-radius:0}
+#wrapActions{order:3;padding-left:9px;border-left:1px solid var(--border-strong)}
+#compileActions{order:4;margin-left:auto;gap:3px}
+#toolbarActions{order:5}
+header button{transition:background .16s ease,color .16s ease,border-color .16s ease}
+header button:active:not(:disabled){transform:none}
+header button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round;flex:none}
+header .modeseg{height:30px;background:color-mix(in srgb,var(--bg) 55%,var(--card));border-color:var(--border)}
+header .modeseg button{height:24px;width:28px;padding:0;gap:6px}
+header .modeseg button span{display:none}
+header .modeseg #editBtn{width:auto;padding:0 8px}
+header .modeseg #editBtn span{display:inline}
+header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card));color:var(--txt)}
+#diffGrp #dvNav{order:0;height:30px;gap:2px;overflow:visible}
+#diffGrp #dvNav .dvNavA{width:24px;height:28px}
+#diffGrp #dvNav>.dv-count{font:11px var(--ui-font);font-variant-numeric:tabular-nums;min-width:42px;text-align:center;color:var(--muted)}
+#diffGrp #diffTag{width:auto!important;min-width:0;height:28px;gap:7px;padding:0 8px!important;border:1px solid color-mix(in srgb,var(--muted) 18%,transparent)!important;background:color-mix(in srgb,var(--txt) 2%,var(--card));color:var(--muted);font-weight:600;letter-spacing:.1px;box-shadow:inset 0 1px 0 #ffffff05}
+#diffGrp #diffTag svg{width:15px;height:15px}
+#diffGrp #diffTag .dv-label{display:inline}
+#diffGrp #diffTag:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 5%,var(--card));border-color:color-mix(in srgb,var(--muted) 35%,transparent)!important;color:var(--txt)}
+#diffGrp #diffTag[aria-pressed=true]:not(:disabled){color:color-mix(in srgb,var(--accent) 70%,var(--txt));background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 35%,transparent)!important;box-shadow:inset 0 1px 0 #ffffff09,0 1px 2px #00000012}
+#diffGrp #diffTag[aria-pressed=true]:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 23%,var(--card));border-color:color-mix(in srgb,var(--accent) 55%,transparent)!important}
+#diffGrp #diffTag:active:not(:disabled){box-shadow:inset 0 1px 3px #00000025}
+#diffGrp #diffTag:disabled{opacity:.45}
+.diff-switch{display:inline-flex;align-items:center;width:20px;height:12px;padding:2px;box-sizing:border-box;border-radius:8px;background:color-mix(in srgb,var(--bg) 80%,var(--muted));box-shadow:inset 0 0 0 1px #ffffff0b;margin-left:1px;transition:background .16s ease}
+.diff-switch>span{width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 1px 2px #00000030;transform:translateX(0);transition:transform .16s ease,background .16s ease}
+[aria-pressed=true]>.diff-switch{background:color-mix(in srgb,var(--accent) 45%,var(--card))}
+[aria-pressed=true]>.diff-switch>span{transform:translateX(8px);background:color-mix(in srgb,var(--accent) 65%,var(--txt))}
+#diffGrp #diffPrev,#diffGrp #diffNext{width:24px;height:28px;order:1}
+#diffGrp #diffPrev{margin-left:5px}
+#diffGrp #diffUndo{order:2;font-size:11px}
+#diffGrp #diffUndo[hidden],#diffRestore{display:none!important}
+#compileActions>#popPdf{display:inline-flex!important;width:auto;padding:0 7px;gap:3px}
+#toolbarWrap{display:inline-flex;align-items:center;justify-content:center;padding:0;width:28px;height:28px}
+#toolbarWrap[aria-pressed=true]{color:var(--txt);background:color-mix(in srgb,var(--txt) 5%,transparent)}
+#build{width:auto;padding:0 8px;gap:6px}
+#build span{display:inline}
+#build svg,#popPdf svg{width:14px;height:14px;stroke-width:1.65}
+#state:not(.err){display:none}
+@media(max-width:700px){header{gap:5px;padding-inline:6px}#build span{display:none}#build{width:28px;padding:0}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
+@media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
+@media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
+.cm-chunkButtons .atelier-review-decision{font:11px var(--ui-font);border:0;background:transparent;color:var(--muted);border-radius:4px;padding:3px 7px;cursor:pointer}
+.cm-chunkButtons .atelier-review-decision:hover,.cm-chunkButtons .atelier-review-decision:focus-visible{background:var(--card);color:var(--txt)}
+.cm-chunkButtons{opacity:0;transition:opacity .12s}
+.cm-deletedChunk:hover .cm-chunkButtons,.cm-deletedChunk:focus-within .cm-chunkButtons{opacity:1}
+@media(hover:none){.cm-chunkButtons{opacity:1}}
+
+
+.cm-deletedChunk:has(.atelier-review-decision){min-height:24px;position:relative}
+
+#state.err{position:fixed;bottom:12px;left:12px;right:12px;z-index:500;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:8px;white-space:normal;text-align:left}
+
+#diffGrp #diffUndo{position:fixed;bottom:12px;right:12px;z-index:501;background:var(--card);border:1px solid var(--border-strong)!important;width:auto;padding:0 10px!important}
+
+
+/* Keep unsaved feedback attached to the view selector, even without a filename. */
+#documentModes{position:relative}
+#documentModes #ddot{top:0;right:-2px;z-index:1;background:var(--accent)}
+@media(max-width:460px){
+  header .modeseg button,header .modeseg #editBtn{width:23px;min-width:23px}
+  #diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:20px}
+  #diffGrp #dvNav>.dv-count{min-width:30px;font-size:10px}
+  #diffGrp #diffTag{gap:4px;padding:0 5px!important}
+  #compileActions>#popPdf{font-size:11px;padding:0 3px;gap:1px}
+  #compileActions>#popPdf svg{width:12px;height:12px}
+  #build,#toolbarWrap,#moreBtn{width:24px;min-width:0}
+  #wrapActions{padding-left:2px}
+  header{gap:2px}
+}

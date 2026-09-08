@@ -41,6 +41,7 @@ window.DiffVersions = function(opts){
     try{ return new URLSearchParams(location.search); }
     catch(e){ return {get: () => null}; }
   })();
+  const individualReview = opts.individualReview === true;
   const autoOpenDiff = launchParams.get("diff") === "1";
   const requestedBase = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(launchParams.get("base") || "")
     ? launchParams.get("base") : "";
@@ -426,9 +427,7 @@ window.DiffVersions = function(opts){
     els.tag.disabled = false; els.tag.style.opacity = "";
     if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
     ensureNavUi();
-    ensureCommitUi();
-    ensureStoneUi();
-    ensureHistUi();
+    if(!individualReview){ ensureCommitUi(); ensureStoneUi(); ensureHistUi(); }
     updateTag();
     updateNav();
   }
@@ -437,6 +436,7 @@ window.DiffVersions = function(opts){
     return v.head ? "HEAD" + (v.sha ? " (" + v.sha + ")" : "") : "base";
   }
   function updateTag(){
+    if(individualReview){els.tag.title = "Afficher les changements de cette intervention";return;}
     els.tag.title = "Modifications — " + labelOf(baseVersion) + " (cliquer : comparer)";
     if(els.prev) els.prev.disabled = true;
     if(els.next) els.next.disabled = true;
@@ -644,7 +644,7 @@ window.DiffVersions = function(opts){
     let nativeShown = false;
     if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
       cancelRender();
-      changePts = cm.showMergeDiff(v.before) || [];
+      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true} : undefined) || [];
       changeAt = 0;
       if(changePts.length){
         const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
@@ -659,7 +659,7 @@ window.DiffVersions = function(opts){
         : "aucun changement de texte";
       notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
       updateNav();
-      if(changePts.length) gotoChange(changeAt, true);
+      if(changePts.length && !individualReview) gotoChange(changeAt, true);
       nativeShown = true;
     }
     const wsn = s => s.replace(/\s+/g, " ").trim();
@@ -673,7 +673,7 @@ window.DiffVersions = function(opts){
       applyRender(v, cm, after, parts, coarse, warning);
     };
     const cached = renderCache.get(key);
-    if(cached){ applyRender(v, cm, after, cached.parts, cached.coarse); return; }
+    if(cached){ apply(cached.parts, cached.coarse); return; }
     if(wsn(v.before) === wsn(after)){ apply([], false); return; }
     clearTimeout(renderTimer);
     renderTimer = setTimeout(() => {
@@ -835,6 +835,47 @@ window.DiffVersions = function(opts){
   // k (lecture seule, buffer réel mis de côté et restauré à la sortie), diffé
   // contre l'état d'avant. ⌥↓/⌥↑ naviguent entre les marques D'UNE vue. ----
   let navPill = null, navPrev = null, navNext = null, navCount = null;
+  let reviewBusy = false;
+  const reviewKey = "texReviewV1:" + path;
+  let reviewState = {};
+  try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
+  let reviewUndo = null;
+  function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
+  async function decideReview(decision){
+    if(reviewBusy || tt || !shown) return;
+    const cm = getCm(), it = interList()[navMode];
+    if(!it || navMode !== interList().length - 1 || cm.getValue() !== decision.current) {notify("Ce passage a changé — afficher la dernière intervention");return;}
+    reviewBusy = true; cm.setOption("readOnly", true); updateNav();
+    const oldState = reviewState[it.id];
+    try{
+      if(decision.kind === "reject" && (!restoreText || !await restoreText(decision.text))){notify("Refus non enregistré : le fichier a changé ou la sauvegarde a échoué");return;}
+      if(cm.getValue() !== decision.current && cm.getValue() !== decision.text){notify("Le document a changé pendant la décision");return;}
+      reviewUndo = {id: it.id, previous: oldState, text: decision.current, result: decision.text, kind: decision.kind};
+      if(cm.getValue() !== decision.text) cm.setValue(decision.text);
+      reviewState[it.id] = {base: decision.base, text: decision.text};
+      extCmp = {...extCmp, before: decision.base};
+      saveReviewState();persist(decision.text);render();
+      notify(decision.kind === "accept" ? "Passage accepté" : "Passage refusé");
+      if(undoButton) undoButton.hidden = false;
+    }catch(e){notify("Décision non enregistrée : sauvegarde indisponible");}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);updateNav();}
+  }
+  const undoButton = individualReview && els.group ? document.createElement("button") : null;
+  if(undoButton){
+    undoButton.id = "diffUndo";undoButton.textContent = "Annuler";undoButton.hidden = true;
+    undoButton.onclick = async () => {
+      const undo = reviewUndo, cm = getCm();
+      if(!undo || reviewBusy || tt || cm.getValue() !== undo.result){notify("Annulation indisponible : le document a changé");return;}
+      reviewBusy = true; cm.setOption("readOnly", true);
+      try{
+        if(undo.kind === "reject" && !await restoreText(undo.text)){notify("Annulation non enregistrée : le fichier a changé");return;}
+        cm.setValue(undo.text);
+        if(undo.previous) reviewState[undo.id] = undo.previous;else delete reviewState[undo.id];
+        saveReviewState();persist(undo.text);reviewUndo = null;undoButton.hidden = true;
+      }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
+      showStep(interList().findIndex(it=>it.id === undo.id));
+    };
+    els.group.appendChild(undoButton);
+  }
   let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
   let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
   let flashLine = null, flashTimer = null;
@@ -846,7 +887,7 @@ window.DiffVersions = function(opts){
     if(!cm) return [];
     const real = liveText();
     return INTERVENTIONS
-      .filter(it => !baseTs || it.ts == null || it.ts >= baseTs)
+      .filter(it => individualReview || !baseTs || it.ts == null || it.ts >= baseTs)
       .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
   }
   function interventionLabel(it){
@@ -889,6 +930,7 @@ window.DiffVersions = function(opts){
   // Base du diff cumulatif (« tout ») : HEAD si disponible, sinon le `before`
   // immuable de la première intervention du fichier non suivi.
   function showAll(){
+    if(individualReview){ showStep(interList().length - 1); return; }
     ttExit();
     navMode = -1;
     extCmp = null;
@@ -897,11 +939,21 @@ window.DiffVersions = function(opts){
     render();
   }
   function showStep(j){
+    if(reviewBusy) return;
     cancelGutter();
     const list = interList();
     if(!list.length) return;
     j = Math.max(0, Math.min(list.length - 1, j));
-    const it = list[j];
+    let it = list[j];
+    if(individualReview && j === list.length - 1 && !equivalent(liveText(), reviewState[it.id]?.text ?? it.after)){
+      notify("Sauvegarde tes retouches avant de rouvrir cette intervention");
+      return;
+    }
+    if(individualReview && j === list.length - 1 && reviewState[it.id]) {
+      const state = reviewState[it.id];
+      if(equivalent(liveText(), state.text)) it = {...it, from: state.base, to: liveText(), live: true};
+    }
+    if(individualReview && j === list.length - 1 && equivalent(liveText(), it.to)) it = {...it, to: liveText(), live: true};
     navMode = j;
     const cm = getCm();
     if(it.live) ttExit();
@@ -909,6 +961,7 @@ window.DiffVersions = function(opts){
       if(!tt) tt = {realText: cm.getValue()};
       cm.setValue(it.to);   // état APRÈS l'intervention j (origin setValue : pas de dirty)
     }
+    if(individualReview){ shown = true; els.tag.classList.add("on"); els.tag.setAttribute("aria-pressed", "true"); cm.setOption("readOnly", !!tt); }
     extCmp = {before: it.from,
       label: "intervention " + (j + 1) + "/" + list.length + " · " + interventionLabel(it)};
     render();
@@ -947,10 +1000,10 @@ window.DiffVersions = function(opts){
       const button = document.createElement("button");
       button.className = "dvNavA";
       button.dataset.d = String(d);
-      button.tabIndex = -1;
+      button.tabIndex = 0;
       button.setAttribute("aria-label", d < 0 ? "Intervention précédente" : "Intervention suivante");
-      button.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'
-        + (d < 0 ? "M10 3L5 8l5 5" : "M6 3l5 5-5 5") + '"/></svg>';
+      button.title = d < 0 ? "Intervention précédente" : "Intervention suivante";
+      button.innerHTML = d < 0 ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"></path></svg>';
       return button;
     };
     navPrev = chev(-1);
@@ -962,11 +1015,20 @@ window.DiffVersions = function(opts){
       navCount.className = "dv-count";
       els.tag.appendChild(navCount);
     }
-    navPill.appendChild(navPrev);
-    ensureRibbon();
-    if(navRibHost) navPill.appendChild(navRibHost);
-    navPill.appendChild(els.tag);
-    navPill.appendChild(navNext);
+    if(individualReview){
+      // Keep the toggle separate from the intervention position and navigation.
+      navCount.setAttribute("aria-live", "polite");
+      navPill.appendChild(els.tag);
+      navPill.appendChild(navPrev);
+      navPill.appendChild(navCount);
+      navPill.appendChild(navNext);
+    } else {
+      navPill.appendChild(navPrev);
+      ensureRibbon();
+      if(navRibHost) navPill.appendChild(navRibHost);
+      navPill.appendChild(els.tag);
+      navPill.appendChild(navNext);
+    }
     els.group.insertBefore(navPill, els.restore || null);
     // ‹ › : timeline des interventions. Depuis « tout », ‹ entre sur la plus
     // récente ; › depuis la plus récente revient à « tout ».
@@ -1176,6 +1238,20 @@ window.DiffVersions = function(opts){
   }
   function updateNav(){
     ensureNavUi();
+    if(individualReview){
+      const n = interList().length;
+      if(navMode < 0 && n) navMode = n - 1;
+      if(navMode >= n) navMode = n - 1;
+      navCount.textContent = n ? (navMode + 1) + "/" + n : "0";
+      navCount.title = n ? "Intervention " + (navMode + 1) + " sur " + n : "Aucune intervention";
+      navPrev.disabled = !n || navMode <= 0 || reviewBusy;
+      navNext.disabled = !n || navMode >= n - 1 || reviewBusy;
+      els.tag.disabled = !n || reviewBusy;
+      els.tag.setAttribute("aria-pressed", String(shown));
+      if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
+      if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
+      return;
+    }
     if(!navPill) return;
     const list = interList();
     const n = list.length;
@@ -1204,6 +1280,7 @@ window.DiffVersions = function(opts){
     }
   }
   function toggle(show, scrollLine){
+    if(reviewBusy) return;
     const next = (show === undefined || show === null) ? !shown : show;
     // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
     if(next && !curVersion()) return;
@@ -1216,6 +1293,10 @@ window.DiffVersions = function(opts){
     const viewportAnchor = !next
       ? (typeof cm.getViewportAnchor === "function" ? cm.getViewportAnchor() : cm.getCursor())
       : null;
+    if(next && individualReview){
+      showStep(navMode < 0 ? interList().length - 1 : navMode);
+      return;
+    }
     shown = next;
     els.tag.classList.toggle("on", shown);
     if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
@@ -1321,7 +1402,11 @@ window.DiffVersions = function(opts){
     persist(liveText());
     // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
     // à chaque sauvegarde bloquerait la frappe en silence. Si déjà ouvert : rafraîchir.
-    if(shown) render();
+    if(individualReview){
+      navMode = interList().length - 1;
+      if(shown || meta?.source === "external-reload" || meta?.source === "external-merge") showStep(navMode);
+      updateNav();
+    } else if(shown) render();
     // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent
     fetchHead().then(refreshGutter);
   }
@@ -1744,6 +1829,7 @@ window.DiffVersions = function(opts){
     setTimeout(batch,0);
   }
   function refreshGutter(){
+    if(individualReview) return; // Only the selected intervention supplies marks.
     const cm = getCm();
     if(!cm || headText === null || tt) return;
     if(!gutterReady){
@@ -1853,9 +1939,7 @@ window.DiffVersions = function(opts){
   // Construire immédiatement le chrome stable, même avant le chargement de HEAD.
   // Les états natifs disabled indiquent ce qui est disponible sans déplacer rien.
   ensureNavUi();
-  ensureCommitUi();
-  ensureStoneUi();
-  ensureHistUi();
+  if(!individualReview){ ensureCommitUi(); ensureStoneUi(); ensureHistUi(); }
   if(els.restore){
     // Fermé au départ : « rétablir » n'apparaît qu'avec la comparaison.
     els.restore.style.display = "none";
@@ -1867,8 +1951,8 @@ window.DiffVersions = function(opts){
   updateNav();
 
   els.tag.onclick = () => toggle();
-  if(els.prev) els.prev.onclick = () => {};
-  if(els.next) els.next.onclick = () => {};
+  if(els.prev) els.prev.onclick = () => gotoChange(changeAt - 1, true);
+  if(els.next) els.next.onclick = () => gotoChange(changeAt + 1, true);
   if(els.restore) els.restore.onclick = async () => {
     const target = displayedText();
     if(target === null) return;
@@ -2156,5 +2240,5 @@ window.DiffVersions = function(opts){
 
   // isBusy : vue historique active (buffer temporairement remplacé) — les hôtes
   // doivent suspendre leur rechargement-disque automatique pendant ce temps
-  return { push, compareExternal, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt };
+  return { push, compareExternal, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt || reviewBusy };
 };

@@ -52,6 +52,31 @@ async function saveShortcut(page) {
   expect((await response).ok()).toBe(true);
 }
 
+test('latex toolbar exposes individual diffs in a single row', async ({page}) => {
+  await withProject({'sample.tex': '\\section{Introduction}\nTexte de travail.\n'}, async ({url}) => {
+    await page.goto(url('latex_studio.html', 'sample.tex'));
+    await expectEngine(page, 'cm6');
+    for (const width of [1100, 700, 400]) {
+      await page.setViewportSize({width, height:760});
+      await expect(page.locator('#diffGrp')).toBeVisible();
+      await expect(page.locator('#toolbarWrap')).toBeVisible();
+      await expect(page.locator('#popPdf')).toBeVisible();
+      await expect(page.locator('#statusbar')).toBeHidden();
+      expect(await page.locator('header').evaluate(el=>el.scrollWidth <= el.clientWidth+1)).toBe(true);
+    }
+    await page.locator('#toolbarWrap').click();
+    await expect(page.locator('#toolbarWrap')).toHaveAttribute('aria-pressed','false');
+    // Unsaved feedback must survive the compact toolbar and hidden filename.
+    const before = await page.locator('#documentModes').boundingBox();
+    await page.locator('.cm-content').click();
+    await page.keyboard.type('Modification utilisateur. ');
+    await expect(page.locator('#ddot')).toBeVisible();
+    const after = await page.locator('#documentModes').boundingBox();
+    expect(after.width).toBe(before.width);
+
+  });
+});
+
 test('code editor save reload and diff', async ({page}) => {
   await withProject({'sample.py': 'value = 1\n'}, async ({root, url}) => {
     await page.goto(url('code_editor.html', 'sample.py'));
@@ -380,5 +405,114 @@ test('rechargement agent en plein clic : l ancre de la souris ne bouge pas', asy
     }));
     expect(etat.selection).toBeLessThan(50);
     expect(Math.abs(etat.anchor.line - 100)).toBeLessThanOrEqual(1);
+  });
+});
+
+test('latex fluid text preserves source through resize edit selection and reload', async ({page}) => {
+  const prose = 'The fire slope remains negative\nin all three elevation zones\nthroughout the observation period.';
+  const source = prose + '\n\n\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}\n\n% a comment\nA separate paragraph.\n';
+  await withProject({'fluid.tex': source}, async ({root, url}) => {
+    await page.setViewportSize({width: 1250, height: 900});
+    await page.goto(url('latex_studio.html', 'fluid.tex'));
+    await expectEngine(page, 'cm6');
+    await expect(page.locator('#sbWrap')).toHaveText('Lignes : texte fluide');
+    await expect(page.locator('.cm-fluid-space')).toHaveCount(2);
+    const sameVisualLine = () => page.evaluate(() => {
+      const a = cm.charCoords({line: 0, ch: 0}, 'window');
+      const b = cm.charCoords({line: 1, ch: 0}, 'window');
+      return Math.abs(a.top - b.top) < 2;
+    });
+    await expect.poll(sameVisualLine).toBe(true);
+    const paragraphHeight = () => page.locator('.cm-line').first().evaluate((line) => line.getBoundingClientRect().height);
+    const wideHeight = await paragraphHeight();
+    await page.setViewportSize({width: 640, height: 900});
+    await expect.poll(paragraphHeight).toBeGreaterThan(wideHeight);
+    await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(source);
+    await page.setViewportSize({width: 1250, height: 900});
+    await expect.poll(sameVisualLine).toBe(true);
+    await expect.poll(paragraphHeight).toBe(wideHeight);
+    const targetPoint = await page.evaluate(() => cm.charCoords({line: 1, ch: 3}, 'window'));
+    await page.mouse.click(targetPoint.left + 1, (targetPoint.top + targetPoint.bottom) / 2);
+    expect(await page.evaluate(() => cm.getCursor())).toEqual({line: 1, ch: 3});
+    await page.evaluate(() => cm.setSelection({line: 0, ch: 0}, {line: 2, ch: cm.getLine(2).length}));
+    expect(await page.evaluate(() => cm.getSelection())).toBe(prose);
+    await page.evaluate(() => { cm.setCursor({line: 1, ch: 0}); cm.focus(); });
+    await page.keyboard.type('particularly ');
+    const edited = source.replace('in all', 'particularly in all');
+    await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(edited);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(source);
+    await saveShortcut(page);
+    expect(readFileSync(path.join(root, 'fluid.tex'), 'utf8')).toBe(source);
+    await page.locator('#sbWrap').click();
+    await page.locator('[data-wrap="win"]').click();
+    await expect(page.locator('.cm-fluid-space')).toHaveCount(0);
+    await expect.poll(sameVisualLine).toBe(false);
+    await page.locator('#sbWrap').click();
+    await page.locator('[data-wrap="fluid"]').click();
+    const external = source.replace('three elevation zones', 'three glacier elevation zones');
+    const target = path.join(root, 'fluid.tex');
+    writeFileSync(target, external);
+    const future = new Date(Date.now() + 1500); utimesSync(target, future, future);
+    await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(external);
+    await expect(page.locator('.cm-fluid-space')).toHaveCount(2);
+    await expect.poll(sameVisualLine).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe(external);
+    await page.screenshot({path: '/tmp/atelier-fluid-text-webkit.png'});
+  });
+});
+
+
+test('latex individual review automatically opens, accepts, rejects and protects disk conflicts', async ({page}) => {
+  const before = '\\section{Results}\nOriginal first paragraph.\n\nUnchanged context.\n\nOriginal second paragraph.\n';
+  const after = before.replace('Original first', 'Revised first').replace('Original second', 'Revised second');
+  await withProject({'sample.tex': before}, async ({root,url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));
+    await expectEngine(page,'cm6');
+    await page.waitForTimeout(700);
+    writeFileSync(path.join(root,'sample.tex'),after);
+    await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true',{timeout:10000});
+    await expect(page.locator('.dv-count')).toHaveText('1/1');
+    await expect(page.locator('.cm-chunkButtons button').filter({hasText:'Accepter'}).first()).toBeAttached();
+    await page.locator('.cm-deletedChunk').first().hover();
+    await page.getByRole('button',{name:'Accepter',exact:true}).first().click();
+    expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
+    await page.locator('#diffUndo').click();
+    await page.route('**/codesave', async route => { await new Promise(resolve=>setTimeout(resolve,250)); await route.continue(); });
+    await page.locator('.cm-deletedChunk').first().hover();
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    expect(await page.evaluate(()=>cm.getOption('readOnly'))).toBe(true);
+    await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Original first');
+    expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Revised second');
+    await expect.poll(()=>page.evaluate(()=>cm.getOption('readOnly'))).toBe(false);
+    await page.unroute('**/codesave');
+    await page.locator('#diffUndo').click();
+    await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
+    const rewrapped = after.replace('Unchanged context.', 'Unchanged\ncontext.');
+    writeFileSync(path.join(root,'sample.tex'),rewrapped);
+    await expect.poll(()=>page.evaluate(()=>cm.getValue()),{timeout:10000}).toBe(rewrapped);
+    await page.locator('#diffTag').click();
+    await expect(page.locator('.cm-deletedChunk')).toHaveCount(0);
+    await page.locator('#diffTag').click();
+    await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true');
+    // A second intervention compares only with the immediately previous file.
+    const second = rewrapped.replace('Revised second','Final second');
+    writeFileSync(path.join(root,'sample.tex'),second);
+    await expect(page.locator('.dv-count')).toHaveText('2/2',{timeout:10000});
+    await expect(page.locator('.cm-deletedChunk')).not.toContainText('Original first');
+    await page.getByRole('button',{name:'Intervention précédente',exact:true}).click();
+    await expect(page.locator('.dv-count')).toHaveText('1/2');
+    await expect(page.getByRole('button',{name:'Refuser',exact:true})).toHaveCount(0);
+    await page.getByRole('button',{name:'Intervention suivante',exact:true}).click();
+    await expect(page.locator('.dv-count')).toHaveText('2/2');
+    await expect(page.getByRole('button',{name:'Intervention suivante',exact:true})).toBeDisabled();
+    // The file changes after display: save must refuse an obsolete mtime.
+    await page.route('**/statfile?*',route=>route.fulfill({json:{mtime:0}}));
+    const concurrent = second + 'Concurrent disk edit.\n';
+    writeFileSync(path.join(root,'sample.tex'),concurrent);
+    await page.locator('.cm-deletedChunk').first().hover();
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    await expect(page.locator('#state')).toContainText('non enregistré');
+    expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(concurrent);
   });
 });
