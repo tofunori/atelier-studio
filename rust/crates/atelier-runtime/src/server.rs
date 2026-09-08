@@ -8,13 +8,13 @@ use atelier_protocol::{
     ClientMessage, ErrorMessage, PongMessage, SetupProviderRow, SetupRuntime, SetupSidecar,
     SetupStatus,
 };
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use futures_util::{future::BoxFuture, stream::FuturesUnordered};
+#[cfg(test)]
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
@@ -512,112 +512,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     .await;
 }
 
-fn plugin_catalog_error(request: &Value, message: &str) -> String {
-    serde_json::json!({
-        "type": "plugins", "plugins": [], "error": message,
-        "projectRoot": request.get("projectRoot").and_then(Value::as_str).unwrap_or(""),
-        "requestId": request.get("requestId"),
-    })
-    .to_string()
-}
-
-async fn handle_socket_with_router<F, Fut>(
-    socket: WebSocket,
-    state: AppState,
-    route: F,
-    catalog_timeout: Duration,
-) where
-    F: Fn(AppState, String) -> Fut + Clone + Send + 'static,
-    Fut: std::future::Future<Output = Vec<String>> + Send + 'static,
-{
-    let (mut sender, mut receiver) = socket.split();
-    // Bus delivers harness stream events (`type: event`) and thread updates
-    // from background tasks. Direct replies cover request/response WS types.
-    let mut bus_rx = state.subscribe_bus();
-    // Plugin discovery can perform many slow RPCs. Keep its replies local to
-    // this socket, but keep reading chat commands and forwarding stream events.
-    // Dropping the socket also drops these futures; repeated project switches
-    // cannot accumulate unbounded work. Mutating commands remain ordered.
-    let mut catalogs: FuturesUnordered<BoxFuture<'static, Vec<String>>> = FuturesUnordered::new();
-    loop {
-        tokio::select! {
-            Some(replies) = catalogs.next(), if !catalogs.is_empty() => {
-                for reply in replies {
-                    if sender.send(Message::Text(reply.into())).await.is_err() {
-                        return;
-                    }
-                }
-            }
-            bus = bus_rx.recv() => {
-                match bus {
-                    Ok(text) => {
-                        if sender.send(Message::Text(text.into())).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
-                }
-            }
-            msg = receiver.next() => {
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        let request = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
-                        if request["type"] == "listPlugins" {
-                            if catalogs.len() >= 4 {
-                                let reply = plugin_catalog_error(&request, "Catalogue occupé, réessayez dans quelques secondes.");
-                                if sender.send(Message::Text(reply.into())).await.is_err() {
-                                    return;
-                                }
-                            } else {
-                                let work = route(state.clone(), text.to_string());
-                                catalogs.push(Box::pin(async move {
-                                    tokio::time::timeout(catalog_timeout, work).await.unwrap_or_else(|_| {
-                                        vec![plugin_catalog_error(&request, "Le chargement des plugins a dépassé le délai de 15 secondes.")]
-                                    })
-                                }));
-                            }
-                            continue;
-                        }
-                        // Un stop doit être IMMÉDIAT : la voie séquentielle
-                        // ci-dessous peut être occupée plusieurs secondes (la
-                        // branche steer Claude attend la mort du tour jusqu'à
-                        // 5 s) et un interrupt qui fait la file arrive après
-                        // la bataille (stop « inopérant », 2026-08-24). Sa
-                        // réponse est vide → fire-and-forget hors de la file.
-                        let is_interrupt = serde_json::from_str::<serde_json::Value>(&text)
-                            .ok()
-                            .and_then(|m| {
-                                m.get("type").and_then(|v| v.as_str()).map(|t| t == "interrupt")
-                            })
-                            .unwrap_or(false);
-                        if is_interrupt {
-                            let state_i = state.clone();
-                            let text_i = text.to_string();
-                            tokio::spawn(async move {
-                                let _ = crate::ws_router::route_ws(&state_i, &text_i).await;
-                            });
-                            continue;
-                        }
-                        let replies = route(state.clone(), text.to_string()).await;
-                        for reply in replies {
-                            if sender.send(Message::Text(reply.into())).await.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                    Some(Ok(Message::Ping(p))) => {
-                        if sender.send(Message::Pong(p)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Ok(_)) => {}
-                    Some(Err(_)) => break,
-                }
-            }
-        }
-    }
+async fn handle_socket_with_router<F, Fut>(socket: WebSocket, state: AppState, route: F, deadline: Duration)
+where F: Fn(AppState, String) -> Fut + Clone + Send + 'static,
+      Fut: std::future::Future<Output = Vec<String>> + Send + 'static {
+    crate::ws_connection::handle(socket, state, route, deadline).await;
 }
 
 /// Route a single WS text frame (sync wrapper for unit tests of ping).

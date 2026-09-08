@@ -382,7 +382,7 @@ async fn maybe_title_new_thread(
     let Some(title) = title_provider.title_conversation(first_message).await else {
         return;
     };
-    let list = {
+    let message = {
         let mut store = state.threads().lock().await;
         let still_unchanged = store
             .get(thread_id)
@@ -396,11 +396,9 @@ async fn maybe_title_new_thread(
         {
             return;
         }
-        store.list()
+        state.threads_snapshot_locked(&store)
     };
-    if let Ok(message) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
-        state.publish(message);
-    }
+    state.publish(message);
 }
 
 fn make_emit(state: AppState, thread_id: String) -> EmitFn {
@@ -861,6 +859,7 @@ fn consigne_du_fil(previous: Option<&atelier_store::Thread>) -> Option<String> {
 }
 
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
+    let preparation_cancelled = crate::ws_dispatch::send_cancel_flag();
     let thread_id = msg
         .get("threadId")
         .and_then(|v| v.as_str())
@@ -1085,6 +1084,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
 
+    if preparation_cancelled.load(Ordering::SeqCst) {
+        return vec![crate::ws_dispatch::failure(msg, "REQUEST_CANCELLED", "Envoi annulé avant son démarrage.")];
+    }
     // Upsert thread — le titre retenu ressort du bloc : la provenance des
     // figures le recopie tel quel (spec 2026-08-27 B, `threadTitle`), et c'est
     // le seul endroit qui l'arbitre entre auto-titrage, titre client et titre
@@ -1264,11 +1266,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         None
     } else {
         let root = project_root.clone();
-        tokio::task::spawn_blocking(move || atelier_workspace::snapshot(&root))
-            .await
-            .ok()
-            .and_then(Result::ok)
+        tokio::select! {
+            result = crate::ws_dispatch::blocking(move || atelier_workspace::snapshot(&root)) => result.ok().and_then(Result::ok),
+            _ = async { while !preparation_cancelled.load(Ordering::SeqCst) { tokio::time::sleep(std::time::Duration::from_millis(25)).await; } } => None,
+        }
     };
+    if preparation_cancelled.load(Ordering::SeqCst) {
+        let _ = state.threads().lock().await.upsert(json!({"id":thread_id,"status":"idle"}), true);
+        let mut replies = threads_reply(state).await;
+        replies.push(crate::ws_dispatch::failure(msg, "REQUEST_CANCELLED", "Envoi annulé avant son démarrage."));
+        return replies;
+    }
     if let Some(snapshot) = snapshot_sha.as_ref() {
         let _ = state
             .threads()
@@ -1285,7 +1293,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .set_running(&thread_id, &turn_id, &provider)
         .await;
 
-    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled = preparation_cancelled;
     let cancelled_probe = Arc::clone(&cancelled);
     let state2 = state.clone();
     let tid = thread_id.clone();
@@ -1619,10 +1627,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         tokio::spawn(async move {
             crate::agent_mailbox::drain_mailbox(&drain_state).await;
         });
-        let list = state2.threads().lock().await.list();
-        if let Ok(s) = serde_json::to_string(&json!({"type":"threads","threads": list})) {
-            state2.publish(s);
-        }
+        state2.publish(state2.threads_snapshot().await);
         if succeeded && auto_title {
             let title_state = state2.clone();
             let title_thread_id = tid.clone();
@@ -1646,6 +1651,7 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     if thread_id.is_empty() {
         return vec![err_json("threadId requis")];
     }
+    if !crate::ws_dispatch::interruption_admitted() { state.ws_budget().cancel_sends(thread_id); }
     state.harness().request_cancel(thread_id).await;
     let provider = state.threads().lock().await.get(thread_id).map(|t| t.provider.clone());
     if let Some(p) = provider.as_deref().and_then(|id| state.provider(id)) {
@@ -1873,11 +1879,7 @@ pub async fn handle_status(state: &AppState) -> Vec<String> {
 }
 
 async fn threads_reply(state: &AppState) -> Vec<String> {
-    let list = state.threads().lock().await.list();
-    // Direct reply only — bus would double-deliver to the requesting socket.
-    let out = serde_json::to_string(&json!({"type":"threads","threads": list}))
-        .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into());
-    vec![out]
+    vec![state.threads_snapshot().await]
 }
 
 fn err_json(message: impl Into<String>) -> String {

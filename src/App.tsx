@@ -553,6 +553,8 @@ export default function App() {
   );
   const [threads, setThreads] = useState<Thread[]>([]);
   const threadsRef = useRef<Thread[]>([]);
+  const historySnapshotRefs = useRef(new Map<string, { epoch: string; revision: number }>());
+  const threadsSnapshotRef = useRef<{ epoch: string; revision: number } | null>(null);
   const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
   const [draftThreads, setDraftThreads] = useState<Thread[]>([]);
@@ -610,6 +612,7 @@ export default function App() {
   const streamCoalescer = streamCoalescerRef.current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
+  const confirmedRunsRef = useRef(new Set<string>());
   workingSinceRef.current = workingSince;
   // Éviction mémoire (perf, session ouverte plusieurs jours, cf. lib/threadEviction) :
   // `mruThreadsRef` retient les 3 derniers fils actifs (nouveau inclus) —
@@ -1766,6 +1769,11 @@ export default function App() {
         }
       }
       if (msg.type === "threads") {
+        if (typeof msg.threadsEpoch === "string" && typeof msg.threadsRevision === "number") {
+          const previous = threadsSnapshotRef.current;
+          if (previous && previous.epoch === msg.threadsEpoch && msg.threadsRevision <= previous.revision) return;
+          threadsSnapshotRef.current = { epoch: msg.threadsEpoch, revision: msg.threadsRevision };
+        }
         const prevThreads = threadsRef.current;
         setThreads(msg.threads);
         threadsRef.current = msg.threads;
@@ -1820,6 +1828,8 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));
       }
       if (msg.type === "event") {
+        if (["started", "user", "heartbeat"].includes(msg.event.kind)) confirmedRunsRef.current.add(msg.threadId);
+        if (["done", "error"].includes(msg.event.kind)) confirmedRunsRef.current.delete(msg.threadId);
         if (msg.event.kind === "started") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
           return;
@@ -1937,6 +1947,8 @@ export default function App() {
         }
       }
       if (msg.type === "history") {
+        const baseline = historySnapshotRefs.current.get(msg.threadId);
+        if (baseline && baseline.epoch === msg.historyEpoch && typeof msg.historyRevision === "number" && msg.historyRevision < baseline.revision) return;
         // replay = live : l'historique est rejoué à travers le MÊME reducer que
         // les événements live ; sur un fil déjà peuplé, seuls les événements
         // identifiés (meta.eventId) manquants fusionnent, par sequence, sans
@@ -1968,6 +1980,7 @@ export default function App() {
           const since = p[msg.threadId];
           if (since == null) return p;
           const next = reconcileWorkingSince(histEvents, since);
+          if (next == null) confirmedRunsRef.current.delete(msg.threadId);
           return next === since ? p : { ...p, [msg.threadId]: next };
         });
       }
@@ -2002,6 +2015,11 @@ export default function App() {
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
+        if (typeof msg.historyEpoch === "string" && typeof msg.historyRevision === "number") {
+          const baseline = historySnapshotRefs.current.get(msg.threadId);
+          if (baseline && baseline.epoch === msg.historyEpoch && msg.historyRevision <= baseline.revision) return;
+          historySnapshotRefs.current.set(msg.threadId, { epoch: msg.historyEpoch, revision: msg.historyRevision });
+        }
         if (msg.scope === "files") return;
         const plain = pendingRevert.current;
         if (plain && plain.threadId === msg.threadId) {
@@ -2343,18 +2361,26 @@ export default function App() {
           }
         }
       }
+      if (msg.type === "requestDelayed") {
+        setAppBanner({ text: String(msg.message), closable: true });
+      }
       if (msg.type === "error") {
+        // Correlated read failures must not stop a run or roll back an edit.
+        const actionError = !msg.requestType || ["send", "prepareMessageEdit", "revert", "createLinkedThread"].includes(msg.requestType);
+        if (msg.requestType) setAppBanner({ text: String(msg.message), closable: true });
         console.error("sidecar:", msg.message);
         // Refus d'un send par le serveur (projet verrouillé par un tour
         // zombie, 2026-08-25) : l'erreur porte désormais le threadId — il faut
         // éteindre le spinner de CE fil et montrer le refus, sinon le compteur
         // tourne à vide sur un tour que le serveur a refusé d'ouvrir.
-        if (typeof msg.threadId === "string" && msg.threadId) {
+        if (actionError && typeof msg.threadId === "string" && msg.threadId) {
           const refusedId = msg.threadId;
-          setWorkingSince((p) => (p[refusedId] == null ? p : { ...p, [refusedId]: null }));
+          const previousRunContinues = msg.requestType === "send" && ["REQUEST_BUSY", "REQUEST_CANCELLED"].includes(msg.code) &&
+            (confirmedRunsRef.current.has(refusedId) || (msg.code === "REQUEST_BUSY" && threadsRef.current.some((thread) => thread.id === refusedId && thread.status === "running")));
+          if (!previousRunContinues) setWorkingSince((p) => (p[refusedId] == null ? p : { ...p, [refusedId]: null }));
           setAppBanner({ text: String(msg.message ?? t("app.send-not-connected")), closable: true });
         }
-        const failedLink = [...pendingLinkedCreations.current.entries()].find(
+        const failedLink = actionError && [...pendingLinkedCreations.current.entries()].find(
           ([targetId, pending]) => msg.threadId === targetId || msg.threadId === pending.sourceThreadId,
         );
         if (failedLink) {
@@ -2365,7 +2391,7 @@ export default function App() {
           });
         }
         const pr = pendingResend.current;
-        if (pr && pr.threadId === msg.threadId) {
+        if (actionError && pr && pr.threadId === msg.threadId) {
           // Le rewind a échoué : restaurer le fil original, mais ne jamais
           // envoyer le texte corrigé comme un nouveau message (cela créait le
           // doublon que l'action « Modifier et renvoyer » promet précisément
@@ -2376,7 +2402,7 @@ export default function App() {
           setAppBanner({ text: String(msg.message ?? "Modification impossible"), closable: true });
         }
         const revert = pendingRevert.current;
-        if (revert && revert.threadId === msg.threadId) {
+        if (actionError && revert && revert.threadId === msg.threadId) {
           pendingRevert.current = null;
           setAppBanner({ text: String(msg.message ?? "Retour impossible"), closable: true });
         }

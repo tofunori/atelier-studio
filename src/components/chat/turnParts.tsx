@@ -14,7 +14,7 @@ import { useSmoothedStream } from "./useSmoothedStream";
 import type { ChangedFile } from "./changedFiles";
 
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
-type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean };
+type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean; error?: string };
 
 export function DoneDiffToggle({ event, threadId, changedFiles }: {
   event: Extract<AgentEvent, { kind: "done" }>;
@@ -42,6 +42,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
         before: typeof msg.before === "string" ? msg.before : undefined,
         after: typeof msg.after === "string" ? msg.after : undefined,
         binary: Boolean(msg.binary),
+        error: msg.error ? String(msg.error) : undefined,
       } }));
       setLoading((current) => {
         const next = new Set(current);
@@ -63,7 +64,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
   // fetch des diffs manquants — une seule demande gitDiff par fichier, quel
   // que soit le point d'entrée (ligne de la carte, « Voir le diff », repli).
   const requestDiffs = (paths: string[]) => {
-    const missing = paths.filter((path) => !diffs[path] && !loading.has(path));
+    const missing = paths.filter((path) => (!diffs[path] || !!diffs[path].error) && !loading.has(path));
     if (!missing.length) return;
     setLoading((current) => new Set([...current, ...missing]));
     for (const path of missing) {
@@ -100,9 +101,10 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
    * ligne dans la carte, ou dans la liste du repli historique). */
   const fileDiffBody = (path: string) => {
     const payload = diffs[path];
-    if (loading.has(path) && !payload) {
+    if (loading.has(path) && (!payload || payload.error)) {
       return <div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>;
     }
+    if (payload?.error) return <div className="turn-diff-body" role="alert">{payload.error}</div>;
     if (payload?.binary) {
       return <div className="turn-diff-body"><span className="muted">{t("git.binary-changed")}</span></div>;
     }

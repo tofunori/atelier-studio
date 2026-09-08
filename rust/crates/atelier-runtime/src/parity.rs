@@ -142,6 +142,8 @@ const FREE_KEYS: &[&str] = &[
     "ts",
     "createdAt",
     "updatedAt",
+    "threadsEpoch", // Rust snapshot ordering metadata
+    "threadsRevision",
     "backend", // rust-only identity field
     "node",    // runtime path differs
 ];
@@ -264,7 +266,7 @@ mod tests {
             }
             if matches!(
                 *t,
-                "computeSnapshot" | "computeReadLog" | "computeForgetRun" | "prepareMessageEdit"
+                "computeSnapshot" | "computeReadLog" | "computeForgetRun" | "prepareMessageEdit" | "reformulerConsigne"
             ) {
                 continue; // calculs et révisions transactionnelles : contrat Rust seulement
             }

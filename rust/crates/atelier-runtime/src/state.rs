@@ -11,7 +11,7 @@ use atelier_store::{
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot, Mutex, RwLock};
 
@@ -48,6 +48,9 @@ pub struct AgentDelivery {
 }
 
 struct Inner {
+    ws_budget: Arc<crate::ws_dispatch::Budget>,
+    threads_revision: AtomicU64,
+    threads_epoch: String,
     paths: AppPaths,
     token: Option<String>,
     started_at: String,
@@ -127,6 +130,9 @@ impl AppState {
         }
         Self {
             inner: Arc::new(Inner {
+                ws_budget: Arc::new(crate::ws_dispatch::Budget::default()),
+                threads_revision: AtomicU64::new(0),
+                threads_epoch: uuid::Uuid::new_v4().to_string(),
                 paths,
                 token,
                 started_at,
@@ -157,6 +163,21 @@ impl AppState {
             }),
         }
     }
+
+    pub(crate) fn threads_epoch(&self) -> &str { &self.inner.threads_epoch }
+
+    pub(crate) async fn threads_snapshot(&self) -> String {
+        let store = self.threads().lock().await;
+        self.threads_snapshot_locked(&store)
+    }
+    /// Capture and revision allocation occur under the same store lock.
+    pub(crate) fn threads_snapshot_locked(&self, store: &ThreadStore) -> String {
+        serde_json::json!({"type":"threads", "threads":store.list(),
+            "threadsEpoch":self.inner.threads_epoch,
+            "threadsRevision":self.inner.threads_revision.fetch_add(1, Ordering::SeqCst) + 1}).to_string()
+    }
+
+    pub(crate) fn ws_budget(&self) -> &Arc<crate::ws_dispatch::Budget> { &self.inner.ws_budget }
 
     pub fn paths(&self) -> &AppPaths {
         &self.inner.paths

@@ -244,6 +244,77 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByText(t("action.interrupt"))).toBeNull();
   });
 
+  it("une lecture expirée et une action retardée laissent le chat actif", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "allo" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(2); });
+    await push(sock, { type: "error", requestType: "getHistory", threadId: "thread-A", code: "REQUEST_TIMEOUT", message: "Historique trop lent" });
+    expect(screen.getByText("Historique trop lent")).toBeTruthy();
+    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    await push(sock, { type: "requestDelayed", requestType: "send", threadId: "thread-A", message: "Envoi encore en préparation" });
+    expect(screen.getByText("Envoi encore en préparation")).toBeTruthy();
+    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_CANCELLED", message: "Envoi annulé" });
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
+  it("un ancien instantané ne supprime ni ne ressuscite un chat confirmé", async () => {
+    const { sock } = await mountApp();
+    await push(sock, { type: "threads", threads: [THREAD_A], threadsEpoch: "runtime-1", threadsRevision: 2 });
+    expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
+    await push(sock, { type: "threads", threads: [], threadsEpoch: "runtime-1", threadsRevision: 1 });
+    expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
+    await push(sock, { type: "threads", threads: [], threadsEpoch: "runtime-1", threadsRevision: 3 });
+    expect(within(document.querySelector(".sidebar") as HTMLElement).queryByText("Fil A — albédo")).toBeNull();
+    await push(sock, { type: "threads", threads: [THREAD_A], threadsEpoch: "runtime-1", threadsRevision: 2 });
+    expect(within(document.querySelector(".sidebar") as HTMLElement).queryByText("Fil A — albédo")).toBeNull();
+    await push(sock, { type: "threads", threads: [THREAD_A], threadsEpoch: "runtime-2", threadsRevision: 1 });
+    expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
+  });
+
+  it("le refus d'un steer conserve Stop pour le tour déjà actif", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+    await push(sock, { type: "error", requestType: "send", threadId: "thread-A", clientMessageId: "steer-refused", code: "REQUEST_BUSY", message: "Envoi refusé" });
+    expect(screen.getByText("Envoi refusé")).toBeTruthy();
+    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true } });
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
+  it("la récupération d'un done manqué libère aussi la confirmation du tour", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+    await push(sock, { type: "history", threadId: "thread-A", events: [{ kind: "done", ok: true, result: "Terminé", ts: Date.now() + 1 }] });
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "nouvel envoi" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(2); });
+    await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_BUSY", message: "Refus de surcharge" });
+    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
+  it("un historique capturé avant une révision ne réintroduit pas les messages retirés", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "reverted", threadId: "thread-A", historyEpoch: "runtime", historyRevision: 2 });
+    await push(sock, { type: "reverted", threadId: "thread-A", historyEpoch: "runtime", historyRevision: 1 });
+    await push(sock, { type: "history", threadId: "thread-A", historyEpoch: "runtime", historyRevision: 1, events: [{ kind: "user", text: "ANCIEN_MESSAGE_RETIRÉ" }] });
+    expect(screen.queryByText("ANCIEN_MESSAGE_RETIRÉ")).toBeNull();
+    await push(sock, { type: "history", threadId: "thread-A", historyEpoch: "runtime", historyRevision: 2, events: [{ kind: "user", text: "MESSAGE_ACTUEL" }] });
+    expect(screen.getAllByText("MESSAGE_ACTUEL").length).toBeGreaterThan(0);
+  });
+
   // Task 7 fix round 1 (finding 2) : rien ne testait le rafraîchissement de
   // la consigne au moment de l'envoi (App.tsx::submit(), juste avant
   // sendPrompt) — un refactor de submit() pourrait en inverser l'ORDRE (le

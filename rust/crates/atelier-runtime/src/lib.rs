@@ -21,6 +21,8 @@ pub mod state;
 pub mod usage;
 pub mod widgets;
 pub mod ws_router;
+mod ws_dispatch;
+mod ws_connection;
 pub mod zotero_watch;
 
 pub use atomic::write_file_atomic;

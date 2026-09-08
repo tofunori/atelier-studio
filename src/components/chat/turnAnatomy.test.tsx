@@ -9,9 +9,10 @@ vi.mock("../../lib/localImage", () => ({
 }));
 
 import Chat from "../Chat";
-import { LiveThinking, ThinkingBlock, ThinkingShimmer } from "./turnParts";
+import { DoneDiffToggle, LiveThinking, ThinkingBlock, ThinkingShimmer } from "./turnParts";
 import { renderUi, resetTestState } from "../../test/render";
 import { events, FIXED_TS } from "../../test/fixtures";
+import { setWs } from "../../lib/wsBus";
 import { setLanguage, t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
 
@@ -862,6 +863,24 @@ describe("anatomie du tour — header d'activité", () => {
     } finally {
       window.removeEventListener("chat-open-file", onOpen);
     }
+  });
+
+  it("un diff de fin de tour refusé montre l'erreur et peut être redemandé", () => {
+    const send = vi.fn();
+    setWs({ readyState: 1, send } as unknown as WebSocket);
+    try {
+      renderUi(<DoneDiffToggle threadId="thread-A" event={{ kind: "done", ok: true, result: "", projectRoot: "/p", filesChanged: ["a.rs"] }} />);
+      const toggle = document.querySelector(".turn-diff-toggle") as HTMLButtonElement;
+      fireEvent.click(toggle);
+      expect(send).toHaveBeenCalledTimes(1);
+      act(() => window.dispatchEvent(new CustomEvent("git-diff", { detail: { type: "gitDiff", projectRoot: "/p", path: "a.rs", error: "Serveur occupé", diff: "" } })));
+      expect(screen.getByRole("alert").textContent).toBe("Serveur occupé");
+      expect(screen.queryByText(t("common.loading"))).toBeNull();
+      fireEvent.click(toggle);
+      fireEvent.click(toggle);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(t("common.loading"))).toBeTruthy();
+    } finally { setWs(null); }
   });
 
   it("sort du chargement et montre l'erreur quand gitDiff échoue", () => {

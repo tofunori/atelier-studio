@@ -116,6 +116,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "gitIgnore",
     "gitUndoLastTurn",
     "generateCommitMsg",
+    "reformulerConsigne",
     "zoteroSearch",
     "zoteroCollections",
     "zoteroFav",
@@ -237,8 +238,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "providerStatus" => crate::send::handle_provider_status(state).await,
         "status" => crate::send::handle_status(state).await,
         "listThreads" => {
-            let list = state.threads().lock().await.list();
-            vec![json_msg(json!({"type":"threads","threads": list}))]
+            vec![state.threads_snapshot().await]
         }
         "renameThread" => {
             let id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
@@ -311,7 +311,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 Some(t) if t.provider == "codex" => {
                     if let Some(session_id) = t.session_id {
                         let native =
-                            tokio::task::spawn_blocking(move || load_codex_history(&session_id))
+                            crate::ws_dispatch::blocking(move || load_codex_history(&session_id))
                                 .await
                                 .unwrap_or_default();
                         prefer_richer_dialogue(journal, native)
@@ -378,7 +378,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .get("parentThreadId")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let events = tokio::task::spawn_blocking(move || load_codex_history(&agent_thread_id))
+            let events = crate::ws_dispatch::blocking(move || load_codex_history(&agent_thread_id))
                 .await
                 .unwrap_or_default()
                 .into_iter()
@@ -496,28 +496,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let root = msg["projectRoot"].as_str().unwrap_or("").to_string();
             let config = msg["config"].clone();
             let request_id = msg["requestId"].clone();
-            let state = state.clone();
-            // Catalog work never holds the WebSocket receive loop (stop/steer).
-            // Bound workers as filesystem calls on disconnected volumes can block.
-            static CATALOG_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-            tokio::spawn(async move {
-                let response_root = root.clone();
-                let result = match CATALOG_WORKERS.try_acquire() {
-                    Ok(permit) => tokio::time::timeout(
-                        std::time::Duration::from_secs(12),
-                        tokio::task::spawn_blocking(move || {
-                            let _permit = permit;
-                            crate::project_folders::catalog(&root, &config)
-                        }),
-                    )
-                    .await
-                    .ok()
-                    .and_then(Result::ok),
-                    Err(_) => None,
-                };
-                state.publish(json_msg(json!({"type":"projectFolderCatalog","projectRoot":response_root,"requestId":request_id,"sources":result.clone().unwrap_or_else(|| json!([])),"error":if result.is_none() { Some("catalog_unavailable") } else { None }})));
-            });
-            vec![]
+            let response_root = root.clone();
+            let result = crate::ws_dispatch::blocking(move || crate::project_folders::catalog(&root, &config)).await.ok();
+            vec![json_msg(json!({"type":"projectFolderCatalog","projectRoot":response_root,"requestId":request_id,"sources":result.clone().unwrap_or_else(|| json!([])),"error":if result.is_none() { Some("catalog_unavailable") } else { None }}))]
         }
         "listFiles" => {
             let root = msg
@@ -547,7 +528,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             narval_reply(
                 "narvalStatus",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_status(&profile)).await,
+                crate::ws_dispatch::blocking(move || narval_status(&profile)).await,
             )
         }
         "narvalSnapshot" => {
@@ -565,7 +546,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             narval_reply(
                 "narvalSnapshot",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_snapshot(&profile, days)).await,
+                crate::ws_dispatch::blocking(move || narval_snapshot(&profile, days)).await,
             )
         }
         "narvalListDirectory" => {
@@ -585,7 +566,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "narvalDirectory",
                 request_id,
                 json!({"path": path_out}),
-                tokio::task::spawn_blocking(move || narval_list_directory(&profile, &path)).await,
+                crate::ws_dispatch::blocking(move || narval_list_directory(&profile, &path)).await,
             )
         }
         "narvalInspectJob" => {
@@ -603,7 +584,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             narval_reply(
                 "narvalJobDetail",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_inspect_job(&profile, &job_id)).await,
+                crate::ws_dispatch::blocking(move || narval_inspect_job(&profile, &job_id)).await,
             )
         }
         "narvalRunFiles" => {
@@ -621,7 +602,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             narval_reply(
                 "narvalRunFiles",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_run_files(&profile, &job_id)).await,
+                crate::ws_dispatch::blocking(move || narval_run_files(&profile, &job_id)).await,
             )
         }
         "narvalReadText" => {
@@ -640,7 +621,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             narval_reply(
                 "narvalText",
                 request_id,
-                tokio::task::spawn_blocking(move || narval_read_text(&profile, &path, tail_lines))
+                crate::ws_dispatch::blocking(move || narval_read_text(&profile, &path, tail_lines))
                     .await,
             )
         }
@@ -689,7 +670,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "computeSnapshot",
                 request_id,
                 json!({}),
-                tokio::task::spawn_blocking(move || {
+                crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
                     Ok(compute_snapshot(cfg, &hosts, days, exec))
                 })
@@ -713,7 +694,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "computeLog",
                 request_id,
                 json!({"runId": run_id_out}),
-                tokio::task::spawn_blocking(move || {
+                crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
                     compute_read_log(cfg, &run_id, tail_lines, exec)
                 })
@@ -732,7 +713,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "computeForgotRun",
                 request_id,
                 json!({"runId": run_id_out}),
-                tokio::task::spawn_blocking(move || {
+                crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
                     compute_forget_run(cfg, &run_id, exec)
                 })
@@ -889,7 +870,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "scanLocal" => {
-            let servers = tokio::task::spawn_blocking(scan_local)
+            let servers = crate::ws_dispatch::blocking(scan_local)
                 .await
                 .unwrap_or_default();
             vec![json_msg(json!({"type":"localServers","servers": servers}))]
@@ -900,7 +881,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let blocked = tokio::task::spawn_blocking(move || check_frame(&url))
+            let blocked = crate::ws_dispatch::blocking(move || check_frame(&url))
                 .await
                 .unwrap_or(false);
             let url = msg.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -1359,7 +1340,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .unwrap_or(400)
                 .min(5000) as usize;
             let app_dir = state.app_dir().to_path_buf();
-            let items = tokio::task::spawn_blocking(move || {
+            let items = crate::ws_dispatch::blocking(move || {
                 zotero_search(&app_dir, &query, collection_id, tag.as_deref(), limit)
             })
             .await
@@ -1395,7 +1376,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 }))];
             }
             let app_dir = state.app_dir().to_path_buf();
-            match tokio::task::spawn_blocking(move || zotero_collections(&app_dir))
+            match crate::ws_dispatch::blocking(move || zotero_collections(&app_dir))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
             {
@@ -1510,7 +1491,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "listSessions" => {
             let provider = msg.get("provider").and_then(Value::as_str).unwrap_or("");
             let sessions = if provider == "codex" {
-                tokio::task::spawn_blocking(list_codex_sessions)
+                crate::ws_dispatch::blocking(list_codex_sessions)
                     .await
                     .unwrap_or_default()
             } else if let Some(p) = state.provider(provider) {
@@ -1982,9 +1963,7 @@ async fn atelier_mcp_param(state: &AppState, thread: &atelier_store::Thread) -> 
 }
 
 pub(crate) async fn broadcast_threads(state: &AppState) -> Vec<String> {
-    let list = state.threads().lock().await.list();
-    // Direct reply only (avoid bus double-delivery on the requesting socket).
-    vec![json_msg(json!({"type":"threads","threads": list}))]
+    vec![state.threads_snapshot().await]
 }
 
 async fn broadcast_highlights(state: &AppState) -> Vec<String> {
@@ -2012,6 +1991,8 @@ fn warm_snapshot_index(project_root: &str) {
     if project_root.is_empty() {
         return;
     }
+    static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let Ok(permit) = WORKERS.try_acquire() else { return; };
     static WARMED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let already = {
         let mut guard = WARMED
@@ -2025,6 +2006,7 @@ fn warm_snapshot_index(project_root: &str) {
     }
     let root = project_root.to_string();
     tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         // Échec sans conséquence : ce n'est qu'un préchauffage. Le tour
         // reconstruira l'index lui-même si besoin.
         let _ = atelier_workspace::snapshot(&root);
@@ -2105,7 +2087,7 @@ async fn kb_cli_run_async(
     args: Vec<String>,
     stdin_text: String,
 ) -> Result<Value, String> {
-    tokio::task::spawn_blocking(move || {
+    crate::ws_dispatch::blocking(move || {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         kb_cli_run(&server_dir, &app_dir, &refs, &stdin_text)
     })
@@ -2539,7 +2521,7 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
     let server_dir = state.server_dir().to_string();
     let app_dir = state.app_dir().to_path_buf();
     let path_owned = path.to_string();
-    let streamed = tokio::task::spawn_blocking(move || {
+    let streamed = crate::ws_dispatch::blocking(move || {
         let refs = vec![
             "article-import",
             "--path",
@@ -3678,7 +3660,7 @@ async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
             });
         let root = thread.project_root.clone();
         let sha_owned = sha.to_string();
-        match tokio::task::spawn_blocking(move || {
+        match crate::ws_dispatch::blocking(move || {
             git_restore(&root, &sha_owned, scope_paths.as_deref())
         })
         .await
