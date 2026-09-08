@@ -679,6 +679,33 @@
   .gallery-detail-status>button{border:0;background:transparent;width:24px;height:24px;flex:none;color:var(--muted);padding:4px}
   .gallery-detail-status svg{width:16px;height:16px}
   .gallery-detail-row button:hover{color:var(--accent)}
+
+  /* Reserve real space for controls and caption; fit uses the remaining stage. */
+  #lb{box-sizing:border-box;padding:54px 48px 12px;background:rgba(14,15,18,.98);cursor:default}
+  #lbViewport{display:flex;flex:1;min-height:0;width:100%;overflow:auto;overscroll-behavior:contain}
+  #lb #lbWrap{flex:none;margin:auto;position:relative}
+  #lb #lbImg{display:block;max-width:none!important;max-height:none!important;width:100%;height:100%;border-radius:2px;cursor:zoom-in}
+  #lb.fs #lbWrap{flex:none;display:block;min-height:0}
+  #lb.fs #lbImg{width:100%;height:100%;background:transparent}
+  #lb #lbCap{flex:none;max-width:100%;margin:10px 0 0;min-height:24px;gap:10px;font-size:12px;color:#a3a7ae}
+  #lbCap b{max-width:50vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e2e6;font-weight:500}
+  #lbCap span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:22vw}
+  #lbClose,#lbFs,#lb .lbBtn{border:0;background:transparent;padding:0;line-height:1;border-radius:8px}
+  #lbClose{position:fixed;top:10px;right:14px;width:34px;height:34px;font-size:20px;color:var(--muted);z-index:103}
+  #lb .lbBtn{width:34px;height:44px;padding:0;font-size:28px;background:rgba(255,255,255,.045)}
+  #lb button:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+  #lbClose:hover,#lbFs:hover,#lbZoom button:hover{background:rgba(255,255,255,.09);color:#fff}
+  #lbZoom{position:fixed;top:12px;left:16px;display:flex;align-items:center;gap:2px;z-index:103;background:#22252a;border-radius:9px;padding:2px}
+  #lbZoom button{border:0;background:transparent;color:#bdc1c8;height:28px;min-width:28px;padding:0 8px;border-radius:7px;font-size:13px}
+  #lbZoom #lbFit{min-width:65px;font-size:12px}
+  #lb.fs #lbZoom{opacity:0;pointer-events:none}
+  #lb.fs.fs-ui #lbZoom{opacity:1;pointer-events:auto}
+  #lb.vw #lbZoom,#lb.annot #lbZoom{display:none}
+  #lb:not(.fs){left:var(--lb-left,0px);top:var(--lb-top,0px);right:auto;bottom:auto;width:var(--lb-width,100vw);height:var(--lb-height,100vh)}
+  #lb #lbClose,#lb #lbFs,#lb #lbAnnot,#lb #lbProv,#lb #lbZoom,#lb .lbBtn{position:absolute}
+  #lb.fs{padding:0;inset:0;width:100vw;height:100vh}
+  @media(max-width:540px){#lb{padding:52px 30px 10px}#lbCap span{display:none}#lbCap b{max-width:65vw}#lbZoom{left:8px}#lbZoom button{padding:0 5px}}
+
 </style>
 <link rel="stylesheet" href="/.fig_thumbs/annotation_ui.css">
 </head>
@@ -756,12 +783,13 @@
   <div id="inspBody"></div>
 </aside>
 <div id="lb">
-  <span id="lbClose">&#10005;</span>
-  <span id="lbFs" title="Plein écran (f ou double-clic)">&#9974;</span>
+  <button id="lbClose" aria-label="Fermer la visionneuse" title="Fermer (Échap)">&#10005;</button>
+  <button id="lbFs" aria-label="Plein écran" title="Plein écran (f)">&#9974;</button>
+  <div id="lbZoom"><button id="lbZoomOut" aria-label="Réduire">−</button><button id="lbFit" title="Afficher toute l’image (0)">Ajuster</button><button id="lbZoomIn" aria-label="Agrandir">+</button></div>
   <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
   <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
-  <span class="lbBtn" id="lbPrev">&#8249;</span>
-  <span class="lbBtn" id="lbNext">&#8250;</span>
+  <button class="lbBtn" id="lbPrev" aria-label="Image précédente">&#8249;</button>
+  <button class="lbBtn" id="lbNext" aria-label="Image suivante">&#8250;</button>
   <div id="annotBar">
     <button data-tool="ellipse" title="Encercler (1)">&#9711;</button>
     <button data-tool="arrow" title="Fl&egrave;che (2)">&#8594;</button>
@@ -770,7 +798,7 @@
     <button id="annotUndo" title="Undo">&#8630;</button>
     <button id="annotClear" title="Clear all">&#10006;</button>
   </div>
-  <div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv"></canvas></div>
+  <div id="lbViewport"><div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv"></canvas></div></div>
   <div id="annotNote">
     <textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea>
     <button class="anSave" title="Envoyer l'annotation (Entr&eacute;e)" aria-label="Envoyer l'annotation" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg></button>
@@ -1956,6 +1984,7 @@ const lb=()=>document.getElementById('lb');
 async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
   if(i<0||i>=lbList.length) return;
+  lbZoomLevel=1;
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
   markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv';
@@ -1969,11 +1998,14 @@ async function lbShow(i){
     else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
-    lbIdx=-1;
+    await lbClose();
     return;
   }
   const img=document.getElementById('lbImg'), pdf=document.getElementById('lbPdf'), vid=document.getElementById('lbVid');
   const vw=isPdf||isMd||isCode||isSvg;
+  document.getElementById('lbViewport').style.display=(vw||isVid)?'none':'flex';
+  document.getElementById('lbZoom').style.display=(vw||isVid)?'none':'';
+  img.alt=f.name;
   img.style.display=(vw||isVid)?'none':'';
   pdf.style.display=vw?'':'none';
   vid.style.display=isVid?'':'none';
@@ -1987,11 +2019,13 @@ async function lbShow(i){
   else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
   document.getElementById('lbCap').innerHTML=
-    `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">open original</a>`+
+    `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">Ouvrir l’original ↗</a>`+
     (isSvg?` <span style="margin-left:8px;color:#7aa2f7;font-size:12px">&#9672; click elements in the plot to select them</span>`:'');
   document.getElementById('lbAnnot').style.display=(imgExt(f.ext)&&!isSvg)?'flex':'none';
   provSync();
   lb().classList.add('show');
+  lbViewportRequest(true);
+  requestAnimationFrame(lbFitImage);
 }
 // ─── Panneau Provenance ───────────────────────────────────────────────────
 // Spec docs/superpowers/specs/2026-08-27-provenance-figures-design.md (C + D).
@@ -2173,7 +2207,58 @@ async function lbClose(){
   // provOpen meurt avec la lightbox : la prochaine figure s'ouvre nue.
   provRel='';provState=null;provSeq++;provOpen=false;provHistOpen=false;
   lbListRestore();
+  lbHostRequest(false);
+  lbViewportRequest(false);
 }
+
+// The host owns the window; the same iframe remains alive in its top layer.
+let lbZoomLevel=1;
+function lbHostRequest(active){
+  if(window.self!==window.top && new URLSearchParams(location.search).get('embedded')==='atelier')
+    window.__atelierPost({type:'atelier-gallery-fullscreen',active});
+}
+function lbViewportRequest(active){
+  if(window.self!==window.top && new URLSearchParams(location.search).get('embedded')==='atelier')
+    window.__atelierPost({type:'atelier-gallery-viewport-request',active});
+}
+window.addEventListener('message',e=>{
+  const d=e.data;
+  if(e.source!==window.top||!window.__atelierNonce||d?.nonce!==window.__atelierNonce)return;
+  if(d.type==='atelier-gallery-fullscreen-state'&&d.active===false&&lb().classList.contains('fs'))void lbFsLeave();
+  if(d.type==='atelier-gallery-viewport'&&['x','y','width','height'].every(k=>Number.isFinite(d[k])&&d[k]>=0)){
+    for(const [key,value] of Object.entries({left:d.x,top:d.y,width:d.width,height:d.height}))lb().style.setProperty('--lb-'+key,value+'px');
+  }
+  requestAnimationFrame(lbFitImage);
+});
+window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(false);});
+function lbFitImage(){
+  const stage=document.getElementById('lbViewport'),img=document.getElementById('lbImg'),wrap=document.getElementById('lbWrap');
+  if(!lb().classList.contains('show')||!img.naturalWidth||!stage.clientHeight)return;
+  const gap=lb().classList.contains('fs')?16:12;
+  const scale=Math.min((stage.clientWidth-gap)/img.naturalWidth,(stage.clientHeight-gap)/img.naturalHeight);
+  if(scale<=0)return;
+  wrap.style.width=Math.round(img.naturalWidth*scale*lbZoomLevel)+'px';
+  wrap.style.height=Math.round(img.naturalHeight*scale*lbZoomLevel)+'px';
+  document.getElementById('lbFit').textContent=lbZoomLevel===1?'Ajuster':Math.round(scale*lbZoomLevel*100)+' %';
+  document.getElementById('lbFit').setAttribute('aria-label','Ajuster toute l’image à la fenêtre');
+  if(lb().classList.contains('annot')){const c=cv();c.style.width=wrap.style.width;c.style.height=wrap.style.height;}
+}
+function lbSetZoom(value){
+  if(lb().classList.contains('annot'))return;
+  lbZoomLevel=Math.max(1,Math.min(8,value));lbFitImage();
+  const stage=document.getElementById('lbViewport');
+  stage.scrollLeft=(stage.scrollWidth-stage.clientWidth)/2;
+  stage.scrollTop=(stage.scrollHeight-stage.clientHeight)/2;
+}
+document.getElementById('lbImg').addEventListener('load',lbFitImage);
+new ResizeObserver(lbFitImage).observe(document.getElementById('lbViewport'));
+document.getElementById('lbFit').onclick=()=>lbSetZoom(1);
+document.getElementById('lbZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);
+document.getElementById('lbZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);
+document.getElementById('lbViewport').addEventListener('wheel',e=>{
+  if(e.ctrlKey||e.metaKey){e.preventDefault();lbSetZoom(lbZoomLevel*(e.deltaY<0?1.12:1/1.12));}
+},{passive:false});
+
 let lbFsUiTimer=0, fsLeaving=false, nativeFsOk=null, lbFsEnterGen=0, lbNativeReq=false;
 function fsActiveEl(){
   return document.fullscreenElement||document.webkitFullscreenElement||null;
@@ -2226,19 +2311,26 @@ function lbFsUiPulse(){
 function lbFsEnter(){
   const el=lb(), btn=document.getElementById('lbFs');
   el.classList.add('fs');
+  lbHostRequest(true);
   btn.textContent='✕';
-  btn.title='Quitter le plein écran (Esc, f, ou double-clic)';
+  btn.title='Quitter le plein écran (Échap ou f)';
+  btn.setAttribute('aria-label','Quitter le plein écran');
+  lbZoomLevel=1;
+  requestAnimationFrame(lbFitImage);
   lbFsUiPulse();
 }
 function lbFsExit(){
   const el=lb(), btn=document.getElementById('lbFs');
   el.classList.remove('fs','fs-ui');
+  lbHostRequest(false);
   clearTimeout(lbFsUiTimer);
   document.body.classList.remove('fs-mode');
   document.body.style.overflow='';
   document.documentElement.style.overflow='';
   btn.textContent='⛶';
-  btn.title='Plein écran (f ou double-clic)';
+  btn.title='Plein écran (f)';
+  btn.setAttribute('aria-label','Plein écran');
+  requestAnimationFrame(lbFitImage);
 }
 function lbFsReflow(){
   // Exiting (native) fullscreen resizes the embedded webview back to its pane a
@@ -2303,7 +2395,7 @@ document.getElementById('lbFs').onclick=e=>{e.stopPropagation();lbFsToggle();};
 lb().addEventListener('mousemove',lbFsUiPulse);
 document.getElementById('lbImg').addEventListener('dblclick',e=>{
   e.stopPropagation();
-  if(!EMB) lbFsToggle();
+  lbSetZoom(lbZoomLevel===1?2:1);
 });
 document.addEventListener('keydown',e=>{
   if(!lb().classList.contains('show'))return;
@@ -2318,6 +2410,10 @@ document.addEventListener('keydown',e=>{
       annotToggle(); return;
     }
   }
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable)return;
+  if(e.key==='0'){lbSetZoom(1);return;}
+  if(e.key==='+'||e.key==='='){lbSetZoom(lbZoomLevel*1.5);return;}
+  if(e.key==='-'){lbSetZoom(lbZoomLevel/1.5);return;}
   if(e.key==='f'){lbFsToggle();return;}
   if(e.key==='Escape'){
     if(lb().classList.contains('fs')||fsActiveEl()){void lbFsLeave();return;}

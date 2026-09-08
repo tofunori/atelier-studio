@@ -5460,3 +5460,19 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 @media (prefers-reduced-motion: reduce) {
   .thinking-live-indicator.is-arriving { animation: none; }
 }
+
+/* Top-layer iframe preserves its browsing context while escaping every split pane. */
+iframe.atelier.atelier-gallery-fullscreen[popover] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #101114;
+}
+iframe.atelier-gallery-fullscreen::backdrop { background: #101114; }

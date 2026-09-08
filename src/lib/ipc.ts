@@ -90,7 +90,14 @@ export type AtelierGalleryResultMessage = {
   error?: string;
 };
 
+export type AtelierGalleryFullscreenMessage = {
+  type: "atelier-gallery-fullscreen" | "atelier-gallery-viewport-request";
+  nonce: string;
+  active: boolean;
+};
+
 export type AtelierInboundMessage =
+  | AtelierGalleryFullscreenMessage
   | AtelierThemeRequestMessage
   | AtelierOpenTabMessage
   | AtelierOpenPdfMessage
@@ -161,6 +168,9 @@ export function isTrustedAtelierMessage(
   if (typeof data.type !== "string") return false;
 
   switch (data.type) {
+    case "atelier-gallery-viewport-request":
+    case "atelier-gallery-fullscreen":
+      return hasOnlyKeys(data, ["type", "nonce", "active"]) && typeof data.active === "boolean";
     case "atelier-theme-request":
       return hasOnlyKeys(data, ["type", "nonce"]);
     case "atelier-open-tab":

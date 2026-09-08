@@ -1,3 +1,4 @@
+import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { interfaceTypography, interfaceGeometry } from "./lib/interfaceTheme";
 import { projectWritableDirectories } from "./lib/projectFolders";
 import { lazy } from "react";
@@ -508,6 +509,8 @@ export default function App() {
   const atelierNonceRef = useRef<string | null>(null);
   if (atelierNonceRef.current === null) atelierNonceRef.current = crypto.randomUUID();
   const atelierNonce = atelierNonceRef.current;
+  const [galleryFullscreen, setGalleryFullscreen] = useState(false);
+  useEffect(() => installGalleryFullscreen(atelierNonce, setGalleryFullscreen), [atelierNonce]);
   // Connexion sidecar extraite dans useSidecarConnection (slice 2.1) —
   // comportement identique : bootstrap getSettings/listHighlights à la
   // première connexion, bannière sur coupure/échec, retry géré par le hook.
@@ -4523,7 +4526,7 @@ export default function App() {
   // `RemoteDevicesPanel` est écarté aussi, mais pour une autre raison :
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
-  const overlayOpen = showSettings || paletteOpen || qaMode === "open" || pluginsOpen
+  const overlayOpen = galleryFullscreen || showSettings || paletteOpen || qaMode === "open" || pluginsOpen
     || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null;
   function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
     if (!projectSettingsRoot) return;
