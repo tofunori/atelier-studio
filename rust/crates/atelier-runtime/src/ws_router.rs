@@ -39,6 +39,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "moveThread",
     "deleteThread",
     "getHistory",
+    "receiptStatus",
     "getAgentHistory",
     "listHighlights",
     "listAutomations",
@@ -237,6 +238,34 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "interrupt" => crate::send::handle_interrupt(state, &msg).await,
         "providerStatus" => crate::send::handle_provider_status(state).await,
         "status" => crate::send::handle_status(state).await,
+        "receiptStatus" => {
+            let id = msg
+                .get("clientMessageId")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            match state.receipts().get(id) {
+                Some(receipt) => vec![json_msg(json!({
+                    "type": "sendReceipt",
+                    "requestId": msg.get("requestId").cloned().unwrap_or(Value::Null),
+                    "clientMessageId": receipt.client_message_id,
+                    "threadId": receipt.thread_id,
+                    "provider": receipt.provider,
+                    "status": receipt.status,
+                    "accepted": true,
+                    "turnId": receipt.turn_id,
+                    "terminalEventId": receipt.terminal_event_id,
+                    "issue": receipt.issue,
+                    "updatedAt": receipt.updated_at,
+                }))],
+                None => vec![json_msg(json!({
+                    "type": "sendReceipt",
+                    "requestId": msg.get("requestId").cloned().unwrap_or(Value::Null),
+                    "clientMessageId": id,
+                    "status": "unknown",
+                    "accepted": false,
+                }))],
+            }
+        }
         "listThreads" => {
             vec![state.threads_snapshot().await]
         }
@@ -301,27 +330,81 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "getHistory" => {
             let id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
-            let journal = if state.journal().has_journal(id) {
-                state.journal().materialize(id)
-            } else {
-                Vec::new()
+            const REPLAY_LIMIT: usize = 4096;
+            let requested_cursor = msg
+                .get("historyCursor")
+                .or_else(|| msg.get("cursor"));
+            let cursor_sequence = requested_cursor
+                .and_then(|cursor| cursor.get("sequence"))
+                .and_then(Value::as_u64);
+            let cursor_event_id = requested_cursor
+                .and_then(|cursor| cursor.get("eventId"))
+                .and_then(Value::as_str);
+            let (snapshot_events, snapshot_head, snapshot_epoch, snapshot_event_id) =
+                state.journal().durable_snapshot(id);
+            let journal_epoch = snapshot_epoch
+                .clone()
+                .unwrap_or_else(|| state.threads_epoch().to_string());
+            let replay = match cursor_sequence {
+                Some(sequence)
+                    if requested_cursor
+                        .and_then(|cursor| cursor.get("epoch"))
+                        .and_then(Value::as_str)
+                        == Some(journal_epoch.as_str()) => state
+                    .journal()
+                    .replay_after(id, sequence, cursor_event_id, REPLAY_LIMIT),
+                _ => None,
             };
+            let (journal, history_mode, history_fallback, history_head, history_cursor_event_id) =
+                match replay {
+                    Some((events, head)) => {
+                        let event_id = events
+                            .last()
+                            .and_then(|event| event.pointer("/meta/eventId"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .or_else(|| cursor_event_id.map(str::to_string));
+                        (events, "replay", None, head, event_id)
+                    }
+                    None => {
+                        let fallback = cursor_sequence.map(|_| "cursor_invalid");
+                        (
+                            snapshot_events,
+                            "snapshot",
+                            fallback,
+                            snapshot_head,
+                            snapshot_event_id,
+                        )
+                    }
+                };
+            let can_use_native = history_mode == "snapshot" && cursor_sequence.is_none();
             let thread = state.threads().lock().await.get(id).cloned();
+            let mut native_history_used = false;
             let events = match thread {
                 Some(t) if t.provider == "codex" => {
-                    if let Some(session_id) = t.session_id {
-                        let native =
-                            crate::ws_dispatch::blocking(move || load_codex_history(&session_id))
-                                .await
-                                .unwrap_or_default();
-                        prefer_richer_dialogue(journal, native)
+                    if can_use_native {
+                        if let Some(session_id) = t.session_id {
+                            native_history_used = true;
+                            let native =
+                                crate::ws_dispatch::blocking(move || load_codex_history(&session_id))
+                                    .await
+                                    .unwrap_or_default();
+                            prefer_richer_dialogue(journal, native)
+                        } else {
+                            journal
+                        }
                     } else {
                         journal
                     }
                 }
                 Some(t) if t.provider == "grok" => {
                     if let Some(session_id) = t.session_id.as_deref() {
-                        prefer_richer_dialogue(journal, load_grok_history(session_id))
+                        if can_use_native {
+                            native_history_used = true;
+                            prefer_richer_dialogue(journal, load_grok_history(session_id))
+                        } else {
+                            journal
+                        }
                     } else {
                         journal
                     }
@@ -330,23 +413,31 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     // Import une seule fois : native_history rend None quand la
                     // session est déjà ouverte/importée — le journal Atelier
                     // reste alors la source (pas de doublon après reprise).
-                    let native = match (t.session_id.as_deref(), state.provider("kimi")) {
-                        (Some(session_id), Some(p)) => {
-                            p.native_history(session_id, &t.project_root).await
+                    if can_use_native {
+                        native_history_used = t.session_id.is_some() && state.provider("kimi").is_some();
+                        let native = match (t.session_id.as_deref(), state.provider("kimi")) {
+                            (Some(session_id), Some(p)) => {
+                                p.native_history(session_id, &t.project_root).await
+                            }
+                            _ => None,
+                        };
+                        match native {
+                            Some(native) if !native.is_empty() => {
+                                prefer_richer_dialogue(journal, native)
+                            }
+                            _ => journal,
                         }
-                        _ => None,
-                    };
-                    match native {
-                        Some(native) if !native.is_empty() => {
-                            prefer_richer_dialogue(journal, native)
-                        }
-                        _ => journal,
+                    } else {
+                        journal
                     }
                 }
                 _ => journal,
             };
             // Les reloads natifs (jsonl des CLIs) portent le prompt réellement
             // envoyé, bloc <atelier-kb> inclus — jamais dans l'affichage.
+            let history_event_id = history_cursor_event_id
+                .map(Value::String)
+                .unwrap_or(Value::Null);
             let events: Vec<Value> = events
                 .into_iter()
                 .map(|mut event| {
@@ -362,8 +453,21 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .collect();
             vec![json_msg(json!({
                 "type": "history",
+                "requestId": msg.get("requestId").cloned().unwrap_or(Value::Null),
                 "threadId": id,
                 "events": events,
+                "historyMode": history_mode,
+                "historyHeadSequence": history_head,
+                "historyCursor": if native_history_used {
+                    Value::Null
+                } else {
+                    json!({
+                        "epoch": journal_epoch,
+                        "sequence": history_head,
+                        "eventId": history_event_id,
+                    })
+                },
+                "historyFallback": history_fallback,
             }))]
         }
         // Chaque sous-agent Codex a son propre rollout. Le panneau Atelier
@@ -507,7 +611,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .unwrap_or("");
             warm_snapshot_index(root);
             let catalog = list_file_catalog(root);
-            vec![json_msg(json!({
+            let mut response = json!({
                 "type":"files",
                 "projectRoot": root,
                 "files": catalog.files,
@@ -516,7 +620,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 // un fichier absent sans avertissement passe pour un fichier
                 // inexistant (vécu 2026-09-02, dépôt de 24 414 fichiers).
                 "truncated": catalog.tronque,
-            }))]
+            });
+            if let Some(request_id) = msg.get("requestId") {
+                response["requestId"] = request_id.clone();
+            }
+            vec![json_msg(response)]
         }
         "narvalStatus" => {
             let profile = msg
@@ -758,7 +866,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     }));
                 }
             }
-            vec![json_msg(json!({"type":"commands","commands": commands}))]
+            let mut response = json!({"type":"commands","commands": commands,"projectRoot":root});
+            if let Some(request_id) = msg.get("requestId") {
+                response["requestId"] = request_id.clone();
+            }
+            vec![json_msg(response)]
         }
         "listPlugins" => {
             let root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
@@ -4569,8 +4681,9 @@ mod tests {
     async fn list_commands_propose_la_gachette_ref_native() {
         let dir = tempdir().unwrap();
         let s = state(dir.path());
-        let out = route_ws(&s, r#"{"type":"listCommands"}"#).await;
+        let out = route_ws(&s, &json!({"type":"listCommands", "projectRoot":dir.path()}).to_string()).await;
         let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["projectRoot"], dir.path().to_str().unwrap());
         let commands = response["commands"].as_array().expect("liste de commandes");
         assert!(commands
             .iter()
@@ -5562,6 +5675,55 @@ mod tests {
         assert_eq!(v["type"], "history");
         assert_eq!(v["events"].as_array().unwrap().len(), 1);
         assert_eq!(v["events"][0]["text"], "hello");
+    }
+
+    #[tokio::test]
+    async fn history_replay_uses_durable_cursor_with_ephemeral_sequence_gaps() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        s.journal().append(&json!({
+            "kind": "user", "text": "one",
+            "meta": {"eventId":"e1","sequence":1,"threadId":"replay-gap","turnId":"u1","durable":true}
+        }));
+        // Sequence 2 was allocated to an ephemeral delta and is intentionally
+        // absent from the journal.
+        s.journal().append(&json!({
+            "kind": "text", "text": "two",
+            "meta": {"eventId":"e3","sequence":3,"threadId":"replay-gap","turnId":"u1","durable":true}
+        }));
+        let first = route_ws(&s, r#"{"type":"getHistory","threadId":"replay-gap"}"#).await;
+        let first: Value = serde_json::from_str(&first[0]).unwrap();
+        assert_eq!(first["historyMode"], "snapshot");
+        assert_eq!(first["historyHeadSequence"], 3);
+        let cursor = first["historyCursor"].clone();
+        s.journal().append(&json!({
+            "kind": "done", "ok": true,
+            "meta": {"eventId":"e5","sequence":5,"threadId":"replay-gap","turnId":"u1","durable":true}
+        }));
+        let replay = route_ws(
+            &s,
+            &json!({"type":"getHistory","threadId":"replay-gap","historyCursor":cursor})
+                .to_string(),
+        )
+        .await;
+        let replay: Value = serde_json::from_str(&replay[0]).unwrap();
+        assert_eq!(replay["historyMode"], "replay");
+        assert_eq!(replay["events"].as_array().unwrap().len(), 1);
+        assert_eq!(replay["events"][0]["kind"], "done");
+
+        let fallback = route_ws(
+            &s,
+            &json!({
+                "type":"getHistory",
+                "threadId":"replay-gap",
+                "historyCursor":{"epoch":first["historyCursor"]["epoch"],"sequence":2}
+            })
+            .to_string(),
+        )
+        .await;
+        let fallback: Value = serde_json::from_str(&fallback[0]).unwrap();
+        assert_eq!(fallback["historyMode"], "snapshot");
+        assert_eq!(fallback["historyFallback"], "cursor_invalid");
     }
 
     /// Verrou anti-régression : quand l'historique natif Codex gagne le score

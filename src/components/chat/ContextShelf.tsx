@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon,
-  FileTextIcon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
+  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
@@ -36,14 +36,10 @@ import { citeLabel } from "./turnParts";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
 
-export type ShelfAttachment = {
-  name: string;
-  lines: string | null;
-  text: string;
-  imageUrl?: string;
-  kind?: string;
-  preview?: { title: string; rows: { label: string; value: string }[] };
-};
+export type ShelfAttachment = import("../../lib/chatDraftStore").DraftAttachment;
+const isLatex = (attachment: ShelfAttachment) => !attachment.imageUrl && /\.tex$/i.test(attachment.name);
+const latexScope = (attachment: ShelfAttachment) => attachment.lines ? `L. ${attachment.lines.replace(/^L\.?\s*/, "")}` : attachment.kind === "file" ? "Entier" : "Extrait";
+
 
 /** Nom d'un fichier collé : « coller-1787605830634.png ». L'horodatage brut
  * n'apprend rien — un libellé parlant le remplace, le vrai nom restant dans
@@ -80,11 +76,14 @@ function ThumbOrGlyph({ url }: { url: string }) {
 export function ContextShelf(p: {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
+  onRestoreAttachment?: (attachment: ShelfAttachment, index: number) => void;
   onOpenPaste: (paste: { name: string; text: string }) => void;
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
 }) {
+  const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
+  const [removed, setRemoved] = useState<{attachment: ShelfAttachment; index: number} | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [expandedImageIndex, setExpandedImageIndex] = useState<number | null>(null);
   const imageAttachments = p.attachments.flatMap((attachment, attachmentIndex) =>
@@ -113,7 +112,7 @@ export function ContextShelf(p: {
   }, [expandedImageIndex, imageAttachments.length]);
 
   const annotations = p.annotations ?? [];
-  if (p.attachments.length === 0 && annotations.length === 0) return null;
+  if (p.attachments.length === 0 && annotations.length === 0 && !removed) return null;
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
@@ -254,10 +253,31 @@ export function ContextShelf(p: {
         )}
       </Dialog>
 
+      {p.attachments.map((attachment, index) => isLatex(attachment) ? (
+        <span key={`latex-${index}`} className="chip context-pill context-latex-pill">
+          <RowButton className="context-pill-main" aria-label={`${attachment.name} · ${latexScope(attachment)}`} aria-expanded={latexPreview === attachment}
+            onClick={() => setLatexPreview(latexPreview === attachment ? null : attachment)}>
+            <FileCode2Icon className="context-pill-glyph" />
+            <span className="chip-label">{attachment.name}</span><span className="chip-lines">{latexScope(attachment)}</span>
+          </RowButton>
+          <IconButton size="s" className="ghost" label={removeLabel(attachment.name, ` ${latexScope(attachment)}`)} title="Retirer ce passage"
+            onClick={() => { setLatexPreview(null); if (p.onRestoreAttachment) setRemoved({attachment, index}); p.onRemoveAttachment(index); }}><XIcon className="context-pill-glyph" /></IconButton>
+        </span>
+      ) : null)}
+      {latexPreview && p.attachments.includes(latexPreview) && (
+        <div className="context-latex-preview">
+          <strong>{latexPreview.name} · {latexScope(latexPreview)}</strong>
+          <pre>{latexPreview.text}</pre>
+          <RowButton onClick={() => p.onOpenPaste({name:latexPreview.name, text:latexPreview.text})}>Ouvrir l’aperçu ↗</RowButton>
+        </div>
+      )}
+      {removed && p.onRestoreAttachment && <span className="context-latex-undo">{removed.attachment.name} retiré.
+        <RowButton onClick={() => { p.onRestoreAttachment?.(removed.attachment, removed.index); setRemoved(null); }}>Annuler</RowButton>
+      </span>}
       {(() => {
         const groups: { name: string; indexes: number[]; first: ShelfAttachment }[] = [];
         p.attachments.forEach((attachment, index) => {
-          if (attachment.imageUrl) return;
+          if (attachment.imageUrl || isLatex(attachment)) return;
           const group = groups.find((candidate) => candidate.name === attachment.name);
           if (group) group.indexes.push(index);
           else groups.push({ name: attachment.name, indexes: [index], first: attachment });

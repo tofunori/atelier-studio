@@ -113,6 +113,7 @@ export default function Chat(p: {
   onReorderQueued?: (draggedId: string, targetId: string) => void;
   attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
+  onRestoreAttachment?: (attachment: DraftAttachment, index: number) => void;
   onQuote: (text: string) => void;
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
@@ -1106,7 +1107,7 @@ export default function Chat(p: {
           toggleFavModel, attachFiles,
         }}
         context={{
-          attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment,
+          attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment, onRestoreAttachment: p.onRestoreAttachment,
           onOpenPaste: setPasteView,
           annotations: marks, onRemoveAnnotation: removeAnnotation,
         }}

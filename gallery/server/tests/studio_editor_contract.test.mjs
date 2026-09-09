@@ -61,10 +61,12 @@ test("CM6 preserves viewport state and accepts CM5 scroll ranges", () => {
   assert.doesNotMatch(source, /scrollIntoView:\s*\(pos[^]*?y:\s*["']center["']/);
 });
 
-test("CM6 selection is the native browser selection: no drawSelection, no per-tick mark, no follow-up markText", () => {
+test("CM6 uses native selection normally and drawSelection only inside review mode", () => {
   // Banc scripts/bench_editor.mjs (2026-09-06) : la mark recalculée par
   // transaction redécoupait les spans à chaque tick de drag (10,8 → 2,0 ms/pas).
-  assert.doesNotMatch(source, /\bdrawSelection\(\),/);
+  assert.equal(source.match(/^\s*drawSelection\(\),/gm)?.length, 1,
+    "drawSelection must stay isolated to the merge review compartment");
+  assert.match(source, /mergeDiffComp\.reconfigure\(\[[^]*?drawSelection\(\)/);
   assert.doesNotMatch(source, /EditorView\.decorations\.compute\(\["selection"\]/);
   assert.doesNotMatch(source, /class:\s*["']cm-clsel["']/);
   assert.match(source, /::selection/);

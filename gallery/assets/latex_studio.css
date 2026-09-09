@@ -616,13 +616,11 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:700px){header{gap:5px;padding-inline:6px}#build span{display:none}#build{width:28px;padding:0}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
-.cm-chunkButtons .atelier-review-decision{font:11px var(--ui-font);border:0;background:transparent;color:var(--muted);border-radius:4px;padding:3px 7px;cursor:pointer}
-.cm-chunkButtons .atelier-review-decision:hover,.cm-chunkButtons .atelier-review-decision:focus-visible{background:var(--card);color:var(--txt)}
-.cm-chunkButtons{opacity:0;transition:opacity .12s}
-.cm-deletedChunk:hover .cm-chunkButtons,.cm-deletedChunk:focus-within .cm-chunkButtons{opacity:1}
-@media(hover:none){.cm-chunkButtons{opacity:1}}
-
-
+/* Keep review controls outside the deleted text, including without hover. */
+.cm-editor .cm-deletedChunk .cm-chunkButtons{position:relative;inset-inline-end:auto;display:flex;justify-content:flex-end;gap:6px;padding:5px 8px;margin:0 0 4px -6px;background:var(--card);border-bottom:1px solid var(--border-strong);opacity:1;text-decoration:none}
+.cm-editor .cm-chunkButtons .atelier-review-decision{font:500 12px var(--ui-font);line-height:20px;margin:0;padding:2px 10px;border:1px solid var(--border-strong);border-radius:5px;background:var(--bg);color:var(--txt);cursor:pointer;text-decoration:none}
+.cm-editor .cm-chunkButtons .atelier-review-decision:hover{background:var(--card);border-color:var(--muted)}
+.cm-editor .cm-chunkButtons .atelier-review-decision:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .cm-deletedChunk:has(.atelier-review-decision){min-height:24px;position:relative}
 
 #state.err{position:fixed;bottom:12px;left:12px;right:12px;z-index:500;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:8px;white-space:normal;text-align:left}
@@ -644,3 +642,43 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
   #wrapActions{padding-left:2px}
   header{gap:2px}
 }
+
+/* Compact docked console: one header, independently scrollable diagnostics. */
+#texlog{position:relative;height:180px;min-height:120px;max-height:60vh;overflow:visible;background:var(--bg)}
+#texlog.open{display:flex}
+#texlog .tl-head{height:36px;min-height:36px;box-sizing:border-box;padding:0 8px;gap:3px}
+#texlog button{border:0;background:transparent;color:var(--muted);border-radius:4px;height:26px;padding:0 6px;font:11px var(--ui-font);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+#texlog button:hover:not(:disabled){color:var(--txt);background:var(--card)}
+#texlog button:disabled{opacity:.4;cursor:default}
+#texlog button:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+#texlog #tlProblemsTab,#texlog #tlLogTab{height:35px;border-radius:0}
+#texlog button[aria-pressed=true]{color:var(--txt);box-shadow:inset 0 -1px var(--accent)}
+#tlIssueCount{font-size:10px;color:var(--muted)}
+.tl-spacer{flex:1;min-width:0}
+#tlStatus{font-size:10px;color:var(--muted);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tlStatus[data-state=err]{color:#d69b92}#tlStatus[data-state=ok]{color:#91b49a}
+#texlog .tl-head #tlChat,#texlog .tl-head #tlClose{margin:0}
+#tlIssues,#texlog #tlBody{flex:1;min-height:0;overflow:auto;padding:8px 12px;margin:0}
+#tlIssues[hidden],#texlog #tlBody[hidden]{display:none}
+.tl-issue{display:flex;align-items:baseline;gap:12px;font:11px/1.7 var(--ui-font);padding:3px 0}
+.tl-issue>span{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--txt)}
+.tl-issue::before{content:'•';color:#d69b92}.tl-issue.warning::before{color:var(--accent)}
+.tl-empty{font:11px/1.7 var(--ui-font);color:var(--muted);white-space:pre-wrap}
+#tlResize{position:absolute;top:-4px;left:0;right:0;height:7px;cursor:ns-resize;touch-action:none;z-index:10}
+#tlResize:hover,#tlResize:focus-visible{background:var(--accent);opacity:.6;outline:0}
+#build[data-compile=run]{color:var(--accent);opacity:1;background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+#build[data-compile=run] svg{animation:latex-compiling 1s linear infinite}
+#build[data-compile=err]{color:#d69b92}#build[data-compile=ok]{color:#91b49a}
+@keyframes latex-compiling{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#build[data-compile=run] svg{animation:none}}
+@media(max-width:460px){#tlStatus{max-width:65px}#texlog .tl-head{padding:0 4px;gap:1px}#texlog button{padding:0 4px}}
+#diffGrp #diffAcceptAll{order:2;width:auto;height:28px;padding:0 7px!important;gap:6px;border:1px solid var(--border-strong)!important;margin-left:5px;font:11px var(--ui-font)}
+#diffGrp #diffAcceptAll:hover:not(:disabled){color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--card))}
+#diffGrp #diffAcceptAll span{display:none}#diffGrp #diffAcceptAll{width:26px;padding:0!important}
+@media(max-width:460px){#diffGrp #diffAcceptAll{width:22px;margin-left:1px}#diffGrp #diffTag{gap:3px;padding:0 4px!important}header .modeseg button,header .modeseg #editBtn{width:22px;min-width:22px}#diffGrp #dvNav>.dv-count{min-width:26px}#diffGrp #diffPrev,#diffGrp #diffNext,#diffGrp #dvNav .dvNavA{width:18px}#compileActions>#popPdf{padding:0 2px}#toolbarWrap,#build,#moreBtn{width:22px}}
+
+/* Diff widgets must not inherit WebKit's native selection paint. */
+.cm-editor.cm-review-selection .cm-content::selection,
+.cm-editor.cm-review-selection .cm-content ::selection{background:transparent!important}
+.cm-editor.cm-review-selection .cm-selectionBackground{background:rgba(232,130,58,.38)}
+.cm-editor .cm-chunkButtons{user-select:none;-webkit-user-select:none}

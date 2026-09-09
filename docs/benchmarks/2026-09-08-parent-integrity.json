@@ -1,0 +1,11 @@
+{
+  "expectedSends": 2634,
+  "storedReceipts": 2634,
+  "userEvents": 2634,
+  "textEvents": 2634,
+  "doneEvents": 2634,
+  "issues": [],
+  "unknownUserIds": [],
+  "malformedLines": [],
+  "passed": true
+}

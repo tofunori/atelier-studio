@@ -135,6 +135,7 @@ export function createLatexCompileCoordinator(
   const startInterval = options.startInterval || ((callback: () => void, milliseconds: number) =>
     window.setInterval(callback, milliseconds));
   const stopInterval = options.stopInterval || ((handle: number) => window.clearInterval(handle));
+  let busy = false;
   let lastPreflightAt = 0;
   let startedAt = 0;
   let tick: number | null = null;
@@ -158,64 +159,72 @@ export function createLatexCompileCoordinator(
 
   return {
     async compile(auto = false): Promise<void> {
-      if (options.isDirty() && !(await options.save())) {
-        setChip("err", "sauvegarde refusée — compilation annulée");
-        if (!auto) options.setState("err", "sauvegarde refusée — compilation annulée");
-        return;
-      }
-
-      if (options.isTex) {
-        const issue = texPreflight(options.getText());
-        const checkedAt = now();
-        // Mode auto : la pastille suffit. Ni revealIssue (qui déplacerait le
-        // curseur et le défilement sous les doigts de l'utilisateur pendant
-        // qu'un agent travaille), ni prise de la barre d'état du document.
-        if (issue && auto) {
-          setChip("err", `L.${issue.line} : ${issue.msg}`);
-          return;
-        }
-        if (issue && checkedAt - lastPreflightAt > 8000) {
-          lastPreflightAt = checkedAt;
-          options.revealIssue(issue);
-          setChip("err", `L.${issue.line} : ${issue.msg}`);
-          options.setState("err", `L.${issue.line} : ${issue.msg} — re-⌘B pour compiler quand même`);
-          return;
-        }
-      }
-
-      options.setState("dirty", "compiling…");
-      startChip();
-      let response: LatexCompileResponse;
+      if (busy) return;
+      busy = true;
       try {
-        response = await options.requestCompile();
-      } catch {
-        setChip("err", "serveur galerie injoignable");
-        options.setState("err", "compilation : serveur injoignable");
-        return;
-      }
+        if (options.isDirty() && !(await options.save())) {
+          options.renderLog(analyzeCompileResponse({ok:false, log:"! Sauvegarde refusée — compilation annulée"}));
+          setChip("err", "sauvegarde refusée — compilation annulée");
+          if (!auto) options.setState("err", "sauvegarde refusée — compilation annulée");
+          return;
+        }
 
-      const duration = ((now() - startedAt) / 1000).toFixed(1).replace(".", ",");
-      const log = analyzeCompileResponse(response);
-      options.renderLog(log);
-      options.onDiagnostics?.(parseLatexLogDiagnostics(log.log));
-      if (!response.ok) {
-        // La pastille de la barre d'état porte déjà le résultat, en plus
-        // précis (nombre d'erreurs et de warnings). Le répéter dans la barre
-        // du haut ne disait rien de neuf et occupait la place réservée à
-        // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
-        setChip("err", log.errors
-          ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
-          : "échec — voir la console");
-        // Rendre la barre du haut à l'état du document : sans ça elle
-        // resterait figée sur « compiling… ».
+        if (options.isTex) {
+          const issue = texPreflight(options.getText());
+          const checkedAt = now();
+          // Mode auto : la pastille suffit. Ni revealIssue (qui déplacerait le
+          // curseur et le défilement sous les doigts de l'utilisateur pendant
+          // qu'un agent travaille), ni prise de la barre d'état du document.
+          if (issue && auto) {
+            options.renderLog(analyzeCompileResponse({ok:false, log:`! ${issue.msg}\nl.${issue.line}`}));
+            setChip("err", `L.${issue.line} : ${issue.msg}`);
+            return;
+          }
+          if (issue && checkedAt - lastPreflightAt > 8000) {
+            lastPreflightAt = checkedAt;
+            options.revealIssue(issue);
+            options.renderLog(analyzeCompileResponse({ok:false, log:`! ${issue.msg}\nl.${issue.line}`}));
+            setChip("err", `L.${issue.line} : ${issue.msg}`);
+            options.setState("err", `L.${issue.line} : ${issue.msg} — re-⌘B pour compiler quand même`);
+            return;
+          }
+        }
+
+        options.setState("dirty", "compiling…");
+        startChip();
+        let response: LatexCompileResponse;
+        try {
+          response = await options.requestCompile();
+        } catch {
+          options.renderLog(analyzeCompileResponse({ok:false, log:"! Serveur galerie injoignable"}));
+          setChip("err", "serveur galerie injoignable");
+          options.setState("err", "compilation : serveur injoignable");
+          return;
+        }
+
+        const duration = ((now() - startedAt) / 1000).toFixed(1).replace(".", ",");
+        const log = analyzeCompileResponse(response);
+        options.renderLog(log);
+        options.onDiagnostics?.(parseLatexLogDiagnostics(log.log));
+        if (!response.ok) {
+          // La pastille de la barre d'état porte déjà le résultat, en plus
+          // précis (nombre d'erreurs et de warnings). Le répéter dans la barre
+          // du haut ne disait rien de neuf et occupait la place réservée à
+          // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
+          setChip("err", log.errors
+            ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
+            : "échec — voir la console");
+          // Rendre la barre du haut à l'état du document : sans ça elle
+          // resterait figée sur « compiling… ».
+          options.setState("ok", "saved");
+          return;
+        }
+
+        const clock = clockLabel();
+        setChip("ok", `compilé en ${duration} s · ${clock}`);
         options.setState("ok", "saved");
-        return;
-      }
-
-      const clock = clockLabel();
-      setChip("ok", `compilé en ${duration} s · ${clock}`);
-      options.setState("ok", "saved");
-      options.onCompiled(response);
+        options.onCompiled(response);
+      } finally { busy = false; }
     },
     dispose(): void {
       stopTick();

@@ -876,6 +876,25 @@ window.DiffVersions = function(opts){
     };
     els.group.appendChild(undoButton);
   }
+  const acceptAllButton = individualReview && els.group ? document.createElement("button") : null;
+  if(acceptAllButton){
+    acceptAllButton.id="diffAcceptAll";
+    acceptAllButton.title="Valider définitivement toutes les modifications appliquées";
+    acceptAllButton.setAttribute("aria-label","Tout accepter");
+    acceptAllButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3m14 0-7 7-3-3M2 12l5 5 3-3"/></svg><span>Tout accepter</span>';
+    acceptAllButton.onclick=()=>{
+      if(reviewBusy)return;
+      const list=interList().filter(it=>it.status!=="pending-conflict");
+      if(!list.length)return;
+      ttExit();
+      for(const it of list)reviewState[it.id]={base:it.to,text:it.to,accepted:true};
+      saveReviewState();reviewUndo=null;
+      toggle(false);navMode=-1;extCmp=null;clearMarks();updateNav();
+      if(undoButton)undoButton.hidden=true;
+      notify(`${list.length} intervention${list.length>1?"s":""} acceptée${list.length>1?"s":""}`);
+    };
+    els.group.appendChild(acceptAllButton);
+  }
   let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
   let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
   let flashLine = null, flashTimer = null;
@@ -887,7 +906,7 @@ window.DiffVersions = function(opts){
     if(!cm) return [];
     const real = liveText();
     return INTERVENTIONS
-      .filter(it => individualReview || !baseTs || it.ts == null || it.ts >= baseTs)
+      .filter(it => individualReview ? !reviewState[it.id]?.accepted : (!baseTs || it.ts == null || it.ts >= baseTs))
       .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
   }
   function interventionLabel(it){
@@ -1240,6 +1259,7 @@ window.DiffVersions = function(opts){
     ensureNavUi();
     if(individualReview){
       const n = interList().length;
+      if(acceptAllButton)acceptAllButton.disabled=reviewBusy || !interList().some(it=>it.status!=="pending-conflict");
       if(navMode < 0 && n) navMode = n - 1;
       if(navMode >= n) navMode = n - 1;
       navCount.textContent = n ? (navMode + 1) + "/" + n : "0";

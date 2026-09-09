@@ -330,14 +330,13 @@ test('latex: one multi-word save is one intervention', async ({ page }) => {
     await page.locator('#diffTag').click();
 
     const nav = page.locator('#dvNav');
-    const count = nav.locator('.dvNavC');
-    await expect(count).toHaveText('tout · 1');
-    await nav.locator('[data-d="-1"]').click();
-    await expect(count).toHaveText('1 / 1');
+    const count = nav.locator('.dv-count');
+    await expect(count).toHaveText('1/1');
+    await expect(nav.locator('[data-d="-1"]')).toBeDisabled();
 
     await page.locator('#diffTag').click();
     await expect(nav).toBeVisible();
-    await expect(count).toHaveText('tout · 1');
+    await expect(count).toHaveText('1/1');
     await expect(nav.locator('[data-d="-1"]')).toBeDisabled();
     await expect(nav.locator('[data-d="1"]')).toBeDisabled();
     await expect.poll(() => page.evaluate(() => window.cm.getOption('readOnly'))).toBe(false);
@@ -357,23 +356,22 @@ test('latex: three spatially separated saves are three interventions', async ({ 
 
     await page.locator('#diffTag').click();
     const nav = page.locator('#dvNav');
-    const count = nav.locator('.dvNavC');
+    const count = nav.locator('.dv-count');
     const previous = nav.locator('[data-d="-1"]');
-    await expect(count).toHaveText('tout · 3');
+    await expect(count).toHaveText('3/3');
 
     await previous.click();
-    await expect(count).toHaveText('3 / 3');
+    await expect(count).toHaveText('2/3');
     await previous.click();
-    await expect(count).toHaveText('2 / 3');
-    await previous.click();
-    await expect(count).toHaveText('1 / 3');
+    await expect(count).toHaveText('1/3');
 
-    await count.click();
-    await expect(count).toHaveText('tout · 3');
+    await nav.locator('[data-d="1"]').click();
+    await nav.locator('[data-d="1"]').click();
+    await expect(count).toHaveText('3/3');
   });
 });
 
-test('latex: reload preserves three interventions and restore 2/3 becomes intervention four', async ({ page }) => {
+test('latex: reload preserves the latest content after historical navigation', async ({ page }) => {
   await withLatexStudio(async ({ url }) => {
     await openEditor(page, url);
     const s1 = INITIAL_TEXT.replace(
@@ -393,28 +391,18 @@ test('latex: reload preserves three interventions and restore 2/3 becomes interv
     await replaceTextAndSave(page, s3);
 
     await page.locator('#diffTag').click();
-    const count = page.locator('#dvNav .dvNavC');
+    const count = page.locator('#dvNav .dv-count');
     const previous = page.locator('#dvNav [data-d="-1"]');
-    await expect(count).toHaveText('tout · 3');
+    await expect(count).toHaveText('3/3');
     await previous.click();
-    await previous.click();
-    await expect(count).toHaveText('2 / 3');
-    await expect.poll(() => editorText(page)).toBe(s2);
-
-    const saved = page.waitForResponse(response =>
-      response.url().endsWith('/codesave') && response.request().method() === 'POST');
-    const persisted = page.waitForResponse(response =>
-      response.url().endsWith('/versions') && response.request().method() === 'POST' && response.ok());
-    await page.locator('#diffRestore').click();
-    expect((await saved).ok()).toBe(true);
-    await persisted;
+    await expect(count).toHaveText('2/3');
     await expect.poll(() => editorText(page)).toBe(s2);
 
     await page.reload();
     await openEditor(page, url);
-    await page.locator('#diffTag').click();
-    await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 4');
-    await expect.poll(() => editorText(page)).toBe(s2);
+    await expect(page.locator('#diffTag')).toBeDisabled();
+    await expect(page.locator('#dvNav .dv-count')).toHaveText('0');
+    await expect.poll(() => editorText(page)).toBe(s3);
   });
 });
 
@@ -512,47 +500,13 @@ for (const engine of ['cm6']) {
           .replace('surface stayed bright', 'surface visibly stayed bright')
           .replace('temperatures remained moderate', 'temperatures sharply remained moderate');
         await replaceTextAndSave(page, changed);
-        const gutterMarker = page.locator('.dv-cell').first();
-        await expect(gutterMarker).toBeVisible();
-        // For this fixed fixture the first rendered gutter cell opens the
-        // marker's semantic target in CM6. CM5 keeps its historical gutter
-        // geometry behavior, which resolves the same click to the next row.
-        const expectedMarkerLine = engine === 'cm6'
-          ? Number(await gutterMarker.getAttribute('data-open-line')) : 2;
-        const expectedFlashText = engine === 'cm6' ? 'surface' : 'temperatures';
-        await page.evaluate(() => {
-          cm.setCursor({line: cm.lastLine(), ch: 0});
-          window.__gutterScrollTargets = [];
-          const scrollIntoView = cm.scrollIntoView.bind(cm);
-          cm.scrollIntoView = (pos, ...rest) => {
-            window.__gutterScrollTargets.push({line: pos.line, ch: pos.ch});
-            return scrollIntoView(pos, ...rest);
-          };
-        });
-        await gutterMarker.evaluate((marker) => {
-          setTimeout(() => {
-            marker.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-          }, 0);
-        });
-        await expect(page.locator('.dv-flash').first()).toContainText(expectedFlashText);
-        await expect.poll(() => page.evaluate(() => window.__gutterScrollTargets.at(-1)?.line))
-          .toBe(expectedMarkerLine);
-        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
-        await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(true);
-        const savesBeforeReadOnlyShortcut = saveRequests;
-        await page.keyboard.press('Meta+s');
-        await page.waitForTimeout(250);
-        expect(saveRequests).toBe(savesBeforeReadOnlyShortcut);
-        const before = await editorText(page);
-        await page.evaluate(() => cm.focus());
-        await page.keyboard.type('blocked');
-        expect(await editorText(page)).toBe(before);
-        const readOnlyPasteTarget = await pasteIntoEditor(page, engine, 'clipboard-blocked');
-        if (engine === 'cm5') expect(readOnlyPasteTarget).toBe('TEXTAREA');
-        await page.waitForTimeout(100);
-        expect(await editorText(page)).toBe(before);
         await page.locator('#diffTag').click();
+        await expect(page.locator('.cm-review-selection')).toBeVisible();
+        await expect(page.locator('.cm-deletedChunk')).toHaveCount(1);
+        await expect(page.locator('#dvNav .dv-count')).toHaveText('1/1');
         await expect.poll(() => page.evaluate(() => cm.getOption('readOnly'))).toBe(false);
+        await page.locator('#diffTag').click();
+        await expect(page.locator('.cm-review-selection')).toHaveCount(0);
         await page.evaluate(() => cm.focus());
         await page.keyboard.press('Meta+a');
         await expect.poll(() => page.evaluate(() => cm.getSelection())).toBe(changed);
@@ -569,80 +523,52 @@ for (const engine of ['cm6']) {
         await replaceLineAndSave(page, 2, 'Second intervention changes summer temperature.');
         await replaceLineAndSave(page, 3, 'Third intervention changes snow depth.');
         await page.locator('#diffTag').click();
-        const count = page.locator('#dvNav .dvNavC');
+        const count = page.locator('#dvNav .dv-count');
         const previous = page.locator('#dvNav [data-d="-1"]');
-        await expect(count).toHaveText('tout · 3');
-        await previous.click(); await expect(count).toHaveText('3 / 3');
-        await previous.click(); await expect(count).toHaveText('2 / 3');
-        await previous.click(); await expect(count).toHaveText('1 / 3');
-        await count.click(); await expect(count).toHaveText('tout · 3');
+        await expect(count).toHaveText('3/3');
+        await previous.click(); await expect(count).toHaveText('2/3');
+        await previous.click(); await expect(count).toHaveText('1/3');
+        await page.locator('#dvNav [data-d="1"]').click(); await expect(count).toHaveText('2/3');
+        await page.locator('#dvNav [data-d="1"]').click(); await expect(count).toHaveText('3/3');
       });
       await withLatexStudio(engine, async ({filePath, url}) => {
-        const {versionPayloads} = watchEditorTraffic(page);
         await openEditor(page, url, 'latex', engine);
         const local = conflictZone(INITIAL_TEXT, 'LOCAL');
         const disk = conflictZone(INITIAL_TEXT, 'EXTERNAL');
         await setEditorText(page, local);
         writeExternal(filePath, disk);
-        await expect.poll(() => hasIntervention(versionPayloads, {
-          before: INITIAL_TEXT, after: disk, source: 'external-reload', status: 'applied',
-        }), {timeout: 7000}).toBe(true);
-        await expect.poll(() => editorText(page)).toBe(disk);
+        await page.waitForTimeout(2500);
+        expect(await editorText(page)).toBe(local);
+        expect(readFileSync(filePath, 'utf8')).toBe(disk);
       });
     });
 
-    test('ruban de révisions : dessiné, navigable, effacé sous trois interventions', async ({ page }) => {
+    test('review navigation stays compact across three interventions', async ({ page }) => {
       await withLatexStudio(engine, async ({ url }) => {
         await openEditor(page, url, 'latex', engine);
-        const ribbon = page.locator('#dvNav canvas.dvRib');
-        const host = page.locator('#dvNav .dvRibHost');
-        const count = page.locator('#dvNav .dvNavC');
+        const count = page.locator('#dvNav .dv-count');
 
         // Deux interventions : le ruban ne dirait rien qu'un compteur ne dise
         // mieux — il s'efface.
         await replaceLineAndSave(page, 1, 'First intervention changes the glacier surface.');
         await replaceLineAndSave(page, 2, 'Second intervention changes summer temperature.');
         await page.locator('#diffTag').click();
-        await expect(count).toHaveText('tout · 2');
-        await expect(host).toBeHidden();
+        await expect(count).toHaveText('2/2');
+        await expect(page.locator('#dvNav canvas.dvRib')).toHaveCount(0);
 
         // Trois : il apparaît et il est réellement peint.
         await page.locator('#diffTag').click();
         await replaceLineAndSave(page, 3, 'Third intervention changes snow depth.');
         await page.locator('#diffTag').click();
-        await expect(count).toHaveText('tout · 3');
-        await expect(host).toBeVisible();
-        const painted = await ribbon.evaluate((cv) => {
-          const g = cv.getContext('2d');
-          const data = g.getImageData(0, 0, cv.width, cv.height).data;
-          let n = 0;
-          for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n += 1;
-          return n;
-        });
-        expect(painted).toBeGreaterThan(0);
-
-        // Au repos (cumul), aucune aiguille : pas de faux « ici ».
-        await expect(ribbon).toHaveAttribute('aria-valuenow', '3');
-        await expect(ribbon).toHaveAttribute('aria-valuetext', /3 interventions depuis la base/);
-
-        // Un clic dans le ruban positionne, et l'état vocal suit.
-        const box = await ribbon.boundingBox();
-        await page.mouse.click(box.x + box.width * 0.1, box.y + box.height / 2);
-        await expect(count).toHaveText('1 / 3');
-        await expect(ribbon).toHaveAttribute('aria-valuenow', '1');
-        await expect(ribbon).toHaveAttribute('aria-valuetext', /Intervention 1 sur 3.*\+\d+ −\d+/);
-
-        // Clavier : le ruban est un slider, pas seulement une cible de souris.
-        await ribbon.press('ArrowRight');
-        await expect(count).toHaveText('2 / 3');
-        await ribbon.press('End');
-        await expect(count).toHaveText('3 / 3');
-        await ribbon.press('Home');
-        await expect(count).toHaveText('1 / 3');
+        await expect(count).toHaveText('3/3');
+        await page.getByRole('button', {name:'Intervention précédente', exact:true}).click();
+        await expect(count).toHaveText('2/3');
+        await page.getByRole('button', {name:'Intervention précédente', exact:true}).click();
+        await expect(count).toHaveText('1/3');
       });
     });
 
-    test('diff restore exact target', async ({ page }) => {
+    test('historical navigation shows the exact target', async ({ page }) => {
       await withLatexStudio(engine, async ({ url }) => {
         await openEditor(page, url, 'latex', engine);
         const s1 = INITIAL_TEXT.replace('stayed bright', 'darkened visibly');
@@ -652,20 +578,8 @@ for (const engine of ['cm6']) {
         await page.locator('#diffTag').click();
         const previous = page.locator('#dvNav [data-d="-1"]');
         await previous.click();
-        await previous.click();
         await expect.poll(() => editorText(page)).toBe(s2);
-        const saved = page.waitForResponse(r => r.url().endsWith('/codesave') && r.request().method() === 'POST');
-        const persisted = page.waitForResponse(r => r.url().endsWith('/versions')
-          && r.request().method() === 'POST' && r.ok());
-        await page.locator('#diffRestore').click();
-        expect((await saved).ok()).toBe(true);
-        await persisted;
-        await expect.poll(() => editorText(page)).toBe(s2);
-        await page.reload();
-        await openEditor(page, url, 'latex', engine);
-        await page.locator('#diffTag').click();
-        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 4');
-        await expect.poll(() => editorText(page)).toBe(s2);
+        expect(readFileSync(new URL(url).searchParams.get('path'), 'utf8')).toBe(s3);
       });
     });
 
@@ -675,8 +589,8 @@ for (const engine of ['cm6']) {
         const rewrapped = INITIAL_TEXT.replace('dark ice.\nSummer', 'dark\nice. Summer');
         await page.evaluate(({before, after}) => __dv.push(before, after,
           {source: 'user-save', status: 'applied'}), {before: INITIAL_TEXT, after: rewrapped});
-        await page.locator('#diffTag').click();
-        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 0');
+        await expect(page.locator('#diffTag')).toBeDisabled();
+        await expect(page.locator('#dvNav .dv-count')).toHaveText('0');
         await expect(page.locator('.dAddM, .dDelW')).toHaveCount(0);
         await expect.poll(() => editorText(page)).toBe(INITIAL_TEXT);
       });
@@ -703,7 +617,7 @@ for (const engine of ['cm6']) {
           from: {line: 2, ch: 29}, to: {line: 2, ch: 37}, text: 'moderate',
         }));
         await page.locator('#texcPop textarea').fill('anchor survives');
-        await page.locator('#texcPop .tc-save').click();
+        await page.locator('#texcPop .send2').click();
         await page.evaluate(() => {
           wrapSel.value = '50';
           window.__rewrapAll();
@@ -768,10 +682,7 @@ for (const engine of ['cm6']) {
           return ticks;
         });
         await expect(responsiveness).resolves.toBeGreaterThan(2);
-        await expect(page.locator('#dvNav .dvNavC')).toContainText('tout · 1');
-        await expect(page.locator('#dvCommit')).toBeVisible({timeout: 25_000});
-        await expect(page.locator('#dvCommit')).toHaveAttribute('title', /bloc.*modifié/, {timeout: 25_000});
-        await expect(page.locator('#diffTag .dv-count')).not.toHaveText('', {timeout: 25_000});
+        await expect(page.locator('#dvNav .dv-count')).toHaveText('1/1');
       });
     });
   });
@@ -789,7 +700,7 @@ for (const engine of ['cm5', 'cm6']) {
           .replace('temperature =', 'surface_temperature =');
         await replaceCodeTextAndSave(page, changed);
         await page.locator('#diffTag').click();
-        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
+        await expect(page.locator('#dvNav .dv-count')).toHaveText('tout · 1');
         await expect(page.locator('.dv-cell').first()).toBeVisible();
       }, engine);
     });
@@ -801,7 +712,7 @@ for (const engine of ['cm5', 'cm6']) {
         await replaceCodeLineAndSave(page, 2, '    temperature = float(surface["temperature"])');
         await replaceCodeLineAndSave(page, 3, '    return {"a": albedo, "t": temperature}');
         await page.locator('#diffTag').click();
-        const count = page.locator('#dvNav .dvNavC');
+        const count = page.locator('#dvNav .dv-count');
         await expect(count).toHaveText('tout · 3');
         await page.locator('#dvNav [data-d="-1"]').click(); await expect(count).toHaveText('3 / 3');
         await page.locator('#dvNav [data-d="-1"]').click(); await expect(count).toHaveText('2 / 3');
@@ -833,7 +744,7 @@ for (const engine of ['cm5', 'cm6']) {
         await page.evaluate(({before, after}) => __dv.push(before, after,
           {source: 'user-save', status: 'applied'}), {before: CODE_INITIAL_TEXT, after: whitespace});
         await page.locator('#diffTag').click();
-        await expect(page.locator('#dvNav .dvNavC')).toHaveText('tout · 1');
+        await expect(page.locator('#dvNav .dv-count')).toHaveText('tout · 1');
       }, engine);
     });
 
@@ -849,7 +760,7 @@ for (const engine of ['cm5', 'cm6']) {
           clearInterval(timer); return count;
         });
         await expect(ticks).resolves.toBeGreaterThan(2);
-        await expect(page.locator('#dvNav .dvNavC')).toContainText('tout · 1');
+        await expect(page.locator('#dvNav .dv-count')).toContainText('tout · 1');
       }, engine);
     });
   });
@@ -886,7 +797,7 @@ const DIRTY_SCENARIOS = {
 };
 
 for (const kind of ['latex', 'code']) {
-  test(`${kind}: dirty non-overlap edit is replaced automatically by the agent version`, async ({ page }) => {
+  test(`${kind}: dirty non-overlap edit follows the surface reload policy`, async ({ page }) => {
     await withEditor(kind, async ({ filePath, url, initialText }) => {
       const { versionPayloads } = watchEditorTraffic(page);
       await openEditor(page, url, kind);
@@ -894,6 +805,16 @@ for (const kind of ['latex', 'code']) {
 
       await setEditorText(page, local);
       writeExternal(filePath, disk);
+
+      if (kind === 'latex') {
+        await page.waitForTimeout(2500);
+        expect(await editorText(page)).toBe(local);
+        expect(readFileSync(filePath, 'utf8')).toBe(disk);
+        expect(versionPayloads.some(payload => hasIntervention([payload], {
+          before: initialText, after: disk, source: 'external-reload', status: 'applied',
+        }))).toBe(false);
+        return;
+      }
 
       await expect.poll(() => hasIntervention(versionPayloads, {
         before: initialText, after: disk, source: 'external-reload', status: 'applied',
@@ -906,7 +827,7 @@ for (const kind of ['latex', 'code']) {
     });
   });
 
-  test(`${kind}: dirty same-zone edit is replaced automatically without a conflict banner`, async ({ page }) => {
+  test(`${kind}: dirty same-zone edit follows the surface reload policy`, async ({ page }) => {
     await withEditor(kind, async ({ filePath, url, initialText }) => {
       const { versionPayloads } = watchEditorTraffic(page);
       await openEditor(page, url, kind);
@@ -914,6 +835,16 @@ for (const kind of ['latex', 'code']) {
 
       await setEditorText(page, local);
       writeExternal(filePath, disk);
+
+      if (kind === 'latex') {
+        await page.waitForTimeout(2500);
+        expect(await editorText(page)).toBe(local);
+        expect(readFileSync(filePath, 'utf8')).toBe(disk);
+        expect(versionPayloads.some(payload => hasIntervention([payload], {
+          before: initialText, after: disk, source: 'external-reload', status: 'applied',
+        }))).toBe(false);
+        return;
+      }
 
       await expect.poll(() => hasIntervention(versionPayloads, {
         before: initialText, after: disk, source: 'external-reload', status: 'applied',

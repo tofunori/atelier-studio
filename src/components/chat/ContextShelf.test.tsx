@@ -88,7 +88,7 @@ describe("ContextShelf en pilules unifiées", () => {
     ]);
     expect(container.querySelector(".chip.context-pill")?.textContent).toContain("figure_albedo");
     cleanup();
-    const sansUrl = shelf([{ name: "capture.png", lines: null, text: "img", kind: "image" }]);
+    const sansUrl = shelf([{ name: "capture.png", lines: null, text: "img", kind: "file" }]);
     expect(sansUrl.container.querySelector("img.context-pill-thumb")).toBeNull();
   });
 
@@ -173,4 +173,25 @@ describe("pilule d'annotations", () => {
     );
     expect(screen.getByText("1 annotation")).toBeTruthy();
   });
+});
+
+it("LaTeX garde deux passages du même fichier séparés et retire seulement le passage choisi", () => {
+  const {container, onRemoveAttachment} = shelf([
+    {name:"results_en.tex", lines:"45-49", text:"Premier passage"},
+    {name:"results_en.tex", lines:"82-91", text:"Second passage"},
+  ]);
+  expect(container.querySelectorAll(".context-latex-pill")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", {name:"results_en.tex · L. 82-91"}));
+  expect(screen.getByText("Second passage")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name:"Retirer results_en.tex L. 82-91"}));
+  expect(onRemoveAttachment.mock.calls).toEqual([[1]]);
+});
+
+it("LaTeX restaure la pièce jointe complète après retrait", () => {
+  const attachment: ShelfAttachment = {name:"methods.tex", lines:null, text:"contenu", kind:"file", path:"/repo/methods.tex"};
+  const restore = vi.fn();
+  render(<ContextShelf attachments={[attachment]} onOpenPaste={vi.fn()} onRemoveAttachment={vi.fn()} onRestoreAttachment={restore} />);
+  fireEvent.click(screen.getByRole("button", {name:"Retirer methods.tex Entier"}));
+  fireEvent.click(screen.getByRole("button", {name:"Annuler"}));
+  expect(restore).toHaveBeenCalledWith(attachment, 0);
 });

@@ -172,12 +172,12 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
     await expect.poll(() => tokens.count()).toBeGreaterThan(3);
     const colors = await tokens.evaluateAll(nodes => [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     expect(colors.length).toBeGreaterThanOrEqual(2);
-    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 33, 38)');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(30, 33, 36)');
 
     const themeTrigger = page.getByRole('button', {name: "Thème de l'éditeur"});
     await expect(themeTrigger).toBeVisible();
     const themeCases = [
-      ['Atelier', 'rgb(30, 33, 38)'],
+      ['Atelier', 'rgb(30, 33, 36)'],
       ['VS Code Dark+', 'rgb(30, 30, 30)'],
       ['Nord', 'rgb(46, 52, 64)'],
       ['Monokai', 'rgb(39, 40, 34)'],
@@ -284,16 +284,19 @@ test('latex auto rewrap saves numbered physical lines that fit the window', asyn
     await page.setViewportSize({width: 772, height: 926});
     await page.goto(url('latex_studio.html', 'wrap.tex'));
     await expectEngine(page, 'cm6');
-    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: off');
+    await page.locator('#moreBtn').click();
+    await expect(page.locator('#moreAutoRw')).toHaveText('désactivé');
     expect(await page.evaluate(() => localStorage.getItem('texAutoRewrap'))).toBeNull();
-    await page.locator('#sbRewrap').click();
-    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: auto');
+    await page.locator('[data-act="autorewrap"]').click();
+    await expect(page.locator('#moreAutoRw')).toHaveText('activé');
 
     await page.evaluate(text => cm.setValue(`\\section{Results}\n${text}\n`), paragraph);
     await saveShortcut(page);
     const savedLines = readFileSync(path.join(root, 'wrap.tex'), 'utf8').trimEnd().split('\n');
     expect(savedLines.length).toBeGreaterThan(3);
     expect(Math.max(...savedLines.map(line => line.length))).toBeLessThanOrEqual(90);
+    await page.locator('#toolbarWrap').click();
+    await expect(page.locator('.cm-fluid-space')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => {
       const rows = [...document.querySelectorAll('.cm-line')];
       if (!rows.length) return -1;
@@ -305,8 +308,9 @@ test('latex auto rewrap saves numbered physical lines that fit the window', asyn
       .map(node => node.textContent?.trim() || '').filter(value => /^\d+$/.test(value)).length);
     expect(numbered).toBe(await page.evaluate(() => cm.lineCount()));
 
-    await page.locator('#sbRewrap').click();
-    await expect(page.locator('#sbRewrap')).toHaveText('Rewrap: off');
+    await page.locator('#moreBtn').click();
+    await page.locator('[data-act="autorewrap"]').click();
+    await expect(page.locator('#moreAutoRw')).toHaveText('désactivé');
     expect(await page.evaluate(() => localStorage.getItem('texAutoRewrap'))).toBe('0');
   });
 });
@@ -323,10 +327,11 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
-      await page.locator('#texcPop .tc-save').click();
+      await page.locator('#texcPop .send2').click();
       expect((await saved).ok()).toBe(true);
       await expect(page.locator('.texc-hl')).toBeVisible();
-      await page.locator('#texcBtn').click();
+      await page.locator('#moreBtn').click();
+      await page.locator('[data-act="comments"]').click();
       await expect(page.locator('#texcPanel')).toContainText('Vérifier ce passage');
     });
   }
@@ -444,11 +449,13 @@ test('latex fluid text preserves source through resize edit selection and reload
     await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(source);
     await saveShortcut(page);
     expect(readFileSync(path.join(root, 'fluid.tex'), 'utf8')).toBe(source);
-    await page.locator('#sbWrap').click();
+    await page.locator('#moreBtn').click();
+    await page.locator('[data-act="wrap"]').click();
     await page.locator('[data-wrap="win"]').click();
     await expect(page.locator('.cm-fluid-space')).toHaveCount(0);
     await expect.poll(sameVisualLine).toBe(false);
-    await page.locator('#sbWrap').click();
+    await page.locator('#moreBtn').click();
+    await page.locator('[data-act="wrap"]').click();
     await page.locator('[data-wrap="fluid"]').click();
     const external = source.replace('three elevation zones', 'three glacier elevation zones');
     const target = path.join(root, 'fluid.tex');
@@ -456,6 +463,9 @@ test('latex fluid text preserves source through resize edit selection and reload
     const future = new Date(Date.now() + 1500); utimesSync(target, future, future);
     await expect.poll(() => page.evaluate(() => cm.getValue())).toBe(external);
     await expect(page.locator('.cm-fluid-space')).toHaveCount(2);
+    await expect(page.locator('.cm-review-selection')).toBeVisible();
+    await page.locator('#diffTag').click();
+    await expect(page.locator('.cm-review-selection')).toHaveCount(0);
     await expect.poll(sameVisualLine).toBe(true);
     expect(readFileSync(target, 'utf8')).toBe(external);
     await page.screenshot({path: '/tmp/atelier-fluid-text-webkit.png'});
@@ -514,5 +524,75 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     await expect(page.locator('#state')).toContainText('non enregistré');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(concurrent);
+  });
+});
+
+
+test('latex individual review accepts all permanently without writing the file', async ({page}) => {
+  await withProject({'sample.tex':'Original.\n'}, async ({root,url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));
+    await expectEngine(page,'cm6');
+    await page.waitForTimeout(700);
+    writeFileSync(path.join(root,'sample.tex'),'First change.\n');
+    await expect(page.locator('.dv-count')).toHaveText('1/1');
+    writeFileSync(path.join(root,'sample.tex'),'Second change.\n');
+    await expect(page.locator('.dv-count')).toHaveText('2/2');
+    await page.getByRole('button',{name:'Intervention précédente',exact:true}).click();
+    const saves=[]; page.on('request',r=>{if(r.url().endsWith('/codesave'))saves.push(r.url())});
+    await page.locator('#diffAcceptAll').click();
+    await expect(page.locator('.dv-count')).toHaveText('0');
+    await expect(page.locator('#diffTag')).toBeDisabled();
+    expect(await page.evaluate(()=>cm.getValue())).toBe('Second change.\n');
+    expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe('Second change.\n');
+    expect(saves).toHaveLength(0);
+    await expect(page.locator('#diffUndo')).toBeHidden();
+    await expect(page.locator('#diffAcceptAll')).toBeDisabled();
+    await page.reload(); await expectEngine(page,'cm6');
+    await expect(page.locator('.dv-count')).toHaveText('0');
+    writeFileSync(path.join(root,'sample.tex'),'Third change.\n');
+    await expect(page.locator('.dv-count')).toHaveText('1/1');
+  });
+});
+
+test('latex toolbar console docks below editor and follows real compile states', async ({page}) => {
+  await withProject({'sample.tex':'\\section{Results}\nValid text.\n'}, async ({url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));await expectEngine(page,'cm6');
+    let release;const gate=new Promise(r=>release=r);
+    await page.route('**/compile',async route=>{await gate;await route.fulfill({json:{ok:false,log:'! Undefined control sequence.\nl.2 \\bad'}})});
+    await page.locator('#build').click();await expect(page.locator('#build')).toHaveAttribute('aria-busy','true');
+    release();await expect(page.locator('#texlog')).toBeVisible();await expect(page.locator('#build')).toHaveAttribute('data-compile','err');
+    const editor=await page.locator('#split').boundingBox(),consoleBox=await page.locator('#texlog').boundingBox();
+    expect(consoleBox.y).toBeGreaterThanOrEqual(editor.y+editor.height-1);
+    await expect(page.locator('#tlIssues')).toContainText('Undefined control sequence');
+    await page.locator('#tlLogTab').click();await expect(page.locator('#tlBody')).toContainText('l.2');
+    await page.locator('#tlResize').focus();await page.keyboard.press('ArrowUp');
+    await expect(page.locator('#tlResize')).toHaveAttribute('aria-valuenow','200');
+    await page.unroute('**/compile');await page.route('**/compile',route=>route.fulfill({json:{ok:true,log:'Output written.'}}));
+    await page.locator('#tlRetry').click();await expect(page.locator('#build')).toHaveAttribute('data-compile','ok');
+    await page.locator('#tlClose').click();await expect(page.locator('#texlog')).toBeHidden();
+  });
+});
+
+test('latex individual review keeps selection stable while scrolling diff widgets', async ({page}) => {
+  const before = Array.from({length:120},(_,i)=>`Original paragraph ${i}.\n`).join('\n');
+  await withProject({'sample.tex':before}, async ({root,url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));
+    await expectEngine(page,'cm6');
+    await page.waitForTimeout(700);
+    writeFileSync(path.join(root,'sample.tex'),before.replaceAll('Original','Revised'));
+    await expect(page.locator('.cm-review-selection')).toBeVisible();
+    await page.evaluate(()=>{cm.focus();cm.setSelection({line:0,ch:0},{line:0,ch:7});});
+    await expect.poll(()=>page.evaluate(()=>cm.getSelection())).toBe('Revised');
+    await expect(page.locator('.cm-selectionBackground').first()).toBeVisible();
+    await page.locator('.cm-scroller').hover();
+    await page.mouse.wheel(0,1800);
+    await page.waitForTimeout(250);
+    expect(await page.evaluate(()=>cm.getSelection())).toBe('Revised');
+    await page.evaluate(()=>cm.setCursor({line:0,ch:0}));
+    await page.mouse.wheel(0,-1800);
+    await expect(page.locator('.cm-selectionBackground')).toHaveCount(0);
+    expect(await page.locator('.cm-content').evaluate(el=>getComputedStyle(el,'::selection').backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    await page.locator('#diffTag').click();
+    await expect(page.locator('.cm-review-selection')).toHaveCount(0);
   });
 });

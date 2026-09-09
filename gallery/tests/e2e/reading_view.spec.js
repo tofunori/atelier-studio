@@ -82,7 +82,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // `display` reste « flex » même sous un parent masqué : c'est offsetParent
     // qui dit si la pastille est réellement à l'écran.
     expect(pill.vraimentVisible).toBe(true);
-    expect(pill.boutons).toContain('Commenter');
+    expect(pill.boutons).toContain('Annoter');
     expect(pill.boutons).toContain('Add to chat');
     // Le §13 des pièges connus : une UI d'éditeur ne se déclare faite qu'ici,
     // dans un vrai navigateur — un contrat qui grep le source encoderait le
@@ -96,7 +96,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
       window.__atelierPost = (payload) => { vu.push(payload); if (post) post(payload); };
       [...document.querySelectorAll('#selPill button')]
         .find((b) => (b.textContent || '').includes('Quick Ask'))
-        .dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+        .dispatchEvent(new MouseEvent('click', {bubbles: true}));
       setTimeout(() => resolve(vu.find((m) => m && m.type === 'atelier-quick-ask') || null), 150);
     }));
     console.log('QUICKASK ' + JSON.stringify(quickAsk));
@@ -140,17 +140,13 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     });
     await fr().waitForTimeout(200);
     await fr().evaluate(() => [...document.querySelectorAll('#selPill button')]
-      .find(b => (b.textContent||'').includes('Commenter')).dispatchEvent(
-        new MouseEvent('mousedown', {bubbles: true})));
+      .find(b => (b.textContent||'').includes('Annoter')).dispatchEvent(
+        new MouseEvent('click', {bubbles: true})));
     await fr().waitForTimeout(150);
-    const [annotSave] = await Promise.all([
-      page.waitForRequest(r => r.url().includes('/pdfannot') && r.method() === 'POST'),
-      fr().evaluate(() => {
-        const pop = document.getElementById('texcPop');
-        pop.querySelector('textarea').value = 'à revoir';
-        pop.querySelector('.tc-save').click();
-      }),
-    ]);
+    await fr().locator('#texcPop textarea').fill('à revoir');
+    const annotSavePromise = page.waitForRequest(r => r.url().includes('/pdfannot') && r.method() === 'POST');
+    await fr().locator('#texcPop .send2').click();
+    const annotSave = await annotSavePromise;
     const sauvegarde = JSON.parse(annotSave.postData() || '{}');
     console.log('ANNOTATION ' + JSON.stringify({n: sauvegarde.annots?.length, text: sauvegarde.annots?.[0]?.text}));
     expect(sauvegarde.annots?.[0]?.text).toBe('covers the glaciers');
@@ -259,11 +255,13 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // s'applique. Dans l'app, atelier_theme.js fournit la variable exacte.
     expect(fondChat.fond).toBe('rgb(30, 33, 36)');
 
-    // La barre d'état (Ln/Col, wrap, compile) décrit l'éditeur : en Lecture
-    // elle disparaît, et revient avec lui.
+    // La barre d'état historique a été absorbée par la barre d'outils unique.
+    // Elle reste retirée; le sélecteur de vue ramène bien l'éditeur lui-même.
     await expect(fr().locator('#statusbar')).toBeHidden();
     await fr().evaluate(() => document.getElementById('editBtn').click());
-    await expect(fr().locator('#statusbar')).toBeVisible();
+    await expect(fr().locator('#left')).toBeVisible();
+    await expect(fr().locator('#right')).toBeHidden();
+    await expect(fr().locator('#statusbar')).toBeHidden();
     await fr().evaluate(() => document.getElementById('readBtn').click());
     await expect(fr().locator('#statusbar')).toBeHidden();
   } finally { server.kill('SIGKILL'); }

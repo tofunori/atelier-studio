@@ -208,7 +208,10 @@ test("compile coordinator blocks once on preflight then permits an immediate for
 
   await coordinator.compile();
   assert.equal(requests, 1);
-  assert.equal(logs.length, 1);
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0].ok, false);
+  assert.match(logs[0].log, /l\.1/);
+  assert.equal(logs[1].ok, true);
   assert.deepEqual(compiled, ["/tmp/main.pdf"]);
   assert.deepEqual(chips.at(-1), ["ok", "compilé en 0,0 s · 12:34"]);
   assert.deepEqual(stopped, [17]);

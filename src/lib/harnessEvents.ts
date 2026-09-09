@@ -523,6 +523,48 @@ export function mergeHarnessHistory(current: AgentEvent[], incoming: AgentEvent[
   return out;
 }
 
+/**
+ * Apply an authoritative full snapshot after a cursor miss/reset.
+ *
+ * A merge is correct for a replay, but it cannot remove durable events that a
+ * rewind or deletion removed on the server. Keep only local provisional/live
+ * material and durable events newer than the snapshot head, then replay those
+ * over the authoritative baseline. The latter covers a direct append racing
+ * with the snapshot while the former keeps an active partial text visible.
+ */
+export function replaceHarnessHistory(
+  current: AgentEvent[],
+  incoming: AgentEvent[],
+  snapshotHead: number,
+  epochChanged = false,
+  requestBaselineKeys?: Set<string>,
+): AgentEvent[] {
+  const baseline = materializeHarnessHistory(incoming);
+  const live = current.filter((event) => {
+    const meta = harnessMeta(event);
+    if (!meta) {
+      return Boolean(event.meta && "provisional" in event.meta)
+        || event.kind === "streaming"
+        || event.kind === "thinking_live";
+    }
+    if (meta.durable === false) return true;
+    if (!requestBaselineKeys) return false;
+    const key = `event:${meta.eventId}`;
+    // A durable event already present when the read started belongs to the
+    // old materialization. It must not survive a rewind just because its old
+    // sequence happens to be greater than the new snapshot head. Conversely,
+    // an event that arrived after this particular request is live even when a
+    // stale response reports a reset/epoch change; its sequence is compared
+    // with that response's head below.
+    if (epochChanged) return !requestBaselineKeys.has(key) && meta.sequence > snapshotHead;
+    if (requestBaselineKeys.has(key)) return false;
+    return meta.sequence > snapshotHead;
+  });
+  let out = baseline;
+  for (const event of live) out = reduceHarnessEvent(out, event);
+  return out;
+}
+
 /** Contenu court discriminant d'un événement legacy (pour l'identité
  * synthétique) — jamais le contenu complet, seulement de quoi distinguer. */
 function legacyContent(ev: AgentEvent): string {

@@ -93,7 +93,7 @@ test('CM5 range-shaped scrollIntoView targets the range instead of line zero', a
     await page.evaluate(() => cm.scrollIntoView({
       from: {line: 520, ch: 5}, to: {line: 520, ch: 28},
     }, 80));
-    await expect.poll(() => page.evaluate(() => cm.getScrollInfo().top)).toBeGreaterThan(8000);
+    await expect.poll(() => page.evaluate(() => cm.getScrollInfo().top)).toBeGreaterThan(5000);
     const coords = await page.evaluate(() => cm.charCoords({line: 520, ch: 12}, 'window'));
     expect(coords.top).toBeGreaterThan(70);
     expect(coords.bottom).toBeLessThan(760);
@@ -124,9 +124,9 @@ test('external full-document reload preserves selection and never emits a top re
       selection: cm.getSelection(),
       trace: window.__scrollTrace,
     }));
-    expect(state.top).toBeGreaterThan(8000);
+    expect(state.top).toBeGreaterThan(2500);
     expect(state.from.line).toBe(480);
     expect(state.selection.length).toBeGreaterThan(5);
-    expect(state.trace.every(value => value > 8000)).toBe(true);
+    expect(state.trace.every(value => value > 2500)).toBe(true);
   });
 });

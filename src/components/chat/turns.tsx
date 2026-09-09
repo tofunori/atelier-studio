@@ -6,7 +6,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStor
 import { useSmoothedStream } from "./useSmoothedStream";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
-import type { ChatTurnViewModel, ToolAction } from "../../lib/chat/turnViewModel";
+import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
 import { normalizeMathDelimiters } from "../../lib/markdown";
@@ -380,16 +380,17 @@ export function ResultCapsule(p: {
 }) {
   const e = p.event;
   const minimalSuccess = e.ok;
+  const stopped = isStoppedTerminal(e);
   return (
     <div id={p.isLastDone ? "last-done" : undefined}
-      className={`done result-capsule ${e.ok ? "" : "warn"}`}>
+      className={`done result-capsule ${e.ok || stopped ? "" : "warn"}`}>
       <div className={`capsule-head ${minimalSuccess ? "is-success-minimal" : ""}`}>
         {/* Le repli « Worked for… » porte déjà le succès. On ne garde un
             glyphe visible que pour l'interruption ; le succès reste annoncé
             aux lecteurs d'écran sans créer une ligne ✓ isolée. */}
         {e.ok ? (
           <span className="sr-only">{t("chat.turn-done")}</span>
-        ) : (
+        ) : stopped ? null : (
           <span className="capsule-status warn" title={t("chat.turn-interrupted")}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" />
@@ -424,9 +425,15 @@ export function ActivityFold(p: {
   onToggle: () => void;
 }) {
   const activity = p.actions?.length ? summarizeActivity(p.actions, p.plugins) : null;
-  const label = p.duration != null
+  const stopped = p.fold.status === "stopped";
+  // An intentional stop with no tool detail has no useful terminal summary:
+  // keep the partial answer and composer, but leave no status row behind.
+  if (stopped && !p.fold.hasDetail) return null;
+  const label = stopped
+    ? (activity?.label ?? t("chat.activity"))
+    : p.duration != null
     ? t(
-        p.fold.status === "stopped" ? "chat.stopped-after" : p.fold.status === "failed" ? "chat.failed-after" : "chat.worked-for",
+        p.fold.status === "failed" ? "chat.failed-after" : "chat.worked-for",
         { duration: p.duration },
       )
     : t("chat.activity");

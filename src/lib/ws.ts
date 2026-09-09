@@ -445,8 +445,28 @@ const SOCKET_OPEN = 1;
  * d'un chat est justement le moment où la socket se (re)connecte. */
 export function sendPrompt(ws: WebSocket, t: SendOptions): boolean {
   if (ws.readyState !== SOCKET_OPEN) return false;
-  ws.send(JSON.stringify({ type: "send", ...t }));
-  return true;
+  try {
+    ws.send(JSON.stringify({ type: "send", ...t }));
+    return true;
+  } catch {
+    // A socket can transition to CLOSING between the readyState check and
+    // send. The caller keeps its draft/receipt pending and reconciles it on
+    // the next connection instead of leaving a permanent working spinner.
+    return false;
+  }
+}
+
+/** Reconcile a durable send receipt after reconnect without replaying the
+ * provider request. Unknown ids are an explicit server answer, never an
+ * instruction to resend an uncertain external effect. */
+export function requestReceiptStatus(ws: WebSocket, clientMessageId: string): boolean {
+  if (ws.readyState !== SOCKET_OPEN || !clientMessageId) return false;
+  try {
+    ws.send(JSON.stringify({ type: "receiptStatus", clientMessageId }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function requestCatalog(ws: WebSocket, projectRoot: string, provider?: string | null) {

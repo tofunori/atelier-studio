@@ -1,0 +1,354 @@
+{
+  "schemaVersion": 1,
+  "kind": "chat-recovery-benchmark",
+  "startedAt": "2026-09-08T23:14:22.026Z",
+  "finishedAt": "2026-09-08T23:24:32.041Z",
+  "url": "ws://127.0.0.1:56834/?token=%5Bredacted%5D",
+  "appDir": "/var/folders/lx/xw0kd3hs76v7_lsd5lrr9z6m0000gn/T/atelier-parent-receipt-0LNDZ0",
+  "profile": "external-server-profile",
+  "durationMs": 610000,
+  "actualDurationMs": 610009.298,
+  "maxReceipts": 2880,
+  "receiptsSent": 2634,
+  "ok": true,
+  "failure": null,
+  "pacingMs": 250,
+  "longFixture": {
+    "turnsPerChat": 12,
+    "promptChars": 4096
+  },
+  "provider": "fake",
+  "providerTime": "unavailable from WS contract; no external provider cost claimed",
+  "scenarios": [
+    {
+      "chats": 1,
+      "history": "short",
+      "iterations": 354,
+      "reconnectCycles": 3,
+      "budgetMs": 101666,
+      "scenarioQuota": 480,
+      "targetBatchMs": 211.804,
+      "durationMs": 101784.932,
+      "metrics": {
+        "admission": {
+          "count": 354,
+          "medianMs": 18.783,
+          "p95Ms": 22.688,
+          "maxMs": 25.258
+        },
+        "confirmation": {
+          "count": 354,
+          "medianMs": 42.948,
+          "p95Ms": 47.319,
+          "maxMs": 105.892
+        },
+        "ping": {
+          "count": 354,
+          "medianMs": 0.219,
+          "p95Ms": 0.44,
+          "maxMs": 1.236
+        },
+        "recovery": {
+          "count": 714,
+          "medianMs": 7.53,
+          "p95Ms": 18.833,
+          "maxMs": 28.921
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 354,
+        "duplicateTerminalFrames": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 8,
+          "minBytes": 11698176,
+          "maxBytes": 23298048,
+          "deltaBytes": 11599872
+        },
+        "receiptsSent": 354,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 354,
+          "medianMs": 42.948,
+          "p95Ms": 47.319,
+          "maxMs": 105.892
+        }
+      }
+    },
+    {
+      "chats": 1,
+      "history": "long",
+      "iterations": 30,
+      "reconnectCycles": 3,
+      "budgetMs": 101642,
+      "scenarioQuota": 480,
+      "targetBatchMs": 2541.05,
+      "durationMs": 104868.545,
+      "metrics": {
+        "admission": {
+          "count": 360,
+          "medianMs": 23.196,
+          "p95Ms": 29.782,
+          "maxMs": 67.549
+        },
+        "confirmation": {
+          "count": 360,
+          "medianMs": 43.863,
+          "p95Ms": 49.179,
+          "maxMs": 94.164
+        },
+        "ping": {
+          "count": 30,
+          "medianMs": 0.197,
+          "p95Ms": 0.329,
+          "maxMs": 0.494
+        },
+        "recovery": {
+          "count": 726,
+          "medianMs": 7.434,
+          "p95Ms": 15.472,
+          "maxMs": 36.306
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 360,
+        "duplicateTerminalFrames": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 9,
+          "minBytes": 17842176,
+          "maxBytes": 38141952,
+          "deltaBytes": 14680064
+        },
+        "receiptsSent": 360,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 360,
+          "medianMs": 43.863,
+          "p95Ms": 49.179,
+          "maxMs": 94.164
+        }
+      }
+    },
+    {
+      "chats": 5,
+      "history": "short",
+      "iterations": 96,
+      "reconnectCycles": 3,
+      "budgetMs": 100836,
+      "scenarioQuota": 480,
+      "targetBatchMs": 1050.375,
+      "durationMs": 100847.983,
+      "metrics": {
+        "admission": {
+          "count": 480,
+          "medianMs": 85.318,
+          "p95Ms": 132.568,
+          "maxMs": 239.538
+        },
+        "confirmation": {
+          "count": 480,
+          "medianMs": 75.785,
+          "p95Ms": 98.44,
+          "maxMs": 142.996
+        },
+        "ping": {
+          "count": 96,
+          "medianMs": 0.67,
+          "p95Ms": 1.571,
+          "maxMs": 4.009
+        },
+        "recovery": {
+          "count": 978,
+          "medianMs": 2.19,
+          "p95Ms": 5.423,
+          "maxMs": 15.749
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 480,
+        "duplicateTerminalFrames": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 11,
+          "minBytes": 15138816,
+          "maxBytes": 38797312,
+          "deltaBytes": -19726336
+        },
+        "receiptsSent": 480,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 480,
+          "medianMs": 75.785,
+          "p95Ms": 98.44,
+          "maxMs": 142.996
+        }
+      }
+    },
+    {
+      "chats": 5,
+      "history": "long",
+      "iterations": 8,
+      "reconnectCycles": 3,
+      "budgetMs": 100831,
+      "scenarioQuota": 480,
+      "targetBatchMs": 12603.875,
+      "durationMs": 100850.424,
+      "metrics": {
+        "admission": {
+          "count": 480,
+          "medianMs": 34.222,
+          "p95Ms": 111.212,
+          "maxMs": 354.411
+        },
+        "confirmation": {
+          "count": 480,
+          "medianMs": 50.784,
+          "p95Ms": 90.378,
+          "maxMs": 248.738
+        },
+        "ping": {
+          "count": 8,
+          "medianMs": 1.403,
+          "p95Ms": 3.583,
+          "maxMs": 3.583
+        },
+        "recovery": {
+          "count": 978,
+          "medianMs": 2.01,
+          "p95Ms": 4.39,
+          "maxMs": 48.375
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 480,
+        "duplicateTerminalFrames": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 10,
+          "minBytes": 14434304,
+          "maxBytes": 21626880,
+          "deltaBytes": -4292608
+        },
+        "receiptsSent": 480,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 480,
+          "medianMs": 50.784,
+          "p95Ms": 90.378,
+          "maxMs": 248.738
+        }
+      }
+    },
+    {
+      "chats": 10,
+      "history": "short",
+      "iterations": 48,
+      "reconnectCycles": 3,
+      "budgetMs": 100820,
+      "scenarioQuota": 480,
+      "targetBatchMs": 2100.417,
+      "durationMs": 100824.033,
+      "metrics": {
+        "admission": {
+          "count": 480,
+          "medianMs": 208.533,
+          "p95Ms": 331.71,
+          "maxMs": 361.268
+        },
+        "confirmation": {
+          "count": 480,
+          "medianMs": 117.801,
+          "p95Ms": 216.475,
+          "maxMs": 267.841
+        },
+        "ping": {
+          "count": 48,
+          "medianMs": 0.672,
+          "p95Ms": 4.234,
+          "maxMs": 10.108
+        },
+        "recovery": {
+          "count": 993,
+          "medianMs": 1.137,
+          "p95Ms": 3.216,
+          "maxMs": 13.362
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 489,
+        "duplicateTerminalFrames": 9,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 11,
+          "minBytes": 16891904,
+          "maxBytes": 21086208,
+          "deltaBytes": 4194304
+        },
+        "receiptsSent": 480,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 480,
+          "medianMs": 117.801,
+          "p95Ms": 216.475,
+          "maxMs": 267.841
+        }
+      }
+    },
+    {
+      "chats": 10,
+      "history": "long",
+      "iterations": 4,
+      "reconnectCycles": 3,
+      "budgetMs": 100816,
+      "scenarioQuota": 480,
+      "targetBatchMs": 25204,
+      "durationMs": 100823.394,
+      "metrics": {
+        "admission": {
+          "count": 480,
+          "medianMs": 81.319,
+          "p95Ms": 269.727,
+          "maxMs": 655.688
+        },
+        "confirmation": {
+          "count": 480,
+          "medianMs": 68.697,
+          "p95Ms": 166.088,
+          "maxMs": 356.347
+        },
+        "ping": {
+          "count": 4,
+          "medianMs": 0.776,
+          "p95Ms": 2.72,
+          "maxMs": 2.72
+        },
+        "recovery": {
+          "count": 993,
+          "medianMs": 1.129,
+          "p95Ms": 2.503,
+          "maxMs": 10.632
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 482,
+        "duplicateTerminalFrames": 2,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 6,
+          "minBytes": 7618560,
+          "maxBytes": 24133632,
+          "deltaBytes": -13664256
+        },
+        "receiptsSent": 480,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 480,
+          "medianMs": 68.697,
+          "p95Ms": 166.088,
+          "maxMs": 356.347
+        }
+      }
+    }
+  ]
+}

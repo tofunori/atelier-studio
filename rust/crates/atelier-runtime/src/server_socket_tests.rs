@@ -204,7 +204,7 @@ async fn plugin_timeout_is_correlated_and_does_not_poison_connection() {
 #[tokio::test]
 async fn plugin_work_is_bounded_and_cancelled_when_socket_closes() {
     let (mut client, fixture) = fixture(Duration::from_secs(15)).await;
-    for i in 0..5 {
+    for i in 0..33 {
         send(
             &mut client,
             json!({"type":"listPlugins", "requestId":i, "projectRoot":"/p"}),
@@ -212,7 +212,7 @@ async fn plugin_work_is_bounded_and_cancelled_when_socket_closes() {
         .await;
     }
     let reply = receive(&mut client).await;
-    assert_eq!(reply["requestId"], 4);
+    assert_eq!(reply["requestId"], 32);
     assert!(reply["error"].as_str().unwrap().contains("occupé"));
     assert!(fixture.active.load(Ordering::SeqCst) <= 4);
     client.close(None).await.unwrap();
@@ -238,7 +238,7 @@ async fn wait_active(fixture: &Fixture, count: usize) {
 #[tokio::test]
 async fn blocked_history_and_saturated_reads_leave_controls_and_sidebar_available() {
     let (mut client, fixture) = fixture(Duration::from_secs(15)).await;
-    for i in 0..4 {
+    for i in 0..8 {
         send(
             &mut client,
             json!({"type":"getHistory","threadId":"old","requestId":i,"testDelay":60000}),
@@ -303,7 +303,7 @@ async fn synchronous_read_timeout_keeps_budget_until_os_work_finishes_across_rec
     second.close(None).await.unwrap();
     let (mut third, _) = connect_async(&fixture.url).await.unwrap();
     send(&mut third, json!({"type":"getHistory","requestId":"again"})).await;
-    assert_eq!(receive(&mut third).await["code"], "REQUEST_BUSY");
+    assert_eq!(receive(&mut third).await["code"], "REQUEST_TIMEOUT");
     send(&mut third, json!({"type":"listThreads"})).await;
     assert_eq!(receive(&mut third).await["type"], "threads");
     wait_active(&fixture, 0).await;
@@ -333,9 +333,11 @@ async fn ordered_actions_stay_fifo_but_other_chats_and_interrupt_pass() {
     )
     .await;
     assert_eq!(receive(&mut client).await["requestId"], "stop");
-    assert_eq!(receive(&mut client).await["requestId"], "first");
-    let cancelled = receive(&mut client).await;
-    assert_eq!(cancelled["requestId"], "second");
+    // Replies are forwarded by independent tasks after execution releases its
+    // reservation. The cancelled action may acknowledge before the first.
+    let replies = [receive(&mut client).await, receive(&mut client).await];
+    assert!(replies.iter().any(|reply| reply["requestId"] == "first"));
+    let cancelled = replies.iter().find(|reply| reply["requestId"] == "second").unwrap();
     assert_eq!(cancelled["code"], "REQUEST_CANCELLED");
     assert!(fixture.state.threads().lock().await.get("a").is_none());
     client.close(None).await.unwrap();
@@ -437,7 +439,7 @@ async fn stop_does_not_cancel_a_send_received_after_it() {
 #[tokio::test]
 async fn busy_git_diff_keeps_the_component_response_envelope() {
     let (mut client, _fixture) = fixture(Duration::from_secs(15)).await;
-    for i in 0..4 {
+    for i in 0..32 {
         send(&mut client, json!({"type":"listPlugins","requestId":i})).await;
     }
     send(
@@ -522,4 +524,36 @@ async fn startup_preferences_are_available_even_when_expensive_reads_are_full() 
         assert_eq!(response["requestId"], kind);
     }
     client.close(None).await.unwrap();
+}
+
+#[tokio::test]
+async fn startup_read_burst_queues_and_history_bypasses_slow_catalogs() {
+    let (mut client, fixture) = fixture(Duration::from_secs(2)).await;
+    for i in 0..12 {
+        send(
+            &mut client,
+            json!({"type":"listPlugins", "requestId":i, "delay":100}),
+        )
+        .await;
+    }
+    wait_active(&fixture, 4).await;
+    send(
+        &mut client,
+        json!({"type":"getHistory", "threadId":"empty"}),
+    )
+    .await;
+    let history = receive(&mut client).await;
+    assert_eq!(history["type"], "history");
+    assert_eq!(fixture.active.load(Ordering::SeqCst), 4);
+    let mut ids = std::collections::HashSet::new();
+    for _ in 0..12 {
+        let reply = receive(&mut client).await;
+        assert_eq!(reply["type"], "plugins");
+        assert!(reply.get("code").is_none(), "{reply}");
+        ids.insert(reply["requestId"].as_u64().unwrap());
+        assert!(fixture.active.load(Ordering::SeqCst) <= 4);
+    }
+    assert_eq!(ids.len(), 12);
+    client.close(None).await.unwrap();
+    wait_active(&fixture, 0).await;
 }

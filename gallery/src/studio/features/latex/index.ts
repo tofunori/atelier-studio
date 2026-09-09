@@ -12,3 +12,5 @@ export * from "./selection_pill";
 export * from "./status_bar";
 
 export * from "./reading_context";
+
+export * from "./console_panel";

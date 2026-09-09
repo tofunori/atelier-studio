@@ -1,6 +1,7 @@
 import {
   createLatexAnnotationsController,
   createLatexCompileCoordinator,
+  createLatexConsolePanel,
   createLatexOutlineController,
   createLatexPdfControls,
   createLatexPdfSyncController,
@@ -17,6 +18,7 @@ import {
   type KatexRenderer,
   type LatexAnnotationsController,
   type LatexCompileLog,
+  type CompileChipKind,
   type LatexOutlineController,
   type LatexPdfControls,
   type LatexPdfSyncController,
@@ -661,25 +663,21 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     return ensureSession().save();
   };
 
-  const compileChip = (kind: string, message: string): void => {
+  const consolePanel = createLatexConsolePanel(doc, win, () => { void compile(); }, line => {
+    if (editor) revealLineRange(editor, {fromLine: line - 1, margin: 120, focus: true});
+  });
+  const compileChip = (kind: CompileChipKind, message: string): void => {
+    consolePanel.state(kind, message);
     const chip = doc.getElementById("sbCompile") as HTMLElement;
     if (!chip) return;
     chip.style.display = "inline-flex";
     chip.className = kind;
     (doc.getElementById("sbCompileTxt") as HTMLElement).textContent = message;
   };
-  const consoleToggle = (force?: boolean): void => {
-    const log = doc.getElementById("texlog") as HTMLElement;
-    log.classList.toggle("open", force ?? !log.classList.contains("open"));
-  };
+  const consoleToggle = (force?: boolean): void => { consolePanel.open(force); };
   const renderCompileLog = (log: LatexCompileLog): void => {
-    const panel = doc.getElementById("texlog") as HTMLElement;
-    const body = doc.getElementById("tlBody") as HTMLElement;
     lastCompile = {log: log.log, ok: log.ok};
-    (doc.getElementById("tlStatus") as HTMLElement).textContent = log.ok ? "· réussie" : "· échec";
-    body.innerHTML = log.html;
-    panel.classList.toggle("open", !log.ok);
-    if (!log.ok) body.querySelector<HTMLElement>(".tl-err")?.scrollIntoView({block: "start"});
+    consolePanel.render(log);
   };
   const compileCoordinator = createLatexCompileCoordinator({
     isTex,
@@ -822,7 +820,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     });
     const button = doc.getElementById("tlChat") as HTMLElement;
     const previous = button.innerHTML;
-    button.textContent = "✓ envoyé";
+    button.title = "Ajouté au brouillon du chat";
     win.setTimeout(() => { button.innerHTML = previous; }, 1400);
   };
   (doc.getElementById("tlBody") as HTMLElement).addEventListener("click", (event) => {

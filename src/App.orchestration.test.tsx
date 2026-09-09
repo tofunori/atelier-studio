@@ -156,7 +156,9 @@ describe("orchestration App — caractérisation", () => {
     fireEvent.click(screen.getAllByTitle(t("action.interrupt"))[0]);
     const messages = sock.sent.slice(before).map(value => JSON.parse(value));
     expect(messages).toContainEqual({ type: "interrupt", threadId: "thread-A" });
-    expect(messages).toContainEqual({ type: "getHistory", threadId: "thread-A" });
+    const historyRequest = messages.find((message) => message.type === "getHistory" && message.threadId === "thread-A");
+    expect(historyRequest).toEqual(expect.objectContaining({ type: "getHistory", threadId: "thread-A" }));
+    expect(historyRequest?.requestId).toEqual(expect.any(String));
     await push(sock, { type: "history", threadId: "thread-A", events: [{
       kind: "done", ok: true, result: "",
       meta: { schemaVersion: 1, eventId: "recovered-done", provider: "codex", threadId: "thread-A",
@@ -260,6 +262,30 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_CANCELLED", message: "Envoi annulé" });
     expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+  });
+
+  it("retire le refus d'historique seulement après récupération du même chat", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "error", requestType: "getHistory", threadId: "thread-A", code: "REQUEST_BUSY", message: "Historique indisponible" });
+    expect(screen.getByText("Historique indisponible")).toBeTruthy();
+    await push(sock, { type: "history", threadId: "other", events: [] });
+    expect(screen.getByText("Historique indisponible")).toBeTruthy();
+    await push(sock, { type: "history", threadId: "thread-A", events: [] });
+    expect(screen.queryByText("Historique indisponible")).toBeNull();
+  });
+
+  it("retire le refus du catalogue après succès du même projet uniquement", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "error", requestType: "listCommands", projectRoot: THREAD_A.projectRoot, code: "REQUEST_BUSY", message: "Catalogue indisponible" });
+    expect(screen.getByText("Catalogue indisponible")).toBeTruthy();
+    await push(sock, { type: "commands", projectRoot: "/other", commands: [] });
+    expect(screen.getByText("Catalogue indisponible")).toBeTruthy();
+    await push(sock, { type: "commands", projectRoot: THREAD_A.projectRoot, commands: [] });
+    expect(screen.queryByText("Catalogue indisponible")).toBeNull();
   });
 
   it("un ancien instantané ne supprime ni ne ressuscite un chat confirmé", async () => {

@@ -348,6 +348,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     }
     if (action === "autorewrap") {
       toggleAutoRewrap();
+      morePop.style.display = "none";
       return;
     }
     if (action === "outline") doc.getElementById("outlineBtn")?.click();
@@ -355,6 +356,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     if (action === "read") doc.getElementById("readBtn")?.click();
     if (action === "help") doc.getElementById("helpBtn")?.click();
     if (action === "wrap") {
+      morePop.style.display = "none";
       sbWrap.click();
       return;
     }

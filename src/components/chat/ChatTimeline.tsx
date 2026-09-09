@@ -1143,12 +1143,9 @@ export function ChatTimeline(p: {
           if (e.kind === "goal") return null;
           if (e.kind === "error") {
             // Une interruption VOLONTAIRE (stop, steer) n'est pas un échec :
-            // le triangle rouge criait « erreur » à chaque steer (2026-08-24).
-            // Ligne sobre ; le pli « Arrêté après Ns » porte déjà la durée.
-            if (isStoppedTerminal(e))
-              return (
-                <div key={i} className="turn-interrupted">{t("chat.turn-interrupted")}</div>
-              );
+            // elle ne doit laisser ni ligne d'erreur ni libellé d'arrêt dans
+            // la timeline (un texte partiel déjà reçu reste affiché).
+            if (isStoppedTerminal(e)) return null;
             return (
               <div key={i} className="error">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

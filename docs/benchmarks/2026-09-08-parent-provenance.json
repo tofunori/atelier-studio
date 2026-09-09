@@ -1,0 +1,11 @@
+{
+  "command": "node /tmp/atelier-parent-endurance.mjs <bundle>/Contents/Resources/rust-server/atelier-studio-server",
+  "durationRequestedMs": 610000,
+  "maxReceipts": 2880,
+  "provider": "fake",
+  "profileIsolated": true,
+  "benchScriptSha256": "ad7f79e7d7b31361c5ee51f7a6e070ee9e8cd63ed0752e63a00768135e93df92",
+  "serverSha256": "4230ef53226ebbdd126367e2bc19c3ca6a0527de56502ddd76be7bb62451a4a8",
+  "gitHeadReference": "efd6b686",
+  "workingTreeDirty": true
+}

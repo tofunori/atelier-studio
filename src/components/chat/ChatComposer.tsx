@@ -92,6 +92,7 @@ export type ComposerCatalog = {
 export type ComposerContextBundle = {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
+  onRestoreAttachment?: (attachment: ShelfAttachment, index: number) => void;
   onOpenPaste: (paste: { name: string; text: string }) => void;
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
@@ -291,10 +292,12 @@ export function ChatComposer(props: {
           )}
           <SuggestionsList suggestions={input.suggestions} selIdx={input.selIdx} applySuggestion={input.applySuggestion} />
           <ContextShelf
+            key={props.scopeKey ?? "composer"}
             attachments={context.attachments}
             annotations={context.annotations}
             onRemoveAnnotation={context.onRemoveAnnotation}
             onRemoveAttachment={context.onRemoveAttachment}
+            onRestoreAttachment={context.onRestoreAttachment}
             onOpenPaste={context.onOpenPaste}
           />
           {/* plan 050 : plus de pilules KB au-dessus du champ — le badge du

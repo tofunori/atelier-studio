@@ -5555,3 +5555,15 @@ iframe.atelier.atelier-gallery-fullscreen[popover] {
   background: var(--gallery-fullscreen-bg);
 }
 iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscreen-bg); }
+
+/* LaTeX passages remain separate, with a local remove action per capsule. */
+.context-latex-pill{flex:none;max-width:100%;gap:4px;padding:3px 4px 3px 8px}
+.context-latex-pill .context-pill-main{flex:0 1 auto;gap:6px;width:auto}
+.context-latex-pill .chip-label{max-width:160px}
+.context-latex-pill .chip-lines{white-space:nowrap;font-size:var(--fs-xs)}
+.context-latex-pill>.ghost{margin:0;flex:none}
+.context-latex-preview{flex-basis:100%;min-width:0;border:1px solid var(--border);border-radius:var(--r-s);padding:10px;background:var(--bg-ctl);font-size:var(--fs-s)}
+.context-latex-preview strong{font-size:var(--fs-xs);font-weight:500;}
+.context-latex-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font:var(--fs-s)/1.6 var(--font-mono);margin:8px 0}
+.context-latex-preview .ui-rowbtn,.context-latex-undo .ui-rowbtn{color:var(--accent);font-size:var(--fs-xs)}
+.context-latex-undo{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--text-muted);flex-basis:100%}

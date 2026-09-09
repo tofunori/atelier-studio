@@ -4,9 +4,68 @@ use crate::agent_mcp::journal_mcp;
 use crate::state::AppState;
 use atelier_harness::EmitFn;
 use atelier_providers::{provider_status_list, InteractionFn, SendMode, SendRequest};
+use atelier_store::{request_fingerprint, CommandReceipt, ReceiptReservation};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+fn receipt_message(receipt: &CommandReceipt) -> String {
+    crate::ws_router::json_msg(json!({
+        "type": "sendReceipt",
+        "clientMessageId": receipt.client_message_id,
+        "threadId": receipt.thread_id,
+        "provider": receipt.provider,
+        "status": receipt.status,
+        "accepted": true,
+        "turnId": receipt.turn_id,
+        "terminalEventId": receipt.terminal_event_id,
+        "issue": receipt.issue,
+        "updatedAt": receipt.updated_at,
+    }))
+}
+
+fn receipt_collision(message: &Value, receipt: &CommandReceipt) -> String {
+    let mut response = json!({
+        "type": "error",
+        "code": "SEND_ID_COLLISION",
+        "message": "clientMessageId déjà utilisé pour un contenu différent.",
+        "retryable": false,
+        "clientMessageId": receipt.client_message_id,
+        "threadId": message.get("threadId").cloned().unwrap_or(Value::Null),
+    });
+    response["existingThreadId"] = json!(receipt.thread_id);
+    response["existingStatus"] = json!(receipt.status);
+    crate::ws_router::json_msg(response)
+}
+
+fn publish_receipt(state: &AppState, receipt: &CommandReceipt) {
+    state.publish(receipt_message(receipt));
+}
+
+async fn receipt_replies(state: &AppState, receipt: &CommandReceipt) -> Vec<String> {
+    let mut replies = vec![receipt_message(receipt)];
+    replies.extend(threads_reply(state).await);
+    replies
+}
+
+async fn update_receipt(
+    state: &AppState,
+    client_message_id: Option<&str>,
+    status: &str,
+    turn_id: Option<&str>,
+    terminal_event_id: Option<&str>,
+    issue: Option<&str>,
+) {
+    let Some(id) = client_message_id else { return };
+    match state
+        .receipts()
+        .update(id, status, turn_id, terminal_event_id, issue)
+    {
+        Ok(Some(receipt)) => publish_receipt(state, &receipt),
+        Ok(None) => {}
+        Err(error) => tracing::warn!(client_message_id = id, %error, "receipt update failed"),
+    }
+}
 
 /// Keep runtime context when the provider uses structured image/skill inputs.
 fn enrich_structured_inputs(
@@ -881,6 +940,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let client_mid = msg
+        .get("clientMessageId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let folder_settings =
         atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null);
     let additional_directories = crate::project_folders::writable(
@@ -911,9 +974,36 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             "provider inconnu ou non branché en Rust: {provider} (fake toujours; claude/codex/grok/opencode si binaires; API via api_providers.json)"
         ))];
     };
+
+    // Reserve the id before handoff, thread mutation, or provider execution.
+    // Two sockets racing with the same id therefore share one receipt and
+    // cannot create two provider turns.
+    let _reserved_receipt = if let Some(client_message_id) = client_mid.as_deref() {
+        let fingerprint = request_fingerprint(msg);
+        match state.receipts().reserve(client_message_id, &fingerprint, &thread_id, &provider) {
+            Ok(ReceiptReservation::New(receipt)) => Some(receipt),
+            Ok(ReceiptReservation::Existing(receipt)) => {
+                return receipt_replies(state, &receipt).await;
+            }
+            Ok(ReceiptReservation::Collision(receipt)) => {
+                return vec![receipt_collision(msg, &receipt)];
+            }
+            Err(error) => {
+                tracing::warn!(client_message_id, %error, "receipt reservation failed");
+                return vec![crate::ws_dispatch::failure(
+                    msg,
+                    "RECEIPT_STORAGE_UNAVAILABLE",
+                    "Impossible de confirmer durablement cet envoi.",
+                )];
+            }
+        }
+    } else {
+        None
+    };
     if let Err(error) =
         prepare_provider_handoff(state, msg, &thread_id, &provider, &project_root).await
     {
+        update_receipt(state, client_mid.as_deref(), "failed", None, None, Some(&error)).await;
         return vec![err_json(error)];
     }
 
@@ -941,6 +1031,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                         .is_some_and(|link| link.parent_thread_id == to))
         };
         if !relation_is_live {
+            update_receipt(
+                state,
+                client_mid.as_deref(),
+                "failed",
+                None,
+                None,
+                Some("agent_link_relation_revoked"),
+            )
+            .await;
             return vec![err_json("agent_link_relation_revoked")];
         }
     }
@@ -952,6 +1051,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             .as_ref()
             .map(|thread| thread.provider.as_str())
             .unwrap_or("unknown");
+        update_receipt(
+            state,
+            client_mid.as_deref(),
+            "failed",
+            None,
+            None,
+            Some("provider immuable pour ce fil"),
+        )
+        .await;
         return vec![err_json(format!(
             "provider immuable pour ce fil ({current}); créer un handoff vers {provider}"
         ))];
@@ -1077,6 +1185,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     if state.harness().is_running(&thread_id).await {
         if let Some(running_p) = state.harness().run_provider(&thread_id).await {
             if running_p != provider {
+                update_receipt(
+                    state,
+                    client_mid.as_deref(),
+                    "failed",
+                    None,
+                    None,
+                    Some("changement de provider pendant un run"),
+                )
+                .await;
                 return vec![err_json(format!(
                     "changement de provider ({running_p} → {provider}) impossible pendant un run"
                 ))];
@@ -1085,6 +1202,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     }
 
     if preparation_cancelled.load(Ordering::SeqCst) {
+        update_receipt(
+            state,
+            client_mid.as_deref(),
+            "cancelled",
+            None,
+            None,
+            Some("Envoi annulé avant son démarrage."),
+        )
+        .await;
         return vec![crate::ws_dispatch::failure(msg, "REQUEST_CANCELLED", "Envoi annulé avant son démarrage.")];
     }
     // Upsert thread — le titre retenu ressort du bloc : la provenance des
@@ -1133,11 +1259,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     if !origin_agent {
         user_event["context"] = context_receipt;
     }
-    let client_mid = msg
-        .get("clientMessageId")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-
     // Channel for provider → harness (async-safe; avoids try_lock races).
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
 
@@ -1251,10 +1372,26 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     }
                 }
             });
+            let receipt_state = state.clone();
+            let receipt_id = client_mid.clone();
+            let receipt_turn_id = turn_id.clone();
             tokio::spawn(async move {
-                let _ = pimpl.send(req).await;
+                let result = pimpl.send(req).await;
+                update_receipt(
+                    &receipt_state,
+                    receipt_id.as_deref(),
+                    if result.ok { "completed" } else { "failed" },
+                    Some(&receipt_turn_id),
+                    None,
+                    result.error.as_deref(),
+                )
+                .await;
             });
-            return threads_reply(state).await;
+            let mut replies = threads_reply(state).await;
+            if let Some(id) = client_mid.as_deref().and_then(|id| state.receipts().get(id)) {
+                replies.insert(0, receipt_message(&id));
+            }
+            return replies;
         }
     }
 
@@ -1273,6 +1410,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     };
     if preparation_cancelled.load(Ordering::SeqCst) {
         let _ = state.threads().lock().await.upsert(json!({"id":thread_id,"status":"idle"}), true);
+        update_receipt(
+            state,
+            client_mid.as_deref(),
+            "cancelled",
+            None,
+            None,
+            Some("Envoi annulé avant son démarrage."),
+        )
+        .await;
         let mut replies = threads_reply(state).await;
         replies.push(crate::ws_dispatch::failure(msg, "REQUEST_CANCELLED", "Envoi annulé avant son démarrage."));
         return replies;
@@ -1288,6 +1434,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let mut guard = h.lock().await;
         guard.start_turn(None, client_mid.as_deref(), Some(user_event))
     };
+    update_receipt(
+        state,
+        client_mid.as_deref(),
+        "started",
+        Some(&turn_id),
+        None,
+        None,
+    )
+    .await;
     state
         .harness()
         .set_running(&thread_id, &turn_id, &provider)
@@ -1387,6 +1542,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         None
     };
     let linked_reply_state = state.clone();
+    let receipt_id = client_mid.clone();
     let pump = tokio::spawn(async move {
         let mut linked_reply_text = String::new();
         while let Some(ev) = ev_rx.recv().await {
@@ -1593,13 +1749,32 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                         &turn_id,
                         json!({
                             "kind": "error",
-                            "message": result.error.unwrap_or_else(|| "failed".into())
+                            "message": result.error.clone().unwrap_or_else(|| "failed".into())
                         }),
                     );
                 }
             }
         }
         let succeeded = result.ok;
+        update_receipt(
+            &state2,
+            receipt_id.as_deref(),
+            if result.ok {
+                "completed"
+            } else if result
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("interrupt"))
+            {
+                "cancelled"
+            } else {
+                "failed"
+            },
+            Some(&turn_id),
+            None,
+            result.error.as_deref(),
+        )
+        .await;
         if succeeded && needs_agent_seed {
             crate::agent_mcp::mark_context_seeded(&state2, &tid).await;
         }
@@ -1643,13 +1818,25 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
     });
 
-    threads_reply(state).await
+    let mut replies = threads_reply(state).await;
+    if let Some(id) = client_mid.as_deref().and_then(|id| state.receipts().get(id)) {
+        replies.insert(0, receipt_message(&id));
+    }
+    replies
 }
 
 pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
     if thread_id.is_empty() {
         return vec![err_json("threadId requis")];
+    }
+    match state.receipts().cancel_thread(thread_id) {
+        Ok(receipts) => {
+            for receipt in receipts {
+                publish_receipt(state, &receipt);
+            }
+        }
+        Err(error) => tracing::warn!(thread_id, %error, "receipt cancellation failed"),
     }
     if !crate::ws_dispatch::interruption_admitted() { state.ws_budget().cancel_sends(thread_id); }
     state.harness().request_cancel(thread_id).await;
@@ -2181,6 +2368,94 @@ mod tests {
                 .any(|e| e["kind"] == "text" || e["kind"] == "done"),
             "text/done missing: {events:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn stable_send_id_is_idempotent_and_persists_across_state_reopen() {
+        let dir = tempdir().unwrap();
+        let app_dir = dir.path().to_path_buf();
+        let state = AppState::new(
+            AppPaths::from_app_dir(app_dir.clone()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let message = json!({
+            "type": "send",
+            "threadId": "t-idempotent",
+            "provider": "fake",
+            "prompt": "stable",
+            "projectRoot": "",
+            "clientMessageId": "stable-send-1",
+        });
+        let first = handle_send(&state, &message).await;
+        assert!(first.iter().any(|reply| reply.contains("sendReceipt")));
+        for _ in 0..100 {
+            if !state.harness().is_running("t-idempotent").await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(state.receipts().get("stable-send-1").unwrap().status, "completed");
+        let event_count = state.journal().materialize("t-idempotent").len();
+
+        let duplicate = handle_send(&state, &message).await;
+        assert!(duplicate.iter().any(|reply| reply.contains("\"status\":\"completed\"")));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(state.journal().materialize("t-idempotent").len(), event_count);
+        drop(state);
+
+        let reopened = AppState::new(
+            AppPaths::from_app_dir(app_dir),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let after_restart = handle_send(&reopened, &message).await;
+        assert!(after_restart
+            .iter()
+            .any(|reply| reply.contains("\"status\":\"completed\"")));
+        assert_eq!(reopened.journal().materialize("t-idempotent").len(), event_count);
+    }
+
+    #[tokio::test]
+    async fn stop_wins_before_a_duplicate_retry() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        )
+        .with_slow_test_provider("fake", 150);
+        let message = json!({
+            "type": "send",
+            "threadId": "t-stop-id",
+            "provider": "fake",
+            "prompt": "stop me",
+            "projectRoot": "",
+            "clientMessageId": "stop-send-1",
+        });
+        handle_send(&state, &message).await;
+        handle_interrupt(&state, &json!({"type":"interrupt","threadId":"t-stop-id"})).await;
+        for _ in 0..100 {
+            if !state.harness().is_running("t-stop-id").await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(state.receipts().get("stop-send-1").unwrap().status, "cancelled");
+        let before = state.journal().materialize("t-stop-id").len();
+        let retry = handle_send(&state, &message).await;
+        assert!(retry.iter().any(|reply| reply.contains("\"status\":\"cancelled\"")));
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert_eq!(state.journal().materialize("t-stop-id").len(), before);
     }
 
     /// Décision Thierry (2026-08-25) : PLUSIEURS chats en même temps sur le

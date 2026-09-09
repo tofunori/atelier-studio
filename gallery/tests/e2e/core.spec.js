@@ -388,7 +388,7 @@ test('annotate: launcher draws a rectangle and sends from the contextual capsule
     await expect(page.locator('#lbAnnot')).toHaveAttribute('aria-label', 'Ajouter une annotation');
     await page.locator('#lbAnnot').click();
     await expect(page.locator('#lb')).toHaveClass(/annot/);
-    await expect(page.locator('#annotBar')).toBeHidden();
+    await expect(page.locator('#annotBar')).toBeVisible();
 
     const cv = await page.locator('#annotCv').boundingBox();
     await page.mouse.move(cv.x + cv.width / 2 - 30, cv.y + cv.height / 2 - 20);
@@ -397,12 +397,12 @@ test('annotate: launcher draws a rectangle and sends from the contextual capsule
     await page.mouse.up();
     await expect(page.locator('#annotNote')).toBeVisible();
     await page.locator('#annotNote textarea').fill('note e2e');
-    await page.locator('#annotNote .anSave').click();
+    await page.locator('#annotNote .annot-send').click();
     await expect.poll(() => savePayload && savePayload.name).toBe('preview-alpha.png');
     expect(savePayload.dataURL).toMatch(/^data:image\/png;base64,/);
     expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
     await expect(page.locator('#annotNote')).toBeHidden();
-    await expect(page.locator('#lb')).not.toHaveClass(/annot/);
+    await expect(page.locator('#lb')).toHaveClass(/annot/);
 
     const previewDir = path.join(root, '.fig_thumbs', 'annotation-previews');
     await expect.poll(() => existsSync(previewDir) ? readdirSync(previewDir).filter(name => name.endsWith('.png')).length : 0).toBe(1);
@@ -668,7 +668,8 @@ test('annotation add-to-chat waits for the host ACK and retries', async ({ page 
 
     // premier tir perdu, relance bornée : l'hôte finit par accuser réception
     await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBeGreaterThan(1);
-    await expect(g.locator('#annotPillN')).toHaveText('Added to chat ✓');
+    await expect(g.locator('#annotNote')).toBeHidden();
+    await expect(g.locator('#annotPillN')).toHaveText('1 annotation');
     const msg = await page.evaluate(() => window.__msgs[0]);
     expect(msg.text).toContain('annotation-previews');
     expect(msg.text).toContain('note ack');
@@ -686,7 +687,7 @@ test('annotation add-to-chat never claims success when the host stays silent', a
     await g.locator('#grid .card').first().waitFor();
     await annotateOnce(page, g, 'note muette');
 
-    await expect(g.locator('#annotPillN')).toHaveText('Chat injoignable — réessayer');
+    await expect(g.locator('#annotNote .annot-status')).toHaveText('Envoi impossible — réessayer');
     // les marques restent : le mode annotation n'est pas quitté, ↑ rejoue
     await expect(g.locator('#lb')).toHaveClass(/annot/);
   });
@@ -704,7 +705,7 @@ async function annotateOnce(page, g, note) {
   await page.mouse.up();
   await expect(g.locator('#annotNote')).toBeVisible();
   await g.locator('#annotNote textarea').fill(note);
-  await g.locator('#annotNote .anSave').click();
+  await g.locator('#annotNote .annot-send').click();
 }
 
 test('add-to-chat retries when the host misses the first postMessage during startup', async ({ page }) => {

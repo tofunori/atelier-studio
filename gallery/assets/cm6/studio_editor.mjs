@@ -3,7 +3,7 @@
 // CM5 shim: methods the page doesn't call don't exist here.
 import {EditorState, EditorSelection, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
 import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter,
-        lineNumbers, gutter, GutterMarker, WidgetType, ViewPlugin} from "@codemirror/view";
+        lineNumbers, gutter, GutterMarker, WidgetType, ViewPlugin, drawSelection} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
 import {openSearchPanel, searchKeymap, SearchCursor} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
@@ -288,9 +288,10 @@ const marksField = StateField.define({
   provide: (f) => EditorView.decorations.from(f, (v) => v.decos),
 });
 
-// SELECTION_RENDERING — la sélection visible est la sélection NATIVE du
-// navigateur, peinte par `::selection` dans le thème. Ni `drawSelection()`
-// (couche absolue remesurée à chaque tick) ni décoration `Decoration.mark`
+// SELECTION_RENDERING — en édition normale, la sélection visible est la
+// sélection NATIVE du navigateur, peinte par `::selection` dans le thème.
+// `drawSelection()` reste limité au compartiment de revue Diff, où WebKit
+// recycle sinon des widgets de suppression pendant le scroll. Aucune décoration `Decoration.mark`
 // recalculée par transaction : une mark redécoupait les spans de chaque ligne
 // touchée à chaque mouvement de souris, par-dessus les spans de coloration —
 // c'était la première cause de saccade du drag (banc scripts/bench_editor.mjs,
@@ -825,7 +826,11 @@ export function createStudioEditor(parent, opts) {
     // The intervention journal remains owned by diff_versions.js. This seam
     // only swaps its old hand-built marks/widgets for CM6's merge renderer.
     showMergeDiff: (original, review) => {
-      view.dispatch({effects: mergeDiffComp.reconfigure(unifiedMergeView({
+      view.dispatch({effects: mergeDiffComp.reconfigure([
+        // WebKit native selection can paint recycled deletion widgets on scroll.
+        // Draw only the editor state selection while the merge view is active.
+        drawSelection(), EditorView.editorAttributes.of({class: "cm-review-selection"}),
+        unifiedMergeView({
         original: String(original ?? ""),
         highlightChanges: true,
         gutter: true,
@@ -860,7 +865,7 @@ export function createStudioEditor(parent, opts) {
         } : false,
         collapseUnchanged: review?.individual ? undefined : {margin: 3, minSize: 8},
         diffConfig: {scanLimit: 1000, timeout: 250},
-      }))});
+      })])});
       const chunks = getChunks(view.state)?.chunks || [];
       return chunks.map((chunk) => {
         const offset = Math.min(chunk.fromB, doc().length);

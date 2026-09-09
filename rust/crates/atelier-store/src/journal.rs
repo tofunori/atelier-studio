@@ -163,9 +163,128 @@ impl HarnessJournal {
         let (_, events) = self.read_thread(thread_id);
         events
             .iter()
+            .filter(|event| {
+                !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
+            })
             .filter_map(|e| e.pointer("/meta/sequence").and_then(|v| v.as_u64()))
             .max()
             .unwrap_or(0)
+    }
+
+    /// Materialized events, durable head and journal identity from one file
+    /// read.  Returning these together avoids announcing a cursor for an
+    /// append that raced between two independent reads.
+    pub fn durable_snapshot(
+        &self,
+        thread_id: &str,
+    ) -> (Vec<Value>, u64, Option<String>, Option<String>) {
+        let (header, events) = self.read_thread(thread_id);
+        let mut durable = events;
+        durable.retain(|event| {
+            !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
+        });
+        durable.sort_by_key(|event| {
+            event
+                .pointer("/meta/sequence")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        let head = durable
+            .iter()
+            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        let head_event_id = durable
+            .iter()
+            .rev()
+            .find(|event| {
+                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(head)
+            })
+            .and_then(|event| event.pointer("/meta/eventId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let epoch = header
+            .as_ref()
+            .and_then(|value| value.get("journalEpoch"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        (Self::materialize_events(durable), head, epoch, head_event_id)
+    }
+
+    /// Stable identity of this journal file.  A cursor from a deleted and
+    /// recreated thread must never be interpreted as a cursor into the new
+    /// history, so the epoch lives in the journal header rather than in a
+    /// process-only counter.
+    pub fn journal_epoch(&self, thread_id: &str) -> Option<String> {
+        self.read_thread(thread_id).0.and_then(|header| {
+            header
+                .get("journalEpoch")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+    }
+
+    /// Return actual journaled events after a durable cursor.  Sequence
+    /// numbers are allocated for ephemeral stream events too, so a cursor is
+    /// valid only when its sequence/event identity exists in the durable file;
+    /// the returned list itself is selected by `sequence > cursor`, without
+    /// ever requiring contiguous sequence numbers.
+    pub fn replay_after(
+        &self,
+        thread_id: &str,
+        cursor_sequence: u64,
+        cursor_event_id: Option<&str>,
+        limit: usize,
+    ) -> Option<(Vec<Value>, u64)> {
+        if !self.has_journal(thread_id) || limit == 0 {
+            return None;
+        }
+        let (_, mut events) = self.read_thread(thread_id);
+        events.retain(|event| {
+            !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
+        });
+        events.sort_by_key(|event| {
+            event
+                .pointer("/meta/sequence")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        let head = events
+            .iter()
+            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        if cursor_sequence > head {
+            return None;
+        }
+        if cursor_sequence > 0 {
+            let cursor_found = events.iter().any(|event| {
+                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(cursor_sequence)
+                    && cursor_event_id.map_or(true, |expected| {
+                        event.pointer("/meta/eventId").and_then(Value::as_str) == Some(expected)
+                    })
+            });
+            if !cursor_found {
+                // The durable event may have been truncated/deleted.  A
+                // missing durable identity is a safe snapshot fallback; a
+                // numeric gap caused by ephemeral events is accepted only
+                // when the durable cursor itself is present.
+                return None;
+            }
+        }
+        let after = events
+            .into_iter()
+            .filter(|event| {
+                event
+                    .pointer("/meta/sequence")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|sequence| sequence > cursor_sequence)
+            })
+            .collect::<Vec<_>>();
+        if after.len() > limit {
+            return None;
+        }
+        Some((after, head))
     }
 
     /// Prochaine séquence à écrire pour `thread_id`, allouée de façon
@@ -215,7 +334,10 @@ impl HarnessJournal {
     /// Semantic replay — Node `materialize`.
     pub fn materialize(&self, thread_id: &str) -> Vec<Value> {
         let (_, events) = self.read_thread(thread_id);
-        let mut sorted = events;
+        Self::materialize_events(events)
+    }
+
+    fn materialize_events(mut sorted: Vec<Value>) -> Vec<Value> {
         sorted.sort_by_key(|e| {
             e.pointer("/meta/sequence")
                 .and_then(|v| v.as_i64())
@@ -369,6 +491,7 @@ impl HarnessJournal {
             "threadId": dst_thread_id,
             "createdAt": crate::iso_now(),
             "provider": provider,
+            "journalEpoch": uuid::Uuid::new_v4().to_string(),
             "forkedFrom": src_thread_id,
         });
         if let Some(upto) = upto_event_id {
@@ -391,7 +514,7 @@ impl HarnessJournal {
                 body.push('\n');
             }
         }
-        if std::fs::write(&path, body).is_err() {
+            if std::fs::write(&path, body).is_err() {
             return false;
         }
         #[cfg(unix)]
@@ -431,8 +554,9 @@ impl HarnessJournal {
                 "threadId": thread_id,
                 "createdAt": crate::iso_now(),
                 "provider": provider,
+                "journalEpoch": uuid::Uuid::new_v4().to_string(),
             });
-            if std::fs::write(&path, format!("{}\n", header)).is_err() {
+            if crate::write_file_atomic_durable(&path, format!("{}\n", header)).is_err() {
                 return false;
             }
             #[cfg(unix)]
@@ -457,7 +581,13 @@ impl HarnessJournal {
             Ok(f) => f,
             Err(_) => return false,
         };
-        f.write_all(line.as_bytes()).is_ok() && f.write_all(b"\n").is_ok()
+        if f.write_all(line.as_bytes()).is_err() || f.write_all(b"\n").is_err() {
+            return false;
+        }
+        // The receipt is acknowledged before this method returns to the
+        // harness.  Ask the filesystem to persist the append so a process
+        // crash cannot acknowledge a line that only lived in the page cache.
+        f.sync_data().is_ok()
     }
 }
 
@@ -597,5 +727,20 @@ mod tests {
         assert_eq!(j.last_sequence("t1"), 2);
         assert_eq!(j.next_sequence("t1"), 3);
         assert_eq!(j.next_sequence("t1"), 4);
+    }
+
+    #[test]
+    fn replay_accepts_ephemeral_sequence_gaps_without_assuming_contiguity() {
+        let dir = tempdir().unwrap();
+        let j = HarnessJournal::new(dir.path());
+        assert!(j.append(&ev("user", 1, "e1")));
+        // This sequence was allocated to a delta but the delta is not a
+        // durable journal line.  The next durable event may therefore be 3.
+        assert!(j.append(&ev("text", 3, "e3")));
+        let (events, head) = j.replay_after("t1", 1, Some("e1"), 32).unwrap();
+        assert_eq!(head, 3);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["meta"]["sequence"], 3);
+        assert!(j.replay_after("t1", 2, None, 32).is_none());
     }
 }

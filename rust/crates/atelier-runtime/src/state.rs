@@ -6,7 +6,8 @@ use atelier_harness::HarnessManager;
 use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
 use atelier_store::{
-    AgentMailboxStore, AutomationStore, HarnessJournal, HighlightStore, ThreadStore,
+    AgentMailboxStore, AutomationStore, CommandReceiptStore, HarnessJournal, HighlightStore,
+    ThreadStore,
 };
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
@@ -63,6 +64,8 @@ struct Inner {
     automations: Mutex<AutomationStore>,
     automation_runs: Mutex<HashMap<String, (String, String)>>,
     journal: HarnessJournal,
+    /// Durable admission receipts shared by every WebSocket connection.
+    receipts: CommandReceiptStore,
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
     terminals: Arc<TerminalHub>,
@@ -100,6 +103,7 @@ impl AppState {
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
         let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
+        let receipts = CommandReceiptStore::open(paths.app_dir.join("chat-receipts.json"));
         let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
         let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
@@ -145,6 +149,7 @@ impl AppState {
                 automations: Mutex::new(automations),
                 automation_runs: Mutex::new(HashMap::new()),
                 journal,
+                receipts,
                 bus,
                 terminals,
                 harness,
@@ -258,6 +263,10 @@ impl AppState {
 
     pub fn journal(&self) -> &HarnessJournal {
         &self.inner.journal
+    }
+
+    pub fn receipts(&self) -> &CommandReceiptStore {
+        &self.inner.receipts
     }
 
     pub fn subscribe_bus(&self) -> broadcast::Receiver<String> {

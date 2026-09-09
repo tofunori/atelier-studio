@@ -9,14 +9,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
-  requestCatalog,
-  requestFileCatalog,
+  requestReceiptStatus,
   getClientInstanceId,
   Thread,
   AgentEvent,
   Command,
 } from "./lib/ws";
-import { materializeHarnessHistory, mergeHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince } from "./lib/harnessEvents";
+import { materializeHarnessHistory, mergeHarnessHistory, replaceHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin } from "./lib/pins";
@@ -534,12 +533,14 @@ export default function App() {
   const onSidecarStatus = (status: SidecarStatus, sock: WebSocket | null) => {
     if (status === "connected" || status === "reconnected") {
       setAppBanner((b) => b?.kind === "connection" ? null : b);
-      if (status === "connected" && sock) {
-        sock.send(JSON.stringify({ type: "getSettings" }));
-        sock.send(JSON.stringify({ type: "listHighlights" }));
+      if (sock) {
+        requestGlobalRead("getSettings");
+        requestGlobalRead("listHighlights");
       }
-      if (sock) sock.send(JSON.stringify({ type: "listAutomations" }));
+      if (sock) requestGlobalRead("listAutomations");
+      if (sock) reconcilePendingReceipts(sock);
     } else {
+      cancelRecoverableReadsForSocket();
       setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected") });
     }
   };
@@ -554,6 +555,36 @@ export default function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const threadsRef = useRef<Thread[]>([]);
   const historySnapshotRefs = useRef(new Map<string, { epoch: string; revision: number }>());
+  type HistoryCursor = { epoch: string; sequence: number; eventId?: string };
+  const historyCursorsRef = useRef(new Map<string, HistoryCursor>());
+  type HistoryRequestBoundary = { threadId: string; keys: Set<string> };
+  const historyRequestBoundariesRef = useRef(new Map<string, HistoryRequestBoundary>());
+  const historyRequestOrderRef = useRef(new Map<string, string[]>());
+  type RecoverableReadType =
+    | "getHistory"
+    | "listCommands"
+    | "listFiles"
+    | "listPins"
+    | "getUsage"
+    | "getSettings"
+    | "listHighlights"
+    | "listAutomations";
+  type RecoverableRead = {
+    key: string;
+    requestType: RecoverableReadType;
+    requestId: string;
+    threadId?: string;
+    projectRoot?: string;
+    provider?: string | null;
+    cursor?: HistoryCursor;
+    attempt: number;
+    timer?: ReturnType<typeof setTimeout>;
+  };
+  // Reads are retried independently of the chat send path. A busy/slow
+  // catalogue must never reconnect the socket or replay a provider turn.
+  const recoverableReadsRef = useRef(new Map<string, RecoverableRead>());
+  const recoverableReadsByRequestIdRef = useRef(new Map<string, string>());
+  const READ_RETRY_DELAYS_MS = [250, 750, 1500] as const;
   const threadsSnapshotRef = useRef<{ epoch: string; revision: number } | null>(null);
   const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
@@ -641,11 +672,152 @@ export default function App() {
   const [injectText, setInjectText] = useState<string | null>(null);
   const [appBanner, setAppBanner] = useState<{
     kind?: "connection";
+    requestType?: string;
+    clientMessageId?: string;
+    threadId?: string;
+    projectRoot?: string;
     text: string;
     actionLabel?: string;
     onAction?: () => void;
     closable?: boolean;
   } | null>(null);
+  type DeliveryStatus = "unconfirmed" | "received" | "started" | "completed" | "failed" | "cancelled" | "uncertain" | "unknown";
+  type DeliveryState = {
+    status: DeliveryStatus;
+    threadId?: string;
+    provider?: string;
+    issue?: string;
+    updatedAt?: string;
+  };
+  function loadPendingReceiptIds() {
+    if (typeof localStorage === "undefined") return new Set<string>();
+    try {
+      const raw = JSON.parse(localStorage.getItem("atelier-studio.pending-receipts") ?? "[]");
+      return new Set<string>(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string" && id.length > 0) : []);
+    } catch {
+      return new Set<string>();
+    }
+  }
+  const [deliveryStates, setDeliveryStates] = useState<Record<string, DeliveryState>>({});
+  const deliveryStatesRef = useRef(new Map<string, DeliveryState>());
+  const pendingReceiptIdsRef = useRef(loadPendingReceiptIds());
+  const receiptRetryAttemptsRef = useRef(new Map<string, number>());
+  const receiptRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const receiptRetrySocketRef = useRef<WebSocket | null>(null);
+  const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled", "uncertain", "unknown"]);
+
+  function persistPendingReceiptIds() {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem("atelier-studio.pending-receipts", JSON.stringify([...pendingReceiptIdsRef.current]));
+    } catch { /* a full/private storage must not block the send path */ }
+  }
+
+  function clearReceiptRetry(clientMessageId: string) {
+    const timer = receiptRetryTimersRef.current.get(clientMessageId);
+    if (timer != null) clearTimeout(timer);
+    receiptRetryTimersRef.current.delete(clientMessageId);
+    receiptRetryAttemptsRef.current.delete(clientMessageId);
+  }
+
+  function rememberDeliveryState(clientMessageId: string, state: DeliveryState) {
+    deliveryStatesRef.current.set(clientMessageId, state);
+    // Keep a bounded client-side view. Pending ids are retained until their
+    // terminal/uncertain answer; old terminal rows are presentation history.
+    if (deliveryStatesRef.current.size > 512) {
+      for (const [id, old] of deliveryStatesRef.current) {
+        if (terminalDeliveryStatuses.has(old.status)) {
+          deliveryStatesRef.current.delete(id);
+          if (deliveryStatesRef.current.size <= 384) break;
+        }
+      }
+    }
+    setDeliveryStates(Object.fromEntries(deliveryStatesRef.current));
+  }
+
+  function scheduleReceiptStatus(clientMessageId: string, sock: WebSocket, immediate = false) {
+    if (!pendingReceiptIdsRef.current.has(clientMessageId)) return;
+    if (receiptRetryTimersRef.current.has(clientMessageId)) return;
+    const attempt = receiptRetryAttemptsRef.current.get(clientMessageId) ?? 0;
+    if (attempt >= 3) return;
+    const delay = immediate ? 0 : [1000, 2000, 4000][attempt] ?? 4000;
+    const timer = setTimeout(() => {
+      receiptRetryTimersRef.current.delete(clientMessageId);
+      if (!pendingReceiptIdsRef.current.has(clientMessageId)) return;
+      if (ws.current !== sock || sock.readyState !== 1) {
+        if (ws.current?.readyState === 1) scheduleReceiptStatus(clientMessageId, ws.current, true);
+        return;
+      }
+      receiptRetryAttemptsRef.current.set(clientMessageId, attempt + 1);
+      if (!requestReceiptStatus(sock, clientMessageId)) return;
+      // A response may arrive before this timer is installed; coalescing by id
+      // makes the following bounded probe harmless and avoids a resend.
+      if (attempt + 1 < 3) scheduleReceiptStatus(clientMessageId, sock);
+    }, delay);
+    receiptRetryTimersRef.current.set(clientMessageId, timer);
+  }
+
+  function reconcilePendingReceipts(sock: WebSocket) {
+    if (receiptRetrySocketRef.current !== sock) {
+      for (const clientMessageId of pendingReceiptIdsRef.current) clearReceiptRetry(clientMessageId);
+      receiptRetrySocketRef.current = sock;
+    }
+    for (const clientMessageId of pendingReceiptIdsRef.current) {
+      scheduleReceiptStatus(clientMessageId, sock, true);
+    }
+  }
+
+  function trackReceipt(clientMessageId: string, threadId: string, provider: string) {
+    pendingReceiptIdsRef.current.add(clientMessageId);
+    persistPendingReceiptIds();
+    rememberDeliveryState(clientMessageId, { status: "unconfirmed", threadId, provider });
+    if (ws.current?.readyState === 1) scheduleReceiptStatus(clientMessageId, ws.current);
+  }
+
+  function handleSendReceipt(msg: any) {
+    const clientMessageId = typeof msg.clientMessageId === "string" ? msg.clientMessageId : "";
+    if (!clientMessageId) return;
+    const status = (typeof msg.status === "string" ? msg.status : "unknown") as DeliveryStatus;
+    const state: DeliveryState = {
+      status,
+      ...(typeof msg.threadId === "string" ? { threadId: msg.threadId } : {}),
+      ...(typeof msg.provider === "string" ? { provider: msg.provider } : {}),
+      ...(typeof msg.issue === "string" ? { issue: msg.issue } : {}),
+      ...(typeof msg.updatedAt === "string" ? { updatedAt: msg.updatedAt } : {}),
+    };
+    rememberDeliveryState(clientMessageId, state);
+    if (terminalDeliveryStatuses.has(status)) {
+      pendingReceiptIdsRef.current.delete(clientMessageId);
+      persistPendingReceiptIds();
+      clearReceiptRetry(clientMessageId);
+    } else if ((receiptRetryAttemptsRef.current.get(clientMessageId) ?? 0) > 0 && ws.current?.readyState === 1) {
+      scheduleReceiptStatus(clientMessageId, ws.current);
+    }
+    const shortId = clientMessageId.slice(0, 8);
+    if (status === "uncertain") {
+      setAppBanner({
+        requestType: "sendReceipt",
+        clientMessageId,
+        threadId: state.threadId,
+        text: `Envoi ${shortId} : effet fournisseur incertain après redémarrage. Vérifier avant de renvoyer.`,
+        actionLabel: "Vérifier l’état",
+        onAction: () => { if (ws.current?.readyState === 1) requestReceiptStatus(ws.current, clientMessageId); },
+        closable: true,
+      });
+    } else if (status === "failed" || status === "unknown") {
+      setAppBanner({
+        requestType: "sendReceipt",
+        clientMessageId,
+        threadId: state.threadId,
+        text: status === "unknown"
+          ? `Envoi ${shortId} : état introuvable après reconnexion ; le renvoi reste manuel.`
+          : `Envoi ${shortId} : ${state.issue || "échec confirmé"}.`,
+        closable: true,
+      });
+    } else if (status === "completed" || status === "cancelled") {
+      setAppBanner((banner) => banner?.requestType === "sendReceipt" && banner.clientMessageId === clientMessageId ? null : banner);
+    }
+  }
   const lastInjected = useRef<string | null>(null);
   const pdfAnnotationDelivery = useRef(new PdfAnnotationDelivery());
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
@@ -945,7 +1117,7 @@ export default function App() {
       // (ou fil ÉVINCÉ — cf. evictedThreadsRef : la garde `!length` serait
       // trompeuse si un event live l'a re-peuplé partiellement entre-temps)
       if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
-        ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+        requestHistory(threadId);
         evictedThreadsRef.current.delete(threadId);
       }
     }
@@ -1666,9 +1838,354 @@ export default function App() {
     streamCoalescer.flush(threadId);
   }
 
+  function historyEventKey(event: AgentEvent): string | null {
+    const meta = event.meta as any;
+    if (meta && typeof meta.eventId === "string") return `event:${meta.eventId}`;
+    if (meta && typeof meta.messageId === "string") return `message:${meta.messageId}`;
+    return null;
+  }
+
+  function recoverableReadKey(
+    requestType: RecoverableReadType,
+    scope: { threadId?: string; projectRoot?: string; provider?: string | null; cursor?: HistoryCursor } = {},
+  ): string {
+    if (requestType === "getHistory") {
+      const cursor = scope.cursor
+        ? `${scope.cursor.epoch}:${scope.cursor.sequence}:${scope.cursor.eventId ?? ""}`
+        : "full";
+      return `${requestType}:${scope.threadId ?? ""}:${cursor}`;
+    }
+    return `${requestType}:${scope.projectRoot ?? ""}:${scope.provider ?? ""}`;
+  }
+
+  function forgetHistoryRequestBoundary(requestId: string) {
+    if (!requestId) return;
+    const boundary = historyRequestBoundariesRef.current.get(requestId);
+    if (!boundary) return;
+    historyRequestBoundariesRef.current.delete(requestId);
+    const order = historyRequestOrderRef.current.get(boundary.threadId);
+    if (!order) return;
+    const next = order.filter((id) => id !== requestId);
+    if (next.length) historyRequestOrderRef.current.set(boundary.threadId, next);
+    else historyRequestOrderRef.current.delete(boundary.threadId);
+  }
+
+  function forgetRecoverableRead(key: string, dropHistoryBoundary = false) {
+    const current = recoverableReadsRef.current.get(key);
+    if (!current) return;
+    if (current.timer != null) clearTimeout(current.timer);
+    if (dropHistoryBoundary && current.requestType === "getHistory") {
+      forgetHistoryRequestBoundary(current.requestId);
+    }
+    recoverableReadsRef.current.delete(key);
+    if (recoverableReadsByRequestIdRef.current.get(current.requestId) === key) {
+      recoverableReadsByRequestIdRef.current.delete(current.requestId);
+    }
+  }
+
+  function findRecoverableRead(msg: any): RecoverableRead | undefined {
+    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
+    if (requestId) {
+      const key = recoverableReadsByRequestIdRef.current.get(requestId);
+      if (key) return recoverableReadsRef.current.get(key);
+      // An explicit id is a promise about one read. Never attach a late or
+      // unknown response/error to another in-flight chat/project request.
+      return undefined;
+    }
+    const requestType = msg.requestType as RecoverableReadType | undefined;
+    if (!requestType) return undefined;
+    const candidates = [...recoverableReadsRef.current.values()]
+      .filter((entry) => entry.requestType === requestType)
+      .filter((entry) => !msg.threadId || entry.threadId === msg.threadId)
+      .filter((entry) => !msg.projectRoot || entry.projectRoot === msg.projectRoot)
+      .filter((entry) => !msg.provider || entry.provider === msg.provider);
+    return candidates[candidates.length - 1];
+  }
+
+  function recoverableReadScopeIsActive(entry: RecoverableRead): boolean {
+    if (entry.threadId && activeIdRef.current !== entry.threadId) return false;
+    if (entry.projectRoot && activeProjectRef.current !== entry.projectRoot) return false;
+    return ws.current?.readyState === 1;
+  }
+
+  function issueRecoverableRead(
+    requestType: Exclude<RecoverableReadType, "getHistory">,
+    scope: { projectRoot?: string; provider?: string | null; threadId?: string },
+    attempt = 0,
+    force = false,
+  ): boolean {
+    const sock = ws.current;
+    if (!sock || sock.readyState !== 1) return false;
+    const key = recoverableReadKey(requestType, scope);
+    const existing = recoverableReadsRef.current.get(key);
+    if (existing && !force) return true;
+    if (existing) forgetRecoverableRead(key);
+    const requestId = crypto.randomUUID();
+    const message: Record<string, unknown> = {
+      type: requestType,
+      ...(scope.projectRoot ? { projectRoot: scope.projectRoot } : {}),
+      ...(scope.provider ? { provider: scope.provider } : {}),
+      requestId,
+    };
+    try {
+      sock.send(JSON.stringify(message));
+    } catch {
+      return false;
+    }
+    const entry: RecoverableRead = {
+      key,
+      requestType,
+      requestId,
+      ...(scope.threadId ? { threadId: scope.threadId } : {}),
+      ...(scope.projectRoot ? { projectRoot: scope.projectRoot } : {}),
+      ...(scope.provider !== undefined ? { provider: scope.provider } : {}),
+      attempt,
+    };
+    recoverableReadsRef.current.set(key, entry);
+    recoverableReadsByRequestIdRef.current.set(requestId, key);
+    return true;
+  }
+
+  function requestCatalogRead(
+    requestType: "listCommands" | "listFiles",
+    projectRoot: string,
+    provider?: string | null,
+    attempt = 0,
+    force = false,
+  ): boolean {
+    return issueRecoverableRead(requestType, { projectRoot, provider }, attempt, force);
+  }
+
+  function requestCatalogWithRecovery(projectRoot: string, provider?: string | null) {
+    requestCatalogRead("listCommands", projectRoot, provider);
+    requestCatalogRead("listFiles", projectRoot);
+  }
+
+  function requestFileCatalogWithRecovery(projectRoot: string) {
+    requestCatalogRead("listFiles", projectRoot);
+  }
+
+  function requestGlobalRead(
+    requestType: "getUsage" | "getSettings" | "listHighlights" | "listAutomations",
+    attempt = 0,
+    force = false,
+  ): boolean {
+    return issueRecoverableRead(requestType, {}, attempt, force);
+  }
+
+  type HistoryRequestOptions = {
+    force?: boolean;
+    retryAttempt?: number;
+    recoveryKey?: string;
+  };
+
+  function requestHistory(threadId: string, cursor?: HistoryCursor, options: HistoryRequestOptions = {}) {
+    if (ws.current?.readyState !== 1) return false;
+    const key = options.recoveryKey ?? recoverableReadKey("getHistory", { threadId, cursor });
+    const existing = recoverableReadsRef.current.get(key);
+    if (existing && !options.force) return true;
+    if (existing) {
+      // The old request has either timed out or is being replaced by a bounded
+      // retry. Its snapshot boundary must not be reused by a later legacy
+      // response after the new request has been issued.
+      forgetHistoryRequestBoundary(existing.requestId);
+      forgetRecoverableRead(key);
+    }
+    const keys = new Set(
+      (eventsRef.current[threadId] ?? [])
+        .map(historyEventKey)
+        .filter((key): key is string => key !== null),
+    );
+    const requestId = crypto.randomUUID();
+    historyRequestBoundariesRef.current.set(requestId, { threadId, keys });
+    const order = historyRequestOrderRef.current.get(threadId) ?? [];
+    order.push(requestId);
+    // A disconnected socket can leave a request without a response. Keep a
+    // small ordered fallback queue for legacy servers that do not echo
+    // requestId, while bounding the per-thread refs across a long session.
+    while (order.length > 16) {
+      const expired = order.shift();
+      if (expired) historyRequestBoundariesRef.current.delete(expired);
+    }
+    historyRequestOrderRef.current.set(threadId, order);
+    try {
+      ws.current.send(JSON.stringify({
+        type: "getHistory",
+        threadId,
+        requestId,
+        ...(cursor ? { historyCursor: cursor } : {}),
+      }));
+    } catch {
+      forgetHistoryRequestBoundary(requestId);
+      return false;
+    }
+    const entry: RecoverableRead = {
+      key,
+      requestType: "getHistory",
+      requestId,
+      threadId,
+      ...(cursor ? { cursor } : {}),
+      attempt: options.retryAttempt ?? 0,
+    };
+    recoverableReadsRef.current.set(key, entry);
+    recoverableReadsByRequestIdRef.current.set(requestId, key);
+    return true;
+  }
+
+  function takeHistoryRequestBoundary(threadId: string, requestId?: string): Set<string> | undefined {
+    let selectedId = requestId;
+    let boundary = selectedId ? historyRequestBoundariesRef.current.get(selectedId) : undefined;
+    // An explicit id belongs to one precise read. If an old socket response
+    // arrives after its boundary was evicted, dropping it is safer than
+    // borrowing the next request for this thread and applying the wrong live
+    // preservation policy.
+    if (selectedId && (!boundary || boundary.threadId !== threadId)) return undefined;
+    if (!boundary) {
+      selectedId = undefined;
+      boundary = undefined;
+      const order = historyRequestOrderRef.current.get(threadId) ?? [];
+      while (order.length && !boundary) {
+        const candidateId = order.shift()!;
+        const candidate = historyRequestBoundariesRef.current.get(candidateId);
+        historyRequestBoundariesRef.current.delete(candidateId);
+        if (candidate?.threadId === threadId) {
+          selectedId = candidateId;
+          boundary = candidate;
+        }
+      }
+      if (order.length) historyRequestOrderRef.current.set(threadId, order);
+      else historyRequestOrderRef.current.delete(threadId);
+    } else if (selectedId) {
+      historyRequestBoundariesRef.current.delete(selectedId);
+      const order = historyRequestOrderRef.current.get(threadId);
+      if (order) {
+        const index = order.indexOf(selectedId);
+        if (index >= 0) order.splice(index, 1);
+        if (order.length) historyRequestOrderRef.current.set(threadId, order);
+        else historyRequestOrderRef.current.delete(threadId);
+      }
+    }
+    return boundary?.keys;
+  }
+
+  function settleRecoverableRead(msg: any, requestType?: RecoverableReadType): boolean {
+    const entry = findRecoverableRead({ ...msg, ...(requestType ? { requestType } : {}) });
+    if (!entry || (requestType && entry.requestType !== requestType)) return false;
+    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
+    if (requestId && requestId !== entry.requestId) return false;
+    // History still needs its request boundary while the response is applied;
+    // the handler consumes it immediately below. Other reads have no such
+    // merge boundary and can be released at once.
+    forgetRecoverableRead(entry.key, entry.requestType !== "getHistory");
+    return true;
+  }
+
+  function scheduleRecoverableReadRetry(msg: any): boolean {
+    const requestType = msg.requestType as RecoverableReadType | undefined;
+    const recoverableTypes: RecoverableReadType[] = ["getHistory", "listCommands", "listFiles", "getUsage", "getSettings", "listHighlights", "listAutomations"];
+    if (!requestType || !recoverableTypes.includes(requestType)) {
+      return false;
+    }
+    const entry = findRecoverableRead(msg);
+    if (!entry) return false;
+    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
+    if (requestId && requestId !== entry.requestId) return false;
+    if (!recoverableReadScopeIsActive(entry)) {
+      forgetRecoverableRead(entry.key, true);
+      return false;
+    }
+    // A read error that is not explicitly retryable must release its in-flight
+    // slot. Otherwise a later periodic/global read is coalesced forever with
+    // the failed request.
+    if (msg.code !== "REQUEST_BUSY" && msg.code !== "REQUEST_TIMEOUT") {
+      forgetRecoverableRead(entry.key, true);
+      return false;
+    }
+    if (entry.timer != null) return true;
+    if (entry.attempt >= READ_RETRY_DELAYS_MS.length) {
+      forgetRecoverableRead(entry.key, true);
+      return false;
+    }
+    const delay = READ_RETRY_DELAYS_MS[entry.attempt];
+    entry.timer = setTimeout(() => {
+      const current = recoverableReadsRef.current.get(entry.key);
+      if (current !== entry) return;
+      entry.timer = undefined;
+      if (!recoverableReadScopeIsActive(entry)) {
+        if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
+        forgetRecoverableRead(entry.key);
+        return;
+      }
+      if (entry.requestType === "getHistory") {
+        requestHistory(entry.threadId!, entry.cursor, {
+          force: true,
+          retryAttempt: entry.attempt + 1,
+          recoveryKey: entry.key,
+        });
+      } else if (entry.requestType === "listCommands" || entry.requestType === "listFiles") {
+        requestCatalogRead(entry.requestType, entry.projectRoot ?? "", entry.provider, entry.attempt + 1, true);
+      } else {
+        switch (entry.requestType) {
+          case "getUsage":
+          case "getSettings":
+          case "listHighlights":
+          case "listAutomations":
+            requestGlobalRead(entry.requestType, entry.attempt + 1, true);
+            break;
+          default:
+            forgetRecoverableRead(entry.key, true);
+        }
+      }
+    }, delay);
+    return true;
+  }
+
+  function cancelRecoverableReadsOutsideScope(threadId: string | null, projectRoot: string | null) {
+    for (const entry of [...recoverableReadsRef.current.values()]) {
+      const threadOutside = entry.threadId != null && entry.threadId !== threadId;
+      const projectOutside = entry.projectRoot != null && entry.projectRoot !== projectRoot;
+      if (!threadOutside && !projectOutside) continue;
+      if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
+      forgetRecoverableRead(entry.key);
+    }
+  }
+
+  function cancelRecoverableReadsForSocket() {
+    for (const entry of [...recoverableReadsRef.current.values()]) {
+      if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
+      forgetRecoverableRead(entry.key);
+    }
+  }
+
   // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
   // useSidecarConnection. Function hissée : le hook est appelé plus haut.
   function handleMessage(msg: any) {
+    if (msg.type === "sendReceipt") {
+      handleSendReceipt(msg);
+      return;
+    }
+    if (msg.type === "error" && msg.code === "SEND_ID_COLLISION") {
+      const id = typeof msg.clientMessageId === "string" ? msg.clientMessageId : "";
+      setAppBanner({
+        requestType: "sendReceipt",
+        clientMessageId: id || undefined,
+        threadId: typeof msg.threadId === "string" ? msg.threadId : undefined,
+        text: "Identifiant d’envoi déjà utilisé pour un contenu différent. Le renvoi a été bloqué.",
+        closable: true,
+      });
+      return;
+    }
+    const recoveredRead: Record<string, string> = {
+      commands: "listCommands", files: "listFiles", evidencePins: "listPins",
+      usage: "getUsage", settingsFile: "getSettings", highlights: "listHighlights",
+      automations: "listAutomations",
+    };
+    if (recoveredRead[msg.type] && !msg.error && !msg.code) {
+      const requestType = recoveredRead[msg.type] as RecoverableReadType;
+      settleRecoverableRead({ ...msg, requestType }, requestType);
+      setAppBanner((banner) => banner?.requestType === requestType &&
+        (!banner.projectRoot || banner.projectRoot === msg.projectRoot) ? null : banner);
+    }
       if (msg.type === "automations") {
         setAutomations(Array.isArray(msg.automations) ? msg.automations : []);
       }
@@ -1828,6 +2345,18 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));
       }
       if (msg.type === "event") {
+        const eventMeta = msg.event?.meta;
+        if (typeof msg.threadId === "string" && eventMeta?.durable !== false &&
+            typeof eventMeta?.sequence === "number" && typeof eventMeta?.eventId === "string") {
+          const cursor = historyCursorsRef.current.get(msg.threadId);
+          if (!cursor || eventMeta.sequence > cursor.sequence) {
+            historyCursorsRef.current.set(msg.threadId, {
+              epoch: cursor?.epoch ?? "",
+              sequence: eventMeta.sequence,
+              eventId: eventMeta.eventId,
+            });
+          }
+        }
         if (["started", "user", "heartbeat"].includes(msg.event.kind)) confirmedRunsRef.current.add(msg.threadId);
         if (["done", "error"].includes(msg.event.kind)) confirmedRunsRef.current.delete(msg.threadId);
         if (msg.event.kind === "started") {
@@ -1942,13 +2471,44 @@ export default function App() {
           // les filtres et produit un faux « reload de l'app » à chaque done.
           // l'agent a peut-être créé des fichiers → rafraîchir le catalogue (résolution des chips)
           if (msg.event.kind === "done" && activeProjectRef.current && ws.current?.readyState === 1) {
-            requestCatalog(ws.current, activeProjectRef.current);
+            requestCatalogWithRecovery(activeProjectRef.current);
           }
         }
       }
       if (msg.type === "history") {
+        const recoveredHistory = settleRecoverableRead(msg, "getHistory");
+        const requestBaselineKeys = takeHistoryRequestBoundary(
+          msg.threadId,
+          typeof msg.requestId === "string" ? msg.requestId : undefined,
+        );
+        // A response with an explicit id that no longer belongs to this
+        // socket/navigation generation is stale. Applying its snapshot would
+        // erase live durable text that arrived after the replacement request;
+        // silently discard that response and wait for the current read.
+        if (typeof msg.requestId === "string" && requestBaselineKeys === undefined) return;
         const baseline = historySnapshotRefs.current.get(msg.threadId);
         if (baseline && baseline.epoch === msg.historyEpoch && typeof msg.historyRevision === "number" && msg.historyRevision < baseline.revision) return;
+        const previousCursor = historyCursorsRef.current.get(msg.threadId);
+        const incomingEpoch = typeof msg.historyCursor?.epoch === "string" ? msg.historyCursor.epoch : null;
+        const epochChanged = Boolean(previousCursor && incomingEpoch && previousCursor.epoch && previousCursor.epoch !== incomingEpoch);
+        const snapshotHead = typeof msg.historyHeadSequence === "number" ? msg.historyHeadSequence : 0;
+        if (msg.historyMode === "snapshot" && msg.historyCursor === null) {
+          // Native provider history can contain events absent from the Atelier
+          // journal. A journal cursor retained from an earlier read would
+          // make the next request replay only the journal and silently lose
+          // those native events; force the next read to take the full native
+          // snapshot again.
+          historyCursorsRef.current.delete(msg.threadId);
+        } else if (msg.historyCursor && typeof msg.historyCursor.epoch === "string" &&
+            typeof msg.historyCursor.sequence === "number") {
+          historyCursorsRef.current.set(msg.threadId, {
+            epoch: msg.historyCursor.epoch,
+            sequence: msg.historyCursor.sequence,
+            ...(typeof msg.historyCursor.eventId === "string" ? { eventId: msg.historyCursor.eventId } : {}),
+          });
+        }
+        setAppBanner((banner) => banner?.requestType === "getHistory" && banner.threadId === msg.threadId &&
+          (recoveredHistory || typeof msg.requestId !== "string") ? null : banner);
         // replay = live : l'historique est rejoué à travers le MÊME reducer que
         // les événements live ; sur un fil déjà peuplé, seuls les événements
         // identifiés (meta.eventId) manquants fusionnent, par sequence, sans
@@ -1958,7 +2518,9 @@ export default function App() {
           // citations rejouées depuis une session native : re-découpées en
           // pastilles (même bulle qu'en direct) avant la fusion
           const replayed = rebuildReplayQuotePastes((msg.events ?? []) as AgentEvent[]);
-          const next = mergeHarnessHistory(cur, replayed);
+          const next = msg.historyMode === "snapshot"
+            ? replaceHarnessHistory(cur, replayed, snapshotHead, epochChanged, requestBaselineKeys)
+            : mergeHarnessHistory(cur, replayed);
           return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
         // replay de l'usage (plan 025) : l'anneau se vidait au reload — le
@@ -2015,6 +2577,7 @@ export default function App() {
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
       if (msg.type === "reverted") {
+        if (typeof msg.threadId === "string") historyCursorsRef.current.delete(msg.threadId);
         if (typeof msg.historyEpoch === "string" && typeof msg.historyRevision === "number") {
           const baseline = historySnapshotRefs.current.get(msg.threadId);
           if (baseline && baseline.epoch === msg.historyEpoch && msg.historyRevision <= baseline.revision) return;
@@ -2367,8 +2930,15 @@ export default function App() {
       if (msg.type === "error") {
         // Correlated read failures must not stop a run or roll back an edit.
         const actionError = !msg.requestType || ["send", "prepareMessageEdit", "revert", "createLinkedThread"].includes(msg.requestType);
-        if (msg.requestType) setAppBanner({ text: String(msg.message), closable: true });
-        console.error("sidecar:", msg.message);
+        scheduleRecoverableReadRetry(msg);
+        const readRequest = ["getHistory", "listCommands", "listFiles", "listPins", "getUsage", "getSettings", "listHighlights", "listAutomations"].includes(msg.requestType);
+        const readScopeMatches = (!msg.threadId || msg.threadId === activeIdRef.current) &&
+          (!msg.projectRoot || msg.projectRoot === activeProjectRef.current);
+        if (msg.requestType && (!readRequest || readScopeMatches)) setAppBanner({
+          text: String(msg.message), closable: true, requestType: msg.requestType,
+          threadId: msg.threadId || undefined, projectRoot: msg.projectRoot || undefined,
+        });
+        console.error("sidecar:", msg.requestType, msg.code, msg.message);
         // Refus d'un send par le serveur (projet verrouillé par un tour
         // zombie, 2026-08-25) : l'erreur porte désormais le threadId — il faut
         // éteindre le spinner de CE fil et montrer le refus, sinon le compteur
@@ -2503,7 +3073,7 @@ export default function App() {
       }));
       if (response?.cancelTurn && threadId) {
         ws.current?.send(JSON.stringify({ type: "interrupt", threadId }));
-        ws.current?.send(JSON.stringify({ type: "getHistory", threadId }));
+        requestHistory(threadId, undefined, { force: true });
       }
       setEvents((p) => ({
         ...p,
@@ -2564,7 +3134,7 @@ export default function App() {
     : null;
   useEffect(() => {
     if (activeProject && wsReady && ws.current?.readyState === 1) {
-      requestCatalog(ws.current, activeProject, activeProviderId);
+      requestCatalogWithRecovery(activeProject, activeProviderId);
     }
   }, [activeProject, wsReady, activeProviderId]);
 
@@ -2586,12 +3156,28 @@ export default function App() {
   // — l'historique du serveur fait foi sur ce que le direct a pu manquer.
   useEffect(() => {
     if (activeId && wsReady && ws.current?.readyState === 1) {
-      ws.current.send(JSON.stringify({ type: "getHistory", threadId: activeId }));
+      const historyCursor = historyCursorsRef.current.get(activeId);
+      requestHistory(activeId, historyCursor);
       // le fil vient d'être relu en entier : la garde des autres sites
       // getHistory (cf. plus bas) n'a plus besoin d'être contournée pour lui.
       evictedThreadsRef.current.delete(activeId);
     }
   }, [activeId, wsReady]);
+
+  // A read belonging to a chat/project left by navigation has no useful
+  // consumer. Cancel its delayed retry and remove only its scoped banner;
+  // other chats, drafts and queued turns remain untouched.
+  useEffect(() => {
+    cancelRecoverableReadsOutsideScope(activeId, activeProject);
+    setAppBanner((banner) => {
+      if (!banner?.requestType) return banner;
+      const scopedRead = ["getHistory", "listCommands", "listFiles", "listPins"].includes(banner.requestType);
+      if (!scopedRead) return banner;
+      if (banner.threadId && banner.threadId !== activeId) return null;
+      if (banner.projectRoot && banner.projectRoot !== activeProject) return null;
+      return banner;
+    });
+  }, [activeId, activeProject]);
 
   // Éviction des fils inactifs (perf, session ouverte plusieurs jours) : à
   // chaque changement de fil actif, les fils SANS tour en cours (`workingSince`
@@ -2626,6 +3212,9 @@ export default function App() {
     // sont ensuite supprimés avec le reste (pas "préservés").
     for (const id of toEvict) streamCoalescer.flush(id);
     for (const id of toEvict) evictedThreadsRef.current.add(id);
+    // Eviction drops the materialized history, so its cursor is no longer
+    // usable: the next selection must request an authoritative snapshot.
+    for (const id of toEvict) historyCursorsRef.current.delete(id);
     // l'empreinte agentHistory doit suivre l'éviction : sans ça un fil
     // d'agent évincé serait vu « inchangé » et ne se repeuplerait jamais
     for (const id of toEvict) agentHistoryFps.current.delete(id);
@@ -2673,9 +3262,9 @@ export default function App() {
     const returnedHome = previousRecentActiveId.current !== null && activeId === null;
     previousRecentActiveId.current = activeId;
     if (activeId || !activeProject || !wsReady || ws.current?.readyState !== 1) return;
-    if (returnedHome) requestFileCatalog(ws.current, activeProject);
+    if (returnedHome) requestFileCatalogWithRecovery(activeProject);
     const timer = window.setInterval(() => {
-      if (ws.current?.readyState === 1) requestFileCatalog(ws.current, activeProject);
+      if (ws.current?.readyState === 1) requestFileCatalogWithRecovery(activeProject);
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [activeId, activeProject, wsReady]);
@@ -3137,7 +3726,7 @@ export default function App() {
         const id = activeIdRef.current;
         if (id && workingSinceRef.current[id] != null && ws.current?.readyState === 1) {
           ws.current.send(JSON.stringify({ type: "interrupt", threadId: id }));
-          ws.current.send(JSON.stringify({ type: "getHistory", threadId: id }));
+          requestHistory(id, undefined, { force: true });
           return;
         }
       }
@@ -3245,13 +3834,16 @@ export default function App() {
   }
 
   function selectThread(threadId: string, projectRoot: string) {
+    // A changed id is loaded by the activeId effect. Clicking the same empty
+    // chat remains an explicit retry, without duplicating every navigation.
+    const reselect = activeIdRef.current === threadId;
     setActiveId(threadId);
     activeIdRef.current = threadId;
     if (!projectRoot) {
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       // (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde `!length`)
-      if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
-        ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+      if (reselect && (!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
+        requestHistory(threadId);
         evictedThreadsRef.current.delete(threadId);
       }
       return;
@@ -3266,8 +3858,8 @@ export default function App() {
     // conversation pas encore en mémoire → recharger l'historique de la
     // session (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde
     // `!length`, sans danger : mergeHarnessHistory fusionne sans écraser)
-    if ((!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
-      ws.current.send(JSON.stringify({ type: "getHistory", threadId }));
+    if (reselect && (!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
+      requestHistory(threadId);
       evictedThreadsRef.current.delete(threadId);
     }
   }
@@ -3775,6 +4367,7 @@ export default function App() {
         signalerEnvoiImpossible();
         return;
       }
+      trackReceipt(clientMessageId, id, provider);
       // The draft is retired by the authoritative `threads` acknowledgement,
       // not by transport acceptance: a slow backend must not hide the chat.
     }
@@ -3875,8 +4468,7 @@ export default function App() {
       ...current,
       [targetThreadId]: current[targetThreadId] ?? Date.now(),
     }));
-    pdfAnnotationDelivery.current.track(clientMessageId, queuedAttachments);
-    sendPrompt(ws.current, {
+    const envoye = sendPrompt(ws.current, {
       ...(queued.autoReview ? { autoReview: queued.autoReview } : {}),
       threadId: targetThreadId,
       projectRoot: thread.projectRoot ?? "",
@@ -3909,6 +4501,9 @@ export default function App() {
       mode,
       ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
     });
+    if (!envoye) return false;
+    pdfAnnotationDelivery.current.track(clientMessageId, queuedAttachments);
+    trackReceipt(clientMessageId, targetThreadId, queued.provider);
     return true;
   }
 
@@ -4071,7 +4666,7 @@ export default function App() {
   }, [allThreads, composerDrafts, removeQueuedTurn, workingSince, wsReady]);
   useEffect(() => {
     if (!wsReady) return;
-    const send = () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "getUsage" }));
+    const send = () => { requestGlobalRead("getUsage"); };
     send();
     const iv = setInterval(send, 300000);
     return () => clearInterval(iv);
@@ -4462,7 +5057,7 @@ export default function App() {
               setTimeout(() => {
                 setActiveId(newId);
                 activeIdRef.current = newId;
-                ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+                requestHistory(newId);
               }, 250);
             }
           }}
@@ -4596,7 +5191,7 @@ export default function App() {
                 setTimeout(() => {
                   setActiveId(newId);
                   activeIdRef.current = newId;
-                  ws.current?.send(JSON.stringify({ type: "getHistory", threadId: newId }));
+                  requestHistory(newId);
                 }, 250);
               }
             }}
@@ -4614,6 +5209,9 @@ export default function App() {
       }
     </>
   );
+  const activeDeliveryState = activeId
+    ? Object.values(deliveryStates).reverse().find((state) => state.threadId === activeId)
+    : undefined;
 
   return (
     <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
@@ -4637,7 +5235,19 @@ export default function App() {
             </IconButton>
           </div>
         )}
-        {appBanner && (
+        {activeDeliveryState && (
+          <div className="sr-only" aria-live="polite" data-delivery-status={activeDeliveryState.status}>
+            {activeDeliveryState.status === "unconfirmed" && "Envoi en attente de réception"}
+            {activeDeliveryState.status === "received" && "Envoi reçu par Atelier"}
+            {activeDeliveryState.status === "started" && "Réponse en cours"}
+            {activeDeliveryState.status === "completed" && "Réponse terminée"}
+            {activeDeliveryState.status === "cancelled" && "Envoi annulé"}
+            {activeDeliveryState.status === "uncertain" && "Effet fournisseur incertain, vérification requise"}
+            {activeDeliveryState.status === "failed" && "Envoi échoué"}
+            {activeDeliveryState.status === "unknown" && "État de l’envoi introuvable"}
+          </div>
+        )}
+        {appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) && (
           <Banner
             text={appBanner.kind === "connection" ? t("app.sidecar-disconnected") : appBanner.text}
             connection={appBanner.kind === "connection"}
@@ -4730,6 +5340,7 @@ export default function App() {
           onReorderQueued={(draggedId, targetId) => reorderQueuedTurn(activeComposerKey, draggedId, targetId)}
           attachments={attachments}
           onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
+          onRestoreAttachment={(attachment, index) => setAttachments((list) => { const next = [...list]; next.splice(Math.min(index, next.length), 0, attachment); return next; })}
           onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
@@ -4890,7 +5501,7 @@ export default function App() {
           onStop={() => {
             if (activeId && ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
-              ws.current.send(JSON.stringify({ type: "getHistory", threadId: activeId }));
+              requestHistory(activeId, undefined, { force: true });
             }
           }}
           onPasteImage={(dataURL) => {
