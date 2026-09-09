@@ -39,6 +39,8 @@ src-tauri/appsnap-dist/
 # Local research/build artifacts
 /.fig_state.json
 /.fig_thumbs/
+/figures_data.json
+/figures_index.html
 /generated/
 /diff_test.*
 /.worktrees/
