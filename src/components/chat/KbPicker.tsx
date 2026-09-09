@@ -18,6 +18,8 @@ import {
 import { useKbActions } from "./kbActions";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import { Checkbox, CheckboxIndicator } from "../shadcn/checkbox";
+import { Search, Plus, BookOpen } from "lucide-react";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
@@ -140,11 +142,7 @@ export function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
 }
 
 function BookIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-    </svg>
-  );
+  return <BookOpen aria-hidden="true" />;
 }
 
 function ExpandIcon() {
@@ -204,6 +202,7 @@ export function KbPickerPanel(p: {
   onCollFilterChange?: (slug: string | null) => void;
   headerEnd?: ReactNode;
 }) {
+  const [addOpen, setAddOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteTitle, setNoteTitle] = useState("");
@@ -289,9 +288,11 @@ export function KbPickerPanel(p: {
         .filter((source) => !p.attached.includes(source.id))
         .slice(0, 5)
     : [];
+  const recentIds = new Set(recents.map(source => source.id));
+  const groupedSources = surface ? librarySources : librarySources.filter(source => !recentIds.has(source.id));
   const kinds = [
-    ...GROUP_ORDER.filter((kind) => librarySources.some((source) => source.kind === kind)),
-    ...[...new Set(librarySources.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
+    ...GROUP_ORDER.filter((kind) => groupedSources.some((source) => source.kind === kind)),
+    ...[...new Set(groupedSources.map((source) => source.kind))].filter((kind) => !GROUP_ORDER.includes(kind)),
   ];
   function exitSelect() {
     setSelectMode(false);
@@ -307,7 +308,7 @@ export function KbPickerPanel(p: {
     if (surface) out.push(...attachedSources.map((s2) => s2.id));
     out.push(...recents.map((s2) => s2.id));
     for (const kind of kinds) {
-      const group = librarySources.filter((s2) => s2.kind === kind);
+      const group = groupedSources.filter((s2) => s2.kind === kind);
       const open = !surface || filtering || (openGroups[kind] ?? false);
       if (!open) continue;
       const rows = surface && !expandedKinds.has(kind) ? group.slice(0, 20) : group;
@@ -361,6 +362,7 @@ export function KbPickerPanel(p: {
       <div className={`kb-row ${on ? "on" : ""} ${selectMode && isSelected ? "sel" : ""}`}>
         <RowButton
           className="kb-row-main"
+          aria-pressed={selectMode ? isSelected : on}
           title={source.origin ?? source.title}
           onClick={(e: React.MouseEvent) => {
             if (selectMode) handleSelect(source.id, e.shiftKey);
@@ -429,6 +431,7 @@ export function KbPickerPanel(p: {
               onOpenChange={(open) => setCollMenuFor(open ? source.id : null)}
               align="end"
               label={t("kb.collections-menu")}
+              className={!surface ? "composer-menu" : undefined}
               trigger={(
                 <IconButton
                   size="s"
@@ -482,7 +485,7 @@ export function KbPickerPanel(p: {
   };
 
   return (
-    <div className={`kb-panel ${surface ? "kb-panel-surface" : ""}`}>
+    <div className={`kb-panel ${surface ? "kb-panel-surface" : "kb-panel-picker"}`}>
       <div className="kb-head">
         <span className="kb-title">{t("kb.title")}</span>
         {surface && !archivedView && (
@@ -506,14 +509,18 @@ export function KbPickerPanel(p: {
             </svg>
           </RowButton>
         )}
-        <Input
-          className="kb-search"
-          placeholder={t("kb.search")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        {surface ? <Input className="kb-search" aria-label={t("kb.search")} placeholder={t("kb.search")}
+          value={query} onChange={(e) => setQuery(e.target.value)} /> :
+          <IconButton size="s" label={t("kb.add-source")} title={t("kb.add-source")}
+            aria-expanded={addOpen} onClick={() => setAddOpen(v => !v)}><Plus /></IconButton>}
+
         {p.headerEnd && <div className="workspace-pane-controls-slot">{p.headerEnd}</div>}
       </div>
+      {!surface && <InputGroup className="kb-search-group">
+        <InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon>
+        <InputGroupInput aria-label={t("kb.search")} placeholder={t("kb.search")}
+          value={query} onChange={e => setQuery(e.target.value)} />
+      </InputGroup>}
       {((p.collections?.length ?? 0) > 0 || p.onCreateCollection || (p.archived?.count ?? 0) > 0) && (
         <div className="kb-chips-row">
           <RowButton
@@ -578,7 +585,7 @@ export function KbPickerPanel(p: {
           )}
         </div>
       )}
-      <div className="kb-actions">
+      <div className="kb-actions" hidden={!surface && !addOpen}>
         <Button type="button" variant="ghost" className="ghost kb-action" onClick={p.onAddFiles}>
           {t("kb.add-file")}
         </Button>
@@ -706,7 +713,7 @@ export function KbPickerPanel(p: {
         )}
         {!surface && !archivedView && filtered.length === 0 && <div className="kb-empty">{t("kb.empty")}</div>}
         {!archivedView && kinds.map((kind) => {
-          const group = librarySources.filter((source) => source.kind === kind);
+          const group = groupedSources.filter((source) => source.kind === kind);
           // surface : groupes repliés par défaut (comptes visibles), le filtre
           // ou la recherche ouvre tout ; plafond 20 + « tout afficher »
           const open = !surface || filtering || (openGroups[kind] ?? false);
@@ -927,6 +934,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
           <IconButton
             size="s"
             className="ghost kb-trigger"
+            data-active={pickerOpen || binding.attached.length > 0}
             label={t("kb.open")}
             // le badge donne le compte, le survol donne les titres (les
             // pilules KB du composer ont été retirées — plan 050)
@@ -945,7 +953,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
         }
       />
       {pickerOpen && (
-        <PopoverContent plain side="top" align="start" sideOffset={8} className="kb-pop">
+        <PopoverContent plain side="top" align="start" sideOffset={8} className="composer-menu kb-pop">
           <KbPickerPanel
             sources={sources}
             attached={binding.attached}

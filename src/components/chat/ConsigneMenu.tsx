@@ -1,5 +1,6 @@
 import { nomConsigne, consignesSelectionnees, basculerConsigne } from "../../lib/consignes";
 import { useState } from "react";
+import { FileText, GraduationCap, FlaskConical, MessageCircle, SlidersHorizontal, List } from "lucide-react";
 import { DropdownMenuSurface } from "../ui/DropdownMenuSurface";
 import { RowButton } from "../ui/RowButton";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
@@ -18,15 +19,7 @@ const PIED_KEYS = {
 } as const;
 
 function GlypheConsigne() {
-  return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-         strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-      <circle cx="5" cy="7" r="1.4" />
-      <circle cx="5" cy="12" r="1.4" />
-      <circle cx="5" cy="17" r="1.4" />
-      <path d="M9.5 7H19M9.5 12H19M9.5 17H15" />
-    </svg>
-  );
+  return <List aria-hidden="true" />;
 }
 
 /** Coche de la rangée active. Le remplissage de la rangée porte déjà le
@@ -87,10 +80,10 @@ export function ConsigneMenu(p: {
       className: rangee(selection.some(rule => rule.id === c.id)),
       label: (
         <>
+          {(() => { const Icon = c.id === "concis" ? FileText : c.id === "pedagogique" ? GraduationCap : c.id === "rigueur" ? FlaskConical : MessageCircle; return <Icon aria-hidden="true" />; })()}
           <span className="consigne-option">
             <span className="consigne-nom">{c.nom}</span>
-            {/* Tronquée à droite : l'infobulle rend le texte entier, pour
-                les consignes dont la description est longue. */}
+            {/* La description se lit sous le nom et peut revenir à la ligne. */}
             <span className="consigne-desc" title={c.description}>
               {c.description}
             </span>
@@ -102,7 +95,7 @@ export function ConsigneMenu(p: {
     {
       key: "reglages",
       separatorBefore: true,
-      label: <span className="consigne-lien">{t("consigne.edit")}</span>,
+      label: <><SlidersHorizontal aria-hidden="true" /><span className="consigne-lien">{t("consigne.edit")}</span></>,
       onSelect: p.onOuvrirReglages,
     },
   ];
@@ -112,12 +105,17 @@ export function ConsigneMenu(p: {
       open={open}
       onOpenChange={setOpen}
       label={t("consigne.menu-title")}
-      footer={<>{t("consigne.combine")}<br />{pied}</>}
+      className="composer-menu composer-style-menu"
+      header={<span className="consigne-heading"><span>{t("consigne.heading")}</span><span className="consigne-subtitle">{t("consigne.combine")}</span></span>}
+      footer={<span title={pied}>{t("consigne.active-count", { n: selection.length })}</span>}
+      side="top"
+      sideOffset={8}
       align="start"
       items={items}
       trigger={
         <RowButton
           className={p.actif ? "consigne-pilule" : "consigne-trigger"}
+          data-active={Boolean(p.actif) || open}
           aria-label={t("consigne.menu-title")}
           title={
             supporte

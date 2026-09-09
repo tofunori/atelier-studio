@@ -9,6 +9,7 @@ import "../styles/typeset.css";
 import "../styles/primitives.css";
 import "../App.css";
 import Chat from "./Chat";
+import { CONSIGNES_LIVREES, type ConsigneDuFil } from "../lib/consignes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
@@ -443,6 +444,9 @@ const STATES: Record<string, BenchState> = {
 export function ChatBench() {
   const hash = window.location.hash;
   const light = hash.includes("-light");
+  const menuBench = hash.includes("-menus");
+  const [menuConsigne, setMenuConsigne] = useState<ConsigneDuFil | null>(null);
+  const [menuKb, setMenuKb] = useState({ kbSourceIds: [] as string[], kbFullContent: [] as string[] });
   const key = Object.keys(STATES).find((k) => hash.includes(`-${k}`)) ?? "rich";
   const st = STATES[key];
   const [firstMessageEvents, setFirstMessageEvents] = useState<AgentEvent[]>([]);
@@ -493,14 +497,19 @@ export function ChatBench() {
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"
-        threadProvider={key === "goal" || key === "agents" ? "codex" : "claude"}
+        threadProvider={(menuBench && hash.includes("-codex")) || key === "goal" || key === "agents" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
         usage={activeState.usage}
         onRevert={noop} onFork={noop} onEditSend={noop}
         onNewChat={noop} onOpenProject={noop}
         highlights={[]}
-        defaults={{ defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
+        consigneDuFil={menuBench ? menuConsigne : undefined}
+        onChoisirConsigne={menuBench ? setMenuConsigne : undefined}
+        onKbChange={menuBench ? setMenuKb : undefined}
+        kbSourceIds={menuKb.kbSourceIds}
+        kbFullContent={menuKb.kbFullContent}
+        defaults={{ consignes: menuBench ? CONSIGNES_LIVREES : undefined, defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
         providers={PROVIDERS}
         // une épingle figée : le banc doit montrer les DEUX intensités de la
         // marge (repère de prompt éteint, épingle accentuée et nommée)

@@ -98,9 +98,9 @@ describe("ConsigneMenu", () => {
   it("dit comment la consigne est appliquée sur le CLI courant", () => {
     const { rerender } = render(<ConsigneMenu {...base} actif={null} />);
     fireEvent.click(screen.getByLabelText("Consigne du fil"));
-    expect(screen.getByText(/invisible dans le fil/)).toBeTruthy();
+    expect(screen.getByTitle(/invisible dans le fil/)).toBeTruthy();
     rerender(<ConsigneMenu {...base} provider="codex" actif={null} />);
-    expect(screen.getByText(/en tête de chaque message/)).toBeTruthy();
+    expect(screen.getByTitle(/en tête de chaque message/)).toBeTruthy();
   });
 });
 

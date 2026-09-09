@@ -75,6 +75,7 @@ describe("KbPickerPanel", () => {
   it("épingler une URL et une note passe par les callbacks", () => {
     const props = panelProps();
     renderUi(<KbPickerPanel {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ajouter une source" }));
     const url = screen.getByPlaceholderText("Épingler une URL (Entrée)");
     fireEvent.change(url, { target: { value: "https://exemple.org/a" } });
     fireEvent.keyDown(url, { key: "Enter" });

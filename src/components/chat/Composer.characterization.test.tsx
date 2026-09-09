@@ -955,7 +955,7 @@ describe("composer — grappe de méta", () => {
     const bar = document.querySelector(".composer-bar") as HTMLElement;
     const kids = [...bar.children];
     const iSpacer = kids.findIndex((el) => el.classList.contains("flex"));
-    const iSelect = kids.findIndex((el) => el.classList.contains("custom-select"));
+    const iSelect = kids.findIndex((el) => el.classList.contains("custom-select") || Boolean(el.querySelector(".permission-select")));
     const iModel = kids.findIndex((el) => el.classList.contains("model-pick"));
     expect(iSpacer).toBeGreaterThanOrEqual(0);
     expect(iSelect).toBeGreaterThanOrEqual(0);

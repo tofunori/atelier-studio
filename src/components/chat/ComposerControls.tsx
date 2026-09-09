@@ -6,7 +6,7 @@ import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
 import { ProviderInfo } from "../../lib/providers";
-import { ButtonGroup } from "../shadcn/button-group";
+import { ButtonGroup, ButtonGroupSeparator } from "../shadcn/button-group";
 import { Toggle } from "../shadcn/toggle";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { Button } from "../ui/Button";
@@ -299,7 +299,8 @@ export function ComposerControls(p: {
               side="top"
               sideOffset={8}
               align="start"
-              className="plus-up tw:w-60"
+              className="composer-menu composer-add-menu plus-up"
+              header={t("action.add-file-image")}
               label={t("action.add-file-image")}
               trigger={(
                 <IconButton
@@ -348,6 +349,8 @@ export function ComposerControls(p: {
                 }] : []),
               ]}
             />
+          </ButtonGroup>
+          <ButtonGroup className="composer-context-rail">
             {p.kb && <KbPicker binding={p.kb} />}
             <ConsigneMenu
               consignes={p.defaults.consignes ?? []}
@@ -356,12 +359,14 @@ export function ComposerControls(p: {
               onChoisir={p.onChoisirConsigne}
               onOuvrirReglages={p.onOuvrirReglagesConsignes}
             />
-          </ButtonGroup>
           {permissionOptions.length > 0 && (
             <>
+              <ButtonGroupSeparator />
               <Select
                 compact
                 className="permission-select"
+                menuClassName="composer-menu composer-permission-menu"
+                menuLabel={t("settings.permission-default")}
                 triggerIcon={<PermissionIcon mode={permissionMode} />}
                 title={`${t("settings.permission-default")} — ${t(
                   (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
@@ -378,6 +383,7 @@ export function ComposerControls(p: {
               />
             </>
           )}
+          </ButtonGroup>
           <span className="flex" />
           {p.usage && (
             <Popover open={ctxPopOpen} onOpenChange={setCtxPopOpen}>
@@ -400,7 +406,7 @@ export function ComposerControls(p: {
                   </RowButton>
                 }
               />
-              <PopoverContent plain side="top" align="end" sideOffset={6} className="ctx-pop">
+              <PopoverContent plain side="top" align="end" sideOffset={8} className="composer-menu ctx-pop">
                 <PopoverTitle>{t("chat.context-window")}</PopoverTitle>
                 <span>{t("chat.context-used", { pct: contextPct, used: Math.round(p.usage.context / 1000), window: contextWindowLabel })}</span>
                 <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
@@ -455,8 +461,8 @@ export function ComposerControls(p: {
                   plain
                   side="top"
                   align="end"
-                  sideOffset={6}
-                  className="mp-menu model-menu model-only"
+                  sideOffset={8}
+                  className="composer-menu mp-menu model-menu model-only"
                   ref={modelMenuRef}
                   role="menu"
                   aria-label={t("chat.model-title")}
@@ -655,8 +661,8 @@ export function ComposerControls(p: {
                   plain
                   side="top"
                   align="end"
-                  sideOffset={6}
-                  className="mp-menu effort-menu"
+                  sideOffset={8}
+                  className="composer-menu mp-menu effort-menu"
                   ref={effortMenuRef}
                   initialFocus={(interaction) => interaction === "keyboard" ? effortTrackRef.current : false}
                   aria-label={effortTitle}
@@ -671,7 +677,7 @@ export function ComposerControls(p: {
                             <ZapIcon data-icon="inline-start" aria-hidden="true" /><span>Fast</span>
                           </Toggle>
                         </Tooltip>
-                      ) : <span aria-hidden="true" />}
+                      ) : null}
                       <div className="ef-heading">
                         <div className="ef-title"><b>{effortSummary}</b></div>
                         <RowButton className="ef-model-link" title={t("chat.model-title")}
