@@ -73,6 +73,26 @@ import Foundation
             workspace.chat.rows = [.init(id: "annotation-card", kind: "user", text: RemoteChatModel.promptWithQuote("Le problème avec les résultats, c’est que ça se lit comme une liste. Peux-tu améliorer l’enchaînement ?", quote: quote), turn: "annotation-card")]
             workspace.surface = .chat
         }
+        if ProcessInfo.processInfo.arguments.contains("--document-refresh-fixture") {
+            let old = "\\section{Results}\nIndividual summers show larger forcings.\n"
+            let updated = "\\section{Results}\n" + String(repeating: "The summer mean reaches $14.31$~W~m$^{-2}$ in 2023, with a melt equivalent of 341 mm w.e. ", count: 5) + "\n"
+            let file = GalleryArtifact(name: "results_en.tex", data: Data(old.utf8))
+            try? workspace.openArtifact(file, data: Data(old.utf8))
+            workspace.receiveDocumentVersion(updated, for: file.id, expectedSource: old)
+            workspace.documentMode = .source
+            workspace.surface = .document
+        }
+        if ProcessInfo.processInfo.arguments.contains("--reading-capsule-fixture") {
+            let source = String(repeating: "Individual summers show much larger regional forcings: $14.31$~W~m$^{-2}$ in 2023. ", count: 5)
+            let prompt = "Voici mes remarques de lecture. Propose des révisions en tenant compte de chaque remarque.\n\nresults_en.tex — lignes 90–100\nCitation :\n" + source + "\n\nSource exacte :\n" + source + "\n\nRemarque :\nVarier reaches."
+            workspace.pendingDocumentPrompt = prompt
+            workspace.applyPendingDocumentChat()
+            workspace.chat.rows = [
+                .init(id: "reading-capsule", kind: "user", text: prompt, turn: "reading-capsule"),
+                .init(id: "reading-response", kind: "text", text: "Voici la révision :\n\n```latex\n" + source + "\n```", turn: "reading-capsule")
+            ]
+            workspace.surface = .chat
+        }
         if ProcessInfo.processInfo.arguments.contains("--thinking-label-fixture") {
             workspace.chat.running = true
             workspace.surface = .chat

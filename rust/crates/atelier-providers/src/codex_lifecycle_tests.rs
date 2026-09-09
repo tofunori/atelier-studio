@@ -269,3 +269,75 @@ async fn rewind_refuses_active_missing_or_wrong_prefix_and_propagates_rpc_error(
     assert!(provider(&fake).rewind_session("ui", Some("saved"), 0, Some("second"))
         .await.unwrap_err().contains("fork refused"));
 }
+
+#[tokio::test]
+async fn legacy_completion_recovers_once_without_interrupt_and_native_completion_wins() {
+    for mode in ["legacy-complete", "legacy-and-native"] {
+        let fake = FakeCodex::new(mode);
+        let mut provider = provider(&fake);
+        provider.idle = Duration::from_secs(5);
+        let events = Arc::new(StdMutex::new(vec![]));
+        let result = tokio::time::timeout(Duration::from_secs(3), provider.send(request(events.clone(), Arc::default(), Arc::default()))).await.unwrap();
+        assert!(result.ok, "{mode}: {:?}", result.error);
+        assert_eq!(events.lock().unwrap().iter().filter(|event| event["kind"] == "done").count(), 1);
+        assert_eq!(interrupts(&fake), 0);
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(events.lock().unwrap().iter().filter(|event| event["kind"] == "done").count(), 1);
+    }
+}
+
+#[tokio::test]
+async fn child_completion_does_not_finish_parent() {
+    let fake = FakeCodex::new("child-complete");
+    let mut provider = provider(&fake);
+    provider.idle = Duration::from_secs(1);
+    let result = provider.send(request(Arc::default(), Arc::default(), Arc::default())).await;
+    assert!(!result.ok);
+    assert!(result.error.unwrap().contains("Codex muet"));
+    assert_eq!(interrupts(&fake), 1);
+}
+
+#[tokio::test]
+async fn human_question_pauses_idle_timeout_and_resumes_after_response() {
+    let fake = FakeCodex::new("human-wait");
+    let provider = provider(&fake);
+    let mut req = request(Arc::default(), Arc::default(), Arc::default());
+    req.on_interaction = Some(Arc::new(|_, _| Box::pin(async {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        Some(json!({"answers":{}}))
+    })));
+    let result = provider.send(req).await;
+    assert!(result.ok, "{:?}", result.error);
+    assert_eq!(interrupts(&fake), 0);
+}
+
+#[tokio::test]
+async fn quiet_completed_snapshot_backfills_final_text_without_duplicate_items() {
+    let fake = FakeCodex::new("silent-completed");
+    let mut provider = provider(&fake);
+    provider.idle = Duration::from_secs(60);
+    let events = Arc::new(StdMutex::new(vec![]));
+    let result = tokio::time::timeout(Duration::from_secs(25), provider.send(request(events.clone(), Arc::default(), Arc::default()))).await.unwrap();
+    assert!(result.ok, "{:?}", result.error);
+    let events = events.lock().unwrap();
+    assert_eq!(events.iter().filter(|event| event["kind"] == "text" && event["text"] == "OK").count(), 1);
+    assert_eq!(events.iter().filter(|event| event["kind"] == "text" && event["text"] == "Recovered final").count(), 1);
+    assert_eq!(events.last().unwrap()["kind"], "done");
+    assert_eq!(interrupts(&fake), 0);
+}
+
+#[tokio::test]
+async fn legacy_final_payload_is_recovered_before_done() {
+    let fake = FakeCodex::new("legacy-final-missing");
+    let mut provider = provider(&fake);
+    provider.idle = Duration::from_secs(5);
+    let events = Arc::new(StdMutex::new(vec![]));
+    let before = tokio::time::Instant::now();
+    let result = provider.send(request(events.clone(), Arc::default(), Arc::default())).await;
+    assert!(result.ok);
+    assert!(before.elapsed() >= Duration::from_millis(750));
+    let events = events.lock().unwrap();
+    let final_index = events.iter().position(|event| event["text"] == "Recovered legacy final").unwrap();
+    let done_index = events.iter().position(|event| event["kind"] == "done").unwrap();
+    assert!(final_index < done_index);
+}

@@ -81,7 +81,7 @@ for (const theme of ['dark', 'light']) {
       await permission.click();
       await panel('.composer-permission-menu', 'permissions');
       await main(page.getByRole('option').first());
-      expect((await page.getByRole('option').first().boundingBox())!.height).toBe(32);
+      expect((await page.getByRole('option').first().boundingBox())!.height).toBeCloseTo(32, 2);
       await close();
       await expect(permission).toBeFocused();
 

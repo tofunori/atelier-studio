@@ -473,6 +473,32 @@ final class ChatTests: XCTestCase {
 }
 
 final class AnnotationMessagePresentationTests: XCTestCase {
+    @MainActor func testReadingNotesBecomeQuoteWithoutLosingSourceOrExistingDraft() throws {
+        let intro = "Voici mes remarques de lecture. Propose des révisions en tenant compte de chaque remarque."
+        let body = "results_en.tex — lignes 90–100\nCitation :\nÉnergie 🌲\n\nSource exacte :\n$14.31$~W~m$^{-2}$\n\nRemarque :\nVarier reaches."
+        let prompt = intro + "\n\n" + body
+        let parts = try XCTUnwrap(AnnotationMessageParts(prompt))
+        XCTAssertEqual(parts.passage, body)
+        let workspace = WorkspaceModel()
+        workspace.chat.selected = .init(id: "notes-test", title: "Test", provider: "codex", model: nil, projectId: nil, status: "idle")
+        workspace.chat.isPreview = true
+        workspace.draft = "Ma question."
+        workspace.pendingDocumentPrompt = prompt
+        workspace.applyPendingDocumentChat()
+        XCTAssertEqual(workspace.draft, "Ma question.\n\n" + intro)
+        XCTAssertEqual(workspace.chat.quote?.text, body)
+        XCTAssertNil(workspace.pendingDocumentPrompt)
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(prompt + "\n\n---\n\nDeuxième remarque.")).passage,
+                       body + "\n\n---\n\nDeuxième remarque.")
+        let sent = RemoteChatModel.promptWithQuote(workspace.draft, quote: workspace.chat.quote)
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(sent)).passage, body)
+        workspace.pendingDocumentPrompt = prompt
+        workspace.applyPendingDocumentChat()
+        XCTAssertEqual(workspace.chat.quote?.text, body + "\n\n---\n\n" + body)
+        XCTAssertEqual(workspace.draft, "Ma question.\n\n" + intro)
+        XCTAssertEqual(try XCTUnwrap(AnnotationMessageParts(intro + "\n\n" + body + "\n\n---\n\n" + body)).citation, "2 annotations · results_en.tex — lignes 90–100")
+    }
+
     @MainActor func testDocumentQuoteFromComposerKeepsFullPassageSeparateFromQuestion() throws {
         let passage = #"At the cell level, all 30 fire slopes have 95\,\% intervals."# + "\n\nSuite 🌲."
         let quote = RemoteChatModel.Quote(text: passage, sourceRowID: "source", sourceLabel: "results_en.tex · lignes 30–42")

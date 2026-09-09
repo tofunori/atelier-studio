@@ -122,6 +122,7 @@
   --radius-composer: 18px;
 
   /* -- mouvement : contrat Quiet Instrument (014/016, approuvé) ------------- */
+  --activity-highlight: #fff;
   --motion-fast: 120ms;      /* hover, sortie de menu, échange d'icône */
   --motion-standard: 140ms;  /* sélection, menu entrant, ContextChip   */
   --motion-panel: 150ms;     /* inspecteur — PLAFOND absolu            */

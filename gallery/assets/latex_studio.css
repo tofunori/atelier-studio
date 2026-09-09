@@ -168,7 +168,7 @@
   #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
 
 /* ---- option B : status bar + menus (sobre) ---- */
-#statusbar{display:flex;gap:12px;align-items:center;padding:2px 12px;min-height:24px;overflow-x:auto;scrollbar-width:thin;
+#statusbar{display:flex;gap:12px;align-items:center;padding:2px 12px;min-height:24px;overflow-x:auto;scrollbar-width:var(--atelier-scrollbar-width,thin);
   background:var(--card);border-top:1px solid var(--border);font-size:var(--fs-label, 11px);color:var(--text-secondary,var(--muted));
   font-variant-numeric:tabular-nums}
 #statusbar > *{flex-shrink:0;white-space:nowrap}
@@ -616,12 +616,19 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:700px){header{gap:5px;padding-inline:6px}#build span{display:none}#build{width:28px;padding:0}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
-/* Keep review controls outside the deleted text, including without hover. */
-.cm-editor .cm-deletedChunk .cm-chunkButtons{position:relative;inset-inline-end:auto;display:flex;justify-content:flex-end;gap:6px;padding:5px 8px;margin:0 0 4px -6px;background:var(--card);border-bottom:1px solid var(--border-strong);opacity:1;text-decoration:none}
-.cm-editor .cm-chunkButtons .atelier-review-decision{font:500 12px var(--ui-font);line-height:20px;margin:0;padding:2px 10px;border:1px solid var(--border-strong);border-radius:5px;background:var(--bg);color:var(--txt);cursor:pointer;text-decoration:none}
-.cm-editor .cm-chunkButtons .atelier-review-decision:hover{background:var(--card);border-color:var(--muted)}
-.cm-editor .cm-chunkButtons .atelier-review-decision:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.cm-deletedChunk:has(.atelier-review-decision){min-height:24px;position:relative}
+/* Decision icons live in a narrow gutter, never in the paragraph flow. */
+.cm-editor.atelier-review-gutter .cm-content{padding-left:48px}
+.cm-editor .cm-deletedChunk:has(.atelier-review-decision){position:relative;min-height:0}
+.cm-editor .cm-deletedChunk .cm-chunkButtons{position:absolute;inset-inline-end:auto;left:-44px;top:0;display:flex;flex-direction:column;gap:0;padding:0;margin:0;background:transparent;border:0;opacity:1;text-decoration:none;z-index:3}
+.cm-editor .cm-chunkButtons .atelier-review-decision{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;margin:0;border:0;border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;text-decoration:none}
+.cm-editor .atelier-review-decision svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.cm-editor .atelier-review-decision[data-decision=accept]:hover{color:#b0cea1;background:#8bab7624}
+.cm-editor .atelier-review-decision[data-decision=reject]:hover{color:#dba39a;background:#bd746524}
+.cm-editor .atelier-review-decision:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cm-editor .cm-deletedChunk:has(.atelier-review-decision)::before{content:"";position:absolute;left:-5px;top:0;width:5px;height:var(--review-height,100%);box-sizing:border-box;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-right:0;pointer-events:none;z-index:2}
+.cm-editor .cm-deletedChunk.atelier-review-active::before{border-color:var(--accent)}
+.cm-editor .atelier-review-compact .cm-chunkButtons{flex-direction:row;left:-48px}
+.cm-editor .atelier-review-compact .atelier-review-decision{width:20px;height:20px}
 
 #state.err{position:fixed;bottom:12px;left:12px;right:12px;z-index:500;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:8px;white-space:normal;text-align:left}
 
@@ -680,5 +687,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Diff widgets must not inherit WebKit's native selection paint. */
 .cm-editor.cm-review-selection .cm-content::selection,
 .cm-editor.cm-review-selection .cm-content ::selection{background:transparent!important}
-.cm-editor.cm-review-selection .cm-selectionBackground{background:rgba(232,130,58,.38)}
+/* Match CM6's focused selection rule so focus cannot restore its teal default. */
+.cm-editor.cm-review-selection .cm-selectionBackground,
+.cm-editor.cm-review-selection.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground{background:rgba(232,130,58,.38)}
 .cm-editor .cm-chunkButtons{user-select:none;-webkit-user-select:none}

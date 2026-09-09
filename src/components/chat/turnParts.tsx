@@ -566,7 +566,7 @@ function fmtTokenCount(n: number): string {
 const NOTE_REVEAL_MS = 200;
 
 export function Working(
-  { since, tokens, note }: { since: number; tokens?: number | null; note?: string | null },
+  { since, tokens, note, compact = false }: { since: number; tokens?: number | null; note?: string | null; compact?: boolean },
 ) {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -584,7 +584,8 @@ export function Working(
     const id = setTimeout(() => setNoteShown(note), NOTE_REVEAL_MS);
     return () => clearTimeout(id);
   }, [note]);
-  const duration = workDuration(Date.now() - since);
+  const duration = workDuration(Math.max(0, Date.now() - since));
+  if (compact) return <span className="turn-activity-elapsed" aria-label={t("chat.working")}>{duration}</span>;
   return (
     <div className="working working-header">
       {/* Façon Hermes : le pulse + le temps suffisent — « Travaille depuis »

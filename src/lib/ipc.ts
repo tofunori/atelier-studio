@@ -34,6 +34,7 @@ export type AtelierAddToChatMessage = {
   path?: string;
   name?: string;
   previewUrl?: string;
+  direct?: boolean;
   requestId?: string;
   pdfAnnotation?: { rel: string; id: string };
 };
@@ -196,7 +197,7 @@ export function isTrustedAtelierMessage(
       );
     case "atelier-add-to-chat":
       return (
-        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl", "requestId", "pdfAnnotation"]) &&
+        hasOnlyKeys(data, ["type", "nonce", "text", "path", "name", "previewUrl", "requestId", "pdfAnnotation", "direct"]) &&
         (data.pdfAnnotation === undefined || (isRecord(data.pdfAnnotation) &&
           hasOnlyKeys(data.pdfAnnotation, ["rel", "id"]) &&
           isBoundedString(data.pdfAnnotation.rel, MAX_URL_LENGTH) &&
@@ -205,6 +206,7 @@ export function isTrustedAtelierMessage(
         isOptionalBoundedString(data.path, MAX_URL_LENGTH) &&
         isOptionalBoundedString(data.name, MAX_TITLE_LENGTH) &&
         (data.previewUrl === undefined || isValidMessageUrl(data.previewUrl)) &&
+        (data.direct === undefined || typeof data.direct === "boolean") &&
         isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
     case "browser-add-to-chat":

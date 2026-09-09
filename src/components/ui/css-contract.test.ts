@@ -431,7 +431,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   // ci-dessous reste fermée, et le total reste plafonné à deux. Hors
   // périmètre : le spinner de la barre Reviewer (.rb-spin), bannière au-dessus
   // du fil, jamais co-visible — une revue ne démarre que sur un tour terminé.
-  it("chat : au plus deux boucles continues pendant un tour actif", () => {
+  it("chat : seules les animations explicites de statut et de repli sont autorisées", () => {
     const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
       selector: m[1].trim().replace(/\s+/g, " "),
       body: m[2],
@@ -459,6 +459,8 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
     expect(loops.sort()).toEqual([
+      ".turn-activity-glyph",
+      ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
       ".working-label::before",
     ]);

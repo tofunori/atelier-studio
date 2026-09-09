@@ -4,6 +4,7 @@
 // le streaming (MdBody/MdBlock).
 import { memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { localImagePreviewUrl } from "../../lib/localImage";
 import { useStreamingHighlight } from "./useStreamingHighlight";
 // `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
 // 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
@@ -482,8 +483,32 @@ export function PreBlock(props: any) {
   return <MarkdownCodeBlock {...props} />;
 }
 
+/** Local paths in Markdown are files, not routes under tauri://localhost. */
+export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  const local = Boolean(src?.startsWith("/") && !src.startsWith("//"));
+  const [preview, setPreview] = useState<{ source: string; url?: string; failed?: boolean } | null>(null);
+  useEffect(() => {
+    if (!local || !src) return;
+    let disposed = false;
+    let objectUrl: string | undefined;
+    void localImagePreviewUrl(src).then(url => {
+      if (url.startsWith("blob:")) objectUrl = url;
+      if (disposed) { if (objectUrl) URL.revokeObjectURL(objectUrl); return; }
+      setPreview({ source: src, url });
+    }).catch(() => { if (!disposed) setPreview({ source: src, failed: true }); });
+    return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [src, local]);
+  if (!src) return null;
+  const current = preview?.source === src ? preview : null;
+  if (local && current?.failed) return <span className="md-image-error">Image indisponible : {alt || src.split("/").pop()}</span>;
+  if (local && !current?.url) return <span role="status">Chargement de l’image…</span>;
+  return <img className="md-inline-image" src={local ? current?.url : src} alt={alt || ""} title={title}
+    onError={() => { if (local) setPreview({ source: src, failed: true }); }} />;
+}
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 export const MD_COMPONENTS = {
+  img: MarkdownImage,
   pre: PreBlock,
   table: (props: any) => (
     <div className="md-table"><table>{props.children}</table></div>

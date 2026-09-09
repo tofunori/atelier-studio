@@ -35,7 +35,8 @@ final class RedesignTests: XCTestCase {
         model.draft = "Ma demande"
         model.addReadingNotesToChat()
         XCTAssertTrue(model.draft.hasPrefix("Ma demande\n\n"))
-        XCTAssertTrue(model.draft.contains("Préciser"))
+        XCTAssertFalse(model.draft.contains("Préciser"))
+        XCTAssertTrue(model.chat.quote?.text.contains("Préciser") == true)
         XCTAssertEqual(model.documentReadingNotes.count, 1)
         model.addDocumentPassageToChat(.init(documentID: model.documentID, fileName: "notes.tex", location: "ligne 1", text: "neige"))
         XCTAssertTrue(model.chat.quote?.sourceLabel?.contains("notes.tex") == true)
@@ -199,5 +200,52 @@ final class AnnotationPaletteTests: XCTestCase {
         XCTAssertEqual(updated.color, .sand)
         let decoded = try JSONDecoder().decode(PDFMark.self, from: JSONEncoder().encode(updated))
         XCTAssertEqual(decoded.color, .sand)
+    }
+}
+
+final class DocumentRefreshTests: XCTestCase {
+    @MainActor func testFreshOpenReplacesCleanCacheAndKeepsDiff() throws {
+        let model = WorkspaceModel(); model.chat.isPreview = true
+        let file = GalleryArtifact(name: "test.tex", data: Data("old".utf8))
+        try model.openArtifact(file, data: Data("old".utf8))
+        model.saveCurrentDocument()
+        try model.openArtifact(file, data: Data("new".utf8))
+        XCTAssertEqual(model.source, "new")
+        XCTAssertFalse(model.documentDirty)
+        XCTAssertEqual(model.comparisonSources[file.id], "old")
+        model.source = "draft"; model.saveCurrentDocument()
+        try model.openArtifact(file, data: Data("newer".utf8))
+        XCTAssertEqual(model.source, "draft")
+    }
+    @MainActor func testReturnFromChatKeepsRefreshedVersion() throws {
+        let model = WorkspaceModel(); model.chat.isPreview = true
+        let file = GalleryArtifact(name: "test.tex", data: Data("old".utf8))
+        try model.openArtifact(file, data: Data("old".utf8))
+        model.navigate(to: .chat)
+        model.receiveDocumentVersion("new", for: file.id, expectedSource: "old")
+        model.navigate(to: .gallery)
+        XCTAssertEqual(model.source, "new")
+        XCTAssertEqual(model.comparisonSources[file.id], "old")
+    }
+    @MainActor func testRefreshProtectsConcurrentAndDirtyEdits() throws {
+        let model = WorkspaceModel(); model.chat.isPreview = true
+        let file = GalleryArtifact(name: "test.tex", data: Data("old".utf8))
+        try model.openArtifact(file, data: Data("old".utf8))
+        model.receiveDocumentVersion("new", for: file.id, expectedSource: "old")
+        XCTAssertEqual(model.source, "new")
+        XCTAssertEqual(model.comparisonSources[file.id], "old")
+        model.source = "my draft"
+        model.receiveDocumentVersion("remote", for: file.id, expectedSource: "my draft")
+        XCTAssertEqual(model.source, "my draft")
+        XCTAssertTrue(model.remoteDocumentChanged)
+        model.receiveDocumentVersion("remote", for: file.id, expectedSource: "new")
+        XCTAssertEqual(model.source, "my draft")
+    }
+    func testDiffReconstructsBothSourcesIncludingUnicodeAndBlankLines() {
+        for (old, new) in [("a\nb\nc", "a\nx\nc"), ("❄️\n\nb", "b\n❄️\n"), ("", "new"), ("old", "")] {
+            let lines = DocumentChangeLine.compare(previous: old, current: new)
+            XCTAssertEqual(lines.filter { $0.kind != .added }.map(\.text).joined(separator: "\n"), old)
+            XCTAssertEqual(lines.filter { $0.kind != .removed }.map(\.text).joined(separator: "\n"), new)
+        }
     }
 }

@@ -37,7 +37,11 @@ import UIKit
         return rules
     }
     static func attributed(_ text: String, name: String, size: CGFloat = 15) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 3
         let result = NSMutableAttributedString(string: text, attributes: [
+            .paragraphStyle: paragraph,
             .font: UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.monospacedSystemFont(ofSize: size, weight: .regular)), .foregroundColor: UIColor.label
         ])
         let rules = rules(for: name)
@@ -71,6 +75,10 @@ struct SyntaxSourceEditor: UIViewRepresentable {
         view.autocorrectionType = .no; view.autocapitalizationType = .none
         view.smartQuotesType = .no; view.smartDashesType = .no; view.smartInsertDeleteType = .no
         view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 20, right: 12)
+        view.textContainer.widthTracksTextView = true
+        view.textContainer.lineBreakMode = .byWordWrapping
+        view.alwaysBounceHorizontal = false
+        view.showsHorizontalScrollIndicator = false
         view.keyboardDismissMode = .interactive
         view.accessibilityIdentifier = "latexSource"
         context.coordinator.update(view)

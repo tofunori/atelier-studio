@@ -1641,21 +1641,15 @@ const annPane = (function(){
 // ---- confort sombre (inversion des pages) ---------------------------------
 // Seul le CANVAS de la page s'inverse : la couche texte, les surlignages
 // (.pdfhl), les zones et les commentaires gardent leurs couleurs. Choix retenu
-// dans localStorage ; sans choix, on suit le thème de l'app.
+// dans localStorage ; sans choix, conserver les couleurs originales du PDF.
 (function(){
   const btn = document.getElementById("invBtn");
   if (!btn) return;
   const KEY = "pdf_invert";
-  function themeIsDark(){
-    if (document.documentElement.dataset.theme === "dark") return true;
-    const theme = window.__atelierTheme;   // posé par atelier_theme.js
-    if (theme && typeof theme.colorScheme === "string") return theme.colorScheme !== "light";
-    return (document.documentElement.style.colorScheme || "") === "dark";
-  }
   function stored(){
     try { return localStorage.getItem(KEY); } catch(e){ return null; }
   }
-  let on = stored() === null ? themeIsDark() : stored() === "1";
+  let on = stored() === "1";
   function apply(){
     document.body.classList.toggle("pdf-invert", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -1666,13 +1660,7 @@ const annPane = (function(){
     try { localStorage.setItem(KEY, on ? "1" : "0"); } catch(e){}
     apply();
   };
-  // le pont de thème répond APRÈS le boot : tant que l'utilisateur n'a pas
-  // tranché, le lecteur suit ce que l'app annonce.
-  window.addEventListener("atelier-theme-applied", function(){
-    if (stored() !== null) return;
-    on = themeIsDark();
-    apply();
-  });
+
 })();
 
 // ---- recherche dans le document (Cmd+F) -----------------------------------

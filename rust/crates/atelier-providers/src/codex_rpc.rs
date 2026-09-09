@@ -185,11 +185,22 @@ impl Connection {
             let params = msg.get("params").cloned().unwrap_or(json!({}));
             let tid = params
                 .get("threadId")
+                .or_else(|| params.get("conversationId"))
+                .or_else(|| params.pointer("/msg/conversation_id"))
                 .or_else(|| params.pointer("/thread/id"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let handler = self.state.lock().unwrap().handlers.get(tid).cloned();
-            if let Some(handler) = handler {
+            // Legacy task_complete may carry only a native turn id. Each
+            // scoped handler checks that identity before accepting the hint.
+            let handlers: Vec<_> = {
+                let state = self.state.lock().unwrap();
+                if tid.is_empty() && method == "codex/event/task_complete" {
+                    state.handlers.values().cloned().collect()
+                } else {
+                    state.handlers.get(tid).cloned().into_iter().collect()
+                }
+            };
+            for handler in handlers {
                 handler(method, &params);
             }
         }

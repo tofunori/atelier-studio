@@ -43,6 +43,19 @@ afterEach(() => {
 });
 
 describe("composer — caractérisation", () => {
+  it("envoie un contexte galerie seul et conserve le brouillon", () => {
+    const onSubmit = vi.fn(), send = vi.fn();
+    renderUi(<Chat {...chatProps({ onSubmit })} />);
+    fireEvent.change(ta(), { target: { value: "Une demande encore en préparation" } });
+    act(() => document.querySelector("form.composer")!.dispatchEvent(
+      new CustomEvent("atelier-submit-context", { detail: { send } })));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toBe("claude");
+    expect(send.mock.calls[0][4]).toBe("steer");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(ta().value).toBe("Une demande encore en préparation");
+  });
+
   it("Enter envoie (prompt + provider/mode), Shift+Enter ne soumet pas", () => {
     const onSubmit = vi.fn();
     renderUi(<Chat {...chatProps({ onSubmit })} />);

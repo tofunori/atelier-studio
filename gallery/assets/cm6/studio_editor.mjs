@@ -30,6 +30,7 @@ import {solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.mjs";
 import {fluidText} from "./fluid_text.mjs";
+import {reviewGutter} from "./review_gutter.mjs";
 import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.mjs";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, languageKindFor, normalizeScrollTarget} from "./studio_compat.mjs";
 
@@ -830,6 +831,7 @@ export function createStudioEditor(parent, opts) {
         // WebKit native selection can paint recycled deletion widgets on scroll.
         // Draw only the editor state selection while the merge view is active.
         drawSelection(), EditorView.editorAttributes.of({class: "cm-review-selection"}),
+        ...(review?.onDecision ? [reviewGutter, EditorView.editorAttributes.of({class: "atelier-review-gutter"})] : []),
         unifiedMergeView({
         original: String(original ?? ""),
         highlightChanges: true,
@@ -838,7 +840,15 @@ export function createStudioEditor(parent, opts) {
         allowInlineDiffs: true,
         mergeControls: review?.onDecision ? (kind) => {
           const button = document.createElement("button");
-          button.type = "button";button.textContent = kind === "accept" ? "Accepter" : "Refuser";
+          button.type = "button";
+          const label = kind === "accept" ? "Accepter" : "Refuser";
+          button.title = label;button.setAttribute("aria-label", label);
+          button.dataset.decision = kind;
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svg.setAttribute("viewBox", "0 0 16 16");svg.setAttribute("aria-hidden", "true");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", kind === "accept" ? "M3 8l3 3 7-7" : "M4 4l8 8M12 4l-8 8");
+          svg.append(path);button.append(svg);
           button.className = "atelier-review-decision";
           button.onmousedown = e => e.preventDefault();
           button.onclick = e => {

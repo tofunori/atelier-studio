@@ -1,7 +1,7 @@
 //! Pure Codex notification → harness event mapping (plan 033 Porte 7).
 //! Ports the tested surfaces from `sidecar/providers/codex.mjs`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
@@ -14,6 +14,8 @@ pub const TOOL_OUTPUT_MAX: usize = 64 * 1024;
 #[derive(Debug, Default)]
 pub struct TurnMapState {
     pub native_turn_id: Option<String>,
+    completed_items: HashSet<String>,
+    pub last_agent_text: Option<String>,
     command_items: HashMap<String, Value>,
     command_outputs: HashMap<String, String>,
     /// Partie de résumé de raisonnement en cours (`summaryIndex`). Sert
@@ -109,6 +111,8 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
 
     match method {
         "turn/started" => {
+            state.completed_items.clear();
+            state.last_agent_text = None;
             state.reasoning_summary_index = None;
             state.reasoning_stream.clear();
             state.reasoning_steps_emitted = 0;
@@ -292,9 +296,15 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             events.push(ev);
         }
         "item/completed" => {
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                if !state.completed_items.insert(id.to_string()) {
+                    return events;
+                }
+            }
             let ty = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
             match ty {
                 "agentMessage" => {
+                    state.last_agent_text = item.get("text").and_then(Value::as_str).map(str::to_string);
                     events.push(json!({
                         "kind": "text",
                         "text": item.get("text").and_then(|v| v.as_str()).unwrap_or(""),

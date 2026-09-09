@@ -62,6 +62,15 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(e, nonce)).toBe(true);
   });
 
+  it("valide le choix explicite brouillon ou envoi direct", () => {
+    for (const direct of [true, false]) expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", {
+      type: "atelier-add-to-chat", nonce, text: "Figure", direct,
+    }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", {
+      type: "atelier-add-to-chat", nonce, text: "Figure", direct: "true",
+    }), nonce)).toBe(false);
+  });
+
   it("accepte une sélection Quick Ask venue d'un éditeur", () => {
     const e = msg("http://127.0.0.1:19000", {
       type: "atelier-quick-ask",

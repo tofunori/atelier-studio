@@ -805,7 +805,7 @@ export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
     return <img className="ui-activity-source-icon" src={icon.imageUrl} alt="" title={icon.label} />;
   }
   const { cat } = icon;
-  const c = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+  const c = { width: 15, height: 15, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
     strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (cat) {
     case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
@@ -824,7 +824,7 @@ export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
     case "agent": return <svg {...c}><circle cx="8" cy="4" r="2" /><circle cx="3.2" cy="11.5" r="1.7" /><circle cx="12.8" cy="11.5" r="1.7" /><path d="M8 6v2M4.7 10.2 8 8l3.3 2.2" /></svg>;
     case "compaction": return <svg {...c}><path d="M2 5h4V1M14 5h-4V1M2 11h4v4M14 11h-4v4" /><path d="m6 5-4-4M10 5l4-4M6 11l-4 4M10 11l4 4" /></svg>;
     case "interrupted": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="m5.2 5.2 5.6 5.6" /></svg>;
-    default: return <svg {...c}><path d="M9.6 2.5a2.1 2.1 0 0 0 2.8 2.8l.7.7a2.2 2.2 0 0 1-3.1 3.1l-4-4a2.2 2.2 0 0 1 3.1-3.1z" /></svg>;
+    default: return <svg {...c}><path d="m8 1.7 5.5 3.15v6.3L8 14.3l-5.5-3.15v-6.3ZM2.5 4.85 8 8l5.5-3.15M8 8v6.3" /></svg>;
   }
 }
 

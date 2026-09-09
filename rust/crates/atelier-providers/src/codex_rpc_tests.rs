@@ -28,6 +28,10 @@ for line in sys.stdin:
     log.write(json.dumps({'pid': os.getpid(), **req}) + '\n')
     method = req.get('method')
     p = req.get('params', {})
+    if method is None:
+        if mode == 'human-wait' and req.get('id') == 77:
+            note('turn/completed', turn={'id': 'turn', 'status': 'completed'})
+        continue
     if method == 'initialize':
         if mode == 'init-hang': continue
         if mode == 'slow-init': time.sleep(.12)
@@ -55,6 +59,8 @@ for line in sys.stdin:
         reply(req, {'thread': {'id': 'native', 'turns': [
             {'id': 'first', 'status': 'completed', 'items': [{'type': 'userMessage'}, {'type': 'userMessage'}]},
             {'id': 'second', 'status': 'inProgress' if mode == 'rewind-active' else 'completed', 'items': [{'type': 'userMessage'}]}]}})
+    elif method == 'thread/read' and mode == 'silent-completed':
+        reply(req, {'thread': {'id': 'native', 'turns': [{'id': 'turn', 'status': 'completed', 'items': [{'id':'m','type':'agentMessage','text':'OK'},{'id':'final','type':'agentMessage','text':'Recovered final'}]}]}})
     elif method == 'thread/read':
         reply(req, {'thread': {'id': 'native', 'turns': [{'id': 'turn', 'status': 'inProgress'}] if active_turn else []}})
     elif method == 'turn/start':
@@ -70,8 +76,21 @@ for line in sys.stdin:
         if mode == 'start-rpc-hang': continue
         reply(req, {'turn': {'id': 'turn', 'status': 'inProgress'}})
         if mode.startswith('turn-hang'): continue
+        if mode == 'human-wait':
+            emit({'id':77,'method':'item/tool/requestUserInput','params':{'threadId':'native','turnId':'turn','questions':[]}})
+            continue
+        if mode == 'child-complete':
+            emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'child'}}})
+            continue
         note('item/agentMessage/delta', delta='OK')
         note('item/completed', item={'id': 'm', 'type': 'agentMessage', 'text': 'OK'})
+        if mode == 'silent-completed': continue
+        if mode == 'legacy-final-missing':
+            emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'turn','last_agent_message':'Recovered legacy final'}}})
+            continue
+        if mode in ['legacy-complete', 'legacy-and-native']:
+            emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'turn','last_agent_message':'OK'}}})
+            if mode == 'legacy-complete': continue
         note('turn/completed', turn={'id': 'turn', 'status': 'completed'})
     elif method == 'turn/interrupt':
         if mode == 'turn-hang-no-ack': continue

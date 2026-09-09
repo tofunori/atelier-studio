@@ -236,7 +236,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(summary).toBeTruthy();
     expect(summary!.textContent?.toLowerCase()).toContain("bayes_region_c.py");
     expect(document.querySelector(".ui-activity.is-running")).toBeNull();
-    expect(summary!.querySelector(".is-shimmering")).toBeTruthy();
+    expect(summary!.querySelector(".is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
   });
 
   it("n'anime pas les outils d'un tour précédent quand un nouveau tour démarre", () => {
@@ -339,90 +340,85 @@ describe("anatomie du tour — header d'activité", () => {
     }
   });
 
-  it("chronomètre le silence d'une pensée muette — seulement après un premier progrès", () => {
+  it("garde le statut animé après la fin du sous-agent et pendant le silence", () => {
     vi.useFakeTimers();
-    // AVANT tout progrès : le chrono du tour compte déjà la même chose —
-    // « en attente » serait un horodateur en double (vécu 2026-08-21).
-    const sansProgres: AgentEvent[] = [
-      events.user("Réfléchis.", FIXED_TS),
-      { kind: "tool", name: "__thinking" } as AgentEvent, // pensée SANS texte (headless caviardé)
-    ];
-    const first = renderUi(<Chat {...chatProps({ events: sansProgres, workingSince: FIXED_TS })} />);
-    act(() => { vi.advanceTimersByTime(3100); });
-    // Le slot existe toujours (il réserve sa place) mais reste MUET.
-    expect(document.querySelector(".turn-quiet")?.textContent).toBe("");
-    first.unmount();
-
-    // APRÈS un progrès (un outil réglé), le silence diverge du chrono du
-    // tour : le minuteur remplace le shimmer dans la ligne Réflexion.
-    const apresProgres: AgentEvent[] = [
-      events.user("Réfléchis.", FIXED_TS),
-      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "completed" }),
-      { kind: "tool", name: "__thinking" } as AgentEvent,
-    ];
-    const view = renderUi(<Chat {...chatProps({ events: apresProgres, workingSince: FIXED_TS })} />);
-    // le montage voit déjà la signature stable : simule le progrès en ajoutant
-    // l'update qui MUTE la signature après coup
-    view.rerender(<Chat {...chatProps({ events: [
-      ...apresProgres.slice(0, 2),
-      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "interrupted" }),
-      { kind: "tool", name: "__thinking" } as AgentEvent,
-    ], workingSince: FIXED_TS })} />);
-    act(() => { vi.advanceTimersByTime(3100); });
-    expect(document.querySelector(".turn-quiet")?.textContent).toMatch(/en attente · \d+ s/);
-    vi.useRealTimers();
+    vi.setSystemTime(FIXED_TS);
+    try {
+      const evs: AgentEvent[] = [events.user("Analyse.", FIXED_TS),
+        events.tool({ id: "review", name: "Review results", status: "completed", ts: FIXED_TS })];
+      const props = chatProps({ events: evs, workingSince: FIXED_TS, lastEventAt: FIXED_TS });
+      const view = renderUi(<Chat {...props} />);
+      const row = document.querySelector(".turn-tail-row");
+      expect(row?.textContent).toContain("Traitement en cours");
+      act(() => { vi.advanceTimersByTime(30_000); });
+      expect(row?.textContent).toContain("Traitement en cours");
+      expect(row?.querySelector(".turn-working-shimmer")).toBeTruthy();
+      // A new receipt preserves the persistent status and Stop.
+      view.rerender(<Chat {...props} lastEventAt={Date.now()} />);
+      expect(document.querySelector(".turn-tail-row")).toBe(row);
+      expect(row?.textContent).toContain("Traitement en cours");
+      expect(row?.querySelector(".stop-hint")).toBeNull();
+      expect(row?.querySelector(".turn-activity-glyph")).toBeTruthy();
+    } finally { vi.useRealTimers(); }
   });
 
-  // F1 (revue finale phase 2) : « en attente » ne doit jamais s'afficher
-  // pendant que la réponse est en train de streamer — le texte qui grossit
-  // EST le progrès visible, même sans nouvel outil ni nouvelle pensée.
-  it("ne montre jamais « en attente » pendant le streaming de la réponse, même après 3 s", () => {
+  it("garde le statut actif pendant un outil ou une réponse silencieuse", () => {
     vi.useFakeTimers();
-    const evs: AgentEvent[] = [
-      events.user("Réponds.", FIXED_TS),
-      { kind: "streaming", text: "Voici le début de la réponse", ts: FIXED_TS + 100 } as AgentEvent,
-    ];
-    renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
-    act(() => { vi.advanceTimersByTime(3100); });
-    expect(document.querySelector(".turn-quiet")?.textContent).toBe("");
-    vi.useRealTimers();
+    vi.setSystemTime(FIXED_TS + 40_000);
+    try {
+      const base = chatProps({ workingSince: FIXED_TS, lastEventAt: FIXED_TS });
+      const view = renderUi(<Chat {...base} events={[events.user("Analyse.", FIXED_TS),
+        events.tool({ id: "cmd", status: "inProgress", ts: FIXED_TS })]} />);
+      expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Lit");
+      expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+      view.rerender(<Chat {...base} events={[events.user("Analyse.", FIXED_TS),
+        { kind: "streaming", text: "Début", ts: FIXED_TS }]} />);
+      expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Rédaction en cours");
+      expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+    } finally { vi.useRealTimers(); }
   });
 
-  // Le dédoublonnage par inclusion est couvert par ses propres tests unitaires
-  // (src/lib/chat/thinkingDedup.test.ts) : ici, le pli d'activité d'un tour
-  // terminé masque déjà les blocs, donc le DOM n'en dirait rien de fiable.
+  it("remplace la réflexion par les outils puis l’attente sans éteindre le reflet", () => {
+    const base = chatProps({ workingSince: FIXED_TS });
+    const user = events.user("Analyse.", FIXED_TS);
+    const view = renderUi(<Chat {...base} events={[user]} />);
+    const status = document.querySelector(".active-turn-tail [role=status]");
+    expect(status?.closest(".chat-activity-dock")).toBeTruthy();
+    expect(status?.closest(".timeline-scroll-wrap")).toBeNull();
+    expect(status?.textContent).toContain("Traitement");
+    const read = events.tool({ id: "read", status: "inProgress" });
+    const image = events.tool({ id: "image", name: "view_image", status: "inProgress" });
+    view.rerender(<Chat {...base} events={[user, read, image]} />);
+    expect(status?.textContent).toBe("2 actions en cours…");
+    expect(document.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    view.rerender(<Chat {...base} events={[user,
+      events.tool({ id: "read", status: "completed" }), image]} />);
+    expect(status?.textContent).not.toContain("Traitement");
+    expect(status?.textContent).not.toContain("2 actions");
+    view.rerender(<Chat {...base} events={[user,
+      events.tool({ id: "read", status: "completed" }),
+      events.tool({ id: "image", name: "view_image", status: "completed" })]} />);
+    expect(status?.textContent).toContain("Traitement");
+    view.rerender(<Chat {...base} events={[user,
+      { kind: "permission", requestId: "approval", toolName: "Bash", answered: null }]} />);
+    expect(status?.textContent).toBe("En attente de votre réponse");
+    expect(status?.classList.contains("turn-working-shimmer")).toBe(true);
+    expect(document.querySelector(".active-turn-tail [role=status]")).toBe(status);
+  });
 
-  // Régression (vécu 2026-08-22, capture de Thierry) : « en attente · Ns » se
-  // montait puis se démontait sur une ligne à elle. Le fil étant ancré en bas,
-  // chaque aller-retour poussait tout le transcript vers le haut puis le
-  // relâchait. Le slot doit donc EXISTER en permanence, sur la ligne du rappel
-  // d'interruption : l'apparition du texte ne change aucune géométrie.
-  it("le silence n'ajoute ni ne retire de ligne : slot permanent sur la ligne d'interruption", () => {
+  it("conserve le statut actif au remontage et le retire à la fin", () => {
     vi.useFakeTimers();
-    const evs: AgentEvent[] = [
-      events.user("Réfléchis.", FIXED_TS),
-      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "completed" }),
-      { kind: "tool", name: "__thinking" } as AgentEvent,
-    ];
-    const view = renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
-    const ligneAvant = document.querySelector(".turn-tail-row");
-    expect(ligneAvant).toBeTruthy();
-    // le slot est déjà là, muet, et vit DANS la ligne du rappel d'interruption
-    expect(ligneAvant!.querySelector(".turn-quiet")?.textContent).toBe("");
-    expect(ligneAvant!.querySelector(".stop-hint")).toBeTruthy();
-
-    // progrès puis silence : le texte apparaît SANS créer de nouvelle ligne
-    view.rerender(<Chat {...chatProps({ events: [
-      ...evs.slice(0, 2),
-      events.tool({ id: "t1", name: "Read", detail: "src/a.ts", status: "interrupted" }),
-      { kind: "tool", name: "__thinking" } as AgentEvent,
-    ], workingSince: FIXED_TS })} />);
-    act(() => { vi.advanceTimersByTime(3100); });
-    const ligneApres = document.querySelector(".turn-tail-row")!;
-    expect(ligneApres.querySelector(".turn-quiet")?.textContent).toMatch(/en attente · \d+ s/);
-    expect(ligneApres.childElementCount).toBe(ligneAvant!.childElementCount);
-    expect(document.querySelectorAll(".turn-tail-row")).toHaveLength(1);
-    vi.useRealTimers();
+    vi.setSystemTime(FIXED_TS + 60_000);
+    try {
+      const evs = [events.user("Analyse.", FIXED_TS), events.text("Résultat", FIXED_TS + 1000)];
+      const props = chatProps({ events: evs, workingSince: FIXED_TS, lastEventAt: FIXED_TS + 1000 });
+      const first = renderUi(<Chat {...props} />);
+      first.unmount();
+      const view = renderUi(<Chat {...props} />);
+      expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Traitement en cours");
+      view.rerender(<Chat {...props} workingSince={null} events={[...evs, events.done({ ts: Date.now() })]} />);
+      expect(document.querySelector(".active-turn-tail")).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 
   it("tour terminé : header « A travaillé pendant… », replié par défaut", () => {
@@ -492,14 +488,15 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const working = document.querySelector(".working-header") as HTMLElement;
+    const working = document.querySelector(".chat-activity-dock .turn-activity-elapsed") as HTMLElement;
     expect(working).toBeTruthy();
-    expect(document.querySelectorAll(".working-header")).toHaveLength(1);
-    // Façon Hermes : pulse + temps seul, sans « Travaille depuis ».
+    expect(document.querySelectorAll(".turn-activity-elapsed")).toHaveLength(1);
+    expect(document.querySelector(".active-turn-header")).toBeNull();
+    // Le chronomètre partage le dock, sans ancien carré ni séparateur.
     expect(working.textContent).not.toContain("Travaille depuis");
     expect(working.textContent).toMatch(/\d/);
     expect(working.querySelector(".working-spin")).toBeNull();
-    expect(working.querySelector(".working-divider")).toBeTruthy();
+    expect(working.querySelector(".working-divider")).toBeNull();
     // Le raisonnement vit à SA place dans le fil (au-dessus de l'activité en
     // cours), plus dans la queue du tour : une ligne, jamais deux.
     expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(2);
@@ -515,7 +512,8 @@ describe("anatomie du tour — header d'activité", () => {
     const activity = vivantes[vivantes.length - 1].querySelector(".ui-activity-trigger") as HTMLButtonElement;
     expect(activity.textContent).toContain("Lit albedo.ts");
     expect(activity.querySelector("[data-activity-icon='read']")).toBeTruthy();
-    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
     expect(screen.queryByText("Bash")).toBeNull();
     fireEvent.click(activity);
     expect(document.querySelectorAll(".reasoning-trace")).toHaveLength(0);
@@ -535,7 +533,8 @@ describe("anatomie du tour — header d'activité", () => {
 
     const inlineActivity = document.querySelector(".timeline-virtual-row .ui-activity:not(.is-summary)") as HTMLElement;
     expect(inlineActivity).toBeTruthy();
-    expect(inlineActivity.querySelector(".is-shimmering")).toBeTruthy();
+    expect(inlineActivity.querySelector(".is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
     expect(inlineActivity.textContent).not.toContain(t("chat.working"));
     expect(inlineActivity.closest(".active-turn-tail")).toBeNull();
     expect(document.querySelector(".active-turn-tail .thinking-shimmer")).toBeNull();
@@ -646,7 +645,8 @@ describe("anatomie du tour — header d'activité", () => {
     const initialTail = document.querySelector(".active-turn-tail") as HTMLElement;
     const ligneVivante = document.querySelector(".ui-activity:not(.is-summary)") as HTMLElement;
     expect(ligneVivante.querySelector("[data-activity-icon='read']")).toBeTruthy();
-    expect(ligneVivante.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    expect(ligneVivante.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
     expect(initialTail.querySelector(".thinking-shimmer")).toBeNull();
 
     const thinking: AgentEvent[] = [
@@ -660,7 +660,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(updatedTail).toBe(initialTail);
     expect(document.querySelectorAll(".active-turn-tail")).toHaveLength(1);
     expect(document.querySelector(".ui-activity")).toBe(ligneVivante);
-    expect(ligneVivante.querySelector(".is-shimmering")).toBeTruthy();
+    expect(ligneVivante.querySelector(".is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
     expect(ligneVivante).toHaveClass("is-completed");
     // Pensée sans texte : aucune ligne « Réflexion » inventée.
     expect(updatedTail.querySelector(".thinking-shimmer")).toBeNull();
@@ -682,7 +683,8 @@ describe("anatomie du tour — header d'activité", () => {
     expect(activity.querySelector("[data-activity-icon='command']")).toBeTruthy();
     expect(activity.textContent).toContain(t("chat.activity-running-tests"));
     expect(activity.querySelector("[data-activity-icon='read']")).toBeNull();
-    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+    expect(activity.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
     expect(activity.querySelector(".ui-activity-icon.is-shimmering")).toBeNull();
     expect(activity.querySelector(".ui-activity-meta.is-shimmering")).toBeNull();
   });
@@ -698,10 +700,10 @@ describe("anatomie du tour — header d'activité", () => {
     const header = document.querySelector(".active-turn-header") as HTMLElement;
     const message = screen.getByText("Je vérifie les données locales.");
     const tail = document.querySelector(".active-turn-tail") as HTMLElement;
-    expect(header).toBeTruthy();
+    expect(header).toBeNull();
     expect(tail).toBeTruthy();
     expect(tail.querySelector(".thinking-shimmer")).toBeNull();
-    expect(header.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tail.querySelector(".turn-activity-elapsed")).toBeTruthy();
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

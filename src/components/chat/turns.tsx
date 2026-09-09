@@ -3,6 +3,7 @@
 // (editing, plis, review) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { activeTurnStatus } from "./activeTurnStatus";
 import { useSmoothedStream } from "./useSmoothedStream";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
@@ -18,7 +19,7 @@ import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnPart
 import type { ChangedFile } from "./changedFiles";
 import {
   activityIconForAction, toolOutcome,
-  distinctToolActions, summarizeActivity, tickerRows, turnProgressSignature,
+  distinctToolActions, summarizeActivity, tickerRows,
 } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
@@ -509,14 +510,6 @@ export function currentThought(turn: ChatTurnViewModel | null, events: AgentEven
   return state?.kind === "reasoning" ? state.texts.join("") : "";
 }
 
-/** Dernier élément satisfaisant un prédicat, sans copier le tableau. */
-function findLast<T, U extends T>(items: T[], is: (item: T) => item is U): U | undefined {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    if (is(items[i])) return items[i] as U;
-  }
-  return undefined;
-}
-
 /** Chronomètre unique : les outils restent dans la chronologie du tour. */
 export function ActiveTurnHeader(p: {
   turn: ChatTurnViewModel;
@@ -548,64 +541,41 @@ export function ToolRunTicker(
   );
 }
 
+
 export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
+  lastEventAt?: number | null;
   onStop: () => void;
+  since?: number;
 }) {
-  const state = p.turn.activeState;
-  // Le silence partage la ligne d’interruption sans déplacer les événements.
-  const lastStreamingEvent = findLast(p.events, (e): e is Extract<AgentEvent, { kind: "streaming" }> => e.kind === "streaming");
-  const answerLength = lastStreamingEvent?.text.length ?? 0;
-  const actions = p.turn.actionGroups.flatMap((group) => group.actions);
-  const signature = turnProgressSignature(
-    actions,
-    currentThought(p.turn, p.events).length,
-    answerLength,
-  );
-  const quietSinceRef = useRef(Date.now());
-  const prevSignatureRef = useRef(signature);
-  // « en attente » n'a de sens qu'après un PREMIER progrès : avant, son compte
-  // est identique au chrono du tour juste au-dessus — horodateur en double.
-  const hadProgressRef = useRef(false);
-  if (prevSignatureRef.current !== signature) {
-    prevSignatureRef.current = signature;
-    quietSinceRef.current = Date.now();
-    hadProgressRef.current = true;
-  }
-  const [, forceQuietTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => forceQuietTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const quietSeconds = Math.floor((Date.now() - quietSinceRef.current) / 1000);
-  const running = distinctToolActions(actions).some((action) => (
-    action.kind === "tool_update" && /^(running|pending|in[-_]?progress)$/i.test(action.status ?? "")
-  ));
-  const silencieux = state?.kind !== "answering" && state?.kind !== "waiting"
-    && !running && hadProgressRef.current && quietSeconds >= 2;
+  const fallbackSince = useRef(Date.now());
+  const status = activeTurnStatus(p.turn, p.events);
 
   return (
     <div className="working-stack active-turn-tail" data-turn-id={p.turn.turnId ?? p.turn.key}>
-      {/* Le silence chronométré vit SUR la ligne d'interruption, jamais sur une
-          ligne à lui : montée puis démontée, elle poussait tout le fil vers le
-          haut et le relâchait à chaque aller-retour (le fil est ancré en bas —
-          « ça remonte et ça descend », Thierry 2026-08-22). Le slot est donc
-          toujours là, à droite d'une ligne qui existe déjà : seul le TEXTE
-          apparaît, la géométrie ne bouge pas. Région live montée en permanence
-          = la bonne façon de faire annoncer un changement de contenu. */}
-      <div className="turn-tail-row">
-        <RowButton className="stop-hint" title={t("action.interrupt")} onClick={p.onStop}>
-          <kbd>esc</kbd> {t("action.interrupt")}
-        </RowButton>
+      {/* Stable live status: a quiet provider is still working until the turn
+          settles. Keep this slot mounted so updates never shift the timeline. */}
+      <TurnActivityStatus label={status.label} kind={status.kind} since={p.turn.startedAtMs ?? p.since ?? fallbackSince.current} />
+    </div>
+  );
+}
+
+export function TurnActivityStatus({ label, since, kind = "processing" }: { label: string; since: number; kind?: string }) {
+  const settled = kind === "failed" || kind === "interrupted";
+  return (
+    <div className={`turn-tail-row${settled ? " is-settled" : ""}`} data-activity-state={kind}>
+        <svg className="turn-activity-glyph" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M10 2.5c.8 4.3 3.2 6.7 7.5 7.5-4.3.8-6.7 3.2-7.5 7.5C9.2 13.2 6.8 10.8 2.5 10 6.8 9.2 9.2 6.8 10 2.5Z" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
         <span
-          className={`turn-quiet${silencieux ? " is-on" : ""}`}
+          className="turn-quiet is-on turn-working-shimmer"
           role="status"
           aria-live="polite"
         >
-          {silencieux ? t("chat.quiet-wait", { s: quietSeconds }) : ""}
+          {label}
         </span>
-      </div>
+      <Working since={since} compact />
     </div>
   );
 }

@@ -32,7 +32,8 @@ import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu, type ProjectStyleAnchor } from "./sidebar/ProjectStyleMenu";
-import { Popover, PopoverContent } from "./shadcn/popover";
+import { Popover } from "./shadcn/popover";
+import { MenuPanelContent, MenuPanelItem } from "./ui/MenuPanel";
 import { conversationFamilies, linkedConversations } from "../lib/threadLinks";
 
 // ré-exports publics — Rail et TopBar importent depuis ./Sidebar
@@ -585,8 +586,7 @@ export default function Sidebar(p: {
         </SidebarContent>
 
         <Popover open={resumeOpen} onOpenChange={(next) => { if (!next) setResumeOpen(false); }}>
-          <PopoverContent
-            plain
+          <MenuPanelContent
             className="rail-menu resume-pop"
             anchor={resumeAnchor ?? resumeFallbackAnchor}
             finalFocus={() => (
@@ -621,7 +621,7 @@ export default function Sidebar(p: {
                 const needle = resumeQuery.trim().toLocaleLowerCase();
                 return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
               }).map((s) => (
-                <RowButton key={s.id} className="resume-item"
+                <MenuPanelItem key={s.id} className="resume-item"
                   onClick={() => {
                     p.onImportSession(resumeProv, s.id, s.title, s.projectRoot);
                     setResumeOpen(false);
@@ -632,11 +632,11 @@ export default function Sidebar(p: {
                     {new Date(s.mtime).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}{" "}
                     {new Date(s.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                </RowButton>
+                </MenuPanelItem>
               ))}
             </div>
             <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
-          </PopoverContent>
+          </MenuPanelContent>
         </Popover>
 
       {projMenu && (

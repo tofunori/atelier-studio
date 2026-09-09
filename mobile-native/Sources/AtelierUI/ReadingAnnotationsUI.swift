@@ -36,7 +36,20 @@ extension WorkspaceModel {
             pendingDocumentPassage = nil; added = true
         }
         if let prompt = pendingDocumentPrompt {
-            draft += (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n") + prompt
+            let message: String
+            if let parts = AnnotationMessageParts(prompt) {
+                // Keep existing context when another annotation is added before sending.
+                let previous = chat.quote
+                let passage = previous.map { $0.text + "\n\n---\n\n" } ?? ""
+                let label = previous.map { ($0.sourceLabel ?? "Passage cité") + " · " } ?? ""
+                let article = prompt.hasPrefix("Article Zotero : ") ? String(prompt.prefix { $0 != "\n" }) + "\n\n" : ""
+                chat.quote = .init(text: passage + article + parts.passage, sourceRowID: "reading-notes",
+                                   sourceLabel: label + parts.citation)
+                message = parts.note
+            } else { message = prompt }
+            if !message.isEmpty && !draft.hasSuffix(message) {
+                draft += (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n") + message
+            }
             chat.updateDraft(draft); pendingDocumentPrompt = nil; added = true
         }
         if added { focusChatRequest = UUID() }

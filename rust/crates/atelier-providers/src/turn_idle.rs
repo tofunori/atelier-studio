@@ -39,21 +39,34 @@ const TURN_IDLE_SECS_DEFAULT: u64 = 600;
 /// struct — lire l'env par tour ouvrirait une course avec les tests qui
 /// mutent `ATELIER_TURN_TIMEOUT_SECS`.
 pub fn idle_from_env() -> Duration {
+    idle_from_env_or(TURN_IDLE_SECS_DEFAULT)
+}
+
+pub fn idle_from_env_or(default_secs: u64) -> Duration {
     let secs = std::env::var("ATELIER_TURN_TIMEOUT_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(TURN_IDLE_SECS_DEFAULT);
+        .unwrap_or(default_secs);
     Duration::from_secs(secs)
 }
 
 /// Compteur d'événements d'un tour : le handler du provider l'incrémente à
 /// chaque notification reçue, l'attente le lit pour savoir si le CLI parle.
 #[derive(Clone, Default)]
-pub struct TurnActivity(Arc<AtomicU64>);
+pub struct TurnActivity(Arc<AtomicU64>, Arc<AtomicU64>);
+
+pub struct HumanWait(TurnActivity);
+
+impl Drop for HumanWait {
+    fn drop(&mut self) {
+        self.0.bump();
+        self.0.1.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 impl TurnActivity {
     pub fn new() -> Self {
-        Self(Arc::new(AtomicU64::new(0)))
+        Self::default()
     }
 
     /// À appeler pour CHAQUE événement venu du provider (y compris les deltas
@@ -63,8 +76,20 @@ impl TurnActivity {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn ticks(&self) -> u64 {
+    pub fn ticks(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
+    }
+
+    pub fn awaiting_human(&self) -> bool {
+        self.1.load(Ordering::SeqCst) > 0
+    }
+
+    /// Scoped so cancellation, a dropped request or a normal reply all resume
+    /// the clock. A counter handles simultaneous questions on one turn.
+    pub fn wait_for_human(&self) -> HumanWait {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        self.bump();
+        HumanWait(self.clone())
     }
 }
 
@@ -92,7 +117,7 @@ where
             out = &mut fut => return Ok(out),
             _ = tokio::time::sleep(tick) => {
                 let now = activity.ticks();
-                if now != last {
+                if now != last || activity.awaiting_human() {
                     // Le CLI a parlé : le compte à rebours repart de zéro.
                     last = now;
                     silence = Duration::ZERO;

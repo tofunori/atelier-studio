@@ -221,3 +221,72 @@
 [data-slot="select-item"] [data-icon="select-check"] { width: 11px; height: 11px; stroke-width: 1.5; }
 [data-slot="dropdown-menu-sub-trigger"] > svg:last-child,
 [data-slot="context-menu-sub-trigger"] > svg:last-child { width: 11px; height: 11px; stroke-width: 1.5; }
+
+/* Product menu contract. Target each portal directly, including submenus.
+ * Mixed panels opt in through MenuPanelContent; informational popovers keep
+ * their own layout. Tokens are shared with the composer rather than copied. */
+:root {
+  --menu-text: var(--fs-m, var(--fs-body-s, 12px));
+  --menu-detail: var(--fs-s, var(--fs-caption, 11px));
+  --menu-heading: var(--fs-l, var(--fs-body, 13px));
+  --menu-row-height: 32px;
+  --menu-row-padding: 6px 10px;
+  --menu-icon-size: 14px;
+}
+:is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"],
+    .ui-menu-surface, .composer-menu) {
+  --sh-accent: var(--bg-ctl, var(--secondary));
+  --accent-foreground: var(--text-primary, var(--foreground));
+  --ring: var(--text-muted, var(--muted-foreground));
+  --focus-ring-color: var(--text-muted, var(--muted-foreground));
+  box-sizing: border-box;
+  padding: 6px;
+  background: var(--bg-pop, var(--popover));
+  color: var(--text-primary, var(--foreground));
+  border-radius: var(--r-m, var(--radius-surface, 10px));
+  box-shadow: var(--elev-soft, var(--elevation-overlay, var(--elev)));
+  outline: 1px solid var(--border-subtle, var(--border));
+  outline-offset: -1px;
+  font: 400 var(--menu-text)/1.45 var(--ui-font);
+}
+:is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"],
+    .ui-menu-surface, .composer-menu) :is(button, input, textarea) {
+  font-family: inherit;
+}
+:is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"],
+    [data-slot="context-menu-item"], [data-slot="context-menu-checkbox-item"],
+    [data-slot="context-menu-radio-item"], [data-slot="context-menu-sub-trigger"], .ui-menu-item) {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: var(--menu-row-height);
+  gap: 8px;
+  padding: var(--menu-row-padding);
+  border-radius: var(--r-s, var(--radius-control, 6px));
+  font: 400 var(--menu-text)/1.45 var(--ui-font);
+}
+:is([data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"],
+    [data-slot="context-menu-checkbox-item"], [data-slot="context-menu-radio-item"]) { padding-right: 32px; }
+:is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"],
+    [data-slot="context-menu-item"], [data-slot="context-menu-sub-trigger"])[data-inset] { padding-left: 32px; }
+.ui-menu-item { width: 100%; text-align: left; }
+.ui-menu-item:is(:hover, :focus-visible):not(:disabled) { background: var(--bg-ctl, var(--secondary)); }
+:is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"],
+    [data-slot="context-menu-item"], [data-slot="context-menu-checkbox-item"],
+    [data-slot="context-menu-radio-item"], [data-slot="context-menu-sub-trigger"], .ui-menu-item) svg {
+  width: var(--menu-icon-size); height: var(--menu-icon-size); flex-shrink: 0; stroke-width: 1.5;
+}
+:is([data-slot="dropdown-menu-label"], [data-slot="context-menu-label"]) {
+  padding: 8px 10px;
+  font: 500 var(--menu-heading)/1.45 var(--ui-font);
+  color: var(--text-primary, var(--foreground));
+  letter-spacing: normal;
+}
+:is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"]) { margin: 5px 3px; }
+:is([data-slot="dropdown-menu-shortcut"], [data-slot="context-menu-shortcut"], .dropdown-surface-footer) {
+  font-size: var(--menu-detail); line-height: 1.45;
+}

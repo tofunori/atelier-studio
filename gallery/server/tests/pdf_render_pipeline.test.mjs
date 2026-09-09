@@ -79,9 +79,27 @@ test("le confort sombre n'inverse que le canvas et se souvient du choix", () => 
   assert.match(html, /id="invBtn"[^>]*aria-pressed="false"/);
   assert.match(html, /#invBtn\{[^}]*border-radius:6px/);
   assert.doesNotMatch(html.slice(html.indexOf('<button id="invBtn"'), html.indexOf('<span id="selinfo"')), /[\u{1F300}-\u{1FAFF}]/u);
-  // défaut : thème sombre de l'app (dataset.theme ou pont atelier_theme.js)
-  assert.match(html, /dataset\.theme === "dark"/);
-  assert.match(html, /window\.__atelierTheme/);
+  const section = html.slice(html.indexOf("// ---- confort sombre"), html.indexOf("// ---- recherche dans le document"));
+  let inverted;
+  let saved = null;
+  const button = { setAttribute() {} };
+  const listeners = [];
+  vm.runInNewContext(section, {
+    document: { getElementById: () => button,
+      documentElement: { dataset: { theme: "dark" }, style: { colorScheme: "dark" } },
+      body: { classList: { toggle: (_, value) => { inverted = value; } } } },
+    localStorage: { getItem: () => saved, setItem: (_, value) => { saved = value; } },
+    window: { __atelierTheme: { colorScheme: "dark" }, addEventListener: (_, fn) => listeners.push(fn) },
+  });
+  assert.equal(inverted, false);
+  listeners.forEach(fn => fn());
+  assert.equal(inverted, false);
+  button.onclick();
+  assert.equal(inverted, true);
+  assert.equal(saved, "1");
+  button.onclick();
+  assert.equal(inverted, false);
+
 });
 
 // ---- recherche ------------------------------------------------------------

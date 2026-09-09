@@ -22,11 +22,11 @@ import { isValidSkill } from "./mentions";
 import { CloseIcon, MinusIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, currentThought,
+  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, TurnActivityStatus, currentThought,
   type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
+import { EditLine, ActivityCard, LiveThinking, formatPermInput } from "./turnParts";
 import { deriveChangedFiles } from "./changedFiles";
 import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
@@ -83,6 +83,7 @@ export type TimelineThread = {
   threadId: string | null;
   events: AgentEvent[];
   workingSince: number | null;
+  lastEventAt?: number | null;
   /** tokens de sortie du tour en cours — affichés à côté du temps écoulé */
   liveTokens: number | null;
   liveNote?: string | null;
@@ -201,7 +202,7 @@ export function ChatTimeline(p: {
     marks: Mark[];
   };
 }) {
-  const { threadId, events, workingSince, liveTokens, liveNote, phase } = p.thread;
+  const { threadId, events, workingSince, liveTokens, phase } = p.thread;
   // dernier bloc de pensée du fil : le seul qui puisse être « en cours »
   // Bornes du DERNIER tour terminé : c'est le seul qui porte une carte
   // « fichiers modifiés », donc le seul dont les lignes `edit` inline
@@ -360,19 +361,65 @@ export function ChatTimeline(p: {
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
+  const activityDockRef = React.useRef<HTMLDivElement>(null);
+  const activityAnchorRef = React.useRef<HTMLDivElement>(null);
+  const activityFooter = React.useMemo(() => workingSince == null ? null
+    : <div ref={activityAnchorRef} className="activity-flow-anchor" aria-hidden="true" />,
+  [workingSince != null]);
+  // Keep the scroll viewport stable. Lift only the activity into unused space
+  // after a short transcript; overflowing conversations keep the dock visible.
+  React.useLayoutEffect(() => {
+    const dock = activityDockRef.current;
+    const messages = messagesRef.current ?? timelineWrapRef.current?.querySelector<HTMLDivElement>(".messages");
+    if (!dock || !messages) return;
+    let frame = 0;
+    let lift = 0;
+    const measure = () => {
+      frame = 0;
+      const anchor = activityAnchorRef.current;
+      if (!anchor) return;
+      const baseTop = dock.getBoundingClientRect().top - lift;
+      const targetTop = anchor.getBoundingClientRect().bottom + 8;
+      lift = messages.scrollHeight <= messages.clientHeight + 1
+        ? Math.min(0, targetTop - baseTop) : 0;
+      dock.style.transform = `translateY(${lift}px)`;
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(messages);
+    observer.observe(dock);
+    const content = messages.querySelector(".legend-list-content-container");
+    if (content) observer.observe(content);
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(messages, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
+    messages.addEventListener("scroll", schedule, { passive: true });
+    schedule();
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+      messages.removeEventListener("scroll", schedule);
+      cancelAnimationFrame(frame);
+      dock.style.transform = "";
+    };
+  }, [threadId, workingSince != null, messagesRef]);
   const [autoFollow, setAutoFollow] = React.useState(true);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
   const [isFirstTurnSettling, setIsFirstTurnSettling] = React.useState(false);
   const hadTimelineEventsRef = React.useRef(events.length > 0);
   const phaseRef = React.useRef<TurnPhase>(phase);
   const prevRowsRef = React.useRef(new Map<string, TimelineVirtualItem>());
+  const activeTail = workingSince == null ? undefined : renderedEvents.find(
+    (item): item is Extract<ProjectedTimelineItem, { type: "active-turn-tail" }> => item.type === "active-turn-tail",
+  );
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
     for (const item of renderedEvents) {
+      // Live status belongs to the composer dock, never to virtualized rows.
+      if (item.type === "active-turn-tail" || item.type === "active-turn-header") continue;
       rows.push({ type: "rendered", key: timelineRowKey(item), item });
     }
-    if (workingSince != null && !renderedEvents.some((item) => item.type === "active-turn-header")) {
+    if (workingSince != null && liveThought && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });
     }
     // Marge du tour actif (ex :has() + combinateur frère, App.css ~216) : le
@@ -397,7 +444,7 @@ export function ChatTimeline(p: {
       stable.filter((r) => r.type === "rendered").map((r) => [r.key, r]),
     );
     return stable;
-  }, [events.length, renderedEvents, threadId, workingSince, p.empty.home]);
+  }, [events.length, renderedEvents, threadId, workingSince, liveThought, p.empty.home]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
   const derniereLigneTravail = React.useMemo(() => {
@@ -435,7 +482,8 @@ export function ChatTimeline(p: {
     pins,
     reviewOpen,
     workingSince,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, workingSince, derniereLigneTravail, lastThinkingIndex]);
+    lastEventAt: p.thread.lastEventAt,
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, derniereLigneTravail, lastThinkingIndex]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -808,6 +856,7 @@ export function ChatTimeline(p: {
         key={threadId ?? "atelier-home"}
         ref={timelineListRef}
         data={virtualItems}
+        ListFooterComponent={activityFooter}
         extraData={listExtraData}
         // sans itemsAreEqual, LegendList updateData() même à identité égale
         itemsAreEqual={(a, b) => a === b}
@@ -863,15 +912,9 @@ export function ChatTimeline(p: {
             return (
               <div className="timeline-virtual-row" id="message-working" data-message-id="message-working">
                 <div className="working-stack">
-                  <div className="working-row">
-                    <Working since={workingSince!} tokens={liveTokens} note={liveNote} />
-                  </div>
                   {/* En vue Résumé la pensée est masquée : sans texte,
                       LiveThinking retombe sur la seule ligne « en attente ». */}
                   <LiveThinking thought={penseeMasquee ? null : liveThought} collapsedByDefault={penseeRepliee} />
-                  <RowButton className="stop-hint" title={t("action.interrupt")} onClick={onStop}>
-                    <kbd>esc</kbd> {t("action.interrupt")}
-                  </RowButton>
                 </div>
               </div>
             );
@@ -925,7 +968,7 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-tail") {
-            return <ActiveTurnTail key={item.key} turn={item.turn} events={events} onStop={onStop} />;
+            return <ActiveTurnTail key={item.key} turn={item.turn} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />;
           }
           if (item.type === "actions") {
             const insideOpenFold = renderedEvents.some(row => row.type === "fold" && row.open &&
@@ -960,7 +1003,7 @@ export function ChatTimeline(p: {
                 plugins={plugins}
                 open={open}
                 live={live}
-                active={workingSince != null && item.index === derniereLigneTravail}
+                active={false}
                 onToggle={() =>
                   setOpenToolGroups((prev) => {
                     const next = new Set(prev);
@@ -1288,6 +1331,13 @@ export function ChatTimeline(p: {
         <div className="atelier-chat-note" ref={annoEditorRef} role="dialog" aria-label={t("chat.annotate")} style={{left:noteDraft.x,top:noteDraft.y-44}} />
       )}
       </div>
+      {workingSince != null && (
+        <div ref={activityDockRef} className="chat-activity-dock">
+          {activeTail
+            ? <ActiveTurnTail turn={activeTail.turn} since={workingSince} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />
+            : <TurnActivityStatus label={t("chat.processing")} since={workingSince} />}
+        </div>
+      )}
     </>
   );
 }

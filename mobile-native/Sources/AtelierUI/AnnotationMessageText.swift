@@ -8,6 +8,20 @@ struct AnnotationMessageParts: Equatable {
     let note: String
 
     init?(_ text: String, attachmentNames: [String] = []) {
+        let readingIntroduction = "Voici mes remarques de lecture. Propose des révisions en tenant compte de chaque remarque."
+        if text.hasPrefix(readingIntroduction + "\n\n") {
+            let body = String(text.dropFirst(readingIntroduction.count + 2))
+            // Locate headings without splitting the payload: excerpts and notes may contain Markdown rules.
+            guard let headings = try? NSRegularExpression(pattern: #"(?m)^([^\n]+ — [^\n]+)\nCitation :\n"#) else { return nil }
+            let matches = headings.matches(in: body, range: NSRange(body.startIndex..., in: body))
+            guard matches.first?.range.location == 0,
+                  body.contains("\n\nSource exacte :\n"), body.contains("\n\nRemarque :\n") else { return nil }
+            let labels = matches.map { (body as NSString).substring(with: $0.range(at: 1)) }
+            citation = labels.count == 1 ? labels[0] : "\(labels.count) annotations · " + labels[0]
+            passage = body
+            note = readingIntroduction
+            return
+        }
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         var index = 0
         var annotationNoteEnvelope = false

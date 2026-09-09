@@ -314,3 +314,28 @@ it("retire les événements supprimés lors du snapshot de repli après un rewin
   expect(document.querySelector(".messages")?.textContent).toContain("Réponse conservée après retour");
   expect(document.querySelector(".messages")?.textContent).not.toContain("Réponse retirée par le serveur");
 });
+
+it("réconcilie un tour silencieux sans renvoyer le prompt et récupère sa fin", async () => {
+  const { socket, sent } = await sendWithoutAcknowledgement();
+  const start = Date.now();
+  await act(async () => {
+    // Settle the initial history request so the quiet read can issue its own.
+    const reads = socket.sent.map(raw => JSON.parse(raw)).filter(m => m.type === "getHistory" && m.threadId === sent.threadId);
+    for (const read of reads) socket.push({ type: "history", threadId: sent.threadId, requestId: read.requestId, events: [] });
+    socket.push({ type: "event", threadId: sent.threadId, event: { kind: "started", ts: start } });
+    socket.push({ type: "event", threadId: sent.threadId, event: { kind: "text", text: "Résultat conservé", ts: start } });
+    await flushMicrotasks(4);
+  });
+  const before = socket.sent.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); await flushMicrotasks(4); });
+  const reads = socket.sent.slice(before).map(raw => JSON.parse(raw)).filter(m => m.type === "getHistory" && m.threadId === sent.threadId);
+  expect(reads).toHaveLength(1); // coalesced while awaiting its response
+  expect(socket.sent.map(raw => JSON.parse(raw)).filter(m => m.type === "send")).toHaveLength(1);
+  await act(async () => {
+    socket.push({ type: "history", threadId: sent.threadId, requestId: reads[0].requestId,
+      events: [{ kind: "text", text: "Résultat conservé", ts: start }, { kind: "done", ok: true, ts: start + 1000 }] });
+    await flushMicrotasks(4);
+  });
+  expect(document.querySelector(".messages")?.textContent).toContain("Résultat conservé");
+  expect(document.querySelector(".active-turn-tail")).toBeNull();
+});

@@ -3,6 +3,8 @@ import PDFKit
 
 struct NativeDocumentView: View {
     @Bindable var workspace: WorkspaceModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showingDiff = false
     @State private var annotatingFigure = false
     @State private var showingReadingNotes = false
     @State private var pendingFigure: DocumentPassage?
@@ -33,6 +35,10 @@ struct NativeDocumentView: View {
                 }
                 .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 8)
             }
+            if workspace.remoteDocumentChanged {
+                Text("Le fichier a changé sur le Mac. Votre brouillon est conservé ; utilisez Recharger depuis le Mac pour comparer.")
+                    .font(.caption).padding(12)
+            }
             if let image = workspace.image {
                 ZoomableArtifactImage(image: image)
             } else if workspace.documentMode == .reading {
@@ -43,6 +49,21 @@ struct NativeDocumentView: View {
             } else {
                 NativePDFView(workspace: workspace)
             }
+        }
+        .task(id: workspace.documentID) {
+            await workspace.refreshDocumentIfNeeded()
+            if workspace.chat.isPreview && ProcessInfo.processInfo.arguments.contains("--document-diff-fixture") { showingDiff = true }
+        }
+        .onChange(of: workspace.surface) { _, surface in
+            if surface == .document { Task { await workspace.refreshDocumentIfNeeded() } }
+        }
+        .onChange(of: workspace.chat.completedResponse) { _, _ in Task { await workspace.refreshDocumentIfNeeded() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await workspace.refreshDocumentIfNeeded() } }
+        }
+        .sheet(isPresented: $showingDiff) {
+            DocumentChangesView(previous: workspace.comparisonSources[workspace.documentID] ?? workspace.originalSources[workspace.documentID] ?? workspace.source,
+                                current: workspace.source, name: workspace.sourceName)
         }
         .onChange(of: workspace.source) { _, _ in workspace.scheduleDocumentResume() }
         .onChange(of: workspace.pdfPage) { _, _ in workspace.scheduleDocumentResume() }
@@ -107,8 +128,13 @@ struct NativeDocumentView: View {
             }
         }
         .onChange(of: workspace.documentID) { _, _ in showingReadingNotes = false }
-        .alert("Sauvegarde impossible", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
+        .alert("Document", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if workspace.sourceAvailable {
+                    Button("Diff") { showingDiff = true }.accessibilityLabel("Voir les modifications")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if workspace.documentMode == .reading && !workspace.sourceAvailable && workspace.pdfDocument != nil {
                     PDFReadingSettings()

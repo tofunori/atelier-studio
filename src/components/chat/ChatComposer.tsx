@@ -228,6 +228,21 @@ export function ChatComposer(props: {
     setText("");
   }
 
+  // A gallery annotation can be submitted alone, preserving the current draft
+  // and dictation. Resolve provider/follow-up preferences in the composer.
+  useEffect(() => {
+    const form = input.formRef?.current;
+    if (!form) return;
+    const sendContext = (event: Event) => {
+      const send = (event as CustomEvent).detail?.send;
+      if (typeof send !== "function" || host.disabled) return;
+      send(model.provider, model.model, model.effort, model.permissionMode,
+        host.workingSince != null ? resolvedFollowUpMode() : "steer", effectiveFastMode());
+    };
+    form.addEventListener("atelier-submit-context", sendContext);
+    return () => form.removeEventListener("atelier-submit-context", sendContext);
+  });
+
   async function requestSubmit(mode: FollowUpMode) {
     if (pendingDictationSubmit.current) return;
     if (!dictation.active) { submit(mode); return; }

@@ -47,9 +47,20 @@ struct NativeComposerView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Rectangle().fill(AtelierTheme.accent).frame(width: 2)
                     Button { expandedQuote.toggle() } label: {
-                        Text(quote.text).font(.subheadline).foregroundStyle(.secondary)
-                            .lineLimit(expandedQuote ? nil : 2).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Label(quote.sourceLabel ?? "Passage cité", systemImage: "text.quote")
+                                .font(.caption.weight(.medium)).lineLimit(2)
+                            Text("Voir le passage cité").font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }.buttonStyle(.plain)
+                        .sheet(isPresented: $expandedQuote) {
+                            NavigationStack {
+                                ScrollView { Text(quote.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding() }
+                                    .navigationTitle(quote.sourceLabel ?? "Passage cité")
+                                    .navigationBarTitleDisplayMode(.inline)
+                                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { expandedQuote = false } } }
+                            }.presentationDetents([.medium, .large])
+                        }
                     Button { chat.quote = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
                         .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Retirer la citation").disabled(chat.sending)
                 }.fixedSize(horizontal: false, vertical: true)

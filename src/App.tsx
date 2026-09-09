@@ -642,6 +642,9 @@ export default function App() {
   }
   const streamCoalescer = streamCoalescerRef.current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
+  const [lastEventAt, setLastEventAt] = useState<Record<string, number>>({});
+  const lastEventAtRef = useRef<Record<string, number>>({});
+  const lastQuietReadRef = useRef<Record<string, number>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
   const confirmedRunsRef = useRef(new Set<string>());
   workingSinceRef.current = workingSince;
@@ -1232,6 +1235,22 @@ export default function App() {
     restoreQueuedTurn,
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
+  // Transient intent: never persist an automatic send in a restored draft.
+  const [gallerySend, setGallerySend] = useState<{ threadId: string; annotationId: string } | null>(null);
+  const galleryRequests = useRef(new Set<string>());
+  useEffect(() => {
+    if (!gallerySend || gallerySend.threadId !== activeId) return;
+    if (!attachments.some(a => a.pdfAnnotation?.id === gallerySend.annotationId)) return;
+    const form = document.querySelector<HTMLFormElement>("form.composer");
+    if (!form) return;
+    setGallerySend(null);
+    const selected = attachments.filter(a => a.pdfAnnotation?.id === gallerySend.annotationId);
+    form.dispatchEvent(new CustomEvent("atelier-submit-context", { detail: {
+      send: (provider: ProviderId, model: string, effort: string, permission: string, mode: "steer" | "queue", fast: boolean) =>
+        submit("", provider, model, effort, permission, mode, fast, selected),
+    } }));
+  }, [gallerySend, activeId, attachments]);
+
   const appSnapPreviewUrlsRef = useRef(new Set<string>());
   const hydratingAppSnapsRef = useRef(new Set<string>());
   const composerDraftsRef = useRef(composerDrafts);
@@ -1819,6 +1838,7 @@ export default function App() {
     }));
     setAnnotation(null);
     setLayout((l) => (l === "atelier" ? "split" : l));
+    return threadId;
   }
 
   // applique un événement au fil IMMÉDIATEMENT (jamais retardé) — utilisé
@@ -2345,6 +2365,11 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));
       }
       if (msg.type === "event") {
+        const receivedAt = Date.now();
+        if (!["heartbeat", "usage"].includes(msg.event.kind)) {
+          lastEventAtRef.current[msg.threadId] = receivedAt;
+          setLastEventAt(previous => ({ ...previous, [msg.threadId]: receivedAt }));
+        }
         const eventMeta = msg.event?.meta;
         if (typeof msg.threadId === "string" && eventMeta?.durable !== false &&
             typeof eventMeta?.sequence === "number" && typeof eventMeta?.eventId === "string") {
@@ -3120,6 +3145,26 @@ export default function App() {
     });
   }
 
+  // Quiet turns reconcile through the existing cursor/replay path. Never
+  // resend a prompt, and never infer completion from elapsed time alone.
+  useEffect(() => {
+    if (!wsReady) return;
+    const timer = window.setInterval(() => {
+      const id = activeIdRef.current;
+      if (!id || ws.current?.readyState !== 1) return;
+      const since = workingSinceRef.current[id];
+      if (since == null || !confirmedRunsRef.current.has(id)) return;
+      const now = Date.now();
+      if (now - Math.max(since, lastEventAtRef.current[id] ?? since) < 15_000) return;
+      if (now - (lastQuietReadRef.current[id] ?? 0) < 5_000) return;
+      // requestHistory coalesces identical reads; errors use its bounded retry.
+      if (requestHistory(id, historyCursorsRef.current.get(id))) {
+        lastQuietReadRef.current[id] = now;
+      }
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [wsReady]);
+
   useEffect(() => {
     localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
   }, [projects]);
@@ -3375,9 +3420,15 @@ export default function App() {
         }));
       }
       if (data.type === "atelier-add-to-chat") {
-        attachContextToChat(data.text, { ...data,
-          pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
-        });
+        if (!data.requestId || !galleryRequests.current.has(data.requestId)) {
+          const threadId = attachContextToChat(data.text, { ...data,
+            pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
+          });
+          if (data.requestId) galleryRequests.current.add(data.requestId);
+          if (data.direct === true && data.pdfAnnotation?.id) {
+            setGallerySend({ threadId, annotationId: data.pdfAnnotation.id });
+          }
+        }
         if (data.requestId && e.source) {
           (e.source as Window).postMessage({
             type: "atelier-add-to-chat-ack",
@@ -3913,7 +3964,9 @@ export default function App() {
     permissionMode: string,
     mode: "steer" | "queue" = "steer",
     fastMode = false,
+    isolatedAttachments?: Attachment[],
   ) {
+    const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
     const displayPrompt = prompt;
     let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
@@ -3991,7 +4044,8 @@ export default function App() {
           },
         ],
       }));
-      setAttachments([]);
+      setAttachments(current => isolatedAttachments
+        ? current.filter(a => !isolatedAttachments.includes(a)) : []);
       pdfAnnotationDelivery.current.track(requestId, attachments);
       ws.current.send(JSON.stringify({
         type: "mentionAgent",
@@ -4030,7 +4084,8 @@ export default function App() {
         autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
       });
-      setAttachments([]);
+      setAttachments(current => isolatedAttachments
+        ? current.filter(a => !isolatedAttachments.includes(a)) : []);
       return;
     }
     // /clear reste natif Codex ; /compact suit la capability du provider
@@ -4232,7 +4287,8 @@ export default function App() {
         ]
       : undefined;
     const additionalDirectories = projectWritableDirectories(activeProject, settingsRef.current);
-    setAttachments([]);
+    setAttachments(current => isolatedAttachments
+      ? current.filter(a => !isolatedAttachments.includes(a)) : []);
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
@@ -5261,6 +5317,7 @@ export default function App() {
           home={homeBundle}
           eventStore={eventStore}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
+          lastEventAt={activeId ? lastEventAt[activeId] ?? null : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
           liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}

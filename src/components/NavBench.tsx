@@ -115,6 +115,9 @@ export function NavBench() {
           onDelete={noop}
           onRemoveProject={noop}
           onRename={noop}
+          onProjectSettings={noop}
+          onContinueWith={noop}
+          linkProviders={[{ id: "claude", label: "Claude" }, { id: "codex", label: "Codex" }]}
           projMeta={{ [PROJ]: { color: "#7aa2f7", label: "icon:mountain" }, [OTHER]: { color: "#98c379" } }}
           onSetMeta={noop}
         />

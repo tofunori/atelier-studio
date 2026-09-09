@@ -585,6 +585,12 @@ test('embedded command bar: folder and controls never overlap', async ({ page })
       for(const b of boxes){expect(b.x).toBeGreaterThanOrEqual(0);expect(b.right).toBeLessThanOrEqual(width);}
     }
     await frame.getByRole('button', {name:'Dossiers'}).click();
+    // The embedded gallery does not define the desktop's legacy --bg-pop.
+    // A visible menu box alone does not prove its surface paints over cards.
+    const menu = frame.getByRole('menu');
+    await expect(menu).toBeVisible();
+    await expect(menu).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(menu).not.toHaveCSS('border-radius', '0px');
     const manage = frame.getByRole('menuitem', {name:'Gérer les dossiers…'});
     const before = await manage.evaluate(el => getComputedStyle(el).backgroundColor);
     await manage.hover();

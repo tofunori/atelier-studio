@@ -16,6 +16,7 @@
          --z-sticky:30;--z-popover:120;--z-modal:200;--z-toast:260; }
   *{box-sizing:border-box}
   html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg);scrollbar-width:thin}
+  @supports selector(::-webkit-scrollbar){html{scrollbar-width:auto;scrollbar-color:auto}}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-track{background:var(--bg)}
   ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--faint) 72%,transparent);
@@ -720,6 +721,53 @@
   #annotNote footer{display:flex;align-items:center;gap:3px;padding:4px 8px 8px}#annotNote .annot-status{flex:1;font-size:9px;color:var(--hot)}#annotNote .annot-send{background:var(--primary-soft);color:var(--primary);white-space:nowrap}#annotNote button:disabled{opacity:.35}
   #annotList{position:absolute;right:14px;bottom:55px;z-index:105;width:290px;max-width:calc(100% - 24px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:0 8px 28px #0004}#annotList[hidden]{display:none}#annotList header{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;font-size:11px;color:var(--muted)}#annotList button{border:0;background:transparent;color:var(--txt)}#annotItems{max-height:240px;overflow:auto;padding:0 5px 5px}#annotItems .annot-row{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 8px;font-size:11px;line-height:1.5;border-radius:6px}#annotItems .annot-row:hover{background:var(--border-strong)}
   #annotNote button:focus-visible,#annotBar button:focus-visible,#annotPill button:focus-visible,#annotList button:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+
+  /* Figure viewer: stable graphite stage, all global actions above the image. */
+  #lb{padding:0;background:var(--figure-backdrop,var(--bg));color:var(--txt)}
+  #lbHead,#lbTools{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;flex:none;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--border)}
+  #lbHead{min-height:60px}#lbTools{min-height:44px;flex-wrap:wrap;padding:5px 16px}
+  #lb #lbCap{display:flex;flex:1;min-width:0;align-items:flex-start;flex-direction:column;margin:0;gap:3px;text-align:left}
+  #lbCap b{max-width:100%;font-size:13px}#lbCap .lb-location{max-width:100%;font-size:10px;color:#a3aaaa}
+  #lb #lbClose,#lb #lbFs,#lb #lbAnnot,#lb #lbProv,#lb #lbZoom,#lb .lbBtn{position:static;transform:none;margin:0;flex:none}
+  #lb #lbZoom,#lb.annot #lbZoom{display:flex;background:transparent;box-shadow:none;padding:0}
+  #lbHead button,#lbTools>button{border:0;background:transparent;color:var(--muted);border-radius:7px;width:30px;height:30px;padding:5px;font-size:19px}
+  #lbHead #lbAdd{width:auto;padding:5px 12px;font-size:12px;color:#e6a175;background:#d8865318;border:1px solid #d8865338}
+  #lbTools #lbAnnot{width:auto;gap:6px;font-size:12px}#lbTools svg{width:17px;height:17px}
+  #lbPosition{font-size:11px;color:#a3aaaa;white-space:nowrap}#lbTools .lb-space{flex:1}
+  #lb #lbViewport,#lb.annot #lbViewport{padding:24px;box-sizing:border-box}
+  #lb.annot #annotBar{position:static;display:flex!important;transform:none;max-width:100%;margin:0;padding:0;border:0;box-shadow:none;background:transparent;gap:2px}
+  #annotBar #annotZoomOut,#annotBar #annotFit,#annotBar #annotZoomIn{display:none}
+  #lb #annotPill,#lb.annot #annotPill.on{position:static;display:flex;transform:none;padding:0;border:0;background:transparent;margin:0}
+  #annotPill #annotPillSend{display:none}#annotPill #annotPillN{font-size:11px;padding:6px;color:#c2c7c7}
+  #lb:not(.annot) #annotPill{display:none}
+  #lb #annotList{top:108px;bottom:auto;background:var(--card)}
+  #annotNote{width:280px;background:var(--card);border-color:var(--border2);box-shadow:0 8px 26px #0003}
+  #annotNote header{padding:10px 12px 6px;font-size:11px}#annotNote textarea{padding:6px 12px;font-size:12px}
+  #annotNote footer{padding:6px 10px 10px}#annotNote .annot-draft,#annotNote .annot-send{width:30px;height:30px;padding:6px}
+  #annotNote footer svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6}
+  #lbMore{position:relative;color:var(--muted)}#lbMore summary{cursor:pointer;list-style:none;padding:7px;font-size:17px}#lbMore summary::-webkit-details-marker{display:none}
+  #lbMore>div{position:absolute;right:0;top:35px;z-index:106;width:220px;padding:12px;background:var(--card);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px #0003}
+  #lbMore a{display:block;color:#d9dddd;font-size:12px;text-decoration:none;padding:6px 0}#lbInfo{font-size:11px;color:#aab1b1;overflow-wrap:anywhere;margin-bottom:6px}
+  #lb.fs{background:var(--figure-backdrop,var(--bg))}#lb.fs #lbHead,#lb.fs #lbTools{display:none}#lb.fs.fs-ui #lbTools{display:flex}
+  #lb.vw #lbHead,#lb.vw #lbTools{display:none}
+  @media(max-width:540px){#lbHead,#lbTools{padding-left:8px;padding-right:8px;gap:4px}#lb #lbViewport,#lb.annot #lbViewport{padding:12px}#lbCap .lb-location{display:none}#lbHead #lbAdd{font-size:11px;padding:5px 8px}}
+
+  #annotShapes{position:relative;color:#dca079}#annotShapes summary{list-style:none;display:flex;align-items:center;gap:2px;padding:5px;cursor:pointer;border-radius:6px;background:#d8865318}#annotShapes summary::-webkit-details-marker{display:none}
+  #annotShapes>div{position:absolute;z-index:107;top:34px;left:0;display:flex;gap:3px;padding:5px;background:var(--card);border:1px solid var(--border2);border-radius:7px;box-shadow:0 6px 18px #0003}
+  #annotShapes summary:focus-visible{outline:2px solid var(--primary)}
+
+  #lbHead #lbAdd{width:30px;height:30px;padding:6px;border:0;background:transparent;color:var(--muted);font-size:0}
+  #lbHead #lbAdd:hover{background:#ffffff0a;color:var(--txt)}
+  #lbHead #lbAdd svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}
+
+  #lbBackground{display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:11px;color:var(--muted)}
+  #lbHead #lbBackground button{width:23px;height:23px;padding:0;border-radius:50%;background:var(--swatch);border:1px solid #687070}
+  #lbHead #lbBackground button[aria-pressed=true]{outline:1px solid #d7a07a;outline-offset:3px}
+
+  #lb #lbPrev,#lb #lbNext{width:28px;height:28px;padding:5px;background:transparent;border-radius:6px;font-size:0}
+  #lb #lbPrev:hover,#lb #lbNext:hover{background:var(--surface-hover,#ffffff08)}
+  #lb .lbBtn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7}
+  #lbViewport{touch-action:none}
 </style>
 <link rel="stylesheet" href="/.fig_thumbs/annotation_ui.css">
 </head>
@@ -802,13 +850,15 @@
   <div id="lbZoom"><button id="lbZoomOut" aria-label="Réduire">−</button><button id="lbFit" title="Afficher toute l’image (0)">Ajuster</button><button id="lbZoomIn" aria-label="Agrandir">+</button></div>
   <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
   <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
-  <button class="lbBtn" id="lbPrev" aria-label="Image précédente">&#8249;</button>
-  <button class="lbBtn" id="lbNext" aria-label="Image suivante">&#8250;</button>
+  <button class="lbBtn" id="lbPrev" aria-label="Image précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
+  <button class="lbBtn" id="lbNext" aria-label="Image suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
   <div id="annotBar" role="toolbar" aria-label="Outils d’annotation">
     <button data-tool="select" title="Sélectionner" aria-label="Sélectionner"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 14 9-7 1-3 7Z"/></svg></button>
+    <details id="annotShapes"><summary title="Forme : rectangle" aria-label="Choisir une forme"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg><span>⌄</span></summary><div>
     <button data-tool="rect" class="sel" title="Rectangle" aria-label="Rectangle" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
     <button data-tool="ellipse" title="Ellipse" aria-label="Ellipse"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg></button>
     <button data-tool="arrow" title="Flèche" aria-label="Flèche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M8 5h11v11"/></svg></button>
+    </div></details>
     <button data-tool="pan" title="Déplacer la vue" aria-label="Déplacer la vue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-4a2 2 0 0 1 4 0v7c0 5-3 7-7 7-3 0-5-2-7-5l-3-4a2 2 0 0 1 3-2l2 2Z"/></svg></button><i></i>
     <button id="annotUndo" title="Annuler" aria-label="Annuler"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 6 6v3"/></svg></button>
     <button id="annotRedo" title="Rétablir" aria-label="Rétablir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v3"/></svg></button><i></i>
@@ -818,7 +868,7 @@
   <div id="annotNote" role="dialog" aria-label="Commentaire sélectionné">
     <header><span class="annot-number"></span><span>Commentaire</span><button class="annot-close" aria-label="Fermer le commentaire">×</button></header>
     <textarea rows="2" aria-label="Commentaire" placeholder="Ajouter une annotation…"></textarea>
-    <footer><button class="annot-delete" title="Supprimer" aria-label="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button class="annot-save" title="Conserver dans cette session">Enregistrer</button><button class="annot-send" disabled>Envoyer ↑</button></footer>
+    <footer><button class="annot-delete" title="Supprimer" aria-label="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button class="annot-draft" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat" disabled><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button><button class="annot-send" title="Envoyer directement au chat" aria-label="Envoyer directement au chat" disabled><svg viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button></footer>
   </div>
   <div id="annotPill"><button id="annotPillN" aria-expanded="false" aria-controls="annotList">0 annotation</button><button id="annotPillTarget" title="Choisir la session cible">◎</button><button id="annotPillCancel" title="Supprimer tous les commentaires" aria-label="Supprimer tous les commentaires" hidden>×</button><button id="annotPillSend">Ajouter au chat ↑</button></div>
   <div id="annotList" hidden><header>Annotations<button id="annotListClose" aria-label="Fermer la liste">×</button></header><div id="annotItems"></div></div>
@@ -2008,7 +2058,7 @@ const lb=()=>document.getElementById('lb');
 async function lbShow(i){
   if(lbIdx>=0 && i!==lbIdx && !(await annotGuard())) return;
   if(i<0||i>=lbList.length) return;
-  lbZoomLevel=1;
+  lbZoomLevel=1;lbPanX=0;lbPanY=0;document.getElementById('lbWrap').style.transform='';
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
   markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv';
@@ -2042,10 +2092,13 @@ async function lbShow(i){
   else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';img.src='';}
   else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';img.src='';}
   else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
-  document.getElementById('lbCap').innerHTML=
-    `<b>${esc(f.name)}</b><span>${esc(f.folder)}</span><span>${esc(f.mdate)}</span><a href="${escA(f.rel)}" target="_blank">Ouvrir l’original ↗</a>`+
-    (isSvg?` <span style="margin-left:8px;color:#7aa2f7;font-size:12px">&#9672; click elements in the plot to select them</span>`:'');
+  document.getElementById('lbCap').innerHTML=`<span class="lb-location">Galerie / ${esc(f.folder||'')}</span><b>${esc(f.name)}</b>`;
+  document.getElementById('lbInfo').textContent=[f.folder,f.mdate].filter(Boolean).join(' · ');
+  document.getElementById('lbOriginal').href=f.rel;
+  document.getElementById('lbMore').open=false;
+  document.getElementById('lbPosition').textContent=(i+1)+' / '+lbList.length;
   document.getElementById('lbAnnot').style.display=(imgExt(f.ext)&&!isSvg)?'flex':'none';
+  document.getElementById('lbAdd').disabled=!EMB;
   provSync();
   lb().classList.add('show');
   lbViewportRequest(true);
@@ -2236,7 +2289,7 @@ async function lbClose(){
 }
 
 // The host owns the window; the same iframe remains alive in its top layer.
-let lbZoomLevel=1;
+let lbZoomLevel=1,lbPanX=0,lbPanY=0;
 function lbHostRequest(active){
   if(window.self!==window.top && new URLSearchParams(location.search).get('embedded')==='atelier')
     window.__atelierPost({type:'atelier-gallery-fullscreen',active});
@@ -2269,13 +2322,15 @@ function lbFitImage(){
   if(lb().classList.contains('annot')){const c=cv();c.style.width=wrap.style.width;c.style.height=wrap.style.height;}
 }
 function lbSetZoom(value){
+  lbPanX=0;lbPanY=0;document.getElementById('lbWrap').style.transform='';
   lbZoomLevel=Math.max(.25,Math.min(8,value));lbFitImage();
   const stage=document.getElementById('lbViewport');
   stage.scrollLeft=(stage.scrollWidth-stage.clientWidth)/2;
   stage.scrollTop=(stage.scrollHeight-stage.clientHeight)/2;
 }
 document.getElementById('lbImg').addEventListener('load',lbFitImage);
-new ResizeObserver(lbFitImage).observe(document.getElementById('lbViewport'));
+let lbFitFrame=0;
+new ResizeObserver(()=>{cancelAnimationFrame(lbFitFrame);lbFitFrame=requestAnimationFrame(lbFitImage);}).observe(document.getElementById('lbViewport'));
 document.getElementById('lbFit').onclick=()=>lbSetZoom(1);
 document.getElementById('lbZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);
 document.getElementById('lbZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);
@@ -2938,6 +2993,29 @@ document.addEventListener('keydown',e=>{
 let annotTool='rect', annotStrokes=[], annotCur=null, annotSent=true;
 const annotSessions=new Map();
 let annotSession=null, annotSelected=null, annotDrag=null, annotSendOne=null, annotBusy=false;
+
+const lbHead=document.createElement('div');lbHead.id='lbHead';
+const lbTools=document.createElement('div');lbTools.id='lbTools';
+lbHead.innerHTML='<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button><details id="lbMore"><summary aria-label="Informations et autres actions">⋯</summary><div><div id="lbInfo"></div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a></div></details>';
+lb().prepend(lbHead,lbTools);
+function setFigureBackdrop(color){
+  const options=[...document.querySelectorAll('[data-backdrop]')];
+  if(!options.some(b=>b.dataset.backdrop===color))color='atelier';
+  if(color==='atelier')lb().style.removeProperty('--figure-backdrop');else lb().style.setProperty('--figure-backdrop',color);
+  options.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.backdrop===color)));
+  try{localStorage.setItem('atelier.figureBackdrop',color);}catch{}
+}
+let figureBackdrop;try{figureBackdrop=localStorage.getItem('atelier.figureBackdrop');}catch{}
+setFigureBackdrop(figureBackdrop);
+document.querySelectorAll('[data-backdrop]').forEach(b=>b.onclick=()=>setFigureBackdrop(b.dataset.backdrop));
+lbHead.prepend(document.getElementById('lbCap'));lbHead.append(document.getElementById('lbProv'),document.getElementById('lbClose'));
+for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill','lbFs'])lbTools.append(document.getElementById(id));
+const lbPosition=document.createElement('span');lbPosition.id='lbPosition';document.getElementById('lbPrev').after(lbPosition);
+const lbSpace=document.createElement('span');lbSpace.className='lb-space';document.getElementById('annotPill').before(lbSpace);
+document.getElementById('lbAnnot').insertAdjacentHTML('beforeend','<span>Annoter</span>');
+lb().prepend(lbHead,lbTools);
+document.getElementById('lbAdd').onclick=async()=>{if(annotBusy)return;document.querySelector('#annotNote .annot-close').click();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))document.getElementById('annotPillSend').click();else if(EMB){try{await postChatAttachment(lbList[lbIdx].rel);}catch{document.getElementById('lbAdd').title='Ajout impossible — réessayer';}}};
+
 const cv=()=>document.getElementById('annotCv');
 const annotGeometryReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/.fig_thumbs/figure_annotation_geometry.js?v=__VER__';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
 const annotGeometry=()=>globalThis.FigureAnnotationGeometry;
@@ -2969,6 +3047,7 @@ function annotPillUpdate(){
   document.getElementById('annotPillN').textContent=n+(n>1?' annotations':' annotation');
   document.getElementById('annotPill').classList.toggle('on',n>0);
   document.getElementById('annotPillSend').disabled=annotBusy||!annotStrokes.some(s=>s.note?.trim());
+  document.getElementById('lbAdd').disabled=annotBusy||(!EMB&&!annotStrokes.some(s=>s.note?.trim()));
   document.getElementById('annotUndo').disabled=!annotSession?.undo.length;
   document.getElementById('annotRedo').disabled=!annotSession?.redo.length;
   annotRemember();annotListRender();
@@ -2985,17 +3064,40 @@ async function annotAskNote(stroke,clientX,clientY){
   inp.value=stroke.note||'';box.style.display='block';
   const position=()=>{const host=lb().getBoundingClientRect();box.style.maxWidth=Math.max(120,host.width-16)+'px';box.style.left=Math.max(host.left+8,Math.min(clientX+18,host.right-box.offsetWidth-8))+'px';box.style.top=Math.max(host.top+8,Math.min(clientY-24,host.bottom-box.offsetHeight-8))+'px';};
   const save=()=>{if(inp.value!==stroke.note){annotCheckpoint();stroke.note=inp.value.trim();}annotSent=false;annotRedraw();};
-  const close=()=>{if(annotBusy)return;if(!stroke.note){annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();}box.style.display='none';box.querySelector('.annot-close').onclick=null;annotRedraw();};
+  const close=()=>{if(annotBusy)return;save();if(!stroke.note){annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();}box.style.display='none';box.querySelector('.annot-close').onclick=null;annotRedraw();};
   box.querySelector('.annot-close').onclick=close;
-  box.querySelector('.annot-save').onclick=()=>{if(annotBusy)return;save();box.style.display='none';box.querySelector('.annot-close').onclick=null;};
   box.querySelector('.annot-delete').onclick=()=>{if(annotBusy)return;annotCheckpoint();annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();box.style.display='none';annotRedraw();};
-  box.querySelector('.annot-send').onclick=async function(){if(annotBusy||this.disabled)return;save();if(!stroke.note)return;annotBusy=true;this.disabled=true;inp.disabled=true;annotPillUpdate();try{await annotSendOne(stroke);box.style.display='none';}catch(error){box.querySelector('.annot-status').textContent='Envoi impossible — réessayer';}finally{annotBusy=false;this.disabled=false;inp.disabled=false;annotPillUpdate();}};
-  inp.oninput=()=>{inp.style.height='44px';inp.style.height=Math.min(132,inp.scrollHeight)+'px';box.querySelector('.annot-send').disabled=annotBusy||!inp.value.trim();position();};
+  for(const selector of ['.annot-draft','.annot-send'])box.querySelector(selector).onclick=async function(){
+    if(annotBusy||this.disabled)return;save();if(!stroke.note)return;
+    annotBusy=true;inp.disabled=true;annotPillUpdate();inp.oninput();
+    try{await annotSendOne(stroke,selector==='.annot-send');box.style.display='none';}
+    catch(error){box.querySelector('.annot-status').textContent='Envoi impossible — réessayer';}
+    finally{annotBusy=false;inp.disabled=false;annotPillUpdate();inp.oninput();}
+  };
+  inp.oninput=()=>{inp.style.height='44px';inp.style.height=Math.min(132,inp.scrollHeight)+'px';for(const sel of ['.annot-send','.annot-draft'])box.querySelector(sel).disabled=annotBusy||!inp.value.trim();position();};
   inp.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close();}if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();box.querySelector('.annot-send').click();}};
   box.querySelector('.annot-status').textContent='';inp.oninput();inp.focus();annotRedraw();
 }
 function annotBindCanvas(){
-  const c=cv();
+  const c=cv(),stage=document.getElementById('lbViewport'),wrap=document.getElementById('lbWrap');
+  let pan=null;
+  stage.addEventListener('pointerdown',e=>{
+    if(!lb().classList.contains('annot')||annotTool!=='pan'||annotBusy||e.button!==0)return;
+    document.querySelector('#annotNote .annot-close').click();
+    pan={id:e.pointerId,x:e.clientX,y:e.clientY,left:stage.scrollLeft,top:stage.scrollTop,px:lbPanX,py:lbPanY};
+    stage.setPointerCapture(e.pointerId);stage.style.cursor='grabbing';e.preventDefault();e.stopPropagation();
+  },true);
+  stage.addEventListener('pointermove',e=>{
+    if(!pan||pan.id!==e.pointerId)return;
+    const dx=e.clientX-pan.x,dy=e.clientY-pan.y;
+    const mx=Math.max(0,(stage.clientWidth-wrap.offsetWidth)/2-24),my=Math.max(0,(stage.clientHeight-wrap.offsetHeight)/2-24);
+    lbPanX=Math.max(-mx,Math.min(mx,pan.px+dx));lbPanY=Math.max(-my,Math.min(my,pan.py+dy));
+    if(!mx)stage.scrollLeft=pan.left-dx;if(!my)stage.scrollTop=pan.top-dy;
+    wrap.style.transform=`translate(${lbPanX}px,${lbPanY}px)`;e.stopPropagation();
+  },true);
+  const endPan=e=>{if(!pan||pan.id!==e.pointerId)return;pan=null;stage.style.cursor='grab';if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);e.stopPropagation();};
+  stage.addEventListener('pointerup',endPan,true);stage.addEventListener('pointercancel',endPan,true);
+
   c.addEventListener('pointerdown',e=>{
     if(e.button!==0||annotBusy)return;
     const p=annotPos(e),g=annotGeometry(),tol=8*c.width/c.getBoundingClientRect().width;
@@ -3027,7 +3129,7 @@ function annotBindCanvas(){
     annotRedraw();
   });
   c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
-  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=()=>{if(annotBusy)return;annotTool=b.dataset.tool;document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
+  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=()=>{if(annotBusy)return;annotTool=b.dataset.tool;const shapes=document.getElementById('annotShapes');if(b.closest('#annotShapes')){shapes.querySelector('summary svg').replaceWith(b.querySelector('svg').cloneNode(true));shapes.querySelector('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
   document.getElementById('annotUndo').onclick=()=>annotHistory();document.getElementById('annotRedo').onclick=()=>annotHistory(true);
   document.getElementById('annotZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);document.getElementById('annotZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);document.getElementById('annotFit').onclick=()=>lbSetZoom(1);
   document.getElementById('annotPillN').onclick=function(){document.getElementById('annotNote').querySelector('.annot-close').click();const list=document.getElementById('annotList');list.hidden=!list.hidden;this.setAttribute('aria-expanded',String(!list.hidden));};
@@ -3226,7 +3328,7 @@ function annotInit(){
     if(ANNOT_EMBEDDED&&j&&j.message){
       const id=crypto.randomUUID(), rel='figure-comments:'+String(f.rel||f.name);
       pendingFigureNotes.set(id,{rel,notes:sentNotes,session:sentSession});
-      const base={text:j.message,pdfAnnotation:{rel,id}};
+      const base={text:j.message,direct:!!direct,pdfAnnotation:{rel,id}};
       if(j.path){
         base.path=j.path;
         const source=String(f.name||f.rel||'').split('/').pop();
@@ -3237,7 +3339,7 @@ function annotInit(){
     }
     return j;
   }
-  annotSendOne=async stroke=>{const session=annotSession;await annotPost(true,stroke);if(!ANNOT_EMBEDDED){session.strokes=session.strokes.filter(s=>s!==stroke);if(session===annotSession){annotStrokes=session.strokes;annotRenumber();annotRedraw();}}};
+  annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,stroke);if(!ANNOT_EMBEDDED){session.strokes=session.strokes.filter(s=>s!==stroke);if(session===annotSession){annotStrokes=session.strokes;annotRenumber();annotRedraw();}}};
   document.getElementById('annotPillCancel').onclick=async function(){
     const n=annotStrokes.filter(s=>s.note).length;
     if(!(await confirmDialog(n>1?`Supprimer les ${n} commentaires ?`:'Supprimer le commentaire ?','Supprimer')))return;
@@ -3288,7 +3390,7 @@ function annotInit(){
     if(this.disabled||annotBusy)return;annotBusy=true;this.disabled=true;const sendingSession=annotSession;
     this.classList.remove('is-ok','is-err'); this.classList.add('is-busy');
     try{
-      const j=await annotPost(true);
+      const j=await annotPost(false);
       if(!ANNOT_EMBEDDED){sendingSession.strokes=[];if(annotSession===sendingSession)annotStrokes=[];}annotSent=true;
       document.getElementById('annotNote').style.display='none';
       if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();

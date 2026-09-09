@@ -70,7 +70,7 @@ impl CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
-            idle: crate::turn_idle::idle_from_env(),
+            idle: crate::turn_idle::idle_from_env_or(900),
             stop_wait: Duration::from_secs(5),
         })
     }
@@ -129,7 +129,7 @@ impl Default for CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
-            idle: crate::turn_idle::idle_from_env(),
+            idle: crate::turn_idle::idle_from_env_or(900),
             stop_wait: Duration::from_secs(5),
         }
     }
@@ -1009,10 +1009,18 @@ impl Provider for CodexProvider {
 
         let (sandbox, _) = codex_safety(req.permission_mode.as_deref());
         connection.set_sandbox(sandbox);
+        let activity = crate::turn_idle::TurnActivity::new();
+        let progress = crate::turn_idle::TurnActivity::new();
         if let Some(relay) = req.on_interaction.clone() {
+            let human_activity = activity.clone();
+            let human_progress = progress.clone();
             let request_handler = Arc::new(move |method: String, params: Value| {
                 let relay = Arc::clone(&relay);
+                let wait = human_activity.wait_for_human();
+                let progress_wait = human_progress.wait_for_human();
                 Box::pin(async move {
+                    let _wait = wait;
+                    let _progress_wait = progress_wait;
                     let response = relay(method.clone(), params.clone()).await;
                     answer_from_interaction(&method, &params, response.as_ref())
                 })
@@ -1049,10 +1057,27 @@ impl Provider for CodexProvider {
         let done_slot2 = Arc::clone(&done_slot);
         // Signe de vie du CLI : toute notification, y compris les deltas de
         // sortie et de raisonnement, repousse le filet anti-figé (turn_idle).
-        let activity = crate::turn_idle::TurnActivity::new();
         let activity_handler = activity.clone();
+        let progress_handler = progress.clone();
+        let map_for_recovery = map_state.clone();
+        let (completion_hint, completion_hints) = tokio::sync::watch::channel(None);
 
         let handler: Arc<dyn Fn(&str, &Value) + Send + Sync> = Arc::new(move |method, params| {
+            if params["__transportFailure"] != true {
+                let expected = map_state.lock().ok().and_then(|state| state.native_turn_id.clone());
+                if method == "codex/event/task_complete" {
+                    if let Some(id) = crate::codex_supervision::legacy_completion_turn(params, &codex_for_h, expected.as_deref()) {
+                        // Duplicate hints must not postpone the original deadline.
+                        if completion_hint.borrow().is_none() {
+                            completion_hint.send_replace(Some((id.to_string(), tokio::time::Instant::now() + Duration::from_millis(750), params.pointer("/msg/last_agent_message").and_then(Value::as_str).map(str::to_string))));
+                        }
+                    }
+                    return;
+                }
+                if let (Some(expected), Some(actual)) = (expected.as_deref(), crate::codex_supervision::notification_turn_id(params)) {
+                    if expected != actual { return; }
+                }
+            }
             if method == "turn/completed" && params["__transportFailure"] != true { stopped_handler.store(true, Ordering::SeqCst); }
             if finished2.load(Ordering::SeqCst) { return; }
             activity_handler.bump();
@@ -1075,6 +1100,7 @@ impl Provider for CodexProvider {
                 };
                 map_turn_notification(method, params, &mut st)
             };
+            if events.iter().any(|event| event["kind"] != "usage") { progress_handler.bump(); }
             for ev in events {
                 let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                 if kind == "done" || kind == "error" {
@@ -1107,7 +1133,7 @@ impl Provider for CodexProvider {
             }
         });
 
-        scope.connection.set_handler(handler);
+        scope.connection.set_handler(handler.clone());
 
         let mut turn_params = json!({
             "threadId": codex_id,
@@ -1139,12 +1165,24 @@ impl Provider for CodexProvider {
                 if let Ok(mut active) = self.active.lock() {
                     if let Some(turn) = active.get_mut(&req.thread_id) { turn.turn_id = Some(turn_id.into()); }
                 }
+                if let Ok(mut map) = map_for_recovery.lock() {
+                    map.native_turn_id = Some(turn_id.into());
+                }
             }
         }
         let result = match started {
             Err(error) => (false, Some(error)),
             Ok(_) => tokio::select! {
                 biased;
+                _ = crate::turn_idle::with_idle_timeout(std::future::pending::<()>(), Duration::from_secs(45 * 60), &progress) => {
+                    (false, Some("Aucun progrès Codex depuis 45 minutes".into()))
+                },
+                _ = crate::codex_supervision::recover_legacy_completion(completion_hints, &scope.connection, &codex_id, &map_for_recovery, handler.clone()) => {
+                    done_rx.await.unwrap_or((false, Some("connexion Codex fermée".into())))
+                },
+                _ = crate::codex_supervision::reconcile_native_turn(&scope.connection, &codex_id, &map_for_recovery, &progress, handler.clone()) => {
+                    done_rx.await.unwrap_or((false, Some("connexion Codex fermée".into())))
+                },
                 result = crate::turn_idle::with_idle_timeout(&mut done_rx, self.idle, &activity) => match result {
                     Ok(Ok(result)) => result,
                     Ok(Err(_)) => (false, Some("connexion Codex fermée".into())),

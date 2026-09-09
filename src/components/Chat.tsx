@@ -91,6 +91,7 @@ export default function Chat(p: {
   /** Research Home (plan 017) — rendu par la timeline quand threadId est null */
   home?: ResearchHomeBundle | null;
   workingSince: number | null;
+  lastEventAt?: number | null;
   /** tokens de sortie du tour en cours (heartbeat provider) — ticker Working */
   liveTokens?: number | null;
   /** note d'avancement du tour (démarrage MCP) — affichée sous le spinner */
@@ -1056,6 +1057,7 @@ export default function Chat(p: {
           threadId: p.threadId,
           events: p.events,
           workingSince: p.workingSince,
+          lastEventAt: p.lastEventAt,
           liveTokens: p.liveTokens ?? null,
           liveNote: p.liveNote ?? null,
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",

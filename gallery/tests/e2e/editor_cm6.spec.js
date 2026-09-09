@@ -483,13 +483,11 @@ test('latex individual review automatically opens, accepts, rejects and protects
     writeFileSync(path.join(root,'sample.tex'),after);
     await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true',{timeout:10000});
     await expect(page.locator('.dv-count')).toHaveText('1/1');
-    await expect(page.locator('.cm-chunkButtons button').filter({hasText:'Accepter'}).first()).toBeAttached();
-    await page.locator('.cm-deletedChunk').first().hover();
+    await expect(page.getByRole('button',{name:'Accepter',exact:true}).first()).toBeAttached();
     await page.getByRole('button',{name:'Accepter',exact:true}).first().click();
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
     await page.locator('#diffUndo').click();
     await page.route('**/codesave', async route => { await new Promise(resolve=>setTimeout(resolve,250)); await route.continue(); });
-    await page.locator('.cm-deletedChunk').first().hover();
     await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     expect(await page.evaluate(()=>cm.getOption('readOnly'))).toBe(true);
     await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Original first');
@@ -520,7 +518,6 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await page.route('**/statfile?*',route=>route.fulfill({json:{mtime:0}}));
     const concurrent = second + 'Concurrent disk edit.\n';
     writeFileSync(path.join(root,'sample.tex'),concurrent);
-    await page.locator('.cm-deletedChunk').first().hover();
     await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     await expect(page.locator('#state')).toContainText('non enregistré');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(concurrent);
@@ -584,6 +581,14 @@ test('latex individual review keeps selection stable while scrolling diff widget
     await page.evaluate(()=>{cm.focus();cm.setSelection({line:0,ch:0},{line:0,ch:7});});
     await expect.poll(()=>page.evaluate(()=>cm.getSelection())).toBe('Revised');
     await expect(page.locator('.cm-selectionBackground').first()).toBeVisible();
+    const selection = page.locator('.cm-selectionBackground').first();
+    await expect(selection).toHaveCSS('background-color', 'rgba(232, 130, 58, 0.38)');
+    await page.locator('#toolbarWrap').focus();
+    await expect(page.locator('.cm-review-selection')).not.toHaveClass(/cm-focused/);
+    await expect(selection).toHaveCSS('background-color', 'rgba(232, 130, 58, 0.38)');
+    expect(await page.evaluate(()=>cm.getSelection())).toBe('Revised');
+    await page.evaluate(()=>cm.focus());
+    await expect(selection).toHaveCSS('background-color', 'rgba(232, 130, 58, 0.38)');
     await page.locator('.cm-scroller').hover();
     await page.mouse.wheel(0,1800);
     await page.waitForTimeout(250);
@@ -594,5 +599,47 @@ test('latex individual review keeps selection stable while scrolling diff widget
     expect(await page.locator('.cm-content').evaluate(el=>getComputedStyle(el,'::selection').backgroundColor)).toBe('rgba(0, 0, 0, 0)');
     await page.locator('#diffTag').click();
     await expect(page.locator('.cm-review-selection')).toHaveCount(0);
+  });
+});
+
+test('latex individual review gutter keeps controls outside wrapped text and covers each chunk', async ({page}) => {
+  const original = 'Old wording. '.repeat(28) + '\n\nUnchanged context.\n';
+  const current = 'New wording. '.repeat(34) + '\n\nUnchanged context.\n';
+  await withProject({'sample.tex':current}, async ({url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));
+    await expectEngine(page,'cm6');
+    await page.evaluate(original=>cm.showMergeDiff(original,{individual:true,onDecision:value=>{window.__gutterDecision=value;}}), original);
+    for (const width of [1050,620]) {
+      await page.setViewportSize({width,height:850});
+      const widget=page.locator('.cm-deletedChunk:has(.atelier-review-decision)').first();
+      await expect.poll(()=>widget.evaluate(el=>parseFloat(el.style.getPropertyValue('--review-height')))).toBeGreaterThan(80);
+      const geometry=await widget.evaluate(el=>{
+        const r=el.getBoundingClientRect(),buttons=el.querySelector('.cm-chunkButtons').getBoundingClientRect();
+        const line=el.querySelector('.cm-deletedLine')?.getBoundingClientRect();
+        const bracket=getComputedStyle(el,'::before');
+        return {outside:buttons.right<r.left,noBar:line?Math.abs(line.top-r.top)<1:r.height===0,height:parseFloat(bracket.height),widgetHeight:r.height,opensRight:bracket.borderRightWidth==='0px'};
+      });
+      expect(geometry.outside).toBe(true);expect(geometry.noBar).toBe(true);
+      expect(geometry.height).toBeGreaterThan(geometry.widgetHeight);expect(geometry.opensRight).toBe(true);
+    }
+    await page.screenshot({path:'/tmp/atelier-review-gutter.png'});
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    expect(await page.evaluate(()=>window.__gutterDecision.text)).toBe(original);
+    // A trailing blank added line still belongs inside the bracket.
+    await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('New\n\nContext\n');cm.showMergeDiff('Old\nContext\n',{individual:true,onDecision:()=>{}});});
+    await expect.poll(()=>page.evaluate(()=>{
+      const widget=document.querySelector('.cm-deletedChunk');
+      const bottom=widget.getBoundingClientRect().top+parseFloat(widget.style.getPropertyValue('--review-height'));
+      const blank=document.querySelectorAll('.cm-line')[1].getBoundingClientRect();
+      return Math.abs(bottom-blank.bottom)<2;
+    })).toBe(true);
+    await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('Added.\nContext.\n');cm.showMergeDiff('Context.\n',{individual:true,onDecision:value=>{window.__gutterDecision=value;}});});
+    await expect(page.locator('.atelier-review-compact')).toHaveCount(1);
+    await expect(page.locator('.cm-chunkButtons')).toHaveCSS('position','absolute');
+    await page.getByRole('button',{name:'Accepter',exact:true}).click();
+    expect(await page.evaluate(()=>window.__gutterDecision.base)).toBe('Added.\nContext.\n');
+    await page.evaluate(()=>cm.hideMergeDiff());
+    await expect(page.locator('.atelier-review-gutter')).toHaveCount(0);
+    await expect(page.locator('.atelier-review-decision')).toHaveCount(0);
   });
 });

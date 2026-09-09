@@ -121,6 +121,9 @@ final class WorkspaceModel {
     var image: UIImage?
     var imageName = ""
     var originalSources: [UUID: String] = [:]
+    var comparisonSources: [UUID: String] = [:]
+    var remoteDocumentChanged = false
+    var documentRefreshRequests: [UUID: UUID] = [:]
     var recoveredDrafts: [UUID: String] = [:]
     var documentError: String?
     var savingDocument = false
@@ -140,13 +143,21 @@ final class WorkspaceModel {
         saveCurrentDocument()
         currentArticle = nil; documentOrigin = .gallery; editingSource = false
         let incomingFingerprint = PDFAnnotations.fingerprint(data)
-        if let saved = savedDocuments[item.id], saved.pdf == nil || saved.pdfFingerprint == incomingFingerprint {
+        let incomingText = String(data: data, encoding: .utf8)
+        if let saved = savedDocuments[item.id],
+           (saved.sourceAvailable && originalSources[item.id] != saved.source) ||
+           (saved.pdf != nil && saved.pdfFingerprint == incomingFingerprint) {
             source = saved.source; sourceName = saved.sourceName; pdfName = saved.pdfName
             sourceAvailable = saved.sourceAvailable; pdfDocument = saved.pdf; pdfPage = saved.page
             documentMode = saved.mode; image = saved.image; imageName = saved.imageName
         } else {
             try loadDocument(data: data, name: item.name)
+            if sourceAvailable, let previous = originalSources[item.id], previous != source {
+                comparisonSources[item.id] = previous
+            }
+            if sourceAvailable { originalSources[item.id] = source }
         }
+        remoteDocumentChanged = sourceAvailable && incomingText != nil && originalSources[item.id] != incomingText
         if originalSources[item.id] == nil && sourceAvailable { originalSources[item.id] = source }
         viewedArtifact = item
         documentBytes = data
@@ -198,6 +209,45 @@ final class WorkspaceModel {
         return DocumentPassage(documentID: documentID, fileName: sourceName, location: location, text: text, sourceRange: NSRange(range, in: source), selectedText: text)
     }
 
+    func updateDocumentBytes(_ data: Data) {
+        documentBytes = data
+        for (section, bookmark) in lastDocuments where bookmark.artifact.id == documentID {
+            lastDocuments[section] = OpenDocumentBookmark(artifact: bookmark.artifact, data: data, article: bookmark.article)
+        }
+    }
+
+    /// Adopt server changes only if the local draft is still the one we fetched for.
+    func receiveDocumentVersion(_ text: String, for id: UUID, expectedSource: String) {
+        guard documentID == id, source == expectedSource else { return }
+        guard text != originalSources[id] else { remoteDocumentChanged = false; return }
+        if documentDirty || editingSource {
+            remoteDocumentChanged = true
+            return
+        }
+        comparisonSources[id] = source
+        selection = nil; source = text; originalSources[id] = text
+        updateDocumentBytes(Data(text.utf8))
+        remoteDocumentChanged = false
+        saveCurrentDocument(); scheduleDocumentResume()
+    }
+    func refreshDocumentIfNeeded() async {
+        guard sourceAvailable, let artifact = viewedArtifact, artifact.fileID != nil,
+              !savingDocument, !chat.isPreview else { return }
+        let id = documentID, previous = source
+        let request = UUID()
+        documentRefreshRequests[id] = request
+        defer { if documentRefreshRequests[id] == request { documentRefreshRequests[id] = nil } }
+        do {
+            gallery.invalidate(artifact)
+            let data = try await gallery.contents(artifact)
+            guard !Task.isCancelled, documentRefreshRequests[id] == request,
+                  let text = String(data: data, encoding: .utf8) else { return }
+            receiveDocumentVersion(text, for: id, expectedSource: previous)
+        } catch {
+            if !Task.isCancelled && documentID == id && documentRefreshRequests[id] == request { documentError = "Actualisation impossible : " + error.localizedDescription }
+        }
+    }
+
     func reloadDocument() async {
         guard let artifact = viewedArtifact, artifact.fileID != nil, !savingDocument else { return }
         let id = documentID
@@ -208,8 +258,10 @@ final class WorkspaceModel {
             gallery.invalidate(artifact)
             let data = try await gallery.contents(artifact)
             guard documentID == id, let text = String(data: data, encoding: .utf8) else { return }
+            comparisonSources[id] = source
             selection = nil; source = text; originalSources[id] = text
-            saveCurrentDocument()
+            updateDocumentBytes(data); remoteDocumentChanged = false
+            saveCurrentDocument(); scheduleDocumentResume()
             feedback = "Version du Mac rechargée. Votre ancien brouillon reste récupérable."
         } catch { documentError = error.localizedDescription }
     }
@@ -234,7 +286,10 @@ final class WorkspaceModel {
                 if documentID == id { viewedArtifact = gallery.localItems[index] }
             }
             originalSources[id] = content
-            if documentID == id { feedback = artifact.fileID == nil ? "Copie locale enregistrée" : "Enregistré sur le Mac" }
+            if documentID == id {
+                updateDocumentBytes(Data(content.utf8)); saveCurrentDocument(); scheduleDocumentResume()
+                feedback = artifact.fileID == nil ? "Copie locale enregistrée" : "Enregistré sur le Mac"
+            }
         } catch { documentError = error.localizedDescription }
     }
 
