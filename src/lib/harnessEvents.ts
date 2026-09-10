@@ -202,6 +202,30 @@ function findThinkingLiveIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
   return indexes;
 }
 
+/** Indices des marqueurs de progression éphémères rattachés au terminal. */
+function findThinkingProgressIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
+  const indexes: number[] = [];
+  const m = harnessMeta(ev);
+  for (let k = list.length - 1; k >= 0; k -= 1) {
+    const it = list[k];
+    if (it.kind !== "thinking_progress") continue;
+    if (!m || turnOf(it) === m.turnId) indexes.push(k);
+  }
+  return indexes;
+}
+
+/** A late ephemeral progress frame must not reopen a canonical terminal. */
+export function thinkingProgressIsStale(events: AgentEvent[], ev: AgentEvent): boolean {
+  if (ev.kind !== "thinking_progress") return false;
+  const incomingMeta = harnessMeta(ev);
+  if (!incomingMeta) return threadIsSettled(events);
+  return events.some((event) => {
+    if (event.kind !== "done" && event.kind !== "error") return false;
+    const terminalMeta = harnessMeta(event);
+    return terminalMeta?.turnId === incomingMeta.turnId;
+  });
+}
+
 type StreamEvent = Extract<AgentEvent, { kind: "delta" | "stream_set" | "thinking_delta" }>;
 function isStreamEvent(ev: AgentEvent): ev is StreamEvent {
   return ev.kind === "delta" || ev.kind === "stream_set" || ev.kind === "thinking_delta";
@@ -401,6 +425,20 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     }
     return next;
   }
+  if (ev.kind === "thinking_progress") {
+    // Claude peut émettre un marqueur pour chaque thinking_delta caviardé.
+    // Il s'agit d'un signal éphémère de phase, pas d'une ligne de transcript :
+    // remplacer le marqueur adjacent borne la liste à un seul bloc tout en
+    // laissant les outils et le texte faire office de barrières de phase.
+    if (thinkingProgressIsStale(list, ev)) return list;
+    if (last?.kind === "thinking_progress" &&
+        (!meta || turnOf(last) === turnOf(ev))) {
+      next[next.length - 1] = { ...last, ...ev, kind: "thinking_progress" };
+    } else {
+      next.push({ ...ev, ts: stamp(ev) });
+    }
+    return next;
+  }
   if (ev.kind === "thinking") {
     // bloc final : remplace le live du même turn s'il termine le fil, sinon s'ajoute
     if (lastIsAttachableThinking(next, ev)) {
@@ -555,6 +593,10 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
       if (txt.trim()) next[tIdx] = { kind: "thinking", text: txt, ts: tb.ts, meta: tb.meta };
       else next.splice(tIdx, 1);
     }
+    // Progress markers never belong to the durable transcript. Remove every
+    // marker for this turn when its terminal arrives so a late projection or a
+    // reconnect cannot expose a stale empty reasoning phase.
+    for (const pIdx of findThinkingProgressIndexes(next, ev)) next.splice(pIdx, 1);
     // error/tool n'ont pas de ts déclaré mais le runtime historique en pose un
     // (affichage de l'heure) — cast local plutôt qu'un élargissement de ws.ts
     next.push({ ...ev, ts: stamp(ev) } as AgentEvent);

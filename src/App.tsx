@@ -15,7 +15,7 @@ import {
   AgentEvent,
   Command,
 } from "./lib/ws";
-import { materializeHarnessHistory, mergeHarnessHistory, replaceHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince } from "./lib/harnessEvents";
+import { materializeHarnessHistory, mergeHarnessHistory, replaceHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince, thinkingProgressIsStale } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin } from "./lib/pins";
@@ -2430,13 +2430,15 @@ export default function App() {
           return;
         }
         if (msg.event.kind === "thinking_progress") {
-          // réflexion caviardée par le CLI (headless ≥2.1.8) : l'événement
-          // maintient l'indicateur vivant mais n'est PAS affiché — Thierry ne
-          // veut pas d'un compteur de segments à la place du vrai texte. Il
-          // doit rester intercepté ici : en fuyant dans le fil, un kind
-          // inconnu polluerait l'anatomie du tour.
-          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
-          return;
+          // réflexion caviardée par le CLI (headless ≥2.1.8) : le compteur
+          // maintient l'horloge du tour, puis passe par le réducteur afin que
+          // la projection assistant-ui puisse montrer une réflexion vide
+          // native. Le réducteur compacte les marqueurs adjacents et les
+          // retire au terminal : aucun compteur ni bloc vide ne s'accumule.
+          const currentEvents = eventsRef.current[msg.threadId] ?? [];
+          if (!thinkingProgressIsStale(currentEvents, msg.event)) {
+            setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          }
         }
         if (msg.event.kind === "drafting") {
           // Verbe de rédaction (Claude content_block_start, spike 2026-08-21) :

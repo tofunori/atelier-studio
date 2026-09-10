@@ -886,6 +886,80 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByText(/provider indisponible/)).toBeTruthy();
   });
 
+  it("fait passer la progression Claude dans ThreadChat, l'isole par fil et la ferme au terminal", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A, THREAD_B]);
+    await selectThread(sock, "Fil A — albédo");
+
+    const metaFor = (
+      threadId: string,
+      turnId: string,
+      eventId: string,
+      sequence: number,
+      durable: boolean,
+    ) => ({
+      schemaVersion: 1 as const,
+      eventId,
+      provider: "claude",
+      threadId,
+      turnId,
+      sequence,
+      ts: sequence,
+      durable,
+      origin: "provider" as const,
+    });
+    const progress = (threadId: string, turnId: string, eventId: string, sequence: number, count: number) => ({
+      kind: "thinking_progress" as const,
+      count,
+      meta: metaFor(threadId, turnId, eventId, sequence, false),
+    });
+
+    await push(sock, {
+      type: "event",
+      threadId: "thread-A",
+      event: {
+        ...events.user("Question A"),
+        meta: metaFor("thread-A", "turn-A", "user-A", 1, true),
+      },
+    });
+    await push(sock, { type: "event", threadId: "thread-A", event: progress("thread-A", "turn-A", "progress-A-1", 2, 1) });
+    expect(document.querySelectorAll('[data-slot="reasoning-root"]')).toHaveLength(1);
+    expectStopVisible();
+
+    // A progress event from another thread must remain invisible in the
+    // currently mounted ThreadChat; the event store is keyed by thread id.
+    await push(sock, {
+      type: "event",
+      threadId: "thread-B",
+      event: {
+        ...events.user("Question B"),
+        meta: metaFor("thread-B", "turn-B", "user-B", 1, true),
+      },
+    });
+    await push(sock, { type: "event", threadId: "thread-B", event: progress("thread-B", "turn-B", "progress-B-1", 2, 1) });
+    expect(document.querySelectorAll('[data-slot="reasoning-root"]')).toHaveLength(1);
+
+    await selectThread(sock, "Fil B — manuscrit");
+    expect(document.querySelectorAll('[data-slot="reasoning-root"]')).toHaveLength(1);
+    expectStopVisible();
+
+    // Terminating A while B is mounted must not clear B's native reasoning.
+    await push(sock, {
+      type: "event",
+      threadId: "thread-A",
+      event: { ...events.done({ result: "A terminé" }), meta: metaFor("thread-A", "turn-A", "done-A", 3, true) },
+    });
+    expect(document.querySelectorAll('[data-slot="reasoning-root"]')).toHaveLength(1);
+
+    // A stale progress frame from A after its terminal must not reopen A's
+    // transport clock when that conversation is selected again.
+    await push(sock, { type: "event", threadId: "thread-A", event: progress("thread-A", "turn-A", "progress-A-late", 2, 2) });
+
+    await selectThread(sock, "Fil A — albédo");
+    expect(document.querySelectorAll('[data-slot="reasoning-root"]')).toHaveLength(0);
+    expectStopHidden();
+  });
+
   it("steer : l'« interrupted » du vieux tour n'éteint pas le stop du nouveau", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

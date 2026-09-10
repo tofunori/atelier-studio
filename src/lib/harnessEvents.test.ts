@@ -74,6 +74,56 @@ describe("reduceHarnessEvent — branches", () => {
     expect((done[0] as Extract<AgentEvent, { kind: "thinking" }>).text).toBe("je réfléchis mieux");
   });
 
+  it("thinking_progress garde un seul signal adjacent par phase", () => {
+    const progress = (eventId: string, sequence: number, count: number): AgentEvent => ({
+      kind: "thinking_progress",
+      count,
+      meta: meta({ eventId, sequence, durable: false }),
+    });
+    const out = runLive([
+      events.user(),
+      progress("p1", 1, 1),
+      progress("p2", 2, 2),
+      { ...events.tool({ id: "read" }), meta: meta({ eventId: "tool", sequence: 3, itemId: "read" }) },
+      progress("p3", 4, 3),
+      progress("p4", 5, 4),
+      events.text(),
+    ]);
+
+    expect(kinds(out)).toEqual(["user", "thinking_progress", "tool_update", "thinking_progress", "text"]);
+    expect((out[1] as Extract<AgentEvent, { kind: "thinking_progress" }>).count).toBe(2);
+    expect((out[3] as Extract<AgentEvent, { kind: "thinking_progress" }>).count).toBe(4);
+    expect(out.filter((event) => event.kind === "thinking_progress")).toHaveLength(2);
+  });
+
+  it("le terminal retire les signaux de progression et ne laisse pas de réflexion live", () => {
+    const out = runLive([
+      { ...events.user(), meta: meta({ eventId: "u", sequence: 1 }) },
+      { kind: "thinking_progress", count: 2, meta: meta({ eventId: "p", sequence: 2, durable: false }) },
+      { kind: "thinking_delta", text: "", meta: meta({ eventId: "p2", sequence: 3, durable: false }) },
+      { ...events.done(), meta: meta({ eventId: "d", sequence: 4 }) },
+    ]);
+
+    expect(out.some((event) => event.kind === "thinking_progress" || event.kind === "thinking_live")).toBe(false);
+    expect(kinds(out)).toEqual(["user", "done"]);
+  });
+
+  it("ignore une progression livrée en retard après le terminal du même tour", () => {
+    const terminal = runLive([
+      { ...events.user(), meta: meta({ eventId: "u", sequence: 1 }) },
+      { kind: "thinking_progress", count: 1, meta: meta({ eventId: "p", sequence: 2, durable: false }) },
+      { ...events.done(), meta: meta({ eventId: "d", sequence: 3 }) },
+    ]);
+    const late = reduceHarnessEvent(terminal, {
+      kind: "thinking_progress",
+      count: 2,
+      meta: meta({ eventId: "late-p", sequence: 2, durable: false }),
+    });
+
+    expect(late).toBe(terminal);
+    expect(late.some((event) => event.kind === "thinking_progress")).toBe(false);
+  });
+
   it("delta crée puis accumule la bulle streaming ; stream_set remplace son texte ; text la finalise", () => {
     let out = runLive([
       { kind: "delta", text: "Bon", meta: meta({ eventId: "d1", sequence: 1 }) },
