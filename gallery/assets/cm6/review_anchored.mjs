@@ -60,8 +60,10 @@ function describe(state, chunk) {
   const where = first === last ? `l. ${first}` : `l. ${first}–${last}`;
   if (chunk.fromB === chunk.toB) return `${where} · suppression`;
   const lines = last - first + 1;
-  if (lines > 1) return `${where} · ${lines} lignes`;
-  return `${where} · ${ext.count} modification${ext.count > 1 ? "s" : ""}`;
+  // Pas de décompte des fragments : le diff de mots en produit plus que de
+  // retouches réelles, et un nombre qui ne correspond à rien de visible
+  // trouble plus qu'il n'aide (Thierry 2026-09-10).
+  return lines > 1 ? `${where} · ${lines} lignes` : where;
 }
 
 class PillWidget extends WidgetType {
