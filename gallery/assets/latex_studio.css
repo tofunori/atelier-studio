@@ -163,10 +163,6 @@
   #diffGrp button.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
   #diffGrp #dvCommit{order:1}
   #diffGrp #dvNav{order:2}
-/* Variante C : décision dans la barre, couleur réservée au survol/focus. */
-#diffGrp #dvNav #diffAccept:not(:disabled):hover,#diffGrp #dvNav #diffAccept:focus-visible{color:var(--review-add,#b5d3a7)}
-#diffGrp #dvNav #diffReject:not(:disabled):hover,#diffGrp #dvNav #diffReject:focus-visible{color:var(--review-del,#edaaa5)}
-#diffGrp #dvNav #diffAccept:disabled,#diffGrp #dvNav #diffReject:disabled{opacity:.4}
   #diffGrp #diffRestore{order:3}
   #diffGrp #dvHist{order:4}
   #diffGrp .dg-label{color:var(--faint,#646d7b);font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;margin-right:2px}

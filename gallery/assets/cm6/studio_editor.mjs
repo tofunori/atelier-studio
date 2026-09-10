@@ -10,25 +10,6 @@ import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
-
-// Décision sur un bloc du diff unifié : le texte résultant (`text`) et la
-// base ajustée (`base`) — partagé par les boutons dans le texte (gouttière)
-// et par ceux de la barre (variante C, `decideMergeChunk`).
-function decideMergeChunkIn(view, kind, chunk){
-  const state = view.state;
-  const orig = getOriginalDoc(state), current = state.doc.toString();
-  let text = current, base = orig.toString();
-  if(kind === "reject"){
-    let insert = orig.sliceString(chunk.fromA, Math.max(chunk.fromA, chunk.toA - 1));
-    if(chunk.fromA !== chunk.toA && chunk.toB <= state.doc.length) insert += state.lineBreak;
-    text = current.slice(0, chunk.fromB) + insert + current.slice(Math.min(state.doc.length, chunk.toB));
-  }else{
-    let insert = state.sliceDoc(chunk.fromB, Math.max(chunk.fromB, chunk.toB - 1));
-    if(chunk.fromB !== chunk.toB && chunk.toA <= orig.length) insert += state.lineBreak;
-    base = base.slice(0, chunk.fromA) + insert + base.slice(Math.min(orig.length, chunk.toA));
-  }
-  return {kind, current, text, base};
-}
 import {autocompletion, startCompletion, closeBrackets, closeBracketsKeymap} from "@codemirror/autocomplete";
 import {python} from "@codemirror/lang-python";
 import {markdown} from "@codemirror/lang-markdown";
@@ -846,22 +827,18 @@ export function createStudioEditor(parent, opts) {
     // The intervention journal remains owned by diff_versions.js. This seam
     // only swaps its old hand-built marks/widgets for CM6's merge renderer.
     showMergeDiff: (original, review) => {
-      // Décision sur un bloc : même calcul pour les boutons dans le texte
-      // (gouttière) et pour ceux de la barre (mode `toolbar`, variante C).
-      const decideChunk = (kind, chunk) => decideMergeChunkIn(view, kind, chunk);
-      const inText = !!review?.onDecision && review.toolbar !== true;
       view.dispatch({effects: mergeDiffComp.reconfigure([
         // WebKit native selection can paint recycled deletion widgets on scroll.
         // Draw only the editor state selection while the merge view is active.
         drawSelection(), EditorView.editorAttributes.of({class: "cm-review-selection"}),
-        ...(inText ? [reviewGutter, EditorView.editorAttributes.of({class: "atelier-review-gutter"})] : []),
+        ...(review?.onDecision ? [reviewGutter, EditorView.editorAttributes.of({class: "atelier-review-gutter"})] : []),
         unifiedMergeView({
         original: String(original ?? ""),
         highlightChanges: true,
         gutter: true,
         syntaxHighlightDeletions: true,
         allowInlineDiffs: true,
-        mergeControls: inText ? (kind) => {
+        mergeControls: review?.onDecision ? (kind) => {
           const button = document.createElement("button");
           button.type = "button";
           const label = kind === "accept" ? "Accepter" : "Refuser";
@@ -878,10 +855,21 @@ export function createStudioEditor(parent, opts) {
             e.preventDefault();
             const widget = button.closest(".cm-deletedChunk");
             if(!widget) return;
-            const at = view.posAtDOM(widget);
-            const chunk = getChunks(view.state)?.chunks.find(c => c.fromB <= at && c.endB >= at);
+            const at = view.posAtDOM(widget), state = view.state;
+            const chunk = getChunks(state)?.chunks.find(c => c.fromB <= at && c.endB >= at);
             if(!chunk) return;
-            void review.onDecision(decideChunk(kind, chunk));
+            const orig = getOriginalDoc(state), current = state.doc.toString();
+            let text = current, base = orig.toString();
+            if(kind === "reject"){
+              let insert = orig.sliceString(chunk.fromA, Math.max(chunk.fromA, chunk.toA - 1));
+              if(chunk.fromA !== chunk.toA && chunk.toB <= state.doc.length) insert += state.lineBreak;
+              text = current.slice(0, chunk.fromB) + insert + current.slice(Math.min(state.doc.length, chunk.toB));
+            }else{
+              let insert = state.sliceDoc(chunk.fromB, Math.max(chunk.fromB, chunk.toB - 1));
+              if(chunk.fromB !== chunk.toB && chunk.toA <= orig.length) insert += state.lineBreak;
+              base = base.slice(0, chunk.fromA) + insert + base.slice(Math.min(orig.length, chunk.toA));
+            }
+            void review.onDecision({kind, current, text, base});
           };
           return button;
         } : false,
@@ -893,16 +881,6 @@ export function createStudioEditor(parent, opts) {
         const offset = Math.min(chunk.fromB, doc().length);
         return {pos: toPos(offset), ch: offset};
       });
-    },
-    /** Variante C : décide le bloc qui contient (ou suit) l'offset `ch` du
-     * document courant, sans bouton dans le texte. Renvoie la décision
-     * `{kind, current, text, base}` ou null si aucun bloc. */
-    decideMergeChunk: (kind, ch) => {
-      const chunks = getChunks(view.state)?.chunks || [];
-      if(!chunks.length) return null;
-      const at = Math.max(0, Math.min(view.state.doc.length, ch ?? view.state.selection.main.head));
-      const chunk = chunks.find(c => c.fromB <= at && c.endB >= at) || chunks.find(c => c.fromB >= at) || chunks[chunks.length - 1];
-      return decideMergeChunkIn(view, kind, chunk);
     },
     hideMergeDiff: () => view.dispatch({effects: mergeDiffComp.reconfigure([])}),
     nextMergeDiff: () => goToNextChunk(view),

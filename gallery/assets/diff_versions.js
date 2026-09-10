@@ -644,9 +644,7 @@ window.DiffVersions = function(opts){
     let nativeShown = false;
     if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
       cancelRender();
-      // Variante C (2026-09-10) : les décisions vivent dans la barre, plus de
-      // gouttière ni de bouton dans le texte (toolbar: true → pas de marge).
-      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true, toolbar: true} : undefined) || [];
+      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true} : undefined) || [];
       changeAt = 0;
       if(changePts.length){
         const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
@@ -847,15 +845,6 @@ window.DiffVersions = function(opts){
   try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
-  let decideButtons = null;
-  /** Variante C : décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) depuis la barre. */
-  function decideCurrent(kind){
-    const cm = getCm();
-    if(!cm || !shown || tt || reviewBusy || !changePts.length || typeof cm.decideMergeChunk !== "function") return;
-    const target = changePts[Math.max(0, Math.min(changePts.length - 1, changeAt))];
-    const decision = cm.decideMergeChunk(kind, target ? target.ch : undefined);
-    if(decision) void decideReview(decision);
-  }
   async function decideReview(decision){
     if(reviewBusy || tt || !shown) return;
     const cm = getCm(), it = interList()[navMode];
@@ -1064,28 +1053,6 @@ window.DiffVersions = function(opts){
       navPill.appendChild(navNext);
     }
     els.group.insertBefore(navPill, els.restore || null);
-    if(individualReview){
-      // Variante C : Accepter / Refuser le bloc courant depuis la barre
-      // (⌥↩ / ⌥⌫), à droite de ‹ n/N › ; rien dans le texte.
-      const mk = (kind) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.id = kind === "accept" ? "diffAccept" : "diffReject";
-        button.dataset.decision = kind;
-        const label = kind === "accept" ? "Accepter ce passage (⌥↩)" : "Refuser ce passage (⌥⌫)";
-        button.title = label; button.setAttribute("aria-label", kind === "accept" ? "Accepter" : "Refuser");
-        button.innerHTML = kind === "accept"
-          ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>'
-          : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-        button.onmousedown = (e) => e.preventDefault();
-        button.onclick = () => decideCurrent(kind);
-        button.disabled = true;
-        return button;
-      };
-      decideButtons = {accept: mk("accept"), reject: mk("reject")};
-      navPill.appendChild(decideButtons.accept);
-      navPill.appendChild(decideButtons.reject);
-    }
     // ‹ › : timeline des interventions. Depuis « tout », ‹ entre sur la plus
     // récente ; › depuis la plus récente revient à « tout ».
     navPrev.onclick = () => { navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1); };
@@ -1307,10 +1274,6 @@ window.DiffVersions = function(opts){
       els.tag.setAttribute("aria-pressed", String(shown));
       if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
       if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
-      if(decideButtons){
-        const off = !shown || !!tt || reviewBusy || !changePts.length;
-        decideButtons.accept.disabled = off; decideButtons.reject.disabled = off;
-      }
       return;
     }
     if(!navPill) return;
@@ -2034,12 +1997,6 @@ window.DiffVersions = function(opts){
     if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowDown" || e.code === "ArrowUp") && changePts.length){
       e.preventDefault(); e.stopPropagation();
       gotoChange(changeAt + (e.code === "ArrowDown" ? 1 : -1), true);
-    }
-    // ⌥↩ / ⌥⌫ : accepter / refuser le bloc courant (variante C)
-    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "Enter" || e.code === "Backspace") && individualReview && changePts.length){
-      e.preventDefault(); e.stopPropagation();
-      decideCurrent(e.code === "Enter" ? "accept" : "reject");
-      return;
     }
     // ⌥←/⌥→ : intervention précédente / suivante (timeline)
     if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")){
