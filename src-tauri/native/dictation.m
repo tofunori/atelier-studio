@@ -13,6 +13,12 @@ typedef void (*AtelierDictationCallback)(const char *, const char *, const char 
 }
 @property(nonatomic, copy) NSString *session;
 @property(nonatomic, copy) NSString *transcript;
+// Long-form dictation: the recognizer may restart its window and report
+// hypotheses that only cover recent audio. `committed` keeps the text of the
+// previous windows; `windowStart` is the first-segment timestamp of the
+// current one (seconds since the request began).
+@property(nonatomic, copy) NSString *committed;
+@property(nonatomic) NSTimeInterval windowStart;
 @property(nonatomic) AtelierDictationCallback callback;
 @property(nonatomic, strong) SFSpeechRecognizer *recognizer;
 @property(nonatomic, strong) SFSpeechAudioBufferRecognitionRequest *request;
@@ -77,6 +83,8 @@ typedef void (*AtelierDictationCallback)(const char *, const char *, const char 
         return;
     }
     self.recognizer.queue = NSOperationQueue.mainQueue;
+    self.committed = @"";
+    self.windowStart = 0;
     self.request = [SFSpeechAudioBufferRecognitionRequest new];
     self.request.shouldReportPartialResults = YES;
     self.request.taskHint = SFSpeechRecognitionTaskHintDictation;
@@ -135,9 +143,30 @@ typedef void (*AtelierDictationCallback)(const char *, const char *, const char 
                     if (!owner || ![owner isCurrent:session]) return;
                     // Speech may return an empty final result after usable
                     // partial words, especially following a pause or endAudio.
-                    if (result.bestTranscription.formattedString.length > 0) {
+                    NSString *hypothesis = result.bestTranscription.formattedString;
+                    if (hypothesis.length > 0) {
                         atelier_dictation_meter_speech(&owner->_meter);
-                        owner.transcript = result.bestTranscription.formattedString;
+                        // A hypothesis whose first segment starts well after the
+                        // current window began no longer covers the earlier
+                        // audio: the recognizer moved on. Commit what the previous
+                        // window produced instead of letting it vanish (long
+                        // dictations kept only the last sentences, 2026-09-10).
+                        SFTranscriptionSegment *first = result.bestTranscription.segments.firstObject;
+                        NSTimeInterval firstStart = first ? first.timestamp : owner.windowStart;
+                        if (owner.transcript.length > 0 && firstStart > owner.windowStart + 1.0) {
+                            NSString *previous = owner.transcript;
+                            NSString *head = owner.committed.length ? owner.committed : @"";
+                            NSUInteger cut = head.length;
+                            if (cut && [previous hasPrefix:head]) previous = [previous substringFromIndex:cut];
+                            previous = [previous stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                            if (previous.length) head = head.length ? [head stringByAppendingFormat:@" %@", previous] : previous;
+                            owner.committed = head;
+                            owner.windowStart = firstStart;
+                            NSLog(@"[AtelierDictation] window restart at %.2fs, committed=%lu chars", firstStart, (unsigned long)head.length);
+                        }
+                        owner.transcript = owner.committed.length
+                            ? [owner.committed stringByAppendingFormat:@" %@", hypothesis]
+                            : hypothesis;
                         [owner emit:@"result" error:nil];
                     }
                     if (result.isFinal) {
@@ -164,8 +193,11 @@ typedef void (*AtelierDictationCallback)(const char *, const char *, const char 
         return;
     }
     [self emit:@"listening" error:nil];
-    // SFSpeechRecognizer sessions are bounded; retain the draft at the limit.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    // Server-based recognition is capped at one minute by Apple; on-device
+    // recognition is not, so give long dictations room (draft retained at
+    // the limit either way).
+    int64_t capSeconds = self.request.requiresOnDeviceRecognition ? 10 * 60 : 60;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, capSeconds * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         [self stop:session];
     });
 }
