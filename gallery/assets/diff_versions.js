@@ -885,6 +885,10 @@ window.DiffVersions = function(opts){
     cardLast = mk("dvr-last", "<span>Dernière intervention</span>" + SVG("M9 6l6 6-6 6"), "Dernière intervention", "Aller à la dernière intervention pour décider (⌥→)");
     cardLast.onclick = () => showStep(interList().length - 1);
     card.append(cardPrev, cardCount, cardNext, sep(), cardKeep, cardDrop, cardHint, cardLast);
+    // L'annulation appartient à la décision qui vient d'être prise : elle vit
+    // dans la carte, pas en bouton flottant permanent dans le coin (Thierry
+    // 2026-09-10, « il reste toujours un bouton Annuler »).
+    if(undoButton){ undoButton.className = "dvr-undo"; card.appendChild(undoButton); }
     cardPrev.onclick = () => gotoChange(changeAt - 1, true);
     cardNext.onclick = () => gotoChange(changeAt + 1, true);
     cardKeep.onclick = () => decideCurrent("accept");
@@ -921,6 +925,20 @@ window.DiffVersions = function(opts){
     const decision = cm.decideMergeChunk(kind, target ? target.ch : undefined);
     if(decision) void decideReview(decision);
   }
+  let undoTimer = null;
+  const UNDO_GRACE_MS = 8000;
+  /** Annulation offerte brièvement après une décision, comme un toast : elle
+   * s'efface au bout de quelques secondes, à la navigation et à la fermeture. */
+  function showUndo(){
+    if(!undoButton) return;
+    undoButton.hidden = false;
+    if(undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { undoTimer = null; if(undoButton) undoButton.hidden = true; }, UNDO_GRACE_MS);
+  }
+  function hideUndo(){
+    if(undoTimer){ clearTimeout(undoTimer); undoTimer = null; }
+    if(undoButton) undoButton.hidden = true;
+  }
   async function decideReview(decision){
     if(reviewBusy || tt || !shown) return;
     const cm = getCm(), it = interList()[navMode];
@@ -936,7 +954,7 @@ window.DiffVersions = function(opts){
       extCmp = {...extCmp, before: decision.base};
       saveReviewState();persist(decision.text);render();
       notify(decision.kind === "accept" ? "Passage accepté" : "Passage refusé");
-      if(undoButton) undoButton.hidden = false;
+      showUndo();
     }catch(e){notify("Décision non enregistrée : sauvegarde indisponible");}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);updateNav();}
   }
   const undoButton = individualReview && els.group ? document.createElement("button") : null;
@@ -950,11 +968,11 @@ window.DiffVersions = function(opts){
         if(undo.kind === "reject" && !await restoreText(undo.text)){notify("Annulation non enregistrée : le fichier a changé");return;}
         cm.setValue(undo.text);
         if(undo.previous) reviewState[undo.id] = undo.previous;else delete reviewState[undo.id];
-        saveReviewState();persist(undo.text);reviewUndo = null;undoButton.hidden = true;
+        saveReviewState();persist(undo.text);reviewUndo = null;hideUndo();
       }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
       showStep(interList().findIndex(it=>it.id === undo.id));
     };
-    els.group.appendChild(undoButton);
+    // Pas d'ajout à la barre : la carte de revue l'accueille (ensureReviewCard).
   }
   const acceptAllButton = individualReview && els.group ? document.createElement("button") : null;
   if(acceptAllButton){
@@ -970,7 +988,7 @@ window.DiffVersions = function(opts){
       for(const it of list)reviewState[it.id]={base:it.to,text:it.to,accepted:true};
       saveReviewState();reviewUndo=null;
       toggle(false);navMode=-1;extCmp=null;clearMarks();updateNav();
-      if(undoButton)undoButton.hidden=true;
+      hideUndo();
       notify(`${list.length} intervention${list.length>1?"s":""} acceptée${list.length>1?"s":""}`);
     };
     els.group.appendChild(acceptAllButton);
@@ -1039,6 +1057,7 @@ window.DiffVersions = function(opts){
   }
   function showStep(j){
     if(reviewBusy) return;
+    hideUndo();
     cancelGutter();
     const list = interList();
     if(!list.length) return;
@@ -1411,6 +1430,7 @@ window.DiffVersions = function(opts){
     }
     else {
       cancelRender();
+      hideUndo();
       ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
       navMode = -1;
       extCmp = null; clearMarks();

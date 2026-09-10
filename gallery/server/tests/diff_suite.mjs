@@ -396,7 +396,7 @@ function makeModuleHarness({
     return pop?._q?.["#dvHistList"]?._children || [];
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
-  return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, scrollLog, posts, workers, headRequests, nav, storage, setHead, filePath,
+  return { ctx, cm, dv, tag, group, restore, restored, notes, marksLog, gutterLog, scrollLog, posts, workers, headRequests, nav, storage, setHead, filePath,
     historyButton, historyRows, fireKeydown };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1983,6 +1983,31 @@ async function individualReviewCardTests() {
     ok("revue individuelle : Garder enregistre la base ajustée dans reviewState",
       !!it && saved[it.id] && saved[it.id].base === "<base ajustée>", JSON.stringify(saved));
     h.tag.onclick();
+  }
+
+  // 5. L'annulation vit dans la carte et s'efface : plus de bouton flottant
+  // permanent dans le coin après une décision (Thierry 2026-09-10).
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    const card = host._children.find((c) => c && c.id === "dvReview");
+    const undo = card && card._children.find((c) => c.id === "diffUndo");
+    ok("revue individuelle : l'annulation est dans la carte, pas dans la barre",
+      !!undo && !h.group._children.some((c) => c && c.id === "diffUndo"), String(!!undo));
+    ok("revue individuelle : aucune annulation offerte avant décision", undo && undo.hidden === true, String(undo && undo.hidden));
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "<base ajustée>" });
+    card._children.find((c) => c.className === "dvr-keep").onclick();
+    await sleep(50);
+    ok("revue individuelle : l'annulation apparaît juste après la décision", undo.hidden === false, String(undo.hidden));
+    h.tag.onclick(); // fermeture de la revue
+    ok("revue individuelle : fermer la revue retire l'annulation", undo.hidden === true, String(undo.hidden));
   }
 
   // 4. Retouches de l'auteur après l'intervention : le Diff s'ouvre QUAND MÊME

@@ -604,8 +604,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 [aria-pressed=true]>.diff-switch>span{transform:translateX(8px);background:color-mix(in srgb,var(--accent) 65%,var(--txt))}
 #diffGrp #diffPrev,#diffGrp #diffNext{width:24px;height:28px;order:1}
 #diffGrp #diffPrev{margin-left:5px}
-#diffGrp #diffUndo{order:2;font-size:11px}
-#diffGrp #diffUndo[hidden],#diffRestore{display:none!important}
+#diffRestore{display:none!important}
 #compileActions>#popPdf{display:inline-flex!important;width:auto;padding:0 7px;gap:3px}
 #toolbarWrap{display:inline-flex;align-items:center;justify-content:center;padding:0;width:28px;height:28px}
 #toolbarWrap[aria-pressed=true]{color:var(--txt);background:color-mix(in srgb,var(--txt) 5%,transparent)}
@@ -636,6 +635,8 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #dvReview .dvr-count{padding:0 4px;color:var(--txt);font-variant-numeric:tabular-nums;white-space:nowrap}
 #dvReview .dvr-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
 #dvReview .dvr-hint{padding:0 6px;color:var(--muted);white-space:nowrap}
+#dvReview .dvr-undo{color:var(--muted);font-size:11px}
+#dvReview .dvr-undo:not(:disabled):hover{background:var(--card2);color:var(--txt)}
 #dvReview .dvr-last{color:var(--accent)}
 #dvReview .dvr-last:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
 #dvReview [hidden]{display:none}
@@ -658,7 +659,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 
 #state.err{position:fixed;bottom:12px;left:12px;right:12px;z-index:500;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:8px;white-space:normal;text-align:left}
 
-#diffGrp #diffUndo{position:fixed;bottom:12px;right:12px;z-index:501;background:var(--card);border:1px solid var(--border-strong)!important;width:auto;padding:0 10px!important}
+/* L'annulation vit dans la carte de revue (#dvReview), plus en bouton fixe. */
 
 
 /* Keep unsaved feedback attached to the view selector, even without a filename. */
