@@ -255,7 +255,7 @@ mod tests {
         let node_cases = include_str!("../../../../sidecar/router.mjs");
         for t in crate::ws_router::ALL_MESSAGE_TYPES {
             // each type should appear as a case in Node router (or be documented rust-only)
-            if matches!(*t, "upsertThread" | "projectFolderCatalog") {
+            if matches!(*t, "upsertThread" | "projectFolderCatalog" | "listCodexApps") {
                 continue; // Rust convenience alias and asynchronous project-folder catalog
             }
             if matches!(

@@ -66,6 +66,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "computeForgetRun",
     "listCommands",
     "listPlugins",
+    "listCodexApps",
     "listPasted",
     "clearPasted",
     "saveImage",
@@ -872,6 +873,19 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
             vec![json_msg(response)]
         }
+        "listCodexApps" => {
+            let result = match state.provider("codex") {
+                Some(provider) => provider.native_command("appsCatalog", msg.clone()).await,
+                None => Err("provider Codex absent".into()),
+            };
+            let mut response = json!({"type": "codexApps", "requestId": msg.get("requestId"),
+                "projectRoot": msg.get("projectRoot"), "data": [], "nextCursor": null});
+            match result {
+                Ok(value) => { response["data"] = value["data"].clone(); response["nextCursor"] = value["nextCursor"].clone(); }
+                Err(error) => response["error"] = json!(error),
+            }
+            vec![json_msg(response)]
+        }
         "listPlugins" => {
             let root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
             let response = |plugins: Value, error: Option<String>| {
@@ -889,7 +903,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             {
                 Ok(value) => vec![response(
                     value.get("plugins").cloned().unwrap_or_else(|| json!([])),
-                    None,
+                    value.get("error").and_then(Value::as_str).map(str::to_owned),
                 )],
                 Err(error) => vec![response(json!([]), Some(error))],
             }

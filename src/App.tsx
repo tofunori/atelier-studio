@@ -4079,7 +4079,7 @@ export default function App() {
         webSearch: provider === "codex" && settingsRef.current.webSearch,
         additionalDirectories,
         pluginSkills: provider === "codex"
-          ? pluginSkillsForPrompt(displayPrompt, plugins).map(({ name, path }) => ({ name, path }))
+          ? pluginSkillsForPrompt(displayPrompt, plugins).map(({ name, path, type }) => ({ name, path, ...(type ? { type } : {}) }))
           : [],
         autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
@@ -4280,7 +4280,7 @@ export default function App() {
             text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
           },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
-          ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
+          ...pluginSkills.map((skill) => ({ type: skill.type ?? "skill" as const, name: skill.name, path: skill.path })),
           ...(catalogSkill
             ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
             : []),
@@ -4483,7 +4483,7 @@ export default function App() {
             text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
           },
           ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
-          ...pluginSkills.map((skill) => ({ type: "skill" as const, name: skill.name, path: skill.path })),
+          ...pluginSkills.map((skill) => ({ type: skill.type ?? "skill" as const, name: skill.name, path: skill.path })),
           ...(catalogSkill
             ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
             : []),
@@ -5259,7 +5259,7 @@ export default function App() {
       </LazyBoundary>}
       {pluginsOpen &&
         <LazyBoundary fallback={null}>
-          <PluginPanel plugins={plugins} loading={pluginsLoading} error={pluginsError}
+          <PluginPanel plugins={plugins} loading={pluginsLoading} error={pluginsError} socket={ws.current} projectRoot={activeProject ?? ""}
             onRetry={() => requestPlugins(activeProject ?? "")} onClose={() => setPluginsOpen(false)} />
         </LazyBoundary>
       }

@@ -557,3 +557,16 @@ async fn startup_read_burst_queues_and_history_bypasses_slow_catalogs() {
     client.close(None).await.unwrap();
     wait_active(&fixture, 0).await;
 }
+
+#[tokio::test]
+async fn connector_catalog_has_a_bounded_longer_budget_without_blocking_ping() {
+    let (mut client, _fixture) = fixture(Duration::from_millis(200)).await;
+    for kind in ["listPlugins", "listCodexApps"] {
+    send(&mut client, json!({"type":kind, "requestId":"apps", "probe":true, "testDelay":300})).await;
+    send(&mut client, json!({"type":"ping"})).await;
+    assert_eq!(receive(&mut client).await["type"], "pong");
+    let result = receive(&mut client).await;
+    assert_eq!(result["type"], "probe");
+    assert_eq!(result["requestId"], "apps");
+    }
+}

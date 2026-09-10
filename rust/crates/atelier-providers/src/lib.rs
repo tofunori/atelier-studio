@@ -10,6 +10,7 @@ mod claude_parse;
 mod codex;
 mod codex_parse;
 mod codex_rpc;
+mod codex_apps;
 mod codex_supervision;
 mod fake;
 mod grok;

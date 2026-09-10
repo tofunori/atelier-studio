@@ -100,3 +100,13 @@ describe("chatDraftStore", () => {
     expect(serializeChatDrafts({ "thread:queue": queueDraft })).not.toContain("thread:queue");
   });
 });
+
+it("keeps a native app mention through queue persistence", () => {
+  const raw = JSON.stringify({ version: 1, drafts: { "thread:app": {
+    prompt: "", attachments: [], queuedTurns: [{ id: "q", prompt: "@app-drive", provider: "codex", attachments: [],
+      pluginSkills: [{ type: "mention", name: "Drive", path: "app://connector_drive" }] }], updatedAt: 1,
+  } } });
+  const loaded = loadChatDrafts({ getItem: () => raw });
+  const restored = loadChatDrafts({ getItem: () => serializeChatDrafts(loaded) });
+  expect(restored["thread:app"].queuedTurns[0].pluginSkills).toEqual([{ type: "mention", name: "Drive", path: "app://connector_drive" }]);
+});

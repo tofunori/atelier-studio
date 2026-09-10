@@ -124,6 +124,9 @@ where
         };
         let (order, send) = state.ws_budget().prepare(&request, class);
         let deadline = match kind {
+            // Remote connector discovery can exceed the ordinary 15s read budget.
+            // It still uses bounded read slots and never blocks sends or controls.
+            "listPlugins" | "listCodexApps" => deadline.saturating_mul(3),
             "getHistory" | "getAgentHistory" | "narvalSnapshot" | "narvalReadText"
             | "computeSnapshot" | "computeReadLog" => deadline.saturating_mul(2),
             _ => deadline,

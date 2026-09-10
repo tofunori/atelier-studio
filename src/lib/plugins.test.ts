@@ -36,3 +36,15 @@ describe("pluginSkillsForPrompt", () => {
     expect(pluginSkillsForPrompt("foo@visualize et @visual", plugins)).toEqual([]);
   });
 });
+
+it("attaches only callable apps as native mentions and preserves their queued type", () => {
+  const app: PluginCatalogEntry = { id: "connector:x", name: "app-drive", displayName: "Drive", description: "",
+    enabled: true, callable: true, kind: "app", skills: [],
+    appMention: { type: "mention", name: "Drive", path: "app://connector_x" } };
+  const inputs = pluginSkillsForPrompt("@app-drive trouve le document", [app]);
+  expect(inputs).toEqual([app.appMention]);
+  expect(revalidateQueuedPluginSkills(inputs, [app])).toEqual(inputs);
+  expect(revalidateQueuedPluginSkills(inputs, [{ ...app, callable: false }])).toEqual([]);
+  expect(pluginSkillsForPrompt("@app-drive", [{ ...app, enabled: false }])).toEqual([]);
+  expect(revalidateQueuedPluginSkills([{ name: "Drive", path: "app://connector_x" }], [app])).toEqual([]);
+});

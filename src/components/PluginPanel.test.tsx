@@ -32,3 +32,26 @@ describe("plugin catalog states", () => {
     expect(screen.getByText("No attachable skill")).toBeTruthy();
   });
 });
+
+it("shows native mentions only for callable apps", () => {
+  const app = { id: "app", name: "app-drive", displayName: "Drive", description: "", kind: "app" as const,
+    enabled: true, skills: [], callable: true, appMention: { type: "mention" as const, name: "Drive", path: "app://drive" } };
+  const view = renderUi(<PluginPanel plugins={[app]} onClose={() => {}} />);
+  expect(screen.getByText("@app-drive")).toBeTruthy();
+  expect(screen.getByText("Tools available")).toBeTruthy();
+  view.rerender(<PluginPanel plugins={[{ ...app, callable: false }]} onClose={() => {}} />);
+  expect(screen.queryByText("@app-drive")).toBeNull();
+  expect(screen.getByText("Tools unavailable")).toBeTruthy();
+});
+
+it("refreshes the visible app catalog after an external connection", () => {
+  class Socket extends EventTarget { readyState = 1; send = vi.fn(); }
+  const socket = new Socket();
+  const refresh = vi.fn();
+  renderUi(<PluginPanel plugins={[]} onClose={() => {}} onRetry={refresh} socket={socket as unknown as WebSocket} />);
+  fireEvent.click(screen.getByRole("button", { name: "Browse apps" }));
+  expect(socket.send).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(socket.send).toHaveBeenCalledTimes(2);
+});

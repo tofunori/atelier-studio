@@ -8,7 +8,7 @@ import {createNoteEditor,createSelectionActions} from "../../../gallery/src/stud
 import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { stabilizeVirtualRows, virtualRowType } from "./virtualRows";
-import { isWebSearchName, isSummarizableTool, distinctToolActions, Tick } from "./toolPresentation";
+import { isWebSearchName, isSummarizableTool, Tick } from "./toolPresentation";
 import { SourcesCard } from "./SourcesCard";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
@@ -22,7 +22,7 @@ import { isValidSkill } from "./mentions";
 import { CloseIcon, MinusIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
-  ActivityFold, ActivityGroup, ActiveTurnHeader, ActiveTurnTail, TurnActivityStatus, currentThought,
+  ActivityFold, ActiveTurnHeader, ActiveTurnTail, TurnActivityStatus, currentThought,
   type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
@@ -48,6 +48,7 @@ import {
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
 import { TimelineStamp } from "./TimelineStamp";
+import { ActivityBatch } from './ActivityBatch';
 
 // Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
 // chaque render relance l'animation de suivi en boucle et elle n'atteint
@@ -411,6 +412,8 @@ export function ChatTimeline(p: {
   const activeTail = workingSince == null ? undefined : renderedEvents.find(
     (item): item is Extract<ProjectedTimelineItem, { type: "active-turn-tail" }> => item.type === "active-turn-tail",
   );
+  const activeMessageStart = activeTail?.turn.startIndex ?? null;
+  const activeMessageEnd = activeTail?.turn.endIndex ?? null;
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
@@ -482,8 +485,10 @@ export function ChatTimeline(p: {
     pins,
     reviewOpen,
     workingSince,
+    activeMessageStart,
+    activeMessageEnd,
     lastEventAt: p.thread.lastEventAt,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, derniereLigneTravail, lastThinkingIndex]);
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -971,39 +976,26 @@ export function ChatTimeline(p: {
             return <ActiveTurnTail key={item.key} turn={item.turn} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />;
           }
           if (item.type === "actions") {
-            const insideOpenFold = renderedEvents.some(row => row.type === "fold" && row.open &&
-              item.index >= row.fold.start && item.index < row.fold.end);
-            if (insideOpenFold && !item.actions.some(action => /view_image|image_view|open_image/.test(action.name))) {
-              const actions = distinctToolActions(item.actions);
-              const timestamps = actions.flatMap(action => "ts" in action && action.ts != null ? [action.ts] : []);
-              return <div className="tool-group-list turn-completed-detail">
-                {defaults.displayTimestamps && timestamps.length > 0 && <TimelineStamp startMs={Math.min(...timestamps)} endMs={timestamps.length > 1 ? Math.max(...timestamps) : null} fmt={defaults.timeFormat} />}
-                {actions.map((action, offset) => renderToolLine(action, offset))}
-              </div>;
-            }
-
             // Vue Détaillé : les lignes d'outils s'ouvrent d'office — le Set
             // devient alors « écarts au défaut » (un clic referme quand même).
             const open = vue === "detaille"
               ? !openToolGroups.has(item.key)
               : openToolGroups.has(item.key);
-            // La DERNIÈRE ligne de travail d'un tour en cours est la ligne
-            // vivante : elle tique à chaque nouvelle action au lieu d'afficher
-            // un résumé figé. C'est le seul endroit où l'action courante
-            // s'affiche — donc jamais de doublon avec une queue.
-            const live = workingSince != null && item.actions.some(action => action.kind === "tool_update" && /^(running|pending|in[-_]?progress)$/i.test(action.status ?? ""));
+            // Le groupe conserve l'historique; seule la queue du tour porte
+            // l'illumination et le libellé de l'activité courante.
             const tss = item.actions.map((a) => ("ts" in a ? a.ts : undefined)).filter((v): v is number => v != null);
             const stamp = defaults.displayTimestamps && tss.length
               ? <TimelineStamp startMs={Math.min(...tss)} endMs={tss.length > 1 ? Math.max(...tss) : null} fmt={defaults.timeFormat} />
               : undefined;
             return (
-              <ActivityGroup
+              <ActivityBatch
                 key={item.key}
                 actions={item.actions}
+                hideThinking={penseeMasquee}
+                threadId={threadId}
                 plugins={plugins}
                 open={open}
-                live={live}
-                active={false}
+                onOpenAgent={onOpenAgent}
                 onToggle={() =>
                   setOpenToolGroups((prev) => {
                     const next = new Set(prev);
@@ -1081,6 +1073,7 @@ export function ChatTimeline(p: {
               <React.Fragment key={i}>
                 <AssistantText
                   event={e}
+                  showActions={activeMessageStart == null || activeMessageEnd == null || i < activeMessageStart || i >= activeMessageEnd}
                   index={i}
                   streamKey={`${threadId ?? "home"}:${item.key}`}
                   timeFormat={defaults.timeFormat}

@@ -43,6 +43,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "computeReadLog"
         | "listCommands"
         | "listPlugins"
+        | "listCodexApps"
         | "listPasted"
         | "kbList"
         | "kbGbrainPage"
@@ -306,6 +307,11 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "threadId":request.get("threadId").or_else(|| request.pointer("/thread/id")),
         "clientMessageId":request["clientMessageId"], "projectRoot":request["projectRoot"],
         "retryable": code == "REQUEST_BUSY"});
+    if request["type"] == "listCodexApps" {
+        error["type"] = json!("codexApps");
+        error["data"] = json!([]);
+        error["error"] = json!(message);
+    }
     if request["type"] == "listPlugins" {
         error["type"] = json!("plugins");
         error["plugins"] = json!([]);

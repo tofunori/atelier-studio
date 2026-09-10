@@ -512,6 +512,8 @@ async fn list_atelier_plugins(server: &CodexAppServer, cwd: &str) -> Result<Valu
                 "icon": interface.get("composerIcon").or_else(|| interface.get("composerIconUrl")).cloned().unwrap_or(Value::Null),
                 "skills": skills,
                 "primarySkill": preferred_skill(name, &skills),
+                "mcpServers": plugin.get("mcpServers").cloned().unwrap_or_else(|| json!([])),
+                "apps": plugin.get("apps").cloned().unwrap_or_else(|| json!([])),
             }));
         }
     }
@@ -1370,7 +1372,26 @@ impl Provider for CodexProvider {
                 .get("projectRoot")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            return list_atelier_plugins(&self.server, cwd).await;
+            let (plugins, apps) = tokio::join!(
+                list_atelier_plugins(&self.server, cwd),
+                crate::codex_apps::installed(&self.server),
+            );
+            let mut entries = Vec::new();
+            let mut errors = Vec::new();
+            match plugins {
+                Ok(value) => entries.extend(value["plugins"].as_array().cloned().unwrap_or_default()),
+                Err(error) => errors.push(format!("Plugins: {error}")),
+            }
+            match apps {
+                Ok((apps, warning)) => { entries.extend(apps); if let Some(warning) = warning { errors.push(warning); } },
+                Err(error) => errors.push(format!("Apps: {error}")),
+            }
+            return Ok(json!({"plugins": entries, "error": if errors.is_empty() { None } else { Some(errors.join("; ")) }}));
+        }
+        if name == "appsCatalog" {
+            return self.server.request("app/list", json!({
+                "limit": 100, "cursor": params.get("cursor"),
+            })).await;
         }
         let session_id = params
             .get("sessionId")

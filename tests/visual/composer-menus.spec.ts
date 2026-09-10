@@ -97,7 +97,11 @@ for (const theme of ['dark', 'light']) {
       await slider.press('ArrowLeft');
       await expect(slider).toHaveAttribute('aria-valuenow', String(value));
       await page.locator('.ef-model-link').click();
-      await panel('.model-menu', 'models');
+      const models = await panel('.model-menu', 'models');
+      // The transparent inner list relies on the popup's opaque surface.
+      // A legacy wrapper rule must not let the transcript show through it.
+      await expect(models).toHaveCSS('background-color', /^rgb\([\d, ]+\)$/);
+      await expect(models).toHaveCSS('opacity', '1');
       await main(page.locator('.mp-row-main').first());
       await close();
       await expect(page.locator('.mp-btn.mp-model')).toBeFocused();

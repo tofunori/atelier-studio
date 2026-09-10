@@ -617,9 +617,9 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
 /* Decision icons live in a narrow gutter, never in the paragraph flow. */
-.cm-editor.atelier-review-gutter .cm-content{padding-left:48px}
+.cm-editor.atelier-review-gutter .cm-content{padding-left:40px}
 .cm-editor .cm-deletedChunk:has(.atelier-review-decision){position:relative;min-height:0}
-.cm-editor .cm-deletedChunk .cm-chunkButtons{position:absolute;inset-inline-end:auto;left:-44px;top:0;display:flex;flex-direction:column;gap:0;padding:0;margin:0;background:transparent;border:0;opacity:1;text-decoration:none;z-index:3}
+.cm-editor .cm-deletedChunk .cm-chunkButtons{position:absolute;inset-inline-end:auto;left:-32px;top:0;display:flex;flex-direction:column;gap:0;padding:0;margin:0;background:transparent;border:0;opacity:1;text-decoration:none;z-index:3}
 .cm-editor .cm-chunkButtons .atelier-review-decision{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;margin:0;border:0;border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;text-decoration:none}
 .cm-editor .atelier-review-decision svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .cm-editor .atelier-review-decision[data-decision=accept]:hover{color:#b0cea1;background:#8bab7624}
@@ -627,7 +627,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 .cm-editor .atelier-review-decision:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .cm-editor .cm-deletedChunk:has(.atelier-review-decision)::before{content:"";position:absolute;left:-5px;top:0;width:5px;height:var(--review-height,100%);box-sizing:border-box;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-right:0;pointer-events:none;z-index:2}
 .cm-editor .cm-deletedChunk.atelier-review-active::before{border-color:var(--accent)}
-.cm-editor .atelier-review-compact .cm-chunkButtons{flex-direction:row;left:-48px}
+.cm-editor .atelier-review-compact .cm-chunkButtons{flex-direction:row;left:-44px}
 .cm-editor .atelier-review-compact .atelier-review-decision{width:20px;height:20px}
 
 #state.err{position:fixed;bottom:12px;left:12px;right:12px;z-index:500;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:8px;white-space:normal;text-align:left}

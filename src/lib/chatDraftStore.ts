@@ -31,7 +31,7 @@ export type QueuedTurn = {
    * être recalculées depuis le composer courant lors du dispatch. */
   webSearch: boolean;
   additionalDirectories: string[];
-  pluginSkills: { name: string; path: string }[];
+  pluginSkills: { name: string; path: string; type?: "skill" | "mention" }[];
   autoReview: {
     enabled: boolean;
     provider: string;

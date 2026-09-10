@@ -322,6 +322,7 @@ export const AssistantText = memo(function AssistantText(p: {
   index: number;
   timeFormat: TimeFormat;
   pinned: boolean;
+  showActions?: boolean;
   onFork: (index: number) => void;
   onTogglePin: (index: number, label: string) => void;
   /** Clé de rangée : reprend la frappe là où la bulle streaming l'a laissée
@@ -349,7 +350,7 @@ export const AssistantText = memo(function AssistantText(p: {
         />
       </BubbleContent>
       </Bubble>
-      <MessageFooter className="msg-actions is-persistent tw:px-0">
+      {p.showActions !== false && !enFinition && <MessageFooter className="msg-actions is-persistent tw:px-0">
         {"ts" in e && e.ts && (
           <span className="msg-time">
             {fmtTime(e.ts, p.timeFormat)}
@@ -360,7 +361,7 @@ export const AssistantText = memo(function AssistantText(p: {
           <ForkIcon />
         </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.replace(/[#*>`]/g, "").trim().slice(0, 44))} />
-      </MessageFooter>
+      </MessageFooter>}
     </MessageContent>
     </Message>
   );

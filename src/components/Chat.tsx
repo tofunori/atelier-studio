@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { groupActivityRows } from './chat/groupActivityRows';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -28,7 +29,7 @@ import {
 } from "./chat/AgentActivity";
 import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel } from "../lib/modelCatalog";
-import type { PluginCatalogEntry } from "../lib/plugins";
+import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import {
@@ -694,7 +695,7 @@ export default function Chat(p: {
     const pluginsSupported = providerInfo()?.capabilities?.plugins ?? provider === "codex";
     suggestions.push(
       ...(pluginsSupported ? (p.plugins ?? []) : [])
-        .filter((plugin) => plugin.name.toLowerCase().includes(q) || plugin.displayName.toLowerCase().includes(q))
+        .filter((plugin) => pluginCanAttach(plugin) && (plugin.name.toLowerCase().includes(q) || plugin.displayName.toLowerCase().includes(q)))
         .slice(0, 10)
         .map((plugin) => ({
           insert: `${base}@${plugin.name} `,
@@ -981,7 +982,7 @@ export default function Chat(p: {
       });
       offset = nextOffset - 1;
     }
-    return rows;
+    return groupActivityRows(rows);
   }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
 
   // Copie + reverse O(n) du fil : mémoïsé, sinon chaque delta du stream
