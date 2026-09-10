@@ -22,7 +22,7 @@ export type ActivityIcon = {
 };
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
-type SummaryPartKind =
+export type SummaryPartKind =
   | "integrations" | "loaded-tools" | "file-changes" | "exploration"
   | "visualization" | "commands" | "web-search" | "images" | "agents"
   | "todo" | "permissions" | "compaction" | "thinking" | "tools";
@@ -756,6 +756,12 @@ function summaryClause(kind: SummaryPartKind, items: SemanticToolActivity[]): st
 
 /** Même contrat que Codex : parties dans un ordre sémantique fixe et icône de
  * l'item représentatif de la première partie, jamais une catégorie dominante. */
+/** Catégorie de synthèse d'une action (commandes, exploration, agents…) :
+ * sert à former les grappes par série de même catégorie dans le fil. */
+export function activityPartKind(action: ToolAction): SummaryPartKind {
+  return partKind(semanticActivity(action).kind);
+}
+
 export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogEntry[] = []): ToolActivitySummary {
   const items = distinctToolActions(actions).map(semanticActivity);
   const byPart = new Map<SummaryPartKind, SemanticToolActivity[]>();

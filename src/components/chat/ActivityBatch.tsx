@@ -3,7 +3,7 @@ import { ActivityDisclosure, RowButton } from "../ui";
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import type { PluginCatalogEntry } from '../../lib/plugins';
-import { distinctToolActions, fmtToolDur, summarizeActivity, Tick, ToolGlyph, toolOutcome } from './toolPresentation';
+import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph, toolOutcome } from './toolPresentation';
 import { AgentActivityGroup, isAgentActivityAction, type AgentDisplay, type AgentToolAction } from './AgentActivity';
 import type { ActivityAction } from './groupActivityRows';
 import { EditLine } from './turnParts';
@@ -113,38 +113,54 @@ function isToolLeaf(action: ActivityAction): boolean {
 /** Seuil de repli : en dessous, la liste plate reste plus lisible que le pli. */
 const STEP_FOLD_THRESHOLD = 3;
 
-/**
- * Une ÉTAPE du tour : les outils consécutifs entre deux narrations. Terminée
- * et fournie, elle se replie en une ligne de synthèse ; active, elle porte la
- * synthèse ET l'unique ligne de statut vivant du fil.
- */
-export function ActivityStep(p: {
-  actions: ToolAction[];
+type StepSegment =
+  | { kind: 'cluster'; key: string; part: SummaryPartKind; actions: ActivityAction[] }
+  | { kind: 'flat'; key: string; actions: ActivityAction[] };
+
+function actionKey(action: ActivityAction, index: number): string {
+  if (action.kind === 'tool_update') return action.id;
+  if (action.errorEvent) return `error:${action.errorEvent.meta && 'eventId' in action.errorEvent.meta ? action.errorEvent.meta.eventId : index}`;
+  return `${action.name}:${index}`;
+}
+
+/** Découpe une étape en SÉRIES : les outils consécutifs de même catégorie
+ * (commandes, lectures, recherches…) forment une grappe ; tout le reste
+ * (pensée, édition, erreur, sous-agents) reste à plat, dans l'ordre. Sans ce
+ * découpage, un tour de trente outils sans narration ne faisait qu'une seule
+ * grappe muette (Thierry 2026-09-10). */
+export function segmentStep(actions: ActivityAction[]): StepSegment[] {
+  const segments: StepSegment[] = [];
+  actions.forEach((action, index) => {
+    const key = actionKey(action, index);
+    const last = segments[segments.length - 1];
+    if (isToolLeaf(action) && !isAgentActivityAction(action)) {
+      const part = activityPartKind(action);
+      if (last?.kind === 'cluster' && last.part === part) { last.actions.push(action); return; }
+      segments.push({ kind: 'cluster', key: `cluster:${key}`, part, actions: [action] });
+      return;
+    }
+    if (last?.kind === 'flat') { last.actions.push(action); return; }
+    segments.push({ kind: 'flat', key: `flat:${key}`, actions: [action] });
+  });
+  return segments;
+}
+
+/** Une grappe : une ligne de synthèse repliable ; active, elle porte AUSSI
+ * la partie vivante (« 8 commandes exécutées · Réflexion en cours… »). */
+function ClusterLine(p: {
+  actions: ActivityAction[];
   plugins?: PluginCatalogEntry[];
-  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
-  onOpenAgent: (agent: AgentDisplay) => void;
-  hideThinking?: boolean; threadId?: string | null; thinkingCollapsed?: boolean;
-  /** Repli contrôlé (la liste virtualisée détient l'état) ; sinon état local. */
-  open?: boolean;
-  onToggle?: () => void;
-  /** Étape courante du tour actif : shimmer + ligne vivante. */
-  active?: boolean;
-  liveLabel?: string;
-  liveKind?: string;
-  liveSince?: number;
+  open: boolean;
+  onToggle: () => void;
+  live?: { label: string; since: number };
   stamp?: ReactNode;
+  children: ReactNode;
 }) {
-  const [localOpen, setLocalOpen] = useState(false);
-  const open = p.open ?? localOpen;
-  const toggle = () => { setLocalOpen((previous) => !previous); p.onToggle?.(); };
-  const distinct = distinctToolActions(p.actions) as ActivityAction[];
-  const leaves = distinct.filter(isToolLeaf);
-  const errors = distinct.filter((action) => action.errorEvent && !isStoppedTerminal(action.errorEvent));
-  const summary = summarizeActivity(leaves, p.plugins);
-  const totalMs = leaves.reduce((sum, action) => (
+  const summary = summarizeActivity(p.actions, p.plugins);
+  const totalMs = p.actions.reduce((sum, action) => (
     action.kind === 'tool_update' && typeof action.durationMs === 'number' && action.durationMs > 0
       ? sum + action.durationMs : sum), 0);
-  const failed = leaves.some((action) => action.kind === 'tool_update' && toolOutcome(action) === 'failed');
+  const failed = p.actions.some((action) => action.kind === 'tool_update' && toolOutcome(action) === 'failed');
   // Le libellé de synthèse attend 160 ms de stabilité : une rafale d'outils de
   // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08).
   const nextLabel = summary.label;
@@ -160,56 +176,96 @@ export function ActivityStep(p: {
     }, 160);
   }, [nextLabel, shownLabel]);
   useEffect(() => () => { if (labelTimer.current != null) window.clearTimeout(labelTimer.current); }, []);
+  return (
+    <ActivityDisclosure
+      open={p.open}
+      onToggle={p.onToggle}
+      status={failed ? 'failed' : p.live ? 'running' : 'completed'}
+      shimmer={false}
+      icon={summary.icon}
+      label={p.live
+        ? <>
+            <span className="activity-cluster-summary">{shownLabel}</span>
+            <span className="activity-cluster-sep" aria-hidden="true"> · </span>
+            <span className="active-turn-tail activity-cluster-live">
+              <span className="turn-quiet is-on turn-working-shimmer" role="status" aria-live="polite">{p.live.label}</span>
+            </span>
+          </>
+        : shownLabel}
+      meta={p.live
+        ? <Working since={p.live.since} compact />
+        : (p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined))}
+    >
+      {p.children}
+    </ActivityDisclosure>
+  );
+}
 
-  const body = <ActivityBatch actions={p.actions} renderToolLine={p.renderToolLine}
-    onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
-    thinkingCollapsed={p.thinkingCollapsed} hideErrors />;
-
-  // Sous le seuil, la liste plate reste plus lisible qu'un pli : deux rangées
-  // ne font pas un écran, et replier une étape sans outil masquerait la pensée
-  // vivante — seul le NOMBRE d'outils justifie le pli.
-  const folded = leaves.length >= STEP_FOLD_THRESHOLD;
-  const liveInline = folded && Boolean(p.active && p.liveLabel);
-  if (!folded && !p.active) {
-    return <ActivityBatch actions={p.actions} renderToolLine={p.renderToolLine}
+/**
+ * Une ÉTAPE du tour : les outils consécutifs entre deux narrations, rendus en
+ * séries de même catégorie. Une série posée de 3 outils ou plus se replie en
+ * une ligne ; en dessous, rangées plates. La dernière série de l'étape ACTIVE
+ * tient toujours sur une ligne « synthèse · statut vivant », l'unique ligne de
+ * statut du fil ; sans outil, la ligne vivante seule.
+ */
+export function ActivityStep(p: {
+  actions: ToolAction[];
+  plugins?: PluginCatalogEntry[];
+  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
+  onOpenAgent: (agent: AgentDisplay) => void;
+  hideThinking?: boolean; threadId?: string | null; thinkingCollapsed?: boolean;
+  /** Repli contrôlé par la liste virtualisée : `open` force toutes les
+   * grappes ouvertes ; `onToggle` est notifié à chaque bascule. */
+  open?: boolean;
+  onToggle?: () => void;
+  /** Étape courante du tour actif : porte la ligne vivante. */
+  active?: boolean;
+  liveLabel?: string;
+  liveKind?: string;
+  liveSince?: number;
+  stamp?: ReactNode;
+}) {
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
+  const distinct = distinctToolActions(p.actions) as ActivityAction[];
+  const segments = segmentStep(distinct);
+  const last = segments[segments.length - 1];
+  const liveCluster = p.active && p.liveLabel && last?.kind === 'cluster' ? last : null;
+  const live = p.active && p.liveLabel ? { label: p.liveLabel, since: p.liveSince ?? Date.now() } : null;
+  const batch = (actions: ActivityAction[], hideErrors = false) => (
+    <ActivityBatch actions={actions} renderToolLine={p.renderToolLine}
       onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
-      thinkingCollapsed={p.thinkingCollapsed} />;
-  }
+      thinkingCollapsed={p.thinkingCollapsed} hideErrors={hideErrors} />
+  );
+  if (!segments.length && !live) return null;
   return (
     <div className={`activity-cluster${p.active ? ' is-active' : ''}`}>
-      {folded ? (
-        <>
-          <ActivityDisclosure
+      {segments.map((segment) => {
+        if (segment.kind === 'flat') return <Fragment key={segment.key}>{batch(segment.actions)}</Fragment>;
+        const isLive = segment === liveCluster;
+        if (!isLive && segment.actions.length < STEP_FOLD_THRESHOLD) {
+          return <Fragment key={segment.key}>{batch(segment.actions)}</Fragment>;
+        }
+        const open = p.open || openKeys.has(segment.key);
+        return (
+          <ClusterLine key={segment.key} actions={segment.actions} plugins={p.plugins}
             open={open}
-            onToggle={toggle}
-            status={failed ? 'failed' : p.active ? 'running' : 'completed'}
-            shimmer={Boolean(p.active)}
-            icon={summary.icon}
-            // Étape active repliée : UNE ligne. Le libellé vivant (outil en cours
-            // ou statut du tour) remplace la synthèse, le chrono prend la méta ;
-            // la synthèse revient quand l'étape se pose (Thierry 2026-09-10).
-            label={liveInline
-              ? <span className="active-turn-tail activity-cluster-live"><span role="status" aria-live="polite">{p.liveLabel}</span></span>
-              : shownLabel}
-            meta={liveInline
-              ? <Working since={p.liveSince ?? Date.now()} compact />
-              : (p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined))}
-          >
-            {body}
-          </ActivityDisclosure>
-          {errors.map((action, index) => (
-            <ActivityErrorLeaf key={`step-error:${index}`} message={action.errorEvent!.message} />
-          ))}
-        </>
-      ) : (
-        <ActivityBatch actions={p.actions} renderToolLine={p.renderToolLine}
-          onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
-          thinkingCollapsed={p.thinkingCollapsed} />
-      )}
-      {p.active && p.liveLabel && !liveInline ? (
+            onToggle={() => {
+              setOpenKeys((prev) => {
+                const next = new Set(prev);
+                if (next.has(segment.key)) next.delete(segment.key); else next.add(segment.key);
+                return next;
+              });
+              p.onToggle?.();
+            }}
+            live={isLive && live ? live : undefined}
+            stamp={p.stamp}>
+            {batch(segment.actions, true)}
+          </ClusterLine>
+        );
+      })}
+      {live && !liveCluster ? (
         <div className="working-stack active-turn-tail activity-cluster-live">
-          <TurnActivityStatus label={p.liveLabel} kind={p.liveKind ?? 'processing'}
-            since={p.liveSince ?? Date.now()} />
+          <TurnActivityStatus label={live.label} kind={p.liveKind ?? 'processing'} since={live.since} />
         </div>
       ) : null}
     </div>
