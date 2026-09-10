@@ -1,5 +1,5 @@
 import {StateEffect, StateField} from "@codemirror/state";
-import {Decoration, EditorView, ViewPlugin, WidgetType, layer, RectangleMarker} from "@codemirror/view";
+import {Decoration, EditorView, WidgetType, layer, RectangleMarker} from "@codemirror/view";
 import {getChunks} from "@codemirror/merge";
 
 // Revue « ancrée au passage » (variante F2, 2026-09-10) : la décision est
@@ -74,7 +74,7 @@ class PillWidget extends WidgetType {
   }
   ignoreEvent() { return true; }
   toDOM(view) {
-    const root = document.createElement("span");
+    const root = document.createElement("div");
     root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "");
     root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage");
     const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
@@ -103,12 +103,15 @@ class PillWidget extends WidgetType {
   }
 }
 
-function pillDecorations(view, config) {
-  const chunk = currentChunk(view.state);
+function pillDecorations(state, config) {
+  const chunk = currentChunk(state);
   if (!chunk) return Decoration.none;
-  const at = extentB(view.state, chunk).to;
-  const widget = new PillWidget(chunk, describe(view.state, chunk), config);
-  return Decoration.set([Decoration.widget({widget, side: 1}).range(at)]);
+  // Rangée à part entière SOUS la dernière ligne changée : une pilule inline
+  // au milieu d'une phrase se fondait dans le texte et le coupait
+  // (Thierry 2026-09-10, « Garder et Ignorer ne se démarquent pas »).
+  const at = state.doc.lineAt(extentB(state, chunk).to).to;
+  const widget = new PillWidget(chunk, describe(state, chunk), config);
+  return Decoration.set([Decoration.widget({widget, block: true, side: 1}).range(at)]);
 }
 
 function bracketMarkers(view) {
@@ -131,6 +134,10 @@ function bracketMarkers(view) {
     // ligne effacée : le trait commence en haut de ce widget.
     const widget = deleted.find(el => view.posAtDOM(el) === chunk.fromB);
     if (widget) top = Math.min(top, widget.getBoundingClientRect().top);
+    if (chunk === current) {
+      const row = view.contentDOM.querySelector(".atelier-review-pill");
+      if (row) bottom = Math.max(bottom, row.getBoundingClientRect().bottom);
+    }
     const cls = "atelier-review-bracket" + (chunk === current ? " is-current" : "");
     markers.push(new RectangleMarker(cls, contentLeft - 9, top - base.top, 2, bottom - top));
   }
@@ -140,14 +147,16 @@ function bracketMarkers(view) {
 /** Extensions de la revue ancrée. `config` : {onDecision, decide(kind, chunk),
  * readOnly, onLatest}. Sans `onDecision`, la pilule passe en lecture seule. */
 export function reviewAnchored(config) {
-  const pills = ViewPlugin.fromClass(class {
-    constructor(view) { this.decorations = pillDecorations(view, config); }
-    update(update) {
-      if (update.docChanged || update.viewportChanged
-        || update.transactions.some(tr => tr.effects.some(e => e.is(setReviewFocus))))
-        this.decorations = pillDecorations(update.view, config);
-    }
-  }, {decorations: v => v.decorations});
+  // Décoration en BLOC (rangée sous le passage) : CodeMirror l'exige depuis
+  // un champ d'état, jamais depuis un plugin de vue.
+  const pills = StateField.define({
+    create: state => pillDecorations(state, config),
+    update(deco, tr) {
+      if (tr.docChanged || tr.reconfigured || tr.effects.some(e => e.is(setReviewFocus))) return pillDecorations(tr.state, config);
+      return deco;
+    },
+    provide: f => EditorView.decorations.from(f),
+  });
   const brackets = layer({
     above: false,
     class: "atelier-review-brackets",

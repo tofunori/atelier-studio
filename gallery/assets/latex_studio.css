@@ -77,17 +77,18 @@
   .cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
-  /* Diff: readable word colors, with quiet backgrounds and explicit marks. */
+  /* Diff : couleurs de mots lisibles sur fonds discrets — ni barré ni souligné
+     (Thierry 2026-09-10), la couleur seule dit ce qui part et ce qui arrive. */
   .cm-editor{--review-add:#b5d3a7;--review-del:#edaaa5;--review-add-bg:#8caf7021;--review-del-bg:#d86c6321}
   .cm-editor.cm-merge-b .cm-changedText,.cm-editor .cm-insertedLine{
     color:var(--review-add);background:var(--review-add-bg);border-radius:2px;
-    text-decoration:underline;text-decoration-color:#8bac7b;text-underline-offset:3px;text-decoration-thickness:1px;
+    text-decoration:none;
     box-decoration-break:clone;-webkit-box-decoration-break:clone;
   }
   .cm-editor.cm-merge-a .cm-changedText,.cm-editor.cm-merge-b .cm-deletedText,
   .cm-editor .cm-deletedChunk .cm-deletedLine,.cm-editor .cm-deletedChunk .cm-deletedText{
     color:var(--review-del);background:var(--review-del-bg);border-radius:2px;
-    text-decoration:line-through;text-decoration-color:#d68c87;text-decoration-thickness:1px;
+    text-decoration:none;
     box-decoration-break:clone;-webkit-box-decoration-break:clone;
   }
   .cm-editor .cm-changedText *,.cm-editor .cm-deletedText *,
@@ -619,17 +620,18 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Revue ancrée au passage (variante F2, 2026-09-10) : la pilule est un
    widget inline posé après le dernier caractère du changement courant ; le
    trait gris est une couche calculée sur les rangées visuelles du changement. */
-.cm-editor .atelier-review-pill{display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-left:8px;padding:2px 3px 2px 8px;border-radius:999px;
-  background:var(--card2);font-family:var(--ui-font);font-size:11px;line-height:1;white-space:nowrap;user-select:none}
-.cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);margin-right:4px}
+.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:8px;width:max-content;max-width:100%;margin:6px 0 8px 0;padding:4px 4px 4px 10px;border-radius:8px;
+  background:var(--bg,#1e2124);box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));font-family:var(--ui-font);font-size:12px;line-height:1;white-space:nowrap;user-select:none}
+.cm-editor .atelier-review-pill .atelier-review-where{color:var(--txt);font-variant-numeric:tabular-nums;margin-right:4px}
 .cm-editor .atelier-review-pill .atelier-review-hint{color:var(--muted);padding:0 4px}
-.cm-editor .atelier-review-act{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border:0;border-radius:999px;background:transparent;
-  color:var(--muted);font:inherit;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.cm-editor .atelier-review-act svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.cm-editor .atelier-review-act.keep{color:#b5d3a7;background:#8caf7021}
-.cm-editor .atelier-review-act.keep:hover{background:#8caf7036;color:#c8e2bb}
-.cm-editor .atelier-review-act.drop:hover{color:#edaaa5;background:#d86c6321}
-.cm-editor .atelier-review-act.latest{color:var(--accent)}
+.cm-editor .atelier-review-act{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border:1px solid transparent;border-radius:6px;background:transparent;
+  color:var(--txt);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+.cm-editor .atelier-review-act svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cm-editor .atelier-review-act.keep{color:#0f1a12;background:#9fcf8a;border-color:#9fcf8a}
+.cm-editor .atelier-review-act.keep:hover{background:#b3dea0;border-color:#b3dea0}
+.cm-editor .atelier-review-act.drop{color:#edaaa5;border-color:color-mix(in srgb,#edaaa5 55%,transparent)}
+.cm-editor .atelier-review-act.drop:hover{background:#d86c6326;border-color:#edaaa5}
+.cm-editor .atelier-review-act.latest{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
 .cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .cm-editor .atelier-review-act:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .cm-editor .atelier-review-brackets{pointer-events:none}
