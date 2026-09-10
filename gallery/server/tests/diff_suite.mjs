@@ -1916,6 +1916,95 @@ async function readingMarksTests() {
   }
 }
 
+// --------------------------------- E. carte de revue flottante (variante E, 2026-09-10)
+// updateReviewCard()/ensureReviewCard() montent #dvReview dans reviewHost() —
+// cm.getWrapperElement().closest("#left") ou son parentElement — jamais dans
+// la gouttière ni un bouton flottant au-dessus du texte. Les décisions
+// (bouton ou ⌥↩/⌥⌫) passent par decideCurrent() → cm.decideMergeChunk().
+function fakeReviewHost() {
+  const host = { _children: [], classList: { add() {}, remove() {}, toggle() {}, contains: () => false } };
+  host.appendChild = (n) => { host._children.push(n); return n; };
+  return host;
+}
+async function individualReviewCardTests() {
+  const before = "aa bb cc\n", after = "aa XX cc\n";
+  const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
+
+  // 1. carte flottante montée dans le volet éditeur, jamais de gouttière
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host }); // pas de .closest → repli parentElement
+    h.cm.hasNativeMergeDiff = true;
+    let capturedOpts = null;
+    h.cm.showMergeDiff = (b, opts) => { capturedOpts = opts; return onePoint(); };
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick(); // ouvre la revue de la dernière intervention
+    ok("revue individuelle : showMergeDiff reçoit toolbar: true (ni gouttière ni bouton dans le texte)",
+      !!capturedOpts && capturedOpts.toolbar === true && capturedOpts.individual === true, JSON.stringify(capturedOpts));
+    const card = host._children.find((c) => c && c.id === "dvReview");
+    ok("revue individuelle : #dvReview monté dans le host (parentElement du wrapper cm)", !!card,
+      JSON.stringify(host._children.map((c) => c && c.id)));
+    ok("revue individuelle : carte visible dès qu'il y a un bloc de changement",
+      card && card.hidden === false, String(card && card.hidden));
+    const count = card && card._children.find((c) => c.className === "dvr-count");
+    ok("revue individuelle : compteur « 1/1 »", count && count.textContent === "1/1", String(count && count.textContent));
+    h.tag.onclick(); // toggle(false) : referme la revue
+    ok("revue individuelle : carte cachée après fermeture", card.hidden === true, String(card.hidden));
+  }
+
+  // 2. Garder depuis la carte décide le bloc courant (cm.decideMergeChunk)
+  // puis range la décision dans reviewState (persisté sous texReviewV1:<path>)
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50); // laisse /versions journaliser l'intervention (id auto-généré)
+    h.tag.onclick();
+    const it = persistedInterventions(h)[0];
+    ok("revue individuelle : intervention journalisée avant décision", !!it && it.after === after, JSON.stringify(it));
+    const calls = [];
+    h.cm.decideMergeChunk = (kind, ch) => {
+      calls.push([kind, ch]);
+      return { kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "<base ajustée>" };
+    };
+    const card = host._children.find((c) => c && c.id === "dvReview");
+    const keep = card._children.find((c) => c.className === "dvr-keep");
+    keep.onclick();
+    await sleep(50);
+    ok("revue individuelle : Garder appelle decideMergeChunk(\"accept\", ch du bloc courant)",
+      calls.length === 1 && calls[0][0] === "accept" && calls[0][1] === 0, JSON.stringify(calls));
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue individuelle : Garder enregistre la base ajustée dans reviewState",
+      !!it && saved[it.id] && saved[it.id].base === "<base ajustée>", JSON.stringify(saved));
+    h.tag.onclick();
+  }
+
+  // 3. ⌥⌫ (keydown global document, hors focus texte) ignore le bloc courant
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    h.cm.decideMergeChunk = (kind, ch) => ({ kind, current: h.cm.getValue(), text: before, base: before });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Backspace", key: "Backspace" });
+    await sleep(50);
+    ok("revue individuelle : ⌥⌫ (document, altKey+code Backspace) ignore le bloc courant et restaure le texte du refus",
+      h.restored.at(-1) === before, JSON.stringify(h.restored));
+    h.tag.onclick();
+  }
+}
+
 // -------------------------------------------------------------------- run all
 try {
   await serverTests();
@@ -1925,6 +2014,7 @@ try {
   commitComposerContractTests();
   await latexStudioTests();
   await timelineTests();
+  await individualReviewCardTests();
   if (CONTRACT_FAILURES.length)
     throw new Error(`${CONTRACT_FAILURES.length} explicit intervention contract assertion(s) failed`);
   console.log(`diff suite: ok (${passed} tests)`);
