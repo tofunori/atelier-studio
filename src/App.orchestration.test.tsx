@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
 const dialogMock = vi.hoisted(() => ({
-  open: vi.fn(async () => null),
+  open: vi.fn(async (): Promise<string | string[] | null> => null),
   confirm: vi.fn(async () => true),
 }));
 
@@ -120,12 +120,29 @@ async function loadExactHistory(sock: FakeWS) {
       eventWithMeta(events.text("Réponse exacte"), "event-text-exact", 2),
     ],
   });
+  const userMessage = document.querySelector<HTMLElement>('[data-slot="aui_user-message-root"]');
+  if (userMessage) {
+    fireEvent.mouseEnter(userMessage);
+  }
 }
 
 /** Le transcript seul : depuis la marge annotée, l'aperçu d'un prompt existe
  * aussi dans le rail de navigation — ces assertions parlent des messages. */
 function transcript() {
-  return within(document.querySelector(".messages") as HTMLElement);
+  return within(document.querySelector(".aui-thread-root") as HTMLElement);
+}
+
+/** Controls owned by the official assistant-ui Thread primitives. */
+function stopButton(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>(".aui-composer-cancel");
+}
+
+function expectStopVisible(): void {
+  expect(stopButton()).toBeTruthy();
+}
+
+function expectStopHidden(): void {
+  expect(stopButton()).toBeNull();
 }
 
 beforeEach(() => {
@@ -153,7 +170,7 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
     const before = sock.sent.length;
-    fireEvent.click(screen.getAllByTitle(t("action.interrupt"))[0]);
+    fireEvent.click(stopButton()!);
     const messages = sock.sent.slice(before).map(value => JSON.parse(value));
     expect(messages).toContainEqual({ type: "interrupt", threadId: "thread-A" });
     const historyRequest = messages.find((message) => message.type === "getHistory" && message.threadId === "thread-A");
@@ -164,22 +181,22 @@ describe("orchestration App — caractérisation", () => {
       meta: { schemaVersion: 1, eventId: "recovered-done", provider: "codex", threadId: "thread-A",
         turnId: "recovered-turn", sequence: 9, ts: Date.now(), durable: true, origin: "provider" },
     }] });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expectStopHidden();
   });
 
   it("isole et restaure le brouillon du composer pour chaque conversation", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
     await selectThread(sock, "Fil A — albédo");
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "brouillon albédo" } });
 
     await selectThread(sock, "Fil B — manuscrit");
-    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("");
-    fireEvent.change(document.querySelector(".composer textarea")!, { target: { value: "brouillon manuscrit" } });
+    expect((document.querySelector(".aui-composer-input") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.change(document.querySelector(".aui-composer-input")!, { target: { value: "brouillon manuscrit" } });
 
     await selectThread(sock, "Fil A — albédo");
-    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("brouillon albédo");
+    expect((document.querySelector(".aui-composer-input") as HTMLTextAreaElement).value).toBe("brouillon albédo");
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(localStorage.getItem("atelier-studio.chat-drafts:v1")).toContain("brouillon manuscrit");
   });
@@ -190,25 +207,30 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "compare ensuite les deux cartes" } });
     const before = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send").length;
     // Contrat Codex : pendant un tour actif, Enter met la relance en file par défaut.
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(screen.getByTestId("queued-follow-up-row")).toHaveTextContent("compare ensuite les deux cartes");
+    await act(async () => { await flushMicrotasks(4); });
+    expect(screen.getByText("compare ensuite les deux cartes")).toBeTruthy();
     expect(textarea.value).toBe("");
     expect(sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send")).toHaveLength(before);
 
-    fireEvent.click(screen.getByRole("button", { name: t("queue.more") }));
-    await act(async () => { await flushMicrotasks(2); });
-    fireEvent.click(screen.getByRole("menuitem", { name: t("queue.edit") }));
-    expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Modifier le message en attente" }));
+    await act(async () => { await flushMicrotasks(4); });
+    expect(document.querySelector('[data-slot="message-queue"]')).toBeNull();
     expect(textarea.value).toBe("compare ensuite les deux cartes");
 
-    fireEvent.click(document.querySelector(".follow-up-submit") as HTMLButtonElement);
+    // The official composer has no legacy "Update" action: after restoring a
+    // queued row, Enter sends the edited draft through the active queue lane.
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+    expect(document.querySelector('[data-slot="message-queue"]')).toBeTruthy();
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true, result: "" } });
     await act(async () => { await flushMicrotasks(6); });
+    await act(async () => { await flushMicrotasks(4); });
     const sends = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send");
     expect(sends).toHaveLength(before + 1);
     expect(sends[sends.length - 1]).toMatchObject({
@@ -217,7 +239,8 @@ describe("orchestration App — caractérisation", () => {
       prompt: "compare ensuite les deux cartes",
       mode: "queue",
     });
-    expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
+    expect(document.querySelector('[data-slot="message-queue"]')).toBeNull();
+    expect(textarea.value).toBe("");
   });
 
   it("un send refusé par le serveur éteint le spinner et affiche le refus", async () => {
@@ -229,12 +252,12 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "allo" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(2); });
     // le tour local est parti : l'indicateur d'interruption est visible
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expectStopVisible();
 
     await push(sock, {
       type: "error",
@@ -243,25 +266,25 @@ describe("orchestration App — caractérisation", () => {
     });
     // le refus est visible et le spinner éteint
     expect(screen.getByText(/projet verrouillé par une autre tâche/)).toBeTruthy();
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expectStopHidden();
   });
 
   it("une lecture expirée et une action retardée laissent le chat actif", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "allo" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(2); });
     await push(sock, { type: "error", requestType: "getHistory", threadId: "thread-A", code: "REQUEST_TIMEOUT", message: "Historique trop lent" });
     expect(screen.getByText("Historique trop lent")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expectStopVisible();
     await push(sock, { type: "requestDelayed", requestType: "send", threadId: "thread-A", message: "Envoi encore en préparation" });
     expect(screen.getByText("Envoi encore en préparation")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expectStopVisible();
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_CANCELLED", message: "Envoi annulé" });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expectStopHidden();
   });
 
   it("retire le refus d'historique seulement après récupération du même chat", async () => {
@@ -309,9 +332,9 @@ describe("orchestration App — caractérisation", () => {
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", clientMessageId: "steer-refused", code: "REQUEST_BUSY", message: "Envoi refusé" });
     expect(screen.getByText("Envoi refusé")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expectStopVisible();
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true } });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expectStopHidden();
   });
 
   it("la récupération d'un done manqué libère aussi la confirmation du tour", async () => {
@@ -320,13 +343,13 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
     await push(sock, { type: "history", threadId: "thread-A", events: [{ kind: "done", ok: true, result: "Terminé", ts: Date.now() + 1 }] });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    expectStopHidden();
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "nouvel envoi" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(2); });
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_BUSY", message: "Refus de surcharge" });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expectStopHidden();
   });
 
   it("un historique capturé avant une révision ne réintroduit pas les messages retirés", async () => {
@@ -361,7 +384,7 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [withConsigne]);
     await selectThread(sock, "Fil A — albédo");
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "allo" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(4); });
@@ -387,7 +410,7 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [withConsigne]);
     await selectThread(sock, "Fil A — albédo");
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "allo" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(4); });
@@ -410,7 +433,7 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getByRole("dialog", { name: /new chat/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "Analyse ce projet" } });
     fireEvent.submit(textarea.closest("form")!);
     await act(async () => { await flushMicrotasks(4); });
@@ -427,7 +450,7 @@ describe("orchestration App — caractérisation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
     await act(async () => { await flushMicrotasks(4); });
     const created = sock.sent.map((raw) => JSON.parse(raw)).find((msg) => msg.type === "upsertThread").thread;
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "Allo" } });
     fireEvent.submit(textarea.closest("form")!);
     await act(async () => { await flushMicrotasks(4); });
@@ -470,8 +493,8 @@ describe("orchestration App — caractérisation", () => {
     // ferait normaliser provider→claude et perdre le projet côté backend
     // pour un id qu'il ne connaît pas encore (ThreadStore::upsert / normalize).
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
-    fireEvent.click(screen.getByText("Concis"));
+    fireEvent.click(screen.getByRole("button", { name: "Consignes de réponse" }));
+    fireEvent.doubleClick(screen.getByText("Concis"));
 
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
     fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
@@ -507,10 +530,10 @@ describe("orchestration App — caractérisation", () => {
       }],
     }));
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
-    fireEvent.click(screen.getByText("Concis"));
+    fireEvent.click(screen.getByRole("button", { name: "Consignes de réponse" }));
+    fireEvent.doubleClick(screen.getByText("Concis"));
 
-    fireEvent.click(screen.getByLabelText(t("kb.open")));
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge sources" }));
     fireEvent.click(screen.getByText("Note de test"));
 
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -545,8 +568,8 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
-    fireEvent.click(screen.getByText("Concis"));
+    fireEvent.click(screen.getByRole("button", { name: "Consignes de réponse" }));
+    fireEvent.doubleClick(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
 
     const upserts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "upsertThread");
@@ -560,14 +583,14 @@ describe("orchestration App — caractérisation", () => {
     });
   });
 
-  it("une consigne choisie sans fil actif s'affiche quand même dans la pilule", async () => {
+  it("une consigne choisie sans fil actif s'affiche quand même dans le bouton officiel", async () => {
     // Sans ce repli, le choix était bien mémorisé (pendingConsigne) mais
     // invisible : l'utilisateur ne pouvait pas savoir qu'il avait pris.
     await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
-    fireEvent.click(screen.getByText("Concis"));
+    fireEvent.click(screen.getByRole("button", { name: "Consignes de réponse" }));
+    fireEvent.doubleClick(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
-    expect(document.querySelector(".consigne-pilule-nom")?.textContent).toBe("Concis");
+    expect(document.querySelector('[data-slot="assistant-ui-consigne-pill"]')?.textContent).toBe("Concis");
   });
 
   it("un fil créé WS fermée est republié à la reconnexion AVEC sa consigne", async () => {
@@ -577,8 +600,8 @@ describe("orchestration App — caractérisation", () => {
     // catalogue a bougé — et `send.rs::consigne_du_fil` ne trouvait donc
     // aucun `extra.consigne` : consigne perdue en silence dès le 1er tour.
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
-    fireEvent.click(screen.getByText("Concis"));
+    fireEvent.click(screen.getByRole("button", { name: "Consignes de réponse" }));
+    fireEvent.doubleClick(screen.getByText("Concis"));
 
     // la socket meurt AVANT la création : aucun upsertThread ne peut partir
     await act(async () => { sock.fireClose(); await flushMicrotasks(4); });
@@ -609,8 +632,9 @@ describe("orchestration App — caractérisation", () => {
     // aucun fil sélectionné : l'accueil (ResearchHome) porte son « New chat »
     // branché sur newChat(), le chemin qui perdait le projet.
     const { sock } = await mountApp();
-    const timeline = document.querySelector(".messages") as HTMLElement;
-    fireEvent.click(within(timeline).getByText(t("action.new-chat")));
+    const threadControls = document.querySelector('[data-slot="assistant-ui-thread-controls"]');
+    expect(threadControls).toBeTruthy();
+    fireEvent.click(within(threadControls as HTMLElement).getByRole("button", { name: t("action.new-chat") }));
     fireEvent.click(screen.getByRole("button", { name: /Codex/i }));
     await act(async () => { await flushMicrotasks(4); });
 
@@ -649,12 +673,12 @@ describe("orchestration App — caractérisation", () => {
       events: [events.user("Question source"), events.text("Réponse source")],
     });
 
-    fireEvent.click(document.querySelector(".mp-model") as HTMLButtonElement);
-    const modelMenu = document.querySelector(".model-menu") as HTMLElement;
-    expect(modelMenu.querySelector(".model-provider-tabs")).toBeNull();
-    expect(within(modelMenu).queryByText("Codex")).toBeNull();
+    fireEvent.click(document.querySelector('[data-slot="model-selector-trigger"]') as HTMLButtonElement);
+    const modelMenu = document.querySelector('[data-slot="model-selector-content"]') as HTMLElement;
+    expect(modelMenu).toBeTruthy();
+    expect(modelMenu.textContent).not.toContain("Codex");
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "Continue avec Claude" } });
     await act(async () => {
       fireEvent.submit(textarea.closest("form")!);
@@ -816,7 +840,7 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
 
     const objective = "produire la figure 3 vérifiée";
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: `/goal ${objective}` } });
     await act(async () => {
       fireEvent.submit(textarea.closest("form")!);
@@ -873,7 +897,7 @@ describe("orchestration App — caractérisation", () => {
     // …puis l'ack serveur du NOUVEAU tour : son événement user re-pose l'état.
     await push(sock, { type: "event", threadId: "thread-A", event: events.user("nouvelle consigne") });
     // le carré stop ET le rappel esc réapparaissent : l'état de travail est re-posé
-    expect(screen.getAllByTitle(t("action.interrupt")).length).toBeGreaterThan(0);
+    expect(stopButton()).toBeTruthy();
   });
 
   it("attache l'artefact reçu par atelier-add-to-chat (nonce + origine vérifiés)", async () => {
@@ -906,13 +930,12 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
 
-    // la pilule du composer affiche le nom sans extension (citeLabel) ;
-    // l'image ne s'affiche plus en vignette mais via le zoom (plan 050 P2)
-    expect(screen.getByText("fig3_spatial")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: t("context.preview-image", { name: "fig3_spatial.png" }) }));
-    const preview = screen.getByRole("img", { name: "fig3_spatial.png" }) as HTMLImageElement;
+    // L'élément officiel expose le type de pièce jointe comme nom accessible
+    // et garde le nom du fichier dans le tooltip; le zoom ouvre sa preview.
+    fireEvent.click(screen.getByRole("button", { name: "Image attachment" }));
+    const preview = screen.getByRole("img", { name: "Attachment preview" }) as HTMLImageElement;
     expect(preview.src).toBe("http://127.0.0.1:18790/fig3_spatial.png");
-    fireEvent.click(screen.getByRole("button", { name: t("context.close-image-preview") }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(postMessage).toHaveBeenCalledWith({
       type: "atelier-add-to-chat-ack",
       nonce,
@@ -936,7 +959,7 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
     expect(removalCalls()).toHaveLength(0);
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea,{target:{value:"Examine cette note"}});
     fireEvent.submit(textarea.closest("form")!);
     await act(async () => { await flushMicrotasks(4); });
@@ -976,7 +999,7 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(4);
     });
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "Respecte-t-il les règles ?" } });
     fireEvent.submit(textarea.closest("form")!);
     await act(async () => { await flushMicrotasks(6); });
@@ -987,6 +1010,136 @@ describe("orchestration App — caractérisation", () => {
     expect(sent.attachments).toBeUndefined();
     expect(sent.displayEvent.imagePaths).toBeUndefined();
     expect(sent.inputs?.some((input: { type?: string }) => input.type === "local_image") ?? false).toBe(false);
+  });
+
+  it("conserve les pièces jointes du brouillon si le transport refuse l'envoi", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(10); });
+
+    const iframe = document.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    const nonce = new URLSearchParams(new URL(iframe!.src).hash.replace(/^#/, "")).get("atelier_nonce");
+    expect(nonce).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: {
+          type: "atelier-add-to-chat",
+          nonce,
+          text: "notes/late.md — lis ce fichier avant de répondre.",
+          path: "notes/late.md",
+          name: "late.md",
+          requestId: "add-late-attachment",
+        },
+        origin: "http://127.0.0.1:18790",
+        source: iframe!.contentWindow,
+      }));
+      await flushMicrotasks(6);
+    });
+
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Réessaie avec ce fichier" } });
+    const sendCount = () => sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "send").length;
+    const before = sendCount();
+    // sendPrompt refuse une socket fermée ; le message user optimiste reste
+    // visible, mais le fichier doit rester dans le draft réessayable.
+    sock.close();
+    fireEvent.submit(textarea.closest("form")!);
+    await act(async () => {
+      await flushMicrotasks(6);
+      await vi.advanceTimersByTimeAsync(350);
+    });
+
+    expect(sendCount()).toBe(before);
+    const persisted = JSON.parse(localStorage.getItem("atelier-studio.chat-drafts:v1") ?? "{}");
+    const drafts = Object.values(persisted.drafts ?? {}) as Array<{ attachments?: Array<{ path?: string }> }>;
+    expect(drafts.some((draft) => draft.attachments?.some((attachment) => attachment.path === "notes/late.md"))).toBe(true);
+  });
+
+  it("rattache un ajout KB asynchrone au fil source, après un changement de conversation", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A, THREAD_B]);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(6); });
+
+    dialogMock.open.mockResolvedValueOnce("/tmp/late-kb.md");
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add files" }));
+    await act(async () => { await flushMicrotasks(6); });
+    expect(sock.sent.map((value) => JSON.parse(value))).toContainEqual(
+      expect.objectContaining({ type: "kbAdd", kind: "file", origin: "/tmp/late-kb.md" }),
+    );
+
+    // Le callback conservé par useKbActions doit garder thread-A, même si le
+    // picker est maintenant rendu avec le binding du fil B.
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge sources" }));
+    await selectThread(sock, "Fil B — manuscrit");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("kb-source-added", {
+        detail: {
+          ok: true,
+          source: {
+            id: "kb-late-source",
+            kind: "file",
+            title: "late-kb.md",
+            origin: "/tmp/late-kb.md",
+            chars: 12,
+            addedAt: FIXED_ISO,
+            updatedAt: FIXED_ISO,
+          },
+        },
+      }));
+      await flushMicrotasks(6);
+    });
+
+    const upserts = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "upsertThread");
+    const late = upserts.filter((message) => message.thread?.kbSourceIds?.includes("kb-late-source"));
+    expect(late).toHaveLength(1);
+    expect(late[0].thread).toMatchObject({ id: "thread-A", kbSourceIds: ["kb-late-source"] });
+    expect(late.some((message) => message.thread?.id === "thread-B")).toBe(false);
+  });
+
+  it("conserve un ajout KB lancé depuis l'accueil en attente, sans l'attacher au fil ouvert entre-temps", async () => {
+    const { sock } = await mountApp();
+    dialogMock.open.mockResolvedValueOnce("/tmp/home-kb.md");
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add files" }));
+    await act(async () => { await flushMicrotasks(6); });
+
+    await pushThreads(sock, [THREAD_A, THREAD_B]);
+    await selectThread(sock, "Fil B — manuscrit");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("kb-source-added", {
+        detail: {
+          ok: true,
+          source: {
+            id: "kb-home-source",
+            kind: "file",
+            title: "home-kb.md",
+            origin: "/tmp/home-kb.md",
+            chars: 12,
+            addedAt: FIXED_ISO,
+            updatedAt: FIXED_ISO,
+          },
+        },
+      }));
+      await flushMicrotasks(6);
+    });
+
+    const beforeHome = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "upsertThread");
+    expect(beforeHome.some((message) => message.thread?.kbSourceIds?.includes("kb-home-source"))).toBe(false);
+
+    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    await act(async () => { await flushMicrotasks(4); });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
+    const dialog = screen.getByRole("dialog", { name: /new chat/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Claude/i }));
+    await act(async () => { await flushMicrotasks(6); });
+
+    const upserts = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "upsertThread");
+    expect(upserts.some((message) => message.thread?.kbSourceIds?.includes("kb-home-source"))).toBe(true);
   });
 
   it("envoie une commande show unique à l'iframe Galerie et accepte son résultat", async () => {
@@ -1140,9 +1293,9 @@ describe("orchestration App — caractérisation", () => {
     await act(async () => { await flushMicrotasks(2); });
     const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
 
-    fireEvent.click(screen.getByRole("button", { name: "Figure PNG" }));
-    fireEvent.click(screen.getByRole("button", { name: "Figure PDF" }));
-    fireEvent.click(screen.getByRole("button", { name: "Figure SVG" }));
+    fireEvent.click(screen.getByRole("link", { name: "Figure PNG" }));
+    fireEvent.click(screen.getByRole("link", { name: "Figure PDF" }));
+    fireEvent.click(screen.getByRole("link", { name: "Figure SVG" }));
     await act(async () => { await flushMicrotasks(2); });
 
     const openCalls = postMessage.mock.calls.filter(([message]) =>
@@ -1373,13 +1526,32 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getAllByText("Fil A — albédo").length).toBeGreaterThan(0);
   });
 
-  it("replay de l'usage au reload : l'anneau se repeuple depuis le done journalisé (plan 025)", async () => {
+  it("replay de l'usage au reload : l'anneau reprend la fenêtre réelle du signal usage", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
     await selectThread(sock, "Fil A — albédo");
     // avant tout usage : pas d'anneau
-    expect(document.querySelector(".ctx-ring")).toBeNull();
-    // historique matérialisé avec un done portant l'usage (comme le journal le rejoue)
+    expect(screen.queryByRole("button", { name: "Context usage" })).toBeNull();
+    // historique matérialisé avec le done et le signal usage (comme le journal le rejoue)
+    await push(sock, {
+      type: "history", threadId: "thread-A",
+      events: [
+        events.user("Question"),
+        events.text("Réponse."),
+        events.done({ usage: { context: 10000, output: 5000, cost: null, turns: 2 } }),
+        { kind: "usage", usage: { context: 10000, output: 5000, cost: null, turns: 2, window: 128000 } },
+      ],
+    });
+    // l'anneau se repeuple seulement depuis la fenêtre fournie par le provider
+    await act(async () => { await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("button", { name: "Options du chat" }));
+    expect(screen.getByRole("button", { name: "Context usage" })).toBeTruthy();
+  });
+
+  it("replay de l'usage sans fenêtre ne fabrique pas de pourcentage", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
     await push(sock, {
       type: "history", threadId: "thread-A",
       events: [
@@ -1388,9 +1560,28 @@ describe("orchestration App — caractérisation", () => {
         events.done({ usage: { context: 10000, output: 5000, cost: null, turns: 2 } }),
       ],
     });
-    // l'anneau d'usage se repeuple depuis le done rejoué (usageByThread réhydraté)
     await act(async () => { await flushMicrotasks(4); });
-    expect(document.querySelector(".ctx-ring")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Options du chat" }));
+    expect(screen.queryByRole("button", { name: "Context usage" })).toBeNull();
+  });
+
+  it("n'associe pas la fenêtre d'un tour précédent au done du tour courant", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, {
+      type: "history", threadId: "thread-A",
+      events: [
+        events.user("Question 1"),
+        { kind: "usage", usage: { context: 9000, output: 3000, cost: null, turns: 1, window: 128000 } },
+        events.done({ usage: { context: 9000, output: 3000, cost: null, turns: 1 } }),
+        events.user("Question 2"),
+        events.done({ usage: { context: 12000, output: 4000, cost: null, turns: 1 } }),
+      ],
+    });
+    await act(async () => { await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("button", { name: "Options du chat" }));
+    expect(screen.queryByRole("button", { name: "Context usage" })).toBeNull();
   });
 
   it("deux tool_update de même itemId dans deux turns restent deux actions distinctes (plan 025)", async () => {
@@ -1422,13 +1613,18 @@ describe("orchestration App — caractérisation", () => {
         meta: { schemaVersion: 1, eventId: "e3", provider: "claude", threadId: "thread-A", turnId: "turn-2", itemId: "call-1", sequence: 5, ts: 3, durable: true, origin: "provider" },
       },
     });
+    await act(async () => { await flushMicrotasks(4); });
 
     // les DEUX actions existent : le tool du turn 2 ne remplace pas celui du
     // turn 1 (détails visibles en dépliant chaque groupe d'outils)
-    const rows = [...document.querySelectorAll(".ui-activity-trigger")] as HTMLElement[];
+    const rows = [...document.querySelectorAll('[data-slot="tool-group-trigger"]')] as HTMLElement[];
     expect(rows.length).toBeGreaterThanOrEqual(2);
     await act(async () => {
       rows.forEach((r) => r.click());
+      await flushMicrotasks(2);
+    });
+    await act(async () => {
+      document.querySelectorAll<HTMLElement>('[data-slot="tool-fallback-trigger"]').forEach((row) => row.click());
       await flushMicrotasks(2);
     });
     expect(screen.getByText(/premier appel/)).toBeTruthy();
@@ -1452,9 +1648,11 @@ describe("orchestration App — caractérisation", () => {
         meta: meta("e-int-1", 2),
       },
     });
+    await act(async () => { await flushMicrotasks(4); });
     // la carte apparaît avec ses boutons
-    expect(screen.getByText("Exécuter rm -rf build ?")).toBeTruthy();
-    const allowBtn = screen.getByRole("button", { name: t("interaction.allow-once") });
+    const approvalPrompt = document.querySelector<HTMLElement>(".aui-tool-fallback-approval-prompt");
+    expect(approvalPrompt).toHaveTextContent("Exécuter rm -rf build ?");
+    const allowBtn = screen.getByRole("button", { name: "Allow" });
     await act(async () => {
       allowBtn.click();
       await flushMicrotasks(4);
@@ -1466,7 +1664,7 @@ describe("orchestration App — caractérisation", () => {
     expect(responses[0].requestId).toBe("req-appr-1");
     expect(responses[0].threadId).toBe("thread-A");
     expect(responses[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
-    expect(responses[0].response).toEqual({ allow: true, scope: "once" });
+    expect(responses[0].response).toEqual({ allow: true });
     // marquage optimiste : la carte est déjà figée en attendant l'état final
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
 
@@ -1480,7 +1678,19 @@ describe("orchestration App — caractérisation", () => {
         answerSummary: "autorisé une fois", meta: meta("e-int-2", 3),
       },
     });
-    expect(screen.getAllByText("Exécuter rm -rf build ?")).toHaveLength(1);
+    await act(async () => { await flushMicrotasks(4); });
+    // Une interaction résolue reste repliée dans la primitive officielle;
+    // son titre et le résumé sûr se lisent en ouvrant le groupe puis l'outil.
+    const groupTrigger = document.querySelector<HTMLElement>('[data-slot="tool-group-trigger"]');
+    expect(groupTrigger).toBeTruthy();
+    groupTrigger?.click();
+    await act(async () => { await flushMicrotasks(2); });
+    const toolTrigger = document.querySelector<HTMLElement>('[data-slot="tool-fallback-trigger"]');
+    expect(toolTrigger).toBeTruthy();
+    toolTrigger?.click();
+    await act(async () => { await flushMicrotasks(2); });
+    expect(document.querySelector('[data-slot="tool-fallback-args"]')).toHaveTextContent("Exécuter rm -rf build ?");
+    expect(document.querySelector('[data-slot="tool-fallback-result"]')).toHaveTextContent("autorisé une fois");
     expect(screen.getByText("autorisé une fois")).toBeTruthy();
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
   });
@@ -1490,7 +1700,7 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByRole("button", { name: t("chat.revert-title") }).click();
+      screen.getByRole("button", { name: "Revenir avant ce message" }).click();
       await flushMicrotasks(4);
     });
 
@@ -1505,28 +1715,20 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByRole("button", { name: t("action.edit-resend") }).click();
+      screen.getByRole("button", { name: "Edit" }).click();
       await flushMicrotasks(2);
     });
-    const textarea = document.querySelector(".edit-box textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-edit-composer-input") as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
-    expect(textarea.dataset.slot).toBe("textarea");
-    expect(textarea.rows).toBe(1);
+    expect(textarea.rows).toBeGreaterThan(0);
     expect(textarea.className).toContain("tw:bg-transparent");
-    expect(textarea.className).toContain("tw:focus-visible:ring-0");
-    expect(textarea.className).not.toContain("tw:focus-visible:border-[var(--border-strong)]");
-    expect(document.querySelector(".edit-box")?.tagName).toBe("FORM");
-    expect(document.querySelector(".edit-box-shell")?.parentElement?.classList.contains("user-wrap")).toBe(true);
-    expect(document.querySelector(".user-bubble")).toBeNull();
-    expect(document.querySelector(".user-message [data-slot='message-footer']")).toBeNull();
-    const cancelButton = document.querySelector(".edit-cancel") as HTMLButtonElement;
-    expect(cancelButton.dataset.slot).toBe("button");
-    expect(cancelButton.className).toContain("tw:border-border");
-    expect(cancelButton.className).toContain("tw:rounded-full");
-    const sendButton = document.querySelector(".edit-send") as HTMLButtonElement;
-    expect(sendButton.dataset.slot).toBe("button");
-    expect(sendButton.className).toContain("tw:bg-primary");
-    expect(sendButton.className).toContain("tw:rounded-full");
+    expect(document.querySelector(".aui-edit-composer-root")?.tagName).toBe("FORM");
+    expect(document.querySelector('[data-slot="aui_edit-composer-wrapper"]')).toBeTruthy();
+    expect(document.querySelector('[data-slot="aui_user-message-root"] .aui-user-message-content')).toBeNull();
+    const editRoot = document.querySelector(".aui-edit-composer-root") as HTMLElement;
+    const cancelButton = within(editRoot).getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    const sendButton = within(editRoot).getByRole("button", { name: "Update" }) as HTMLButtonElement;
+    expect(cancelButton).toBeTruthy();
     fireEvent.change(textarea, { target: { value: "   " } });
     expect(sendButton.disabled).toBe(true);
     fireEvent.change(textarea, { target: { value: "Question corrigée" } });
@@ -1564,8 +1766,8 @@ describe("orchestration App — caractérisation", () => {
         },
       },
     });
-    const bubbles = [...document.querySelectorAll(".user-bubble")]
-      .filter((el) => el.textContent === "Question corrigée");
+    const bubbles = [...document.querySelectorAll('[data-slot="aui_user-message-root"]')]
+      .filter((el) => el.textContent?.includes("Question corrigée"));
     expect(bubbles).toHaveLength(1);
   });
 
@@ -1573,18 +1775,19 @@ describe("orchestration App — caractérisation", () => {
     const { sock } = await mountApp();
     await loadExactHistory(sock);
     await act(async () => {
-      screen.getByRole("button", { name: t("action.edit-resend") }).click();
+      screen.getByRole("button", { name: "Edit" }).click();
       await flushMicrotasks(2);
     });
-    fireEvent.change(document.querySelector(".edit-box textarea")!, { target: { value: "Texte corrigé conservé" } });
+    fireEvent.change(document.querySelector(".aui-edit-composer-input")!, { target: { value: "Texte corrigé conservé" } });
     await act(async () => {
-      (document.querySelector(".edit-send") as HTMLButtonElement).click();
+      within(document.querySelector(".aui-edit-composer-root") as HTMLElement)
+        .getByRole("button", { name: "Update" }).click();
       await flushMicrotasks(2);
     });
     const sendsBefore = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send").length;
     await push(sock, { type: "error", threadId: "thread-A", message: "Session corrigée indisponible" });
     expect(sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send")).toHaveLength(sendsBefore);
-    expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("Texte corrigé conservé");
+    expect((document.querySelector(".aui-composer-input") as HTMLTextAreaElement).value).toBe("Texte corrigé conservé");
     expect(screen.getByText("Session corrigée indisponible")).toBeTruthy();
   });
 
@@ -1593,7 +1796,7 @@ describe("orchestration App — caractérisation", () => {
     await loadExactHistory(sock);
 
     await act(async () => {
-      screen.getByRole("button", { name: t("action.fork") }).click();
+      screen.getByRole("button", { name: "Créer une branche" }).click();
       await flushMicrotasks(4);
     });
 
@@ -1619,7 +1822,7 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, THREAD_A.title);
 
-    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const textarea = document.querySelector(".aui-composer-input") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "@Codex vérifie le contexte" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(4); });
@@ -1641,7 +1844,7 @@ describe("orchestration App — caractérisation", () => {
       message: "création refusée",
     });
     expect(screen.getAllByText("création refusée").length).toBeGreaterThan(0);
-    expect(document.querySelector(".chat-surface-header")?.textContent).toContain(THREAD_A.title);
+    expect(document.querySelector('[data-slot="assistant-ui-thread-controls"] h2')?.textContent).toContain(THREAD_A.title);
   });
 
   it("crée une continuité depuis le menu, attend l'ack puis permet de la délier", async () => {
@@ -1684,7 +1887,7 @@ describe("orchestration App — caractérisation", () => {
       reuseExisting: true,
       autoDeliveryLimit: 1,
     });
-    expect(document.querySelector(".chat-surface-header")?.textContent).toContain(THREAD_A.title);
+    expect(document.querySelector('[data-slot="assistant-ui-thread-controls"] h2')?.textContent).toContain(THREAD_A.title);
 
     await push(sock, {
       type: "linkedThreadCreated",

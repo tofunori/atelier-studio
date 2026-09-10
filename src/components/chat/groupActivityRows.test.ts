@@ -40,10 +40,14 @@ describe('groupActivityRows', () => {
     expect(result.map(row => row.type)).toEqual(['actions', 'event', 'actions']);
     expect(result[1]).toBe(narration);
   });
-  it('exposes failed tools and generated images outside the batch', () => {
+  it('keeps failures and image tools in the same chronological batch', () => {
     const failed = tools('Bash', 1); failed.actions[0] = { ...failed.actions[0], status: 'failed', exitCode: 1 } as ToolAction;
     const result = groupActivityRows([tools('Read', 0), failed, tools('image_generation', 2), tools('Read', 3)]);
-    expect(result.map(row => row.type)).toEqual(['actions', 'event', 'event', 'actions']);
+    expect(result.map(row => row.type)).toEqual(['actions']);
+    expect(result[0].type === 'actions' && result[0].actions.map(action => action.name)).toEqual([
+      'Read', 'Bash', 'image_generation', 'Read',
+    ]);
+    expect(result[0].type === 'actions' && result[0].actions[1]).toMatchObject({ status: 'failed', exitCode: 1 });
   });
   it('does not swallow pending permissions', () => {
     const permission = event({ kind: 'permission', toolName: 'Bash', requestId: 'approval', answered: null, input: {} }, 1);
@@ -54,9 +58,21 @@ describe('groupActivityRows', () => {
     const grown = { ...first, key: 'agents:first:last', actions: [...first.actions, ...tools('spawn_agent', 1).actions] };
     expect(groupActivityRows([first])[0].key).toBe(groupActivityRows([grown])[0].key);
   });
-  it('keeps declined actions visible', () => {
+  it('keeps declined action outcomes inside the batch', () => {
     const row = tools('Bash', 0); row.actions[0] = { ...row.actions[0], status: 'declined' } as ToolAction;
-    expect(groupActivityRows([row])[0].type).toBe('event');
+    const result = groupActivityRows([row])[0];
+    expect(result.type).toBe('actions');
+    expect(result.type === 'actions' && result.actions[0]).toMatchObject({ status: 'declined' });
+  });
+  it('keeps a terminal error as an attached activity leaf', () => {
+    const failureEvent = { kind: 'error' as const, message: 'Le serveur a refusé la commande.' };
+    const failure = event(failureEvent, 1);
+    const result = groupActivityRows([tools('Bash', 0), failure]);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('actions');
+    expect(result[0].type === 'actions' && result[0].actions[1]).toMatchObject({
+      name: '__error', detail: 'Le serveur a refusé la commande.', errorEvent: failureEvent,
+    });
   });
   it('keeps the same block when an item receives a new event identity', () => {
     const make = (eventId: string, status: string) => {

@@ -1241,7 +1241,7 @@ export default function App() {
   useEffect(() => {
     if (!gallerySend || gallerySend.threadId !== activeId) return;
     if (!attachments.some(a => a.pdfAnnotation?.id === gallerySend.annotationId)) return;
-    const form = document.querySelector<HTMLFormElement>("form.composer");
+    const form = document.querySelector<HTMLFormElement>("[data-atelier-chat] form.aui-composer-root, form.composer");
     if (!form) return;
     setGallerySend(null);
     const selected = attachments.filter(a => a.pdfAnnotation?.id === gallerySend.annotationId);
@@ -2404,6 +2404,15 @@ export default function App() {
           // continue vers le fil.
           setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
         }
+        // Une interaction en attente est déjà un tour actif, même si le
+        // provider n'envoie pas de `started` avant sa demande.  La projection
+        // assistant-ui traite `workingSince` comme l'horloge autoritaire :
+        // sans ce signal, le pending interaction reste un événement inerte et
+        // sa carte d'approbation ne peut pas être rendue.
+        if ((msg.event.kind === "interaction" && msg.event.state === "pending")
+          || (msg.event.kind === "permission" && msg.event.answered == null)) {
+          setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
+        }
         if (msg.event.kind === "heartbeat") {
           // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
           // cumulée du tour quand le provider la fournit (ticker Working)
@@ -2548,16 +2557,55 @@ export default function App() {
             : mergeHarnessHistory(cur, replayed);
           return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
-        // replay de l'usage (plan 025) : l'anneau se vidait au reload — le
-        // dernier done journalisé porte l'usage du turn, on le restaure si le
-        // fil n'a pas déjà un usage vivant plus récent
+        // replay de l'usage (plan 025) : l'anneau se vidait au reload.  Les
+        // providers récents journalisent la fenêtre réelle dans un événement
+        // `usage` séparé (le `done` historique ne porte que context/output),
+        // donc conserver le dernier signal de chaque forme, dans l'ordre du
+        // snapshot, sans jamais inventer une fenêtre quand elle est absente.
         const histEvents = (msg.events ?? []) as AgentEvent[];
-        const lastDone = [...histEvents].reverse().find(
-          (e): e is Extract<AgentEvent, { kind: "done" }> => e.kind === "done" && !!e.usage,
-        );
-        if (lastDone?.usage) {
-          const u = lastDone.usage;
-          setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: u }));
+        let lastUsageIndex = -1;
+        let lastUsage: Extract<AgentEvent, { kind: "usage" }> | null = null;
+        let lastDoneIndex = -1;
+        let lastDone: Extract<AgentEvent, { kind: "done" }> | null = null;
+        for (let index = histEvents.length - 1; index >= 0; index -= 1) {
+          const event = histEvents[index];
+          if (lastUsageIndex < 0 && event?.kind === "usage" && event.usage) {
+            lastUsageIndex = index;
+            lastUsage = event;
+          }
+          if (lastDoneIndex < 0 && event?.kind === "done" && event.usage) {
+            lastDoneIndex = index;
+            lastDone = event;
+          }
+          if (lastUsageIndex >= 0 && lastDoneIndex >= 0) break;
+        }
+        const latestUsage = lastUsageIndex >= lastDoneIndex ? lastUsage?.usage : lastDone?.usage;
+        // A done with no window can follow a real usage snapshot. Keep the
+        // latest context/output while carrying that provider-reported window
+        // only when both observations belong to the same turn. A model switch
+        // can leave an older window in the journal; in that case the official
+        // ring stays hidden instead of assigning it to the newer done.
+        const contextUsage = latestUsage ?? lastDone?.usage ?? lastUsage?.usage;
+        const usageAndDoneShareTurn = (() => {
+          if (!lastUsage || !lastDone) return false;
+          const usageMeta = lastUsage.meta && "turnId" in lastUsage.meta ? lastUsage.meta.turnId : null;
+          const doneMeta = lastDone.meta && "turnId" in lastDone.meta ? lastDone.meta.turnId : null;
+          if (usageMeta || doneMeta) return Boolean(usageMeta && doneMeta && usageMeta === doneMeta);
+          const from = Math.min(lastUsageIndex, lastDoneIndex);
+          const to = Math.max(lastUsageIndex, lastDoneIndex);
+          return !histEvents.slice(from + 1, to).some((event) => (
+            event.kind === "user" || event.kind === "started" || event.kind === "done" || event.kind === "error"
+          ));
+        })();
+        const contextWindow = lastUsage?.usage.window != null
+          && (!lastDone || usageAndDoneShareTurn)
+          ? lastUsage.usage.window
+          : null;
+        if (contextUsage) {
+          const hydrated = contextWindow == null
+            ? contextUsage
+            : { ...contextUsage, window: contextWindow };
+          setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: hydrated }));
         }
         // Le serveur a terminé le tour, mais le done a pu être manqué en direct
         // (socket coupée) : le compteur tournerait alors pour toujours. On ne
@@ -3967,6 +4015,11 @@ export default function App() {
     isolatedAttachments?: Attachment[],
   ) {
     const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
+    const clearSubmittedAttachments = () => updateComposerDraft(activeComposerKey, draft => ({
+      ...draft,
+      attachments: isolatedAttachments
+        ? draft.attachments.filter(attachment => !isolatedAttachments.includes(attachment)) : [],
+    }));
     const displayPrompt = prompt;
     let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
@@ -4044,21 +4097,25 @@ export default function App() {
           },
         ],
       }));
-      setAttachments(current => isolatedAttachments
-        ? current.filter(a => !isolatedAttachments.includes(a)) : []);
       pdfAnnotationDelivery.current.track(requestId, attachments);
-      ws.current.send(JSON.stringify({
-        type: "mentionAgent",
-        sourceThreadId: activeId,
-        targetProvider,
-        targetThreadId: crypto.randomUUID(),
-        text: linkedPrompt,
-        displayText: displayPrompt,
-        requestId,
-        model: settingsRef.current.defaultModel[targetProvider] ?? targetInfo.defaultModel ?? "",
-        effort: settingsRef.current.defaultEffort[targetProvider] ?? "",
-        permissionMode: settingsRef.current.defaultPermissionMode,
-      }));
+      try {
+        ws.current.send(JSON.stringify({
+          type: "mentionAgent",
+          sourceThreadId: activeId,
+          targetProvider,
+          targetThreadId: crypto.randomUUID(),
+          text: linkedPrompt,
+          displayText: displayPrompt,
+          requestId,
+          model: settingsRef.current.defaultModel[targetProvider] ?? targetInfo.defaultModel ?? "",
+          effort: settingsRef.current.defaultEffort[targetProvider] ?? "",
+          permissionMode: settingsRef.current.defaultPermissionMode,
+        }));
+        clearSubmittedAttachments();
+      } catch {
+        pendingAgentMentions.current.delete(requestId);
+        setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected"), closable: true });
+      }
       return;
     }
     // Comme Synara, une relance explicitement mise en file reste dans le
@@ -4084,8 +4141,7 @@ export default function App() {
         autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
       });
-      setAttachments(current => isolatedAttachments
-        ? current.filter(a => !isolatedAttachments.includes(a)) : []);
+      clearSubmittedAttachments();
       return;
     }
     // /clear reste natif Codex ; /compact suit la capability du provider
@@ -4287,8 +4343,6 @@ export default function App() {
         ]
       : undefined;
     const additionalDirectories = projectWritableDirectories(activeProject, settingsRef.current);
-    setAttachments(current => isolatedAttachments
-      ? current.filter(a => !isolatedAttachments.includes(a)) : []);
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
@@ -4352,6 +4406,9 @@ export default function App() {
           ],
         }));
       }, 800);
+      // Le mode mock accepte le tour localement : le brouillon peut être
+      // retiré seulement après cette acceptation, comme pour le transport WS.
+      clearSubmittedAttachments();
       return;
     }
     // Envoi refusé (socket pas encore ouverte) ou absente : le spinner a déjà
@@ -4424,8 +4481,10 @@ export default function App() {
         return;
       }
       trackReceipt(clientMessageId, id, provider);
-      // The draft is retired by the authoritative `threads` acknowledgement,
-      // not by transport acceptance: a slow backend must not hide the chat.
+      // Le transport a accepté le message. Avant ce point, notamment quand la
+      // socket est fermée ou refuse l'envoi, le draft et ses fichiers doivent
+      // rester réessayables.
+      clearSubmittedAttachments();
     }
   }
 
@@ -4619,8 +4678,11 @@ export default function App() {
     }
     return pending;
   }
-  function handleKbChange(next: { kbSourceIds: string[]; kbFullContent: string[] }) {
-    const id = activeIdRef.current;
+  function handleKbChangeForSource(
+    sourceThreadId: string | null,
+    next: { kbSourceIds: string[]; kbFullContent: string[] },
+  ) {
+    const id = sourceThreadId;
     if (!id) {
       setPendingKb(next);
       return;
@@ -5333,7 +5395,10 @@ export default function App() {
           threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
           kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
           kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
-          onKbChange={handleKbChange}
+          // Le picker peut recevoir `kb-source-added` après un changement de
+          // conversation. La callback capture le fil qui a lancé l'ajout ;
+          // elle ne doit pas relire activeIdRef au moment de la réponse.
+          onKbChange={(next) => handleKbChangeForSource(activeId, next)}
           consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
           onOuvrirReglagesConsignes={() => openSettings("consignes")}
@@ -5372,6 +5437,7 @@ export default function App() {
           onTranscriptViewChange={(transcriptView) =>
             setSettings((current) => ({ ...current, transcriptView }))}
           onOpenModelSettings={() => openSettings("modeles")}
+          onOpenKnowledgeSurface={() => switchToSurface("connaissances")}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
           draftText={activeComposerDraft.prompt}
@@ -5396,8 +5462,16 @@ export default function App() {
           onRemoveQueued={(queuedId) => removeQueuedTurn(activeComposerKey, queuedId)}
           onReorderQueued={(draggedId, targetId) => reorderQueuedTurn(activeComposerKey, draggedId, targetId)}
           attachments={attachments}
-          onRemoveAttachment={(i) => setAttachments((l) => l.filter((_, j) => j !== i))}
-          onRestoreAttachment={(attachment, index) => setAttachments((list) => { const next = [...list]; next.splice(Math.min(index, next.length), 0, attachment); return next; })}
+          onRemoveAttachment={(i) => updateComposerDraft(activeComposerKey, (draft) => ({
+            ...draft, attachments: draft.attachments.filter((_, j) => j !== i),
+          }))}
+          onRestoreAttachment={(attachment, index) => updateComposerDraft(activeComposerKey, (draft) => {
+            // Upload completion can arrive after switching conversations.
+            // Keep the insertion scoped to the conversation that started it.
+            const next = [...draft.attachments];
+            next.splice(Math.min(index, next.length), 0, attachment);
+            return { ...draft, attachments: next };
+          })}
           onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;
@@ -5634,7 +5708,9 @@ export default function App() {
                 fullContent: activeId
                   ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [])
                   : pendingKb.kbFullContent,
-                onChange: handleKbChange,
+                // Même binding capturé pour les ajouts initiés depuis la
+                // surface Connaissances (réponse asynchrone possible).
+                onChange: (next) => handleKbChangeForSource(activeId, next),
               }}
               kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
               files={files}

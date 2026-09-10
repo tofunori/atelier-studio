@@ -194,48 +194,53 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(screen.getAllByRole("button", { name: /^(Épingler comme chapitre|Pin as chapter)$/ })).toHaveLength(2);
   });
 
-  it("un outil est résumé en groupe (avant OU après un texte) et se déplie au clic", () => {
-    // réalité : les outils consécutifs sont regroupés en une ligne résumée
-    // (façon Codex) — le détail n'apparaît qu'en dépliant le groupe
-    const before = [events.user(), events.tool({ id: "t1", detail: "avant.csv" }), events.text("Réponse.")];
-    const after = [events.user(), events.text("Réponse."), events.tool({ id: "t2", detail: "apres.csv" })];
+  it("affiche les outils actifs en lignes directes et ouvre leur détail au clic", () => {
+    const active = [events.user(), events.tool({ id: "t1", detail: "avant.csv", status: "inProgress" })];
+    renderUi(<Chat {...chatProps({ events: active, workingSince: FIXED_TS })} />);
 
-    const first = renderUi(<Chat {...chatProps({ events: before })} />);
-    expect(screen.getByText("Réponse.")).toBeTruthy();
-    const row1 = document.querySelector(".ui-activity-trigger") as HTMLElement;
-    expect(row1).toBeTruthy();
-    expect(row1.getAttribute("data-slot")).toBe("collapsible-trigger");
-    expect(row1.closest('[data-slot="collapsible"]')).toBeTruthy();
-    expect(row1.getAttribute("aria-expanded")).toBe("false");
-    // Replié par défaut : le corps du disclosure est démonté (le libellé, lui,
-    // peut nommer le fichier — nommage Hermes des singletons).
-    expect(document.querySelector('[data-slot="collapsible-content"].ui-activity-detail')).toBeNull();
-    act(() => { row1.click(); });
-    expect(document.querySelector(".ui-activity-trigger")?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector('[data-slot="collapsible-content"].ui-activity-detail')).toBeTruthy();
+    // Le tour actif ne rajoute plus un disclosure autour des outils : chaque
+    // ligne reste à sa place et son propre bouton porte le détail.
+    expect(document.querySelector(".ui-activity-trigger")).toBeNull();
+    const row = document.querySelector(".tool-output-head") as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    act(() => { row.click(); });
+    expect(document.querySelector(".tool-output-head")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".tool-output.open")).toBeTruthy();
     expect(screen.getAllByText(/avant\.csv/).length).toBeGreaterThan(0);
-    first.unmount();
+  });
 
-    renderUi(<Chat {...chatProps({ events: after })} />);
+  it("garde un pli unique pour un tour fini puis ouvre le détail de l'outil", () => {
+    const finished = [
+      events.user(),
+      events.tool({ id: "t2", detail: "apres.csv", status: "completed" }),
+      events.text("Réponse."),
+      events.done(),
+    ];
+    renderUi(<Chat {...chatProps({ events: finished })} />);
     expect(screen.getByText("Réponse.")).toBeTruthy();
-    const row2 = document.querySelector(".ui-activity-trigger") as HTMLElement;
-    act(() => { row2.click(); });
+    const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLElement;
+    expect(fold).toBeTruthy();
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
+    act(() => { fold.click(); });
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByText(/apres\.csv/).length).toBeGreaterThan(0);
   });
 
   it("un groupe running devient done : la capsule remplace l'attente", () => {
     const { rerender } = renderUi(
-      <Chat {...chatProps({ workingSince: FIXED_TS, events: [events.user(), events.started()] })} />,
+      <Chat {...chatProps({ workingSince: FIXED_TS, events: [events.user(), events.tool({ id: "live", status: "inProgress", detail: "en cours" })] })} />,
     );
-    expect(document.querySelector(".working")).toBeTruthy();
-    expect(document.querySelector(".working-header .working-divider")).toBeTruthy();
+    expect(document.querySelector(".chat-activity-dock")).toBeTruthy();
+    expect(document.querySelector(".active-turn-tail .turn-tail-row")).toBeTruthy();
+    expect(document.querySelector(".tool-output-head")).toBeTruthy();
     expect(document.querySelector(".working-spin")).toBeNull();
-    // Début de tour, rien reçu : aucune ligne de pensée inventée — le pulse et
-    // le chrono suffisent (« ya réflexion mais ya aucune réflexion là »).
-    expect(document.querySelectorAll(".thinking-live-indicator")).toHaveLength(0);
 
     rerender(<Chat {...chatProps({ workingSince: null, events: makeTurnEvents() })} />);
     expect(document.querySelector(".working")).toBeNull();
+    expect(document.querySelector(".chat-activity-dock")).toBeNull();
+    expect(document.querySelector(".ui-activity.is-summary")).toBeTruthy();
     expect(document.querySelector(".done")).toBeTruthy();
     expect(document.querySelector("#last-done")).toBeTruthy();
   });

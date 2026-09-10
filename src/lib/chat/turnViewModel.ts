@@ -1,4 +1,11 @@
 import type { AgentEvent } from "../ws";
+import {
+  deriveTurnLifecycle,
+  type LifecycleActiveState,
+  type LifecycleToolAction,
+  type LifecycleToolGroup,
+  type TurnLifecycle,
+} from "./turnLifecycle";
 
 export type TurnPhase =
   | "idle"
@@ -9,21 +16,10 @@ export type TurnPhase =
   | "stopped"
   | "failed";
 
-export type ActiveTurnState =
-  | { kind: "waiting"; eventIndex: number }
-  | { kind: "activity"; eventIndex: number; live: boolean }
-  | { kind: "reasoning"; texts: string[]; live: boolean }
-  | { kind: "answering"; eventIndex: number }
-  | { kind: "thinking" };
-
-export type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
-
-export type ToolActionGroup = {
-  key: string;
-  index: number;
-  indexes: number[];
-  actions: ToolAction[];
-};
+/** Compatibility aliases retained for existing component imports. */
+export type ActiveTurnState = LifecycleActiveState;
+export type ToolAction = LifecycleToolAction;
+export type ToolActionGroup = LifecycleToolGroup;
 
 export type ChatTurnViewModel = {
   key: string;
@@ -57,6 +53,8 @@ export type ChatTurnViewModel = {
   activityIndexes: number[];
   reasoningTexts: string[];
   activeState: ActiveTurnState | null;
+  /** Canonical lifecycle projection shared by active status and replay. */
+  lifecycle: TurnLifecycle;
 };
 
 export type ProjectedTimelineItem =
@@ -70,6 +68,7 @@ const REASONING_TOOL = "__thinking";
 const NON_VISUAL_TIMELINE_KINDS = new Set<AgentEvent["kind"]>([
   "delta",
   "thinking_delta",
+  "thinking_progress",
   "stream_set",
   "started",
   "heartbeat",
@@ -97,15 +96,15 @@ function isAssistantText(
   return event.kind === "text" || event.kind === "streaming";
 }
 
-function isReasoning(event: AgentEvent) {
-  return event.kind === "thinking" || event.kind === "thinking_live" ||
-    (event.kind === "tool" && event.name === REASONING_TOOL);
+function isPendingInteraction(event: AgentEvent) {
+  return (event.kind === "interaction" && event.state === "pending") ||
+    (event.kind === "permission" && event.answered == null);
 }
 
-function reasoningText(event: AgentEvent): string | null {
-  if (event.kind !== "thinking" && event.kind !== "thinking_live") return null;
-  const text = event.text.trim();
-  return text || null;
+function isReasoning(event: AgentEvent) {
+  return event.kind === "thinking" || event.kind === "thinking_live" ||
+    event.kind === "thinking_delta" || event.kind === "thinking_progress" ||
+    (event.kind === "tool" && (event.name === REASONING_TOOL || event.name === "__thinking-step"));
 }
 
 function isToolAction(event: AgentEvent): event is ToolAction {
@@ -130,47 +129,11 @@ export function isImageGenerationAction(event: AgentEvent): boolean {
     || name.includes("generate_image") || name.includes("generate-image");
 }
 
-function isStandaloneToolAction(event: ToolAction) {
-  const name = event.name.toLowerCase();
-  if (event.kind === "tool_update" && event.agentActivity != null) return true;
-  return name.includes("view_image") || name.includes("image_view") ||
-    name.includes("open_image") || name === "image" || name.startsWith("image ");
-}
-
-function isStandaloneToolGroup(group: ToolActionGroup) {
-  return group.actions.some(isStandaloneToolAction);
-}
-
-function itemIdentity(event: ToolAction, index: number) {
-  const meta = metaOf(event);
-  const item = meta?.itemId ?? ("id" in event ? event.id : null);
-  return `${meta?.turnId ?? "legacy"}:${item || `event-${index}`}`;
-}
-
-function isRunningTool(event: ToolAction) {
-  if (event.kind !== "tool_update") return false;
-  const status = event.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? "";
-  return status === "running" || status === "pending" || status === "in-progress";
-}
-
-function isRunningToolGroup(group: ToolActionGroup) {
-  const latest = group.actions[group.actions.length - 1];
-  return latest?.kind === "tool" || (latest != null && isRunningTool(latest));
-}
-
-function isRunningActivity(event: AgentEvent) {
-  return event.kind === "activity" && (!event.status || event.status === "running");
-}
-
-function isPendingInteraction(event: AgentEvent) {
-  return (event.kind === "interaction" && event.state === "pending") ||
-    (event.kind === "permission" && event.answered == null);
-}
-
 export function isStoppedTerminal(event: AgentEvent) {
   if (event.kind === "done") {
     const status = (event as Extract<AgentEvent, { kind: "done" }> & { status?: string }).status;
-    if (status === "stopped") return true;
+    const normalizedStatus = status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-");
+    if (["stopped", "interrupted", "cancelled", "canceled", "aborted"].includes(normalizedStatus ?? "")) return true;
     return event.ok === false && /\b(stop|stopped|interrupt|interromp|cancel|annul)/iu.test(event.result ?? "");
   }
   return event.kind === "error" && /\b(stop|stopped|interrupt|interromp|cancel|annul)/iu.test(event.message);
@@ -241,107 +204,6 @@ function groupTurns(events: AgentEvent[]): TurnBuilder[] {
   }
 
   return turns.sort((a, b) => (a.indexes[0] ?? 0) - (b.indexes[0] ?? 0));
-}
-
-function actionGroups(events: AgentEvent[], indexes: number[]): ToolActionGroup[] {
-  const groups: ToolActionGroup[] = [];
-  const byIdentity = new Map<string, ToolActionGroup>();
-  for (const index of indexes) {
-    const event = events[index];
-    if (!isToolAction(event)) continue;
-    const identity = itemIdentity(event, index);
-    let group = byIdentity.get(identity);
-    if (!group) {
-      group = { key: `tools:${identity}`, index, indexes: [], actions: [] };
-      byIdentity.set(identity, group);
-      groups.push(group);
-    }
-    group.indexes.push(index);
-    group.actions.push(event);
-  }
-  return groups;
-}
-
-function activeStateFor(
-  events: AgentEvent[],
-  indexes: number[],
-  groups: ToolActionGroup[],
-  reasoningTexts: string[],
-  latestAssistantIndex: number | null,
-): ActiveTurnState {
-  for (let offset = indexes.length - 1; offset >= 0; offset -= 1) {
-    const index = indexes[offset];
-    if (isPendingInteraction(events[index])) return { kind: "waiting", eventIndex: index };
-  }
-  // Comme Codex, une activité appartient à la tranche ouverte par le dernier
-  // message de l'assistant. Le reasoning fait partie de cette tranche; seule
-  // une nouvelle narration ferme les outils précédents.
-  // Une commande plus ancienne ne doit pas
-  // rester « active » après le retour explicite à Thinking.
-  const latestReasoningIndex = [...indexes].reverse().find((index) => isReasoning(events[index])) ?? null;
-  const activityBoundary = activeSegmentBoundary(groups, latestAssistantIndex);
-  const candidates: { eventIndex: number; anchorIndex: number; live: boolean }[] = [];
-  for (const index of indexes) {
-    const event = events[index];
-    if (event.kind === "activity") {
-      const live = isRunningActivity(event);
-      if (live && index > activityBoundary) candidates.push({ eventIndex: index, anchorIndex: index, live });
-    }
-  }
-  for (const group of groups) {
-    if (isStandaloneToolGroup(group)) continue;
-    const latest = group.actions[group.actions.length - 1];
-    const eventIndex = group.indexes[group.indexes.length - 1] ?? group.index;
-    const live = latest.kind === "tool" || isRunningTool(latest);
-    // Comme Codex, un message assistant ferme le segment même si le provider
-    // n'a pas encore envoyé la terminalisation d'une ancienne commande.
-    if (group.index <= activityBoundary || !live) continue;
-    candidates.push({
-      eventIndex,
-      anchorIndex: group.index,
-      // Un appel `tool` est le début de l'action. `tool_update` porte son état.
-      live,
-    });
-  }
-  // Une action concrète réellement active reste prioritaire même si Codex émet
-  // ensuite un petit item de reasoning. Le placeholder Thinking ne reprend que
-  // lorsqu'aucune lecture, recherche, génération ou commande n'est en cours.
-  candidates.sort((a, b) => a.anchorIndex - b.anchorIndex);
-  const latestCandidate = candidates[candidates.length - 1];
-  if (latestCandidate) {
-    return { kind: "activity", eventIndex: latestCandidate.eventIndex, live: latestCandidate.live };
-  }
-  if (latestReasoningIndex != null && latestReasoningIndex > (latestAssistantIndex ?? -1)) {
-    const latestReasoning = events[latestReasoningIndex];
-    return latestReasoning.kind === "thinking_live"
-      ? { kind: "reasoning", texts: reasoningTexts, live: true }
-      : { kind: "thinking" };
-  }
-
-  const workContinuedAfterAssistant = latestAssistantIndex != null && indexes.some((index) => (
-    index > latestAssistantIndex && (
-      isReasoning(events[index]) || isToolAction(events[index]) || events[index].kind === "activity"
-    )
-  ));
-  if (workContinuedAfterAssistant) return { kind: "thinking" };
-  if (latestAssistantIndex != null && events[latestAssistantIndex].kind === "streaming") {
-    return { kind: "answering", eventIndex: latestAssistantIndex };
-  }
-  if (reasoningTexts.length > 0 && groups.length === 0) {
-    return { kind: "reasoning", texts: reasoningTexts, live: false };
-  }
-  return { kind: "thinking" };
-}
-
-function activeSegmentBoundary(
-  groups: ToolActionGroup[],
-  latestAssistantIndex: number | null,
-): number {
-  const assistantBoundary = latestAssistantIndex ?? -1;
-  const latestStandaloneIndex = [...groups].reverse().find((group) => (
-    group.index > assistantBoundary && isStandaloneToolGroup(group)
-  ))?.index ?? -1;
-  return Math.max(assistantBoundary, latestStandaloneIndex);
 }
 
 /** Plancher de la réponse finale, en caractères de prose utile.
@@ -429,18 +291,21 @@ export function buildChatTurnViewModels(
     const isActive = isLastTurn && workingSince != null && terminalIndex == null;
     const latestAssistantIndex = [...indexes].reverse().find((index) => isAssistantText(events[index])) ?? null;
     const finalAssistantIndex = terminalAssistantIndex(events, indexes, terminalIndex);
-    const groups = actionGroups(events, indexes);
-    const activityIndexes = indexes.filter((index) => events[index].kind === "activity");
-    const reasoningTexts = indexes.flatMap((index) => {
-      const text = reasoningText(events[index]);
-      return text == null ? [] : [text];
+    // One lifecycle pass owns activity state, tool identity, child-agent
+    // snapshots, and terminal settlement. The active tail reads this object
+    // directly; replay uses the same projection, so a completed tool cannot
+    // make one surface say “processing” while another says “thinking”.
+    const lifecycle = deriveTurnLifecycle(events, indexes, {
+      turnId: builder.turnId,
+      provider: builder.provider,
+      active: isActive,
+      terminalIndex,
+      latestAssistantIndex,
     });
-    const activeBoundary = activeSegmentBoundary(groups, latestAssistantIndex);
-    const activeActionGroups = isActive
-      ? groups.filter((group) => (
-          group.index > activeBoundary && !isStandaloneToolGroup(group) && isRunningToolGroup(group)
-        ))
-      : [];
+    const groups = lifecycle.actionGroups;
+    const activityIndexes = indexes.filter((index) => events[index].kind === "activity");
+    const reasoningTexts = lifecycle.reasoningTexts;
+    const activeActionGroups = lifecycle.activeActionGroups;
     const activeWorkIndexes = new Set(indexes.filter((index) => {
       const event = events[index];
       // Le reasoning reste une donnée de statut, pas une ligne de transcript.
@@ -454,7 +319,7 @@ export function buildChatTurnViewModels(
       //
       // Seule exception : la SENTINELLE `__thinking` (outil sans contenu), qui
       // n'apprend rien et se lisait « réflexion… » alors que rien n'était dit.
-      return event.kind === "tool" && event.name === REASONING_TOOL;
+      return event.kind === "tool" && (event.name === REASONING_TOOL || event.name === "__thinking-step");
     }));
     const firstTs = (userIndex == null ? null : timestampOf(events[userIndex])) ??
       indexes.map((index) => timestampOf(events[index])).find((value) => value != null) ??
@@ -464,28 +329,8 @@ export function buildChatTurnViewModels(
       ? Math.max(0, completedAtMs - firstTs)
       : null;
 
-    let phase: TurnPhase;
-    if (terminalIndex != null) {
-      const terminal = events[terminalIndex];
-      phase = isStoppedTerminal(terminal)
-        ? "stopped"
-        : terminal.kind === "error" || (terminal.kind === "done" && terminal.ok === false)
-          ? "failed"
-          : "completed";
-    } else if (!isActive) {
-      phase = "idle";
-    } else {
-      const state = activeStateFor(events, indexes, groups, reasoningTexts, latestAssistantIndex);
-      phase = state.kind === "waiting"
-        ? "waiting"
-        : state.kind === "answering"
-          ? "final_answer"
-          : "prework";
-    }
-
-    const activeState = isActive
-      ? activeStateFor(events, indexes, groups, reasoningTexts, latestAssistantIndex)
-      : null;
+    const phase: TurnPhase = lifecycle.phase;
+    const activeState = lifecycle.activeState;
     const activeHeaderIndex = isActive
       ? userIndex == null ? startIndex : userIndex + 1
       : null;
@@ -535,6 +380,7 @@ export function buildChatTurnViewModels(
       activityIndexes,
       reasoningTexts,
       activeState,
+      lifecycle,
     };
   });
 }
@@ -567,10 +413,15 @@ export function projectChatTimeline(
   const activeHeaderByInsert = new Map<number, ChatTurnViewModel>();
   const activeTailByInsert = new Map<number, ChatTurnViewModel>();
   const hiddenActiveIndexes = new Set<number>();
+  const duplicateIndexes = new Set<number>();
   const toolGroupByIndex = new Map<number, ToolActionGroup>();
 
   for (const turn of turns) {
     for (let index = turn.startIndex; index < turn.endIndex; index += 1) turnByIndex.set(index, turn);
+    const retained = new Set(turn.lifecycle.dedupedIndexes);
+    for (let index = turn.startIndex; index < turn.endIndex; index += 1) {
+      if (!retained.has(index)) duplicateIndexes.add(index);
+    }
     if (turn.fold) foldByStart.set(turn.fold.start, turn.fold);
     if (turn.activeHeaderIndex != null && turn.activeTailIndex != null) {
       activeHeaderByInsert.set(turn.activeHeaderIndex, turn);
@@ -600,6 +451,11 @@ export function projectChatTimeline(
     }
     if (index === events.length) break;
 
+    // Reconnection can replay the same authoritative event. The lifecycle
+    // projection keeps the first row and the timeline must apply that same
+    // de-duplication to non-tool events as well.
+    if (duplicateIndexes.has(index)) continue;
+
     const fold = foldByStart.get(index);
     if (fold) {
       const open = openFolds.has(fold.key);
@@ -617,10 +473,9 @@ export function projectChatTimeline(
         for (let inner = index; inner < fold.end; inner += 1) {
           const innerEvent = events[inner];
           const innerKind = innerEvent?.kind;
-          const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || (innerEvent.kind === "tool_update" && (
-            /^(failed|interrupted|cancelled|canceled|declined|denied|stopped)$/i.test(innerEvent.status ?? "") ||
-            (innerEvent.exitCode != null && innerEvent.exitCode !== 0)
-          )) || isImageGenerationAction(innerEvent);
+          // Settled tool failures belong to the execution details, including
+          // their output and exit code. Only actual interactions escape the fold.
+          const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || isImageGenerationAction(innerEvent);
           if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({

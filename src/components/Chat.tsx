@@ -23,9 +23,7 @@ import { ChatComposer } from "./chat/ChatComposer";
 import { QueuedTurns } from "./chat/QueuedTurns";
 import {
   AgentDetailPanel,
-  isAgentActivityAction,
   type AgentDisplay,
-  type AgentToolAction,
 } from "./chat/AgentActivity";
 import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel } from "../lib/modelCatalog";
@@ -125,6 +123,7 @@ export default function Chat(p: {
   onAttachFolder?: (folder: string) => void;
   onAttachZotero?: (key: string) => void;
   // base de connaissances (plan 049 T3) — attache persistée par thread
+  onOpenKnowledgeSurface?: () => void;
   kbSourceIds?: string[];
   kbFullContent?: string[];
   onKbChange?: (next: { kbSourceIds: string[]; kbFullContent: string[] }) => void;
@@ -195,6 +194,7 @@ export default function Chat(p: {
     permissionMode: string,
     mode: "steer" | "queue",
     fastMode: boolean,
+    isolatedAttachments?: DraftAttachment[],
   ) => void;
 }) {
   const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
@@ -904,16 +904,11 @@ export default function Chat(p: {
   const renderedEvents = React.useMemo(() => {
     const rows: Array<
       ProjectedTimelineItem |
-      { type: "actions"; actions: ToolAction[]; index: number; key: string } |
-      { type: "agents"; actions: AgentToolAction[]; index: number; key: string }
+      { type: "actions"; actions: ToolAction[]; index: number; key: string }
     > = [];
     const suppressDuplicateEditTool = (row: Extract<ProjectedTimelineItem, { type: "event" }>) =>
       isSummarizableTool(row.event) && editTurns.has(row.index) &&
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
-    const isStandaloneTool = (event: ToolAction) =>
-      toolCategory(event.name, "detail" in event ? event.detail : undefined) === "image" ||
-      isImageGenerationAction(event) ||
-      isAgentActivityAction(event);
     // Les outils gardent leur position chronologique pendant le tour.
     // Le regroupement terminal est déjà porté par projectChatTimeline.
     const visibleTimeline = projectedTimeline;
@@ -936,39 +931,19 @@ export default function Chat(p: {
         rows.push(row);
         continue;
       }
-      // Image generation/view rows are deliverables. Keep them as direct
-      // timeline rows so the preview is mounted even when the tool disclosure
-      // is closed and the assistant returned no markdown image link.
+      // Generated images are deliverables rather than execution traces: the
+      // preview stays visible beside the closed turn fold when no markdown
+      // image was returned. Consulted images remain ordinary tool leaves.
       if (isImageGenerationAction(event)) {
         rows.push(row);
         continue;
       }
-      if (isAgentActivityAction(event)) {
-        const actionRows = [{ action: event, index: row.index }];
-        let nextOffset = offset + 1;
-        while (nextOffset < visibleTimeline.length) {
-          const next = visibleTimeline[nextOffset];
-          if (next.type !== "event" || !isAgentActivityAction(next.event)) break;
-          actionRows.push({ action: next.event, index: next.index });
-          nextOffset += 1;
-        }
-        const first = actionRows[0];
-        const last = actionRows[actionRows.length - 1];
-        rows.push({
-          type: "agents",
-          actions: actionRows.map(({ action }) => action),
-          index: row.index,
-          key: `agents:${actionId(first.action, first.index)}:${actionId(last.action, last.index)}`,
-        });
-        offset = nextOffset - 1;
-        continue;
-      }
       const actionRows = [{ action: event, index: row.index }];
       let nextOffset = offset + 1;
-      while (!isStandaloneTool(event) && nextOffset < visibleTimeline.length) {
+      while (nextOffset < visibleTimeline.length) {
         const next = visibleTimeline[nextOffset];
         if (next.type !== "event" || !isSummarizableTool(next.event)) break;
-        if (isStandaloneTool(next.event)) break;
+        if (isImageGenerationAction(next.event)) break;
         if (!suppressDuplicateEditTool(next)) actionRows.push({ action: next.event, index: next.index });
         nextOffset += 1;
       }
@@ -984,6 +959,47 @@ export default function Chat(p: {
     }
     return groupActivityRows(rows);
   }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
+
+  // Tool detail is owned by the leaf, while the completed turn owns the only
+  // outer disclosure.  If a user opened a running tool just before the turn
+  // settled, carry that intent to the newly-created fold so the open payload
+  // does not disappear during the lifecycle transition.
+  // Scope snapshots by thread. A terminal turn first seen after a
+  // conversation switch/remount is history, not an active→terminal
+  // transition to transfer into the outer fold.
+  const lifecycleTerminalsRef = React.useRef(new Map<string, number | null>());
+  React.useEffect(() => {
+    const openedToolKeys = new Set(
+      Object.entries(toolDetails).filter(([, open]) => open).map(([key]) => key),
+    );
+    const newlySettled = new Set<string>();
+    for (const turn of turnViewModels) {
+      const key = `${p.threadId}:${turn.key}`;
+      // Transfer only a turn that was observed active in this same thread.
+      // `Map#get` returns undefined for an unseen key; treating that as null
+      // reopened completed folds whenever a user returned to a conversation.
+      if (turn.terminalIndex != null && lifecycleTerminalsRef.current.get(key) === null) {
+        newlySettled.add(turn.key);
+      }
+    }
+    lifecycleTerminalsRef.current = new Map(
+      turnViewModels.map((turn) => [`${p.threadId}:${turn.key}`, turn.terminalIndex]),
+    );
+    if (openedToolKeys.size === 0 || newlySettled.size === 0) return;
+    const foldsToOpen = turnViewModels.flatMap((turn) => {
+      if (!turn.fold || !newlySettled.has(turn.key) || openFolds.has(turn.fold.key)) return [];
+      const containsOpenedTool = turn.actionGroups.some((group) => group.actions.some((action) => (
+        openedToolKeys.has(`${p.threadId}:${actionId(action, 0)}`)
+      )));
+      return containsOpenedTool ? [turn.fold.key] : [];
+    });
+    if (foldsToOpen.length === 0) return;
+    setOpenFolds((previous) => {
+      const next = new Set(previous);
+      foldsToOpen.forEach((key) => next.add(key));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [openFolds, p.threadId, toolDetails, turnViewModels]);
 
   // Copie + reverse O(n) du fil : mémoïsé, sinon chaque delta du stream
   // re-parcourt tout l'historique pour retrouver le dernier goal.
@@ -1005,7 +1021,30 @@ export default function Chat(p: {
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
-    if (imagePaths.length > 0) return <ImageViewPreview key={key} paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />;
+    const detailKey = `${p.threadId}:${actionId(e, Number(key) || 0)}`;
+    if (imagePaths.length > 0 && e.kind === "tool_update") {
+      if (isImageGenerationAction(e)) {
+        return <div key={key} className="tool-image-deliverable">
+          <ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />
+        </div>;
+      }
+      return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
+        compact={p.defaults.transcriptView !== 'detaille'}
+        preview={<ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />}
+        onExpandedChange={(expanded) => {
+          setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
+          if (expanded) {
+            const turn = turnViewModels.find(turn => turn.actionGroups.some(group => group.actions.includes(e)));
+            if (turn) setOpenFolds(prev => new Set(prev).add(`fold:${turn.key}`));
+          }
+        }} />;
+    }
+    if (imagePaths.length > 0) {
+      return <div key={key} className="tool tool-image-line">
+        <Tick /> <span>{eventLabel(e.name)}</span>
+        <ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />
+      </div>;
+    }
     // Annotation de fin de tour « bloqué » (`__waiting`) : la question de
     // Claude est déjà la fin de la réponse visible au-dessus — afficher
     // « Attend votre réponse » en plus n'apporte rien (demande 2026-08-23).
@@ -1018,8 +1057,8 @@ export default function Chat(p: {
         </div>
       );
     }
-    const detailKey = `${p.threadId}:${actionId(e, Number(key) || 0)}`;
     return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
+      compact={p.defaults.transcriptView !== 'detaille'}
       onExpandedChange={(expanded) => {
         setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
         if (expanded) {
@@ -1058,6 +1097,7 @@ export default function Chat(p: {
           threadId: p.threadId,
           events: p.events,
           workingSince: p.workingSince,
+          latestTurnSettled: turnViewModels[turnViewModels.length - 1]?.lifecycle.state.kind === "terminal",
           lastEventAt: p.lastEventAt,
           liveTokens: p.liveTokens ?? null,
           liveNote: p.liveNote ?? null,

@@ -24,7 +24,7 @@ function meta(eventId: string, turnId: string, sequence: number, provider = "cod
 }
 
 describe("chat turn view model", () => {
-  it("laisse les erreurs et autorisations en attente visibles dans un tour replié", () => {
+  it("replie les commandes en échec tout en laissant les autorisations en attente visibles", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Teste", ts: T0 },
       { kind: "tool_update", id: "bad", name: "Bash", output: "refusé", status: "failed", exitCode: 1 },
@@ -35,8 +35,10 @@ describe("chat turn view model", () => {
     const turns = buildChatTurnViewModels(events, null);
     const projected = projectChatTimeline(events, turns, new Set());
     expect(projected.some(row => row.type === "fold" && !row.open)).toBe(true);
-    expect(projected.some(row => row.type === "event" && row.event === events[1])).toBe(true);
+    expect(projected.some(row => row.type === "event" && row.event === events[1])).toBe(false);
     expect(projected.some(row => row.type === "event" && row.event === events[2])).toBe(true);
+    const expanded = projectChatTimeline(events, turns, new Set(turns.flatMap(turn => turn.fold ? [turn.fold.key] : [])));
+    expect(expanded.some(row => row.type === "event" && row.event === events[1])).toBe(true);
   });
 
   it("groupe par turnId et conserve des identités stables", () => {
@@ -125,16 +127,16 @@ describe("chat turn view model", () => {
     expect(rows.map((row) => row.type)).toEqual(["event", "active-turn-header", "active-turn-tail"]);
   });
 
-  it("ferme le segment d'un outil running quand une narration plus récente arrive", () => {
+  it("conserve un outil running explicite après une narration plus récente", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Question", ts: T0 },
       { kind: "tool_update", id: "c1", name: "Bash", output: "", status: "inProgress", detail: "npm test" },
       { kind: "streaming", text: "Je laisse les tests se terminer.", ts: T0 + 100 },
     ];
     const turn = buildChatTurnViewModels(events, T0)[0];
-    expect(turn.phase).toBe("final_answer");
-    expect(turn.activeState).toEqual({ kind: "answering", eventIndex: 2 });
-    expect(turn.activeActionGroups).toHaveLength(0);
+    expect(turn.phase).toBe("prework");
+    expect(turn.activeState).toMatchObject({ kind: "activity", eventIndex: 1, live: true });
+    expect(turn.activeActionGroups).toHaveLength(1);
     expect(projectChatTimeline(events, [turn], new Set()).map((row) => row.type)).toEqual([
       "event", "active-turn-header", "event", "event", "active-turn-tail",
     ]);
@@ -303,7 +305,7 @@ describe("chat turn view model", () => {
     const rows = projectChatTimeline(events, [turn], new Set());
     expect(rows.some((row) => row.type === "event" && row.event.kind === "tool_update" && row.event.agentActivity != null)).toBe(true);
     expect(turn.activeActionGroups).toHaveLength(0);
-    expect(turn.activeState).toEqual({ kind: "thinking" });
+    expect(turn.activeState).toMatchObject({ kind: "activity", eventIndex: 2, live: true });
   });
 
   it("garde le résultat image visible dans un tour replié sans réponse markdown", () => {

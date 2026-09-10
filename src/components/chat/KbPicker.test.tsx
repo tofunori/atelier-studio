@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("../../lib/wsBus", () => ({ wsSend: vi.fn(() => true) }));
 
 import { resetKbSourcesForTests, type KbSource } from "../../lib/kbSources";
-import { useKbActions } from "./kbActions";
+import { resetKbActionPendingForTests, useKbActions } from "./kbActions";
 import { KbPickerPanel } from "./KbPicker";
 
 const SOURCES: KbSource[] = [
@@ -46,6 +46,7 @@ afterEach(() => {
   cleanup();
   resetTestState?.();
   resetKbSourcesForTests();
+  resetKbActionPendingForTests();
   vi.clearAllMocks();
 });
 
@@ -299,5 +300,54 @@ describe("collections attachées en un clic", () => {
     act(()=>result.current.toggleCollection(["a","b"],false));
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(onChange).toHaveBeenLastCalledWith({kbSourceIds:["outside"],kbFullContent:["outside"]});
+  });
+});
+
+describe("réponses kbAdd après remount", () => {
+  it("conserve la liaison du fil source quand le picker est démonté", () => {
+    const sourceBinding = {
+      attached: [] as string[],
+      fullContent: [] as string[],
+      onChange: vi.fn(),
+    };
+    const otherBinding = {
+      attached: [],
+      fullContent: [],
+      onChange: vi.fn(),
+    };
+    const source = {
+      id: "delayed-source",
+      kind: "file",
+      title: "Delayed source",
+      origin: "https://example.test/source.md",
+      chars: 12,
+      addedAt: "2026-09-10T12:00:00Z",
+      updatedAt: "2026-09-10T12:00:00Z",
+    } satisfies KbSource;
+    const { result, unmount } = renderHook(
+      ({ binding }) => useKbActions(binding, () => true),
+      { initialProps: { binding: sourceBinding } },
+    );
+
+    act(() => {
+      result.current.addUrl(source.origin!);
+    });
+    unmount();
+
+    renderHook(
+      ({ binding }) => useKbActions(binding, () => true),
+      { initialProps: { binding: otherBinding } },
+    );
+    act(() => {
+      window.dispatchEvent(new CustomEvent("kb-source-added", {
+        detail: { ok: true, source },
+      }));
+    });
+
+    expect(sourceBinding.onChange).toHaveBeenCalledWith({
+      kbSourceIds: [source.id],
+      kbFullContent: [],
+    });
+    expect(otherBinding.onChange).not.toHaveBeenCalled();
   });
 });

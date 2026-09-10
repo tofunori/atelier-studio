@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "postinstall": "node scripts/patch-assistant-ui-hover.mjs",
     "test:visual": "VITE_VISUAL_BENCH=1 vite build && playwright test -c tests/visual",
     "doctor": "react-doctor --scope changed --include-untracked --blocking none --no-telemetry",
     "doctor:full": "react-doctor --blocking none --no-telemetry",
@@ -24,6 +25,7 @@
     "build:web": "vite build",
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",
+    "test:assistant-ui-patch": "node --test scripts/patch-assistant-ui-hover.test.mjs",
     "test:sidecar": "npm --prefix sidecar test",
     "test:gallery:unit": "python3 -m unittest discover -s gallery/tests && node --test gallery/server/tests/gallery_commands.test.mjs gallery/server/tests/pdf_passage.test.mjs gallery/server/tests/pdf_selection.test.mjs gallery/server/tests/csv_table.test.mjs gallery/server/tests/csv_view_surface.test.mjs gallery/server/tests/studio_editor_contract.test.mjs",
     "test:gallery:parity": "cd gallery && node server/tests/parity.mjs",
@@ -45,6 +47,8 @@
     "verify:e2e": "npm --prefix gallery run test:e2e"
   },
   "dependencies": {
+    "@assistant-ui/react": "0.15.18",
+    "@assistant-ui/react-markdown": "0.14.14",
     "@base-ui/react": "^1.6.0",
     "@codemirror/language": "^6.12.4",
     "@codemirror/merge": "^6.12.2",
@@ -69,6 +73,7 @@
     "katex": "^0.16.22",
     "lucide-react": "^1.24.0",
     "mermaid": "^11",
+    "radix-ui": "1.6.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -78,7 +83,8 @@
     "remark-math": "^6.0.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.2"
+    "tailwindcss": "^4.3.2",
+    "tw-shimmer": "0.4.12"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

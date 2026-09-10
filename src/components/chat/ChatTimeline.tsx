@@ -84,6 +84,8 @@ export type TimelineThread = {
   threadId: string | null;
   events: AgentEvent[];
   workingSince: number | null;
+  /** Canonical terminal state of the latest projected turn. */
+  latestTurnSettled: boolean;
   lastEventAt?: number | null;
   /** tokens de sortie du tour en cours — affichés à côté du temps écoulé */
   liveTokens: number | null;
@@ -203,7 +205,7 @@ export function ChatTimeline(p: {
     marks: Mark[];
   };
 }) {
-  const { threadId, events, workingSince, liveTokens, phase } = p.thread;
+  const { threadId, events, workingSince, latestTurnSettled, liveTokens, phase } = p.thread;
   // dernier bloc de pensée du fil : le seul qui puisse être « en cours »
   // Bornes du DERNIER tour terminé : c'est le seul qui porte une carte
   // « fichiers modifiés », donc le seul dont les lignes `edit` inline
@@ -276,7 +278,7 @@ export function ChatTimeline(p: {
 
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
-    renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+    renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent,
   } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
@@ -422,7 +424,8 @@ export function ChatTimeline(p: {
       if (item.type === "active-turn-tail" || item.type === "active-turn-header") continue;
       rows.push({ type: "rendered", key: timelineRowKey(item), item });
     }
-    if (workingSince != null && liveThought && !renderedEvents.some((item) => item.type === "active-turn-header")) {
+    const thoughtAlreadyInTranscript = renderedEvents.some((item) => item.type === "actions" && item.actions.some((action) => action.name === "__thinking-step"));
+    if (workingSince != null && liveThought && !thoughtAlreadyInTranscript && !renderedEvents.some((item) => item.type === "active-turn-header")) {
       rows.push({ type: "working", key: "message-working" });
     }
     // Marge du tour actif (ex :has() + combinateur frère, App.css ~216) : le
@@ -947,6 +950,16 @@ export function ChatTimeline(p: {
           {(() => {
           if (item.type === "fold") {
             const { fold, open } = item;
+            const foldTimestamps = events.slice(fold.start, fold.end)
+              .map((event) => {
+                const bodyTs = "ts" in event && typeof event.ts === "number" ? event.ts : undefined;
+                const metaTs = event.meta && "ts" in event.meta && typeof event.meta.ts === "number" ? event.meta.ts : undefined;
+                return bodyTs ?? metaTs;
+              })
+              .filter((value): value is number => value != null);
+            const stamp = defaults.displayTimestamps && foldTimestamps.length > 0
+              ? <TimelineStamp startMs={Math.min(...foldTimestamps)} endMs={foldTimestamps.length > 1 ? Math.max(...foldTimestamps) : null} fmt={defaults.timeFormat} />
+              : undefined;
             return (
               <ActivityFold
                 key={fold.key}
@@ -955,6 +968,7 @@ export function ChatTimeline(p: {
                 plugins={plugins}
                 open={open}
                 duration={fold.ms != null ? fmtWorkDur(fold.ms) : null}
+                stamp={stamp}
                 onToggle={() =>
                   setOpenFolds((prev) => {
                     const next = new Set(prev);
@@ -976,38 +990,9 @@ export function ChatTimeline(p: {
             return <ActiveTurnTail key={item.key} turn={item.turn} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />;
           }
           if (item.type === "actions") {
-            // Vue Détaillé : les lignes d'outils s'ouvrent d'office — le Set
-            // devient alors « écarts au défaut » (un clic referme quand même).
-            const open = vue === "detaille"
-              ? !openToolGroups.has(item.key)
-              : openToolGroups.has(item.key);
-            // Le groupe conserve l'historique; seule la queue du tour porte
-            // l'illumination et le libellé de l'activité courante.
-            const tss = item.actions.map((a) => ("ts" in a ? a.ts : undefined)).filter((v): v is number => v != null);
-            const stamp = defaults.displayTimestamps && tss.length
-              ? <TimelineStamp startMs={Math.min(...tss)} endMs={tss.length > 1 ? Math.max(...tss) : null} fmt={defaults.timeFormat} />
-              : undefined;
-            return (
-              <ActivityBatch
-                key={item.key}
-                actions={item.actions}
-                hideThinking={penseeMasquee}
-                threadId={threadId}
-                plugins={plugins}
-                open={open}
-                onOpenAgent={onOpenAgent}
-                onToggle={() =>
-                  setOpenToolGroups((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(item.key)) next.delete(item.key);
-                    else next.add(item.key);
-                    return next;
-                  })
-                }
-                renderToolLine={renderToolLine}
-                stamp={stamp}
-              />
-            );
+            return <ActivityBatch key={item.key} actions={item.actions}
+              hideThinking={penseeMasquee} thinkingCollapsed={penseeRepliee} threadId={threadId}
+              onOpenAgent={onOpenAgent} renderToolLine={renderToolLine} />;
           }
           if (item.type === "agents") {
             return (
@@ -1324,11 +1309,11 @@ export function ChatTimeline(p: {
         <div className="atelier-chat-note" ref={annoEditorRef} role="dialog" aria-label={t("chat.annotate")} style={{left:noteDraft.x,top:noteDraft.y-44}} />
       )}
       </div>
-      {workingSince != null && (
+      {workingSince != null && !latestTurnSettled && (
         <div ref={activityDockRef} className="chat-activity-dock">
           {activeTail
             ? <ActiveTurnTail turn={activeTail.turn} since={workingSince} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />
-            : <TurnActivityStatus label={t("chat.processing")} since={workingSince} />}
+            : <TurnActivityStatus label={t("chat.turn-active")} kind="thinking" since={workingSince} />}
         </div>
       )}
     </>

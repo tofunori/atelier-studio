@@ -1,7 +1,7 @@
 // Présentation des outils du chat (plan 015, slice 4) — déplacée verbatim
 // depuis Chat.tsx : résumé de grappes d'outils, ligne de sortie d'outil,
 // icônes de type de fichier. Aucune logique modifiée.
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { CheckIcon } from "lucide-react";
 import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
@@ -128,8 +128,8 @@ export function toolInputView(value: unknown): { lang: string; text: string } | 
 // Séquences d'échappement ANSI (SGR/curseur, ex: \x1b[31m, \x1b[2K) et OSC
 // (ex: titre de fenêtre \x1b]0;...\x07, hyperliens \x1b]8;;url\x1b\) : les
 // providers CLI streament parfois de la sortie brute avec ces codes.
-export function stripAnsi(text: string): string {
-  return text
+export function stripAnsi(text: string | null | undefined): string {
+  return (text ?? "")
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, "")
     .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 }
@@ -190,7 +190,14 @@ export function fmtToolDur(ms: number): string {
 }
 
 export const ToolOutputLine = memo(function ToolOutputLine(
-  { event, expanded, onExpandedChange }: { event: Extract<AgentEvent, { kind: "tool_update" }>; expanded?: boolean; onExpandedChange?: (open: boolean) => void },
+  { event, expanded, onExpandedChange, compact = false, preview }: {
+    event: Extract<AgentEvent, { kind: "tool_update" }>;
+    expanded?: boolean;
+    onExpandedChange?: (open: boolean) => void;
+    compact?: boolean;
+    /** Optional deliverable (for example an image) revealed with tool detail. */
+    preview?: ReactNode;
+  },
 ) {
   // event est réutilisé tel quel par le réducteur tant que l'outil n'émet
   // rien : memo + useMemo évitent stripAnsi (regex sur ≤64 Ko) et JSON.parse
@@ -200,7 +207,8 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const inputView = toolInputView(event.input);
   const outcome = toolOutcome(event);
   const failed = outcome === "failed";
-  const [localOpen, setLocalOpen] = useState(failed);
+  const icon = activityIconForAction(event);
+  const [localOpen, setLocalOpen] = useState(failed && !compact);
   const open = expanded ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
@@ -221,12 +229,14 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ToolGlyph icon={activityIconForAction(event)} />
-        <span className="tool-output-name">
-          {eventLabel(event.name)}
-          {event.source ? <span className="tool-source">{event.source}</span> : null}
+        <span className="tool-output-icon" data-activity-icon={icon.cat}>
+          <ToolGlyph icon={icon} />
         </span>
-        {summary && <span className="tool-output-summary">{summary}</span>}
+        <span className="tool-output-name">
+          {compact ? summarizeActivity([event]).label : eventLabel(event.name)}
+          {!compact && event.source ? <span className="tool-source">{event.source}</span> : null}
+        </span>
+        {!compact && summary && <span className="tool-output-summary">{summary}</span>}
         {event.exitCode != null && event.exitCode !== 0 && (
           <span className="tool-exit">exit {event.exitCode}</span>
         )}
@@ -239,16 +249,18 @@ export const ToolOutputLine = memo(function ToolOutputLine(
             {event.status}
           </span>
         )}
+        {compact && <Tick open={open} />}
       </RowButton>
-      {queries.length > 1 && (
+      {queries.length > 1 && (!compact || open) && (
         <div className="tool-query-chips" data-testid="tool-query-chips">
           {queries.map((q, i) => (
             <span className="tool-query-chip" key={`${i}-${q}`} title={q}>{q}</span>
           ))}
         </div>
       )}
-      {open && (inputView || output.trim()) && (
+      {open && (inputView || output.trim() || preview) && (
         <div className="tool-output-body">
+          {preview ? <div className="tool-output-preview">{preview}</div> : null}
           {inputView && (
             <div className="tool-payload">
               <div className="tool-payload-label">input</div>

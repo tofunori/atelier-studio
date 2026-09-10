@@ -590,7 +590,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #diffGrp #dvNav{order:0;height:30px;gap:2px;overflow:visible}
 #diffGrp #dvNav .dvNavA{width:24px;height:28px}
 #diffGrp #dvNav>.dv-count{font:11px var(--ui-font);font-variant-numeric:tabular-nums;min-width:42px;text-align:center;color:var(--muted)}
-#diffGrp #diffTag{width:auto!important;min-width:0;height:28px;gap:7px;padding:0 8px!important;border:1px solid color-mix(in srgb,var(--muted) 18%,transparent)!important;background:color-mix(in srgb,var(--txt) 2%,var(--card));color:var(--muted);font-weight:600;letter-spacing:.1px;box-shadow:inset 0 1px 0 #ffffff05}
+#diffGrp #diffTag{width:auto!important;min-width:0;height:30px;gap:8px;padding:0 10px!important;border:1px solid color-mix(in srgb,var(--muted) 18%,transparent)!important;background:color-mix(in srgb,var(--txt) 2%,var(--card));color:var(--muted);font-weight:600;letter-spacing:.1px;box-shadow:inset 0 1px 0 #ffffff05;flex-shrink:0}
 #diffGrp #diffTag svg{width:15px;height:15px}
 #diffGrp #diffTag .dv-label{display:inline}
 #diffGrp #diffTag:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 5%,var(--card));border-color:color-mix(in srgb,var(--muted) 35%,transparent)!important;color:var(--txt)}
@@ -691,3 +691,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 .cm-editor.cm-review-selection .cm-selectionBackground,
 .cm-editor.cm-review-selection.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground{background:rgba(232,130,58,.38)}
 .cm-editor .cm-chunkButtons{user-select:none;-webkit-user-select:none}
+
+/* Keep breathing room inside Diff even when the rest of the toolbar compacts. */
+@media(max-width:700px){#diffGrp #diffTag{padding-inline:8px!important;gap:6px}}
+#diffTag .diff-switch{flex:none}

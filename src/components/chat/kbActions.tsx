@@ -10,6 +10,101 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import type { KbBinding, KbSource } from "../../lib/kbSources";
 
+/**
+ * A `kbAdd` response can arrive after the picker that started it has been
+ * remounted (for example when the user changes threads while a native file
+ * picker is open). Keep the response ledger outside the component so the
+ * source conversation's callback survives that remount. Origin matching is
+ * used because the current window event has no request id.
+ */
+type PendingAdd = {
+  id: number;
+  remaining: number;
+  origins: Set<string>;
+  attachedNext: string[];
+  fullContent: string[];
+  onChange: KbBinding["onChange"];
+  activeCollection: string | null;
+  isMounted: () => boolean;
+  isActive: () => boolean;
+  setError: (message: string | null) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+const PENDING_ADD_TTL_MS = 120_000;
+let nextPendingAddId = 1;
+const pendingAdds: PendingAdd[] = [];
+let kbAddedListenerInstalled = false;
+
+function removePendingAdd(pending: PendingAdd): void {
+  const index = pendingAdds.indexOf(pending);
+  if (index >= 0) pendingAdds.splice(index, 1);
+  clearTimeout(pending.timeout);
+}
+
+function pendingForOrigin(origin: string | null): PendingAdd | undefined {
+  if (origin) {
+    // An origin-bearing response must never fall through to another
+    // conversation's FIFO transaction. Without a request id, dropping an
+    // unmatched response is safer than contaminating the wrong thread.
+    return pendingAdds.find((pending) => pending.origins.has(origin));
+  }
+  // Sources without an origin cannot be correlated more precisely by this
+  // transport. Consume the oldest transaction as the legacy hook did.
+  return pendingAdds[0];
+}
+
+function onKbSourceAdded(event: Event): void {
+  const detail = (event as CustomEvent).detail as
+    | { ok?: boolean; message?: string; source?: KbSource }
+    | undefined;
+  const origin = typeof detail?.source?.origin === "string"
+    ? detail.source.origin.trim()
+    : null;
+  const pending = pendingForOrigin(origin);
+
+  if (!detail?.ok) {
+    if (!pending) return;
+    pending.remaining -= 1;
+    if (pending.isMounted() && pending.isActive()) {
+      pending.setError(detail?.message ?? t("kb.error-generic"));
+    }
+    if (pending.remaining <= 0) removePendingAdd(pending);
+    return;
+  }
+
+  // Without an id the source cannot be attached safely; leave the transaction
+  // pending for a later correlated response.
+  const id = detail.source?.id;
+  if (!pending || !id) return;
+
+  if (pending.isMounted() && pending.isActive()) pending.setError(null);
+  pending.remaining -= 1;
+  if (pending.activeCollection) {
+    wsSend({ type: "kbTag", id, collection: pending.activeCollection, off: false });
+  }
+  if (!pending.attachedNext.includes(id)) {
+    pending.attachedNext = [...pending.attachedNext, id];
+    pending.onChange({
+      kbSourceIds: pending.attachedNext,
+      kbFullContent: pending.fullContent,
+    });
+  }
+  if (pending.remaining <= 0) removePendingAdd(pending);
+}
+
+function ensureKbAddedListener(): void {
+  if (kbAddedListenerInstalled || typeof window === "undefined") return;
+  kbAddedListenerInstalled = true;
+  window.addEventListener("kb-source-added", onKbSourceAdded);
+}
+
+/** Test-only reset; production transactions expire after a bounded TTL. */
+export function resetKbActionPendingForTests(): void {
+  for (const pending of pendingAdds) clearTimeout(pending.timeout);
+  pendingAdds.length = 0;
+}
+
 export function useKbActions(
   binding: KbBinding,
   isActive: () => boolean,
@@ -24,57 +119,38 @@ export function useKbActions(
   activeRef.current = isActive;
   const optsRef = useRef(opts);
   optsRef.current = opts;
-  const pendingRef = useRef<{
-    remaining: number;
-    attachedNext: string[];
-    fullContent: string[];
-    onChange: KbBinding["onChange"];
-  } | null>(null);
-
-  function trackPendingAdds(count: number) {
-    const pending = pendingRef.current;
-    if (pending && pending.onChange === binding.onChange) {
-      pending.remaining += count;
-    } else {
-      pendingRef.current = {
-        remaining: count,
-        attachedNext: [...binding.attached],
-        fullContent: binding.fullContent,
-        onChange: binding.onChange,
-      };
-    }
-  }
-
+  const mountedRef = useRef(false);
   useEffect(() => {
-    const onAdded = (e: Event) => {
-      const detail = (e as CustomEvent).detail as
-        | { ok?: boolean; message?: string; source?: KbSource }
-        | undefined;
-      const pending = pendingRef.current;
-      if (!detail?.ok) {
-        if (pending && pending.remaining > 0) pending.remaining -= 1;
-        if (activeRef.current()) setError(detail?.message ?? t("kb.error-generic"));
-        return;
-      }
-      // un épinglage réussi efface l'erreur précédente (message résiduel)
-      setError(null);
-      const id = detail.source?.id;
-      if (!pending || pending.remaining <= 0 || !id) return;
-      pending.remaining -= 1;
-      // plan 052 C : la collection active absorbe le nouvel épinglage
-      const active = optsRef.current.activeCollection?.() ?? null;
-      if (active) wsSend({ type: "kbTag", id, collection: active, off: false });
-      if (!pending.attachedNext.includes(id)) {
-        pending.attachedNext = [...pending.attachedNext, id];
-        pending.onChange({
-          kbSourceIds: pending.attachedNext,
-          kbFullContent: pending.fullContent,
-        });
-      }
+    mountedRef.current = true;
+    ensureKbAddedListener();
+    return () => {
+      mountedRef.current = false;
+      // The module-level transaction deliberately survives this cleanup: its
+      // callback belongs to the source conversation and may resolve after a
+      // thread switch. The bounded TTL prevents orphaned transactions.
     };
-    window.addEventListener("kb-source-added", onAdded);
-    return () => window.removeEventListener("kb-source-added", onAdded);
   }, []);
+
+  function trackPendingAdds(count: number, origins: readonly string[] = []) {
+    if (count <= 0) return;
+    ensureKbAddedListener();
+    const pending = {} as PendingAdd;
+    pending.id = nextPendingAddId++;
+    pending.remaining = count;
+    pending.origins = new Set(origins.map((origin) => origin.trim()).filter(Boolean));
+    pending.attachedNext = [...binding.attached];
+    pending.fullContent = [...binding.fullContent];
+    pending.onChange = binding.onChange;
+    pending.activeCollection = optsRef.current.activeCollection?.() ?? null;
+    pending.isMounted = () => mountedRef.current;
+    pending.isActive = () => activeRef.current();
+    pending.setError = setError;
+    pending.timeout = setTimeout(() => {
+      const current = pendingAdds.find((item) => item.id === pending.id);
+      if (current) removePendingAdd(current);
+    }, PENDING_ADD_TTL_MS);
+    pendingAdds.push(pending);
+  }
 
   useEffect(() => {
     const onPromoted = (e: Event) => {
@@ -145,7 +221,7 @@ export function useKbActions(
     });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
-    trackPendingAdds(paths.length);
+    trackPendingAdds(paths.length, paths);
     for (const path of paths) {
       const kind = String(path).toLowerCase().endsWith(".pdf") ? "pdf" : "file";
       wsSend({ type: "kbAdd", kind, origin: path });
@@ -156,19 +232,19 @@ export function useKbActions(
   // du dialogue d'article) — même chemin que addFiles, sans re-sélection.
   function addPdf(path: string) {
     if (!path) return;
-    trackPendingAdds(1);
+    trackPendingAdds(1, [path]);
     wsSend({ type: "kbAdd", kind: "pdf", origin: path });
   }
 
   async function addFolder() {
     const picked = await openDialog({ directory: true, multiple: false });
     if (!picked || Array.isArray(picked)) return;
-    trackPendingAdds(1);
+    trackPendingAdds(1, [picked]);
     wsSend({ type: "kbAdd", kind: "folder", origin: picked });
   }
 
   function addUrl(url: string) {
-    trackPendingAdds(1);
+    trackPendingAdds(1, [url]);
     // une URL YouTube s'épingle par son transcript horodaté (T8) ;
     // détection large — le backend valide l'hôte exactement
     const kind = /youtube\.com\/|youtu\.be\//.test(url) ? "youtube" : "web";
@@ -176,14 +252,14 @@ export function useKbActions(
   }
 
   function addNote(title: string, text: string) {
-    trackPendingAdds(1);
+    trackPendingAdds(1, [title]);
     wsSend({ type: "kbAdd", kind: "note", title, text });
   }
 
   // Épingle (ou re-synchronise : id déterministe par slug) une page du corpus
   // gbrain — plan 050 P3.
   function addGbrain(slug: string) {
-    trackPendingAdds(1);
+    trackPendingAdds(1, [slug]);
     wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
   }
 

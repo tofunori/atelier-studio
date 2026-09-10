@@ -13,6 +13,8 @@ import { CONSIGNES_LIVREES, type ConsigneDuFil } from "../lib/consignes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
+import { reduceHarnessEvents, materializeHarnessHistory } from "../lib/harnessEvents";
+import { codexComposite, codexObservedLive, claudeObservedLive } from "../lib/chat/streamReplayFixtures";
 
 const NOW = Date.now();
 const BENCH_PINS = [{ index: 6, label: "Validation W&M reproduite", anchor: "La validation reproduit" }];
@@ -445,6 +447,14 @@ export function ChatBench() {
   const hash = window.location.hash;
   const light = hash.includes("-light");
   const menuBench = hash.includes("-menus");
+  const replay = hash.includes("-replay");
+  const replayFixture = hash.includes("-replayclaude") ? claudeObservedLive
+    : hash.includes("-replaycodex") ? codexObservedLive : codexComposite;
+  const [replayCount, setReplayCount] = useState(1);
+  const [replayReload, setReplayReload] = useState(false);
+  const replayWire = replayFixture.events.slice(0, replayCount);
+  const replayEvents = replayReload ? materializeHarnessHistory([...replayWire]) : reduceHarnessEvents([], replayWire);
+  const replayFinished = replayWire.some(event => event.kind === "done" || event.kind === "error");
   const [menuConsigne, setMenuConsigne] = useState<ConsigneDuFil | null>(null);
   const [menuKb, setMenuKb] = useState({ kbSourceIds: [] as string[], kbFullContent: [] as string[] });
   const key = Object.keys(STATES).find((k) => hash.includes(`-${k}`)) ?? "rich";
@@ -464,7 +474,9 @@ export function ChatBench() {
     const id = window.setInterval(() => setLiveElapsed((Date.now() - started) % 27000), 80);
     return () => window.clearInterval(id);
   }, [isLive]);
-  const activeState = interactiveFirstMessage
+  const activeState = replay
+    ? { ...st, events: replayEvents, workingSince: replayFinished && !hash.includes('-stale') ? null : NOW }
+    : interactiveFirstMessage
     ? { ...st, events: firstMessageEvents, workingSince: firstMessageWorkingSince }
     : isLive
     ? { ...st, events: liveEventsAt(liveElapsed) }
@@ -480,6 +492,13 @@ export function ChatBench() {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text-primary)" }}>
+      {replay && <div style={{ padding: 8, display: "flex", gap: 12, alignItems: "center", fontSize: 13 }}>
+        <span>{replayFixture.provider} · {replayFixture.provenance === "observed" ? "Capture anonymisée" : "Scénario composé"}</span>
+        <label>Étape <select aria-label="Étape du replay" value={replayCount} onChange={event => { setReplayCount(Number(event.target.value)); setReplayReload(false); }}>
+          {replayFixture.events.map((event, index) => <option key={index} value={index + 1}>{index + 1} · {event.kind}{"status" in event ? ` · ${event.status}` : ""}</option>)}
+        </select></label>
+        <button onClick={() => setReplayReload(true)}>Recharger l’historique</button>
+      </div>}
       <Chat
         events={activeState.events}
         workingSince={activeState.workingSince}
@@ -497,7 +516,7 @@ export function ChatBench() {
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"
-        threadProvider={(menuBench && hash.includes("-codex")) || key === "goal" || key === "agents" ? "codex" : "claude"}
+        threadProvider={replay ? replayFixture.provider : (menuBench && hash.includes("-codex")) || key === "goal" || key === "agents" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
         usage={activeState.usage}

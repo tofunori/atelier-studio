@@ -499,14 +499,21 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
   });
 
   it("filtre commandes, skills et mentions plugin avec la matrice du provider", () => {
+    const visualizeSkill = {
+      name: "visualize",
+      path: "skills/visualize/SKILL.md",
+      type: "skill" as const,
+      enabled: true,
+      description: "Créer une visualisation",
+    };
     const plugin = {
       id: "visualize",
       name: "visualize",
       displayName: "Visualize",
       description: "Créer une visualisation",
       enabled: true,
-      skills: [],
-      primarySkill: null,
+      skills: [visualizeSkill],
+      primarySkill: visualizeSkill,
     };
     const common = {
       commands: [

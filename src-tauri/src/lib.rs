@@ -2,6 +2,7 @@ mod appsnap;
 mod atelier;
 mod boot_metrics;
 mod browser;
+mod chat_attachment;
 mod dictation;
 mod identity;
 mod local_image;
@@ -100,6 +101,7 @@ pub fn run() {
             browser::browser_import_vivaldi,
             browser::browser_url,
             browser::browser_probe,
+            chat_attachment::save_chat_attachment,
             boot_metrics::boot_clock_elapsed_ms,
             boot_metrics::record_boot_metrics,
             ui_state::ui_state_snapshot

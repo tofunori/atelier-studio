@@ -30,6 +30,40 @@ function turnOf(ev: AgentEvent): string {
   return m && "turnId" in m ? m.turnId : "";
 }
 
+/** Identité d'un item de lifecycle, avec le champ wire comme repli legacy. */
+function lifecycleItemOf(ev: AgentEvent, fallback: string): string {
+  return harnessMeta(ev)?.itemId ?? fallback;
+}
+
+/** Deux snapshots décrivent-ils le même item du même tour ?
+ *
+ * Les providers ré-émettent parfois un état en retard après une reconnexion.
+ * L'item est d'abord borné au tour, puis à `meta.itemId` lorsqu'il existe ;
+ * les anciens journaux sans itemId gardent l'identité historique du corps.
+ */
+function sameLifecycleItem(
+  left: AgentEvent,
+  right: AgentEvent,
+  leftFallback: string,
+  rightFallback: string,
+): boolean {
+  if (turnOf(left) !== turnOf(right)) return false;
+  return lifecycleItemOf(left, leftFallback) === lifecycleItemOf(right, rightFallback);
+}
+
+/** Une mise à jour identifiée est-elle plus ancienne que celle déjà réduite ? */
+function isOlderLifecycleSnapshot(
+  current: AgentEvent,
+  incoming: AgentEvent,
+  fallback: string,
+): boolean {
+  const currentMeta = harnessMeta(current);
+  const incomingMeta = harnessMeta(incoming);
+  if (!currentMeta || !incomingMeta) return false;
+  if (!sameLifecycleItem(current, incoming, fallback, fallback)) return false;
+  return incomingMeta.sequence < currentMeta.sequence;
+}
+
 function tsOf(ev: AgentEvent): number | undefined {
   return "ts" in ev ? ev.ts : undefined;
 }
@@ -150,24 +184,107 @@ function lastIsAttachableThinking(list: AgentEvent[], ev: AgentEvent): boolean {
   return !m || turnOf(last) === m.turnId;
 }
 
-/** Dernier bloc de raisonnement live rattachable au terminal courant.
+/** Blocs de raisonnement live rattachables au terminal courant.
  * Contrairement au remplacement par `thinking` (qui exige l'adjacence), un
- * `done` peut arriver après le texte final : il doit tout de même fermer le
- * dernier raisonnement du même turn afin de ne jamais laisser « thinking… »
- * actif dans un tour déjà terminé. */
-function findThinkingLiveIdx(list: AgentEvent[], ev: AgentEvent): number {
+ * `done` peut arriver après le texte final : il doit tout de même fermer tous
+ * les raisonnements live du même turn afin de ne jamais laisser « thinking… »
+ * actif dans un tour déjà terminé. Plusieurs blocs peuvent exister lorsqu'un
+ * outil sépare deux segments de pensée. Les indices sont renvoyés du dernier
+ * au premier pour permettre les suppressions sans décaler les suivants. */
+function findThinkingLiveIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
+  const indexes: number[] = [];
   const m = harnessMeta(ev);
   for (let k = list.length - 1; k >= 0; k--) {
     const it = list[k];
     if (it.kind !== "thinking_live") continue;
-    if (!m || turnOf(it) === m.turnId) return k;
+    if (!m || turnOf(it) === m.turnId) indexes.push(k);
   }
-  return -1;
+  return indexes;
 }
 
 type StreamEvent = Extract<AgentEvent, { kind: "delta" | "stream_set" | "thinking_delta" }>;
 function isStreamEvent(ev: AgentEvent): ev is StreamEvent {
   return ev.kind === "delta" || ev.kind === "stream_set" || ev.kind === "thinking_delta";
+}
+
+/**
+ * A materialized answer bubble keeps only the latest stream fragment's
+ * eventId. When a history response is merged into that list, earlier deltas
+ * are therefore absent from `known` even though their text is already
+ * present. Return the latest OPEN answer fragment sequence so those stale
+ * fragments can be discarded while newer history events still pass through.
+ *
+ * Thinking is deliberately excluded here. A turn can contain several
+ * separated reasoning blocks (for example one before a tool and another
+ * after it), so a sequence threshold alone would erase a missing early block
+ * merely because a later `thinking_live` block is already materialized.
+ */
+function latestAssistantSequence(list: AgentEvent[], turnId: string): number | null {
+  let latest: number | null = null;
+  for (const event of list) {
+    if (turnOf(event) !== turnId) continue;
+    if (event.kind === "streaming" && harnessMeta(event)) {
+      const sequence = harnessMeta(event)!.sequence;
+      if (latest == null || sequence > latest) latest = sequence;
+    }
+  }
+  return latest;
+}
+
+/** A non-thinking event separates two reasoning blocks in the history. */
+function hasReasoningBarrier(
+  history: AgentEvent[],
+  turnId: string,
+  fromSequence: number,
+  toSequence: number,
+): boolean {
+  return history.some((event) => {
+    const meta = harnessMeta(event);
+    if (!meta || meta.turnId !== turnId || meta.sequence <= fromSequence || meta.sequence >= toSequence) return false;
+    return event.kind !== "thinking_delta" && event.kind !== "thinking_live";
+  });
+}
+
+/**
+ * Thinking fragments can be filtered by sequence when they identify the same
+ * item, or when the source history shows a contiguous reasoning interval.
+ * Without either identity or contiguity, keep the fragment: sequence alone
+ * cannot tell an earlier reasoning block from a continuation after a tool.
+ */
+function thinkingFragmentAlreadyMaterialized(
+  list: AgentEvent[],
+  incoming: AgentEvent,
+  history: AgentEvent[],
+): boolean {
+  const incomingMeta = harnessMeta(incoming);
+  return list.some((event) => {
+    if (event.kind !== "thinking_live") return false;
+    const currentMeta = harnessMeta(event);
+    if (!incomingMeta || !currentMeta || currentMeta.turnId !== incomingMeta.turnId
+      || currentMeta.sequence < incomingMeta.sequence) return false;
+    // An explicit identity mismatch is a different block even when its
+    // sequence happens to be contiguous. Fall back to interval reasoning
+    // only when neither side exposes an item identity.
+    if (incomingMeta.itemId || currentMeta.itemId) {
+      return incomingMeta.itemId != null && incomingMeta.itemId === currentMeta.itemId;
+    }
+    return !hasReasoningBarrier(history, incomingMeta.turnId, incomingMeta.sequence, currentMeta.sequence);
+  });
+}
+
+/** Check whether a stream fragment is already represented by an open bubble. */
+function streamFragmentAlreadyMaterialized(
+  list: AgentEvent[],
+  incoming: AgentEvent,
+  history: AgentEvent[],
+): boolean {
+  const incomingMeta = harnessMeta(incoming);
+  if (!incomingMeta) return false;
+  if (incoming.kind === "thinking_delta") {
+    return thinkingFragmentAlreadyMaterialized(list, incoming, history);
+  }
+  const head = latestAssistantSequence(list, incomingMeta.turnId);
+  return head != null && incomingMeta.sequence <= head;
 }
 
 /** Réduit un lot sans recopier/scanner l'historique à chaque fragment.
@@ -359,15 +476,22 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // identité d'un item = (turnId, itemId) : deux turns peuvent réutiliser le
     // même id d'outil sans se remplacer (plan 025)
     const idx = next.findIndex(
-      (item) => item.kind === "tool_update" && item.id === ev.id && turnOf(item) === turnOf(ev),
+      (item) => item.kind === "tool_update" && sameLifecycleItem(item, ev, item.id, ev.id),
     );
+    // Un état en retard ne doit jamais ressusciter « running » après un état
+    // terminal déjà matérialisé. Les journaux legacy sans metadata conservent
+    // leur remplacement historique (pas de séquence fiable à comparer).
+    if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.id)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) next[idx] = upd;
     else next.push(upd);
     return next;
   }
   if (ev.kind === "activity") {
-    const idx = next.findIndex((item) => item.kind === "activity" && item.id === ev.id);
+    const idx = next.findIndex(
+      (item) => item.kind === "activity" && sameLifecycleItem(item, ev, item.id, ev.id),
+    );
+    if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.id)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) next[idx] = upd;
     else next.push(upd);
@@ -378,8 +502,10 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // requestId : remplacement en place, la dernière version gagne (plan 025,
     // step 5) — requestId est unique par requête sidecar
     const idx = next.findIndex(
-      (item) => item.kind === "interaction" && item.requestId === ev.requestId,
+      (item) => item.kind === "interaction" && item.requestId === ev.requestId &&
+        sameLifecycleItem(item, ev, item.requestId, ev.requestId),
     );
+    if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.requestId)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) next[idx] = upd;
     else next.push(upd);
@@ -422,8 +548,8 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
       if (txt.trim()) next[sIdx] = { kind: "text", text: txt, ts: sb.ts, meta: sb.meta };
       else next.splice(sIdx, 1);
     }
-    const tIdx = findThinkingLiveIdx(next, ev);
-    if (tIdx >= 0) {
+    const thinkingIndexes = findThinkingLiveIndexes(next, ev);
+    for (const tIdx of thinkingIndexes) {
       const tb = next[tIdx] as Extract<AgentEvent, { kind: "thinking_live" }>;
       const txt = String(tb.text ?? "");
       if (txt.trim()) next[tIdx] = { kind: "thinking", text: txt, ts: tb.ts, meta: tb.meta };
@@ -485,9 +611,12 @@ export function materializeHarnessHistory(events: AgentEvent[]): AgentEvent[] {
  *    et absents de `current` sont insérés, ordonnés par meta.sequence avant
  *    les événements live de sequence supérieure, puis la timeline complète est
  *    rejouée via le reducer — un état live plus récent (même item, même
- *    requestId, duplicate eventId) reste gagnant. Les événements sans meta
- *    sont ignorés en fusion : un history legacy ne peut jamais écraser une
- *    session vivante (retourne la même référence si rien à fusionner).
+ *    requestId, duplicate eventId) reste gagnant. Les fragments de flux déjà
+ *    absorbés par une bulle matérialisée sont aussi écartés grâce à leur
+ *    sequence, sinon un history tardif recréerait une seconde bulle. Les
+ *    événements sans meta sont ignorés en fusion : un history legacy ne peut
+ *    jamais écraser une session vivante (retourne la même référence si rien à
+ *    fusionner).
  */
 export function mergeHarnessHistory(current: AgentEvent[], incoming: AgentEvent[]): AgentEvent[] {
   if (!current.length) return materializeHarnessHistory(incoming);
@@ -496,10 +625,18 @@ export function mergeHarnessHistory(current: AgentEvent[], incoming: AgentEvent[
     const m = harnessMeta(ev);
     if (m) known.add(m.eventId);
   }
-  const missing = sanitizeHistory(incoming)
+  const history = sanitizeHistory(incoming);
+  const missing = history
     .filter((ev) => {
       const m = harnessMeta(ev);
-      return m !== null && !known.has(m.eventId);
+      if (m === null || known.has(m.eventId)) return false;
+      // A materialized stream/thinking bubble carries only its latest
+      // fragment eventId. Older fragments are consequently absent from
+      // `known`, although their content is already present in `current`.
+      // Do not replay those fragments into a second bubble. A newer fragment
+      // (or any non-stream event) remains eligible for interleaving.
+      if (isStreamEvent(ev) && streamFragmentAlreadyMaterialized(current, ev, history)) return false;
+      return true;
     })
     .sort((a, b) => harnessMeta(a)!.sequence - harnessMeta(b)!.sequence);
   if (!missing.length) return current;

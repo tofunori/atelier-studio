@@ -74,6 +74,16 @@ for (const theme of ['dark', 'light']) {
       await page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / }).click();
       await expect(page.getByRole('menuitemcheckbox', { name: /^Concis / })).toHaveAttribute('aria-checked', 'true');
       await expect(page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / })).toHaveAttribute('aria-checked', 'true');
+      const indicators = page.locator('.composer-style-menu [aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"]');
+      for (const indicator of await indicators.all()) {
+        const circle = (await indicator.boundingBox())!;
+        const check = (await indicator.locator('svg').boundingBox())!;
+        expect(Math.abs(check.x + check.width / 2 - circle.x - circle.width / 2)).toBeLessThan(0.5);
+        expect(Math.abs(check.y + check.height / 2 - circle.y - circle.height / 2)).toBeLessThan(0.5);
+        expect(check.width).toBeLessThan(circle.width - 2);
+        expect(check.height).toBeLessThan(circle.height - 2);
+      }
+      await page.locator('.composer-style-menu').screenshot({ path: info.outputPath('style-checked.png') });
       await close();
       await expect(style).toBeFocused();
 

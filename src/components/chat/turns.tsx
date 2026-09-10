@@ -424,6 +424,8 @@ export function ActivityFold(p: {
   duration: string | null;
   actions?: ToolAction[];
   plugins?: PluginCatalogEntry[];
+  /** Horodatage optionnel de l'activité, visible uniquement si activé. */
+  stamp?: ReactNode;
   onToggle: () => void;
 }) {
   const activity = p.actions?.length ? summarizeActivity(p.actions, p.plugins) : null;
@@ -453,7 +455,7 @@ export function ActivityFold(p: {
       onToggle={p.onToggle}
       status={p.fold.status === "failed" ? "failed" : "completed"}
       icon={activity?.icon}
-      meta={activity ? label : undefined}
+      meta={p.stamp ?? (activity ? label : undefined)}
       label={<span className="turn-fold-label">{activity?.label ?? label}</span>}
     />
   );

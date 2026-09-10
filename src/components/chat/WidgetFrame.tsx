@@ -169,7 +169,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
       if (e.data.type === "prompt") {
         const text = typeof e.data.text === "string" ? e.data.text.trim() : "";
         if (!text || text.length > WIDGET_PROMPT_MAX) return;
-        window.dispatchEvent(new CustomEvent("chat-compose-append", { detail: { text } }));
+        window.dispatchEvent(new CustomEvent("chat-compose-append", { detail: { text, threadId } }));
       }
     }
     function onTheme() { post(currentThemeMessage()); }
@@ -180,7 +180,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
       window.removeEventListener("message", onMessage);
       window.removeEventListener("app-theme-changed", onTheme);
     };
-  }, [event.id]);
+  }, [event.id, threadId]);
 
   // Une SEULE iframe est jamais montée à la fois — le protocole postMessage
   // n'a qu'un interlocuteur (`frameRef`, filtré dans onMessage). Basculer

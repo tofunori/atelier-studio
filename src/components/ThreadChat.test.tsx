@@ -8,7 +8,7 @@ import ThreadChat from "./ThreadChat";
 import type { Pin } from "../lib/pins";
 
 const counts = vi.hoisted(() => new Map<string, number>());
-vi.mock("./Chat", () => ({ default: ({ threadId, events, pins }: { threadId: string; events: AgentEvent[]; pins: unknown[] }) => {
+vi.mock("./AssistantUiChat", () => ({ default: ({ threadId, events, pins }: { threadId: string; events: AgentEvent[]; pins: unknown[] }) => {
   counts.set(threadId, (counts.get(threadId) ?? 0) + 1);
   return <output data-testid={threadId}>{JSON.stringify({ events, pins })}</output>;
 } }));

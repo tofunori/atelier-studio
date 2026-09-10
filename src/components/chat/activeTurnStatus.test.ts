@@ -16,10 +16,21 @@ function status(events: AgentEvent[]) {
 beforeEach(() => setLanguage('fr'));
 
 describe('activité unique du tour', () => {
-  it('alterne réflexion, lecture, traitement et réflexion confirmée', () => {
+  it('présente uniquement le lifecycle dérivé, même si le tableau fourni diverge', () => {
+    const completed = tool('r', 'completed');
+    const events = [user, completed];
+    const turn = buildChatTurnViewModels(events, 1000)[0];
+    // `events` is kept in the API for compatibility; the active status must
+    // not rescan a stale snapshot and announce a running call.
+    expect(activeTurnStatus(turn, [user, tool('r', 'running')])).toEqual({
+      kind: 'thinking', label: 'Réflexion en cours…',
+    });
+  });
+
+  it('reprend la réflexion après la lecture sans attendre un événement de raisonnement', () => {
     expect(status([user, thought]).kind).toBe('thinking');
     expect(status([user, thought, tool('r')]).label).toContain('Lit');
-    expect(status([user, thought, tool('r'), tool('r', 'completed')])).toEqual({kind:'processing',label:'Traitement en cours…'});
+    expect(status([user, thought, tool('r'), tool('r', 'completed')])).toEqual({kind:'thinking',label:'Réflexion en cours…'});
     expect(status([user, thought, tool('r', 'completed'), {...thought,ts:3000}]).kind).toBe('thinking');
   });
   it('ne remplace pas un outil actif par une narration ou un raisonnement', () => {
@@ -29,11 +40,11 @@ describe('activité unique du tour', () => {
     const events=[user,tool('read'),tool('tests','running','Bash',{detail:'npm test'})];
     expect(status(events).label).toBe('2 actions en cours…');
     expect(status([...events,tool('read','completed')]).label).toBe('Exécute les tests');
-    expect(status([...events,tool('read','completed'),tool('tests','completed','Bash')]).kind).toBe('processing');
+    expect(status([...events,tool('read','completed'),tool('tests','completed','Bash')]).kind).toBe('thinking');
   });
-  it.each(['Read','Grep','list_files','Edit','Bash','web_search','view_image','image_generation','mcp__zotero__search','TodoWrite','context_compact','unknown_tool'])('suit la famille %s sans faux thinking', name => {
+  it.each(['Read','Grep','list_files','Edit','Bash','web_search','view_image','image_generation','mcp__zotero__search','TodoWrite','context_compact','unknown_tool'])('priorise la famille %s puis reprend la réflexion', name => {
     expect(status([user, tool('x','in_progress',name)]).kind).toBe('action');
-    expect(status([user, tool('x','completed',name)]).kind).toBe('processing');
+    expect(status([user, tool('x','completed',name)]).kind).toBe('thinking');
   });
   it('reconnaît le chargement de skill', () => {
     expect(status([user, tool('x','running','Read',{detail:'skills/figures/SKILL.md'})]).label).toContain('Charge');
@@ -45,28 +56,39 @@ describe('activité unique du tour', () => {
     const events=[user,agent('spawn',{a:{status:'running'},b:{status:'running'}})];
     expect(status(events).label).toBe('2 agents en cours…');
     expect(status([...events,agent('update',{a:{status:'completed'}})]).label).toBe('Un agent travaille…');
-    expect(status([...events,agent('update',{a:{status:'completed'},b:{status:'completed'}})]).kind).toBe('processing');
+    expect(status([...events,agent('update',{a:{status:'completed'},b:{status:'completed'}})]).kind).toBe('thinking');
   });
-  it.each(['inprogress','interrupted','failed'])('lit aussi le statut enfant %s quand la coordination est terminée', childState => {
+  it.each(['inprogress','interrupted','failed'])('garde un tour actif après le statut enfant %s', childState => {
     const event=tool('spawn','completed','spawn_agent',{agentActivity:{tool:'spawn_agent',receiverThreadIds:['a'],agentsStates:{a:{status:childState}}}});
-    expect(status([user,event]).kind).toBe(childState==='inprogress'?'action':childState);
+    expect(status([user,event]).kind).toBe(childState==='inprogress'?'action':'thinking');
   });
   it('ne confond pas attente humaine et exécution', () => {
     expect(status([user,tool('x'),{kind:'permission',requestId:'p',toolName:'Bash',answered:null}]).kind).toBe('waiting');
   });
-  it.each(['failed','interrupted','cancelled','denied'])('conserve le résultat %s sans annoncer une réflexion', state => {
-    expect(status([user,tool('x',state)]).kind).toBe(state==='failed'?'failed':'interrupted');
+  it.each(['failed','interrupted','cancelled','denied'])('conserve le résultat %s comme détail sans terminer le tour', state => {
+    expect(status([user,tool('x',state)]).kind).toBe('thinking');
     expect(status([user,tool('x',state),thought]).kind).toBe('thinking');
   });
   it('respecte le code de sortie même si le fournisseur annonce completed', () => {
-    expect(status([user,tool('x','completed','Bash',{exitCode:2})]).kind).toBe('failed');
+    expect(status([user,tool('x','completed','Bash',{exitCode:2})]).kind).toBe('thinking');
   });
   it('présente les statuts inconnus comme du traitement, sans certifier une exécution', () => {
     expect(status([user,tool('x','unrecognized')]).kind).toBe('processing');
   });
+  it('mappe les terminaux du tour sans requalifier un outil échoué', () => {
+    expect(status([user, tool('x', 'failed'), { kind: 'done', ok: true, result: '' }])).toEqual({
+      kind: 'completed', label: 'Tour terminé',
+    });
+    expect(status([user, tool('x', 'failed'), { kind: 'done', ok: false, result: 'échec du tour' }])).toEqual({
+      kind: 'failed', label: 'Action échouée',
+    });
+    expect(status([user, tool('x', 'failed'), { kind: 'error', message: 'interrupted by user' }])).toEqual({
+      kind: 'interrupted', label: 'Action interrompue',
+    });
+  });
   it('ne récupère pas un agent du tour précédent', () => {
     const old=tool('a','completed','spawn_agent',{agentActivity:{tool:'spawn_agent',receiverThreadIds:['a'],agentsStates:{a:{status:'running'}}}});
-    expect(status([user,old,{kind:'done',ok:true,result:''},{...user,ts:4000}]).kind).toBe('processing');
+    expect(status([user,old,{kind:'done',ok:true,result:''},{...user,ts:4000}]).kind).toBe('thinking');
   });
   it('la rédaction succède aux outils terminés', () => {
     expect(status([user,tool('x','completed'),{kind:'streaming',text:'Voici le résultat.'}]).kind).toBe('writing');

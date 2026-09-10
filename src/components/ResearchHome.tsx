@@ -107,7 +107,7 @@ const KIND_KEYS: Record<HomeArtefactKind, I18nKey> = {
  * être câblé par App et testé directement. */
 export function focusComposer() {
   requestAnimationFrame(() =>
-    document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus());
+    document.querySelector<HTMLTextAreaElement>("[data-atelier-chat] .aui-composer-input, .composer textarea")?.focus());
 }
 
 function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions["onResume"] }) {
