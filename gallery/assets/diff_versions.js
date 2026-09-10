@@ -1044,15 +1044,17 @@ window.DiffVersions = function(opts){
     if(!list.length) return;
     j = Math.max(0, Math.min(list.length - 1, j));
     let it = list[j];
-    if(individualReview && j === list.length - 1 && !equivalent(liveText(), reviewState[it.id]?.text ?? it.after)){
-      notify("Sauvegarde tes retouches avant de rouvrir cette intervention");
-      return;
-    }
-    if(individualReview && j === list.length - 1 && reviewState[it.id]) {
+    // Dernière intervention : elle se compare TOUJOURS au texte vivant, jamais
+    // à un état historique — les retouches de l'auteur depuis le passage de
+    // l'agent font partie de ce qu'il veut voir, et rien n'est remplacé dans
+    // le buffer (`live`), donc aucun risque pour ses modifications non
+    // sauvegardées. Refuser d'ouvrir (« Sauvegarde tes retouches ») laissait
+    // la comparaison muette dès la première lettre tapée après l'intervention
+    // (Thierry 2026-09-10, methods_en.tex 29/29).
+    if(individualReview && j === list.length - 1){
       const state = reviewState[it.id];
-      if(equivalent(liveText(), state.text)) it = {...it, from: state.base, to: liveText(), live: true};
+      it = {...it, from: state ? state.base : it.before, to: liveText(), live: true};
     }
-    if(individualReview && j === list.length - 1 && equivalent(liveText(), it.to)) it = {...it, to: liveText(), live: true};
     navMode = j;
     const cm = getCm();
     if(it.live) ttExit();

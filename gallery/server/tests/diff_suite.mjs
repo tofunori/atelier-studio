@@ -1985,6 +1985,36 @@ async function individualReviewCardTests() {
     h.tag.onclick();
   }
 
+  // 4. Retouches de l'auteur après l'intervention : le Diff s'ouvre QUAND MÊME
+  // sur le texte vivant (refuser laissait la comparaison muette — Thierry
+  // 2026-09-10, « Sauvegarde tes retouches » sur methods_en.tex 29/29).
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    let comparedBefore = null;
+    h.cm.showMergeDiff = (b) => { comparedBefore = b; return onePoint(); };
+    h.cm._v = after;
+    h.dv.push(before, after);
+    // L'auteur retouche le paragraphe après le passage de l'agent.
+    const edited = "aa XX cc retouché par l'auteur\n";
+    h.cm._v = edited;
+    h.notes.length = 0;
+    h.tag.onclick();
+    ok("revue individuelle : une retouche postérieure n'empêche plus d'ouvrir le Diff",
+      h.dv.isShown() === true, JSON.stringify(h.notes));
+    ok("revue individuelle : aucune invite « Sauvegarde tes retouches »",
+      !h.notes.some((note) => /Sauvegarde tes/.test(note)), JSON.stringify(h.notes));
+    ok("revue individuelle : la comparaison part de l'état d'avant l'intervention",
+      comparedBefore === before, JSON.stringify(comparedBefore));
+    ok("revue individuelle : le buffer vivant n'est pas remplacé par un état historique",
+      h.cm.getValue() === edited, JSON.stringify(h.cm.getValue()));
+    const card = host._children.find((c) => c && c.id === "dvReview");
+    ok("revue individuelle : la carte reste décidable (pas de lecture seule)",
+      card && card.hidden === false && !card.classList.contains("is-readonly"), String(card && card.hidden));
+  }
+
   // 3. ⌥⌫ (keydown global document, hors focus texte) ignore le bloc courant
   {
     const h = makeModuleHarness({ individualReview: true });
