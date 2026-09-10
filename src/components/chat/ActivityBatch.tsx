@@ -161,6 +161,8 @@ function ClusterLine(p: {
     action.kind === 'tool_update' && typeof action.durationMs === 'number' && action.durationMs > 0
       ? sum + action.durationMs : sum), 0);
   const failed = p.actions.some((action) => action.kind === 'tool_update' && toolOutcome(action) === 'failed');
+  const soloRunning = p.actions.length === 1
+    && (p.actions[0].kind === 'tool' || toolOutcome(p.actions[0] as Extract<ToolAction, { kind: 'tool_update' }>) === 'running');
   // Le libellé de synthèse attend 160 ms de stabilité : une rafale d'outils de
   // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08).
   const nextLabel = summary.label;
@@ -185,8 +187,11 @@ function ClusterLine(p: {
       icon={summary.icon}
       label={p.live
         ? <>
-            <span className="activity-cluster-summary">{shownLabel}</span>
-            <span className="activity-cluster-sep" aria-hidden="true"> · </span>
+            {/* Une seule action encore en cours : la synthèse décrirait la
+                même chose au passé (« contexte compacté · Compacte le
+                contexte ») — le statut vivant suffit (Thierry 2026-09-10). */}
+            {!soloRunning && <span className="activity-cluster-summary">{shownLabel}</span>}
+            {!soloRunning && <span className="activity-cluster-sep" aria-hidden="true"> · </span>}
             <span className="active-turn-tail activity-cluster-live">
               <span className="turn-quiet is-on turn-working-shimmer" role="status" aria-live="polite">{p.live.label}</span>
             </span>
