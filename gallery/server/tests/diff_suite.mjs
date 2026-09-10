@@ -1916,11 +1916,17 @@ async function readingMarksTests() {
   }
 }
 
-// --------------------------------- E. carte de revue flottante (variante E, 2026-09-10)
-// updateReviewCard()/ensureReviewCard() montent #dvReview dans reviewHost() —
-// cm.getWrapperElement().closest("#left") ou son parentElement — jamais dans
-// la gouttière ni un bouton flottant au-dessus du texte. Les décisions
-// (bouton ou ⌥↩/⌥⌫) passent par decideCurrent() → cm.decideMergeChunk().
+// --------------------------------- F2. revue ancrée (variante F2, 2026-09-10)
+// render() appelle cm.showMergeDiff(v.before, {onDecision, individual: true,
+// anchored: true, onLatest}) — plus de `toolbar`, plus de #dvReview flottant :
+// la pilule inline + le trait en rangées visuelles vivent DANS CodeMirror
+// (donc hors de portée de ce faux cm). Ce qui reste testable côté module :
+// - les options passées à showMergeDiff (anchored/individual/onLatest/onDecision) ;
+// - cm.setReviewFocus(ch) à l'ouverture et à la navigation (gotoChange) ;
+// - le clavier ⌥↩/⌥⌫ (document) → decideCurrent() → cm.decideMergeChunk() ;
+// - le toast d'annulation (#diffUndo, .dv-undo-toast), monté paresseusement
+//   par showUndo() dans undoToastHost() (cm.getWrapperElement().closest("#left")
+//   ou son parentElement), jamais dans la barre (els.group).
 function fakeReviewHost() {
   const host = { _children: [], classList: { add() {}, remove() {}, toggle() {}, contains: () => false } };
   host.appendChild = (n) => { host._children.push(n); return n; };
@@ -1930,7 +1936,7 @@ async function individualReviewCardTests() {
   const before = "aa bb cc\n", after = "aa XX cc\n";
   const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
 
-  // 1. carte flottante montée dans le volet éditeur, jamais de gouttière
+  // 1. showMergeDiff reçoit anchored: true (ni gouttière, ni carte flottante)
   {
     const h = makeModuleHarness({ individualReview: true });
     const host = fakeReviewHost();
@@ -1941,25 +1947,34 @@ async function individualReviewCardTests() {
     h.cm._v = after;
     h.dv.push(before, after);
     h.tag.onclick(); // ouvre la revue de la dernière intervention
-    ok("revue individuelle : showMergeDiff reçoit toolbar: true (ni gouttière ni bouton dans le texte)",
-      !!capturedOpts && capturedOpts.toolbar === true && capturedOpts.individual === true, JSON.stringify(capturedOpts));
-    const card = host._children.find((c) => c && c.id === "dvReview");
-    ok("revue individuelle : #dvReview monté dans le host (parentElement du wrapper cm)", !!card,
-      JSON.stringify(host._children.map((c) => c && c.id)));
-    ok("revue individuelle : carte visible dès qu'il y a un bloc de changement",
-      card && card.hidden === false, String(card && card.hidden));
-    const count = card && card._children.find((c) => c.className === "dvr-count");
-    ok("revue individuelle : compteur « 1/1 »", count && count.textContent === "1/1", String(count && count.textContent));
+    ok("revue individuelle : showMergeDiff reçoit anchored: true et onLatest (ni gouttière, ni carte)",
+      !!capturedOpts && capturedOpts.anchored === true && capturedOpts.individual === true
+        && typeof capturedOpts.onLatest === "function" && capturedOpts.toolbar === undefined,
+      JSON.stringify(capturedOpts));
+    ok("revue individuelle : aucune carte #dvReview montée (F2 est ancrée dans CodeMirror)",
+      !host._children.some((c) => c && c.id === "dvReview"), JSON.stringify(host._children.map((c) => c && c.id)));
     h.tag.onclick(); // toggle(false) : referme la revue
-    ok("revue individuelle : carte cachée après fermeture", card.hidden === true, String(card.hidden));
   }
 
-  // 2. Garder depuis la carte décide le bloc courant (cm.decideMergeChunk)
-  // puis range la décision dans reviewState (persisté sous texReviewV1:<path>)
+  // 2. Ouvrir un passage désigne le changement courant via cm.setReviewFocus
   {
     const h = makeModuleHarness({ individualReview: true });
-    const host = fakeReviewHost();
-    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    const focus = [];
+    h.cm.setReviewFocus = (ch) => focus.push(ch);
+    h.cm._v = after;
+    h.dv.push(before, after);
+    h.tag.onclick(); // gotoChange(0, true) au premier rendu du passage
+    ok("revue individuelle : ouvrir un passage désigne le changement courant (setReviewFocus)",
+      focus.includes(0), JSON.stringify(focus));
+    h.tag.onclick();
+  }
+
+  // 3. ⌥↩ (document, altKey+code Enter) garde le bloc courant via decideMergeChunk
+  // et range la décision dans reviewState (persisté sous texReviewV1:<path>)
+  {
+    const h = makeModuleHarness({ individualReview: true });
     h.cm.hasNativeMergeDiff = true;
     h.cm.showMergeDiff = onePoint;
     h.cm._v = after;
@@ -1973,20 +1988,35 @@ async function individualReviewCardTests() {
       calls.push([kind, ch]);
       return { kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "<base ajustée>" };
     };
-    const card = host._children.find((c) => c && c.id === "dvReview");
-    const keep = card._children.find((c) => c.className === "dvr-keep");
-    keep.onclick();
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
     await sleep(50);
-    ok("revue individuelle : Garder appelle decideMergeChunk(\"accept\", ch du bloc courant)",
+    ok("revue individuelle : ⌥↩ garde le bloc courant via decideMergeChunk(\"accept\", ch)",
       calls.length === 1 && calls[0][0] === "accept" && calls[0][1] === 0, JSON.stringify(calls));
     const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
-    ok("revue individuelle : Garder enregistre la base ajustée dans reviewState",
+    ok("revue individuelle : ⌥↩ enregistre la base ajustée dans reviewState",
       !!it && saved[it.id] && saved[it.id].base === "<base ajustée>", JSON.stringify(saved));
     h.tag.onclick();
   }
 
-  // 5. L'annulation vit dans la carte et s'efface : plus de bouton flottant
-  // permanent dans le coin après une décision (Thierry 2026-09-10).
+  // 4. ⌥⌫ (keydown global document, hors focus texte) ignore le bloc courant
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    h.cm.decideMergeChunk = (kind, ch) => ({ kind, current: h.cm.getValue(), text: before, base: before });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Backspace", key: "Backspace" });
+    await sleep(50);
+    ok("revue individuelle : ⌥⌫ (document, altKey+code Backspace) ignore le bloc courant et restaure le texte du refus",
+      h.restored.at(-1) === before, JSON.stringify(h.restored));
+    h.tag.onclick();
+  }
+
+  // 5. Le toast d'annulation est monté paresseusement dans le volet éditeur
+  // (jamais dans la barre) au premier décision, puis s'efface à la fermeture.
   {
     const h = makeModuleHarness({ individualReview: true });
     const host = fakeReviewHost();
@@ -1997,29 +2027,30 @@ async function individualReviewCardTests() {
     h.dv.push(before, after);
     await sleep(50);
     h.tag.onclick();
-    const card = host._children.find((c) => c && c.id === "dvReview");
-    const undo = card && card._children.find((c) => c.id === "diffUndo");
-    ok("revue individuelle : l'annulation est dans la carte, pas dans la barre",
-      !!undo && !h.group._children.some((c) => c && c.id === "diffUndo"), String(!!undo));
-    ok("revue individuelle : aucune annulation offerte avant décision", undo && undo.hidden === true, String(undo && undo.hidden));
+    ok("revue individuelle : aucun toast d'annulation avant décision",
+      !host._children.some((c) => c && c.id === "diffUndo"), JSON.stringify(host._children.map((c) => c && c.id)));
     h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "<base ajustée>" });
-    card._children.find((c) => c.className === "dvr-keep").onclick();
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
     await sleep(50);
-    ok("revue individuelle : l'annulation apparaît juste après la décision", undo.hidden === false, String(undo.hidden));
-    h.tag.onclick(); // fermeture de la revue
-    ok("revue individuelle : fermer la revue retire l'annulation", undo.hidden === true, String(undo.hidden));
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    ok("revue individuelle : le toast d'annulation est monté dans le volet éditeur après une décision",
+      !!undo && undo.className === "dv-undo-toast" && undo.hidden === false,
+      JSON.stringify({found: !!undo, className: undo && undo.className, hidden: undo && undo.hidden}));
+    ok("revue individuelle : le toast n'est pas ajouté à la barre",
+      !h.group._children.some((c) => c && c.id === "diffUndo"), JSON.stringify(h.group._children.map((c) => c && c.id)));
+    h.tag.onclick(); // fermeture de la revue (toggle(false) → hideUndo())
+    ok("revue individuelle : fermer la revue cache le toast d'annulation", undo.hidden === true, String(undo.hidden));
   }
 
-  // 4. Retouches de l'auteur après l'intervention : le Diff s'ouvre QUAND MÊME
+  // 6. Retouches de l'auteur après l'intervention : le Diff s'ouvre QUAND MÊME
   // sur le texte vivant (refuser laissait la comparaison muette — Thierry
-  // 2026-09-10, « Sauvegarde tes retouches » sur methods_en.tex 29/29).
+  // 2026-09-10, « Sauvegarde tes retouches » sur methods_en.tex 29/29) et le
+  // passage reste décidable (onDecision est fourni, pas null).
   {
     const h = makeModuleHarness({ individualReview: true });
-    const host = fakeReviewHost();
-    h.cm.getWrapperElement = () => ({ parentElement: host });
     h.cm.hasNativeMergeDiff = true;
-    let comparedBefore = null;
-    h.cm.showMergeDiff = (b) => { comparedBefore = b; return onePoint(); };
+    let comparedBefore = null, capturedOpts = null;
+    h.cm.showMergeDiff = (b, opts) => { comparedBefore = b; capturedOpts = opts; return onePoint(); };
     h.cm._v = after;
     h.dv.push(before, after);
     // L'auteur retouche le paragraphe après le passage de l'agent.
@@ -2035,28 +2066,8 @@ async function individualReviewCardTests() {
       comparedBefore === before, JSON.stringify(comparedBefore));
     ok("revue individuelle : le buffer vivant n'est pas remplacé par un état historique",
       h.cm.getValue() === edited, JSON.stringify(h.cm.getValue()));
-    const card = host._children.find((c) => c && c.id === "dvReview");
-    ok("revue individuelle : la carte reste décidable (pas de lecture seule)",
-      card && card.hidden === false && !card.classList.contains("is-readonly"), String(card && card.hidden));
-  }
-
-  // 3. ⌥⌫ (keydown global document, hors focus texte) ignore le bloc courant
-  {
-    const h = makeModuleHarness({ individualReview: true });
-    const host = fakeReviewHost();
-    h.cm.getWrapperElement = () => ({ parentElement: host });
-    h.cm.hasNativeMergeDiff = true;
-    h.cm.showMergeDiff = onePoint;
-    h.cm._v = after;
-    h.dv.push(before, after);
-    await sleep(50);
-    h.tag.onclick();
-    h.cm.decideMergeChunk = (kind, ch) => ({ kind, current: h.cm.getValue(), text: before, base: before });
-    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Backspace", key: "Backspace" });
-    await sleep(50);
-    ok("revue individuelle : ⌥⌫ (document, altKey+code Backspace) ignore le bloc courant et restaure le texte du refus",
-      h.restored.at(-1) === before, JSON.stringify(h.restored));
-    h.tag.onclick();
+    ok("revue individuelle : le passage reste décidable (onDecision fourni, pas null)",
+      !!capturedOpts && typeof capturedOpts.onDecision === "function", JSON.stringify(capturedOpts && typeof capturedOpts.onDecision));
   }
 }
 

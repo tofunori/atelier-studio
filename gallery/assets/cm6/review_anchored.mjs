@@ -37,16 +37,31 @@ function svg(d) {
   return s;
 }
 
+/** Étendue RÉELLE du changement côté B : les modifications inline du chunk
+ * (mots) quand le moteur les connaît, sinon le chunk entier. C'est ce qui
+ * permet de poser la pilule après le dernier mot changé et de tracer le
+ * trait sur les mots, pas sur tout le paragraphe (une ligne source). */
+function extentB(state, chunk) {
+  const doc = state.doc;
+  const inline = (chunk.changes || []).filter(c => c.toB > c.fromB || c.toA > c.fromA);
+  if (inline.length) {
+    const from = Math.min(doc.length, chunk.fromB + Math.min(...inline.map(c => c.fromB)));
+    const to = Math.min(doc.length, Math.max(from, chunk.fromB + Math.max(...inline.map(c => c.toB))));
+    return {from, to: Math.min(to, Math.max(from, chunk.endB)), count: inline.length};
+  }
+  return {from: Math.min(doc.length, chunk.fromB), to: Math.min(doc.length, Math.max(chunk.fromB, chunk.endB)), count: 1};
+}
+
 function describe(state, chunk) {
   const doc = state.doc;
-  const first = doc.lineAt(chunk.fromB).number;
-  const last = doc.lineAt(Math.max(chunk.fromB, chunk.endB - 1)).number;
+  const ext = extentB(state, chunk);
+  const first = doc.lineAt(ext.from).number;
+  const last = doc.lineAt(Math.max(ext.from, ext.to - 1)).number;
   const where = first === last ? `l. ${first}` : `l. ${first}–${last}`;
   if (chunk.fromB === chunk.toB) return `${where} · suppression`;
   const lines = last - first + 1;
   if (lines > 1) return `${where} · ${lines} lignes`;
-  const words = doc.sliceString(chunk.fromB, chunk.endB).trim().split(/\s+/u).filter(Boolean).length;
-  return `${where} · ${words} mot${words > 1 ? "s" : ""}`;
+  return `${where} · ${ext.count} modification${ext.count > 1 ? "s" : ""}`;
 }
 
 class PillWidget extends WidgetType {
@@ -89,7 +104,7 @@ class PillWidget extends WidgetType {
 function pillDecorations(view, config) {
   const chunk = currentChunk(view.state);
   if (!chunk) return Decoration.none;
-  const at = Math.min(view.state.doc.length, chunk.endB);
+  const at = extentB(view.state, chunk).to;
   const widget = new PillWidget(chunk, describe(view.state, chunk), config);
   return Decoration.set([Decoration.widget({widget, side: 1}).range(at)]);
 }
@@ -105,8 +120,9 @@ function bracketMarkers(view) {
   const markers = [];
   for (const chunk of chunks) {
     if (chunk.endB < view.viewport.from || chunk.fromB > view.viewport.to) continue;
-    const a = view.coordsAtPos(Math.min(view.state.doc.length, chunk.fromB), 1);
-    const b = view.coordsAtPos(Math.min(view.state.doc.length, Math.max(chunk.fromB, chunk.endB)), -1);
+    const ext = extentB(view.state, chunk);
+    const a = view.coordsAtPos(ext.from, 1);
+    const b = view.coordsAtPos(ext.to, -1);
     if (!a || !b) continue;
     let top = a.top, bottom = Math.max(a.bottom, b.bottom);
     // Une suppression en bloc s'affiche au-dessus, dans le widget de la
