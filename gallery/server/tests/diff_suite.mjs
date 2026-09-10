@@ -263,10 +263,12 @@ function makeModuleHarness({
   search = "",
   onMarks = null,
   onNavigate = null,
+  individualReview = false,
 } = {}) {
   const el = () => {
     const e = { style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, _children: [],
       appendChild(n) { e._children.push(n); return n; }, insertBefore(n) { e._children.push(n); return n; },
+      append(...nodes) { nodes.forEach((n) => e.appendChild(n)); },
       querySelectorAll: () => [], addEventListener() {}, dataset: {}, disabled: false,
       setAttribute(name, value) { (e._attrs ??= {})[name] = String(value); },
       getBoundingClientRect: () => ({}), onclick: null, contains: () => false };
@@ -283,6 +285,7 @@ function makeModuleHarness({
   const posts = [];
   const workers = [];
   const headRequests = [];
+  const docListeners = [];
   const body = el();
   const storage = new Map();
   if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
@@ -312,7 +315,8 @@ function makeModuleHarness({
     window: {}, console, Date, JSON, Math, Infinity, crypto: crypto.webcrypto, TextEncoder,
     URLSearchParams, location: { search },
     document: { getElementById: () => null, createElement: el, head: { appendChild() {} },
-      body, addEventListener() {}, querySelector: () => null },
+      body, addEventListener(type, fn, opts) { docListeners.push({ type, fn, opts }); },
+      querySelector: () => null },
     localStorage: {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
@@ -376,7 +380,11 @@ function makeModuleHarness({
     restoreText: async (text) => { restored.push(text); return restoreResult; },
     ...(onMarks ? { onMarks } : {}),
     ...(onNavigate ? { onNavigate } : {}),
+    ...(individualReview ? { individualReview: true } : {}),
   });
+  const fireKeydown = (e) => docListeners
+    .filter((l) => l.type === "keydown")
+    .forEach((l) => l.fn({ preventDefault() {}, stopPropagation() {}, ...e }));
   const nav = () => navPill && {
     prev: navPill._children.find((child) => child?.dataset?.d === "-1") || navPill.querySelector('[data-d="-1"]'),
     next: navPill._children.find((child) => child?.dataset?.d === "1") || navPill.querySelector('[data-d="1"]'),
@@ -389,7 +397,7 @@ function makeModuleHarness({
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
   return { ctx, cm, dv, tag, restore, restored, notes, marksLog, gutterLog, scrollLog, posts, workers, headRequests, nav, storage, setHead, filePath,
-    historyButton, historyRows };
+    historyButton, historyRows, fireKeydown };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
