@@ -86,13 +86,6 @@ async function boot() {
   // Les fixtures visuelles ne font pas partie du bundle release. Le script
   // test:visual les active explicitement pour son build de référence.
   const visualBench = import.meta.env.VITE_VISUAL_BENCH === "1";
-  if (visualBench && window.location.hash.startsWith("#assistant-ui")) {
-    const { AssistantUiBench } = await import("./components/AssistantUiBench");
-    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-      <React.StrictMode><BootBoundary><AssistantUiBench /></BootBoundary></React.StrictMode>,
-    );
-    return;
-  }
   // banc d'essai des primitives (plan 016) : #uibench court-circuite l'app.
   // Import dynamique → chunk séparé, rien n'entre dans le chemin de chargement
   // normal ; aucun besoin du sidecar, captures visuelles reproductibles.

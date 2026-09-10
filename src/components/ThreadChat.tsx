@@ -1,5 +1,5 @@
 import { useEffect, useMemo, type ComponentProps, type Dispatch, type SetStateAction } from "react";
-import Chat from "./AssistantUiChat";
+import Chat from "./Chat";
 import { useThreadEvents } from "../hooks/useThreadEvents";
 import type { ThreadEventStore } from "../lib/threadEventStore";
 import { resolvePins, type Pin } from "../lib/pins";

@@ -4054,7 +4054,6 @@ dependencies = [
  "atelier-fdlimit",
  "atelier-store",
  "atelier-workspace",
- "base64 0.22.1",
  "block2",
  "cc",
  "dirs 5.0.1",

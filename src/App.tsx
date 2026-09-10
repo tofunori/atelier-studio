@@ -1241,7 +1241,7 @@ export default function App() {
   useEffect(() => {
     if (!gallerySend || gallerySend.threadId !== activeId) return;
     if (!attachments.some(a => a.pdfAnnotation?.id === gallerySend.annotationId)) return;
-    const form = document.querySelector<HTMLFormElement>("[data-atelier-chat] form.aui-composer-root, form.composer");
+    const form = document.querySelector<HTMLFormElement>("form.composer");
     if (!form) return;
     setGallerySend(null);
     const selected = attachments.filter(a => a.pdfAnnotation?.id === gallerySend.annotationId);
@@ -2406,7 +2406,7 @@ export default function App() {
         }
         // Une interaction en attente est déjà un tour actif, même si le
         // provider n'envoie pas de `started` avant sa demande.  La projection
-        // assistant-ui traite `workingSince` comme l'horloge autoritaire :
+        // Le chat traite `workingSince` comme l'horloge autoritaire :
         // sans ce signal, le pending interaction reste un événement inerte et
         // sa carte d'approbation ne peut pas être rendue.
         if ((msg.event.kind === "interaction" && msg.event.state === "pending")
@@ -2432,7 +2432,7 @@ export default function App() {
         if (msg.event.kind === "thinking_progress") {
           // réflexion caviardée par le CLI (headless ≥2.1.8) : le compteur
           // maintient l'horloge du tour, puis passe par le réducteur afin que
-          // la projection assistant-ui puisse montrer une réflexion vide
+          // le fil puisse montrer une réflexion vide
           // native. Le réducteur compacte les marqueurs adjacents et les
           // retire au terminal : aucun compteur ni bloc vide ne s'accumule.
           const currentEvents = eventsRef.current[msg.threadId] ?? [];

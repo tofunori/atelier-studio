@@ -8,6 +8,7 @@ import "../styles/tokens.css";
 import "../styles/typeset.css";
 import "../styles/primitives.css";
 import "../App.css";
+import { Button } from "./ui";
 import Chat from "./Chat";
 import { CONSIGNES_LIVREES, type ConsigneDuFil } from "../lib/consignes";
 import type { AgentEvent } from "../lib/ws";
@@ -497,7 +498,7 @@ export function ChatBench() {
         <label>Étape <select aria-label="Étape du replay" value={replayCount} onChange={event => { setReplayCount(Number(event.target.value)); setReplayReload(false); }}>
           {replayFixture.events.map((event, index) => <option key={index} value={index + 1}>{index + 1} · {event.kind}{"status" in event ? ` · ${event.status}` : ""}</option>)}
         </select></label>
-        <button onClick={() => setReplayReload(true)}>Recharger l’historique</button>
+        <Button onClick={() => setReplayReload(true)}>Recharger l’historique</Button>
       </div>}
       <Chat
         events={activeState.events}

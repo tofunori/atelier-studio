@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode, useEffect, useState } from 'react';
+import { RowButton } from "../ui";
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import { distinctToolActions, Tick, ToolGlyph } from './toolPresentation';
@@ -73,7 +74,7 @@ function ThoughtLeaf({ text, collapsed }: { text: string; collapsed: boolean }) 
   const preview = text.replace(/\s+/g, ' ').trim();
   return (
     <div className={`activity-thought ${open ? 'open' : 'collapsed'}`}>
-      <button
+      <RowButton
         type="button"
         className="activity-thought-head"
         aria-expanded={open}
@@ -82,7 +83,7 @@ function ThoughtLeaf({ text, collapsed }: { text: string; collapsed: boolean }) 
         <ToolGlyph icon={{ cat: 'thinking' }} />
         <span className="activity-thought-preview">{preview}</span>
         <Tick open={open} />
-      </button>
+      </RowButton>
       {open && <div className="activity-thought-body">{text}</div>}
     </div>
   );

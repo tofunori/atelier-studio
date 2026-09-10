@@ -76,7 +76,8 @@ it("continue de montrer une vraie erreur fournisseur", async () => {
       event: { kind: "error", message: "Authentification fournisseur expirée", ts: Date.now() } });
     await flushMicrotasks(4);
   });
-  expect(document.querySelector(".messages .error")?.textContent).toContain("Authentification fournisseur expirée");
+  // Activité consolidée : l'erreur fournisseur vit dans la grappe (`role="alert"`).
+  expect(document.querySelector(".messages .error, .messages .activity-batch-error")?.textContent).toContain("Authentification fournisseur expirée");
 });
 
 it("ne transforme pas les accusés normaux en bandeaux d’alerte", async () => {
