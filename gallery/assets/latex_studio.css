@@ -616,33 +616,31 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
 
-/* Carte de revue flottante (variante E, 2026-09-10) : coin bas-droit du volet
-   éditeur, visible seulement pendant la revue d'un passage. Ni marge dans le
-   texte ni place dans la barre du haut. */
-#dvReview{position:absolute;right:16px;bottom:14px;z-index:6;display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:10px;
-  background:var(--card);box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-family:var(--ui-font);font-size:12px}
-#dvReview[hidden]{display:none}
-#dvReview button{height:26px;min-width:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--muted);
-  display:inline-flex;align-items:center;justify-content:center;gap:5px;font:inherit;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
-#dvReview button.dvr-chev{padding:0;width:26px}
-#dvReview button svg{flex:none}
-#dvReview button:not(:disabled):hover{background:var(--card2);color:var(--txt)}
-#dvReview button:disabled{opacity:.4;cursor:default}
-#dvReview button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-#dvReview .dvr-keep{color:#b5d3a7;background:#8caf7021}
-#dvReview .dvr-keep:not(:disabled):hover{background:#8caf7036;color:#c8e2bb}
-#dvReview .dvr-drop:not(:disabled):hover{color:#edaaa5;background:#d86c6321}
-#dvReview .dvr-count{padding:0 4px;color:var(--txt);font-variant-numeric:tabular-nums;white-space:nowrap}
-#dvReview .dvr-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
-#dvReview .dvr-hint{padding:0 6px;color:var(--muted);white-space:nowrap}
-#dvReview .dvr-undo{color:var(--muted);font-size:11px}
-#dvReview .dvr-undo:not(:disabled):hover{background:var(--card2);color:var(--txt)}
-#dvReview .dvr-last{color:var(--accent)}
-#dvReview .dvr-last:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
-#dvReview [hidden]{display:none}
-/* La dernière ligne reste lisible sous la carte. */
-#left.dv-review-on .cm-scroller{padding-bottom:56px}
-@media (prefers-reduced-motion:reduce){#dvReview button{transition:none}}
+/* Revue ancrée au passage (variante F2, 2026-09-10) : la pilule est un
+   widget inline posé après le dernier caractère du changement courant ; le
+   trait gris est une couche calculée sur les rangées visuelles du changement. */
+.cm-editor .atelier-review-pill{display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-left:8px;padding:2px 3px 2px 8px;border-radius:999px;
+  background:var(--card2);font-family:var(--ui-font);font-size:11px;line-height:1;white-space:nowrap;user-select:none}
+.cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);margin-right:4px}
+.cm-editor .atelier-review-pill .atelier-review-hint{color:var(--muted);padding:0 4px}
+.cm-editor .atelier-review-act{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border:0;border-radius:999px;background:transparent;
+  color:var(--muted);font:inherit;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.cm-editor .atelier-review-act svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.cm-editor .atelier-review-act.keep{color:#b5d3a7;background:#8caf7021}
+.cm-editor .atelier-review-act.keep:hover{background:#8caf7036;color:#c8e2bb}
+.cm-editor .atelier-review-act.drop:hover{color:#edaaa5;background:#d86c6321}
+.cm-editor .atelier-review-act.latest{color:var(--accent)}
+.cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.cm-editor .atelier-review-act:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cm-editor .atelier-review-brackets{pointer-events:none}
+.cm-editor .atelier-review-bracket{position:absolute;border-radius:2px;background:var(--border-strong,#43474c)}
+.cm-editor .atelier-review-bracket.is-current{background:var(--muted,#90969d)}
+/* Annulation transitoire : toast en bas à droite du volet éditeur, 8 s. */
+#left .dv-undo-toast{position:absolute;right:16px;bottom:14px;z-index:6;height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--card);
+  box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));color:var(--txt);font:inherit;font-size:12px;cursor:pointer}
+#left .dv-undo-toast[hidden]{display:none}
+#left .dv-undo-toast:hover{background:var(--card2)}
+@media (prefers-reduced-motion:reduce){.cm-editor .atelier-review-act{transition:none}}
 /* Decision icons live in a narrow gutter, never in the paragraph flow. */
 .cm-editor.atelier-review-gutter .cm-content{padding-left:40px}
 .cm-editor .cm-deletedChunk:has(.atelier-review-decision){position:relative;min-height:0}

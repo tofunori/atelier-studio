@@ -10,6 +10,7 @@ import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
+import {reviewAnchored, setReviewFocus} from "./review_anchored.mjs";
 
 // Décision sur un bloc du diff unifié : le texte résultant (`text`) et la
 // base ajustée (`base`) — partagé par les boutons dans le texte (gouttière)
@@ -849,12 +850,20 @@ export function createStudioEditor(parent, opts) {
       // Décision sur un bloc : même calcul pour les boutons dans le texte
       // (gouttière) et pour ceux de la barre (mode `toolbar`, variante C).
       const decideChunk = (kind, chunk) => decideMergeChunkIn(view, kind, chunk);
-      const inText = !!review?.onDecision && review.toolbar !== true;
+      const anchored = review?.anchored === true;
+      const inText = !!review?.onDecision && review.toolbar !== true && !anchored;
       view.dispatch({effects: mergeDiffComp.reconfigure([
         // WebKit native selection can paint recycled deletion widgets on scroll.
         // Draw only the editor state selection while the merge view is active.
         drawSelection(), EditorView.editorAttributes.of({class: "cm-review-selection"}),
         ...(inText ? [reviewGutter, EditorView.editorAttributes.of({class: "atelier-review-gutter"})] : []),
+        // Variante F2 : pilule sur le passage courant + trait en rangées visuelles.
+        ...(anchored ? [reviewAnchored({
+          onDecision: review.onDecision ? (decision) => void review.onDecision(decision) : null,
+          decide: (kind, chunk) => decideMergeChunkIn(view, kind, chunk),
+          readOnly: !review.onDecision,
+          onLatest: review.onLatest || null,
+        })] : []),
         unifiedMergeView({
         original: String(original ?? ""),
         highlightChanges: true,
@@ -905,6 +914,8 @@ export function createStudioEditor(parent, opts) {
       return decideMergeChunkIn(view, kind, chunk);
     },
     hideMergeDiff: () => view.dispatch({effects: mergeDiffComp.reconfigure([])}),
+    /** Revue ancrée : désigne le changement courant (offset du document B). */
+    setReviewFocus: (ch) => { try { view.dispatch({effects: setReviewFocus.of(ch)}); } catch (e) { /* revue fermée */ } },
     nextMergeDiff: () => goToNextChunk(view),
     previousMergeDiff: () => goToPreviousChunk(view),
     // --- keymaps/commands/events ---

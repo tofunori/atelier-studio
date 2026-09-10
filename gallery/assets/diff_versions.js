@@ -646,7 +646,11 @@ window.DiffVersions = function(opts){
       cancelRender();
       // Variante E (2026-09-10) : les décisions vivent dans une carte flottante
       // du volet éditeur ; `toolbar: true` = ni gouttière ni bouton dans le texte.
-      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true, toolbar: true} : undefined) || [];
+      // Variante F2 (2026-09-10) : décision ancrée au passage (pilule inline +
+      // trait en rangées visuelles) ; ni gouttière, ni carte, ni barre.
+      changePts = cm.showMergeDiff(v.before, individualReview
+        ? {onDecision: !tt ? decideReview : null, individual: true, anchored: true, onLatest: () => showStep(interList().length - 1)}
+        : undefined) || [];
       changeAt = 0;
       if(changePts.length){
         const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
@@ -666,6 +670,7 @@ window.DiffVersions = function(opts){
       // (vécu 2026-09-10). Recentrer sur le premier bloc du passage à chaque
       // ouverture ; « tout » garde le bloc le plus proche du curseur.
       if(changePts.length) gotoChange(individualReview ? 0 : changeAt, true);
+      else if(typeof cm.setReviewFocus === "function") cm.setReviewFocus(null);
       nativeShown = true;
     }
     const wsn = s => s.replace(/\s+/g, " ").trim();
@@ -847,75 +852,14 @@ window.DiffVersions = function(opts){
   try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
-  // ---- Variante E : carte de revue flottante (coin bas-droit du volet éditeur) ----
-  let reviewCard = null, reviewCardHost = null, cardCount = null, cardPrev = null, cardNext = null, cardKeep = null, cardDrop = null, cardLast = null, cardHint = null;
-  const SVG = (d) => '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
-  function reviewHost(){
+  // ---- Annulation transitoire (toast dans le volet éditeur) ----
+  let undoHost = null;
+  function undoToastHost(){
     const cm = getCm();
     let wrap = null;
     try{ wrap = typeof cm?.getWrapperElement === "function" ? cm.getWrapperElement() : null; }catch(e){ wrap = null; }
     if(!wrap) return null;
     return (typeof wrap.closest === "function" && wrap.closest("#left")) || wrap.parentElement || null;
-  }
-  function ensureReviewCard(){
-    if(reviewCard || !individualReview) return reviewCard;
-    const host = reviewHost();
-    if(!host || typeof host.appendChild !== "function") return null;
-    const card = document.createElement("div");
-    card.id = "dvReview"; card.setAttribute("role", "toolbar"); card.setAttribute("aria-label", "Revue du passage");
-    card.hidden = true;
-    const mk = (cls, html, label, title) => {
-      const b = document.createElement("button");
-      b.type = "button"; b.className = cls; b.innerHTML = html;
-      b.setAttribute("aria-label", label); b.title = title || label;
-      b.onmousedown = (e) => e.preventDefault();
-      return b;
-    };
-    cardPrev = mk("dvr-chev", SVG("M15 6l-6 6 6 6"), "Bloc précédent", "Bloc précédent (⌥↑)");
-    cardCount = document.createElement("span"); cardCount.className = "dvr-count"; cardCount.setAttribute("aria-live", "polite");
-    cardNext = mk("dvr-chev", SVG("M9 6l6 6-6 6"), "Bloc suivant", "Bloc suivant (⌥↓)");
-    cardKeep = mk("dvr-keep", SVG("M5 12l5 5L20 7") + "<span>Garder</span>", "Garder", "Garder ce bloc (⌥↩)");
-    cardDrop = mk("dvr-drop", SVG("M6 6l12 12M18 6L6 18") + "<span>Ignorer</span>", "Ignorer", "Ignorer ce bloc (⌥⌫)");
-    const sep = () => { const x = document.createElement("span"); x.className = "dvr-sep"; x.setAttribute("aria-hidden", "true"); return x; };
-    // Intervention passée (vue historique) : on ne décide que sur la dernière —
-    // le dire, et offrir le raccourci, plutôt que de faire disparaître les
-    // contrôles sans explication (Thierry 2026-09-10, « des fois ça marche »).
-    cardHint = document.createElement("span"); cardHint.className = "dvr-hint"; cardHint.textContent = "Lecture seule";
-    cardHint.title = "Une intervention passée se relit, elle ne se décide pas : les décisions portent sur la dernière";
-    cardLast = mk("dvr-last", "<span>Dernière intervention</span>" + SVG("M9 6l6 6-6 6"), "Dernière intervention", "Aller à la dernière intervention pour décider (⌥→)");
-    cardLast.onclick = () => showStep(interList().length - 1);
-    card.append(cardPrev, cardCount, cardNext, sep(), cardKeep, cardDrop, cardHint, cardLast);
-    // L'annulation appartient à la décision qui vient d'être prise : elle vit
-    // dans la carte, pas en bouton flottant permanent dans le coin (Thierry
-    // 2026-09-10, « il reste toujours un bouton Annuler »).
-    if(undoButton){ undoButton.className = "dvr-undo"; card.appendChild(undoButton); }
-    cardPrev.onclick = () => gotoChange(changeAt - 1, true);
-    cardNext.onclick = () => gotoChange(changeAt + 1, true);
-    cardKeep.onclick = () => decideCurrent("accept");
-    cardDrop.onclick = () => decideCurrent("reject");
-    host.appendChild(card);
-    reviewCard = card; reviewCardHost = host;
-    return card;
-  }
-  function updateReviewCard(){
-    if(!individualReview) return;
-    const on = shown && changePts.length > 0;
-    const readOnly = on && !!tt;
-    const card = on ? ensureReviewCard() : reviewCard;
-    if(!card) return;
-    card.hidden = !on;
-    card.classList.toggle("is-readonly", readOnly);
-    if(reviewCardHost?.classList) reviewCardHost.classList.toggle("dv-review-on", on);
-    if(!on) return;
-    const k = Math.max(0, Math.min(changePts.length - 1, changeAt));
-    cardCount.textContent = (k + 1) + "/" + changePts.length;
-    cardCount.title = "Bloc " + (k + 1) + " sur " + changePts.length + " de cette intervention";
-    cardPrev.disabled = reviewBusy || k <= 0;
-    cardNext.disabled = reviewBusy || k >= changePts.length - 1;
-    cardKeep.disabled = reviewBusy || readOnly; cardDrop.disabled = reviewBusy || readOnly;
-    cardKeep.hidden = readOnly; cardDrop.hidden = readOnly;
-    cardHint.hidden = !readOnly; cardLast.hidden = !readOnly;
-    cardLast.disabled = reviewBusy;
   }
   /** Décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) sans bouton dans le texte. */
   function decideCurrent(kind){
@@ -931,6 +875,10 @@ window.DiffVersions = function(opts){
    * s'efface au bout de quelques secondes, à la navigation et à la fermeture. */
   function showUndo(){
     if(!undoButton) return;
+    if(!undoButton.parentElement || !undoHost){
+      undoHost = undoToastHost();
+      if(undoHost && typeof undoHost.appendChild === "function"){ undoButton.className = "dv-undo-toast"; undoHost.appendChild(undoButton); }
+    }
     undoButton.hidden = false;
     if(undoTimer) clearTimeout(undoTimer);
     undoTimer = setTimeout(() => { undoTimer = null; if(undoButton) undoButton.hidden = true; }, UNDO_GRACE_MS);
@@ -972,7 +920,7 @@ window.DiffVersions = function(opts){
       }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
       showStep(interList().findIndex(it=>it.id === undo.id));
     };
-    // Pas d'ajout à la barre : la carte de revue l'accueille (ensureReviewCard).
+    // Pas d'ajout à la barre : monté comme toast dans le volet éditeur (showUndo).
   }
   const acceptAllButton = individualReview && els.group ? document.createElement("button") : null;
   if(acceptAllButton){
@@ -1108,6 +1056,7 @@ window.DiffVersions = function(opts){
       updateNav();
       return;
     }
+    if(typeof cm.setReviewFocus === "function") cm.setReviewFocus(target.ch);
     cm.scrollIntoView(target.pos, 120);
     if(flash) flashAt(target.pos);
     updateNav();
@@ -1371,7 +1320,6 @@ window.DiffVersions = function(opts){
       els.tag.setAttribute("aria-pressed", String(shown));
       if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
       if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
-      updateReviewCard();
       return;
     }
     if(!navPill) return;
