@@ -26,7 +26,7 @@ import {
   type ReviewState,
 } from "./turns";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
-import { EditLine, ActivityCard, LiveThinking, formatPermInput } from "./turnParts";
+import { EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { deriveChangedFiles } from "./changedFiles";
 import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
@@ -48,7 +48,8 @@ import {
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
 import { TimelineStamp } from "./TimelineStamp";
-import { ActivityBatch } from './ActivityBatch';
+import { ActivityStep } from './ActivityBatch';
+import { activeTurnStatus } from './activeTurnStatus';
 
 // Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
 // chaque render relance l'animation de suivi en boucle et elle n'atteint
@@ -78,7 +79,11 @@ export type TimelineVirtualItem =
   // turnViewModel) pour rester un changement local à ce fichier ; sameVirtualRow
   // (virtualRows.ts) le compare explicitement pour qu'un flip invalide le cache.
   | { type: "rendered"; key: string; item: RenderedItem; beforeActiveTail?: boolean }
-  | { type: "working"; key: "message-working" };
+  | { type: "working"; key: "message-working" }
+  // Statut vivant du tour quand aucune étape d'activité ne peut le porter
+  // (réflexion seule, tout début de tour) : il vit DANS le flux, plus dans un
+  // dock au-dessus du composeur (spec « grappes d'activité », 2026-09-10).
+  | { type: "live-status"; key: "message-live-status" };
 
 export type TimelineThread = {
   threadId: string | null;
@@ -278,7 +283,7 @@ export function ChatTimeline(p: {
 
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
-    renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups,
+    renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent,
   } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
@@ -364,47 +369,6 @@ export function ChatTimeline(p: {
   void onQuote; void openFolds; // utilisés par des handlers/branches copiés verbatim
   const timelineListRef = React.useRef<LegendListRef>(null);
   const timelineWrapRef = React.useRef<HTMLDivElement>(null);
-  const activityDockRef = React.useRef<HTMLDivElement>(null);
-  const activityAnchorRef = React.useRef<HTMLDivElement>(null);
-  const activityFooter = React.useMemo(() => workingSince == null ? null
-    : <div ref={activityAnchorRef} className="activity-flow-anchor" aria-hidden="true" />,
-  [workingSince != null]);
-  // Keep the scroll viewport stable. Lift only the activity into unused space
-  // after a short transcript; overflowing conversations keep the dock visible.
-  React.useLayoutEffect(() => {
-    const dock = activityDockRef.current;
-    const messages = messagesRef.current ?? timelineWrapRef.current?.querySelector<HTMLDivElement>(".messages");
-    if (!dock || !messages) return;
-    let frame = 0;
-    let lift = 0;
-    const measure = () => {
-      frame = 0;
-      const anchor = activityAnchorRef.current;
-      if (!anchor) return;
-      const baseTop = dock.getBoundingClientRect().top - lift;
-      const targetTop = anchor.getBoundingClientRect().bottom + 8;
-      lift = messages.scrollHeight <= messages.clientHeight + 1
-        ? Math.min(0, targetTop - baseTop) : 0;
-      dock.style.transform = `translateY(${lift}px)`;
-    };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(messages);
-    observer.observe(dock);
-    const content = messages.querySelector(".legend-list-content-container");
-    if (content) observer.observe(content);
-    const mutations = new MutationObserver(schedule);
-    mutations.observe(messages, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
-    messages.addEventListener("scroll", schedule, { passive: true });
-    schedule();
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-      messages.removeEventListener("scroll", schedule);
-      cancelAnimationFrame(frame);
-      dock.style.transform = "";
-    };
-  }, [threadId, workingSince != null, messagesRef]);
   const [autoFollow, setAutoFollow] = React.useState(true);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
   const [isFirstTurnSettling, setIsFirstTurnSettling] = React.useState(false);
@@ -416,13 +380,34 @@ export function ChatTimeline(p: {
   );
   const activeMessageStart = activeTail?.turn.startIndex ?? null;
   const activeMessageEnd = activeTail?.turn.endIndex ?? null;
+  // Étape VIVANTE du tour : le dernier item `actions` du tour actif. C'est
+  // elle qui porte le statut ; sans elle (réflexion seule au démarrage) une
+  // rangée de statut ferme le tour dans le flux. Jamais les deux à la fois.
+  const activeStepKey = React.useMemo<string | null>(() => {
+    if (workingSince == null || latestTurnSettled || !activeTail) return null;
+    const start = activeTail.turn.startIndex;
+    let key: string | null = null;
+    for (const item of renderedEvents) {
+      if (item.type === "actions" && item.index >= start) key = timelineRowKey(item);
+    }
+    return key;
+  }, [renderedEvents, workingSince, latestTurnSettled, activeTail]);
+  const activeStatus = React.useMemo(
+    () => (activeTail && workingSince != null && !latestTurnSettled ? activeTurnStatus(activeTail.turn, events) : null),
+    [activeTail, workingSince, latestTurnSettled, events],
+  );
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
     for (const item of renderedEvents) {
-      // Live status belongs to the composer dock, never to virtualized rows.
-      if (item.type === "active-turn-tail" || item.type === "active-turn-header") continue;
+      // Le chrono du header ferait doublon avec celui de la ligne de statut.
+      if (item.type === "active-turn-header") continue;
+      // Une étape vivante porte déjà le statut : pas de seconde ligne vivante.
+      if (item.type === "active-turn-tail" && activeStepKey != null) continue;
       rows.push({ type: "rendered", key: timelineRowKey(item), item });
+    }
+    if (workingSince != null && !latestTurnSettled && !activeTail && activeStepKey == null) {
+      rows.push({ type: "live-status", key: "message-live-status" });
     }
     const thoughtAlreadyInTranscript = renderedEvents.some((item) => item.type === "actions" && item.actions.some((action) => action.name === "__thinking-step"));
     if (workingSince != null && liveThought && !thoughtAlreadyInTranscript && !renderedEvents.some((item) => item.type === "active-turn-header")) {
@@ -450,7 +435,7 @@ export function ChatTimeline(p: {
       stable.filter((r) => r.type === "rendered").map((r) => [r.key, r]),
     );
     return stable;
-  }, [events.length, renderedEvents, threadId, workingSince, liveThought, p.empty.home]);
+  }, [events.length, renderedEvents, threadId, workingSince, liveThought, p.empty.home, activeStepKey, activeTail, latestTurnSettled]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
   const derniereLigneTravail = React.useMemo(() => {
@@ -491,7 +476,9 @@ export function ChatTimeline(p: {
     activeMessageStart,
     activeMessageEnd,
     lastEventAt: p.thread.lastEventAt,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex]);
+    activeStepKey,
+    activeStatusLabel: activeStatus?.label ?? null,
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -864,7 +851,6 @@ export function ChatTimeline(p: {
         key={threadId ?? "atelier-home"}
         ref={timelineListRef}
         data={virtualItems}
-        ListFooterComponent={activityFooter}
         extraData={listExtraData}
         // sans itemsAreEqual, LegendList updateData() même à identité égale
         itemsAreEqual={(a, b) => a === b}
@@ -913,6 +899,15 @@ export function ChatTimeline(p: {
                 onOpenProject={onOpenProject}
               />
             )}
+              </div>
+            );
+          }
+          if (row.type === "live-status") {
+            return (
+              <div className="timeline-virtual-row" id="message-live-status" data-message-id="message-live-status">
+                <div className="working-stack active-turn-tail">
+                  <TurnActivityStatus label={t("chat.turn-active")} kind="thinking" since={workingSince ?? Date.now()} />
+                </div>
               </div>
             );
           }
@@ -990,7 +985,18 @@ export function ChatTimeline(p: {
             return <ActiveTurnTail key={item.key} turn={item.turn} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />;
           }
           if (item.type === "actions") {
-            return <ActivityBatch key={item.key} actions={item.actions}
+            const isActiveStep = activeStepKey === row.key;
+            return <ActivityStep key={item.key} actions={item.actions} plugins={plugins}
+              open={openToolGroups.has(row.key)}
+              onToggle={() => setOpenToolGroups((prev) => {
+                const next = new Set(prev);
+                if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
+                return next;
+              })}
+              active={isActiveStep}
+              liveLabel={isActiveStep ? activeStatus?.label : undefined}
+              liveKind={isActiveStep ? activeStatus?.kind : undefined}
+              liveSince={workingSince ?? undefined}
               hideThinking={penseeMasquee} thinkingCollapsed={penseeRepliee} threadId={threadId}
               onOpenAgent={onOpenAgent} renderToolLine={renderToolLine} />;
           }
@@ -1202,6 +1208,8 @@ export function ChatTimeline(p: {
         label={t("chat.jump-bottom")}
         show={isScrolledFromBottom}
         working={workingSince != null}
+        elapsed={workingSince != null && !latestTurnSettled
+          ? <Working since={workingSince} compact /> : undefined}
         onClick={scrollToBottom}
       />
       {margeEntries.length > 0 && (
@@ -1309,13 +1317,6 @@ export function ChatTimeline(p: {
         <div className="atelier-chat-note" ref={annoEditorRef} role="dialog" aria-label={t("chat.annotate")} style={{left:noteDraft.x,top:noteDraft.y-44}} />
       )}
       </div>
-      {workingSince != null && !latestTurnSettled && (
-        <div ref={activityDockRef} className="chat-activity-dock">
-          {activeTail
-            ? <ActiveTurnTail turn={activeTail.turn} since={workingSince} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />
-            : <TurnActivityStatus label={t("chat.turn-active")} kind="thinking" since={workingSince} />}
-        </div>
-      )}
     </>
   );
 }

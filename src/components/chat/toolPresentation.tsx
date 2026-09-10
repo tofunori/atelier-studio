@@ -189,6 +189,27 @@ export function fmtToolDur(ms: number): string {
   return rs ? `${m} min ${rs} s` : `${m} min`;
 }
 
+/** Nom porté par l'input d'un appel : le fichier, le motif, ou la première
+ * ligne de la commande. Sert à nommer une rangée dont le libellé sémantique
+ * reste générique (« Commande exécutée ») — `semanticActivity` reste la source
+ * du libellé, ce n'en est que le complément nominal. */
+export function toolInputName(input: unknown): string {
+  if (input == null || typeof input !== "object") return "";
+  const o = input as Record<string, unknown>;
+  const text = (key: string) => (typeof o[key] === "string" ? (o[key] as string).trim() : "");
+  for (const key of ["path", "file_path", "notebook_path"]) {
+    const value = text(key);
+    if (value) return value.split(/[/\\]/u).pop() || value;
+  }
+  for (const key of ["pattern", "glob"]) {
+    const value = text(key);
+    if (value) return value;
+  }
+  const command = text("command").split("\n")[0]?.trim() ?? "";
+  if (command) return command.length > 60 ? `${command.slice(0, 59)}…` : command;
+  return "";
+}
+
 export const ToolOutputLine = memo(function ToolOutputLine(
   { event, expanded, onExpandedChange, compact = false, preview }: {
     event: Extract<AgentEvent, { kind: "tool_update" }>;
@@ -212,6 +233,11 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const open = expanded ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
+  // Rangée compacte : le libellé sémantique d'abord, complété par le NOM que
+  // porte l'input quand ce libellé reste générique (« Commande exécutée »).
+  const compactLabel = compact ? summarizeActivity([event]).label : "";
+  const compactTarget = compact ? toolInputName(event.input) : "";
+  const compactNamed = Boolean(compactTarget) && !compactLabel.toLowerCase().includes(compactTarget.toLowerCase());
   const trimmedOutput = output.trim();
   // Requêtes d'une recherche web (Rust web_search_update → input.queries) :
   // une seule requête tient déjà dans le résumé de la ligne, donc pas de pilule.
@@ -233,7 +259,8 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           <ToolGlyph icon={icon} />
         </span>
         <span className="tool-output-name">
-          {compact ? summarizeActivity([event]).label : eventLabel(event.name)}
+          {compact ? compactLabel : eventLabel(event.name)}
+          {compactNamed ? <span className="tool-output-target">{compactTarget}</span> : null}
           {!compact && event.source ? <span className="tool-source">{event.source}</span> : null}
         </span>
         {!compact && summary && <span className="tool-output-summary">{summary}</span>}
@@ -243,10 +270,14 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {event.durationMs != null && event.durationMs > 0 && (
           <span className="tool-duration">{fmtToolDur(event.durationMs)}</span>
         )}
-        {event.status && (
+        {/* La COULEUR est réservée à l'échec (système de design) : une action
+            réussie n'a qu'une coche, sans le mot d'état brut du provider. */}
+        {event.status && (outcome !== "running" || !compact) && (
           <span className="tool-status">
             {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
-            {event.status}
+            {compact
+              ? (failed ? t("chat.action-failed") : outcome === "done" ? null : event.status)
+              : event.status}
           </span>
         )}
         {compact && <Tick open={open} />}

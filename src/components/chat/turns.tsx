@@ -17,10 +17,7 @@ import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnParts";
 import type { ChangedFile } from "./changedFiles";
-import {
-  activityIconForAction, toolOutcome,
-  distinctToolActions, summarizeActivity, tickerRows,
-} from "./toolPresentation";
+import { summarizeActivity } from "./toolPresentation";
 import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip, showError, showSuccess } from "../ui";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
@@ -580,66 +577,5 @@ export function TurnActivityStatus({ label, since, kind = "processing" }: { labe
         </span>
       <Working since={since} compact />
     </div>
-  );
-}
-
-export function ActivityGroup(p: {
-  actions: ToolAction[];
-  plugins?: PluginCatalogEntry[];
-  open: boolean;
-  onToggle: () => void;
-  renderToolLine: (action: ToolAction, offset: number) => ReactNode;
-  stamp?: ReactNode;
-  /** run EN COURS du tour actif : la ligne tique au lieu d'afficher un résumé
-   * figé. C'est la ligne du run qui vit (parti pris Hermes) — il n'existe pas
-   * d'autre endroit où l'action courante s'affiche, donc jamais de doublon. */
-  live?: boolean;
-  /** Étape courante du tour, y compris la pause entre deux outils. */
-  active?: boolean;
-  /** dernière action REÇUE, même terminée : entre deux outils rapides, plus
-   * rien n'est « en cours » et le fil paraissait mort (Thierry 2026-08-21). */
-}) {
-  const distinctActions = distinctToolActions(p.actions);
-  const summary = summarizeActivity(distinctActions, p.plugins);
-  const updates = distinctActions.filter((a): a is Extract<AgentEvent, { kind: "tool_update" }> => a.kind === "tool_update");
-  const failed = updates.some((a) => toolOutcome(a) === "failed");
-  const running = (p.live && distinctActions.some(a => a.kind === "tool")) || updates.some((a) => toolOutcome(a) === "running");
-  const status = failed ? "failed" : running ? "running" : "completed";
-  // Seul le libellé attend un court moment stable. Les appels, les sorties,
-  // le statut et les erreurs restent toujours ceux des événements reçus.
-  const activeActions = distinctActions.filter(action => action.kind === "tool" || toolOutcome(action) === "running");
-  const current = activeActions[activeActions.length - 1] ?? distinctActions[distinctActions.length - 1];
-  const currentRows = tickerRows(current ? [current] : []);
-  const nextPresentation = {
-    key: p.live ? `live:${currentRows[0]?.label}` : `summary:${summary.label}`,
-    live: Boolean(p.live),
-    rows: currentRows,
-    label: summary.label,
-    icon: p.live && current ? activityIconForAction(current, p.plugins) : summary.icon,
-  };
-  const nextPresentationRef = useRef(nextPresentation);
-  nextPresentationRef.current = nextPresentation;
-  const [presentation, setPresentation] = useState(nextPresentation);
-  const presentationTimer = useRef<number | null>(null);
-  useEffect(() => {
-    if (presentationTimer.current != null || nextPresentation.key === presentation.key) return;
-    presentationTimer.current = window.setTimeout(() => {
-      presentationTimer.current = null;
-      setPresentation(nextPresentationRef.current);
-    }, 160);
-  }, [nextPresentation.key, presentation.key]);
-  useEffect(() => () => {
-    if (presentationTimer.current != null) window.clearTimeout(presentationTimer.current);
-  }, []);
-  return (
-    <ActivityDisclosure open={p.open} onToggle={p.onToggle} status={status}
-      shimmer={p.active ?? (Boolean(p.live) && presentation.live)}
-      icon={presentation.icon}
-      label={<ToolRunTicker rows={presentation.live ? presentation.rows : [{ key: "summary", label: presentation.label }]} />}
-      meta={p.stamp}>
-        <div className="tool-group-list">
-          {distinctActions.map((action, offset) => p.renderToolLine(action, offset))}
-        </div>
-    </ActivityDisclosure>
   );
 }

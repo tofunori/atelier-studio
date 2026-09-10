@@ -232,14 +232,15 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     const { rerender } = renderUi(
       <Chat {...chatProps({ workingSince: FIXED_TS, events: [events.user(), events.tool({ id: "live", status: "inProgress", detail: "en cours" })] })} />,
     );
-    expect(document.querySelector(".chat-activity-dock")).toBeTruthy();
-    expect(document.querySelector(".active-turn-tail .turn-tail-row")).toBeTruthy();
+    // Le statut vivant vit dans le fil, plus dans un dock au-dessus du composeur.
+    expect(document.querySelector(".chat-activity-dock")).toBeNull();
+    expect(document.querySelector(".timeline-scroll-wrap .active-turn-tail .turn-tail-row")).toBeTruthy();
     expect(document.querySelector(".tool-output-head")).toBeTruthy();
     expect(document.querySelector(".working-spin")).toBeNull();
 
     rerender(<Chat {...chatProps({ workingSince: null, events: makeTurnEvents() })} />);
     expect(document.querySelector(".working")).toBeNull();
-    expect(document.querySelector(".chat-activity-dock")).toBeNull();
+    expect(document.querySelector(".turn-tail-row")).toBeNull();
     expect(document.querySelector(".ui-activity.is-summary")).toBeTruthy();
     expect(document.querySelector(".done")).toBeTruthy();
     expect(document.querySelector("#last-done")).toBeTruthy();

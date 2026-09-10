@@ -98,7 +98,8 @@ describe("anatomie du tour — header d'activité", () => {
       workingSince: FIXED_TS,
       events: [events.user("Fil B", FIXED_TS), events.tool({ id: "shared-tool", status: "inProgress" })],
     })} />);
-    expect(document.querySelector(".chat-activity-dock")).toBeTruthy();
+    expect(document.querySelector(".timeline-scroll-wrap .turn-tail-row")).toBeTruthy();
+    expect(document.querySelector(".chat-activity-dock")).toBeNull();
 
     // Revenir à l'historique ne doit pas interpréter sa première observation
     // terminale comme une transition active→terminal.
@@ -131,9 +132,14 @@ describe("anatomie du tour — header d'activité", () => {
     view.rerender(<Chat {...chatProps({ events: [user, a, { ...b, status: "completed" } as AgentEvent], workingSince: FIXED_TS })} />);
     expect(document.querySelector(".activity-action-list")).toBe(group);
     expect(group.querySelectorAll(".tool-output")).toHaveLength(2);
+    // Au TROISIÈME outil l'étape se replie en une ligne de synthèse : les
+    // rangées détaillées restent à un clic (spec « grappes d'activité »).
     view.rerender(<Chat {...chatProps({ events: [user, a, b, events.tool({ id: "c", status: "inProgress" })], workingSince: FIXED_TS })} />);
-    expect(document.querySelector(".activity-action-list")).toBe(group);
-    expect(group.querySelectorAll(".tool-output")).toHaveLength(3);
+    expect(document.querySelector(".activity-action-list")).toBeNull();
+    const trigger = document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement;
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+    expect(document.querySelectorAll(".activity-action-list .tool-output")).toHaveLength(3);
     expect(document.querySelector(".active-turn-tail .ui-activity")).toBeNull();
   });
 
@@ -427,28 +433,32 @@ describe("anatomie du tour — header d'activité", () => {
     const base = chatProps({ workingSince: FIXED_TS });
     const user = events.user("Analyse.", FIXED_TS);
     const view = renderUi(<Chat {...base} events={[user]} />);
-    const status = document.querySelector(".active-turn-tail [role=status]");
-    expect(status?.closest(".chat-activity-dock")).toBeTruthy();
-    expect(status?.closest(".timeline-scroll-wrap")).toBeNull();
+    // Le statut vivant vit DANS le fil (plus de dock au-dessus du composeur)
+    // et il n'en existe jamais qu'une seule instance à la fois.
+    const liveStatus = () => document.querySelector(".active-turn-tail [role=status]");
+    const status = liveStatus();
+    expect(document.querySelector(".chat-activity-dock")).toBeNull();
+    expect(status?.closest(".timeline-scroll-wrap")).toBeTruthy();
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
     expect(status?.textContent).toContain("Réflexion en cours");
     const read = events.tool({ id: "read", status: "inProgress" });
     const image = events.tool({ id: "image", name: "view_image", status: "inProgress" });
     view.rerender(<Chat {...base} events={[user, read, image]} />);
-    expect(status?.textContent).toBe("2 actions en cours…");
-    expect(document.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(liveStatus()?.textContent).toBe("2 actions en cours…");
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
     view.rerender(<Chat {...base} events={[user,
       events.tool({ id: "read", status: "completed" }), image]} />);
-    expect(status?.textContent).not.toContain("Réflexion en cours");
-    expect(status?.textContent).not.toContain("2 actions");
+    expect(liveStatus()?.textContent).not.toContain("Réflexion en cours");
+    expect(liveStatus()?.textContent).not.toContain("2 actions");
     view.rerender(<Chat {...base} events={[user,
       events.tool({ id: "read", status: "completed" }),
       events.tool({ id: "image", name: "view_image", status: "completed" })]} />);
-    expect(status?.textContent).toContain("Réflexion en cours");
+    expect(liveStatus()?.textContent).toContain("Réflexion en cours");
     view.rerender(<Chat {...base} events={[user,
       { kind: "permission", requestId: "approval", toolName: "Bash", answered: null }]} />);
-    expect(status?.textContent).toBe("En attente de votre réponse");
-    expect(status?.classList.contains("turn-working-shimmer")).toBe(true);
-    expect(document.querySelector(".active-turn-tail [role=status]")).toBe(status);
+    expect(liveStatus()?.textContent).toBe("En attente de votre réponse");
+    expect(liveStatus()?.classList.contains("turn-working-shimmer")).toBe(true);
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
   });
 
   it("conserve le statut actif au remontage et le retire à la fin", () => {
@@ -473,7 +483,7 @@ describe("anatomie du tour — header d'activité", () => {
       events.done({ ts: FIXED_TS + 700 }),
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
-    expect(document.querySelector(".chat-activity-dock [role=status]")).toBeNull();
+    expect(document.querySelector(".active-turn-tail [role=status]")).toBeNull();
     expect(document.querySelector(".active-turn-tail")).toBeNull();
     expect(document.querySelector(".assistant-message .msg-actions")).toBeTruthy();
   });
@@ -545,11 +555,13 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const working = document.querySelector(".chat-activity-dock .turn-activity-elapsed") as HTMLElement;
+    const working = document.querySelector(".timeline-scroll-wrap .turn-activity-elapsed") as HTMLElement;
     expect(working).toBeTruthy();
-    expect(document.querySelectorAll(".turn-activity-elapsed")).toHaveLength(1);
+    // Un seul chrono dans le FIL (celui de la pastille « retour en bas » ne
+    // s'affiche qu'une fois remonté, hors du fil).
+    expect(document.querySelectorAll(".turn-tail-row .turn-activity-elapsed")).toHaveLength(1);
     expect(document.querySelector(".active-turn-header")).toBeNull();
-    // Le chronomètre partage le dock, sans ancien carré ni séparateur.
+    // Le chronomètre vit sur la ligne de statut, sans ancien carré ni séparateur.
     expect(working.textContent).not.toContain("Travaille depuis");
     expect(working.textContent).toMatch(/\d/);
     expect(working.querySelector(".working-spin")).toBeNull();
@@ -655,6 +667,9 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "thinking_live", text: "Je vérifie…", ts: FIXED_TS + 200 } as AgentEvent,
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    // Trois lectures : l'étape se replie en une ligne ; le détail reste à un clic.
+    expect(document.querySelectorAll(".activity-action-list")).toHaveLength(0);
+    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelectorAll(".activity-action-list")).toHaveLength(1);
     const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(3);
@@ -684,10 +699,13 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    const activity = document.querySelector(".activity-action-list") as HTMLElement;
-    expect(activity).toBeTruthy();
+    // Huit outils ne font plus huit rangées : une synthèse et UNE ligne vivante.
+    expect(document.querySelector(".activity-action-list")).toBeNull();
     expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(0);
-    expect(activity.textContent?.toLowerCase()).toContain("file-7.ts");
+    const live = document.querySelector(".active-turn-tail [role=status]") as HTMLElement;
+    expect(live.textContent?.toLowerCase()).toContain("file-7.ts");
+    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
+    const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(8);
     fireEvent.click(activity.querySelector(".tool-output-head:last-of-type") as HTMLButtonElement);
     expect(activity.querySelectorAll(".tool-output.open")).toHaveLength(1);
@@ -828,6 +846,7 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
+    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
     const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity).toBeTruthy();
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(3);

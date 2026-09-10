@@ -445,3 +445,37 @@ describe("pilules de requêtes de recherche web", () => {
     expect(screen.queryByTestId("tool-query-chips")).toBeNull();
   });
 });
+
+describe("ToolOutputLine — rangée compacte", () => {
+  const update = (extra: Record<string, unknown>) => ({
+    kind: "tool_update", id: "x", name: "Bash", status: "completed", output: "",
+    ...extra,
+  } as AgentEvent as Extract<AgentEvent, { kind: "tool_update" }>);
+
+  it("n'affiche pas le mot d'état d'une action réussie, seulement la coche", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ name: "Read", input: { file_path: "/a/b/App.tsx" } })} />);
+    expect(container.textContent).not.toContain("completed");
+    expect(container.querySelector(".tool-status-icon")).toBeTruthy();
+  });
+
+  it("nomme la cible quand le libellé sémantique reste générique", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ input: { command: "npm run build --silent" } })} />);
+    expect(container.querySelector(".tool-output-target")?.textContent).toBe("npm run build --silent");
+  });
+
+  it("nomme le motif d'une recherche", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ name: "Grep", input: { pattern: "albedo" } })} />);
+    expect(container.querySelector(".tool-output-target")?.textContent).toBe("albedo");
+  });
+
+  it("un échec garde son libellé, seul élément coloré de la rangée", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ status: "failed", exitCode: 2 })} />);
+    expect(container.querySelector(".tool-status")?.textContent).toBe(t("chat.action-failed"));
+    expect(container.querySelector(".tool-output")).toHaveClass("failed");
+  });
+
+  it("affiche la durée en compact", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ durationMs: 2400 })} />);
+    expect(container.querySelector(".tool-duration")?.textContent).toBe("2,4 s");
+  });
+});

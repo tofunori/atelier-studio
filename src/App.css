@@ -204,13 +204,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   --chat-col: min(var(--chat-w, 760px), 92cqw);
   --chat-activity-font-size: 13px; }
 .timeline-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.chat-activity-dock { flex: 0 0 auto; width: calc(100% - 32px);
-  max-width: var(--chat-col, 760px); margin: 0 auto; padding: 6px 0;
-  background: var(--bg); }
-.chat-activity-dock .working-stack { width: 100%; max-width: none; margin: 0; }
-.chat-activity-dock .stop-hint { flex: 0 0 auto; }
-.chat-activity-dock .turn-quiet { min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
+/* Le dock d'activité au-dessus du composeur est SUPPRIMÉ (spec « grappes
+   d'activité », 2026-09-10) : le statut vivant vit dans le fil, porté par
+   l'étape en cours ou par une rangée de fin de tour. */
 /* gouttières horizontales SYMÉTRIQUES (40 px) : la colonne est centrée par
    `margin: 0 auto` dans la boîte de contenu de .messages, or le composer est
    centré sur .chat-primary. Une fois --chat-col plafonné, les deux blocs font
@@ -517,6 +513,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tool-exit { color: var(--u-hot, #e06c75); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.tool-output-target { margin-left: 6px; color: var(--text-muted); }
 .tool-source { margin-left: 6px; color: var(--text-disabled); font: var(--fs-xs)/1 var(--code-font);
   text-transform: uppercase; letter-spacing: 0.04em; }
 .tool-output.failed .tool-status { color: var(--u-hot, #e06c75); }
@@ -5753,6 +5750,12 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-action-list > :is(.tool-output, .ui-activity, .tool) { margin: 0; width: 100%; min-width: 0; }
 .activity-action-list .tool-output-head { min-height: 36px; padding-block: 8px; }
 .activity-action-list .tool-output-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+/* Une ÉTAPE : la ligne de synthèse, ses erreurs (toujours visibles) puis
+   l'unique ligne de statut vivant du fil. */
+.activity-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.activity-step-live { width: 100%; max-width: none; margin: 0; }
+.activity-step-live .turn-quiet { min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .activity-batch-thought { display: flex; align-items: flex-start; gap: 7px; margin: 8px 0 8px 4px; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); line-height: 1.6; white-space: pre-wrap; }
 .activity-batch-thought svg { flex: 0 0 auto; margin-top: 2px; }
 .activity-thought { min-width: 0; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }

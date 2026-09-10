@@ -1,20 +1,25 @@
+import type { ReactNode } from "react";
 import { ArrowDownIcon } from "../icons";
 
 export function ScrollToBottomButton({
   label,
   show,
   working = false,
+  elapsed,
   onClick,
 }: {
   label: string;
   show: boolean;
   working?: boolean;
+  /** Chrono du tour en cours : remonté lire, on voit que ça travaille encore. */
+  elapsed?: ReactNode;
   onClick: () => void;
 }) {
+  const withElapsed = working && elapsed != null;
   return (
     <button
       type="button"
-      className={`ui-scroll-to-bottom${show ? " is-visible" : ""}`}
+      className={`ui-scroll-to-bottom${show ? " is-visible" : ""}${withElapsed ? " has-elapsed" : ""}`}
       data-active={show}
       title={label}
       aria-label={label}
@@ -31,6 +36,7 @@ export function ScrollToBottomButton({
       ) : (
         <ArrowDownIcon />
       )}
+      {withElapsed ? <span className="ui-scroll-elapsed">{elapsed}</span> : null}
     </button>
   );
 }

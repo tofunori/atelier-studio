@@ -68,5 +68,12 @@ describe("patterns officiels du design system", () => {
     expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
     fireEvent.click(screen.getByTitle("Bas"));
     expect(scroll).toHaveBeenCalledTimes(1);
+
+    // Remonté lire pendant un tour actif, le chrono dit qu'il se passe encore
+    // quelque chose (le dock qui le portait n'existe plus).
+    rerender(<ScrollToBottomButton label="Bas" show working elapsed="12s" onClick={scroll} />);
+    expect(screen.getByTitle("Bas")).toHaveClass("has-elapsed");
+    expect(document.querySelector(".ui-scroll-elapsed")?.textContent).toBe("12s");
+    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
   });
 });
