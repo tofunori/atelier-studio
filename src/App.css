@@ -5752,9 +5752,13 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-action-list .tool-output-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 /* Une ÉTAPE : la ligne de synthèse, ses erreurs (toujours visibles) puis
    l'unique ligne de statut vivant du fil. */
-.activity-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.activity-step-live { width: 100%; max-width: none; margin: 0; }
-.activity-step-live .turn-quiet { min-width: 0; overflow: hidden;
+/* Grappe d'une étape : le déclencheur .ui-activity (max-width + marges auto,
+   pensé pour flotter au centre de la colonne) doit ici occuper toute la
+   largeur, comme dans .working-stack — sinon la ligne de synthèse se centre. */
+.activity-cluster { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.activity-cluster > .ui-activity { width: 100%; max-width: none; margin-left: 0; margin-right: 0; }
+.activity-cluster-live { width: 100%; max-width: none; margin: 0; }
+.activity-cluster-live .turn-quiet { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .activity-batch-thought { display: flex; align-items: flex-start; gap: 7px; margin: 8px 0 8px 4px; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); line-height: 1.6; white-space: pre-wrap; }
 .activity-batch-thought svg { flex: 0 0 auto; margin-top: 2px; }

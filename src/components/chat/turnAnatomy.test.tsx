@@ -136,7 +136,7 @@ describe("anatomie du tour — header d'activité", () => {
     // rangées détaillées restent à un clic (spec « grappes d'activité »).
     view.rerender(<Chat {...chatProps({ events: [user, a, b, events.tool({ id: "c", status: "inProgress" })], workingSince: FIXED_TS })} />);
     expect(document.querySelector(".activity-action-list")).toBeNull();
-    const trigger = document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement;
+    const trigger = document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLButtonElement;
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(trigger);
     expect(document.querySelectorAll(".activity-action-list .tool-output")).toHaveLength(3);
@@ -669,7 +669,7 @@ describe("anatomie du tour — header d'activité", () => {
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
     // Trois lectures : l'étape se replie en une ligne ; le détail reste à un clic.
     expect(document.querySelectorAll(".activity-action-list")).toHaveLength(0);
-    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelectorAll(".activity-action-list")).toHaveLength(1);
     const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(3);
@@ -704,7 +704,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".active-turn-tail .ui-activity")).toHaveLength(0);
     const live = document.querySelector(".active-turn-tail [role=status]") as HTMLElement;
     expect(live.textContent?.toLowerCase()).toContain("file-7.ts");
-    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLButtonElement);
     const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(8);
     fireEvent.click(activity.querySelector(".tool-output-head:last-of-type") as HTMLButtonElement);
@@ -846,7 +846,7 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    fireEvent.click(document.querySelector(".activity-step .ui-activity-trigger") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLButtonElement);
     const activity = document.querySelector(".activity-action-list") as HTMLElement;
     expect(activity).toBeTruthy();
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(3);

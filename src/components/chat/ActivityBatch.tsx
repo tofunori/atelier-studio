@@ -8,6 +8,7 @@ import { AgentActivityGroup, isAgentActivityAction, type AgentDisplay, type Agen
 import type { ActivityAction } from './groupActivityRows';
 import { EditLine } from './turnParts';
 import { TurnActivityStatus } from './turns';
+import { Working } from './turnParts';
 
 /** The turn owns disclosure; its actions stay in chronological order. */
 export function ActivityBatch(p: {
@@ -168,13 +169,14 @@ export function ActivityStep(p: {
   // ne font pas un écran, et replier une étape sans outil masquerait la pensée
   // vivante — seul le NOMBRE d'outils justifie le pli.
   const folded = leaves.length >= STEP_FOLD_THRESHOLD;
+  const liveInline = folded && Boolean(p.active && p.liveLabel);
   if (!folded && !p.active) {
     return <ActivityBatch actions={p.actions} renderToolLine={p.renderToolLine}
       onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
       thinkingCollapsed={p.thinkingCollapsed} />;
   }
   return (
-    <div className={`activity-step${p.active ? ' is-active' : ''}`}>
+    <div className={`activity-cluster${p.active ? ' is-active' : ''}`}>
       {folded ? (
         <>
           <ActivityDisclosure
@@ -183,8 +185,15 @@ export function ActivityStep(p: {
             status={failed ? 'failed' : p.active ? 'running' : 'completed'}
             shimmer={Boolean(p.active)}
             icon={summary.icon}
-            label={shownLabel}
-            meta={p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined)}
+            // Étape active repliée : UNE ligne. Le libellé vivant (outil en cours
+            // ou statut du tour) remplace la synthèse, le chrono prend la méta ;
+            // la synthèse revient quand l'étape se pose (Thierry 2026-09-10).
+            label={liveInline
+              ? <span className="active-turn-tail activity-cluster-live"><span role="status" aria-live="polite">{p.liveLabel}</span></span>
+              : shownLabel}
+            meta={liveInline
+              ? <Working since={p.liveSince ?? Date.now()} compact />
+              : (p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined))}
           >
             {body}
           </ActivityDisclosure>
@@ -197,8 +206,8 @@ export function ActivityStep(p: {
           onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
           thinkingCollapsed={p.thinkingCollapsed} />
       )}
-      {p.active && p.liveLabel ? (
-        <div className="working-stack active-turn-tail activity-step-live">
+      {p.active && p.liveLabel && !liveInline ? (
+        <div className="working-stack active-turn-tail activity-cluster-live">
           <TurnActivityStatus label={p.liveLabel} kind={p.liveKind ?? 'processing'}
             since={p.liveSince ?? Date.now()} />
         </div>

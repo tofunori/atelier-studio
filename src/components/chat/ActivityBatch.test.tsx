@@ -77,7 +77,7 @@ describe('ActivityStep', () => {
       active liveLabel="Réflexion en cours…" liveSince={Date.now()} />);
     expect(document.querySelector('.ui-activity')).toBeTruthy();
     expect(document.querySelectorAll('.tool-output')).toHaveLength(0);
-    const live = document.querySelectorAll('.activity-step-live [role=status]');
+    const live = document.querySelectorAll('.activity-cluster-live [role=status]');
     expect(live).toHaveLength(1);
     expect(live[0].textContent).toContain('Réflexion en cours');
     expect(document.querySelector('.ui-activity-label.is-shimmering')).toBeTruthy();
@@ -88,7 +88,7 @@ describe('ActivityStep', () => {
       active liveLabel="Réflexion en cours…" liveSince={Date.now()} />);
     expect(document.querySelector('.ui-activity')).toBeNull();
     expect(document.querySelectorAll('.activity-action-list .tool-output')).toHaveLength(2);
-    expect(document.querySelectorAll('.activity-step-live [role=status]')).toHaveLength(1);
+    expect(document.querySelectorAll('.activity-cluster-live [role=status]')).toHaveLength(1);
   });
 
   it('affiche la durée cumulée des outils de l’étape', () => {

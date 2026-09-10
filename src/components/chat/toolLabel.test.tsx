@@ -32,7 +32,10 @@ describe("libellé d'une étape pendant une rafale", () => {
     view.rerender(step([a, b, c, command("d", "echo D", "inProgress")], true));
     expect(document.querySelector(".ui-activity")).toHaveClass("is-running");
     act(() => { vi.advanceTimersByTime(40); });
-    expect(label()).toBe(initial);
+    // Étape active repliée : la ligne unique porte l'action en cours, pas la
+    // synthèse (qui revient, stabilisée 160 ms, quand l'étape se pose).
+    expect(label()).toContain("Commande en cours");
+    expect(label()).not.toBe(initial);
     view.rerender(step([a, b, c, command("d", "echo D", "completed")], false));
     expect(document.querySelector(".ui-activity")).toHaveClass("is-completed");
     act(() => { vi.advanceTimersByTime(160); });
@@ -60,12 +63,12 @@ describe("libellé d'une étape pendant une rafale", () => {
     const b = command("b", "sleep 12", "inProgress");
     const c = command("c", "sleep 4", "inProgress");
     const view = renderUi(step([a, b, c], true));
-    const live = document.querySelectorAll(".activity-step-live [role=status]");
+    const live = document.querySelectorAll(".activity-cluster-live [role=status]");
     expect(live).toHaveLength(1);
     expect(live[0].textContent).toContain("Commande en cours");
     view.rerender(step([{ ...a, status: "completed" }, { ...b, status: "failed", exitCode: 3 },
       { ...c, status: "completed" }], false));
     expect(document.querySelector(".ui-activity")).toHaveClass("is-failed");
-    expect(document.querySelector(".activity-step-live")).toBeNull();
+    expect(document.querySelector(".activity-cluster-live")).toBeNull();
   });
 });
