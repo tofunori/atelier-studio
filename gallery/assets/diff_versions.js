@@ -848,7 +848,7 @@ window.DiffVersions = function(opts){
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
   // ---- Variante E : carte de revue flottante (coin bas-droit du volet éditeur) ----
-  let reviewCard = null, reviewCardHost = null, cardCount = null, cardPrev = null, cardNext = null, cardKeep = null, cardDrop = null;
+  let reviewCard = null, reviewCardHost = null, cardCount = null, cardPrev = null, cardNext = null, cardKeep = null, cardDrop = null, cardLast = null, cardHint = null;
   const SVG = (d) => '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
   function reviewHost(){
     const cm = getCm();
@@ -877,7 +877,14 @@ window.DiffVersions = function(opts){
     cardKeep = mk("dvr-keep", SVG("M5 12l5 5L20 7") + "<span>Garder</span>", "Garder", "Garder ce bloc (⌥↩)");
     cardDrop = mk("dvr-drop", SVG("M6 6l12 12M18 6L6 18") + "<span>Ignorer</span>", "Ignorer", "Ignorer ce bloc (⌥⌫)");
     const sep = () => { const x = document.createElement("span"); x.className = "dvr-sep"; x.setAttribute("aria-hidden", "true"); return x; };
-    card.append(cardPrev, cardCount, cardNext, sep(), cardKeep, cardDrop);
+    // Intervention passée (vue historique) : on ne décide que sur la dernière —
+    // le dire, et offrir le raccourci, plutôt que de faire disparaître les
+    // contrôles sans explication (Thierry 2026-09-10, « des fois ça marche »).
+    cardHint = document.createElement("span"); cardHint.className = "dvr-hint"; cardHint.textContent = "Lecture seule";
+    cardHint.title = "Une intervention passée se relit, elle ne se décide pas : les décisions portent sur la dernière";
+    cardLast = mk("dvr-last", "<span>Dernière intervention</span>" + SVG("M9 6l6 6-6 6"), "Dernière intervention", "Aller à la dernière intervention pour décider (⌥→)");
+    cardLast.onclick = () => showStep(interList().length - 1);
+    card.append(cardPrev, cardCount, cardNext, sep(), cardKeep, cardDrop, cardHint, cardLast);
     cardPrev.onclick = () => gotoChange(changeAt - 1, true);
     cardNext.onclick = () => gotoChange(changeAt + 1, true);
     cardKeep.onclick = () => decideCurrent("accept");
@@ -888,10 +895,12 @@ window.DiffVersions = function(opts){
   }
   function updateReviewCard(){
     if(!individualReview) return;
-    const on = shown && !tt && changePts.length > 0;
+    const on = shown && changePts.length > 0;
+    const readOnly = on && !!tt;
     const card = on ? ensureReviewCard() : reviewCard;
     if(!card) return;
     card.hidden = !on;
+    card.classList.toggle("is-readonly", readOnly);
     if(reviewCardHost?.classList) reviewCardHost.classList.toggle("dv-review-on", on);
     if(!on) return;
     const k = Math.max(0, Math.min(changePts.length - 1, changeAt));
@@ -899,7 +908,10 @@ window.DiffVersions = function(opts){
     cardCount.title = "Bloc " + (k + 1) + " sur " + changePts.length + " de cette intervention";
     cardPrev.disabled = reviewBusy || k <= 0;
     cardNext.disabled = reviewBusy || k >= changePts.length - 1;
-    cardKeep.disabled = reviewBusy; cardDrop.disabled = reviewBusy;
+    cardKeep.disabled = reviewBusy || readOnly; cardDrop.disabled = reviewBusy || readOnly;
+    cardKeep.hidden = readOnly; cardDrop.hidden = readOnly;
+    cardHint.hidden = !readOnly; cardLast.hidden = !readOnly;
+    cardLast.disabled = reviewBusy;
   }
   /** Décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) sans bouton dans le texte. */
   function decideCurrent(kind){

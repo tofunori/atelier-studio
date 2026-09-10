@@ -635,6 +635,10 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #dvReview .dvr-drop:not(:disabled):hover{color:#edaaa5;background:#d86c6321}
 #dvReview .dvr-count{padding:0 4px;color:var(--txt);font-variant-numeric:tabular-nums;white-space:nowrap}
 #dvReview .dvr-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+#dvReview .dvr-hint{padding:0 6px;color:var(--muted);white-space:nowrap}
+#dvReview .dvr-last{color:var(--accent)}
+#dvReview .dvr-last:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+#dvReview [hidden]{display:none}
 /* La dernière ligne reste lisible sous la carte. */
 #left.dv-review-on .cm-scroller{padding-bottom:56px}
 @media (prefers-reduced-motion:reduce){#dvReview button{transition:none}}
