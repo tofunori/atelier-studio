@@ -19,15 +19,27 @@ export default function ProjectGallery({ root, config, mainGallery, onManage, re
     ...(normalized.mainGallery ? [{ path: root, name: root.split("/").pop() || root }] : []),
     ...normalized.folders.filter(folder => folder.gallery),
   ], [root, normalized]);
-  const [filter, setFilter] = useState(folders.length === 1 ? folders[0].path : "all");
+  // Par défaut, SEUL le projet principal s'affiche : empiler toutes les
+  // galeries répétait la barre d'outils à chaque dossier (Thierry
+  // 2026-09-10). « Tous les dossiers » reste un choix du menu Dossier.
+  const defaultFilter = useMemo(
+    () => folders.find(folder => folder.path === root)?.path ?? folders[0]?.path ?? "all",
+    [folders, root],
+  );
+  const [filter, setFilter] = useState(defaultFilter);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const all = filter === "all";
+  // La configuration des dossiers peut arriver après le premier rendu : poser
+  // le défaut une seule fois, sans jamais écraser un choix de l'utilisateur.
+  const defaultApplied = useRef(false);
 
   useEffect(() => {
-    if (filter !== "all" && !folders.some(folder => folder.path === filter)) setFilter("all");
+    if (!folders.length) return;
+    if (!defaultApplied.current) { defaultApplied.current = true; setFilter(defaultFilter); return; }
+    if (filter !== "all" && !folders.some(folder => folder.path === filter)) setFilter(defaultFilter);
     if (filter === "all" && folders.length === 1) setFilter(folders[0].path);
-  }, [filter, folders]);
+  }, [filter, folders, defaultFilter]);
 
   useEffect(() => {
     let alive = true;

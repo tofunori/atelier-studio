@@ -19,9 +19,16 @@ function setup() {
 function message(frame: HTMLIFrameElement, data: object, origin = new URL(frame.src).origin, source = frame.contentWindow) {
   act(() => window.dispatchEvent(new MessageEvent("message", { data, origin, source })));
 }
+/** Le panneau ouvre sur le projet principal seul : « Tous les dossiers » est
+ * désormais un choix explicite du menu Dossier, plus le défaut. */
+function showAllFolders() {
+  const main = screen.getByTitle("main gallery") as HTMLIFrameElement;
+  message(main, { type: "atelier-folder-select", path: "all" });
+}
 describe("project gallery", () => {
   it("uses both complete galleries in All folders, never the reduced catalog", async () => {
     const { container } = setup();
+    showAllFolders();
     const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
     expect(screen.getByTitle("main gallery")).toBeVisible();
     expect(secondary).toBeVisible();
@@ -34,6 +41,7 @@ describe("project gallery", () => {
   });
   it("keeps both frame instances while selecting one folder and returning to All", async () => {
     const { container } = setup();
+    showAllFolders();
     const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
     const main = screen.getByTitle("main gallery") as HTMLIFrameElement;
     message(secondary, { type: "atelier-folder-select", path: "/data" });
@@ -48,6 +56,7 @@ describe("project gallery", () => {
   });
   it("validates the frame, origin and folder in both grouped and individual modes", async () => {
     const { onManage } = setup();
+    showAllFolders();
     const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
     const main = screen.getByTitle("main gallery") as HTMLIFrameElement;
     const post = vi.spyOn(secondary.contentWindow!, "postMessage");
@@ -65,11 +74,27 @@ describe("project gallery", () => {
   });
   it("reveals the folder targeted by a host gallery command", async () => {
     setup();
+    showAllFolders();
     const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
     message(secondary, { type: "atelier-folder-select", path: "/data" });
     act(() => window.dispatchEvent(new CustomEvent("atelier-gallery-reveal-folder", { detail: { root: "/main" } })));
     expect(screen.getByTitle("main gallery")).toBeVisible();
     expect(secondary).not.toBeVisible();
+  });
+  it("ouvre sur le projet principal seul, sans empiler les autres dossiers", async () => {
+    setup();
+    // Aucune galerie de dossier secondaire : ni démarrage, ni cadre, ni titre —
+    // donc une seule barre d'outils à l'écran (Thierry 2026-09-10).
+    expect(screen.getByTitle("main gallery")).toBeVisible();
+    // Le menu Dossier vit dans la galerie elle-même (canal atelier-folder-*),
+    // pas dans le panneau : rien d'autre ne s'affiche ici.
+    expect(screen.queryByTitle("Galerie — Data")).toBeNull();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("start_atelier", expect.objectContaining({ root: "/data" }));
+    // « Tous les dossiers » reste accessible et empile alors les galeries.
+    showAllFolders();
+    expect(await screen.findByTitle("Galerie — Data")).toBeVisible();
+    expect(screen.getAllByRole("heading").map(h => h.textContent)).toEqual(["main", "Data"]);
   });
   it("keeps the single-folder view without a second heading or toolbar", () => {
     const { container } = renderUi(<ProjectGallery root="/main" ws={null} mainGallery={<div>Native gallery</div>} onManage={() => {}} onOpen={async () => {}} reloadKey={0}/>);
@@ -80,6 +105,7 @@ describe("project gallery", () => {
   it("retains folder navigation and reports a failed source startup", async () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Cannot start Data"));
     setup();
+    showAllFolders();
     expect(await screen.findByRole("alert")).toHaveTextContent("Cannot start Data");
     expect(screen.getByRole("button", { name: "Dossiers" })).toBeVisible();
     expect(screen.getByTitle("main gallery")).toBeVisible();
@@ -89,6 +115,7 @@ describe("project gallery", () => {
     vi.mocked(invoke).mockImplementationOnce(() => new Promise(r => { resolve = r as typeof resolve; }));
     const props = { root: "/main", ws: null, mainGallery: <div>Main</div>, onManage: () => {}, onOpen: async () => {}, reloadKey: 0 };
     const { rerender } = renderUi(<ProjectGallery {...props} config={config}/>);
+    act(() => window.dispatchEvent(new CustomEvent("atelier-gallery-reveal-folder", { detail: { root: "/data" } })));
     rerender(<ProjectGallery {...props} config={{ mainGallery: true, folders: [] }}/>);
     await act(async () => resolve("http://127.0.0.1:18790/figures_index.html"));
     await waitFor(() => expect(screen.queryByTitle("Galerie — Data")).toBeNull());
