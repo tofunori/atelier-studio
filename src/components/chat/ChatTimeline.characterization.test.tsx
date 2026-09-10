@@ -194,13 +194,17 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     expect(screen.getAllByRole("button", { name: /^(Épingler comme chapitre|Pin as chapter)$/ })).toHaveLength(2);
   });
 
-  it("affiche les outils actifs en lignes directes et ouvre leur détail au clic", () => {
+  it("replie la série active en une ligne et ouvre le détail au clic", () => {
     const active = [events.user(), events.tool({ id: "t1", detail: "avant.csv", status: "inProgress" })];
     renderUi(<Chat {...chatProps({ events: active, workingSince: FIXED_TS })} />);
 
-    // Le tour actif ne rajoute plus un disclosure autour des outils : chaque
-    // ligne reste à sa place et son propre bouton porte le détail.
-    expect(document.querySelector(".ui-activity-trigger")).toBeNull();
+    // v2 : la dernière série du tour actif tient sur UNE ligne « synthèse ·
+    // statut vivant » ; aucune rangée empilée tant qu'on n'a pas cliqué.
+    const cluster = document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLElement;
+    expect(cluster).toBeTruthy();
+    expect(cluster.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".tool-output-head")).toBeNull();
+    act(() => { cluster.click(); });
     const row = document.querySelector(".tool-output-head") as HTMLElement;
     expect(row).toBeTruthy();
     expect(row.getAttribute("aria-expanded")).toBe("false");
@@ -234,8 +238,9 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     );
     // Le statut vivant vit dans le fil, plus dans un dock au-dessus du composeur.
     expect(document.querySelector(".chat-activity-dock")).toBeNull();
-    expect(document.querySelector(".timeline-scroll-wrap .active-turn-tail .turn-tail-row")).toBeTruthy();
-    expect(document.querySelector(".tool-output-head")).toBeTruthy();
+    // v2 : ce statut est fusionné dans la ligne de la série active.
+    expect(document.querySelectorAll(".timeline-scroll-wrap .active-turn-tail [role=status]")).toHaveLength(1);
+    expect(document.querySelector(".activity-cluster.is-active .ui-activity.is-running")).toBeTruthy();
     expect(document.querySelector(".working-spin")).toBeNull();
 
     rerender(<Chat {...chatProps({ workingSince: null, events: makeTurnEvents() })} />);

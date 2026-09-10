@@ -219,8 +219,8 @@ export function ActivityStep(p: {
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
   onOpenAgent: (agent: AgentDisplay) => void;
   hideThinking?: boolean; threadId?: string | null; thinkingCollapsed?: boolean;
-  /** Repli contrôlé par la liste virtualisée : `open` force toutes les
-   * grappes ouvertes ; `onToggle` est notifié à chaque bascule. */
+  /** `open` : graine d'ouverture au montage (liste virtualisée) ;
+   * `onToggle` est notifié à chaque bascule. L'état vit par grappe. */
   open?: boolean;
   onToggle?: () => void;
   /** Étape courante du tour actif : porte la ligne vivante. */
@@ -230,7 +230,9 @@ export function ActivityStep(p: {
   liveSince?: number;
   stamp?: ReactNode;
 }) {
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set(
+    p.open ? segmentStep(distinctToolActions(p.actions) as ActivityAction[]).map((segment) => segment.key) : [],
+  ));
   const distinct = distinctToolActions(p.actions) as ActivityAction[];
   const segments = segmentStep(distinct);
   const last = segments[segments.length - 1];
@@ -250,7 +252,10 @@ export function ActivityStep(p: {
         if (!isLive && segment.actions.length < STEP_FOLD_THRESHOLD) {
           return <Fragment key={segment.key}>{batch(segment.actions)}</Fragment>;
         }
-        const open = p.open || openKeys.has(segment.key);
+        // Ouverture PAR grappe : la prop `open` du parent ne sert que de graine
+        // (une étape rouverte par la liste virtualisée), jamais de forçage —
+        // sinon cliquer une série ouvrait toutes celles de l'étape.
+        const open = openKeys.has(segment.key);
         return (
           <ClusterLine key={segment.key} actions={segment.actions} plugins={p.plugins}
             open={open}
