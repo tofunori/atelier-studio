@@ -659,7 +659,11 @@ window.DiffVersions = function(opts){
         : "aucun changement de texte";
       notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
       updateNav();
-      if(changePts.length && !individualReview) gotoChange(changeAt, true);
+      // Revue individuelle : ce mode ne replie pas les zones inchangées, donc
+      // un passage hors écran laissait « Diff · 140/140 » sans rien de visible
+      // (vécu 2026-09-10). Recentrer sur le premier bloc du passage à chaque
+      // ouverture ; « tout » garde le bloc le plus proche du curseur.
+      if(changePts.length) gotoChange(individualReview ? 0 : changeAt, true);
       nativeShown = true;
     }
     const wsn = s => s.replace(/\s+/g, " ").trim();
