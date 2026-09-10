@@ -1,0 +1,135 @@
+/*
+ * assistant-ui host boundary.
+ *
+ * The official components are intentionally mounted under .assistant-ui-host.
+ * Atelier's global reset owns the application chrome; these scoped defaults
+ * keep the assistant-ui transcript and composer at their own readable scale
+ * without changing any existing surface or shadcn primitive.
+ */
+.assistant-ui-host {
+  isolation: isolate;
+  color: var(--text-primary);
+  font-family: var(--ui-font);
+  /* assistant-ui's upstream thread uses a 1rem body scale. Keep it local so
+   * the host is not reduced by Atelier's compact chat scale. */
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+/* Tailwind's `@theme inline` mapping in shadcn.css rewrites utility classes
+ * such as `tw:bg-card` to `var(--card)` at build time.  It does not emit
+ * runtime `--color-*` properties, while a few upstream assistant-ui
+ * components intentionally use those names in inline styles and color-mix
+ * expressions.  Keep the upstream names available at this boundary (and on
+ * portalled Base UI surfaces) without leaking a second palette into Atelier.
+ */
+.assistant-ui-host,
+[data-assistant-ui-portal] {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--sh-muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--sh-accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--sh-border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* App.css deliberately has a desktop reset rather than Tailwind Preflight.
+ * assistant-ui primitives expect the small part of Preflight that clears UA
+ * chrome on their raw Base UI triggers. Portals receive the explicit
+ * data-assistant-ui-portal marker from our assistant-ui primitives because
+ * Base UI mounts them under document.body. Keep this in the base layer with
+ * zero specificity so any official tw: utility still wins. */
+@layer base {
+  :where(.assistant-ui-host, [data-assistant-ui-portal]),
+  :where(.assistant-ui-host, [data-assistant-ui-portal]) :where(*) {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    /* Official assistant-ui examples include the shadcn base rule
+     * `* { @apply border-border; }`. Keep that default inside this host so
+     * a bare `tw:border` (ReasoningRoot, cards, etc.) uses Atelier's subtle
+     * border token instead of inheriting the component's text color. */
+    border-color: var(--sh-border);
+  }
+
+  :where(.assistant-ui-host, [data-assistant-ui-portal]) :where(button, input, textarea) {
+    box-sizing: border-box;
+    font: inherit;
+    color: inherit;
+  }
+
+  :where(.assistant-ui-host, [data-assistant-ui-portal]) :where(button) {
+    appearance: none;
+    margin: 0;
+    border-style: solid;
+    border-color: var(--border);
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  :where(.assistant-ui-host, [data-assistant-ui-portal]) :where(input, textarea) {
+    appearance: none;
+    border-style: solid;
+    border-color: var(--border);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :where(.assistant-ui-host) :where([data-slot="aui_thread-viewport"], [data-slot="aui_message-group"], [data-slot="aui_composer-shell"]) {
+    box-sizing: border-box;
+  }
+}
+
+.assistant-ui-host [data-slot="aui_thread-viewport"] {
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Claude's reference keeps the sticky composer on the same reading surface:
+ * a transparent-to-background fade, no card shadow or second panel chrome. */
+.assistant-ui-host .aui-thread-viewport-footer {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--background) 85%, transparent) 38%,
+    var(--background) 100%
+  );
+  box-shadow: none;
+}
+
+/* In the upstream ghost variant a one-line live preview can sit entirely
+ * beneath the two 2rem fades. Keep short reasoning readable in this flat
+ * presentation; the official scroll container and streaming remain intact. */
+.assistant-ui-host [data-slot="reasoning-root"][data-variant="ghost"] [data-slot="reasoning-fade"] {
+  display: none;
+}
+
+/* Reserve the official rail's gutter according to pane width, not window width. */
+.assistant-ui-host .aui-mapped-viewport { container-type: inline-size; }
+.assistant-ui-host .aui-conversation-map { display: none; }
+@container (min-width: 420px) {
+  .assistant-ui-host .aui-conversation-map { display: block; }
+  .assistant-ui-host .aui-message-column { width: calc(100% - 72px); }
+}
