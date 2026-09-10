@@ -145,6 +145,18 @@ export function segmentStep(actions: ActivityAction[]): StepSegment[] {
   return segments;
 }
 
+/** Étape posée : fusionne toutes les grappes en une seule (les segments plats
+ * — pensée, édition, erreur, agents — restent à leur place, après). Le total
+ * d'outils décide seul du pli. */
+export function mergeSettledStep(segments: StepSegment[]): StepSegment[] {
+  const clusters = segments.filter((segment): segment is Extract<StepSegment, { kind: 'cluster' }> => segment.kind === 'cluster');
+  if (clusters.length <= 1) return segments;
+  const merged: StepSegment = { kind: 'cluster', key: clusters[0].key, part: clusters[0].part,
+    actions: clusters.flatMap((cluster) => cluster.actions) };
+  const flats = segments.filter((segment) => segment.kind === 'flat');
+  return [merged, ...flats];
+}
+
 /** Une grappe : une ligne de synthèse repliable ; active, elle porte AUSSI
  * la partie vivante (« 8 commandes exécutées · Réflexion en cours… »). */
 function ClusterLine(p: {
@@ -234,7 +246,11 @@ export function ActivityStep(p: {
     p.open ? segmentStep(distinctToolActions(p.actions) as ActivityAction[]).map((segment) => segment.key) : [],
   ));
   const distinct = distinctToolActions(p.actions) as ActivityAction[];
-  const segments = segmentStep(distinct);
+  // Étape DÉPASSÉE (une narration l'a suivie, ou le tour est fini) : plus
+  // besoin de suivre le travail série par série — tous ses outils se
+  // regroupent en UNE ligne dès qu'ils sont 3 ou plus ; les séries par
+  // catégorie ne servent qu'à l'étape active (Thierry 2026-09-10).
+  const segments = p.active ? segmentStep(distinct) : mergeSettledStep(segmentStep(distinct));
   const last = segments[segments.length - 1];
   const liveCluster = p.active && p.liveLabel && last?.kind === 'cluster' ? last : null;
   const live = p.active && p.liveLabel ? { label: p.liveLabel, since: p.liveSince ?? Date.now() } : null;

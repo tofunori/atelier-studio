@@ -960,46 +960,12 @@ export default function Chat(p: {
     return groupActivityRows(rows);
   }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
 
-  // Tool detail is owned by the leaf, while the completed turn owns the only
-  // outer disclosure.  If a user opened a running tool just before the turn
-  // settled, carry that intent to the newly-created fold so the open payload
-  // does not disappear during the lifecycle transition.
-  // Scope snapshots by thread. A terminal turn first seen after a
-  // conversation switch/remount is history, not an active→terminal
-  // transition to transfer into the outer fold.
-  const lifecycleTerminalsRef = React.useRef(new Map<string, number | null>());
-  React.useEffect(() => {
-    const openedToolKeys = new Set(
-      Object.entries(toolDetails).filter(([, open]) => open).map(([key]) => key),
-    );
-    const newlySettled = new Set<string>();
-    for (const turn of turnViewModels) {
-      const key = `${p.threadId}:${turn.key}`;
-      // Transfer only a turn that was observed active in this same thread.
-      // `Map#get` returns undefined for an unseen key; treating that as null
-      // reopened completed folds whenever a user returned to a conversation.
-      if (turn.terminalIndex != null && lifecycleTerminalsRef.current.get(key) === null) {
-        newlySettled.add(turn.key);
-      }
-    }
-    lifecycleTerminalsRef.current = new Map(
-      turnViewModels.map((turn) => [`${p.threadId}:${turn.key}`, turn.terminalIndex]),
-    );
-    if (openedToolKeys.size === 0 || newlySettled.size === 0) return;
-    const foldsToOpen = turnViewModels.flatMap((turn) => {
-      if (!turn.fold || !newlySettled.has(turn.key) || openFolds.has(turn.fold.key)) return [];
-      const containsOpenedTool = turn.actionGroups.some((group) => group.actions.some((action) => (
-        openedToolKeys.has(`${p.threadId}:${actionId(action, 0)}`)
-      )));
-      return containsOpenedTool ? [turn.fold.key] : [];
-    });
-    if (foldsToOpen.length === 0) return;
-    setOpenFolds((previous) => {
-      const next = new Set(previous);
-      foldsToOpen.forEach((key) => next.add(key));
-      return next.size === previous.size ? previous : next;
-    });
-  }, [openFolds, p.threadId, toolDetails, turnViewModels]);
+  // À la fin du tour, le pli se ferme TOUJOURS : le travail intermédiaire
+  // (outils, narrations d'étape) se regroupe sous « A travaillé pendant… »,
+  // seule la réponse reste visible. Un détail d'outil ouvert pendant le tour
+  // garde son état (toolDetails) et réapparaît ouvert si l'on redéplie ;
+  // l'ancien transfert actif→terminal laissait tout déplié dès qu'on avait
+  // regardé une sortie en cours de route (Thierry 2026-09-10).
 
   // Copie + reverse O(n) du fil : mémoïsé, sinon chaque delta du stream
   // re-parcourt tout l'historique pour retrouver le dernier goal.
@@ -1033,10 +999,6 @@ export default function Chat(p: {
         preview={<ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />}
         onExpandedChange={(expanded) => {
           setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
-          if (expanded) {
-            const turn = turnViewModels.find(turn => turn.actionGroups.some(group => group.actions.includes(e)));
-            if (turn) setOpenFolds(prev => new Set(prev).add(`fold:${turn.key}`));
-          }
         }} />;
     }
     if (imagePaths.length > 0) {
@@ -1061,10 +1023,6 @@ export default function Chat(p: {
       compact={p.defaults.transcriptView !== 'detaille'}
       onExpandedChange={(expanded) => {
         setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
-        if (expanded) {
-          const turn = turnViewModels.find(turn => turn.actionGroups.some(group => group.actions.includes(e)));
-          if (turn) setOpenFolds(prev => new Set(prev).add(`fold:${turn.key}`));
-        }
       }} />;
   }
 

@@ -72,10 +72,24 @@ describe("anatomie du tour — header d'activité", () => {
     view.rerender(<Chat {...chatProps({ events: [user, completed], workingSince: FIXED_TS })} />);
     expect(document.querySelector(".activity-action-list")).toBeTruthy();
     expect(document.querySelector(".tool-output-head")).toHaveAttribute("aria-expanded", "true");
-    view.rerender(<Chat {...chatProps({ events: [user, completed, events.text("Terminé.", FIXED_TS + 500), events.done({ ts: FIXED_TS + 700 })] })} />);
-    await waitFor(() => expect(document.querySelector(".ui-activity.is-summary .ui-activity-trigger")).toHaveAttribute("aria-expanded", "true"));
-    expect(document.querySelector(".tool-output-head")).toHaveAttribute("aria-expanded", "true");
-    expect(document.querySelectorAll(".tool-output")).toHaveLength(1);
+    // Le tour se pose avec une narration d'étape et un second outil : c'est le
+    // cas réel (et LegendList/jsdom ne réinsère pas une rangée UNIQUE retirée
+    // puis remise — cas à vérifier dans l'app, pas ici).
+    const later = events.tool({ id: "later", name: "Bash", status: "completed", output: "ok", detail: "ls" });
+    view.rerender(<Chat {...chatProps({ events: [user, completed, events.text("Étape faite.", FIXED_TS + 300), later, events.text("Terminé.", FIXED_TS + 500), events.done({ ts: FIXED_TS + 700 })] })} />);
+    // Au terminal, le pli du tour se FERME toujours (le travail se regroupe
+    // sous « A travaillé pendant… ») ; le détail ouvert n'est pas perdu : il
+    // réapparaît ouvert dès qu'on redéplie le pli.
+    const fold = await waitFor(() => {
+      const trigger = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
+      expect(trigger).toBeTruthy();
+      return trigger;
+    });
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector(".tool-output-head")).toBeNull();
+    fireEvent.click(fold);
+    await waitFor(() => expect(document.querySelector(".tool-output-head")).toHaveAttribute("aria-expanded", "true"));
+    expect(document.querySelectorAll(".tool-output")).toHaveLength(2);
     expect(screen.getByText("Terminé.")).toBeInTheDocument();
   });
 
@@ -654,13 +668,15 @@ describe("anatomie du tour — header d'activité", () => {
     expect(firstText.compareDocumentPosition(etape) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(etape.compareDocumentPosition(secondText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(secondText.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // v2 : lecture puis commande = DEUX séries dans la même étape, chacune sur
-    // sa rangée (une seule action : pas de pli), dans l'ordre.
+    // Étape DÉPASSÉE (une narration l'a suivie) : ses séries fusionnent en une
+    // seule liste — deux outils, sous le seuil, donc rangées plates dans l'ordre.
     const series = [...etape.querySelectorAll<HTMLElement>(".activity-action-list")];
-    expect(series).toHaveLength(2);
+    expect(series).toHaveLength(1);
+    const rangees = [...series[0].querySelectorAll<HTMLElement>(".tool-output")];
+    expect(rangees).toHaveLength(2);
     // Nommage Hermes : la lecture unique est nommée par son fichier.
-    expect(series[0].textContent).toContain("App.tsx consulté");
-    expect(series[1].textContent).toContain("Commande exécutée");
+    expect(rangees[0].textContent).toContain("App.tsx consulté");
+    expect(rangees[1].textContent).toContain("Commande exécutée");
     // La recherche en cours est la série vivante : une ligne, repliée, et le
     // statut y est fusionné — jamais une seconde ligne ticker.
     const derniere = [...document.querySelectorAll<HTMLElement>(".activity-cluster")].pop() as HTMLElement;

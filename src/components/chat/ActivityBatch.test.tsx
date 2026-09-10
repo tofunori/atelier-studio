@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { renderUi } from '../../test/render';
-import { ActivityBatch, ActivityStep, segmentStep } from './ActivityBatch';
+import { ActivityBatch, ActivityStep, mergeSettledStep, segmentStep } from './ActivityBatch';
 import { ToolOutputLine } from './toolPresentation';
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 afterEach(cleanup);
@@ -119,6 +119,17 @@ const agent = (id: string): ToolAction => ({
 
 // Sans découpage par catégorie, un tour de trente outils sans narration ne
 // faisait qu'UNE grappe muette (spec v2, Thierry 2026-09-10).
+describe('mergeSettledStep', () => {
+  it("une étape dépassée regroupe toutes ses séries d'outils en une seule grappe, les feuilles plates après", () => {
+    const tool = (id: string, name: string, input: Record<string, unknown>) => ({ kind: 'tool_update', id, name, input, output: '', status: 'completed' } as any);
+    const thought = { kind: 'tool', name: '__thinking-step', detail: 'je réfléchis' } as any;
+    const segments = segmentStep([tool('1', 'Bash', { command: 'python3 run.py' }), tool('2', 'Read', { file_path: 'a.md' }), thought, tool('3', 'Bash', { command: 'python3 check.py' })]);
+    expect(segments.map((s) => s.kind)).toEqual(['cluster', 'cluster', 'flat', 'cluster']);
+    const merged = mergeSettledStep(segments);
+    expect(merged.map((s) => `${s.kind}×${s.actions.length}`)).toEqual(['cluster×3', 'flat×1']);
+  });
+});
+
 describe('segmentStep', () => {
   it('regroupe les outils consécutifs de même catégorie et coupe au changement', () => {
     const segments = segmentStep([
