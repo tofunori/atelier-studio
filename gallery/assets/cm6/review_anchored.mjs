@@ -79,11 +79,13 @@ class PillWidget extends WidgetType {
     root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage");
     const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
     root.append(where);
-    const button = (cls, d, text, title, onClick) => {
+    const button = (cls, d, text, title, onClick, withText = false) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "atelier-review-act " + cls; b.title = title; b.setAttribute("aria-label", text);
       if (d) b.append(svg(d));
-      const t = document.createElement("span"); t.textContent = text; b.append(t);
+      // Garder / Ignorer : le symbole seul, le libellé reste en infobulle et
+      // pour les lecteurs d'écran (Thierry 2026-09-10, « juste le symbole »).
+      if (withText) { const t = document.createElement("span"); t.textContent = text; b.append(t); }
       b.onmousedown = e => e.preventDefault();
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); onClick(); };
       return b;
@@ -92,7 +94,7 @@ class PillWidget extends WidgetType {
     if (this.config.readOnly) {
       const hint = document.createElement("span"); hint.className = "atelier-review-hint"; hint.textContent = "Lecture seule";
       root.append(hint);
-      if (this.config.onLatest) root.append(button("latest", null, "Dernière intervention ›", "Aller à la dernière intervention pour décider (⌥→)", () => this.config.onLatest()));
+      if (this.config.onLatest) root.append(button("latest", null, "Dernière intervention ›", "Aller à la dernière intervention pour décider (⌥→)", () => this.config.onLatest(), true));
       return root;
     }
     root.append(

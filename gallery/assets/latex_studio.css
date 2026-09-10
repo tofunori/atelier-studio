@@ -620,19 +620,20 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Revue ancrée au passage (variante F2, 2026-09-10) : la pilule est un
    widget inline posé après le dernier caractère du changement courant ; le
    trait gris est une couche calculée sur les rangées visuelles du changement. */
-.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:8px;width:max-content;max-width:100%;margin:6px 0 8px 0;padding:4px 4px 4px 10px;border-radius:8px;
-  background:var(--bg,#1e2124);box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));font-family:var(--ui-font);font-size:12px;line-height:1;white-space:nowrap;user-select:none}
-.cm-editor .atelier-review-pill .atelier-review-where{color:var(--txt);font-variant-numeric:tabular-nums;margin-right:4px}
+.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:6px;width:max-content;max-width:100%;margin:4px 0 6px 0;padding:0;
+  background:transparent;font-family:var(--ui-font);font-size:11px;line-height:1;white-space:nowrap;user-select:none}
+.cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:6px}
 .cm-editor .atelier-review-pill .atelier-review-hint{color:var(--muted);padding:0 4px}
-.cm-editor .atelier-review-act{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border:1px solid transparent;border-radius:6px;background:transparent;
-  color:var(--txt);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
-.cm-editor .atelier-review-act svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.cm-editor .atelier-review-act.keep{color:#0f1a12;background:#9fcf8a;border-color:#9fcf8a}
-.cm-editor .atelier-review-act.keep:hover{background:#b3dea0;border-color:#b3dea0}
-.cm-editor .atelier-review-act.drop{color:#edaaa5;border-color:color-mix(in srgb,#edaaa5 55%,transparent)}
-.cm-editor .atelier-review-act.drop:hover{background:#d86c6326;border-color:#edaaa5}
-.cm-editor .atelier-review-act.latest{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
-.cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+/* Symbole seul, bouton carré fin : la couleur dit le sens, rien de plus. */
+.cm-editor .atelier-review-act{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong,#43474c);border-radius:6px;
+  background:transparent;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+.cm-editor .atelier-review-act svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.cm-editor .atelier-review-act.keep{color:#a9cf99}
+.cm-editor .atelier-review-act.keep:hover{background:#8caf7024;border-color:#8caf70}
+.cm-editor .atelier-review-act.drop{color:#dca29c}
+.cm-editor .atelier-review-act.drop:hover{background:#d86c6321;border-color:#d68c87}
+.cm-editor .atelier-review-act.latest{width:auto;padding:0 9px;gap:6px;font:inherit;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .cm-editor .atelier-review-act:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .cm-editor .atelier-review-brackets{pointer-events:none}
 .cm-editor .atelier-review-bracket{position:absolute;border-radius:2px;background:var(--border-strong,#43474c)}
