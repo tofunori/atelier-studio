@@ -62,7 +62,7 @@
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
   #split{flex:1;display:flex;min-height:0}
-  #left{width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:var(--surface-app,var(--bg))}
+  #left{position:relative;width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:var(--surface-app,var(--bg))}
   #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
   /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
   html.tex-editor-only #right{display:none}
@@ -616,6 +616,28 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:700px){header{gap:5px;padding-inline:6px}#build span{display:none}#build{width:28px;padding:0}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
+
+/* Carte de revue flottante (variante E, 2026-09-10) : coin bas-droit du volet
+   éditeur, visible seulement pendant la revue d'un passage. Ni marge dans le
+   texte ni place dans la barre du haut. */
+#dvReview{position:absolute;right:16px;bottom:14px;z-index:6;display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:10px;
+  background:var(--card);box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-family:var(--ui-font);font-size:12px}
+#dvReview[hidden]{display:none}
+#dvReview button{height:26px;min-width:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--muted);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;font:inherit;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+#dvReview button.dvr-chev{padding:0;width:26px}
+#dvReview button svg{flex:none}
+#dvReview button:not(:disabled):hover{background:var(--card2);color:var(--txt)}
+#dvReview button:disabled{opacity:.4;cursor:default}
+#dvReview button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#dvReview .dvr-keep{color:#b5d3a7;background:#8caf7021}
+#dvReview .dvr-keep:not(:disabled):hover{background:#8caf7036;color:#c8e2bb}
+#dvReview .dvr-drop:not(:disabled):hover{color:#edaaa5;background:#d86c6321}
+#dvReview .dvr-count{padding:0 4px;color:var(--txt);font-variant-numeric:tabular-nums;white-space:nowrap}
+#dvReview .dvr-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+/* La dernière ligne reste lisible sous la carte. */
+#left.dv-review-on .cm-scroller{padding-bottom:56px}
+@media (prefers-reduced-motion:reduce){#dvReview button{transition:none}}
 /* Decision icons live in a narrow gutter, never in the paragraph flow. */
 .cm-editor.atelier-review-gutter .cm-content{padding-left:40px}
 .cm-editor .cm-deletedChunk:has(.atelier-review-decision){position:relative;min-height:0}

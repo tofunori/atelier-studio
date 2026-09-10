@@ -644,7 +644,9 @@ window.DiffVersions = function(opts){
     let nativeShown = false;
     if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
       cancelRender();
-      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true} : undefined) || [];
+      // Variante E (2026-09-10) : les décisions vivent dans une carte flottante
+      // du volet éditeur ; `toolbar: true` = ni gouttière ni bouton dans le texte.
+      changePts = cm.showMergeDiff(v.before, individualReview ? {onDecision: !tt ? decideReview : null, individual: true, toolbar: true} : undefined) || [];
       changeAt = 0;
       if(changePts.length){
         const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
@@ -845,6 +847,68 @@ window.DiffVersions = function(opts){
   try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
+  // ---- Variante E : carte de revue flottante (coin bas-droit du volet éditeur) ----
+  let reviewCard = null, reviewCardHost = null, cardCount = null, cardPrev = null, cardNext = null, cardKeep = null, cardDrop = null;
+  const SVG = (d) => '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
+  function reviewHost(){
+    const cm = getCm();
+    let wrap = null;
+    try{ wrap = typeof cm?.getWrapperElement === "function" ? cm.getWrapperElement() : null; }catch(e){ wrap = null; }
+    if(!wrap) return null;
+    return (typeof wrap.closest === "function" && wrap.closest("#left")) || wrap.parentElement || null;
+  }
+  function ensureReviewCard(){
+    if(reviewCard || !individualReview) return reviewCard;
+    const host = reviewHost();
+    if(!host || typeof host.appendChild !== "function") return null;
+    const card = document.createElement("div");
+    card.id = "dvReview"; card.setAttribute("role", "toolbar"); card.setAttribute("aria-label", "Revue du passage");
+    card.hidden = true;
+    const mk = (cls, html, label, title) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = cls; b.innerHTML = html;
+      b.setAttribute("aria-label", label); b.title = title || label;
+      b.onmousedown = (e) => e.preventDefault();
+      return b;
+    };
+    cardPrev = mk("dvr-chev", SVG("M15 6l-6 6 6 6"), "Bloc précédent", "Bloc précédent (⌥↑)");
+    cardCount = document.createElement("span"); cardCount.className = "dvr-count"; cardCount.setAttribute("aria-live", "polite");
+    cardNext = mk("dvr-chev", SVG("M9 6l6 6-6 6"), "Bloc suivant", "Bloc suivant (⌥↓)");
+    cardKeep = mk("dvr-keep", SVG("M5 12l5 5L20 7") + "<span>Garder</span>", "Garder", "Garder ce bloc (⌥↩)");
+    cardDrop = mk("dvr-drop", SVG("M6 6l12 12M18 6L6 18") + "<span>Ignorer</span>", "Ignorer", "Ignorer ce bloc (⌥⌫)");
+    const sep = () => { const x = document.createElement("span"); x.className = "dvr-sep"; x.setAttribute("aria-hidden", "true"); return x; };
+    card.append(cardPrev, cardCount, cardNext, sep(), cardKeep, cardDrop);
+    cardPrev.onclick = () => gotoChange(changeAt - 1, true);
+    cardNext.onclick = () => gotoChange(changeAt + 1, true);
+    cardKeep.onclick = () => decideCurrent("accept");
+    cardDrop.onclick = () => decideCurrent("reject");
+    host.appendChild(card);
+    reviewCard = card; reviewCardHost = host;
+    return card;
+  }
+  function updateReviewCard(){
+    if(!individualReview) return;
+    const on = shown && !tt && changePts.length > 0;
+    const card = on ? ensureReviewCard() : reviewCard;
+    if(!card) return;
+    card.hidden = !on;
+    if(reviewCardHost?.classList) reviewCardHost.classList.toggle("dv-review-on", on);
+    if(!on) return;
+    const k = Math.max(0, Math.min(changePts.length - 1, changeAt));
+    cardCount.textContent = (k + 1) + "/" + changePts.length;
+    cardCount.title = "Bloc " + (k + 1) + " sur " + changePts.length + " de cette intervention";
+    cardPrev.disabled = reviewBusy || k <= 0;
+    cardNext.disabled = reviewBusy || k >= changePts.length - 1;
+    cardKeep.disabled = reviewBusy; cardDrop.disabled = reviewBusy;
+  }
+  /** Décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) sans bouton dans le texte. */
+  function decideCurrent(kind){
+    const cm = getCm();
+    if(!cm || !shown || tt || reviewBusy || !changePts.length || typeof cm.decideMergeChunk !== "function") return;
+    const target = changePts[Math.max(0, Math.min(changePts.length - 1, changeAt))];
+    const decision = cm.decideMergeChunk(kind, target ? target.ch : undefined);
+    if(decision) void decideReview(decision);
+  }
   async function decideReview(decision){
     if(reviewBusy || tt || !shown) return;
     const cm = getCm(), it = interList()[navMode];
@@ -1274,6 +1338,7 @@ window.DiffVersions = function(opts){
       els.tag.setAttribute("aria-pressed", String(shown));
       if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
       if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
+      updateReviewCard();
       return;
     }
     if(!navPill) return;
@@ -1997,6 +2062,12 @@ window.DiffVersions = function(opts){
     if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowDown" || e.code === "ArrowUp") && changePts.length){
       e.preventDefault(); e.stopPropagation();
       gotoChange(changeAt + (e.code === "ArrowDown" ? 1 : -1), true);
+    }
+    // ⌥↩ / ⌥⌫ : garder / ignorer le bloc courant (carte de revue, variante E)
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "Enter" || e.code === "Backspace") && individualReview && changePts.length){
+      e.preventDefault(); e.stopPropagation();
+      decideCurrent(e.code === "Enter" ? "accept" : "reject");
+      return;
     }
     // ⌥←/⌥→ : intervention précédente / suivante (timeline)
     if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")){
