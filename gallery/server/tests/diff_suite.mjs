@@ -2177,7 +2177,7 @@ async function durableReviewTests() {
     ok("revue durable : la décision poste une op review avec les bons hashes",
       ops.length === 1 && ops[0].id === it.id && ops[0].review?.baseHash === sha256(adjusted)
         && ops[0].review?.textHash === sha256(after) && ops[0].review.accepted === undefined
-        && ops[0].texts?.[sha256(adjusted)] === adjusted && ops[0].texts?.[sha256(after)] === after,
+        && ops[0].texts?.[sha256(adjusted)] === adjusted && !(sha256(after) in ops[0].texts),
       JSON.stringify(ops));
     // Une même décision acquittée ne repart pas ; une nouvelle repart.
     h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted });
@@ -2217,6 +2217,41 @@ async function durableReviewTests() {
       ops.length === 1 && ops[0].id === it.id && ops[0].review?.accepted === true
         && ops[0].review.baseHash === sha256(after) && ops[0].review.textHash === sha256(after),
       JSON.stringify(ops));
+    ok("revue durable : Tout accepter ne renvoie pas les textes déjà journalisés",
+      Object.keys(ops[0].texts || {}).length === 0, JSON.stringify(Object.keys(ops[0].texts || {})));
+  }
+
+  // 2b. « Tout accepter » sur un long historique chargé du serveur : 189 ops
+  // review sans un seul texte (chaque texte y est déjà, par l'append). Avec
+  // les textes, 189 × 17 Ko = 3,2 Mo → 413 côté Rust (Thierry 2026-09-11).
+  {
+    const n = 189, filler = "x".repeat(17 * 1024);
+    const entries = []; let prev = "base longue\n";
+    for (let i = 1; i <= n; i++) {
+      const next = `version ${i} ${filler}\n`;
+      entries.push({ id: `i-${i}`, before: prev, after: next, ts: i, source: "external-reload", status: "applied" });
+      prev = next;
+    }
+    const serverState = durableState("/x/long.tex", 7, "base longue\n", entries, prev);
+    const h = makeModuleHarness({ individualReview: true, headText: null, serverState: { ok: true, ...serverState } });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = prev; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    ok("revue durable : 189 interventions chargées (compteur 189/189)", h.nav()?.count.textContent === `${n}/${n}`,
+      JSON.stringify({ count: h.nav()?.count.textContent, notes: h.notes }));
+    const acceptAll = h.group._children.find((c) => c && c.id === "diffAcceptAll");
+    acceptAll.onclick();
+    await sleep(50);
+    const ops = reviewOps(h);
+    const bytes = Buffer.byteLength(JSON.stringify(h.posts[h.posts.length - 1] || {}));
+    ok("revue durable : Tout accepter sur 189 interventions = 189 ops review, aucun texte, corps < 200 Ko",
+      ops.length === n && ops.every((op) => op.review?.accepted === true && Object.keys(op.texts || {}).length === 0)
+        && bytes < 200 * 1024,
+      JSON.stringify({ ops: ops.length, bytes, texts: ops.slice(0, 3).map((op) => Object.keys(op.texts || {}).length) }));
+    ok("revue durable : après Tout accepter, l'historique est vide",
+      h.nav()?.count.textContent === "0" || h.nav()?.count.textContent === "0/0",
+      JSON.stringify(h.nav()?.count.textContent));
   }
 
   // 3. Rechargement depuis un état serveur qui porte `review` : reviewState est

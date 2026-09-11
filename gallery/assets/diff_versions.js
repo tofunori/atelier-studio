@@ -411,25 +411,49 @@ window.DiffVersions = function(opts){
       try{ localStorage.setItem(KEY, JSON.stringify(snapshot)); }
       catch(e){ notify("historique local trop volumineux — persistance serveur maintenue"); }
       const ops = [];
-      if(!serverBaseHash) ops.push({type: "init", base: snapshot.base,
-        current: snapshot.current, legacySnapshots: snapshot.legacySnapshots, texts: snapshot.texts});
+      // Textes que le serveur tient déjà et ne ramasse jamais : ceux des
+      // interventions et décisions acquittées, plus la base. `current` en est
+      // exclu (remplacé par set-current, il peut être ramassé). Ne pas les
+      // renvoyer : « Tout accepter » sur 189 interventions × 17 Ko faisait
+      // 3,2 Mo, au-delà de la limite de corps du serveur (413) — les décisions
+      // restaient locales et toute persistance suivante échouait (2026-09-11).
+      const known = new Set(serverBaseHash ? [serverBaseHash] : []);
+      for(const it of snapshot.interventions) if(acknowledgedIds.has(it.id)){ known.add(it.fromHash); known.add(it.toHash); }
+      for(const canonical of acknowledgedReview.values()){
+        const [baseHash, textHash] = canonical.split(":");
+        known.add(baseHash); known.add(textHash);
+      }
+      const textsFor = (...hashes) => {
+        const out = {};
+        for(const hash of hashes){
+          if(known.has(hash) || typeof snapshot.texts[hash] !== "string") continue;
+          out[hash] = snapshot.texts[hash];
+          known.add(hash); // une fois dans ce lot, inutile de le répéter
+        }
+        return out;
+      };
+      if(!serverBaseHash){
+        ops.push({type: "init", base: snapshot.base,
+          current: snapshot.current, legacySnapshots: snapshot.legacySnapshots, texts: snapshot.texts});
+        for(const hash of Object.keys(snapshot.texts)) known.add(hash);
+      }
       for(const it of snapshot.interventions){
         if(acknowledgedIds.has(it.id)) continue;
         const full = INTERVENTIONS.find(candidate => candidate.id === it.id);
         if(!full) continue;
         pendingById.set(it.id, full);
         ops.push({type: "append", intervention: it, current: snapshot.current,
-          texts: {[it.fromHash]: snapshot.texts[it.fromHash], [it.toHash]: snapshot.texts[it.toHash]}});
+          texts: textsFor(it.fromHash, it.toHash)});
       }
       if(!ops.length) ops.push({type: "set-current", current: snapshot.current,
-        texts: {[snapshot.current.hash]: snapshot.texts[snapshot.current.hash]}});
+        texts: textsFor(snapshot.current.hash)});
       // Décisions de revue changées depuis le dernier ack (ou retirées).
       const reviewBatch = [];
       for(const [id, entry] of Object.entries(snapshot.review || {})){
         const canonical = reviewCanon(entry);
         if(acknowledgedReview.get(id) === canonical) continue;
         reviewBatch.push({id, canonical, op: {type: "review", id, review: entry,
-          texts: {[entry.baseHash]: snapshot.texts[entry.baseHash], [entry.textHash]: snapshot.texts[entry.textHash]}}});
+          texts: textsFor(entry.baseHash, entry.textHash)}});
       }
       for(const id of acknowledgedReview.keys()){
         if(snapshot.review && snapshot.review[id]) continue;

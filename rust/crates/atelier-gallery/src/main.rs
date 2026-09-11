@@ -2389,7 +2389,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/commitmsg", get(git::commitmsg))
         .route("/gitcommit", post(git::gitcommit))
         .route("/gittrack", post(git::gittrack))
-        .route("/versions", get(git::get_versions).post(git::post_versions))
+        // Journal des versions : la garde du handler annonce 8 Mo, mais
+        // l'extracteur `Json` coupait à 2 Mio — « Tout accepter » sur 189
+        // interventions (3,2 Mo) mourait en 413 (Thierry 2026-09-11).
+        .route(
+            "/versions",
+            get(git::get_versions)
+                .post(git::post_versions)
+                .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
         // Phase 4 — LaTeX / PDF / export PNG
         .route("/latex-suggest", post(suggest::latex_suggest))
         .route("/compile", post(documents::compile))

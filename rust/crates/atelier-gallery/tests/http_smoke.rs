@@ -688,6 +688,37 @@ fn un_jalon_deplace_la_base_daffichage_sans_toucher_lancre() {
 /// par GET avec le reste de l'état ; `null` retire la décision ; un `id`
 /// vide est refusé. Cette route est celle que l'app exécute (§3b).
 #[test]
+fn un_journal_de_trois_mo_passe_la_limite_de_corps() {
+    // « Tout accepter » sur 189 interventions d'un chapitre de 17 Ko envoyait
+    // 3,2 Mo : l'extracteur `Json` d'axum coupe à 2 Mio par défaut (413 avant
+    // le handler), alors que la route annonce 8 Mo (Thierry 2026-09-11,
+    // results_en.tex). La limite suit la garde, comme /save.
+    let srv = start_server();
+    let file = srv.root.join("gros.tex");
+    fs::write(&file, "x\n").unwrap();
+    let path = file.display().to_string();
+    let big = "a".repeat(3 * 1024 * 1024);
+    let h_big = sha256_hex(&big);
+    let init = format!(
+        r#"{{"path":"{path}","expectedRevision":0,"ops":[
+          {{"type":"init","texts":{{"{h_big}":"{big}"}},
+            "base":{{"hash":"{h_big}","kind":"session","sha":"","ts":1}},
+            "current":{{"hash":"{h_big}","ts":1}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&init));
+    assert_eq!(st, 200, "3 Mo refusés — {body}");
+    // Au-delà de la garde annoncée (8 Mo) : refus net, pas de 413 muet.
+    let huge = "b".repeat(9 * 1024 * 1024);
+    let h_huge = sha256_hex(&huge);
+    let too_big = format!(
+        r#"{{"path":"{path}","expectedRevision":1,"ops":[{{"type":"set-current",
+          "current":{{"hash":"{h_huge}","ts":2}},"texts":{{"{h_huge}":"{huge}"}}}}]}}"#,
+    );
+    let (st, _) = http(srv.port, "POST", "/versions", Some(&too_big));
+    assert_ne!(st, 200, "9 Mo acceptés");
+}
+
+#[test]
 fn une_decision_de_revue_persiste_dans_le_journal() {
     let srv = start_server();
     let file = srv.root.join("revue.tex");
