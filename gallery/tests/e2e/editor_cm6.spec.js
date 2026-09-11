@@ -383,6 +383,49 @@ test('rechargement agent : la sélection hors zone survit, le clic reste un clic
   });
 });
 
+// Buffer sale + écriture de l'agent sur le disque : avant, « when-clean »
+// ignorait le disque jusqu'à ⌘S/compilation, et la sauvegarde rechargeait
+// alors la version de l'agent en jetant la frappe. Depuis (2026-09-11), le
+// delta de l'agent est fusionné dans le buffer : la frappe survit, le diff
+// s'affiche tout de suite, et la sauvegarde qui suit ne fait pas conflit.
+test('rechargement agent sur un buffer modifié : fusion, diff immédiat, frappe conservée', async ({page}) => {
+  const corps = Array.from({length: 30}, (_, i) =>
+    `Paragraphe ${String(i + 1).padStart(2, '0')} : phrase de test pour la fusion dans l'editeur du studio.`).join('\n\n');
+  const source = `\\documentclass{article}\n\\begin{document}\n\n${corps}\n\n\\end{document}\n`;
+  await withProject({'fusion.tex': source}, async ({root, url}) => {
+    await page.goto(url('latex_studio.html', 'fusion.tex'));
+    await expectEngine(page, 'cm6');
+
+    // L'utilisateur tape au début du document (buffer sale, pas de ⌘S).
+    await page.evaluate(() => { cm.focus(); cm.setCursor({line: 4, ch: 0}); });
+    await page.keyboard.type('FRAPPE LOCALE ');
+    await expect(page.locator('#ddot')).toBeVisible();
+
+    // L'agent réécrit un paragraphe loin de là, sur le disque.
+    const cible = path.join(root, 'fusion.tex');
+    const temporaire = `${cible}.external`;
+    writeFileSync(temporaire, source.replace('Paragraphe 25', 'Paragraphe 25 REECRIT PAR L AGENT'));
+    const futur = new Date(Date.now() + 1500);
+    utimesSync(temporaire, futur, futur);
+    renameSync(temporaire, cible);
+
+    // Les deux deltas coexistent dans le buffer, sans attendre une sauvegarde.
+    await expect.poll(() => page.evaluate(() => cm.getValue()), {timeout: 10000}).toContain('REECRIT PAR L AGENT');
+    // (le rewrap fluide peut couper la frappe sur deux lignes)
+    expect(await page.evaluate(() => cm.getValue())).toMatch(/FRAPPE\s+LOCALE/);
+    // Le diff de l'agent est journalisé et affiché (mode Diff ouvert, 1/1).
+    await expect(page.locator('#diffTag')).toHaveClass(/\bon\b/);
+    await expect(page.locator('.dv-count')).toHaveText('1/1');
+
+    // La sauvegarde suivante passe sans conflit et garde les deux deltas.
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+s' : 'Control+s');
+    await expect(page.locator('#ddot')).toBeHidden();
+    const disque = readFileSync(cible, 'utf8');
+    expect(disque).toMatch(/FRAPPE\s+LOCALE/);
+    expect(disque).toContain('REECRIT PAR L AGENT');
+  });
+});
+
 // Le scénario vécu : l'agent écrit PENDANT le clic de l'utilisateur. Le reload
 // tombe entre mousedown et mouseup ; l'ancre du geste doit rester au point de
 // clic, pas sauter à une extrémité du document.

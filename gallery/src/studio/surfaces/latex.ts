@@ -92,6 +92,12 @@ interface LatexSurfaceWindow extends Window {
   latexGhostController?: unknown;
   latexSelectionBridge?: unknown;
   __rewrapAll?: () => number;
+  /** jsdiff global (`/.fig_thumbs/diff.min.js`), déjà chargé par le template. */
+  Diff?: {
+    structuredPatch(oldName: string, newName: string, oldText: string, newText: string,
+      oldHeader?: string, newHeader?: string, options?: {context?: number}): unknown;
+    applyPatch(source: string, patch: unknown, options?: {fuzzFactor?: number}): string | false;
+  };
   texcOpen?: (selection: Parameters<LatexAnnotationsController["open"]>[0]) => void;
   texcAnchorAll?: () => void;
   toggleTexcPanel?: (force?: boolean) => void;
@@ -465,6 +471,25 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       }
     } catch { /* preserve the external disk version even if formatting fails */ }
   };
+  // L'agent a écrit sur le disque pendant que le buffer est sale : rejouer
+  // son delta (dernière version disque → nouvelle) sur le buffer, contexte
+  // d'une ligne sans tolérance — comme transplantAcceptedInto côté diff.
+  // Chevauchement : null, le buffer reste et la session signale le conflit.
+  // Avant (2026-09-11) : « when-clean » attendait ⌘S/compilation, et la
+  // sauvegarde rechargeait le disque en jetant les retouches (Thierry).
+  const mergeDiskChange = (base: string, local: string, remote: string): string | null => {
+    if (local === remote) return remote;
+    if (remote === base) return local;
+    const Diff = win.Diff;
+    if (!Diff) return null;
+    try {
+      const patch = Diff.structuredPatch(path || "", path || "", base, remote, undefined, undefined, {context: 1});
+      const merged = Diff.applyPatch(local, patch, {fuzzFactor: 0});
+      return typeof merged === "string" ? merged : null;
+    } catch {
+      return null;
+    }
+  };
   const ensureSession = (): ReturnType<typeof createDocumentSession> => {
     if (session) return session;
     if (!path) throw new Error("No file path");
@@ -492,6 +517,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       getText: () => editor?.getValue() || "",
       applyText: (text) => { if (editor) editor.setValue(text); else initializeEditor(text); },
       externalReload: "when-clean",
+      merge: mergeDiskChange,
       conflictPolicy: "reload",
       onEvent: (event) => {
         if (event.kind === "loaded") {
@@ -514,6 +540,15 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
           if (!diff.isShown()) applyAgentRewrap();
+          csv.onDocumentChanged();
+          scheduleAutoCompile();
+        } else if (event.kind === "external-merge") {
+          const stillDirty = ensureSession().state.dirty;
+          dirtyDot.style.display = stillDirty ? "inline" : "none";
+          setState("hint", "version de l'agent fusionnée avec tes retouches");
+          if (event.previousText !== event.text) {
+            diff.push(event.previousText, event.text, {source: "external-merge", status: "applied"});
+          }
           csv.onDocumentChanged();
           scheduleAutoCompile();
         } else if (event.kind === "conflict" || event.kind === "error") setState("err", event.message);

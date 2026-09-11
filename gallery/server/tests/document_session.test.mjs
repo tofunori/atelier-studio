@@ -184,3 +184,90 @@ test("acceptSaved adopts a restored snapshot without a network roundtrip", async
   assert.equal(session.state.mtime, 8);
   assert.equal(session.state.baseline, "restored");
 });
+
+// Fusion à trois voies (2026-09-11) : « when-clean » ignorait les modifs de
+// l'agent sur disque tant que le buffer était sale — et la sauvegarde
+// (conflictPolicy reload) écrasait ensuite les retouches locales. Avec
+// `merge`, la version disque s'applique sur le buffer sale ; les deux deltas
+// survivent quand ils ne se chevauchent pas.
+test("when-clean with merge applies a disk change onto a dirty buffer", async () => {
+  let text = "a\nb\nc\n";
+  let disk = {text: "a\nb\nc\n", mtime: 1};
+  const events = [];
+  const session = createDocumentSession({
+    read: async () => disk,
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "when-clean",
+    merge: (base, local, remote) => {
+      // fusion ligne à ligne minimale pour le test : delta disque = c→C
+      if (base === "a\nb\nc\n" && remote === "a\nb\nC\n" && local.endsWith("c\n")) return local.slice(0, -2) + "C\n";
+      return null;
+    },
+    onEvent: (event) => events.push(event),
+  });
+  await session.load();
+  text = "A\nb\nc\n";
+  session.markDirty();
+  disk = {text: "a\nb\nC\n", mtime: 2};
+  assert.equal(await session.pollOnce(), true);
+  assert.equal(text, "A\nb\nC\n", "les deux deltas coexistent");
+  assert.equal(session.state.dirty, true, "le buffer fusionné reste à sauvegarder");
+  assert.equal(session.state.mtime, 2, "la sauvegarde suivante ne fera pas conflit");
+  assert.equal(session.state.baseline, "a\nb\nC\n", "la base devient la version disque");
+  const merged = events.find((event) => event.kind === "external-merge");
+  assert.ok(merged, JSON.stringify(events.map((event) => event.kind)));
+  assert.equal(merged.previousText, "A\nb\nc\n");
+  assert.equal(merged.text, "A\nb\nC\n");
+  assert.equal(merged.snapshot.text, "a\nb\nC\n");
+});
+
+test("when-clean with merge keeps the local buffer and reports a conflict once when the merge fails", async () => {
+  let text = "a\nb\nc\n";
+  let disk = {text: "a\nb\nc\n", mtime: 1};
+  const events = [];
+  const session = createDocumentSession({
+    read: async () => disk,
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "when-clean",
+    merge: () => null,
+    onEvent: (event) => events.push(event),
+  });
+  await session.load();
+  text = "a\nb\nlocal\n";
+  session.markDirty();
+  disk = {text: "a\nb\nagent\n", mtime: 2};
+  assert.equal(await session.pollOnce(), false);
+  assert.equal(await session.pollOnce(), false);
+  assert.equal(text, "a\nb\nlocal\n");
+  assert.equal(session.state.mtime, 1, "le mtime connu reste celui de la base : la sauvegarde verra le conflit");
+  const conflicts = events.filter((event) => event.kind === "conflict");
+  assert.equal(conflicts.length, 1, "un seul avertissement par version disque");
+  assert.equal(conflicts[0].mtime, 2);
+  disk = {text: "a\nb\nagent 2\n", mtime: 3};
+  assert.equal(await session.pollOnce(), false);
+  assert.equal(events.filter((event) => event.kind === "conflict").length, 2, "nouvelle version disque : nouvel avertissement");
+});
+
+test("when-clean with merge still reloads a clean buffer as external-reload", async () => {
+  let text = "base";
+  let disk = {text: "base", mtime: 1};
+  const events = [];
+  const session = createDocumentSession({
+    read: async () => disk,
+    write: async () => ({mtime: 1}),
+    getText: () => text,
+    applyText: (next) => { text = next; },
+    externalReload: "when-clean",
+    merge: () => { throw new Error("ne doit pas être appelé sur un buffer propre"); },
+    onEvent: (event) => events.push(event.kind),
+  });
+  await session.load();
+  disk = {text: "agent", mtime: 2};
+  assert.equal(await session.pollOnce(), true);
+  assert.equal(text, "agent");
+  assert.deepEqual(events, ["loaded", "external-reload"]);
+});

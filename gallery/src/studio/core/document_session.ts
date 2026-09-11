@@ -15,6 +15,9 @@ export type DocumentSessionEvent =
   | {kind: "loaded"; snapshot: DocumentSnapshot}
   | {kind: "saved"; snapshot: DocumentSnapshot; previousText: string | null}
   | {kind: "external-reload"; snapshot: DocumentSnapshot; previousText: string}
+  /** Version disque fusionnée sur un buffer sale : `previousText` = buffer
+   * avant, `text` = buffer après (delta disque appliqué), `snapshot` = disque. */
+  | {kind: "external-merge"; snapshot: DocumentSnapshot; previousText: string; text: string}
   | {kind: "conflict"; message: string; mtime?: number}
   | {kind: "error"; message: string};
 
@@ -28,6 +31,11 @@ export interface DocumentSessionOptions {
   applyText(text: string, reason: DocumentApplyReason): void;
   onEvent?(event: DocumentSessionEvent): void;
   externalReload?: ExternalReloadPolicy;
+  /** Avec « when-clean » : au lieu d'ignorer un changement disque tant que le
+   * buffer est sale, l'y fusionner (base = dernière version disque connue,
+   * local = buffer, remote = disque). `null` = chevauchement : le buffer reste,
+   * un événement `conflict` est émis une fois par version disque. */
+  merge?: (base: string, local: string, remote: string) => string | null;
   conflictPolicy?: "keep-local" | "reload";
   mtimeEpsilon?: number;
 }
@@ -51,6 +59,7 @@ export function createDocumentSession(options: DocumentSessionOptions) {
   const conflictPolicy = options.conflictPolicy || "keep-local";
   const epsilon = options.mtimeEpsilon ?? 0.001;
   let polling = false;
+  let conflictReported: number | null = null;
 
   function apply(snapshot: DocumentSnapshot, reason: DocumentApplyReason): void {
     const previousText = state.baseline ?? options.getText();
@@ -110,8 +119,33 @@ export function createDocumentSession(options: DocumentSessionOptions) {
     }
   }
 
+  function mergeExternal(snapshot: DocumentSnapshot): boolean {
+    const local = options.getText();
+    let merged: string | null = null;
+    try {
+      merged = options.merge!(state.baseline ?? "", local, snapshot.text);
+    } catch {
+      merged = null;
+    }
+    if (typeof merged !== "string") {
+      if (conflictReported !== snapshot.mtime) {
+        conflictReported = snapshot.mtime;
+        options.onEvent?.({kind: "conflict", message: "modifié sur le disque : fusion impossible avec tes retouches", mtime: snapshot.mtime});
+      }
+      return false;
+    }
+    conflictReported = null;
+    options.applyText(merged, "external-reload");
+    state.mtime = snapshot.mtime;
+    state.baseline = snapshot.text;
+    state.dirty = merged !== snapshot.text;
+    options.onEvent?.({kind: "external-merge", snapshot, previousText: local, text: merged});
+    return true;
+  }
+
   async function pollOnce(): Promise<boolean> {
-    if (polling || (externalReload === "when-clean" && state.dirty)) return false;
+    const mergeable = externalReload === "when-clean" && state.dirty && typeof options.merge === "function";
+    if (polling || (externalReload === "when-clean" && state.dirty && !mergeable)) return false;
     if (options.stat) {
       const mtime = await options.stat().catch(() => null);
       // sonde en échec : ne rien conclure, retenter au prochain tick
@@ -126,6 +160,10 @@ export function createDocumentSession(options: DocumentSessionOptions) {
         state.mtime = snapshot.mtime;
         state.dirty = false;
         return false;
+      }
+      // Le buffer a pu se salir pendant la lecture : refaire le test ici.
+      if (externalReload === "when-clean" && state.dirty) {
+        return typeof options.merge === "function" ? mergeExternal(snapshot) : false;
       }
       apply(snapshot, "external-reload");
       return true;
