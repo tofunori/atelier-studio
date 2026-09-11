@@ -5590,8 +5590,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .context-latex-preview{flex-basis:100%;min-width:0;border:1px solid var(--border);border-radius:var(--r-s);padding:10px;background:var(--bg-ctl);font-size:var(--fs-s)}
 .context-latex-preview strong{font-size:var(--fs-xs);font-weight:500;}
 .context-latex-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font:var(--fs-s)/1.6 var(--font-mono);margin:8px 0}
-.context-latex-preview .ui-rowbtn,.context-latex-undo .ui-rowbtn{color:var(--accent);font-size:var(--fs-xs)}
-.context-latex-undo{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--text-muted);flex-basis:100%}
+.context-latex-preview .ui-rowbtn{color:var(--accent);font-size:var(--fs-xs)}
 
 /* Composer context tools — sober, scoped treatment shared by both menus. */
 .composer-context-rail {

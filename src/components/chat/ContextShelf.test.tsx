@@ -187,11 +187,16 @@ it("LaTeX garde deux passages du même fichier séparés et retire seulement le 
   expect(onRemoveAttachment.mock.calls).toEqual([[1]]);
 });
 
-it("LaTeX restaure la pièce jointe complète après retrait", () => {
+// Retirer une pièce jointe ne laisse aucune trace dans la boîte de prompt :
+// la ligne « … retiré. Annuler » a été supprimée (Thierry 2026-09-11).
+it("LaTeX : retirer la pièce jointe ne laisse ni mention ni bouton Annuler", () => {
   const attachment: ShelfAttachment = {name:"methods.tex", lines:null, text:"contenu", kind:"file", path:"/repo/methods.tex"};
-  const restore = vi.fn();
-  render(<ContextShelf attachments={[attachment]} onOpenPaste={vi.fn()} onRemoveAttachment={vi.fn()} onRestoreAttachment={restore} />);
+  const onRemoveAttachment = vi.fn();
+  const {container, rerender} = render(<ContextShelf attachments={[attachment]} onOpenPaste={vi.fn()} onRemoveAttachment={onRemoveAttachment} />);
   fireEvent.click(screen.getByRole("button", {name:"Retirer methods.tex Entier"}));
-  fireEvent.click(screen.getByRole("button", {name:"Annuler"}));
-  expect(restore).toHaveBeenCalledWith(attachment, 0);
+  expect(onRemoveAttachment).toHaveBeenCalledWith(0);
+  rerender(<ContextShelf attachments={[]} onOpenPaste={vi.fn()} onRemoveAttachment={onRemoveAttachment} />);
+  expect(screen.queryByText(/retiré/)).toBeNull();
+  expect(screen.queryByRole("button", {name:"Annuler"})).toBeNull();
+  expect(container.querySelector(".context-latex-undo")).toBeNull();
 });

@@ -5467,13 +5467,6 @@ export default function App() {
           onRemoveAttachment={(i) => updateComposerDraft(activeComposerKey, (draft) => ({
             ...draft, attachments: draft.attachments.filter((_, j) => j !== i),
           }))}
-          onRestoreAttachment={(attachment, index) => updateComposerDraft(activeComposerKey, (draft) => {
-            // Upload completion can arrive after switching conversations.
-            // Keep the insertion scoped to the conversation that started it.
-            const next = [...draft.attachments];
-            next.splice(Math.min(index, next.length), 0, attachment);
-            return { ...draft, attachments: next };
-          })}
           onRevert={(index, text, edit) => {
             if (!activeId) return;
             const id = activeId;

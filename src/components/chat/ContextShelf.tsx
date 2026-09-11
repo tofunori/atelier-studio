@@ -76,14 +76,12 @@ function ThumbOrGlyph({ url }: { url: string }) {
 export function ContextShelf(p: {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
-  onRestoreAttachment?: (attachment: ShelfAttachment, index: number) => void;
   onOpenPaste: (paste: { name: string; text: string }) => void;
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
 }) {
   const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
-  const [removed, setRemoved] = useState<{attachment: ShelfAttachment; index: number} | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [expandedImageIndex, setExpandedImageIndex] = useState<number | null>(null);
   const imageAttachments = p.attachments.flatMap((attachment, attachmentIndex) =>
@@ -112,7 +110,7 @@ export function ContextShelf(p: {
   }, [expandedImageIndex, imageAttachments.length]);
 
   const annotations = p.annotations ?? [];
-  if (p.attachments.length === 0 && annotations.length === 0 && !removed) return null;
+  if (p.attachments.length === 0 && annotations.length === 0) return null;
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
@@ -261,7 +259,7 @@ export function ContextShelf(p: {
             <span className="chip-label">{attachment.name}</span><span className="chip-lines">{latexScope(attachment)}</span>
           </RowButton>
           <IconButton size="s" className="ghost" label={removeLabel(attachment.name, ` ${latexScope(attachment)}`)} title="Retirer ce passage"
-            onClick={() => { setLatexPreview(null); if (p.onRestoreAttachment) setRemoved({attachment, index}); p.onRemoveAttachment(index); }}><XIcon className="context-pill-glyph" /></IconButton>
+            onClick={() => { setLatexPreview(null); p.onRemoveAttachment(index); }}><XIcon className="context-pill-glyph" /></IconButton>
         </span>
       ) : null)}
       {latexPreview && p.attachments.includes(latexPreview) && (
@@ -271,9 +269,6 @@ export function ContextShelf(p: {
           <RowButton onClick={() => p.onOpenPaste({name:latexPreview.name, text:latexPreview.text})}>Ouvrir l’aperçu ↗</RowButton>
         </div>
       )}
-      {removed && p.onRestoreAttachment && <span className="context-latex-undo">{removed.attachment.name} retiré.
-        <RowButton onClick={() => { p.onRestoreAttachment?.(removed.attachment, removed.index); setRemoved(null); }}>Annuler</RowButton>
-      </span>}
       {(() => {
         const groups: { name: string; indexes: number[]; first: ShelfAttachment }[] = [];
         p.attachments.forEach((attachment, index) => {
