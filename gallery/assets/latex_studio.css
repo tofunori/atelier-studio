@@ -79,7 +79,7 @@
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
   /* Diff : couleurs de mots lisibles sur fonds discrets — ni barré ni souligné
      (Thierry 2026-09-10), la couleur seule dit ce qui part et ce qui arrive. */
-  .cm-editor{--review-add:#b5d3a7;--review-del:#edaaa5;--review-add-bg:#8caf7021;--review-del-bg:#d86c6321}
+  .cm-editor{--review-add:#b5d3a7;--review-del:#edaaa5;--review-add-bg:#8caf7021;--review-del-bg:#d86c6321;--review-add-bg-word:#8caf704d;--review-del-bg-word:#d86c634d}
   .cm-editor.cm-merge-b .cm-changedText,.cm-editor .cm-insertedLine{
     color:var(--review-add);background:var(--review-add-bg);border-radius:2px;
     text-decoration:none;
@@ -95,6 +95,12 @@
   .cm-editor .cm-insertedLine *,.cm-editor .cm-deletedLine *{color:inherit!important}
   .cm-editor .cm-insertedLine .cm-changedText,
   .cm-editor .cm-deletedChunk .cm-deletedLine .cm-deletedText{background:transparent}
+  /* Mot changé DANS une ligne (paragraphe .tex) : la ligne est déjà teintée à 8 %
+     par CodeMirror et, sans barré ni souligné, un fond à 13 % s'y fondait — les
+     modifications semblaient manquer (Thierry 2026-09-11). Fond franc sur le mot,
+     et un écart entre l'ancien et le nouveau pour qu'ils ne se lisent pas collés. */
+  .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-changedText{background:var(--review-add-bg-word);padding:0 3px;margin:0 1px;border-radius:3px}
+  .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-deletedText{background:var(--review-del-bg-word);padding:0 3px;margin:0 2px 0 1px;border-radius:3px}
   .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
