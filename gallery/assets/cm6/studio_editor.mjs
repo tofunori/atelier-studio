@@ -10,7 +10,7 @@ import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
-import {reviewAnchored, setReviewFocus} from "./review_anchored.mjs";
+import {reviewAnchored, setReviewFocus, currentReviewOffset} from "./review_anchored.mjs";
 
 // Décision sur un bloc du diff unifié : le texte résultant (`text`) et la
 // base ajustée (`base`) — partagé par les boutons dans le texte (gouttière)
@@ -916,6 +916,8 @@ export function createStudioEditor(parent, opts) {
     hideMergeDiff: () => view.dispatch({effects: mergeDiffComp.reconfigure([])}),
     /** Revue ancrée : désigne le changement courant (offset du document B). */
     setReviewFocus: (ch) => { try { view.dispatch({effects: setReviewFocus.of(ch)}); } catch (e) { /* revue fermée */ } },
+    /** Passage courant de la revue ancrée (focus ‹ › ou curseur) — pour ⌥↩ / ⌥⌫. */
+    currentReviewOffset: () => { try { return currentReviewOffset(view.state); } catch (e) { return null; } },
     nextMergeDiff: () => goToNextChunk(view),
     previousMergeDiff: () => goToPreviousChunk(view),
     // --- keymaps/commands/events ---

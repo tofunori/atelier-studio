@@ -16,10 +16,20 @@ export const setReviewFocus = StateEffect.define();
 const reviewFocus = StateField.define({
   create: () => null,
   update(value, tr) {
+    // Un clic ou une sélection de l'utilisateur reprend la main : le passage
+    // courant redevient celui sous le curseur (Thierry 2026-09-11 — en
+    // défilant, la rangée restait sur le passage de ‹ ›, hors écran).
+    if (tr.isUserEvent("select")) value = null;
     for (const e of tr.effects) if (e.is(setReviewFocus)) value = e.value;
     return value == null ? null : tr.changes.mapPos(value);
   },
 });
+
+/** Offset (fromB) du passage courant — pour les raccourcis ⌥↩ / ⌥⌫. */
+export function currentReviewOffset(state) {
+  const chunk = currentChunk(state);
+  return chunk ? chunk.fromB : null;
+}
 
 function currentChunk(state) {
   const chunks = getChunks(state)?.chunks || [];
@@ -67,15 +77,15 @@ function describe(state, chunk) {
 }
 
 class PillWidget extends WidgetType {
-  constructor(chunk, label, config) { super(); this.chunk = chunk; this.label = label; this.config = config; }
+  constructor(chunk, label, config, isCurrent) { super(); this.chunk = chunk; this.label = label; this.config = config; this.isCurrent = isCurrent; }
   eq(other) {
     return other.chunk.fromB === this.chunk.fromB && other.chunk.toB === this.chunk.toB
-      && other.label === this.label && other.config.readOnly === this.config.readOnly;
+      && other.label === this.label && other.config.readOnly === this.config.readOnly && other.isCurrent === this.isCurrent;
   }
   ignoreEvent() { return true; }
   toDOM(view) {
     const root = document.createElement("div");
-    root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "");
+    root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "") + (this.isCurrent ? " is-current" : "");
     root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage");
     const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
     root.append(where);
@@ -106,14 +116,18 @@ class PillWidget extends WidgetType {
 }
 
 function pillDecorations(state, config) {
-  const chunk = currentChunk(state);
-  if (!chunk) return Decoration.none;
-  // Rangée à part entière SOUS la dernière ligne changée : une pilule inline
-  // au milieu d'une phrase se fondait dans le texte et le coupait
-  // (Thierry 2026-09-10, « Garder et Ignorer ne se démarquent pas »).
-  const at = state.doc.lineAt(extentB(state, chunk).to).to;
-  const widget = new PillWidget(chunk, describe(state, chunk), config);
-  return Decoration.set([Decoration.widget({widget, block: true, side: 1}).range(at)]);
+  const chunks = getChunks(state)?.chunks || [];
+  if (!chunks.length) return Decoration.none;
+  const current = currentChunk(state);
+  // Une rangée SOUS chaque passage (la courante en accent) : on décide là où
+  // l'on est, sans avoir à ramener le passage courant à l'écran (Thierry
+  // 2026-09-11). Rangée à part entière sous la dernière ligne changée : une
+  // pilule inline au milieu d'une phrase se fondait dans le texte.
+  const ranges = chunks.map(chunk => {
+    const at = state.doc.lineAt(extentB(state, chunk).to).to;
+    return Decoration.widget({widget: new PillWidget(chunk, describe(state, chunk), config, chunk === current), block: true, side: 1}).range(at);
+  });
+  return Decoration.set(ranges, true);
 }
 
 function bracketMarkers(view) {
@@ -136,10 +150,8 @@ function bracketMarkers(view) {
     // ligne effacée : le trait commence en haut de ce widget.
     const widget = deleted.find(el => view.posAtDOM(el) === chunk.fromB);
     if (widget) top = Math.min(top, widget.getBoundingClientRect().top);
-    if (chunk === current) {
-      const row = view.contentDOM.querySelector(".atelier-review-pill");
-      if (row) bottom = Math.max(bottom, row.getBoundingClientRect().bottom);
-    }
+    const row = view.contentDOM.querySelectorAll(".atelier-review-pill")[chunks.indexOf(chunk)];
+    if (row) bottom = Math.max(bottom, row.getBoundingClientRect().bottom);
     const cls = "atelier-review-bracket" + (chunk === current ? " is-current" : "");
     markers.push(new RectangleMarker(cls, contentLeft - 9, top - base.top, 2, bottom - top));
   }
@@ -154,7 +166,7 @@ export function reviewAnchored(config) {
   const pills = StateField.define({
     create: state => pillDecorations(state, config),
     update(deco, tr) {
-      if (tr.docChanged || tr.reconfigured || tr.effects.some(e => e.is(setReviewFocus))) return pillDecorations(tr.state, config);
+      if (tr.docChanged || tr.reconfigured || tr.isUserEvent("select") || tr.effects.some(e => e.is(setReviewFocus))) return pillDecorations(tr.state, config);
       return deco;
     },
     provide: f => EditorView.decorations.from(f),
@@ -162,7 +174,7 @@ export function reviewAnchored(config) {
   const brackets = layer({
     above: false,
     class: "atelier-review-brackets",
-    update: update => update.docChanged || update.viewportChanged || update.geometryChanged
+    update: update => update.docChanged || update.viewportChanged || update.geometryChanged || update.selectionSet
       || update.transactions.some(tr => tr.effects.some(e => e.is(setReviewFocus))),
     markers: view => bracketMarkers(view),
   });

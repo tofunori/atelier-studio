@@ -628,6 +628,9 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Revue ancrée au passage (variante F2, 2026-09-10) : la pilule est un
    widget inline posé après le dernier caractère du changement courant ; le
    trait gris est une couche calculée sur les rangées visuelles du changement. */
+/* Une rangée sous chaque passage : les autres en retrait, la courante pleine. */
+.cm-editor .atelier-review-pill:not(.is-current){opacity:.7}
+.cm-editor .atelier-review-pill:not(.is-current):hover{opacity:1}
 .cm-editor .atelier-review-pill{display:flex;align-items:center;gap:6px;width:max-content;max-width:100%;margin:4px 0 6px 0;padding:0;
   background:transparent;font-family:var(--ui-font);font-size:11px;line-height:1;white-space:nowrap;user-select:none}
 .cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:6px}

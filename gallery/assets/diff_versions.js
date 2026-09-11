@@ -934,8 +934,11 @@ window.DiffVersions = function(opts){
   function decideCurrent(kind){
     const cm = getCm();
     if(!cm || !shown || tt || reviewBusy || !changePts.length || typeof cm.decideMergeChunk !== "function") return;
+    // Le passage courant peut avoir été choisi au clic (revue ancrée) : l'hôte
+    // fait foi ; repli sur ‹ › si l'hôte ne sait pas.
+    const live = typeof cm.currentReviewOffset === "function" ? cm.currentReviewOffset() : null;
     const target = changePts[Math.max(0, Math.min(changePts.length - 1, changeAt))];
-    const decision = cm.decideMergeChunk(kind, target ? target.ch : undefined);
+    const decision = cm.decideMergeChunk(kind, live != null ? live : (target ? target.ch : undefined));
     if(decision) void decideReview(decision);
   }
   let undoTimer = null;
