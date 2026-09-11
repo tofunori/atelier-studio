@@ -771,7 +771,7 @@
   #lbNameToast{position:absolute;left:50%;top:52px;transform:translateX(-50%);z-index:105;padding:4px 10px;border-radius:6px;background:var(--card);box-shadow:var(--elev);color:var(--txt);font-size:12px;opacity:0;pointer-events:none;transition:opacity .15s ease}
   #lbNameToast.show{opacity:1}
   @media(prefers-reduced-motion:reduce){#lbNameToast{transition:none}}
-  #lb #lbFs{display:none!important}  /* plein écran vit dans ⋯ ; Échap ou ⋯ pour sortir */
+  #lb #lbFs{display:inline-flex;opacity:1;pointer-events:auto;font-size:0}
   #lb.fs{background:var(--figure-backdrop,var(--bg))}#lb.fs #lbHead{display:none}#lb.fs.fs-ui #lbHead{display:flex}
   #lb.vw #lbHead{display:none}
   @media(max-width:540px){#lbHead{padding-left:8px;padding-right:8px;gap:2px}#lb #lbViewport,#lb.annot #lbViewport{padding:12px}#lbPosition{min-width:36px}}
@@ -868,14 +868,14 @@
 </aside>
 <div id="lb">
   <button id="lbClose" aria-label="Fermer la visionneuse" title="Fermer (Échap)">&#10005;</button>
-  <button id="lbFs" aria-label="Plein écran" title="Plein écran">&#9974;</button>
+  <button id="lbFs" aria-label="Plein écran" title="Plein écran"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
   <div id="lbZoom"><button id="lbZoomOut" aria-label="Réduire">−</button><button id="lbFit" title="Afficher toute l’image (0)">Ajuster</button><button id="lbZoomIn" aria-label="Agrandir">+</button></div>
   <button id="lbAnnot" title="Annoter (a)" aria-label="Ajouter une annotation" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.5L19 9.5a2.1 2.1 0 0 0-3-3L5.5 17 4 20Z"/><path d="M13.5 8.5 16 11"/></svg></button>
   <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
   <button class="lbBtn" id="lbPrev" aria-label="Image précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
   <button class="lbBtn" id="lbNext" aria-label="Image suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
   <div id="annotBar" role="toolbar" aria-label="Outils d’annotation">
-    <button data-tool="select" title="Sélectionner" aria-label="Sélectionner"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 14 9-7 1-3 7Z"/></svg></button>
+    
     <details id="annotShapes"><summary title="Forme : rectangle" aria-label="Choisir une forme"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg><span>⌄</span></summary><div>
     <button data-tool="rect" class="sel" title="Rectangle" aria-label="Rectangle" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
     <button data-tool="ellipse" title="Ellipse" aria-label="Ellipse"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg></button>
@@ -3028,7 +3028,7 @@ lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier
  +'<div id="lbSheet" role="dialog" aria-label="Informations sur le fichier" hidden><div id="lbInfo"></div><div id="lbSheetActs"><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a><button id="lbCopyPath" type="button">Copier le chemin</button></div></div>'
  +'<span class="lb-space"></span>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
- +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><button id="lbFsItem" type="button">Plein écran</button><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
+ +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
  +'<div id="lbNameToast" aria-hidden="true"></div>';
 lb().prepend(lbHead);
 function setFigureBackdrop(color){
@@ -3048,8 +3048,7 @@ document.getElementById('lbSheetActs').prepend(document.getElementById('lbProv')
 const lbSpace=lbHead.querySelector('.lb-space');
 for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill'])lbSpace.before(document.getElementById(id));
 lbHead.append(document.getElementById('lbClose'));
-const lbFs=document.getElementById('lbFs');lbFs.hidden=true;lbHead.append(lbFs);
-document.getElementById('lbFsItem').onclick=()=>{document.getElementById('lbMore').open=false;lbFs.click();};
+lbHead.insertBefore(document.getElementById('lbFs'),document.getElementById('lbClose'));
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';document.getElementById('lbPrev').after(lbPosition);
 // Fiche ⓘ : ouverture au clic, fermeture au clic dehors ou Échap ; le nom
 // reste en infobulle sur ⓘ pour ne pas avoir à l'ouvrir.
@@ -3161,10 +3160,12 @@ function annotBindCanvas(){
     document.getElementById('annotNote').querySelector('.annot-close').click();
     if(annotTool==='pan'){const stage=document.getElementById('lbViewport');annotDrag={kind:'pan',x:e.clientX,y:e.clientY,left:stage.scrollLeft,top:stage.scrollTop};}
     else{
-      const handle=annotTool==='select'&&annotSelected&&Math.hypot(p.x-annotSelected.x2,p.y-annotSelected.y2)<tol;
-      const hit=handle?annotSelected:badgeHit(p)||(annotTool==='select'?[...annotStrokes].reverse().find(s=>g.hit(s,p,tol)):null);
+      // Plus d'outil « sélectionner » (Thierry 2026-09-11) : une annotation
+      // existante se saisit par son numéro ou par son BORD (pas son aire, pour
+      // pouvoir dessiner une forme à l'intérieur d'une autre) ; ailleurs on crée.
+      const handle=annotSelected&&Math.hypot(p.x-annotSelected.x2,p.y-annotSelected.y2)<tol;
+      const hit=handle?annotSelected:badgeHit(p)||[...annotStrokes].reverse().find(s=>annotEdgeHit(g,s,p,tol));
       if(hit){annotSelected=hit;annotDrag={kind:handle?'resize':'move',stroke:hit,original:{...hit},p,changed:false};}
-      else if(annotTool==='select'){annotSelected=null;annotDrag=null;}
       else{annotSelected=null;annotCur={tool:annotTool,x1:p.x,y1:p.y,x2:p.x,y2:p.y,color:'#d88653'};annotDrag={kind:'create',p};}
     }
     c.setPointerCapture(e.pointerId);annotRedraw();
@@ -3188,7 +3189,7 @@ function annotBindCanvas(){
   c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
   // Les outils sont toujours dans la barre (Thierry 2026-09-11) : un clic sur
   // l'un d'eux entre en mode annotation s'il ne l'est pas déjà.
-  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=async()=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotTool=b.dataset.tool;const shapes=document.getElementById('annotShapes');if(b.closest('#annotShapes')){shapes.querySelector('summary svg').replaceWith(b.querySelector('svg').cloneNode(true));shapes.querySelector('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
+  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=async()=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotTool=b.dataset.tool;const shapes=document.getElementById('annotShapes');if(b.closest('#annotShapes')){shapes.querySelector('summary svg').replaceWith(b.querySelector('svg').cloneNode(true));shapes.querySelector('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':'crosshair';});
   document.getElementById('annotUndo').onclick=()=>annotHistory();document.getElementById('annotRedo').onclick=()=>annotHistory(true);
   document.getElementById('annotZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);document.getElementById('annotZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);document.getElementById('annotFit').onclick=()=>lbSetZoom(1);
   document.getElementById('annotPillN').onclick=function(){document.getElementById('annotNote').querySelector('.annot-close').click();const list=document.getElementById('annotList');list.hidden=!list.hidden;this.setAttribute('aria-expanded',String(!list.hidden));};
@@ -3245,6 +3246,13 @@ function badgeAnchor(s){
   if(s.tool==='arrow') return {bx:s.x1, by:s.y1};
   if(s.tool==='pen') return {bx:s.pts[0].x, by:s.pts[0].y};
   return {bx:s.x, by:s.y};
+}
+function annotEdgeHit(g,s,p,tol){
+  if(!g.hit(s,p,tol))return false;
+  const k=s.tool||s.type;if(k==='arrow')return true;
+  const b=g.bounds(s);if(b.width<=2*tol||b.height<=2*tol)return true;
+  if(k==='ellipse'){const rx=b.width/2-tol,ry=b.height/2-tol;return !(((p.x-b.x-b.width/2)/rx)**2+((p.y-b.y-b.height/2)/ry)**2<1);}
+  return !(p.x>b.x+tol&&p.x<b.x+b.width-tol&&p.y>b.y+tol&&p.y<b.y+b.height-tol);
 }
 function badgeHit(p){
   const c=cv(), lw=Math.max(2,c.width/300), r=lw*3.2;
