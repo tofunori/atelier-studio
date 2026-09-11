@@ -607,6 +607,65 @@ export const MD_COMPONENTS_STREAMING = { ...MD_COMPONENTS, pre: MarkdownCodeBloc
 // bloc dans son propre appel ReactMarkdown et se mémoïse sur l'égalité du
 // texte du bloc : tant qu'un bloc antérieur ne change pas de contenu, son
 // sous-arbre React (et donc le DOM) reste rigoureusement identique.
+/**
+ * Remet les clôtures de formules affichées sur leur propre ligne. Pour
+ * remark-math, un bloc `$$` s'ouvre ET se ferme par un `$$` seul sur sa
+ * ligne. Les modèles collent souvent l'un ou l'autre au contenu :
+ * « \end{pmatrix}$$ » fait avaler le `$$` et la suite dans la formule
+ * (KaTeX rend alors la source en rouge) ; « $$\begin{pmatrix} » fait passer
+ * la première ligne pour une méta de clôture, qui disparaît (capture Thierry
+ * 2026-09-10). Les blocs de code et les formules `$$…$$` en ligne sont
+ * laissés tels quels ; une formule encore ouverte (streaming) aussi.
+ */
+export function normalizeMathFences(markdown: string): string {
+  if (!markdown.includes("$$")) return markdown;
+  const eol = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const lines = markdown.split(eol);
+  const out: string[] = [];
+  let fence: string | null = null;
+  let i = 0;
+  const closer = (from: number) => {
+    // Première ligne qui ferme le bloc : `$$` seul (bien formé, rien à faire)
+    // ou `$$` collé en fin de ligne (à détacher). Une ligne portant une
+    // formule en ligne complète (`… $$x$$ …`) n'est pas une clôture.
+    for (let j = from; j < lines.length; j += 1) {
+      const t = lines[j].trim();
+      if (t === "$$") return { index: j, glued: false };
+      if (t.endsWith("$$") && (t.match(/\$\$/g) ?? []).length === 1) return { index: j, glued: true };
+    }
+    return null;
+  };
+  while (i < lines.length) {
+    const line = lines[i];
+    const t = line.trim();
+    const fenceMatch = /^(`{3,}|~{3,})/.exec(t);
+    if (fence) { out.push(line); if (t.startsWith(fence)) fence = null; i += 1; continue; }
+    if (fenceMatch) { fence = fenceMatch[1]; out.push(line); i += 1; continue; }
+    if (t.startsWith("$$") && t.length > 2 && !(t.endsWith("$$") && t.length > 4)) {
+      // Ouverture collée : « $$\begin{…} » → `$$` seul, puis le contenu.
+      const indent = line.slice(0, line.indexOf("$$"));
+      out.push(indent + "$$");
+      lines[i] = indent + t.slice(2);
+      continue;
+    }
+    if (t === "$$") {
+      const close = closer(i + 1);
+      if (!close) { out.push(...lines.slice(i)); break; }
+      out.push(line, ...lines.slice(i + 1, close.index));
+      if (close.glued) {
+        const body = lines[close.index];
+        const trimmed = body.trimEnd();
+        out.push(trimmed.slice(0, -2).trimEnd(), body.slice(0, body.length - body.trimStart().length) + "$$");
+      } else out.push(lines[close.index]);
+      i = close.index + 1;
+      continue;
+    }
+    out.push(line);
+    i += 1;
+  }
+  return out.join(eol);
+}
+
 const MdBlock = memo(
   function MdBlock({ text, components, remarkPlugins, rehypePlugins }: {
     text: string;
@@ -616,7 +675,7 @@ const MdBlock = memo(
   }) {
     return (
       <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
-        {text}
+        {normalizeMathFences(text)}
       </ReactMarkdown>
     );
   },
