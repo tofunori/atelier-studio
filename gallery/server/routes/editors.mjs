@@ -37,7 +37,7 @@ function textHash(text) {
 }
 
 function emptyVersionState(p) {
-  return { v: 2, path: p, revision: 0, base: null, texts: {}, interventions: [], legacySnapshots: [], current: null };
+  return { v: 2, path: p, revision: 0, base: null, texts: {}, interventions: [], legacySnapshots: [], current: null, review: {} };
 }
 
 function validateHash(hash) {
@@ -70,6 +70,17 @@ function validateVersionState(state) {
   for (const snap of state.legacySnapshots) {
     if (!snap || !hasText(snap.hash) || !Number.isFinite(Number(snap.ts)) || typeof snap.label !== "string")
       throw new Error("invalid legacy snapshot");
+  }
+  // Décisions de revue (2026-09-11) : review[id] = {baseHash, textHash, accepted?: true}.
+  // Absente dans les journaux antérieurs = carte vide. Parité git.rs `valid_review_decision`.
+  if (state.review !== undefined && state.review !== null) {
+    if (!state.review || Array.isArray(state.review) || typeof state.review !== "object") throw new Error("invalid review");
+    for (const [id, decision] of Object.entries(state.review)) {
+      if (!id || !decision || Array.isArray(decision) || typeof decision !== "object"
+          || Object.keys(decision).some((key) => !["baseHash", "textHash", "accepted"].includes(key))
+          || !hasText(decision.baseHash) || !hasText(decision.textHash)
+          || (decision.accepted !== undefined && decision.accepted !== true)) throw new Error("invalid review");
+    }
   }
   return state;
 }
@@ -142,6 +153,8 @@ function addVersionTexts(state, texts) {
 function applyVersionOps(current, ops) {
   if (!Array.isArray(ops) || ops.length > 500) throw new Error("invalid ops");
   const state = structuredClone(current);
+  // Journaux antérieurs à l'op `review` : carte vide, toujours rendue par GET.
+  if (!state.review || Array.isArray(state.review) || typeof state.review !== "object") state.review = {};
   for (const op of ops) {
     if (!op || typeof op.type !== "string") throw new Error("invalid op");
     addVersionTexts(state, op.texts || {});
@@ -164,6 +177,13 @@ function applyVersionOps(current, ops) {
       if (op.current) state.current = structuredClone(op.current);
     } else if (op.type === "set-current") {
       state.current = structuredClone(op.current);
+    } else if (op.type === "review") {
+      // Décision de revue durable (2026-09-11) : « Garder »/« Ignorer » par
+      // passage ou « Tout accepter » — review[id] remplacée, `null` la retire.
+      // Ne touche ni `base` ni `current`. Parité git.rs.
+      if (typeof op.id !== "string" || !op.id || !("review" in op)) throw new Error("invalid op");
+      if (op.review === null) delete state.review[op.id];
+      else state.review[op.id] = structuredClone(op.review);
     } else throw new Error("invalid op type");
   }
   state.interventions.sort((a, b) => Number(a.ts) - Number(b.ts) || a.id.localeCompare(b.id));
@@ -173,6 +193,7 @@ function applyVersionOps(current, ops) {
   if (state.current) refs.add(state.current.hash);
   for (const it of state.interventions) { refs.add(it.fromHash); refs.add(it.toHash); }
   for (const snap of state.legacySnapshots) refs.add(snap.hash);
+  for (const decision of Object.values(state.review)) { refs.add(decision?.baseHash); refs.add(decision?.textHash); }
   for (const hash of Object.keys(state.texts)) if (!refs.has(hash)) delete state.texts[hash];
   return validateVersionState(state);
 }

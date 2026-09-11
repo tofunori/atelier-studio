@@ -260,6 +260,11 @@ window.DiffVersions = function(opts){
   let serverRevision = 0;
   let serverBaseHash = null;
   const acknowledgedIds = new Set();
+  // Décisions de revue acquittées par le serveur : id → forme canonique
+  // (baseHash:textHash:accepted). flushWrites n'émet une op `review` que pour
+  // les ids dont la décision a changé depuis le dernier ack (2026-09-11).
+  const acknowledgedReview = new Map();
+  const reviewCanon = (entry) => entry.baseHash + ":" + entry.textHash + ":" + (entry.accepted === true ? "1" : "0");
   const pendingById = new Map();
   let writeRunning = false, writeAgain = false, persistenceStopped = false;
   let postTimer = null;
@@ -322,10 +327,19 @@ window.DiffVersions = function(opts){
       ts: snap.ts, label: snap.label});
     const currentText = typeof lastKnown === "string" ? lastKnown : liveText();
     const current = {hash: put(currentText), ts: Date.now()};
+    // Décisions de revue (« Garder »/« Ignorer »/« Tout accepter ») : base
+    // ajustée + texte résultant, par empreinte, textes enregistrés.
+    const review = {};
+    const known = new Set(INTERVENTIONS.map(it => it.id));
+    for(const [id, entry] of Object.entries(reviewState)){
+      if(!known.has(id) || !entry || typeof entry.base !== "string" || typeof entry.text !== "string") continue;
+      review[id] = {baseHash: put(entry.base), textHash: put(entry.text),
+        ...(entry.accepted === true ? {accepted: true} : {})};
+    }
     return {v: 2, path, revision: serverRevision,
       base: {hash: baseHash, kind: anchor?.head ? "git" : "session",
         sha: anchor?.sha || "", ts: anchor?.ts},
-      texts, interventions, legacySnapshots, current, lastKnown: currentText};
+      texts, interventions, legacySnapshots, current, review, lastKnown: currentText};
   }
   function stopPersistence(message){
     persistenceStopped = true;
@@ -348,8 +362,19 @@ window.DiffVersions = function(opts){
     const last = data.current ? text(data.current.hash) : null;
     const base = data.base ? text(data.base.hash) : null;
     const stoneText = data.milestone ? text(data.milestone.hash) : null;
+    // Décisions de revue : résolues en textes. Une décision dont un texte
+    // manquerait est ignorée, jamais fatale (le GC serveur garde les siens).
+    const review = {};
+    const rawReview = data.review && typeof data.review === "object" && !Array.isArray(data.review) ? data.review : {};
+    for(const [id, entry] of Object.entries(rawReview)){
+      if(!id || !entry || typeof entry !== "object") continue;
+      const baseText = text(entry.baseHash), resultText = text(entry.textHash);
+      if(baseText === null || resultText === null) continue;
+      review[id] = {base: baseText, text: resultText, accepted: entry.accepted === true,
+        baseHash: entry.baseHash, textHash: entry.textHash};
+    }
     return {v: 2, revision: data.revision || 0, baseHash: data.base?.hash || null,
-      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last,
+      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last, review,
       // Jalon « Repartir d'ici » : base d'AFFICHAGE, distincte de l'ancre.
       milestone: stoneText === null ? null : {before: stoneText, ts: Number(data.milestone.ts) || 0}};
   }
@@ -370,6 +395,9 @@ window.DiffVersions = function(opts){
       acknowledgedIds.add(it.id);
     }
     INTERVENTIONS.sort((a,b) => Number(a.ts || 0) - Number(b.ts || 0) || a.id.localeCompare(b.id));
+    // Décisions : ce que le serveur a est acquitté ; les décisions locales
+    // non acquittées repartent à la reprise (union, local gagne sur un id commun).
+    adoptReview(decoded.review, {ack: true, override: false});
     serverRevision = decoded.revision;
     serverBaseHash = decoded.baseHash;
     return true;
@@ -395,6 +423,22 @@ window.DiffVersions = function(opts){
       }
       if(!ops.length) ops.push({type: "set-current", current: snapshot.current,
         texts: {[snapshot.current.hash]: snapshot.texts[snapshot.current.hash]}});
+      // Décisions de revue changées depuis le dernier ack (ou retirées).
+      const reviewBatch = [];
+      for(const [id, entry] of Object.entries(snapshot.review || {})){
+        const canonical = reviewCanon(entry);
+        if(acknowledgedReview.get(id) === canonical) continue;
+        reviewBatch.push({id, canonical, op: {type: "review", id, review: entry,
+          texts: {[entry.baseHash]: snapshot.texts[entry.baseHash], [entry.textHash]: snapshot.texts[entry.textHash]}}});
+      }
+      for(const id of acknowledgedReview.keys()){
+        if(snapshot.review && snapshot.review[id]) continue;
+        // Une décision serveur sur une intervention inconnue ici n'est pas une
+        // annulation locale : ne pas la retirer.
+        if(!INTERVENTIONS.some(it => it.id === id)) continue;
+        reviewBatch.push({id, canonical: null, op: {type: "review", id, review: null, texts: {}}});
+      }
+      for(const item of reviewBatch) ops.push(item.op);
       const response = await fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({path, expectedRevision: serverRevision, ops})});
       const body = await response.json();
@@ -409,6 +453,10 @@ window.DiffVersions = function(opts){
       serverBaseHash = snapshot.base.hash;
       for(const op of ops) if(op.type === "append"){
         acknowledgedIds.add(op.intervention.id); pendingById.delete(op.intervention.id);
+      }
+      for(const item of reviewBatch){
+        if(item.canonical === null) acknowledgedReview.delete(item.id);
+        else acknowledgedReview.set(item.id, item.canonical);
       }
     }catch(e){
       notify("échec de persistance du diff — nouvelle tentative à la prochaine modification");
@@ -852,6 +900,27 @@ window.DiffVersions = function(opts){
   try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
+  /** Reconstruit `reviewState` depuis des décisions matérialisées
+   * (`materializeServer(...).review`). `ack` : les marquer acquittées par le
+   * serveur ; `override` : le serveur fait foi sur un id déjà connu (chargement),
+   * sinon la décision locale non acquittée est conservée et repartira (409). */
+  function adoptReview(review, {ack = false, override = false} = {}){
+    if(!review || typeof review !== "object") return false;
+    let changed = false;
+    for(const [id, entry] of Object.entries(review)){
+      if(!id || !entry || typeof entry.base !== "string" || typeof entry.text !== "string") continue;
+      if(ack && typeof entry.baseHash === "string" && typeof entry.textHash === "string")
+        acknowledgedReview.set(id, reviewCanon(entry));
+      const local = reviewState[id];
+      if(local && !override) continue;
+      const next = {base: entry.base, text: entry.text, ...(entry.accepted === true ? {accepted: true} : {})};
+      if(local && local.base === next.base && local.text === next.text && (local.accepted === true) === (next.accepted === true)) continue;
+      reviewState[id] = next;
+      changed = true;
+    }
+    if(changed) saveReviewState();
+    return changed;
+  }
   // ---- Annulation transitoire (toast dans le volet éditeur) ----
   let undoHost = null;
   function undoToastHost(){
@@ -893,17 +962,62 @@ window.DiffVersions = function(opts){
     if(!it || navMode !== interList().length - 1 || cm.getValue() !== decision.current) {notify("Ce passage a changé — afficher la dernière intervention");return;}
     reviewBusy = true; cm.setOption("readOnly", true); updateNav();
     const oldState = reviewState[it.id];
+    // Plus aucun bloc après cette décision : l'intervention est entièrement
+    // décidée et quitte l'historique (comme « Tout accepter »).
+    let completed = false;
     try{
       if(decision.kind === "reject" && (!restoreText || !await restoreText(decision.text))){notify("Refus non enregistré : le fichier a changé ou la sauvegarde a échoué");return;}
       if(cm.getValue() !== decision.current && cm.getValue() !== decision.text){notify("Le document a changé pendant la décision");return;}
       reviewUndo = {id: it.id, previous: oldState, text: decision.current, result: decision.text, kind: decision.kind};
       if(cm.getValue() !== decision.text) cm.setValue(decision.text);
-      reviewState[it.id] = {base: decision.base, text: decision.text};
+      completed = equivalent(liveText(), decision.base);
+      reviewState[it.id] = {base: decision.base, text: decision.text, ...(completed ? {accepted: true} : {})};
       extCmp = {...extCmp, before: decision.base};
-      saveReviewState();persist(decision.text);render();
-      notify(decision.kind === "accept" ? "Passage accepté" : "Passage refusé");
-      showUndo();
+      saveReviewState();persist(decision.text);
+      if(!completed){
+        render();
+        notify(decision.kind === "accept" ? "Passage accepté" : "Passage refusé");
+        showUndo();
+      }
     }catch(e){notify("Décision non enregistrée : sauvegarde indisponible");}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);updateNav();}
+    if(!completed) return;
+    // showStep/toggle refusent de tourner pendant reviewBusy : navigation après.
+    const remaining = interList();
+    if(remaining.length){
+      // La précédente devient la dernière et se comparera au texte vivant, qui
+      // contient déjà les changements que l'on vient d'accepter : les lui
+      // transplanter dans sa base, sinon ils réapparaissent comme blocs à décider.
+      const prev = remaining[remaining.length - 1];
+      const seeded = transplantAcceptedInto(prev, it);
+      if(seeded !== null){
+        reviewUndo.seeded = {id: prev.id, previous: reviewState[prev.id]};
+        reviewState[prev.id] = {base: seeded, text: liveText()};
+        saveReviewState(); persist();
+      }
+      showStep(remaining.length - 1);
+    } else {
+      toggle(false);
+      notify(decision.kind === "accept" ? "Toutes les modifications sont acceptées" : "Toutes les modifications sont décidées");
+    }
+    // La décision qui clôt l'intervention reste annulable 8 s (le toast survit
+    // à cette navigation automatique, pas à une navigation de l'utilisateur).
+    showUndo();
+  }
+  /** `done` vient d'être entièrement décidée ; `prev` devient la dernière.
+   * Applique le delta accepté (done.before → texte vivant) sur la base de
+   * `prev` — contexte d'une ligne, sans tolérance. Chevauchement ou échec :
+   * null, la base reste telle quelle (les blocs réapparaissent, rien n'est perdu). */
+  function transplantAcceptedInto(prev, done){
+    const live = liveText();
+    const target = reviewState[prev.id]?.base ?? prev.before;
+    if(typeof target !== "string" || typeof done.before !== "string" || typeof live !== "string") return null;
+    let patched = false;
+    try{
+      const patch = Diff.structuredPatch(path, path, done.before, live, undefined, undefined, {context: 1});
+      patched = Diff.applyPatch(target, patch, {fuzzFactor: 0});
+    }catch(e){ patched = false; }
+    if(typeof patched !== "string" || patched === target || equivalent(patched, live)) return null;
+    return patched;
   }
   const undoButton = individualReview && els.group ? document.createElement("button") : null;
   if(undoButton){
@@ -916,6 +1030,8 @@ window.DiffVersions = function(opts){
         if(undo.kind === "reject" && !await restoreText(undo.text)){notify("Annulation non enregistrée : le fichier a changé");return;}
         cm.setValue(undo.text);
         if(undo.previous) reviewState[undo.id] = undo.previous;else delete reviewState[undo.id];
+        // Base transplantée dans l'intervention précédente à la clôture : rendue aussi.
+        if(undo.seeded){ if(undo.seeded.previous) reviewState[undo.seeded.id] = undo.seeded.previous; else delete reviewState[undo.seeded.id]; }
         saveReviewState();persist(undo.text);reviewUndo = null;hideUndo();
       }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
       showStep(interList().findIndex(it=>it.id === undo.id));
@@ -934,7 +1050,7 @@ window.DiffVersions = function(opts){
       if(!list.length)return;
       ttExit();
       for(const it of list)reviewState[it.id]={base:it.to,text:it.to,accepted:true};
-      saveReviewState();reviewUndo=null;
+      saveReviewState();persist();reviewUndo=null;
       toggle(false);navMode=-1;extCmp=null;clearMarks();updateNav();
       hideUndo();
       notify(`${list.length} intervention${list.length>1?"s":""} acceptée${list.length>1?"s":""}`);
@@ -2073,6 +2189,9 @@ window.DiffVersions = function(opts){
         if(!baseGitLocked) baseVersion = {...journalBase};
       }
       for(const it of durable.interventions) acknowledgedIds.add(it.id);
+      // Décisions de revue journalisées : reconstruites ici (repli local ou
+      // serveur) ; restoreVersions fait ensuite gagner le serveur et l'acquitte.
+      adoptReview(durable.review, {ack: false, override: false});
     }
     let added = 0;
     for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
@@ -2258,10 +2377,15 @@ window.DiffVersions = function(opts){
       if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
     }
     else if(!serverData && !hasLocalV2) loadData(localData);
+    const serverDecoded = materializeServer(serverData) || {};
+    // Décisions de revue : le serveur fait foi (le localStorage du WebView ne
+    // survit pas au redémarrage, PIEGES_CONNUS §1) ; une décision locale
+    // absente du serveur est conservée et repart avec le prochain flush.
+    if(adoptReview(serverDecoded.review, {ack: true, override: true})) updateNav();
     // Jalon posé par l'utilisateur : il devient la base d'AFFICHAGE, y compris
     // sur l'ancre du journal. Il ne gagne pas sur un HEAD git plus récent —
     // dans ce cas le dépôt a déjà fait avancer la base.
-    const stone = (materializeServer(serverData) || {}).milestone;
+    const stone = serverDecoded.milestone;
     if(stone && typeof stone.before === "string"){
       milestone = stone;
       if(!baseGitLocked || !baseTs || stone.ts > baseTs){
@@ -2274,7 +2398,8 @@ window.DiffVersions = function(opts){
     }
     const unacknowledged = INTERVENTIONS.filter(it => !acknowledgedIds.has(it.id));
     for(const it of unacknowledged) pendingById.set(it.id, it);
-    if(unacknowledged.length) persist(lastKnown === null ? liveText() : lastKnown);
+    const reviewPending = INTERVENTIONS.some(it => reviewState[it.id] && !acknowledgedReview.has(it.id));
+    if(unacknowledged.length || reviewPending) persist(lastKnown === null ? liveText() : lastKnown);
   }
 
   // HEAD + gouttière + restore : dès que l'éditeur existe (créé après le fetch

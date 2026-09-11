@@ -682,6 +682,93 @@ fn un_jalon_deplace_la_base_daffichage_sans_toucher_lancre() {
     );
 }
 
+/// Décisions de revue durables (2026-09-11). Le `localStorage` du WebView ne
+/// survit pas au redémarrage (PIEGES_CONNUS §1) : « Garder »/« Ignorer » et
+/// « Tout accepter » se journalisent côté serveur via l'op `review`, rendue
+/// par GET avec le reste de l'état ; `null` retire la décision ; un `id`
+/// vide est refusé. Cette route est celle que l'app exécute (§3b).
+#[test]
+fn une_decision_de_revue_persiste_dans_le_journal() {
+    let srv = start_server();
+    let file = srv.root.join("revue.tex");
+    fs::write(&file, "apres\n").unwrap();
+    let path = file.display().to_string();
+    let h_before = sha256_hex("avant\n");
+    let h_after = sha256_hex("apres\n");
+    let h_adjusted = sha256_hex("avant ajuste\n");
+
+    let init = format!(
+        r#"{{"path":"{path}","expectedRevision":0,"ops":[
+          {{"type":"init","texts":{{"{h_before}":"avant\n"}},
+            "base":{{"hash":"{h_before}","kind":"session","sha":"","ts":1}},
+            "current":{{"hash":"{h_before}","ts":1}}}},
+          {{"type":"append","texts":{{"{h_after}":"apres\n"}},
+            "intervention":{{"id":"i-1","fromHash":"{h_before}","toHash":"{h_after}",
+              "ts":2,"source":"user-save","status":"applied"}},
+            "current":{{"hash":"{h_after}","ts":2}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&init));
+    assert_eq!(st, 200, "init — {body}");
+
+    // « Garder » un passage : base ajustée + texte résultant
+    let decide = format!(
+        r#"{{"path":"{path}","expectedRevision":1,"ops":[{{"type":"review","id":"i-1",
+          "review":{{"baseHash":"{h_adjusted}","textHash":"{h_after}"}},
+          "texts":{{"{h_adjusted}":"avant ajuste\n"}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&decide));
+    assert_eq!(st, 200, "review — {body}");
+    let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        state["review"]["i-1"]["baseHash"], h_adjusted,
+        "décision absente — {body}"
+    );
+    assert_eq!(state["review"]["i-1"]["textHash"], h_after, "{body}");
+    assert_eq!(
+        state["texts"][&h_adjusted], "avant ajuste\n",
+        "texte de la base ajustée collecté — {body}"
+    );
+
+    // « Tout accepter » : accepted:true
+    let accept = format!(
+        r#"{{"path":"{path}","expectedRevision":2,"ops":[{{"type":"review","id":"i-1",
+          "review":{{"baseHash":"{h_after}","textHash":"{h_after}","accepted":true}},
+          "texts":{{}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&accept));
+    assert_eq!(st, 200, "accept — {body}");
+    let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["review"]["i-1"]["accepted"], true, "{body}");
+
+    // Annulation : `null` retire la décision
+    let undo = format!(
+        r#"{{"path":"{path}","expectedRevision":3,"ops":[{{"type":"review","id":"i-1",
+          "review":null,"texts":{{}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&undo));
+    assert_eq!(st, 200, "undo — {body}");
+    let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(
+        state["review"].get("i-1").is_none(),
+        "décision non retirée — {body}"
+    );
+    assert_eq!(state["revision"], 4);
+
+    // id vide → invalid op, révision inchangée
+    let bad = format!(
+        r#"{{"path":"{path}","expectedRevision":4,"ops":[{{"type":"review","id":"",
+          "review":{{"baseHash":"{h_after}","textHash":"{h_after}"}},"texts":{{}}}}]}}"#,
+    );
+    let (st, body) = http(srv.port, "POST", "/versions", Some(&bad));
+    assert_eq!(st, 400, "id vide accepté — {body}");
+    assert!(body.contains("invalid op"), "{body}");
+    let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+    assert!(body.contains("\"revision\":4"), "{body}");
+}
+
 /// Pastille git : distinguer « pas de dépôt » de « fichier non suivi », et
 /// pouvoir suivre le fichier d'un clic.
 #[test]

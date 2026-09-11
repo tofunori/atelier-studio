@@ -155,8 +155,68 @@ async function serverTests() {
           source: "user-save", status: "applied" }, texts: { [toHash]: after } }] }) });
     ok("versions payload hash invalide refusé", invalid.status === 400);
 
+    // /versions op `review` : décisions de revue durables (2026-09-11). Le
+    // localStorage du WebView meurt au redémarrage (PIEGES_CONNUS §1) ; la
+    // décision vit dans le journal, rendue par GET, `null` la retire.
+    // Même contrat côté Rust : `une_decision_de_revue_persiste_dans_le_journal`
+    // (http_smoke.rs) — la route que l'app exécute (§3b).
+    const reviewFile = path.join(repo, "review.tex");
+    fs.writeFileSync(reviewFile, after);
+    const rq = "?path=" + encodeURIComponent(reviewFile);
+    const rpost = (expectedRevision, ops) => j("/versions", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: reviewFile, expectedRevision, ops }) });
+    r = await rpost(0, [
+      { type: "init", base: { hash: fromHash, kind: "session", sha: "", ts: 1 },
+        current: { hash: fromHash, ts: 1 }, texts: { [fromHash]: before } },
+      { type: "append", intervention: { id: "i-1", fromHash, toHash, ts: 2,
+        source: "user-save", status: "applied" }, current: { hash: toHash, ts: 2 },
+        texts: { [toHash]: after } },
+    ]);
+    ok("versions review : journal de départ", r.ok && r.revision === 1, JSON.stringify(r));
+    const adjusted = "avant ajuste\n", adjustedHash = sha256(adjusted);
+    r = await rpost(1, [{ type: "review", id: "i-1",
+      review: { baseHash: adjustedHash, textHash: toHash }, texts: { [adjustedHash]: adjusted } }]);
+    ok("versions review : décision acquittée", r.ok && r.revision === 2, JSON.stringify(r));
+    r = await j("/versions" + rq);
+    ok("versions review : GET renvoie la décision et garde son texte",
+      r.ok && r.review?.["i-1"]?.baseHash === adjustedHash && r.review["i-1"].textHash === toHash
+        && r.review["i-1"].accepted === undefined && r.texts[adjustedHash] === adjusted, JSON.stringify(r));
+    r = await rpost(2, [{ type: "review", id: "i-1",
+      review: { baseHash: toHash, textHash: toHash, accepted: true }, texts: {} }]);
+    ok("versions review : « Tout accepter » acquitté", r.ok && r.revision === 3, JSON.stringify(r));
+    r = await j("/versions" + rq);
+    ok("versions review : accepted:true rendu, ancienne base collectée",
+      r.review?.["i-1"]?.accepted === true && r.texts[adjustedHash] === undefined, JSON.stringify(r));
+    r = await rpost(3, [{ type: "review", id: "i-1", review: null, texts: {} }]);
+    ok("versions review : null retire la décision", r.ok && r.revision === 4, JSON.stringify(r));
+    r = await j("/versions" + rq);
+    ok("versions review : GET sans la décision retirée", r.ok && r.review && !("i-1" in r.review), JSON.stringify(r));
+    const emptyId = await fetch(`http://localhost:${port}/versions`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: reviewFile, expectedRevision: 4, ops: [{ type: "review", id: "",
+        review: { baseHash: toHash, textHash: toHash }, texts: {} }] }) });
+    const emptyIdBody = await emptyId.json();
+    ok("versions review : id vide → invalid op", emptyId.status === 400 && /invalid op/.test(emptyIdBody.error || ""),
+      JSON.stringify(emptyIdBody));
+    r = await j("/versions" + rq);
+    ok("versions review : révision inchangée après refus", r.revision === 4, JSON.stringify(r));
+    for (const [label, review] of [
+      ["accepted:false", { baseHash: toHash, textHash: toHash, accepted: false }],
+      ["hash inconnu", { baseHash: "0".repeat(64), textHash: toHash }],
+      ["clé inconnue", { baseHash: toHash, textHash: toHash, extra: 1 }],
+    ]) {
+      const bad = await fetch(`http://localhost:${port}/versions`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: reviewFile, expectedRevision: 4, ops: [{ type: "review", id: "i-1", review, texts: {} }] }) });
+      ok(`versions review : forme invalide refusée (${label})`, bad.status === 400, String(bad.status));
+    }
+    r = await j("/versions" + rq);
+    ok("versions review : révision inchangée après formes invalides", r.revision === 4, JSON.stringify(r));
+
     const storeDir = path.join(repo, ".fig_thumbs", "dv_versions");
-    const [store] = fs.readdirSync(storeDir).filter((name) => name.endsWith(".json"));
+    // clé déterministe : le dossier contient aussi le journal de review.tex
+    const store = `${crypto.createHash("md5").update(fs.realpathSync(file)).digest("hex")}.json`;
     const storeFile = path.join(storeDir, store);
     const onDisk = JSON.parse(zlib.gunzipSync(fs.readFileSync(storeFile)));
     ok("versions disque gzip valide", onDisk.v === 2 && onDisk.revision === 1);
@@ -253,6 +313,7 @@ function makeModuleHarness({
   serverState = null,
   versionsPromise = null,
   localState = null,
+  localReview = null,
   headTs = 0,
   filePath = "/x/m.tex",
   restoreResult = true,
@@ -286,9 +347,20 @@ function makeModuleHarness({
   const workers = [];
   const headRequests = [];
   const docListeners = [];
+  const timers = new Map();
+  let timerSeq = 0;
+  const runTimers = (maxDelay = Infinity) => {
+    let fired = 0;
+    for (const [id, { f, d }] of [...timers]) {
+      if (d > maxDelay) continue;
+      timers.delete(id); f(); fired++;
+    }
+    return fired;
+  };
   const body = el();
   const storage = new Map();
   if (localState !== null) storage.set("texDiffV1:" + filePath, JSON.stringify(localState));
+  if (localReview !== null) storage.set("texReviewV1:" + filePath, JSON.stringify(localReview));
   const activeHead = { text: headText, ts: headTs, sha: "abc1234" };
   const cm = {
     _v: "",
@@ -353,7 +425,13 @@ function makeModuleHarness({
       return new Promise(() => {});
     },
     setInterval(f) { ctx.__tick = f; return 1; }, clearInterval() {},
-    setTimeout(f, d) { if (f && (d === undefined || d <= 400)) f(); return 0; }, clearTimeout() {},
+    // ≤ 400 ms : synchrone (debounce de persistance). Au-delà (toast Annuler
+    // 8 s, flash…) : retenu dans `timers`, déclenché par h.runTimers(maxDelay).
+    setTimeout(f, d) {
+      if (f && (d === undefined || d <= 400)) { f(); return 0; }
+      const id = ++timerSeq; timers.set(id, { f, d }); return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
   };
   if (workerAvailable) ctx.Worker = class {
     constructor(url) { this.url = url; this.posts = []; this.onmessage = null; this.onerror = null; workers.push(this); }
@@ -397,7 +475,7 @@ function makeModuleHarness({
   };
   const setHead = (text, ts, sha = activeHead.sha) => Object.assign(activeHead, { text, ts, sha });
   return { ctx, cm, dv, tag, group, restore, restored, notes, marksLog, gutterLog, scrollLog, posts, workers, headRequests, nav, storage, setHead, filePath,
-    historyButton, historyRows, fireKeydown };
+    historyButton, historyRows, fireKeydown, runTimers, timers };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -2071,6 +2149,438 @@ async function individualReviewCardTests() {
   }
 }
 
+// ---------------------------------------- décisions de revue durables (2026-09-11)
+// Le localStorage du WebView ne survit pas au redémarrage (PIEGES_CONNUS §1) :
+// les décisions « Garder »/« Ignorer »/« Tout accepter » se journalisent via
+// l'op `review` de /versions, et se reconstruisent depuis le serveur.
+async function durableReviewTests() {
+  const before = "aa bb cc\n", after = "aa XX cc\n";
+  const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
+  const reviewOps = (h) => h.posts.flatMap((post) => post.ops || []).filter((op) => op.type === "review");
+
+  // 1. Une décision poste une op `review` avec les empreintes de la base
+  // ajustée et du texte résultant (et leurs textes).
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    const it = persistedInterventions(h)[0];
+    const adjusted = "aa bb cc ajusté\n";
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    const ops = reviewOps(h);
+    ok("revue durable : la décision poste une op review avec les bons hashes",
+      ops.length === 1 && ops[0].id === it.id && ops[0].review?.baseHash === sha256(adjusted)
+        && ops[0].review?.textHash === sha256(after) && ops[0].review.accepted === undefined
+        && ops[0].texts?.[sha256(adjusted)] === adjusted && ops[0].texts?.[sha256(after)] === after,
+      JSON.stringify(ops));
+    // Une même décision acquittée ne repart pas ; une nouvelle repart.
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    ok("revue durable : une décision identique acquittée ne repart pas", reviewOps(h).length === 1,
+      JSON.stringify(reviewOps(h)));
+    const adjusted2 = "aa bb cc ajusté deux\n";
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted2 });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    ok("revue durable : une décision différente repart", reviewOps(h).length === 2
+      && reviewOps(h)[1].review.baseHash === sha256(adjusted2), JSON.stringify(reviewOps(h)));
+    // Le snapshot local (texDiffV1) porte aussi la décision (repli).
+    const local = JSON.parse(h.storage.get("texDiffV1:" + h.filePath) || "{}");
+    ok("revue durable : compactState inclut review dans le snapshot local",
+      local.review?.[it.id]?.baseHash === sha256(adjusted2) && local.texts?.[sha256(adjusted2)] === adjusted2,
+      JSON.stringify(local.review));
+    h.tag.onclick();
+  }
+
+  // 2. « Tout accepter » journalise accepted:true pour chaque intervention.
+  {
+    const h = makeModuleHarness({ individualReview: true });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after;
+    h.dv.push(before, after);
+    await sleep(50);
+    const it = persistedInterventions(h)[0];
+    const acceptAll = h.group._children.find((c) => c && c.id === "diffAcceptAll");
+    ok("revue durable : bouton Tout accepter présent", !!acceptAll);
+    acceptAll.onclick();
+    await sleep(50);
+    const ops = reviewOps(h);
+    ok("revue durable : Tout accepter poste review accepted:true",
+      ops.length === 1 && ops[0].id === it.id && ops[0].review?.accepted === true
+        && ops[0].review.baseHash === sha256(after) && ops[0].review.textHash === sha256(after),
+      JSON.stringify(ops));
+  }
+
+  // 3. Rechargement depuis un état serveur qui porte `review` : reviewState est
+  // reconstruit (le serveur fait foi, localStorage vide au redémarrage) et
+  // l'intervention acceptée est absente de l'historique ‹ n/N ›.
+  {
+    const base = "base durable\n", mid = "milieu durable\n", last = "fin durable\n";
+    const serverState = durableState("/x/m.tex", 2, base, [
+      { id: "i-1", before: base, after: mid, ts: 1, source: "user-save", status: "applied" },
+      { id: "i-2", before: mid, after: last, ts: 2, source: "user-save", status: "applied" },
+    ], last);
+    serverState.review = { "i-2": { baseHash: sha256(last), textHash: sha256(last), accepted: true } };
+    const h = makeModuleHarness({ individualReview: true, headText: null, serverState: { ok: true, ...serverState } });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = last; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    const count = h.nav()?.count.textContent;
+    ok("revue durable : l'intervention acceptée côté serveur quitte l'historique (compteur 1/1)",
+      count === "1/1", JSON.stringify({ count, notes: h.notes }));
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue durable : reviewState reconstruit depuis le serveur",
+      saved["i-2"]?.accepted === true && saved["i-2"].base === last && saved["i-2"].text === last, JSON.stringify(saved));
+    ok("revue durable : rien à re-poster après reconstruction (décision acquittée)",
+      reviewOps(h).length === 0, JSON.stringify(h.posts));
+  }
+
+  // 3b. Une décision PARTIELLE journalisée survit au redémarrage : la revue
+  // repart de la base ajustée, pas du `before` de l'intervention (symptôme 3).
+  {
+    const base = "base partielle\n", last = "fin partielle\n", adjusted = "base partielle ajustée\n";
+    const serverState = durableState("/x/m.tex", 1, base, [
+      { id: "i-1", before: base, after: last, ts: 1, source: "user-save", status: "applied" },
+    ], last);
+    serverState.texts[sha256(adjusted)] = adjusted;
+    serverState.review = { "i-1": { baseHash: sha256(adjusted), textHash: sha256(last) } };
+    const h = makeModuleHarness({ individualReview: true, headText: null, serverState: { ok: true, ...serverState } });
+    h.cm.hasNativeMergeDiff = true;
+    const compared = [];
+    h.cm.showMergeDiff = (b) => { compared.push(b); return onePoint(); };
+    h.cm._v = last; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    ok("revue durable : une décision partielle ne retire pas l'intervention (1/1)", h.nav()?.count.textContent === "1/1",
+      h.nav()?.count.textContent);
+    h.tag.onclick();
+    ok("revue durable : la revue repart de la base ajustée journalisée", compared.at(-1) === adjusted, JSON.stringify(compared));
+    h.tag.onclick();
+  }
+
+  // 3c. Annuler une décision poste `review: null` (le serveur la retire).
+  {
+    const before = "aa bb cc\n", after = "aa XX cc\n";
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after; h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    const it = persistedInterventions(h)[0];
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "aa bb cc ajusté\n" });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    ok("revue durable (annulation) : décision acquittée d'abord", reviewOps(h).length === 1 && reviewOps(h)[0].review !== null);
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    await undo.onclick();
+    await sleep(50);
+    const ops = reviewOps(h);
+    ok("revue durable (annulation) : l'annulation poste review:null pour l'id",
+      ops.length === 2 && ops[1].id === it.id && ops[1].review === null, JSON.stringify(ops));
+    const local = JSON.parse(h.storage.get("texDiffV1:" + h.filePath) || "{}");
+    ok("revue durable (annulation) : le snapshot local ne porte plus la décision", !local.review?.[it.id], JSON.stringify(local.review));
+    h.tag.onclick();
+  }
+
+  // 3d. Conflit de révision (409) : les décisions du serveur sont adoptées et
+  // acquittées ; la décision locale non acquittée repart à la reprise.
+  {
+    const base = "base conflit\n", mid = "milieu conflit\n", last = "fin conflit\n";
+    const remote = durableState("/x/m.tex", 5, base, [
+      { id: "i-1", before: base, after: mid, ts: 1, source: "user-save", status: "applied" },
+      { id: "i-2", before: mid, after: last, ts: 2, source: "user-save", status: "applied" },
+    ], last);
+    remote.review = { "i-1": { baseHash: sha256(mid), textHash: sha256(mid), accepted: true } };
+    const initial = { ...durableState("/x/m.tex", 4, base, remote.interventions.map((it) => ({
+      id: it.id, before: remote.texts[it.fromHash], after: remote.texts[it.toHash], ts: it.ts, source: it.source, status: it.status })), last) };
+    const h = makeModuleHarness({ individualReview: true, headText: null, serverState: { ok: true, ...initial },
+      postResponses: [(payload) => payload.ops.some((op) => op.type === "review")
+        ? { status: 409, body: { ok: false, error: "revision-conflict", revision: 5, state: remote } } : undefined] });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = last; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.tag.onclick();
+    const adjusted = "milieu conflit ajusté\n";
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    const ops = reviewOps(h);
+    const retry = h.posts.at(-1);
+    ok("revue durable (409) : la reprise ne renvoie que la décision locale, à la révision serveur",
+      h.posts.length === 2 && retry.expectedRevision === 5
+        && ops.filter((op) => op.id === "i-2").length === 2 && !ops.some((op) => op.id === "i-1"),
+      JSON.stringify(h.posts.map((post) => ({ rev: post.expectedRevision, ops: post.ops.map((op) => op.type + ":" + (op.id || "")) }))));
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue durable (409) : la décision du serveur est adoptée (i-1 accepté), la locale conservée",
+      saved["i-1"]?.accepted === true && saved["i-2"]?.base === adjusted, JSON.stringify(saved));
+    h.tag.onclick();
+  }
+
+  // 4. Repli localStorage : une décision locale jamais acquittée est rejouée
+  // au serveur au rechargement ; sur un id commun, le serveur fait foi.
+  {
+    const base = "base repli\n", mid = "milieu repli\n", last = "fin repli\n";
+    const serverState = durableState("/x/m.tex", 2, base, [
+      { id: "i-1", before: base, after: mid, ts: 1, source: "user-save", status: "applied" },
+      { id: "i-2", before: mid, after: last, ts: 2, source: "user-save", status: "applied" },
+    ], last);
+    serverState.review = { "i-2": { baseHash: sha256(last), textHash: sha256(last), accepted: true } };
+    const localAdjusted = "base ajustée locale\n";
+    const h = makeModuleHarness({ individualReview: true, headText: null,
+      serverState: { ok: true, ...serverState },
+      localReview: { "i-1": { base: localAdjusted, text: mid }, "i-2": { base: mid, text: last } } });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = last; h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue durable : le serveur gagne sur un id commun (i-2 accepté)",
+      saved["i-2"]?.accepted === true && saved["i-2"].base === last, JSON.stringify(saved));
+    ok("revue durable : la décision locale orpheline est conservée (i-1)",
+      saved["i-1"]?.base === localAdjusted, JSON.stringify(saved));
+    const ops = reviewOps(h);
+    ok("revue durable : seule la décision locale non acquittée est rejouée",
+      ops.length === 1 && ops[0].id === "i-1" && ops[0].review?.baseHash === sha256(localAdjusted)
+        && ops[0].texts?.[sha256(localAdjusted)] === localAdjusted, JSON.stringify(h.posts));
+  }
+}
+
+// --------------------------- une intervention entièrement décidée quitte l'historique
+// Symptôme (Thierry 2026-09-11) : après avoir accepté tous les passages d'une
+// intervention, elle restait dans ‹ n/N › et ses diffs restaient visibles —
+// seul « Tout accepter » posait `accepted`.
+async function reviewCompletionTests() {
+  const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
+  const reviewOps = (h) => h.posts.flatMap((post) => post.ops || []).filter((op) => op.type === "review");
+  const decide = (h, kind, base) => {
+    h.cm.decideMergeChunk = (k) => ({ kind: k, current: h.cm.getValue(), text: h.cm.getValue(), base });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false,
+      code: kind === "accept" ? "Enter" : "Backspace", key: kind === "accept" ? "Enter" : "Backspace" });
+  };
+
+  // 1. Deux interventions : la dernière décision de la 2ᵉ la retire, le
+  // compteur passe de 2/2 à 1/1 et la revue reste ouverte sur la 1ʳᵉ.
+  {
+    const base = "aa bb cc\n", mid = "aa XX cc\n", last = "aa XX cc dd\n";
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    const compared = [];
+    h.cm.showMergeDiff = (b) => { compared.push(b); return onePoint(); };
+    h.cm._v = mid; h.dv.push(base, mid);
+    h.cm._v = last; h.dv.push(mid, last);
+    await sleep(50);
+    h.tag.onclick();
+    ok("intervention décidée : revue ouverte sur 2/2", h.nav()?.count.textContent === "2/2", h.nav()?.count.textContent);
+    const ids = persistedInterventions(h).map((it) => it.id);
+    // Décision partielle : base ajustée ≠ texte vivant → l'intervention reste.
+    decide(h, "accept", "aa XX cc\n");
+    await sleep(50);
+    ok("intervention décidée : une décision partielle ne la retire pas", h.nav()?.count.textContent === "2/2",
+      h.nav()?.count.textContent);
+    // Dernière décision : la base ajustée rejoint le texte vivant → plus aucun bloc.
+    decide(h, "accept", last);
+    await sleep(50);
+    ok("intervention décidée : la dernière décision la retire de l'historique (compteur 1/1)",
+      h.nav()?.count.textContent === "1/1", JSON.stringify({ count: h.nav()?.count.textContent, notes: h.notes }));
+    // Fixture d'une seule ligne : le delta accepté chevauche la modification
+    // de la 1ʳᵉ intervention → pas de transplantation, base inchangée (repli).
+    ok("intervention décidée : la revue reste ouverte sur l'intervention précédente (repli : base inchangée)",
+      h.dv.isShown() === true && compared.at(-1) === base, JSON.stringify(compared));
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("intervention décidée : reviewState porte accepted:true", saved[ids[1]]?.accepted === true, JSON.stringify(saved));
+    const last2 = reviewOps(h).filter((op) => op.id === ids[1]).at(-1);
+    ok("intervention décidée : l'op review journalise accepted:true",
+      !!last2 && last2.review?.accepted === true && last2.review.baseHash === sha256(last), JSON.stringify(reviewOps(h)));
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    ok("intervention décidée : la décision qui clôt reste annulable (toast offert après la navigation automatique)",
+      !!undo && undo.hidden === false, String(undo && undo.hidden));
+    h.tag.onclick();
+  }
+
+  // 1b. Fixture multi-paragraphes : le delta accepté de la 2ᵉ intervention est
+  // transplanté dans la base de la 1ʳᵉ — ses blocs déjà acceptés n'y
+  // réapparaissent pas ; la transplantation est journalisée et annulable.
+  {
+    const base = "p1\n\np2\n\np3\n", mid = "P1\n\np2\n\np3\n", last = "P1\n\np2\n\nP3\n";
+    const seeded = "p1\n\np2\n\nP3\n";
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    const compared = [];
+    h.cm.showMergeDiff = (b) => { compared.push(b); return onePoint(); };
+    h.cm._v = mid; h.dv.push(base, mid);
+    h.cm._v = last; h.dv.push(mid, last);
+    await sleep(50);
+    h.tag.onclick();
+    const ids = persistedInterventions(h).map((it) => it.id);
+    decide(h, "accept", last);
+    await sleep(50);
+    ok("transplantation : compteur 1/1 après la clôture de la 2ᵉ", h.nav()?.count.textContent === "1/1", h.nav()?.count.textContent);
+    ok("transplantation : la 1ʳᵉ se compare à sa base + delta accepté (P3 n'est plus un bloc)",
+      compared.at(-1) === seeded, JSON.stringify(compared));
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("transplantation : base transplantée dans reviewState sans accepted",
+      saved[ids[0]]?.base === seeded && saved[ids[0]].accepted === undefined && saved[ids[1]]?.accepted === true, JSON.stringify(saved));
+    const opsPrev = reviewOps(h).filter((op) => op.id === ids[0]);
+    ok("transplantation : journalisée par une op review", opsPrev.length === 1 && opsPrev[0].review?.baseHash === sha256(seeded),
+      JSON.stringify(reviewOps(h)));
+    // Annuler la décision qui a clos la 2ᵉ : elle revient, la transplantation est rendue.
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    ok("transplantation : toast Annuler offert", !!undo && undo.hidden === false);
+    await undo.onclick();
+    await sleep(50);
+    const restored = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("transplantation (annulation) : la 2ᵉ revient (2/2) et la base transplantée est rendue",
+      h.nav()?.count.textContent === "2/2" && restored[ids[0]] === undefined && restored[ids[1]]?.accepted === undefined,
+      JSON.stringify({ count: h.nav()?.count.textContent, restored }));
+    const nullOps = reviewOps(h).filter((op) => op.id === ids[0] && op.review === null);
+    ok("transplantation (annulation) : review:null journalisé pour la base transplantée", nullOps.length === 1,
+      JSON.stringify(reviewOps(h)));
+    h.tag.onclick();
+  }
+
+  // 2. Une seule intervention : la dernière décision ferme la revue et le dit.
+  {
+    const before = "aa bb cc\n", after = "aa XX cc\n";
+    const h = makeModuleHarness({ individualReview: true });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after; h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    ok("intervention décidée (seule) : revue ouverte sur 1/1", h.nav()?.count.textContent === "1/1");
+    decide(h, "accept", after);
+    await sleep(50);
+    ok("intervention décidée (seule) : la revue se ferme", h.dv.isShown() === false, JSON.stringify(h.notes));
+    ok("intervention décidée (seule) : compteur à 0", h.nav()?.count.textContent === "0", h.nav()?.count.textContent);
+    ok("intervention décidée (seule) : message « Toutes les modifications sont acceptées »",
+      h.notes.some((note) => /Toutes les modifications sont acceptées/.test(note)), JSON.stringify(h.notes));
+    ok("intervention décidée (seule) : l'éditeur est rendu (readOnly false)", h.cm._options.readOnly === false,
+      JSON.stringify(h.cm._options));
+  }
+
+  // 3. « Ignorer » le dernier bloc : le texte revient à la base, plus aucun
+  // bloc → l'intervention est décidée elle aussi.
+  {
+    const before = "aa bb cc\n", after = "aa XX cc\n";
+    const h = makeModuleHarness({ individualReview: true });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after; h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: before, base: before });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Backspace", key: "Backspace" });
+    await sleep(50);
+    ok("intervention décidée (refus) : le fichier est restauré", h.restored.at(-1) === before, JSON.stringify(h.restored));
+    ok("intervention décidée (refus) : la revue se ferme, compteur à 0",
+      h.dv.isShown() === false && h.nav()?.count.textContent === "0", JSON.stringify({ count: h.nav()?.count.textContent, notes: h.notes }));
+    ok("intervention décidée (refus) : message « décidées », pas « acceptées »",
+      h.notes.at(-1) === "Toutes les modifications sont décidées", JSON.stringify(h.notes));
+  }
+
+  // 4. Seule intervention, dernière décision : le toast Annuler reste offert
+  // après la fermeture automatique et l'annulation rouvre la revue.
+  {
+    const before = "aa bb cc\n", after = "aa XX cc\n";
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    h.cm.showMergeDiff = onePoint;
+    h.cm._v = after; h.dv.push(before, after);
+    await sleep(50);
+    h.tag.onclick();
+    decide(h, "accept", after);
+    await sleep(50);
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    ok("intervention décidée (seule) : toast Annuler offert après la fermeture", h.dv.isShown() === false && !!undo && undo.hidden === false,
+      String(undo && undo.hidden));
+    await undo.onclick();
+    await sleep(50);
+    ok("intervention décidée (seule, annulation) : la revue rouvre sur l'intervention (1/1)",
+      h.dv.isShown() === true && h.nav()?.count.textContent === "1/1", JSON.stringify({ count: h.nav()?.count.textContent, notes: h.notes }));
+    ok("intervention décidée (seule, annulation) : review:null journalisé",
+      reviewOps(h).some((op) => op.review === null), JSON.stringify(reviewOps(h)));
+    h.tag.onclick();
+  }
+}
+
+// ------------------------------------------------ toast Annuler (transitoire)
+// Symptôme (Thierry 2026-09-11) : après « Garder », le bouton « Annuler »
+// restait affiché. Contrat : il s'efface au bout de UNDO_GRACE_MS, à la
+// navigation vers une autre intervention et à la fermeture de la revue.
+async function undoToastTests() {
+  const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
+  const base = "aa bb cc\n", mid = "aa XX cc\n", last = "aa XX cc dd\n";
+  const h = makeModuleHarness({ individualReview: true });
+  const host = fakeReviewHost();
+  h.cm.getWrapperElement = () => ({ parentElement: host });
+  h.cm.hasNativeMergeDiff = true;
+  h.cm.showMergeDiff = onePoint;
+  h.cm._v = mid; h.dv.push(base, mid);
+  h.cm._v = last; h.dv.push(mid, last);
+  await sleep(50);
+  h.tag.onclick();
+  const decidePartial = () => {
+    // base ajustée ≠ texte vivant : l'intervention reste, le toast s'affiche
+    h.cm.decideMergeChunk = (kind) => ({ kind, current: h.cm.getValue(), text: h.cm.getValue(), base: "aa XX cc\n" });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+  };
+  decidePartial();
+  await sleep(50);
+  const undo = host._children.find((c) => c && c.id === "diffUndo");
+  ok("toast Annuler : visible après une décision", !!undo && undo.hidden === false, JSON.stringify({ undo: !!undo, hidden: undo?.hidden }));
+  const pending = [...h.timers.values()].filter((t) => t.d >= 1000);
+  ok("toast Annuler : une minuterie d'effacement est armée (≥ 1 s, ≤ 10 s)",
+    pending.length === 1 && pending[0].d <= 10000, JSON.stringify([...h.timers.values()].map((t) => t.d)));
+  // Une re-décision avant l'échéance ré-arme UNE minuterie (pas d'accumulation).
+  decidePartial();
+  await sleep(50);
+  ok("toast Annuler : une nouvelle décision ré-arme une seule minuterie",
+    [...h.timers.values()].filter((t) => t.d >= 1000).length === 1 && undo.hidden === false,
+    JSON.stringify([...h.timers.values()].map((t) => t.d)));
+  h.runTimers();
+  ok("toast Annuler : caché après le délai", undo.hidden === true, String(undo.hidden));
+  // Après l'échéance, un rendu ou une mise à jour de la barre ne le ré-affiche pas.
+  h.nav().prev.onclick(); h.nav().next.onclick();
+  ok("toast Annuler : la navigation ne le ré-affiche pas", undo.hidden === true, String(undo.hidden));
+
+  // Navigation vers une autre intervention : caché avant le délai.
+  decidePartial();
+  await sleep(50);
+  ok("toast Annuler : visible à nouveau après une décision", undo.hidden === false);
+  h.nav().prev.onclick(); // showStep(0)
+  ok("toast Annuler : caché à la navigation (‹)", undo.hidden === true, String(undo.hidden));
+  ok("toast Annuler : la minuterie est désarmée à la navigation", [...h.timers.values()].every((t) => t.d < 1000),
+    JSON.stringify([...h.timers.values()].map((t) => t.d)));
+  h.nav().next.onclick(); // retour sur la dernière (2/2)
+
+  // Fermeture de la revue : caché avant le délai.
+  decidePartial();
+  await sleep(50);
+  ok("toast Annuler : visible avant fermeture", undo.hidden === false);
+  h.tag.onclick(); // toggle(false)
+  ok("toast Annuler : caché à la fermeture", undo.hidden === true, String(undo.hidden));
+  ok("toast Annuler : aucune minuterie résiduelle après fermeture", [...h.timers.values()].every((t) => t.d < 1000),
+    JSON.stringify([...h.timers.values()].map((t) => t.d)));
+}
+
 // -------------------------------------------------------------------- run all
 try {
   await serverTests();
@@ -2081,6 +2591,9 @@ try {
   await latexStudioTests();
   await timelineTests();
   await individualReviewCardTests();
+  await durableReviewTests();
+  await reviewCompletionTests();
+  await undoToastTests();
   if (CONTRACT_FAILURES.length)
     throw new Error(`${CONTRACT_FAILURES.length} explicit intervention contract assertion(s) failed`);
   console.log(`diff suite: ok (${passed} tests)`);

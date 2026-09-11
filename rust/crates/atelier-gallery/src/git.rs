@@ -223,6 +223,7 @@ fn empty_version_state(path: &str) -> Value {
         "interventions": [],
         "legacySnapshots": [],
         "current": null,
+        "review": {},
     })
 }
 
@@ -347,7 +348,40 @@ fn validate_version_state(state: &Value) -> Result<(), String> {
             return Err("invalid legacy snapshot".into());
         }
     }
+
+    // Décisions de revue (2026-09-11) : `review[id] = {baseHash, textHash,
+    // accepted?: true}`. Absente dans les journaux antérieurs = carte vide.
+    match obj.get("review") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(review)) => {
+            for (id, decision) in review {
+                if id.is_empty() || !valid_review_decision(decision, &has_text) {
+                    return Err("invalid review".into());
+                }
+            }
+        }
+        Some(_) => return Err("invalid review".into()),
+    }
     Ok(())
+}
+
+/// Une décision de revue : base ajustée + texte résultant (tous deux dans
+/// `texts`), et `accepted` seulement sous la forme `true`.
+fn valid_review_decision(decision: &Value, has_text: &dyn Fn(Option<&str>) -> bool) -> bool {
+    let Some(map) = decision.as_object() else {
+        return false;
+    };
+    let allowed = ["baseHash", "textHash", "accepted"];
+    if map.keys().any(|k| !allowed.contains(&k.as_str())) {
+        return false;
+    }
+    has_text(map.get("baseHash").and_then(Value::as_str))
+        && has_text(map.get("textHash").and_then(Value::as_str))
+        && match map.get("accepted") {
+            None => true,
+            Some(Value::Bool(true)) => true,
+            Some(_) => false,
+        }
 }
 
 fn migrate_version_v1(data: &Value, path: &str) -> Result<Value, String> {
@@ -568,6 +602,13 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
         return Err("invalid ops".into());
     }
     let mut state = current.clone();
+    // Journaux antérieurs à l'op `review` : carte vide, toujours rendue par GET.
+    if !state.get("review").is_some_and(Value::is_object) {
+        state
+            .as_object_mut()
+            .unwrap()
+            .insert("review".into(), json!({}));
+    }
     for op in list {
         let Some(map) = op.as_object() else {
             return Err("invalid op".into());
@@ -680,6 +721,32 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
                     .ok_or_else(|| "invalid op".to_string())?;
                 state.as_object_mut().unwrap().insert("current".into(), cur);
             }
+            // Décision de revue durable (2026-09-11) : « Garder »/« Ignorer »
+            // par passage ou « Tout accepter » — `review[id]` est remplacée
+            // (ou retirée avec `null`). Elle ne touche ni `base` ni `current`.
+            "review" => {
+                let id = map
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| "invalid op".to_string())?;
+                let decision = map
+                    .get("review")
+                    .cloned()
+                    .ok_or_else(|| "invalid op".to_string())?;
+                let review = state
+                    .as_object_mut()
+                    .unwrap()
+                    .get_mut("review")
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap();
+                if decision.is_null() {
+                    review.remove(id);
+                } else {
+                    review.insert(id.to_string(), decision);
+                }
+            }
             _ => return Err("invalid op type".into()),
         }
     }
@@ -746,6 +813,15 @@ fn apply_version_ops(current: &Value, ops: &Value) -> Result<Value, String> {
         for snap in arr {
             if let Some(h) = snap.get("hash").and_then(Value::as_str) {
                 refs.insert(h.to_string());
+            }
+        }
+    }
+    if let Some(review) = state.get("review").and_then(Value::as_object) {
+        for decision in review.values() {
+            for key in ["baseHash", "textHash"] {
+                if let Some(h) = decision.get(key).and_then(Value::as_str) {
+                    refs.insert(h.to_string());
+                }
             }
         }
     }
@@ -1269,6 +1345,136 @@ mod tests {
         let nxt = apply_version_ops(&current, &json!([])).unwrap();
         assert_eq!(nxt["revision"], 0); // caller bumps
         assert!(validate_version_state(&nxt).is_ok());
+    }
+
+    fn review_fixture() -> (Value, String, String) {
+        let before = "avant\n";
+        let after = "apres\n";
+        let h_before = text_hash(before);
+        let h_after = text_hash(after);
+        let state = apply_version_ops(
+            &empty_version_state("/tmp/x.tex"),
+            &json!([
+                {"type": "init", "texts": {&h_before: before},
+                 "base": {"hash": &h_before, "kind": "session", "sha": "", "ts": 1},
+                 "current": {"hash": &h_before, "ts": 1}},
+                {"type": "append", "texts": {&h_after: after},
+                 "intervention": {"id": "i-1", "fromHash": &h_before, "toHash": &h_after,
+                   "ts": 2, "source": "user-save", "status": "applied"},
+                 "current": {"hash": &h_after, "ts": 2}},
+            ]),
+        )
+        .unwrap();
+        (state, h_before, h_after)
+    }
+
+    /// Décision de revue durable (2026-09-11) : `review` vit dans le journal
+    /// serveur, jamais seulement dans le localStorage du WebView (§1).
+    #[test]
+    fn review_op_records_a_decision_and_keeps_its_texts() {
+        let (state, h_before, h_after) = review_fixture();
+        // base ajustée par « Garder » : un texte que rien d'autre ne référence
+        let adjusted = "avant ajuste\n";
+        let h_adjusted = text_hash(adjusted);
+        let next = apply_version_ops(
+            &state,
+            &json!([{"type": "review", "id": "i-1",
+                "review": {"baseHash": &h_adjusted, "textHash": &h_after},
+                "texts": {&h_adjusted: adjusted}}]),
+        )
+        .unwrap();
+        assert_eq!(next["review"]["i-1"]["baseHash"], json!(h_adjusted));
+        assert_eq!(next["review"]["i-1"]["textHash"], json!(h_after));
+        assert!(next["review"]["i-1"].get("accepted").is_none());
+        assert_eq!(
+            next["texts"][&h_adjusted],
+            json!(adjusted),
+            "le texte de la base ajustée ne doit pas être collecté"
+        );
+        assert!(validate_version_state(&next).is_ok());
+        let _ = h_before;
+
+        // « Tout accepter » : accepted:true est conservé tel quel
+        let accepted = apply_version_ops(
+            &next,
+            &json!([{"type": "review", "id": "i-1",
+                "review": {"baseHash": &h_after, "textHash": &h_after, "accepted": true},
+                "texts": {}}]),
+        )
+        .unwrap();
+        assert_eq!(accepted["review"]["i-1"]["accepted"], json!(true));
+        assert!(
+            accepted["texts"].get(&h_adjusted).is_none(),
+            "l'ancienne base ajustée n'est plus référencée : collectée"
+        );
+    }
+
+    #[test]
+    fn review_op_null_removes_the_decision() {
+        let (state, _h_before, h_after) = review_fixture();
+        let with = apply_version_ops(
+            &state,
+            &json!([{"type": "review", "id": "i-1",
+                "review": {"baseHash": &h_after, "textHash": &h_after, "accepted": true},
+                "texts": {}}]),
+        )
+        .unwrap();
+        assert!(with["review"].get("i-1").is_some());
+        let without = apply_version_ops(
+            &with,
+            &json!([{"type": "review", "id": "i-1", "review": null, "texts": {}}]),
+        )
+        .unwrap();
+        assert!(without["review"].get("i-1").is_none(), "{without}");
+        assert!(validate_version_state(&without).is_ok());
+    }
+
+    #[test]
+    fn review_op_rejects_empty_id_and_bad_shape() {
+        let (state, _h_before, h_after) = review_fixture();
+        let err = apply_version_ops(
+            &state,
+            &json!([{"type": "review", "id": "",
+                "review": {"baseHash": &h_after, "textHash": &h_after}, "texts": {}}]),
+        )
+        .unwrap_err();
+        assert_eq!(err, "invalid op");
+        let err = apply_version_ops(
+            &state,
+            &json!([{"type": "review",
+                "review": {"baseHash": &h_after, "textHash": &h_after}, "texts": {}}]),
+        )
+        .unwrap_err();
+        assert_eq!(err, "invalid op");
+        // hash inconnu du journal → état invalide
+        assert!(
+            apply_version_ops(
+                &state,
+                &json!([{"type": "review", "id": "i-1",
+                "review": {"baseHash": "0".repeat(64), "textHash": &h_after}, "texts": {}}]),
+            )
+            .is_err()
+        );
+        // accepted ne peut être que true
+        assert!(apply_version_ops(
+            &state,
+            &json!([{"type": "review", "id": "i-1",
+                "review": {"baseHash": &h_after, "textHash": &h_after, "accepted": false}, "texts": {}}]),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn legacy_state_without_review_still_validates() {
+        let (mut state, _, _) = review_fixture();
+        state.as_object_mut().unwrap().remove("review");
+        assert!(validate_version_state(&state).is_ok());
+        let next = apply_version_ops(&state, &json!([])).unwrap();
+        assert_eq!(
+            next["review"],
+            json!({}),
+            "normalisé en carte vide après toute écriture"
+        );
     }
 
     #[test]
