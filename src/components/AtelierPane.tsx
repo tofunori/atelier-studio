@@ -699,30 +699,34 @@ export default function AtelierPane({
         { key: "split-bottom", label: t("workspace.split-down"), onSelect: () => splitTab(paneNode.id, ref, "bottom") },
       ],
     });
+    // Les listes qui grandissent avec l'espace de travail (panes, onglets,
+    // couleurs) vivent dans des SOUS-MENUS : dépliées, elles faisaient un menu
+    // de vingt-cinq rangées où les actions utiles se perdaient (Thierry
+    // 2026-09-10, « c'est ben trop long »).
+    const navigationItems: LazyDropdownMenuItem[] = [];
+    const otherTabs = paneNode.tabs.filter((candidate) => workspaceTabId(candidate) !== workspaceTabId(ref));
+    if (otherTabs.length > 0) {
+      navigationItems.push({
+        key: "pane-tabs",
+        label: t("workspace.pane-tabs"),
+        children: otherTabs.map((candidate) => ({
+          key: `tab-${workspaceTabId(candidate)}`,
+          label: tabTitle(candidate),
+          onSelect: () => selectRef(paneNode.id, candidate),
+        })),
+      });
+    }
     const otherPanes = listWorkspacePanes(workspace.root).filter((pane) => pane.id !== paneNode.id);
     if (otherPanes.length > 0) {
-      menuGroups.push({
+      navigationItems.push({
         key: "move-pane",
         label: t("workspace.move-pane"),
-        items: otherPanes.map((pane) => ({
+        children: otherPanes.map((pane) => ({
           key: `move-${pane.id}`,
           label: pane.tabs.length
             ? tabTitle(pane.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId) ?? pane.tabs[0])
             : EMPTY_TITLE,
           onSelect: () => updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, pane.id, "center")),
-        })),
-      });
-    }
-    const otherTabs = paneNode.tabs.filter((candidate) => workspaceTabId(candidate) !== workspaceTabId(ref));
-    if (otherTabs.length > 0) {
-      menuGroups.push({
-        key: "pane-tabs",
-        label: t("workspace.pane-tabs"),
-        separatorBefore: true,
-        items: otherTabs.map((candidate) => ({
-          key: `tab-${workspaceTabId(candidate)}`,
-          label: tabTitle(candidate),
-          onSelect: () => selectRef(paneNode.id, candidate),
         })),
       });
     }
@@ -749,11 +753,10 @@ export default function AtelierPane({
         documentItems.push({ key: "inspect", label: t("inspector.open"), onSelect: () => onInspectFile(relative) });
       }
       menuGroups.push({ key: "document-actions", items: documentItems, separatorBefore: true });
-      menuGroups.push({
+      navigationItems.push({
         key: "colors",
         label: t("settings.group.colors"),
-        separatorBefore: true,
-        items: [
+        children: [
           ...TAB_COLORS.map((color) => ({
             key: `color-${color}`,
             checked: currentColor === color,
@@ -769,6 +772,7 @@ export default function AtelierPane({
         ],
       });
     }
+    if (navigationItems.length > 0) menuGroups.push({ key: "navigation", items: navigationItems, separatorBefore: true });
     menuGroups.push({
       key: "close",
       separatorBefore: true,

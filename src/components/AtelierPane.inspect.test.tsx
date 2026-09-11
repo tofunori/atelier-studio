@@ -3,11 +3,11 @@
 // le fichier » du menu d'onglet (sélectionne l'onglet puis ouvre), parsing
 // relFromTabUrl sur les URLs réelles d'openFileTab (nonce en hash), et
 // exclusion des onglets hors du serveur galerie du projet.
-import { act, render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import AtelierPane, { relFromTabUrl } from "./AtelierPane";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
-import { setLanguage } from "../lib/i18n";
+import { setLanguage, t } from "../lib/i18n";
 
 afterEach(cleanup);
 beforeEach(() => setLanguage("fr"));
@@ -206,6 +206,8 @@ describe("AtelierPane — menu du pane (actions rescapées de la bande)", () => 
     expect(props.onInspectFile).toHaveBeenCalledWith("figs/albedo.pdf");
 
     await openPaneMenu();
+    fireEvent.click(screen.getByText(t("settings.group.colors")));
+    await waitFor(() => expect(document.querySelector(".workspace-pane-swatch")).toBeTruthy());
     fireEvent.click(document.querySelectorAll(".workspace-pane-swatch")[0]);
     expect(props.onColorTab).toHaveBeenCalledWith("t1", expect.any(String));
   });
