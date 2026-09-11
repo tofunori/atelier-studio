@@ -340,7 +340,7 @@
   #annotBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:102;display:none!important;
             gap:2px;align-items:center;background:rgba(26,29,34,.92);backdrop-filter:blur(10px);
             border:1px solid #333a45;border-radius:10px;padding:4px 6px}
-  #lb.annot #annotBar{display:none}
+  #lb.annot #annotBar{display:none}  /* neutralisé plus bas par la barre unique (#lb #annotBar) */
   #annotBar button{padding:0;width:26px;height:24px;font-size:var(--fs-body-s, 12px);background:transparent;
       border:none;border-radius:6px;color:#868d9a;display:inline-flex;align-items:center;justify-content:center}
   #annotBar button:hover{background:var(--card2);color:var(--txt);border:none}
@@ -736,11 +736,17 @@
   #lbHead #lbAdd{width:30px;height:30px;padding:6px;font-size:0}
   #lbPosition{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;min-width:44px;text-align:center}
   #lb #lbViewport,#lb.annot #lbViewport{padding:24px;box-sizing:border-box}
-  #lb.annot #annotBar{position:static;display:flex!important;transform:none;max-width:100%;margin:0;padding:0;border:0;box-shadow:none;background:transparent;gap:2px}
+  #lb #annotBar,#lb.annot #annotBar{position:static;display:flex!important;transform:none;max-width:100%;margin:0;padding:0;border:0;box-shadow:none;background:transparent;gap:2px}
+  /* Hors mode annotation : outils présents mais en retrait ; un clic active le mode. */
+  #lb:not(.annot) #annotBar>button:not(#annotUndo):not(#annotRedo),#lb:not(.annot) #annotShapes summary{opacity:.45}
+  #lb:not(.annot) #annotBar #annotUndo,#lb:not(.annot) #annotBar #annotRedo{opacity:.25;pointer-events:none}
+  #lb:not(.annot) #annotBar button.sel{background:transparent;color:var(--muted)}
+  #lb:not(.annot) #annotShapes summary{background:transparent;color:var(--muted)}
+  #lbHead #lbAnnot[aria-pressed=true]{color:var(--primary);background:var(--primary-soft)}
   #annotBar #annotZoomOut,#annotBar #annotFit,#annotBar #annotZoomIn{display:none}
   #lb #annotPill,#lb.annot #annotPill.on{position:static;display:flex;transform:none;padding:0;border:0;background:transparent;margin:0}
   #annotPill #annotPillSend{display:none}#annotPill #annotPillN{font-size:11px;padding:6px;color:var(--muted)}
-  #lb:not(.annot) #annotPill{display:none}
+  #lb:not(.annot) #annotPill{display:flex;opacity:.55}
   #lb #annotList{top:92px;bottom:auto;background:var(--card)}
   #annotNote{width:280px;background:var(--card);border-color:var(--border2);box-shadow:0 8px 26px #0003}
   #annotNote header{padding:10px 12px 6px;font-size:11px}#annotNote textarea{padding:6px 12px;font-size:12px}
@@ -864,7 +870,7 @@
   <button id="lbClose" aria-label="Fermer la visionneuse" title="Fermer (Échap)">&#10005;</button>
   <button id="lbFs" aria-label="Plein écran" title="Plein écran">&#9974;</button>
   <div id="lbZoom"><button id="lbZoomOut" aria-label="Réduire">−</button><button id="lbFit" title="Afficher toute l’image (0)">Ajuster</button><button id="lbZoomIn" aria-label="Agrandir">+</button></div>
-  <button id="lbAnnot" title="Ajouter une annotation (a)" aria-label="Ajouter une annotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 18.5 4 20l1.15-3.7A7.5 7.5 0 0 1 4 12.3C4 7.7 7.65 4 12.2 4S20.5 7.7 20.5 12.3s-3.7 8.3-8.3 8.3a8.7 8.7 0 0 1-4.7-1.4Z"/><path d="M12.2 8.7v7.2M8.6 12.3h7.2"/></svg></button>
+  <button id="lbAnnot" title="Annoter (a)" aria-label="Ajouter une annotation" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.5L19 9.5a2.1 2.1 0 0 0-3-3L5.5 17 4 20Z"/><path d="M13.5 8.5 16 11"/></svg></button>
   <button id="lbProv" title="Provenance" aria-label="Provenance" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.2"/><circle cx="17.5" cy="18.5" r="2.2"/><path d="M6.5 7.7v6.6a2.2 2.2 0 0 0 2.2 2.2h6.6"/><path d="M12.6 5.5h6.9"/></svg></button>
   <button class="lbBtn" id="lbPrev" aria-label="Image précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
   <button class="lbBtn" id="lbNext" aria-label="Image suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
@@ -3045,7 +3051,6 @@ lbHead.append(document.getElementById('lbClose'));
 const lbFs=document.getElementById('lbFs');lbFs.hidden=true;lbHead.append(lbFs);
 document.getElementById('lbFsItem').onclick=()=>{document.getElementById('lbMore').open=false;lbFs.click();};
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';document.getElementById('lbPrev').after(lbPosition);
-document.getElementById('lbAnnot').title='Annoter (a)';
 // Fiche ⓘ : ouverture au clic, fermeture au clic dehors ou Échap ; le nom
 // reste en infobulle sur ⓘ pour ne pas avoir à l'ouvrir.
 const lbInfoBtn=document.getElementById('lbInfoBtn');
@@ -3084,6 +3089,7 @@ async function annotToggle(){
   if(annotBusy)return;
   document.getElementById('annotNote').querySelector('.annot-close').click();
   const on=lb().classList.toggle('annot');
+  document.getElementById('lbAnnot').setAttribute('aria-pressed',String(on));
   if(on){
     const img=document.getElementById('lbImg');if(!img.naturalWidth){lb().classList.remove('annot');return;}
     const rel=lbList[lbIdx]?.rel;
@@ -3180,7 +3186,9 @@ function annotBindCanvas(){
     annotRedraw();
   });
   c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
-  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=()=>{if(annotBusy)return;annotTool=b.dataset.tool;const shapes=document.getElementById('annotShapes');if(b.closest('#annotShapes')){shapes.querySelector('summary svg').replaceWith(b.querySelector('svg').cloneNode(true));shapes.querySelector('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
+  // Les outils sont toujours dans la barre (Thierry 2026-09-11) : un clic sur
+  // l'un d'eux entre en mode annotation s'il ne l'est pas déjà.
+  document.querySelectorAll('#annotBar [data-tool]').forEach(b=>b.onclick=async()=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotTool=b.dataset.tool;const shapes=document.getElementById('annotShapes');if(b.closest('#annotShapes')){shapes.querySelector('summary svg').replaceWith(b.querySelector('svg').cloneNode(true));shapes.querySelector('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':annotTool==='select'?'default':'crosshair';});
   document.getElementById('annotUndo').onclick=()=>annotHistory();document.getElementById('annotRedo').onclick=()=>annotHistory(true);
   document.getElementById('annotZoomOut').onclick=()=>lbSetZoom(lbZoomLevel/1.5);document.getElementById('annotZoomIn').onclick=()=>lbSetZoom(lbZoomLevel*1.5);document.getElementById('annotFit').onclick=()=>lbSetZoom(1);
   document.getElementById('annotPillN').onclick=function(){document.getElementById('annotNote').querySelector('.annot-close').click();const list=document.getElementById('annotList');list.hidden=!list.hidden;this.setAttribute('aria-expanded',String(!list.hidden));};
