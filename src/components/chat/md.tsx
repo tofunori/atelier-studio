@@ -644,9 +644,8 @@ export function normalizeMathFences(markdown: string): string {
     if (t.startsWith("$$") && t.length > 2 && !(t.endsWith("$$") && t.length > 4)) {
       // Ouverture collée : « $$\begin{…} » → `$$` seul, puis le contenu.
       const indent = line.slice(0, line.indexOf("$$"));
-      out.push(indent + "$$");
-      lines[i] = indent + t.slice(2);
-      continue;
+      lines.splice(i, 1, indent + "$$", indent + t.slice(2));
+      continue; // la boucle retrouve `$$` seul en i et cherche sa clôture
     }
     if (t === "$$") {
       const close = closer(i + 1);
