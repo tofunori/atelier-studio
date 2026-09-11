@@ -722,42 +722,58 @@
   #annotList{position:absolute;right:14px;bottom:55px;z-index:105;width:290px;max-width:calc(100% - 24px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:0 8px 28px #0004}#annotList[hidden]{display:none}#annotList header{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;font-size:11px;color:var(--muted)}#annotList button{border:0;background:transparent;color:var(--txt)}#annotItems{max-height:240px;overflow:auto;padding:0 5px 5px}#annotItems .annot-row{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 8px;font-size:11px;line-height:1.5;border-radius:6px}#annotItems .annot-row:hover{background:var(--border-strong)}
   #annotNote button:focus-visible,#annotBar button:focus-visible,#annotPill button:focus-visible,#annotList button:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
 
-  /* Figure viewer: stable graphite stage, all global actions above the image. */
+  /* Visionneuse : une seule barre (B′). Scène stable, toutes les actions au-dessus de l'image. */
   #lb{padding:0;background:var(--figure-backdrop,var(--bg));color:var(--txt)}
-  #lbHead,#lbTools{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;flex:none;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--border)}
-  #lbHead{min-height:60px}#lbTools{min-height:44px;flex-wrap:wrap;padding:5px 16px}
-  #lb #lbCap{display:flex;flex:1;min-width:0;align-items:flex-start;flex-direction:column;margin:0;gap:3px;text-align:left}
-  #lbCap b{max-width:100%;font-size:13px}#lbCap .lb-location{max-width:100%;font-size:10px;color:#a3aaaa}
+  #lbHead{position:relative;box-sizing:border-box;display:flex;align-items:center;gap:4px;width:100%;min-height:44px;flex:none;padding:5px 12px;background:var(--bg);border-bottom:1px solid var(--border)}
+  #lbHead .lb-space{flex:1}
   #lb #lbClose,#lb #lbFs,#lb #lbAnnot,#lb #lbProv,#lb #lbZoom,#lb .lbBtn{position:static;transform:none;margin:0;flex:none}
   #lb #lbZoom,#lb.annot #lbZoom{display:flex;background:transparent;box-shadow:none;padding:0}
-  #lbHead button,#lbTools>button{border:0;background:transparent;color:var(--muted);border-radius:7px;width:30px;height:30px;padding:5px;font-size:19px}
-  #lbHead #lbAdd{width:auto;padding:5px 12px;font-size:12px;color:#e6a175;background:#d8865318;border:1px solid #d8865338}
-  #lbTools #lbAnnot{width:auto;gap:6px;font-size:12px}#lbTools svg{width:17px;height:17px}
-  #lbPosition{font-size:11px;color:#a3aaaa;white-space:nowrap}#lbTools .lb-space{flex:1}
+  #lbHead>button,#lbHead summary{border:0;background:transparent;color:var(--muted);border-radius:7px;width:30px;height:30px;padding:5px;font-size:19px;display:inline-flex;align-items:center;justify-content:center}
+  #lbHead>button:hover,#lbHead summary:hover{background:color-mix(in srgb,var(--txt) 7%,transparent);color:var(--txt)}
+  #lbHead>button.on{color:var(--txt);background:color-mix(in srgb,var(--txt) 9%,transparent)}
+  #lbHead svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  #lbHead #lbInfoBtn svg{width:18px;height:18px}
+  #lbHead #lbAdd{width:30px;height:30px;padding:6px;font-size:0}
+  #lbPosition{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;min-width:44px;text-align:center}
   #lb #lbViewport,#lb.annot #lbViewport{padding:24px;box-sizing:border-box}
   #lb.annot #annotBar{position:static;display:flex!important;transform:none;max-width:100%;margin:0;padding:0;border:0;box-shadow:none;background:transparent;gap:2px}
   #annotBar #annotZoomOut,#annotBar #annotFit,#annotBar #annotZoomIn{display:none}
   #lb #annotPill,#lb.annot #annotPill.on{position:static;display:flex;transform:none;padding:0;border:0;background:transparent;margin:0}
-  #annotPill #annotPillSend{display:none}#annotPill #annotPillN{font-size:11px;padding:6px;color:#c2c7c7}
+  #annotPill #annotPillSend{display:none}#annotPill #annotPillN{font-size:11px;padding:6px;color:var(--muted)}
   #lb:not(.annot) #annotPill{display:none}
-  #lb #annotList{top:108px;bottom:auto;background:var(--card)}
+  #lb #annotList{top:92px;bottom:auto;background:var(--card)}
   #annotNote{width:280px;background:var(--card);border-color:var(--border2);box-shadow:0 8px 26px #0003}
   #annotNote header{padding:10px 12px 6px;font-size:11px}#annotNote textarea{padding:6px 12px;font-size:12px}
   #annotNote footer{padding:6px 10px 10px}#annotNote .annot-draft,#annotNote .annot-send{width:30px;height:30px;padding:6px}
   #annotNote footer svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6}
-  #lbMore{position:relative;color:var(--muted)}#lbMore summary{cursor:pointer;list-style:none;padding:7px;font-size:17px}#lbMore summary::-webkit-details-marker{display:none}
-  #lbMore>div{position:absolute;right:0;top:35px;z-index:106;width:220px;padding:12px;background:var(--card);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px #0003}
-  #lbMore a{display:block;color:#d9dddd;font-size:12px;text-decoration:none;padding:6px 0}#lbInfo{font-size:11px;color:#aab1b1;overflow-wrap:anywhere;margin-bottom:6px}
-  #lb.fs{background:var(--figure-backdrop,var(--bg))}#lb.fs #lbHead,#lb.fs #lbTools{display:none}#lb.fs.fs-ui #lbTools{display:flex}
-  #lb.vw #lbHead,#lb.vw #lbTools{display:none}
-  @media(max-width:540px){#lbHead,#lbTools{padding-left:8px;padding-right:8px;gap:4px}#lb #lbViewport,#lb.annot #lbViewport{padding:12px}#lbCap .lb-location{display:none}#lbHead #lbAdd{font-size:11px;padding:5px 8px}}
+  /* Fiche ⓘ : nom, dossier, dimensions, poids, date, puis les actions fichier. */
+  #lbSheet{position:absolute;left:12px;top:42px;z-index:106;width:320px;max-width:calc(100% - 24px);padding:12px 14px;background:var(--card);border-radius:10px;box-shadow:var(--elev);font-size:12px;display:grid;gap:8px;text-align:left}
+  #lbSheet[hidden]{display:none}
+  #lb #lbCap{display:block;margin:0;text-align:left}#lbCap b{display:block;font-size:13px;font-weight:500;color:var(--txt);overflow-wrap:anywhere}
+  #lbInfo{display:grid;gap:4px}#lbInfo .lb-row{display:grid;grid-template-columns:64px 1fr;gap:8px;color:var(--txt)}#lbInfo .lb-row b{font-weight:500;color:var(--muted)}#lbInfo .lb-row:empty{display:none}
+  #lbSheetActs{display:flex;flex-wrap:wrap;gap:4px;padding-top:8px;border-top:1px solid var(--border)}
+  #lbSheetActs>*{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:6px;background:transparent;color:var(--txt);font:inherit;font-size:12px;text-decoration:none;cursor:pointer}
+  #lbSheetActs>*:hover{background:color-mix(in srgb,var(--txt) 7%,transparent)}
+  #lbSheetActs #lbProv{position:static;width:auto;height:26px;font-size:0;color:var(--txt)}#lbSheetActs #lbProv::after{content:"Provenance";font-size:12px}#lbSheetActs #lbProv svg{width:15px;height:15px}
+  #lb.prov #lbSheetActs #lbProv{color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,transparent)}
+  /* ⋯ : plein écran et fond. */
+  #lbMore{position:relative;color:var(--muted)}#lbMore summary{cursor:pointer;list-style:none}#lbMore summary::-webkit-details-marker{display:none}
+  #lbMore>div{position:absolute;right:0;top:35px;z-index:106;width:200px;padding:6px;background:var(--card);border-radius:10px;box-shadow:var(--elev);display:grid;gap:2px}
+  #lbMore>div>button{display:flex;align-items:center;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--txt);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+  #lbMore>div>button:hover{background:color-mix(in srgb,var(--txt) 7%,transparent)}
+  /* Nom en fondu à la navigation. */
+  #lbNameToast{position:absolute;left:50%;top:52px;transform:translateX(-50%);z-index:105;padding:4px 10px;border-radius:6px;background:var(--card);box-shadow:var(--elev);color:var(--txt);font-size:12px;opacity:0;pointer-events:none;transition:opacity .15s ease}
+  #lbNameToast.show{opacity:1}
+  @media(prefers-reduced-motion:reduce){#lbNameToast{transition:none}}
+  #lb #lbFs{display:none!important}  /* plein écran vit dans ⋯ ; Échap ou ⋯ pour sortir */
+  #lb.fs{background:var(--figure-backdrop,var(--bg))}#lb.fs #lbHead{display:none}#lb.fs.fs-ui #lbHead{display:flex}
+  #lb.vw #lbHead{display:none}
+  @media(max-width:540px){#lbHead{padding-left:8px;padding-right:8px;gap:2px}#lb #lbViewport,#lb.annot #lbViewport{padding:12px}#lbPosition{min-width:36px}}
 
   #annotShapes{position:relative;color:#dca079}#annotShapes summary{list-style:none;display:flex;align-items:center;gap:2px;padding:5px;cursor:pointer;border-radius:6px;background:#d8865318}#annotShapes summary::-webkit-details-marker{display:none}
   #annotShapes>div{position:absolute;z-index:107;top:34px;left:0;display:flex;gap:3px;padding:5px;background:var(--card);border:1px solid var(--border2);border-radius:7px;box-shadow:0 6px 18px #0003}
   #annotShapes summary:focus-visible{outline:2px solid var(--primary)}
 
-  #lbHead #lbAdd{width:30px;height:30px;padding:6px;border:0;background:transparent;color:var(--muted);font-size:0}
-  #lbHead #lbAdd:hover{background:#ffffff0a;color:var(--txt)}
   #lbHead #lbAdd svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}
 
   #lbBackground{display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:11px;color:var(--muted)}
@@ -2091,9 +2107,13 @@ async function lbShow(i){
   else if(isMd){pdf.src='/.fig_thumbs/md_viewer.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&file='+encodeURIComponent(f.rel)+'&v=__VER__';img.src='';}
   else if(isCode){pdf.src='/.fig_thumbs/code_editor.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';img.src='';}
   else if(isSvg){pdf.src='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';img.src='';}
-  else{img.src=f.rel+'?v='+f.mtime;pdf.src='';}
-  document.getElementById('lbCap').innerHTML=`<span class="lb-location">Galerie / ${esc(f.folder||'')}</span><b>${esc(f.name)}</b>`;
-  document.getElementById('lbInfo').textContent=[f.folder,f.mdate].filter(Boolean).join(' · ');
+  else{img.src=f.rel+'?v='+f.mtime;pdf.src='';img.onload=()=>{const d=document.getElementById('lbDims');if(d&&img.naturalWidth)d.innerHTML=`<b>Image</b><span>${img.naturalWidth} × ${img.naturalHeight} px · ${esc((f.ext||'').toUpperCase())}</span>`;};}
+  document.getElementById('lbCap').innerHTML=`<b>${esc(f.name)}</b>`;
+  lbInfoBtn.title=f.name;
+  const infoRows=[['Dossier',f.folder||'—'],['Modifié',f.mdate||'—'],['Taille',f.size?fmtSize(f.size):'—']];
+  document.getElementById('lbInfo').innerHTML=infoRows.map(([k,v])=>`<div class="lb-row"><b>${esc(k)}</b><span>${esc(String(v))}</span></div>`).join('')+'<div class="lb-row" id="lbDims"></div>';
+  lbSheetToggle(false);
+  lbNameToast(f.name);
   document.getElementById('lbOriginal').href=f.rel;
   document.getElementById('lbMore').open=false;
   document.getElementById('lbPosition').textContent=(i+1)+' / '+lbList.length;
@@ -2994,10 +3014,17 @@ let annotTool='rect', annotStrokes=[], annotCur=null, annotSent=true;
 const annotSessions=new Map();
 let annotSession=null, annotSelected=null, annotDrag=null, annotSendOne=null, annotBusy=false;
 
+// Barre unique du visionneur (B′, Thierry 2026-09-11) : ⓘ · ‹ n/N › · zoom ·
+// annoter · chat · ⋯ · ×. Le nom et tout ce qui décrit le fichier vivent
+// dans la fiche sous ⓘ ; provenance y est aussi. Plein écran et fond dans ⋯.
 const lbHead=document.createElement('div');lbHead.id='lbHead';
-const lbTools=document.createElement('div');lbTools.id='lbTools';
-lbHead.innerHTML='<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button><details id="lbMore"><summary aria-label="Informations et autres actions">⋯</summary><div><div id="lbInfo"></div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a></div></details>';
-lb().prepend(lbHead,lbTools);
+lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier" aria-expanded="false" aria-controls="lbSheet"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.2"/></svg></button>'
+ +'<div id="lbSheet" role="dialog" aria-label="Informations sur le fichier" hidden><div id="lbInfo"></div><div id="lbSheetActs"><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a><button id="lbCopyPath" type="button">Copier le chemin</button></div></div>'
+ +'<span class="lb-space"></span>'
+ +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
+ +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><button id="lbFsItem" type="button">Plein écran</button><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
+ +'<div id="lbNameToast" aria-hidden="true"></div>';
+lb().prepend(lbHead);
 function setFigureBackdrop(color){
   const options=[...document.querySelectorAll('[data-backdrop]')];
   if(!options.some(b=>b.dataset.backdrop===color))color='atelier';
@@ -3008,12 +3035,36 @@ function setFigureBackdrop(color){
 let figureBackdrop;try{figureBackdrop=localStorage.getItem('atelier.figureBackdrop');}catch{}
 setFigureBackdrop(figureBackdrop);
 document.querySelectorAll('[data-backdrop]').forEach(b=>b.onclick=()=>setFigureBackdrop(b.dataset.backdrop));
-lbHead.prepend(document.getElementById('lbCap'));lbHead.append(document.getElementById('lbProv'),document.getElementById('lbClose'));
-for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill','lbFs'])lbTools.append(document.getElementById(id));
+// Ordre dans la barre : ⓘ · ‹ n/N › · zoom · annoter · [outils d'annotation] · espace · chat · ⋯ · ×
+const lbSheet=document.getElementById('lbSheet');
+lbSheet.prepend(document.getElementById('lbCap'));
+document.getElementById('lbSheetActs').prepend(document.getElementById('lbProv'));
+const lbSpace=lbHead.querySelector('.lb-space');
+for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill'])lbSpace.before(document.getElementById(id));
+lbHead.append(document.getElementById('lbClose'));
+const lbFs=document.getElementById('lbFs');lbFs.hidden=true;lbHead.append(lbFs);
+document.getElementById('lbFsItem').onclick=()=>{document.getElementById('lbMore').open=false;lbFs.click();};
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';document.getElementById('lbPrev').after(lbPosition);
-const lbSpace=document.createElement('span');lbSpace.className='lb-space';document.getElementById('annotPill').before(lbSpace);
-document.getElementById('lbAnnot').insertAdjacentHTML('beforeend','<span>Annoter</span>');
-lb().prepend(lbHead,lbTools);
+document.getElementById('lbAnnot').title='Annoter (a)';
+// Fiche ⓘ : ouverture au clic, fermeture au clic dehors ou Échap ; le nom
+// reste en infobulle sur ⓘ pour ne pas avoir à l'ouvrir.
+const lbInfoBtn=document.getElementById('lbInfoBtn');
+function lbSheetToggle(open){
+  const next=open===undefined?lbSheet.hidden:open;
+  lbSheet.hidden=!next;lbInfoBtn.setAttribute('aria-expanded',String(next));lbInfoBtn.classList.toggle('on',next);
+}
+lbInfoBtn.onclick=(e)=>{e.stopPropagation();lbSheetToggle();};
+lbSheet.addEventListener('click',e=>e.stopPropagation());
+document.addEventListener('click',()=>{if(!lbSheet.hidden)lbSheetToggle(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lbSheet.hidden){e.stopPropagation();lbSheetToggle(false);}},true);
+document.getElementById('lbCopyPath').onclick=async()=>{const f=lbList[lbIdx];if(!f)return;try{await navigator.clipboard.writeText('__ROOT__/'+f.rel);lbNameToast('Chemin copié');}catch{lbNameToast('Copie impossible');}};
+// Nom en fondu 1,5 s à chaque changement de figure : on sait laquelle est
+// affichée en feuilletant, sans ouvrir la fiche.
+let lbToastTimer=0;
+function lbNameToast(name){
+  const t=document.getElementById('lbNameToast');t.textContent=name;t.classList.add('show');
+  clearTimeout(lbToastTimer);lbToastTimer=setTimeout(()=>t.classList.remove('show'),1500);
+}
 document.getElementById('lbAdd').onclick=async()=>{if(annotBusy)return;document.querySelector('#annotNote .annot-close').click();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))document.getElementById('annotPillSend').click();else if(EMB){try{await postChatAttachment(lbList[lbIdx].rel);}catch{document.getElementById('lbAdd').title='Ajout impossible — réessayer';}}};
 
 const cv=()=>document.getElementById('annotCv');
