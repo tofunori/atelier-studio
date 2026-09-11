@@ -10,6 +10,8 @@ import {
   type ReadingContext,
   createLatexReadingMarge,
   createLatexSelectionPill,
+  surroundingLines,
+  type LatexPillSelection,
   createRewrapController,
   createStudioStatusBar,
   isAutoCompileEnabled,
@@ -36,6 +38,7 @@ import {
   type CsvViewController,
 } from "../features/code";
 import type {HtmlSanitizer, MarkdownParser} from "../features/markdown";
+import {createSelectionActions} from "../features/annotation_ui";
 import {
   addRecentStudioFile,
   attachEditorSelection,
@@ -789,6 +792,27 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     },
     enableSelectionQuote: true,
     hideEmbeddedIdentity: true,
+    // Même capsule qu'hors Diff : ajouter (citation avec contexte de diff),
+    // annoter, Quick Ask — la sélection vient de l'éditeur, pas du DOM.
+    buildQuotePill: (host, send) => {
+      const current = (): LatexPillSelection | null => {
+        if (!editor) return null;
+        const from = editor.getCursor("from"), to = editor.getCursor("to");
+        const text = editor.getSelection();
+        if (!text.trim()) return null;
+        return {text, page: `L${from.line + 1}-${to.line + 1}`, from: {...from}, to: {...to}};
+      };
+      createSelectionActions(host, {
+        onAdd: send,
+        onAnnotate: () => { const sel = current(); if (sel) ensureAnnotations().open(sel); host.style.display = "none"; },
+        onAsk: dependencies.postToHost ? () => {
+          const sel = current(); if (!sel) return;
+          dependencies.postToHost?.({type: "atelier-quick-ask", text: sel.text,
+            around: editor ? surroundingLines(editor, sel.from, sel.to) : undefined, path, page: sel.page});
+          host.style.display = "none";
+        } : undefined,
+      });
+    },
     postToHost: dependencies.postToHost,
     document: doc,
     window: win,

@@ -39,6 +39,10 @@ export interface StudioDiffControllerOptions {
   hideEmbeddedIdentity?: boolean;
   postToHost?(message: unknown): void;
   requestQuote?(text: string): Promise<string | null>;
+  /** Mode Diff, embarqué : laisse la surface composer la capsule de sélection
+   *  (mêmes actions qu'hors Diff — ajouter, annoter, Quick Ask) au lieu du
+   *  seul bouton « Add to chat ». `send` déclenche la citation vers le chat. */
+  buildQuotePill?(host: HTMLElement, send: () => void): void;
   document?: Document;
   window?: Window;
 }
@@ -100,7 +104,7 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       quotePill!.style.left = `${Math.max(8, rect.left + rect.width / 2 - 55)}px`;
       quotePill!.style.top = `${Math.max(8, rect.top - 42)}px`;
-      quotePill!.style.display = "block";
+      quotePill!.style.display = options.buildQuotePill ? "flex" : "block";
     }, 0);
   };
   const onHostMouseUp = (): void => { if (journal.isShown()) updateQuotePill(); };
@@ -118,20 +122,34 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
       const identity = doc.getElementById("fileIdentity");
       if (identity) identity.style.display = "none";
     }
-    quotePill = doc.createElement("button");
-    quotePill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-    quotePill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dadee3;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
-    doc.body.appendChild(quotePill);
-    quotePill.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    const sendQuote = (): void => {
       if (!selectedText) return;
       void requestQuote(selectedText).then((message) => {
         if (message) options.postToHost?.({type: "atelier-add-to-chat", text: message});
       }).catch(() => undefined);
       quotePill!.style.display = "none";
       win.getSelection()?.removeAllRanges();
-    });
+    };
+    if (options.buildQuotePill) {
+      // La surface fournit la capsule complète (Thierry 2026-09-11 : en mode
+      // Diff, seule la citation apparaissait — ni Annoter ni Quick Ask).
+      const host = doc.createElement("div");
+      host.style.cssText = "position:fixed;z-index:9999;display:none";
+      doc.body.appendChild(host);
+      options.buildQuotePill(host, sendQuote);
+      host.addEventListener("mousedown", (event) => { event.preventDefault(); event.stopPropagation(); });
+      quotePill = host as unknown as HTMLButtonElement;
+    } else {
+      quotePill = doc.createElement("button");
+      quotePill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.5-6 5.5-.8 0-1.5-.1-2.2-.4L2 14l1.1-2.9C2.4 10.2 2 9.1 2 8c0-3 2.7-5.5 6-5.5S14 5 14 8Z"/></svg> Add to chat';
+      quotePill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dadee3;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)";
+      doc.body.appendChild(quotePill);
+      quotePill.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        sendQuote();
+      });
+    }
     bindSelection();
   }
   return {

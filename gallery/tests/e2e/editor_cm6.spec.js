@@ -483,12 +483,12 @@ test('latex individual review automatically opens, accepts, rejects and protects
     writeFileSync(path.join(root,'sample.tex'),after);
     await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true',{timeout:10000});
     await expect(page.locator('.dv-count')).toHaveText('1/1');
-    await expect(page.getByRole('button',{name:'Accepter',exact:true}).first()).toBeAttached();
-    await page.getByRole('button',{name:'Accepter',exact:true}).first().click();
+    await expect(page.getByRole('button',{name:'Garder',exact:true}).first()).toBeAttached();
+    await page.getByRole('button',{name:'Garder',exact:true}).first().click();
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
     await page.locator('#diffUndo').click();
     await page.route('**/codesave', async route => { await new Promise(resolve=>setTimeout(resolve,250)); await route.continue(); });
-    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
     expect(await page.evaluate(()=>cm.getOption('readOnly'))).toBe(true);
     await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Original first');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Revised second');
@@ -510,7 +510,7 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await expect(page.locator('.cm-deletedChunk')).not.toContainText('Original first');
     await page.getByRole('button',{name:'Intervention précédente',exact:true}).click();
     await expect(page.locator('.dv-count')).toHaveText('1/2');
-    await expect(page.getByRole('button',{name:'Refuser',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Ignorer',exact:true})).toHaveCount(0);
     await page.getByRole('button',{name:'Intervention suivante',exact:true}).click();
     await expect(page.locator('.dv-count')).toHaveText('2/2');
     await expect(page.getByRole('button',{name:'Intervention suivante',exact:true})).toBeDisabled();
@@ -518,7 +518,7 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await page.route('**/statfile?*',route=>route.fulfill({json:{mtime:0}}));
     const concurrent = second + 'Concurrent disk edit.\n';
     writeFileSync(path.join(root,'sample.tex'),concurrent);
-    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
     await expect(page.locator('#state')).toContainText('non enregistré');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(concurrent);
   });
@@ -602,44 +602,45 @@ test('latex individual review keeps selection stable while scrolling diff widget
   });
 });
 
-test('latex individual review gutter keeps controls outside wrapped text and covers each chunk', async ({page}) => {
+test('latex individual review anchors the decision row under the changed passage and brackets its rows', async ({page}) => {
+  // F2 (2026-09-11) : plus de gouttière — une rangée de décision en BLOC sous la
+  // dernière ligne du passage courant, et un trait à gauche dessiné sur les
+  // rangées visuelles du changement (exact même au milieu d'un paragraphe).
   const original = 'Old wording. '.repeat(28) + '\n\nUnchanged context.\n';
   const current = 'New wording. '.repeat(34) + '\n\nUnchanged context.\n';
   await withProject({'sample.tex':current}, async ({url}) => {
     await page.goto(url('latex_studio.html','sample.tex'));
     await expectEngine(page,'cm6');
-    await page.evaluate(original=>cm.showMergeDiff(original,{individual:true,onDecision:value=>{window.__gutterDecision=value;}}), original);
+    await page.evaluate(original=>cm.showMergeDiff(original,{individual:true,anchored:true,onDecision:value=>{window.__gutterDecision=value;}}), original);
     for (const width of [1050,620]) {
       await page.setViewportSize({width,height:850});
-      const widget=page.locator('.cm-deletedChunk:has(.atelier-review-decision)').first();
-      await expect.poll(()=>widget.evaluate(el=>parseFloat(el.style.getPropertyValue('--review-height')))).toBeGreaterThan(80);
-      const geometry=await widget.evaluate(el=>{
-        const r=el.getBoundingClientRect(),buttons=el.querySelector('.cm-chunkButtons').getBoundingClientRect();
-        const line=el.querySelector('.cm-deletedLine')?.getBoundingClientRect();
-        const bracket=getComputedStyle(el,'::before');
-        return {outside:buttons.right<r.left,noBar:line?Math.abs(line.top-r.top)<1:r.height===0,height:parseFloat(bracket.height),widgetHeight:r.height,opensRight:bracket.borderRightWidth==='0px'};
+      const row=page.locator('.cm-content .atelier-review-pill');
+      await expect(row).toHaveCount(1);
+      await expect(row.getByRole('button',{name:'Ignorer',exact:true})).toBeVisible();
+      await expect(row.getByRole('button',{name:'Garder',exact:true})).toBeVisible();
+      const geometry=await page.evaluate(()=>{
+        const row=document.querySelector('.cm-content .atelier-review-pill').getBoundingClientRect();
+        const chunk=document.querySelector('.cm-deletedChunk').getBoundingClientRect();
+        const content=document.querySelector('.cm-content').getBoundingClientRect();
+        const bracket=document.querySelector('.atelier-review-brackets');
+        const marks=bracket?[...bracket.children].map(el=>el.getBoundingClientRect()):[];
+        return {rowBelowChunk:row.top>=chunk.bottom-1, rowInsideContent:row.left>=content.left-1&&row.right<=content.right+1,
+          brackets:marks.length, bracketLeft:marks.length?Math.min(...marks.map(m=>m.left)):null, contentLeft:content.left};
       });
-      expect(geometry.outside).toBe(true);expect(geometry.noBar).toBe(true);
-      expect(geometry.height).toBeGreaterThan(geometry.widgetHeight);expect(geometry.opensRight).toBe(true);
+      expect(geometry.rowBelowChunk).toBe(true);expect(geometry.rowInsideContent).toBe(true);
+      expect(geometry.brackets).toBeGreaterThan(0);
+      // Le trait mord dans la marge, jamais dans le texte.
+      expect(geometry.bracketLeft).toBeLessThan(geometry.contentLeft+2);
     }
-    await page.screenshot({path:'/tmp/atelier-review-gutter.png'});
-    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
+    await page.screenshot({path:'/tmp/atelier-review-anchored.png'});
+    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
     expect(await page.evaluate(()=>window.__gutterDecision.text)).toBe(original);
-    // A trailing blank added line still belongs inside the bracket.
-    await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('New\n\nContext\n');cm.showMergeDiff('Old\nContext\n',{individual:true,onDecision:()=>{}});});
-    await expect.poll(()=>page.evaluate(()=>{
-      const widget=document.querySelector('.cm-deletedChunk');
-      const bottom=widget.getBoundingClientRect().top+parseFloat(widget.style.getPropertyValue('--review-height'));
-      const blank=document.querySelectorAll('.cm-line')[1].getBoundingClientRect();
-      return Math.abs(bottom-blank.bottom)<2;
-    })).toBe(true);
-    await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('Added.\nContext.\n');cm.showMergeDiff('Context.\n',{individual:true,onDecision:value=>{window.__gutterDecision=value;}});});
-    await expect(page.locator('.atelier-review-compact')).toHaveCount(1);
-    await expect(page.locator('.cm-chunkButtons')).toHaveCSS('position','absolute');
-    await page.getByRole('button',{name:'Accepter',exact:true}).click();
+    await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('Added.\nContext.\n');cm.showMergeDiff('Context.\n',{individual:true,anchored:true,onDecision:value=>{window.__gutterDecision=value;}});});
+    await page.getByRole('button',{name:'Garder',exact:true}).click();
     expect(await page.evaluate(()=>window.__gutterDecision.base)).toBe('Added.\nContext.\n');
     await page.evaluate(()=>cm.hideMergeDiff());
+    await expect(page.locator('.atelier-review-pill')).toHaveCount(0);
+    await expect(page.locator('.atelier-review-brackets')).toHaveCount(0);
     await expect(page.locator('.atelier-review-gutter')).toHaveCount(0);
-    await expect(page.locator('.atelier-review-decision')).toHaveCount(0);
   });
 });

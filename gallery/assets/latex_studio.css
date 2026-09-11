@@ -718,7 +718,9 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #diffGrp #diffAcceptAll{order:2;width:auto;height:28px;padding:0 7px!important;gap:6px;border:1px solid var(--border-strong)!important;margin-left:5px;font:11px var(--ui-font)}
 #diffGrp #diffAcceptAll:hover:not(:disabled){color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--card))}
 #diffGrp #diffAcceptAll span{display:none}#diffGrp #diffAcceptAll{width:26px;padding:0!important}
-@media(max-width:460px){#diffGrp #diffAcceptAll{width:22px;margin-left:1px}#diffGrp #diffTag{gap:3px;padding:0 4px!important}header .modeseg button,header .modeseg #editBtn{width:22px;min-width:22px}#diffGrp #dvNav>.dv-count{min-width:26px}#diffGrp #diffPrev,#diffGrp #diffNext,#diffGrp #dvNav .dvNavA{width:18px}#compileActions>#popPdf{padding:0 2px}#toolbarWrap,#build,#moreBtn{width:22px}}
+/* Sous 460 px la barre n'a plus la place du bouton « Ajouter au chat » (fichier entier) :
+   il se retire ; la capsule de sélection continue d'offrir l'ajout au chat. */
+@media(max-width:460px){#chatActions{display:none}#diffGrp #diffAcceptAll{width:22px;margin-left:1px}#diffGrp #diffTag{gap:3px;padding:0 4px!important}header .modeseg button,header .modeseg #editBtn{width:22px;min-width:22px}#diffGrp #dvNav>.dv-count{min-width:26px}#diffGrp #diffPrev,#diffGrp #diffNext,#diffGrp #dvNav .dvNavA{width:18px}#compileActions>#popPdf{padding:0 2px}#toolbarWrap,#build,#moreBtn{width:22px}}
 
 /* Diff widgets must not inherit WebKit's native selection paint. */
 .cm-editor.cm-review-selection .cm-content::selection,
