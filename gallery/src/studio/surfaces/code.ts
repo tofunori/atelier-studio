@@ -6,6 +6,7 @@ import {
   createDocumentSession,
   createEditorWrapController,
   createStudioDiffController,
+  installChatAttach,
   createStudioFilePicker,
   installStudioCommands,
   type StudioDiffController,
@@ -183,6 +184,15 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     (win as Window & {codeSelectionBridge?: unknown}).codeSelectionBridge = selectionBridge;
     return editor;
   };
+  installChatAttach({
+    button: doc.getElementById("chatAdd"),
+    path,
+    // L'éditeur de code n'a pas de dépendance postToHost : il parle à l'app par
+    // le pont d'hôte installé au bootstrap, comme ses actions de sélection.
+    postToHost: (payload) => (win as Window & {__atelierPost?(p: Record<string, unknown>): void}).__atelierPost?.(payload),
+    notify: (message) => setState("saved", message),
+    window: win,
+  });
   const diff = createStudioDiffController({
     factory: dependencies.diffFactory,
     getEditor: () => editor,

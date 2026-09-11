@@ -563,6 +563,8 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 #revisionMenu #diffGrp>button{width:100%;min-height:30px;height:auto;gap:8px;justify-content:flex-start;padding:5px 8px!important;text-align:left;white-space:normal}
 #revisionMenu #diffGrp>button::after{content:attr(aria-label);position:static;width:auto;height:auto;background:none;border-radius:0}
 #revisionMenu #dvNav{align-self:stretch;justify-content:center;margin:4px 0}
+/* « Ajouter au chat » : action du document, juste avant les outils d'édition. */
+#chatActions{order:3;flex:none}
 #toolbarActions{order:4}
 #state{order:5}
 #toolbarActions>#outlineBtn,#toolbarActions>#rewrapAllBtn,#toolbarActions>#texcBtn,#compileActions>#popPdf{display:none}

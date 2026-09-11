@@ -43,6 +43,7 @@ import {
   createEditorWrapController,
   createStudioDiffController,
   createStudioFilePicker,
+  installChatAttach,
   installStudioCommands,
   revealLineRange,
   type StudioDiffController,
@@ -746,6 +747,13 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     document: doc,
     window: win,
     storage: win.localStorage,
+  });
+  installChatAttach({
+    button: doc.getElementById("chatAdd"),
+    path,
+    postToHost: dependencies.postToHost,
+    notify: (message) => setState("ok", message),
+    window: win,
   });
   diff = createStudioDiffController({
     individualReview: true,

@@ -1,3 +1,4 @@
+export * from "./chat_attach";
 export * from "./commands";
 export * from "./diff_controller";
 export * from "./editor_contract";
