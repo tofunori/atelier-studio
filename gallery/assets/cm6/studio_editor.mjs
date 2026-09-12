@@ -9,7 +9,7 @@ import {openSearchPanel, searchKeymap, SearchCursor} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit,
         HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
-import {getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
+import {diff as computeTextDiff, getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc} from "@codemirror/merge";
 import {reviewAnchored, setReviewFocus, currentReviewOffset} from "./review_anchored.mjs";
 
 // Décision sur un bloc du diff unifié : le texte résultant (`text`) et la
@@ -448,6 +448,53 @@ function restoreScrollableState(snapshot) {
   }
 }
 
+function setValueChanges(oldStr, newStr) {
+  // `diff` renvoie des intervalles dans les deux textes. Les appliquer comme
+  // une liste de changements CM6 conserve les positions qui vivent ENTRE
+  // deux retouches éloignées (une seule plage préfixe/suffixe les remappait
+  // vers sa frontière et transformait une sélection en grand bloc).
+  try {
+    const changes = computeTextDiff(oldStr, newStr, {scanLimit: 100000, timeout: 250})
+      .filter((change) => change.fromA !== change.toA || change.fromB !== change.toB)
+      .map((change) => ({
+        from: change.fromA,
+        to: change.toA,
+        insert: newStr.slice(change.fromB, change.toB),
+      }));
+    let cursor = 0;
+    let rebuilt = "";
+    for (const change of changes) {
+      if (!Number.isInteger(change.from) || !Number.isInteger(change.to)
+          || change.from < cursor || change.to < change.from) throw new Error("invalid diff range");
+      rebuilt += oldStr.slice(cursor, change.from) + change.insert;
+      cursor = change.to;
+    }
+    rebuilt += oldStr.slice(cursor);
+    if (rebuilt === newStr) return changes;
+  } catch (error) {
+    // The bounded diff is an optimization for external reloads, not a reason
+    // to lose the update. Fall through to the exact common-prefix/suffix
+    // replacement below when the dependency rejects an input.
+  }
+
+  let prefix = 0;
+  const prefixMax = Math.min(oldStr.length, newStr.length);
+  while (prefix < prefixMax && oldStr.charCodeAt(prefix) === newStr.charCodeAt(prefix)) prefix += 1;
+  // Ne jamais couper une paire de substitution UTF-16.
+  while (prefix > 0 && (oldStr.charCodeAt(prefix) & 0xFC00) === 0xDC00) prefix -= 1;
+  let oldEnd = oldStr.length;
+  let newEnd = newStr.length;
+  while (oldEnd > prefix && newEnd > prefix && oldStr.charCodeAt(oldEnd - 1) === newStr.charCodeAt(newEnd - 1)) {
+    oldEnd -= 1;
+    newEnd -= 1;
+  }
+  while (oldEnd < oldStr.length && (oldStr.charCodeAt(oldEnd) & 0xFC00) === 0xDC00) {
+    oldEnd += 1;
+    newEnd += 1;
+  }
+  return [{from: prefix, to: oldEnd, insert: newStr.slice(prefix, newEnd)}];
+}
+
 const updateGutters = StateEffect.define();
 class NodeGutterMarker extends GutterMarker {
   constructor(name, node) { super(); this.name = name; this.node = node; }
@@ -633,7 +680,49 @@ export function createStudioEditor(parent, opts) {
     const l = doc().lineAt(Math.max(0, Math.min(off, doc().length)));
     return {line: l.number - 1, ch: off - l.from};
   };
-  const replaceDocumentPreservingView = (text) => {
+  let selectionGestureActive = false;
+  let pendingDocumentValue = null;
+  let pendingScrollableState = null;
+  let pendingDocumentFrame = null;
+  const editorDocument = view.dom.ownerDocument;
+
+  const flushPendingDocumentValue = () => {
+    pendingDocumentFrame = null;
+    if (selectionGestureActive || pendingDocumentValue == null) return;
+    const nextValue = pendingDocumentValue;
+    const scrollState = pendingScrollableState;
+    pendingDocumentValue = null;
+    pendingScrollableState = null;
+    applyDocumentValue(nextValue, scrollState);
+  };
+  const schedulePendingDocumentValue = () => {
+    if (pendingDocumentValue == null || pendingDocumentFrame != null) return;
+    const raf = editorDocument.defaultView?.requestAnimationFrame;
+    if (typeof raf === "function") {
+      pendingDocumentFrame = raf(flushPendingDocumentValue);
+    } else {
+      pendingDocumentFrame = editorDocument.defaultView?.setTimeout(flushPendingDocumentValue, 0)
+        ?? setTimeout(flushPendingDocumentValue, 0);
+    }
+  };
+  const onSelectionGestureStart = (event) => {
+    if (event.button !== 0 || !event.target || !view.contentDOM.contains(event.target)) return;
+    selectionGestureActive = true;
+  };
+  const onSelectionGestureEnd = () => {
+    if (!selectionGestureActive) return;
+    selectionGestureActive = false;
+    // Let CodeMirror/WebKit finish the native anchor update before replacing
+    // the document. A frame also coalesces pointerup+mouseup into one apply.
+    schedulePendingDocumentValue();
+  };
+  editorDocument.addEventListener("pointerdown", onSelectionGestureStart, true);
+  editorDocument.addEventListener("mousedown", onSelectionGestureStart, true);
+  editorDocument.addEventListener("pointerup", onSelectionGestureEnd, true);
+  editorDocument.addEventListener("mouseup", onSelectionGestureEnd, true);
+  editorDocument.addEventListener("pointercancel", onSelectionGestureEnd, true);
+
+  const applyDocumentValue = (text, preservedScrollState = null) => {
     const nextText = view.state.toText(String(text ?? ""));
     if (nextText.eq(doc())) return;
     // On ne remplace QUE la portion réellement modifiée (préfixe et suffixe
@@ -644,32 +733,19 @@ export function createStudioEditor(parent, opts) {
     // souris EN COURS : quand le rechargement agent tombait entre le mousedown
     // et le mouseup d'un clic, l'ancre sautait à une extrémité et le clic se
     // terminait en sélection de tout un pan du document (ou en défilement vers
-    // cette extrémité). Avec un remplacement borné, tout ce qui vit hors de la
-    // zone modifiée — ancre de souris comprise — reste exactement en place.
+    // cette extrémité). Avec des changements bornés, tout ce qui vit hors des
+    // zones modifiées — ancre de souris comprise — reste exactement en place.
     const oldStr = doc().toString();
     const newStr = nextText.toString();
-    let prefix = 0;
-    const prefixMax = Math.min(oldStr.length, newStr.length);
-    while (prefix < prefixMax && oldStr.charCodeAt(prefix) === newStr.charCodeAt(prefix)) prefix += 1;
-    // Ne jamais couper une paire de substitution UTF-16.
-    while (prefix > 0 && (oldStr.charCodeAt(prefix) & 0xFC00) === 0xDC00) prefix -= 1;
-    let oldEnd = oldStr.length;
-    let newEnd = newStr.length;
-    while (oldEnd > prefix && newEnd > prefix && oldStr.charCodeAt(oldEnd - 1) === newStr.charCodeAt(newEnd - 1)) {
-      oldEnd -= 1;
-      newEnd -= 1;
-    }
-    while (oldEnd < oldStr.length && (oldStr.charCodeAt(oldEnd) & 0xFC00) === 0xDC00) {
-      oldEnd += 1;
-      newEnd += 1;
-    }
-    const scrollState = captureScrollableState(view);
+    const changes = setValueChanges(oldStr, newStr);
+    const scrollState = preservedScrollState || captureScrollableState(view);
     // Pas de sélection explicite : le remappage naturel de CM6 fait le bon
     // travail dès lors que le changement est borné. Une sélection hors zone
     // couvre toujours le même texte ; une sélection dans la zone se replie
-    // localement, jamais aux extrémités du document.
+    // localement, jamais aux extrémités du document. Une liste de changements
+    // conserve aussi les zones inchangées entre deux retouches éloignées.
     view.dispatch({
-      changes: {from: prefix, to: oldEnd, insert: newStr.slice(prefix, newEnd)},
+      changes,
       annotations: setValueAnno.of(true),
     });
     // EditorView.scrollSnapshot is intentionally not used here: its contract
@@ -678,6 +754,21 @@ export function createStudioEditor(parent, opts) {
     // write phase for Tauri/WKWebView layout convergence.
     restoreScrollableState(scrollState);
     view.requestMeasure({write: () => restoreScrollableState(scrollState)});
+  };
+  const replaceDocumentPreservingView = (text) => {
+    const nextValue = String(text ?? "");
+    if (selectionGestureActive) {
+      // External file notifications can arrive while WebKit still owns the
+      // native drag anchor. Keep only the latest value and apply it after the
+      // gesture, so the transaction cannot turn a short drag into a document
+      // selection or ask the browser to scroll to a remapped endpoint.
+      if (pendingDocumentValue == null) pendingScrollableState = captureScrollableState(view);
+      pendingDocumentValue = nextValue;
+      return;
+    }
+    pendingDocumentValue = null;
+    pendingScrollableState = null;
+    applyDocumentValue(nextValue);
   };
   const operationBatcher = createOperationBatcher((updates) => {
     view.dispatch({effects: updateGutters.of(updates)});
@@ -940,6 +1031,19 @@ export function createStudioEditor(parent, opts) {
     destroy: () => {
       window.removeEventListener("storage", onStoredTheme);
       themeChannel?.close();
+      editorDocument.removeEventListener("pointerdown", onSelectionGestureStart, true);
+      editorDocument.removeEventListener("mousedown", onSelectionGestureStart, true);
+      editorDocument.removeEventListener("pointerup", onSelectionGestureEnd, true);
+      editorDocument.removeEventListener("mouseup", onSelectionGestureEnd, true);
+      editorDocument.removeEventListener("pointercancel", onSelectionGestureEnd, true);
+      if (pendingDocumentFrame != null) {
+        const cancel = editorDocument.defaultView?.cancelAnimationFrame;
+        if (typeof cancel === "function") cancel(pendingDocumentFrame);
+        else (editorDocument.defaultView?.clearTimeout || clearTimeout)(pendingDocumentFrame);
+      }
+      pendingDocumentFrame = null;
+      pendingDocumentValue = null;
+      pendingScrollableState = null;
       view.destroy();
     },
   };

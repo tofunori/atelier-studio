@@ -703,7 +703,7 @@ window.DiffVersions = function(opts){
     renderRequestId++; clearTimeout(renderTimer); renderTimer = null;
     if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
   }
-  function render(){
+  function render({navigate = true} = {}){
     const v = curVersion(), cm = getCm();
     if(!v || !cm) return;
     clearMarks(); changePts = [];
@@ -741,8 +741,8 @@ window.DiffVersions = function(opts){
       // un passage hors écran laissait « Diff · 140/140 » sans rien de visible
       // (vécu 2026-09-10). Recentrer sur le premier bloc du passage à chaque
       // ouverture ; « tout » garde le bloc le plus proche du curseur.
-      if(changePts.length) gotoChange(individualReview ? 0 : changeAt, true);
-      else if(typeof cm.setReviewFocus === "function") cm.setReviewFocus(null);
+      if(changePts.length && navigate) gotoChange(individualReview ? 0 : changeAt, true);
+      else if(!changePts.length && navigate && typeof cm.setReviewFocus === "function") cm.setReviewFocus(null);
       nativeShown = true;
     }
     const wsn = s => s.replace(/\s+/g, " ").trim();
@@ -753,7 +753,7 @@ window.DiffVersions = function(opts){
       if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
       cacheParts(key, {parts, coarse});
       if(nativeShown){ publishMarks(computeSrcMarks(parts, after)); return; }
-      applyRender(v, cm, after, parts, coarse, warning);
+      applyRender(v, cm, after, parts, coarse, warning, navigate);
     };
     const cached = renderCache.get(key);
     if(cached){ apply(cached.parts, cached.coarse); return; }
@@ -781,7 +781,7 @@ window.DiffVersions = function(opts){
       } else fallback(false);
     }, 35);
   }
-  function applyRender(v, cm, after, inputParts, coarse, warning){
+  function applyRender(v, cm, after, inputParts, coarse, warning, navigate = true){
     clearMarks();
     const wsn = s => s.replace(/\s+/g, " ").trim();
     let parts = inputParts;
@@ -909,7 +909,7 @@ window.DiffVersions = function(opts){
     else if(warning) notify(warning);
     else notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
     updateNav();
-    if(changes) gotoChange(changeAt, true);
+    if(changes && navigate) gotoChange(changeAt, true);
   }
   // ---- navigateur d'INTERVENTIONS ‹ k/N › (accolé au ±, actif en comparaison).
   // Une intervention = une écriture (sauvegarde utilisateur ou passage d'agent),
@@ -1146,7 +1146,7 @@ window.DiffVersions = function(opts){
     updateTag();
     render();
   }
-  function showStep(j){
+  function showStep(j, {navigate = true} = {}){
     if(reviewBusy) return;
     hideUndo();
     cancelGutter();
@@ -1175,7 +1175,7 @@ window.DiffVersions = function(opts){
     if(individualReview){ shown = true; els.tag.classList.add("on"); els.tag.setAttribute("aria-pressed", "true"); cm.setOption("readOnly", !!tt); }
     extCmp = {before: it.from,
       label: "intervention " + (j + 1) + "/" + list.length + " · " + interventionLabel(it)};
-    render();
+    render({navigate});
   }
   function flashAt(pos){
     const cm = getCm();
@@ -1614,11 +1614,18 @@ window.DiffVersions = function(opts){
     // marques contre le buffer courant → le cumul grossit quand même).
     arm();
     persist(liveText());
-    // pas d'auto-ouverture : le mode passe l'éditeur en lecture seule, l'activer
-    // à chaque sauvegarde bloquerait la frappe en silence. Si déjà ouvert : rafraîchir.
+    // Toute écriture journalise et arme Diff sans l'ouvrir : l'activer à
+    // chaque sauvegarde ou rechargement bloquerait la frappe en silence et
+    // pourrait remplacer/recentrer la sélection en cours. Si la revue est
+    // déjà ouverte, le dernier passage est rafraîchi sans navigation.
     if(individualReview){
       navMode = interList().length - 1;
-      if(shown || meta?.source === "external-reload" || meta?.source === "external-merge") showStep(navMode);
+      // Une écriture externe journalise et arme Diff, mais ne doit jamais
+      // naviguer/recentrer automatiquement à la place de l'utilisateur. Si
+      // la revue est déjà ouverte, rafraîchir le dernier passage sans
+      // gotoChange : le rechargement peut tomber pendant une sélection ou un
+      // drag et le premier bloc ne doit pas recentrer la fenêtre.
+      if(shown) showStep(navMode, {navigate: false});
       updateNav();
     } else if(shown) render();
     // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent

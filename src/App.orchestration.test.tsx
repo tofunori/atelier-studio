@@ -1300,6 +1300,57 @@ describe("orchestration App — caractérisation", () => {
     expect(svgFrame!.src).toContain("file=outputs%2Ffigures%2Falbedo_annuel.svg");
   });
 
+  it("en layout Chat seul, cliquer une pilule PNG rouvre le panneau et l'ouvre dans la Galerie", async () => {
+    // Vécu 2026-09-11 : en layout « chat » l'AtelierPane n'est pas monté, donc
+    // aucune iframe galerie → le bridge échouait (gallery-frame-unavailable)
+    // avant même de basculer le layout ; la pilule ne faisait rien d'utile.
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, {
+      type: "files",
+      projectRoot: PROJECT_ROOT,
+      files: ["outputs/figures/albedo_annuel.png"],
+    });
+    await push(sock, {
+      type: "history",
+      threadId: "thread-A",
+      events: [
+        events.user("Montre-moi la figure"),
+        events.text("- [Figure PNG](outputs/figures/albedo_annuel.png)"),
+      ],
+    });
+
+    const chatBtn = screen.getAllByTitle(/⌘1/)[0];
+    await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
+    expect(document.querySelector('iframe[data-atelier-role="gallery"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Figure PNG" }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    // le panneau atelier est remonté…
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]');
+    expect(iframe).toBeTruthy();
+    const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+    // …et la commande part dès que la galerie a fini de charger
+    fireEvent.load(iframe!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushMicrotasks(4);
+    });
+    const openCalls = postMessage.mock.calls.filter(([message]) =>
+      (message as { action?: string }).action === "open",
+    );
+    expect(openCalls).toHaveLength(1);
+    expect(openCalls[0][0]).toEqual(expect.objectContaining({
+      type: "atelier-gallery-command",
+      action: "open",
+      mode: "viewer",
+      projectRoot: PROJECT_ROOT,
+      rels: ["outputs/figures/albedo_annuel.png"],
+    }));
+  });
+
   it("ouvre un événement Edited dans l'IDE avec le snapshot et le mode diff", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);

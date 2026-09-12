@@ -387,8 +387,8 @@ test('rechargement agent : la sélection hors zone survit, le clic reste un clic
 // ignorait le disque jusqu'à ⌘S/compilation, et la sauvegarde rechargeait
 // alors la version de l'agent en jetant la frappe. Depuis (2026-09-11), le
 // delta de l'agent est fusionné dans le buffer : la frappe survit, le diff
-// s'affiche tout de suite, et la sauvegarde qui suit ne fait pas conflit.
-test('rechargement agent sur un buffer modifié : fusion, diff immédiat, frappe conservée', async ({page}) => {
+// est disponible tout de suite, et la sauvegarde qui suit ne fait pas conflit.
+test('rechargement agent sur un buffer modifié : fusion, diff disponible, frappe conservée', async ({page}) => {
   const corps = Array.from({length: 30}, (_, i) =>
     `Paragraphe ${String(i + 1).padStart(2, '0')} : phrase de test pour la fusion dans l'editeur du studio.`).join('\n\n');
   const source = `\\documentclass{article}\n\\begin{document}\n\n${corps}\n\n\\end{document}\n`;
@@ -413,9 +413,14 @@ test('rechargement agent sur un buffer modifié : fusion, diff immédiat, frappe
     await expect.poll(() => page.evaluate(() => cm.getValue()), {timeout: 10000}).toContain('REECRIT PAR L AGENT');
     // (le rewrap fluide peut couper la frappe sur deux lignes)
     expect(await page.evaluate(() => cm.getValue())).toMatch(/FRAPPE\s+LOCALE/);
-    // Le diff de l'agent est journalisé et affiché (mode Diff ouvert, 1/1).
+    // Le diff de l'agent est journalisé et disponible immédiatement, sans
+    // remplacer le buffer par une vue historique ni recentrer l'éditeur.
+    await expect(page.locator('#diffTag')).not.toHaveClass(/\bon\b/);
+    await expect(page.locator('#diffTag')).toBeEnabled();
+    await page.locator('#diffTag').click();
     await expect(page.locator('#diffTag')).toHaveClass(/\bon\b/);
     await expect(page.locator('.dv-count')).toHaveText('1/1');
+    await page.locator('#diffTag').click();
 
     // La sauvegarde suivante passe sans conflit et garde les deux deltas.
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+s' : 'Control+s');

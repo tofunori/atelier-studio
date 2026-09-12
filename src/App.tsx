@@ -257,6 +257,32 @@ function checkpointAfterUser(events: AgentEvent[], index: number) {
   return done?.checkpoint ? { turnId, snapshotSha: done.checkpoint.snapshotSha } : { turnId };
 }
 
+const GALLERY_FRAME_READY_SELECTOR = 'iframe[data-atelier-role="gallery"][data-atelier-ready="true"]';
+
+/** Attend que l'iframe galerie soit montée ET chargée (`data-atelier-ready`).
+ *  Résout tout de suite si elle l'est déjà ; sinon sonde le DOM (mutations +
+ *  filet périodique) jusqu'à `timeoutMs`, puis résout quand même — le bridge
+ *  produira alors son erreur habituelle. */
+function whenGalleryFrameReady(timeoutMs: number): Promise<void> {
+  if (document.querySelector(GALLERY_FRAME_READY_SELECTOR)) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      window.clearInterval(tick);
+      window.clearTimeout(deadline);
+      resolve();
+    };
+    const check = () => { if (document.querySelector(GALLERY_FRAME_READY_SELECTOR)) finish(); };
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-atelier-ready"] });
+    const tick = window.setInterval(check, 100);
+    const deadline = window.setTimeout(finish, timeoutMs);
+  });
+}
+
 function loadProjects(): string[] {
   try {
     return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
@@ -3707,15 +3733,26 @@ export default function App() {
         !galleryRel.startsWith("~/") &&
         ["png", "pdf"].includes(ext)
       ) {
-        window.dispatchEvent(new CustomEvent("atelier-gallery-command", {
-          detail: {
-            action: "open",
-            mode: "viewer",
-            projectRoot,
-            requestId: crypto.randomUUID(),
-            rels: [galleryRel],
-          } satisfies GalleryCommandRequest,
-        }));
+        // En layout « chat » l'AtelierPane n'est pas monté : aucune iframe
+        // galerie, le bridge échouait (gallery-frame-unavailable) AVANT
+        // d'avoir pu ouvrir le panneau et la pilule ne faisait rien (vécu
+        // 2026-09-11). Ouvrir le panneau d'abord, attendre que la galerie
+        // ait chargé (idem après bascule de projet : iframe remontée), puis
+        // envoyer la commande.
+        switchToSurface("atelier");
+        setActiveTab("gallery");
+        void whenGalleryFrameReady(15_000).then(() => {
+          if (activeProjectRef.current !== projectRoot) return;
+          window.dispatchEvent(new CustomEvent("atelier-gallery-command", {
+            detail: {
+              action: "open",
+              mode: "viewer",
+              projectRoot,
+              requestId: crypto.randomUUID(),
+              rels: [galleryRel],
+            } satisfies GalleryCommandRequest,
+          }));
+        });
         return;
       }
       openFileTabRef.current(target, line, options);
