@@ -1,4 +1,6 @@
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
+import { annotationDisplayText } from "./lib/annotationDisplayText";
+import { ReadingChatOverlay } from "./components/ReadingChatOverlay";
 import { interfaceTypography, interfaceGeometry } from "./lib/interfaceTheme";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
@@ -46,7 +48,6 @@ import ThreadChat from "./components/ThreadChat";
 import { createThreadEventStore } from "./lib/threadEventStore";
 import { useHomeThreadEvents } from "./hooks/useThreadEvents";
 import { type AgentDisplay } from "./components/chat/AgentActivity";
-import Banner from "./components/Banner";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/ContextInspector"))["ContextInspector"]>[0]>(
@@ -148,6 +149,17 @@ const PROJECTS_KEY = "atelier-studio.projects";
 // via le sidecar). Ce miroir ne protège rien s'il traîne : on l'écrit vite
 // après chaque mutation plutôt que d'attendre une pause longue.
 const MIRROR_WRITE_DEBOUNCE_MS = 200;
+
+/** L'identité durable d'un onglet est le document, jamais sa position ni son
+ * mode de consultation. Un nouveau clic met ainsi à jour l'onglet existant. */
+function atelierTabIdentity(raw: string): string {
+  const parsed = new URL(raw);
+  for (const key of ["line", "diff", "base", "page", "annot"]) parsed.searchParams.delete(key);
+  const fragment = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash);
+  for (const key of ["atelier_nonce", "atelier_token"]) fragment.delete(key);
+  parsed.hash = fragment.toString();
+  return parsed.toString();
+}
 
 export type Attachment = DraftAttachment;
 type ZoteroPaletteItem = {
@@ -558,6 +570,7 @@ export default function App() {
   // handleMessage est déclaré plus bas (function hissée, corps inchangé).
   const onSidecarStatus = (status: SidecarStatus, sock: WebSocket | null) => {
     if (status === "connected" || status === "reconnected") {
+      goalFetched.current.clear();
       setAppBanner((b) => b?.kind === "connection" ? null : b);
       if (sock) {
         requestGlobalRead("getSettings");
@@ -843,7 +856,7 @@ export default function App() {
           : `Envoi ${shortId} : ${state.issue || "échec confirmé"}.`,
         closable: true,
       });
-    } else if (status === "completed" || status === "cancelled") {
+    } else if (status === "completed" || status === "cancelled" || status === "received" || status === "started") {
       setAppBanner((banner) => banner?.requestType === "sendReceipt" && banner.clientMessageId === clientMessageId ? null : banner);
     }
   }
@@ -1606,7 +1619,7 @@ export default function App() {
       goalFetched.current.add(activeId);
       ws.current.send(JSON.stringify({ type: "goalGet", threadId: activeId }));
     }
-  }, [activeId, threads]);
+  }, [activeId, threads, wsReady]);
   const showAtelier = layout !== "chat";
   // Miroir de la surface active de AtelierPane (côté App, pour l'icône active
   // du rail). La requête d'ouverture est distincte de la valeur active : deux
@@ -1863,7 +1876,7 @@ export default function App() {
       attachments: addAttachment(draft.attachments, attachment),
     }));
     setAnnotation(null);
-    setLayout((l) => (l === "atelier" ? "split" : l));
+    if (!file?.pdfAnnotation) setLayout((l) => (l === "atelier" ? "split" : l));
     return threadId;
   }
 
@@ -2837,9 +2850,7 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
       }
       if (msg.type === "consigneReformulee") {
-        // Réponse au bouton Reformuler des réglages (tâche 11) — pas de
-        // corrélation par id dans le contrat WS, Consignes.tsx écoute cet
-        // événement le temps d'un seul aller-retour.
+        // Forward the request id so the instruction editor ignores stale replies.
         window.dispatchEvent(new CustomEvent("consigne-reformulee", { detail: msg }));
       }
       if (msg.type === "imageGenerated") {
@@ -3543,7 +3554,7 @@ export default function App() {
       [clean, ...current.filter((item) => item !== clean)].slice(0, 24));
   }
 
-  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null };
+  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null; page?: number | null };
 
   function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     const associated = activeProject && resolveAssociatedFile(activeProject, settingsRef.current.projectFolders?.[activeProject], rel);
@@ -3581,6 +3592,10 @@ export default function App() {
     const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
     const name = (outside ?? rel).split("/").pop() ?? rel;
     const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
+    const page = Number.isInteger(options.page) && Number(options.page) >= 1 && Number(options.page) <= 100_000
+      ? Number(options.page)
+      : null;
+    const pageQ = page ? `&page=${page}` : "";
     const diffQ = options.diff ? "&diff=1" : "";
     const baseSha = options.baseSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(options.baseSha)
       ? options.baseSha
@@ -3600,7 +3615,7 @@ export default function App() {
         ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
         : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
     } else if (ext === "pdf") {
-      url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}`;
+      url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}${pageQ}`;
     } else if (ext === "svg") {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
@@ -3619,12 +3634,7 @@ export default function App() {
     if (outside && galleryTokenRef.current) {
       url = withAtelierToken(url, galleryTokenRef.current);
     }
-    const tabIdentity = (raw: string) => {
-      const parsed = new URL(raw);
-      for (const key of ["line", "diff", "base"]) parsed.searchParams.delete(key);
-      return parsed.toString();
-    };
-    const baseUrl = tabIdentity(url);
+    const baseUrl = atelierTabIdentity(url);
     // focusId AVANT le setState : compter sur l'updater pour le poser est une
     // course — React ne l'exécute pas toujours tout de suite, et activer un
     // id jamais créé matérialisait un onglet fantôme titré UUID dans le rail
@@ -3632,10 +3642,10 @@ export default function App() {
     // Nouvel onglet = id DÉTERMINISTE dérivé de l'identité : deux clics
     // rapprochés sur le même fichier calculent le même id, le dédoublonnage
     // de l'updater reste correct même quand la ref est en retard d'un commit.
-    const existingTab = atelierTabsRef.current.find((t) => tabIdentity(t.url) === baseUrl);
+    const existingTab = atelierTabsRef.current.find((t) => atelierTabIdentity(t.url) === baseUrl);
     const focusId = existingTab?.id ?? stableTabId(baseUrl);
     setAtelierTabs((tabs) => {
-      const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
+      const existing = tabs.find((t) => atelierTabIdentity(t.url) === baseUrl);
       if (existing) {
         // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
@@ -3648,7 +3658,7 @@ export default function App() {
     revealAtelierTab(focusId);
   }
   async function openSourceFile(sourceRoot: string, rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
-    if (sourceRoot === activeProject) { openFileTab(rel); return; }
+    if (sourceRoot === activeProject) { openFileTab(rel, line, options); return; }
     const owner = activeProject;
     if (!owner || !normalizeProjectFolders(owner, settingsRef.current.projectFolders?.[owner]).folders.some(f => f.path === sourceRoot)) return;
     const server = await invoke<string>("start_atelier", { root: sourceRoot, galleryDir: settings.galleryPath, galleryExts: settings.galleryExts });
@@ -3658,7 +3668,12 @@ export default function App() {
     const encoded = rel.split("/").map(encodeURIComponent).join("/");
     const path = `${sourceRoot}/${rel}`;
     let target = `${origin}/${encoded}`;
-    if (ext === "pdf" || ext === "svg") target = `${origin}/.fig_thumbs/${ext}_viewer.html?file=${encodeURIComponent(rel)}`;
+    if (ext === "pdf" || ext === "svg") {
+      target = `${origin}/.fig_thumbs/${ext}_viewer.html?file=${encodeURIComponent(rel)}`;
+      if (ext === "pdf" && Number.isInteger(options.page) && Number(options.page) >= 1 && Number(options.page) <= 100_000) {
+        target += `&page=${Number(options.page)}`;
+      }
+    }
     else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
     if (line || options.diff) {
       target = `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
@@ -3667,8 +3682,13 @@ export default function App() {
       if (options.baseSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(options.baseSha)) target += `&base=${encodeURIComponent(options.baseSha)}`;
     }
     const url = withAtelierNonce(target, atelierNonce);
-    const id = stableTabId(`${owner}\0${url}`);
-    setAtelierTabs(current => current.some(tab => tab.id === id) ? current : [...current, { id, url, title: `${rel.split("/").pop()} · ${sourceRoot.split("/").pop()}`, projectRoot: owner }]);
+    const id = stableTabId(`${owner}\0${atelierTabIdentity(url)}`);
+    setAtelierTabs(current => {
+      const existing = current.find(tab => tab.id === id);
+      return existing
+        ? current.map(tab => tab.id === id && tab.url !== url ? { ...tab, url } : tab)
+        : [...current, { id, url, title: `${rel.split("/").pop()} · ${sourceRoot.split("/").pop()}`, projectRoot: owner }];
+    });
     setActiveTab(id); revealAtelierTab(id);
   }
   /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
@@ -3690,17 +3710,12 @@ export default function App() {
     let url = withAtelierNonce(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce);
     if (galleryTokenRef.current) url = withAtelierToken(url, galleryTokenRef.current);
     const name = rel.split("/").pop() ?? rel;
-    const tabIdentity = (raw: string) => {
-      const parsed = new URL(raw);
-      for (const key of ["line", "diff", "base", "annot"]) parsed.searchParams.delete(key);
-      return parsed.toString();
-    };
-    const baseUrl = tabIdentity(url);
+    const baseUrl = atelierTabIdentity(url);
     // même règle qu'openFileTab : focus résolu avant le setState, id stable
-    const existingTab = atelierTabsRef.current.find((t) => tabIdentity(t.url) === baseUrl);
+    const existingTab = atelierTabsRef.current.find((t) => atelierTabIdentity(t.url) === baseUrl);
     const focusId = existingTab?.id ?? stableTabId(baseUrl);
     setAtelierTabs((tabs) => {
-      const existing = tabs.find((t) => tabIdentity(t.url) === baseUrl);
+      const existing = tabs.find((t) => atelierTabIdentity(t.url) === baseUrl);
       if (existing) {
         return tabs.map((t) => (t.id === existing.id ? { ...t, url } : t));
       }
@@ -3731,7 +3746,7 @@ export default function App() {
         projectRoot &&
         !galleryRel.startsWith("/") &&
         !galleryRel.startsWith("~/") &&
-        ["png", "pdf"].includes(ext)
+        ext === "png"
       ) {
         // En layout « chat » l'AtelierPane n'est pas monté : aucune iframe
         // galerie, le bridge échouait (gallery-frame-unavailable) AVANT
@@ -3758,13 +3773,14 @@ export default function App() {
       openFileTabRef.current(target, line, options);
     };
     const onOpen = (e: Event) => {
-      const { rel, line, diff, baseSha } = (e as CustomEvent).detail as {
+      const { rel, line, diff, baseSha, page } = (e as CustomEvent).detail as {
         rel: string;
         line: string | null;
         diff?: boolean;
         baseSha?: string | null;
+        page?: number | null;
       };
-      const options = { diff: diff === true, baseSha: baseSha ?? null };
+      const options = { diff: diff === true, baseSha: baseSha ?? null, page: page ?? null };
       // Le clic suit le PROJET DU CHAT, pas celui du rail (vécu 2026-08-16 :
       // pilule d'un fil Albedo résolue contre le serveur d'atelier-studio →
       // findfile vide → chemin nu → « file not found »). Si le rail est
@@ -4052,14 +4068,19 @@ export default function App() {
     mode: "steer" | "queue" = "steer",
     fastMode = false,
     isolatedAttachments?: Attachment[],
+    onAccepted?: () => void,
   ) {
     const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
-    const clearSubmittedAttachments = () => updateComposerDraft(activeComposerKey, draft => ({
+    const clearSubmittedAttachments = () => {
+      updateComposerDraft(activeComposerKey, draft => ({
       ...draft,
       attachments: isolatedAttachments
         ? draft.attachments.filter(attachment => !isolatedAttachments.includes(attachment)) : [],
-    }));
+      }));
+      onAccepted?.();
+    };
     const displayPrompt = prompt;
+    const transcriptText = annotationDisplayText(displayPrompt, attachments);
     let optimisticGoal: AgentEvent | null = null;
     const activeThread = allThreadsRef.current.find((t) => t.id === activeId);
     const threadRoot = activeThread ? activeThread.projectRoot : (activeProject ?? "");
@@ -4311,7 +4332,7 @@ export default function App() {
     const clientMessageId = crypto.randomUUID();
     const userEvent = {
       kind: "user" as const,
-      text: displayPrompt,
+      text: transcriptText,
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...(attachments.some((a) => a.imageUrl)
@@ -4467,7 +4488,7 @@ export default function App() {
       // lignes) — jamais le handoff, les textes injectés ni une data URL
       const displayEvent = {
         kind: "user" as const,
-        text: displayPrompt,
+        text: transcriptText,
         ts: userEvent.ts,
         ...("label" in userEvent && userEvent.label ? { label: userEvent.label as string } : {}),
         ...(attachments.some((a) => a.kind === "paste")
@@ -4589,7 +4610,7 @@ export default function App() {
       : undefined;
     const userEvent: AgentEvent = {
       kind: "user",
-      text: queued.prompt,
+      text: annotationDisplayText(queued.prompt, queuedAttachments),
       ts: Date.now(),
       meta: { provisional: true, messageId: clientMessageId },
       ...(queuedAttachments.some((attachment) => attachment.imageUrl)
@@ -4631,7 +4652,7 @@ export default function App() {
       clientMessageId,
       displayEvent: {
         kind: "user",
-        text: queued.prompt,
+        text: userEvent.text,
         ts: userEvent.ts,
         ...(imagePaths.length ? { imagePaths } : {}),
         ...(queuedAttachments.some((attachment) => attachment.kind === "paste")
@@ -5031,6 +5052,21 @@ export default function App() {
   // courant est un éditeur — partagé par le rail et la barre du haut (plan 055).
   const ideActive = showAtelier && activeSurface === "atelier" && activeTab !== "gallery"
     && (activeTab === "ide" || visibleAtelierTabs.some((tb) => tb.id === activeTab && tb.kind !== "term"));
+  const readingChatVisible = galleryFullscreen || (layout === "atelier" && activeSurface === "atelier"
+    && visibleAtelierTabs.some(tab => tab.id === activeTab && /(?:latex_studio|pdf_viewer|\.pdf(?:$|[?#])|\.tex(?:$|[?#]))/i.test(tab.url)));
+  const readingAnnotations = attachments.filter(attachment => attachment.pdfAnnotation);
+  const sendFromReading = (annotationsOnly: boolean) => {
+    if (ws.current?.readyState !== 1) return;
+    const prompt = annotationsOnly ? "" : activeComposerDraft.prompt.trim();
+    const selected = annotationsOnly ? readingAnnotations : attachments;
+    if (!prompt && !selected.length) return;
+    document.querySelector<HTMLFormElement>("form.composer")?.dispatchEvent(new CustomEvent("atelier-submit-context", {detail: {
+      send: (provider: ProviderId, model: string, effort: string, permission: string, mode: "steer" | "queue", fast: boolean) => {
+        submit(prompt, provider, model, effort, permission, mode, fast, selected,
+          () => { if (!annotationsOnly) setComposerPrompt(""); });
+      },
+    }}));
+  };
   // tauri.conf.json) repositionnés dans la TopBar — plus de feux custom
   // Task 25 : chaque handler inline de topBarNode devient un useCallback
   // nommé — TopBarMemo (React.memo) ne peut sauter un re-render que si
@@ -5117,6 +5153,16 @@ export default function App() {
   }, []);
   const railNode = (
         <RailMemo
+          favorites={{
+            unread,
+            seals: settings.chatSeals,
+            onSetSeal: (id, seal) => setSettings(current => ({ ...current, chatSeals: { ...current.chatSeals, [id]: seal } })),
+            threads: favorites.flatMap(id => { const th = allThreads.find(th => th.id === id); return th ? [th] : []; }),
+            activeId,
+            onOpen: th => { setActiveView("chats"); if (!th.projectRoot) setActiveProject(null); selectThread(th.id, th.projectRoot); setLayout(current => current === "atelier" ? "split" : current); },
+            onToggle: id => setFavorites(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]),
+            onReorder: (from, to) => setFavorites(current => { if (from === to || !current.includes(from) || !current.includes(to)) return current; const next = current.filter(id => id !== from); next.splice(next.indexOf(to), 0, from); return next; }),
+          }}
           projects={projects}
           activeProject={activeProject}
           meta={projMeta}
@@ -5188,6 +5234,7 @@ export default function App() {
           projects={projects}
           threads={allThreads}
           unread={unread}
+          chatSeals={settings.chatSeals}
           heartbeatThreadIds={heartbeatThreadIds}
           favorites={favorites}
           onToggleFavorite={(id) =>
@@ -5404,16 +5451,8 @@ export default function App() {
             {activeDeliveryState.status === "unknown" && "État de l’envoi introuvable"}
           </div>
         )}
-        {appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) && (
-          <Banner
-            text={appBanner.kind === "connection" ? t("app.sidecar-disconnected") : appBanner.text}
-            connection={appBanner.kind === "connection"}
-            actionLabel={appBanner.actionLabel}
-            onAction={appBanner.onAction}
-            onClose={appBanner.closable ? () => setAppBanner(null) : undefined}
-          />
-        )}
         <ThreadChat
+          notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner : null}
           threadId={activeId}
           home={homeBundle}
           eventStore={eventStore}
@@ -5830,6 +5869,29 @@ export default function App() {
         </>
       )}
     </PanelGroup>
+      {readingChatVisible && <ReadingChatOverlay
+        threadId={activeId} store={eventStore} topLayer={galleryFullscreen}
+        prompt={activeComposerDraft.prompt} onPromptChange={setComposerPrompt}
+        count={readingAnnotations.length} disabled={!wsReady || (!activeProject && !activeId)}
+        working={activeId ? workingSince[activeId] != null : false}
+        feedback={!wsReady ? "Connexion au chat interrompue. Le brouillon est conservé."
+          : appBanner && (!appBanner.threadId || appBanner.threadId === activeId)
+            && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner.text : undefined}
+        onSend={sendFromReading}
+        files={attachments.filter(attachment => !attachment.pdfAnnotation).map(attachment => attachment.name)}
+        onAttach={() => {
+          const key = activeComposerKey;
+          void open({multiple:true,directory:false}).then(paths => {
+            if (!paths) return;
+            updateComposerDraft(key, draft => ({...draft, attachments: (Array.isArray(paths) ? paths : [paths]).reduce((items,path) =>
+              addAttachment(items,{name:path.split("/").pop() || path,lines:null,path,kind:"file",
+                text:`Fichier joint (chemin local, lisible avec Read) : ${path}`}),draft.attachments)}));
+          }).catch(error => void showError(String(error)));
+        }}
+        onClear={() => updateComposerDraft(activeComposerKey, draft => ({...draft,
+          attachments: draft.attachments.filter(attachment => !attachment.pdfAnnotation),
+        }))}
+      />}
       {newChatRequest && (
         <LazyDialog
           open

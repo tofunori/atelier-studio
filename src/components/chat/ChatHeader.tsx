@@ -27,6 +27,7 @@ import type { TranscriptView } from "../../lib/settings";
 import { nomConsigne as composedConsigneName } from "../../lib/consignes";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import "../../styles/local-headers.css";
+import { ChatNotice, type ChatNoticeData } from './ChatNotice';
 
 /* Vue de la transcription (2026-08-21, façon Claude Code desktop) : le bouton
    ne montre QUE l'icône du mode actif (demande Thierry — pas de texte) ; le
@@ -42,6 +43,7 @@ const TRANSCRIPT_VIEWS: { id: TranscriptView; icon: () => ReactElement }[] = [
 export function ChatHeader(p: {
   /** Titre du thread (record) — tronqué par CSS, nom complet via title=. */
   title: string;
+  notice?: ChatNoticeData | null;
   /** "claude" | "codex" | … — méta discrète à côté du badge. */
   provider: string;
   projectName: string | null;
@@ -126,7 +128,7 @@ export function ChatHeader(p: {
       className="chat-surface-header"
       // SurfaceHeader ne propage aucun attribut title : wrapper span pour
       // exposer le nom complet du titre que le CSS .title tronque.
-      title={<span title={p.title}>{p.title}</span>}
+      title={<><span title={p.title}>{p.title}</span>{p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice}/>}</>}
       actions={
         <>
           {/* demande Thierry (2026-07-10) : pas de méta provider dans

@@ -1,0 +1,24 @@
+import {test,expect} from '@playwright/test';
+import {build} from 'esbuild';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
+test('chat alert popover never moves the conversation or composer',async({page})=>{
+ const result=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {ChatNotice} from './src/components/chat/ChatNotice';function App(){const[n,setN]=React.useState(null);window.alertOn=()=>setN({text:'effet fournisseur incertain après redémarrage',requestType:'sendReceipt',onAction:()=>setN(n=>({...n}))});window.resolveAlert=()=>setN(null);return <main><header className="chat-surface-header"><h2 className="title"><span>Dernière passe avant clôture</span>{n&&<ChatNotice notice={n}/>}</h2></header><article>Le contenu de la conversation reste à sa place.</article><textarea placeholder="Écrire un message…"/></main>}createRoot(document.getElementById('root')).render(<App/>);`,resolveDir:root,loader:'tsx'},alias:{'@':path.join(root,'src')},bundle:true,write:false,outdir:'/tmp/chat-notice-test',jsx:'automatic',platform:'browser',format:'iife'});
+ await page.setContent('<div id="root"></div>');
+ for(const f of result.outputFiles)if(f.path.endsWith('.css'))await page.addStyleTag({content:f.text});else await page.addScriptTag({content:f.text});
+ await page.addStyleTag({content:'body{background:#202327;color:#ddd;font:14px sans-serif;margin:30px}header{height:40px}h2{font-size:18px;line-height:26px;margin:0}article{height:260px;padding-top:20px}textarea{width:80%;height:60px} [data-slot=popover-content]{background:#292d33;border:1px solid #606772;border-radius:12px;padding:16px;width:300px}button{font:inherit}'});
+ await expect(page.locator('article')).toBeVisible();
+ const before=await page.locator('textarea').boundingBox();
+ await page.evaluate(()=>window.alertOn());
+ await page.getByRole('button',{name:'Afficher l’alerte du chat'}).click();
+ await expect(page.getByText('Envoi à vérifier')).toBeVisible();
+ expect((await page.locator('textarea').boundingBox()).y).toBe(before.y);
+ await page.getByRole('button',{name:'Réessayer'}).click();
+ await expect(page.getByText('État toujours incertain')).toBeVisible();
+ await page.getByRole('button',{name:'Fermer le détail de l’alerte'}).click();
+ await expect(page.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeVisible();
+ await page.evaluate(()=>window.resolveAlert());
+ await expect(page.getByRole('button',{name:'Afficher l’alerte du chat'})).toHaveCount(0);
+ expect((await page.locator('textarea').boundingBox()).y).toBe(before.y);
+});

@@ -876,6 +876,21 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getAllByTitle(t("action.interrupt")).length).toBeGreaterThan(0);
   });
 
+  it("affiche l'alerte en icône et la retire après confirmation du serveur", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await push(sock,{type:'sendReceipt',clientMessageId:'notice-test',threadId:'thread-A',status:'uncertain'});
+    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    fireEvent.click(screen.getByRole('button',{name:'Afficher l’alerte du chat'}));
+    await act(async()=>{await flushMicrotasks(4);});
+    fireEvent.click(screen.getByRole('button',{name:'Vérifier l’état'}));
+    expect(sock.sent.map(value=>JSON.parse(value)).filter(message=>message.type==='receiptStatus').slice(-1)[0]?.clientMessageId).toBe('notice-test');
+    expect(sock.sent.map(value=>JSON.parse(value)).some(message=>message.type==='send')).toBe(false);
+    await push(sock,{type:'sendReceipt',clientMessageId:'notice-test',threadId:'thread-A',status:'received'});
+    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+  });
+
   it("attache l'artefact reçu par atelier-add-to-chat (nonce + origine vérifiés)", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
@@ -919,6 +934,50 @@ describe("orchestration App — caractérisation", () => {
       requestId: "add-fig3-1",
       ok: true,
     }, "http://127.0.0.1:18790");
+  });
+
+  it("conserve la lecture agrandie lors de l'ajout et de l'envoi direct d'une annotation", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await act(async()=>{await flushMicrotasks(10);});
+    fireEvent.keyDown(window,{code:'Digit2',key:'2',metaKey:true});
+    const panel=()=>document.querySelector('[data-panel-id="chat"]') as HTMLElement;
+    expect(panel().style.display).toBe('none');
+    const iframe=document.querySelector('iframe')!;
+    const nonce=new URLSearchParams(new URL(iframe.src).hash.slice(1)).get('atelier_nonce');
+    for(const direct of [false,true]) {
+      await act(async()=>{
+        window.dispatchEvent(new MessageEvent('message',{origin:'http://127.0.0.1:18790',source:iframe.contentWindow,
+          data:{type:'atelier-add-to-chat',nonce,text:'paper.pdf (p.7) : « Passage annoté »\nCommentaire : Pourquoi ce seuil ?',direct,pdfAnnotation:{rel:'paper.pdf',id:direct?'a2':'a1'}}}));
+        await flushMicrotasks(8);
+      });
+      expect(panel().style.display).toBe('none');
+    }
+    const sent = sock.sent.map(value=>JSON.parse(value)).find(message=>message.type==='send');
+    expect(sent).toBeTruthy();
+    expect(sent.displayEvent.text).toContain('Pourquoi ce seuil ?');
+    expect(sent.displayEvent.text).toContain('Passage annoté');
+    expect(sent.prompt.match(/Pourquoi ce seuil \?/g)).toHaveLength(1);
+    fireEvent.keyDown(window,{code:'Digit0',key:'0',metaKey:true});
+    expect(document.querySelector('.user-bubble')?.textContent).toContain('Commentaire : Pourquoi ce seuil');
+  });
+
+  it("garde le texte de lecture si la mention d'agent est refusée", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await push(sock,{type:'files',projectRoot:PROJECT_ROOT,files:['paper.tex']});
+    await act(async()=>{
+      window.dispatchEvent(new CustomEvent('chat-open-file',{detail:{rel:'paper.tex',diff:true}}));
+      await flushMicrotasks(10);
+    });
+    fireEvent.keyDown(window,{code:'Digit2',key:'2',metaKey:true});
+    const input=screen.getByRole('textbox',{name:'Écrire au chat depuis la lecture'});
+    fireEvent.change(input,{target:{value:'@codex Vérifie ce passage'}});
+    fireEvent.submit(input.closest('form')!);
+    await act(async()=>{await flushMicrotasks(4);});
+    expect((input as HTMLTextAreaElement).value).toBe('@codex Vérifie ce passage');
   });
 
   it("retire une annotation PDF seulement après l’ack du message envoyé", async () => {
@@ -1232,7 +1291,7 @@ describe("orchestration App — caractérisation", () => {
       'iframe[src^="http://127.0.0.1:18790/.fig_thumbs/latex_studio.html"]')).toHaveLength(1);
   });
 
-  it("ouvre les liens PNG/PDF dans la Galerie et les SVG dans leur éditeur", async () => {
+  it("ouvre les PNG dans la Galerie, les PDF dans leur lecteur et les SVG dans leur éditeur", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
@@ -1278,7 +1337,7 @@ describe("orchestration App — caractérisation", () => {
     const openCalls = postMessage.mock.calls.filter(([message]) =>
       (message as { action?: string }).action === "open",
     );
-    expect(openCalls).toHaveLength(2);
+    expect(openCalls).toHaveLength(1);
     expect(openCalls.map(([message]) => message)).toEqual([
       expect.objectContaining({
         type: "atelier-gallery-command",
@@ -1287,17 +1346,49 @@ describe("orchestration App — caractérisation", () => {
         projectRoot: PROJECT_ROOT,
         rels: ["outputs/figures/albedo_annuel.png"],
       }),
-      expect.objectContaining({
-        type: "atelier-gallery-command",
-        action: "open",
-        mode: "viewer",
-        projectRoot: PROJECT_ROOT,
-        rels: ["outputs/figures/albedo_annuel.pdf"],
-      }),
     ]);
+    const pdfFrame = document.querySelector<HTMLIFrameElement>('iframe[src*="pdf_viewer.html"]');
+    expect(pdfFrame).toBeTruthy();
+    expect(new URL(pdfFrame!.src).searchParams.get("file")).toBe("outputs/figures/albedo_annuel.pdf");
     const svgFrame = document.querySelector<HTMLIFrameElement>('iframe[src*="svg_viewer.html"]');
     expect(svgFrame).toBeTruthy();
     expect(svgFrame!.src).toContain("file=outputs%2Ffigures%2Falbedo_annuel.svg");
+  });
+
+  it("ouvre le PDF absolu du projet à la page annoncée sans dépendre de l'index Galerie", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, {
+      type: "files",
+      projectRoot: PROJECT_ROOT,
+      files: ["build/latex/main_ngeo.pdf"],
+    });
+    await push(sock, {
+      type: "history",
+      threadId: "thread-A",
+      events: [
+        events.user("Compile le manuscrit"),
+        events.text([
+          `[Voir le PDF, page 6](${PROJECT_ROOT}/build/latex/main_ngeo.pdf)`,
+          `[Voir le PDF, page 7](${PROJECT_ROOT}/build/latex/main_ngeo.pdf)`,
+        ].join("\n\n")),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Voir le PDF, page 6" }));
+    await act(async () => { await flushMicrotasks(4); });
+
+    let pdfFrames = document.querySelectorAll<HTMLIFrameElement>('iframe[src*="pdf_viewer.html"]');
+    expect(pdfFrames).toHaveLength(1);
+    expect(new URL(pdfFrames[0].src).searchParams.get("file")).toBe("build/latex/main_ngeo.pdf");
+    expect(new URL(pdfFrames[0].src).searchParams.get("page")).toBe("6");
+
+    fireEvent.click(screen.getByRole("button", { name: "Voir le PDF, page 7" }));
+    await act(async () => { await flushMicrotasks(4); });
+    pdfFrames = document.querySelectorAll<HTMLIFrameElement>('iframe[src*="pdf_viewer.html"]');
+    expect(pdfFrames).toHaveLength(1);
+    expect(new URL(pdfFrames[0].src).searchParams.get("page")).toBe("7");
   });
 
   it("en layout Chat seul, cliquer une pilule PNG rouvre le panneau et l'ouvre dans la Galerie", async () => {

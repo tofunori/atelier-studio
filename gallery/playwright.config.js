@@ -10,7 +10,9 @@ export default defineConfig({
   reporter: [['list']],
   use: {trace: 'retain-on-failure'},
   projects: [
-    {name: 'webkit-annotations', testMatch: /figure_annotations\.spec\.js/, use: {browserName: 'webkit'}},
+    {name: 'webkit-chat-notice', testMatch: /chat_notice\.spec\.js/, use: {browserName: 'webkit'}},
+    {name: 'webkit-reading-chat', testMatch: /reading_chat_overlay\.spec\.js/, use: {browserName: 'webkit'}},
+    {name: 'webkit-annotations', testMatch: /figure_(annotations|versions)\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-review', testMatch: /editor_cm6\.spec\.js/, grep: /latex individual review/, use: {browserName: 'webkit'}},
     {name: 'webkit-toolbar', testMatch: /editor_cm6\.spec\.js/, grep: /latex toolbar/, use: {browserName: 'webkit'}},
     {name: 'webkit-fluid', testMatch: /editor_cm6\.spec\.js/, grep: /latex fluid text/, use: {browserName: 'webkit'}},
@@ -22,7 +24,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-reading',
-      testMatch: /pdf_reading\.spec\.js/,
+      testMatch: /pdf_(reading|toolbar)\.spec\.js/,
       use: {browserName: 'webkit'},
     },
     {

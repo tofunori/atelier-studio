@@ -18,6 +18,7 @@ import { ImageViewPreview } from "./chat/ImageViewPreview";
 import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ChatNotice, type ChatNoticeData } from './chat/ChatNotice';
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { QueuedTurns } from "./chat/QueuedTurns";
@@ -175,6 +176,7 @@ export default function Chat(p: {
   onOpenLinkedAgent?: (threadId: string) => void;
   /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
   onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
+  notice?: ChatNoticeData | null;
   onUnlinkLinkedAgent?: (threadId: string) => void;
   pins: Pin[];
   onStylePin: (index: number, patch: { color?: string; style?: string; label?: string }) => void;
@@ -537,13 +539,25 @@ export default function Chat(p: {
     // gras, un lien ou deux paragraphes DOIT matcher — la recherche nœud par
     // nœud d'origine ne trouvait que les sélections d'un seul nœud texte.
     const find = (needle: string) => findTextRanges(messagesRef.current!, needle);
-    const an = new H();
     const colors=["amber","green","blue","red"];
-    const colored=Object.fromEntries(colors.map(color=>[color,new H()]));
-    for (const m of marks) for (const r of find(m.text)) (m.color&&colored[m.color]?colored[m.color]:an).add(r);
-    reg.set("chat-an", an);
-    for(const color of colors)reg.set(`chat-highlight-${color}`,colored[color]);
-    return () => { reg.delete("chat-an");for(const color of colors)reg.delete(`chat-highlight-${color}`); };
+    const refresh = () => {
+      const an = new H();
+      const colored=Object.fromEntries(colors.map(color=>[color,new H()]));
+      for (const m of marks) for (const r of find(m.text)) (m.color&&colored[m.color]?colored[m.color]:an).add(r);
+      reg.set("chat-an", an);
+      for(const color of colors)reg.set(`chat-highlight-${color}`,colored[color]);
+    };
+    let frame = 0;
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = requestAnimationFrame(() => { frame=0; refresh(); });
+    });
+    observer.observe(messagesRef.current, {childList:true, subtree:true, characterData:true});
+    refresh();
+    return () => {
+      observer.disconnect();
+      if(frame) cancelAnimationFrame(frame);
+      reg.delete("chat-an");for(const color of colors)reg.delete(`chat-highlight-${color}`);
+    };
   }, [marks, p.events]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
@@ -1033,9 +1047,11 @@ export default function Chat(p: {
   return (
     <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
       <div className="chat-primary">
+      {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
       {p.threadId && (
         <ChatHeader
           title={p.threadTitle || t("app.new-chat-title")}
+          notice={p.notice}
           provider={p.threadProvider ?? ""}
           projectName={p.projectName ?? (p.projectRoot ? p.projectRoot.split("/").filter(Boolean).pop() ?? null : null)}
           projectPath={p.projectRoot}
