@@ -212,13 +212,34 @@ impl ThreadStore {
     }
 
     pub fn upsert(&mut self, patch: Value, preserve_updated_at: bool) -> Result<Thread, String> {
+        self.upsert_with_durability(patch, preserve_updated_at, false)
+    }
+
+    /// Transactional stable-storage boundary for identities required before a
+    /// provider may start work. On any write/fsync failure the in-memory map is
+    /// restored, so a later attempt cannot mistake an unpersisted binding for
+    /// an acknowledged one.
+    pub fn upsert_durable(
+        &mut self,
+        patch: Value,
+        preserve_updated_at: bool,
+    ) -> Result<Thread, String> {
+        self.upsert_with_durability(patch, preserve_updated_at, true)
+    }
+
+    fn upsert_with_durability(
+        &mut self,
+        patch: Value,
+        preserve_updated_at: bool,
+        durable: bool,
+    ) -> Result<Thread, String> {
         let id = patch
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "thread id manquant".to_string())?
             .to_string();
         let prev = self.threads.get(&id).cloned();
-        let mut merged = match prev {
+        let mut merged = match prev.as_ref() {
             Some(p) => serde_json::to_value(p).unwrap_or(Value::Object(Default::default())),
             None => Value::Object(Default::default()),
         };
@@ -238,7 +259,15 @@ impl ThreadStore {
         }
         let t = normalize(merged).ok_or_else(|| "thread id manquant".to_string())?;
         self.threads.insert(t.id.clone(), t.clone());
-        self.persist().map_err(|e| e.to_string())?;
+        let persisted = if durable { self.persist_durable() } else { self.persist() };
+        if let Err(error) = persisted {
+            if let Some(previous) = prev {
+                self.threads.insert(id, previous);
+            } else {
+                self.threads.remove(&id);
+            }
+            return Err(error.to_string());
+        }
         Ok(t)
     }
 
@@ -246,6 +275,12 @@ impl ThreadStore {
         let list = self.list();
         let data = serde_json::to_vec_pretty(&list).unwrap_or_else(|_| b"[]".to_vec());
         write_file_atomic(&self.file_path, data)
+    }
+
+    fn persist_durable(&self) -> std::io::Result<()> {
+        let list = self.list();
+        let data = serde_json::to_vec_pretty(&list).unwrap_or_else(|_| b"[]".to_vec());
+        crate::write_file_atomic_durable(&self.file_path, data)
     }
 
     /// Children of `parent_id` derived from `agent_link.parent_thread_id`.
@@ -306,6 +341,31 @@ mod tests {
         // reload
         let store2 = ThreadStore::open(&path);
         assert!(store2.list().is_empty());
+    }
+
+    #[test]
+    fn durable_upsert_rolls_back_memory_after_failure_and_can_retry() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("threads.json");
+        let mut store = ThreadStore::open(&path);
+        store
+            .upsert_durable(
+                serde_json::json!({"id":"t1","provider":"codex","sessionId":"old"}),
+                false,
+            )
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(store
+            .upsert_durable(serde_json::json!({"id":"t1","sessionId":"new"}), true)
+            .is_err());
+        assert_eq!(store.get("t1").unwrap().session_id.as_deref(), Some("old"));
+
+        std::fs::remove_dir(&path).unwrap();
+        store
+            .upsert_durable(serde_json::json!({"id":"t1","sessionId":"new"}), true)
+            .unwrap();
+        assert_eq!(ThreadStore::open(&path).get("t1").unwrap().session_id.as_deref(), Some("new"));
     }
 
     #[test]

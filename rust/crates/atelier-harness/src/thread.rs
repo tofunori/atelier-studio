@@ -2,7 +2,7 @@
 
 use crate::kinds::is_durable;
 use crate::EmitFn;
-use atelier_store::HarnessJournal;
+use atelier_store::{HarnessJournal, JournalError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -138,11 +138,11 @@ impl HarnessThread {
         event
     }
 
-    fn dispatch(&mut self, out: Value) {
+    fn dispatch(&mut self, out: Value) -> Result<(), JournalError> {
         // Dedup by eventId (ignore duplicates)
         if let Some(eid) = out.pointer("/meta/eventId").and_then(|v| v.as_str()) {
             if !self.seen_event_ids.insert(eid.to_string()) {
-                return;
+                return Ok(());
             }
         }
         let durable = out
@@ -151,9 +151,46 @@ impl HarnessThread {
             .unwrap_or(false);
         // Journal BEFORE UI acknowledgement (plan 033 Porte 5).
         if durable {
-            let _ = self.journal.append(&out);
+            if let Err(error) = self.journal.try_append(&out) {
+                let mut degraded = out.clone();
+                if let Some(meta) = degraded.get_mut("meta").and_then(Value::as_object_mut) {
+                    meta.insert("durable".into(), Value::Bool(false));
+                    meta.insert("persistence".into(), json!({"status":"failed","error":error.to_string()}));
+                }
+                if serde_json::to_vec(&degraded).map(|bytes| bytes.len() <= 1024 * 1024).unwrap_or(false) {
+                    (self.emit)(degraded);
+                }
+                let sequence = self.journal.next_sequence(&self.thread_id);
+                let storage_fault_id = out
+                    .pointer("/meta/eventId")
+                    .and_then(Value::as_str)
+                    .map(|event_id| format!("journal-storage-{event_id}"))
+                    .unwrap_or_else(|| "journal-storage-fault".to_string());
+                (self.emit)(json!({
+                    "kind":"activity",
+                    "id":storage_fault_id,
+                    "name":"journal",
+                    "status":"failed",
+                    "title":format!("Sauvegarde de l'historique impossible: {error}"),
+                    "storageFault":{"code":"journal_append_failed","detail":error.to_string()},
+                    "meta":{
+                        "schemaVersion":1,
+                        "eventId":Uuid::new_v4().to_string(),
+                        "provider":self.provider,
+                        "threadId":self.thread_id,
+                        "turnId":out.pointer("/meta/turnId").cloned().unwrap_or(Value::Null),
+                        "sequence":sequence,
+                        "ts":now_ms(),
+                        "durable":false,
+                        "origin":"harness",
+                        "persistence":{"status":"failed"},
+                    }
+                }));
+                return Err(error);
+            }
         }
         (self.emit)(out);
+        Ok(())
     }
 
     pub fn start_turn(
@@ -161,7 +198,7 @@ impl HarnessThread {
         turn_id: Option<&str>,
         message_id: Option<&str>,
         user_event: Option<Value>,
-    ) -> String {
+    ) -> Result<String, JournalError> {
         let id = turn_id
             .map(str::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -176,18 +213,22 @@ impl HarnessThread {
         self.active = Some(id.clone());
         if let Some(user) = user_event {
             let decorated = self.decorate(user, &id, message_id, None, "atelier", Some(true));
-            self.dispatch(decorated);
+            if let Err(error) = self.dispatch(decorated) {
+                self.turns.remove(&id);
+                if self.active.as_deref() == Some(&id) { self.active = None; }
+                return Err(error);
+            }
         }
-        id
+        Ok(id)
     }
 
-    pub fn steer(&mut self, message_id: Option<&str>, user_event: Option<Value>) -> Option<String> {
-        let id = self.active.clone()?;
+    pub fn steer(&mut self, message_id: Option<&str>, user_event: Option<Value>) -> Result<Option<String>, JournalError> {
+        let Some(id) = self.active.clone() else { return Ok(None); };
         if let Some(user) = user_event {
             let decorated = self.decorate(user, &id, message_id, None, "atelier", Some(true));
-            self.dispatch(decorated);
+            self.dispatch(decorated)?;
         }
-        Some(id)
+        Ok(Some(id))
     }
 
     pub fn queue(
@@ -195,7 +236,7 @@ impl HarnessThread {
         turn_id: Option<&str>,
         message_id: Option<&str>,
         user_event: Option<Value>,
-    ) -> String {
+    ) -> Result<String, JournalError> {
         let id = turn_id
             .map(str::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -209,9 +250,12 @@ impl HarnessThread {
         );
         if let Some(user) = user_event {
             let decorated = self.decorate(user, &id, message_id, None, "atelier", Some(true));
-            self.dispatch(decorated);
+            if let Err(error) = self.dispatch(decorated) {
+                self.turns.remove(&id);
+                return Err(error);
+            }
         }
-        id
+        Ok(id)
     }
 
     pub fn activate_queued(&mut self, turn_id: &str) -> bool {
@@ -226,7 +270,7 @@ impl HarnessThread {
         true
     }
 
-    pub fn emit(&mut self, turn_id: &str, event: Value, item_id: Option<&str>) {
+    pub fn emit(&mut self, turn_id: &str, event: Value, item_id: Option<&str>) -> Result<(), JournalError> {
         // The provider announces its native turn in the first `started` event.
         // Capture it before decorating that event so every following durable
         // item (especially image artifacts) carries the exact native turn
@@ -242,25 +286,25 @@ impl HarnessThread {
             }
         }
         let decorated = self.decorate(event, turn_id, None, item_id, "provider", None);
-        self.dispatch(decorated);
+        self.dispatch(decorated)
     }
 
-    pub fn emit_global(&mut self, event: Value, origin: &str) {
+    pub fn emit_global(&mut self, event: Value, origin: &str) -> Result<(), JournalError> {
         let turn_id = self
             .active
             .clone()
             .unwrap_or_else(|| format!("thread:{}", self.thread_id));
         let decorated = self.decorate(event, &turn_id, None, None, origin, Some(true));
-        self.dispatch(decorated);
+        self.dispatch(decorated)
     }
 
     /// Terminal done/error — exactly one per turn.
-    pub fn terminal(&mut self, turn_id: &str, event: Value) -> bool {
+    pub fn terminal(&mut self, turn_id: &str, event: Value) -> Result<bool, JournalError> {
         let Some(t) = self.turns.get_mut(turn_id) else {
-            return false;
+            return Ok(false);
         };
         if t.terminal {
-            return false;
+            return Ok(false);
         }
         t.terminal = true;
         t.status = TurnStatus::Done;
@@ -268,8 +312,8 @@ impl HarnessThread {
             self.active = None;
         }
         let decorated = self.decorate(event, turn_id, None, None, "provider", Some(true));
-        self.dispatch(decorated);
-        true
+        self.dispatch(decorated)?;
+        Ok(true)
     }
 
     pub fn set_native_turn_id(&mut self, turn_id: &str, native: &str) {
@@ -304,10 +348,10 @@ mod tests {
             cap.lock().unwrap().push(e);
         });
         let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
-        let turn = h.start_turn(None, Some("m1"), Some(json!({"kind":"user","text":"hi"})));
-        h.emit(&turn, json!({"kind":"text","text":"hello"}), None);
-        assert!(h.terminal(&turn, json!({"kind":"done"})));
-        assert!(!h.terminal(&turn, json!({"kind":"done"}))); // duplicate rejected
+        let turn = h.start_turn(None, Some("m1"), Some(json!({"kind":"user","text":"hi"}))).unwrap();
+        h.emit(&turn, json!({"kind":"text","text":"hello"}), None).unwrap();
+        assert!(h.terminal(&turn, json!({"kind":"done"})).unwrap());
+        assert!(!h.terminal(&turn, json!({"kind":"done"})).unwrap()); // duplicate rejected
         let events = captured.lock().unwrap();
         assert_eq!(events.len(), 3);
         assert_eq!(events[0]["meta"]["sequence"], 1);
@@ -329,12 +373,12 @@ mod tests {
         let turn = h.start_turn(Some("atelier-turn"), None, Some(json!({
             "kind": "user",
             "text": "génère une carte",
-        })));
+        }))).unwrap();
         h.emit(
             &turn,
             json!({"kind": "started", "nativeTurnId": "codex-turn"}),
             None,
-        );
+        ).unwrap();
         h.emit(
             &turn,
             json!({
@@ -346,7 +390,7 @@ mod tests {
                 "output": "/tmp/map.png",
             }),
             Some("image-item"),
-        );
+        ).unwrap();
 
         let live = captured.lock().unwrap();
         let event = live.iter().find(|event| event["kind"] == "tool_update").unwrap();
@@ -374,9 +418,9 @@ mod tests {
             cap.lock().unwrap().push(e);
         });
         let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
-        let turn = h.start_turn(None, None, None);
-        h.emit(&turn, json!({"kind":"delta","text":"x"}), None);
-        h.terminal(&turn, json!({"kind":"done"}));
+        let turn = h.start_turn(None, None, None).unwrap();
+        h.emit(&turn, json!({"kind":"delta","text":"x"}), None).unwrap();
+        h.terminal(&turn, json!({"kind":"done"})).unwrap();
         let ui = captured.lock().unwrap();
         assert!(ui.iter().any(|e| e["kind"] == "delta"));
         let mat = journal.materialize("t1");
@@ -397,13 +441,36 @@ mod tests {
             cap.lock().unwrap().push(e);
         });
         let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
-        let turn = h.start_turn(None, None, None);
-        h.emit(&turn, json!({"kind":"thinking_progress","count":1}), None);
-        h.terminal(&turn, json!({"kind":"done"}));
+        let turn = h.start_turn(None, None, None).unwrap();
+        h.emit(&turn, json!({"kind":"thinking_progress","count":1}), None).unwrap();
+        h.terminal(&turn, json!({"kind":"done"})).unwrap();
         let ui = captured.lock().unwrap();
         assert!(ui.iter().any(|e| e["kind"] == "thinking_progress"));
         let mat = journal.materialize("t1");
         assert!(!mat.iter().any(|e| e["kind"] == "thinking_progress"));
         assert!(mat.iter().any(|e| e["kind"] == "done"));
+    }
+
+    #[test]
+    fn append_failure_is_visible_and_never_claimed_durable() {
+        let dir = tempdir().unwrap();
+        let blocked = dir.path().join("not-a-directory");
+        std::fs::write(&blocked, b"blocked").unwrap();
+        let journal = HarnessJournal::new(&blocked);
+        let captured = Arc::new(StdMutex::new(Vec::new()));
+        let sink = captured.clone();
+        let mut harness = HarnessThread::new(
+            "t1",
+            "fake",
+            Arc::new(move |event| sink.lock().unwrap().push(event)),
+            journal,
+        );
+        assert!(harness
+            .start_turn(None, None, Some(json!({"kind":"user","text":"must persist"})))
+            .is_err());
+        let events = captured.lock().unwrap();
+        assert!(events.iter().any(|event| event["storageFault"]["code"] == "journal_append_failed"));
+        assert!(events.iter().all(|event| event["meta"]["durable"] == false));
+        assert!(harness.active_turn_id().is_none());
     }
 }

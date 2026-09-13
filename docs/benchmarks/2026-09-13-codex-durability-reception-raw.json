@@ -1,0 +1,25 @@
+{
+  "server": "/Users/tofunori/Documents/atelier-studio/rust/target/debug/atelier-studio-server",
+  "profile": "/var/folders/lx/xw0kd3hs76v7_lsd5lrr9z6m0000gn/T/atelier-durability-review-x0IbhJ",
+  "startedAt": "2026-09-13T15:37:51.183Z",
+  "checks": {
+    "largePayloadBeforeRestart": {
+      "bytes": 828046,
+      "sha256": "c93d013515ee216b95355b6a7e785504350e2dce7547f5e97ac7cc815f6df8fc"
+    },
+    "largePayloadAfterProcessKill": true,
+    "duplicateSendDidNotReplay": true,
+    "forkRetainsLargePayload": true,
+    "sameLengthCorruptionDetected": true,
+    "missingPayloadDetected": true,
+    "inFlightCrashUncertainAndNotReplayed": true,
+    "appendFailureVisibleAndNotAcknowledgedAsSuccess": true,
+    "readAdmissionBackpressure": {
+      "requests": 64,
+      "explicitlyBusy": 8
+    }
+  },
+  "ok": false,
+  "error": "AssertionError [ERR_ASSERTION]: unexpected receiptLosses in 10/short\n\n9 !== 0\n\n    at file:///Users/tofunori/Documents/atelier-studio/scripts/codex-durability-review.mjs:299:16",
+  "finishedAt": "2026-09-13T15:48:03.578Z"
+}

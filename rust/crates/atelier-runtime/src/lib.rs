@@ -8,6 +8,7 @@ pub mod automations;
 mod codex_history;
 pub mod evidence;
 mod grok_history;
+mod goals;
 pub mod instance;
 pub mod kb_block;
 mod message_edits;

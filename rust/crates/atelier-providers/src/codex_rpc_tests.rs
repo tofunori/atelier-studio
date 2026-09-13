@@ -39,6 +39,12 @@ for line in sys.stdin:
             emit({'id': req['id'], 'error': {'message': 'initialization failed'}})
         else: reply(req, {})
     elif method == 'initialized': pass
+    elif method == 'thread/goal/get':
+        reply(req, {'goal': {'objective':'snapshot','status':'active','timeUsedSeconds':10}})
+        note('thread/goal/updated', goal={'objective':'newer','status':'paused','timeUsedSeconds':11})
+    elif method == 'thread/goal/clear':
+        note('thread/goal/cleared')
+        reply(req, {})
     elif method == 'never': pass
     elif method == 'late':
         threading.Timer(2.2, lambda req=req: reply(req, 'late')).start()
@@ -61,6 +67,8 @@ for line in sys.stdin:
             {'id': 'second', 'status': 'inProgress' if mode == 'rewind-active' else 'completed', 'items': [{'type': 'userMessage'}]}]}})
     elif method == 'thread/read' and mode == 'silent-completed':
         reply(req, {'thread': {'id': 'native', 'turns': [{'id': 'turn', 'status': 'completed', 'items': [{'id':'m','type':'agentMessage','text':'OK'},{'id':'final','type':'agentMessage','text':'Recovered final'}]}]}})
+    elif method == 'thread/read' and mode == 'turn-hang-read-unavailable':
+        continue
     elif method == 'thread/read':
         reply(req, {'thread': {'id': 'native', 'turns': [{'id': 'turn', 'status': 'inProgress'}] if active_turn else []}})
     elif method == 'turn/start':
@@ -75,6 +83,7 @@ for line in sys.stdin:
         note('turn/started', turn={'id': 'turn', 'status': 'inProgress'})
         if mode == 'start-rpc-hang': continue
         reply(req, {'turn': {'id': 'turn', 'status': 'inProgress'}})
+        if mode == 'goal-first-turn': note('thread/goal/updated', goal={'objective':'first turn','status':'active'})
         if mode.startswith('turn-hang'): continue
         if mode == 'human-wait':
             emit({'id':77,'method':'item/tool/requestUserInput','params':{'threadId':'native','turnId':'turn','questions':[]}})
@@ -316,4 +325,21 @@ async fn bound_thread_requests_and_cleanup_never_migrate_to_replacement_process(
         .requests()
         .iter()
         .any(|r| r["method"] == "thread/settings/update"));
+}
+
+#[tokio::test]
+async fn goal_observer_keeps_rpc_order_without_a_turn_handler() {
+    let fake = FakeCodex::new("normal");
+    let server = fake.server();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    server.set_goal_observer(Arc::new(move |method, params| { tx.send((method.to_string(), params.clone())).unwrap(); }));
+    server.request("thread/goal/get", json!({"threadId":"native"})).await.unwrap();
+    let first = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+    let second = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+    assert_eq!(first.1["goal"]["objective"], "snapshot");
+    assert_eq!(second.1["goal"]["objective"], "newer");
+    server.clear_handler("native").await;
+    server.request("thread/goal/clear", json!({"threadId":"native"})).await.unwrap();
+    let cleared = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+    assert_eq!(cleared.0, "thread/goal/cleared");
 }

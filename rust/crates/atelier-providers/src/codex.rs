@@ -2,7 +2,10 @@
 
 use crate::codex_parse::{answer_from_interaction, map_turn_notification, TurnMapState};
 use crate::codex_rpc::{CodexAppServer, ThreadConnection};
-use crate::traits::{prompts_reformulation, Provider, ProviderCaps, SendMode, SendRequest, SendResult};
+use crate::traits::{
+    prompts_reformulation_with_options, Provider, ProviderCaps,
+    RewriteOptions, SendMode, SendRequest, SendResult,
+};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -24,6 +27,7 @@ pub struct CodexProvider {
     /// codex_id → dernier modèle posé via `thread/settings/update`. Évite de
     /// répéter l'update quand la sélection n'a pas changé.
     settled_models: Arc<StdMutex<HashMap<String, String>>>,
+    goal_owners: Arc<StdMutex<HashMap<String, String>>>,
     idle: Duration,
     stop_wait: Duration,
 }
@@ -70,6 +74,7 @@ impl CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
+            goal_owners: Arc::default(),
             idle: crate::turn_idle::idle_from_env_or(900),
             stop_wait: Duration::from_secs(5),
         })
@@ -129,6 +134,7 @@ impl Default for CodexProvider {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
             settled_models: Arc::new(StdMutex::new(HashMap::new())),
+            goal_owners: Arc::default(),
             idle: crate::turn_idle::idle_from_env_or(900),
             stop_wait: Duration::from_secs(5),
         }
@@ -756,6 +762,20 @@ fn parse_codex_catalog(path: &std::path::Path) -> Vec<CodexCatalogModel> {
 #[async_trait]
 
 impl Provider for CodexProvider {
+    fn set_native_event_sink(&self, sink: Arc<dyn Fn(String, Value) + Send + Sync>) {
+        let owners = self.goal_owners.clone();
+        self.server.set_goal_observer(Arc::new(move |method, params| {
+            if let Some(id) = params.get("threadId").or_else(|| params.pointer("/thread/id")).and_then(Value::as_str) {
+                let goal = params.get("goal").cloned().unwrap_or(Value::Null);
+                let cleared = method == "thread/goal/cleared" || goal.is_null();
+                let owner = owners.lock().unwrap().get(id).cloned();
+                let Some(owner) = owner else { return; };
+                sink(owner, json!({"kind":"goal", "__nativeSessionId":id, "cleared":cleared,
+                    "goal":if cleared { Value::Null } else { goal }}));
+            }
+        }));
+    }
+
     fn id(&self) -> &str {
         "codex"
     }
@@ -976,6 +996,22 @@ impl Provider for CodexProvider {
                 };
             }
         };
+        if let Some(bind) = req.on_session_opened.as_ref() {
+            if let Err(error) = bind(codex_id.clone()).await {
+                let message = format!("Session Codex ouverte mais liaison Atelier non sauvegardée: {error}");
+                (req.on_event)(json!({"kind":"error","message":message}));
+                return SendResult {
+                    session_id: req.session_id,
+                    ok: false,
+                    error: Some(message),
+                };
+            }
+        }
+        {
+            let mut owners = self.goal_owners.lock().unwrap();
+            owners.retain(|_, owner| owner != &req.thread_id);
+            owners.insert(codex_id.clone(), req.thread_id.clone());
+        }
         // Switch de modèle « à la codex » : poser le modèle sur le thread
         // AVANT le tour (thread/settings/update, capability experimentalApi).
         // C'est ce qui déclenche l'auto-compaction quand l'historique dépasse
@@ -1012,17 +1048,13 @@ impl Provider for CodexProvider {
         let (sandbox, _) = codex_safety(req.permission_mode.as_deref());
         connection.set_sandbox(sandbox);
         let activity = crate::turn_idle::TurnActivity::new();
-        let progress = crate::turn_idle::TurnActivity::new();
         if let Some(relay) = req.on_interaction.clone() {
             let human_activity = activity.clone();
-            let human_progress = progress.clone();
             let request_handler = Arc::new(move |method: String, params: Value| {
                 let relay = Arc::clone(&relay);
                 let wait = human_activity.wait_for_human();
-                let progress_wait = human_progress.wait_for_human();
                 Box::pin(async move {
                     let _wait = wait;
-                    let _progress_wait = progress_wait;
                     let response = relay(method.clone(), params.clone()).await;
                     answer_from_interaction(&method, &params, response.as_ref())
                 })
@@ -1060,7 +1092,6 @@ impl Provider for CodexProvider {
         // Signe de vie du CLI : toute notification, y compris les deltas de
         // sortie et de raisonnement, repousse le filet anti-figé (turn_idle).
         let activity_handler = activity.clone();
-        let progress_handler = progress.clone();
         let map_for_recovery = map_state.clone();
         let (completion_hint, completion_hints) = tokio::sync::watch::channel(None);
 
@@ -1102,7 +1133,6 @@ impl Provider for CodexProvider {
                 };
                 map_turn_notification(method, params, &mut st)
             };
-            if events.iter().any(|event| event["kind"] != "usage") { progress_handler.bump(); }
             for ev in events {
                 let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                 if kind == "done" || kind == "error" {
@@ -1176,19 +1206,23 @@ impl Provider for CodexProvider {
             Err(error) => (false, Some(error)),
             Ok(_) => tokio::select! {
                 biased;
-                _ = crate::turn_idle::with_idle_timeout(std::future::pending::<()>(), Duration::from_secs(45 * 60), &progress) => {
-                    (false, Some("Aucun progrès Codex depuis 45 minutes".into()))
-                },
                 _ = crate::codex_supervision::recover_legacy_completion(completion_hints, &scope.connection, &codex_id, &map_for_recovery, handler.clone()) => {
                     done_rx.await.unwrap_or((false, Some("connexion Codex fermée".into())))
                 },
-                _ = crate::codex_supervision::reconcile_native_turn(&scope.connection, &codex_id, &map_for_recovery, &progress, handler.clone()) => {
+                _ = crate::codex_supervision::reconcile_native_turn(
+                    &scope.connection,
+                    &codex_id,
+                    &map_for_recovery,
+                    &activity,
+                    std::cmp::min(self.idle, Duration::from_secs(15)),
+                    handler.clone(),
+                    req.on_event.clone(),
+                ) => {
                     done_rx.await.unwrap_or((false, Some("connexion Codex fermée".into())))
                 },
-                result = crate::turn_idle::with_idle_timeout(&mut done_rx, self.idle, &activity) => match result {
-                    Ok(Ok(result)) => result,
-                    Ok(Err(_)) => (false, Some("connexion Codex fermée".into())),
-                    Err(()) => (false, Some(format!("Codex muet depuis {} s", self.idle.as_secs()))),
+                result = &mut done_rx => match result {
+                    Ok(result) => result,
+                    Err(_) => (false, Some("connexion Codex fermée".into())),
                 },
                 _ = cancellation_requested(&req.is_cancelled) => (false, Some("annulation demandée".into())),
             },
@@ -1320,7 +1354,28 @@ impl Provider for CodexProvider {
         model: &str,
         project_root: &str,
     ) -> Option<String> {
-        let (systeme, utilisateur) = prompts_reformulation(nom, description, texte);
+        self.reformuler_consigne_with_options(
+            nom,
+            description,
+            texte,
+            model,
+            project_root,
+            None,
+        )
+        .await
+    }
+
+    async fn reformuler_consigne_with_options(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+        options: Option<&RewriteOptions>,
+    ) -> Option<String> {
+        let (systeme, utilisateur) =
+            prompts_reformulation_with_options(nom, description, texte, options);
         // codex n'a pas de prompt système séparé : les deux blocs se
         // concatènent dans le message.
         let message = format!("{systeme}\n\n{utilisateur}");
@@ -1413,6 +1468,9 @@ impl Provider for CodexProvider {
             native_open_opts(cwd, sandbox, &params),
         )
         .await?;
+        if let Some(owner) = params.get("threadId").and_then(Value::as_str) {
+            self.goal_owners.lock().unwrap().insert(codex_id.clone(), owner.to_string());
+        }
         match name {
             "compact" => {
                 self.server
@@ -1491,6 +1549,7 @@ fn handler_reformulation(
 #[cfg(test)]
 mod command_tests {
     use super::*;
+    use crate::traits::prompts_reformulation;
 
     #[test]
     fn permission_modes_map_to_real_codex_policies() {
@@ -1628,6 +1687,7 @@ mod service_tier_tests {
             fork_pending: false,
             mode: SendMode::Normal,
             on_event: Arc::new(|_| {}),
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
             consigne: None,
@@ -1993,6 +2053,7 @@ mod steer_mcp_repli_tests {
             // open_thread(session_id) → thread/resume avec CES options.
             mode: SendMode::Steer,
             on_event: Arc::new(|_| {}),
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
             consigne: None,

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { stripFileScopeInstruction, withFileScopeInstruction } from "./file_scope_prompt.mjs";
 
 describe("file scope prompt", () => {
-  it("conserve la demande et interdit les écritures d’automatisation et git add -A", () => {
+  it("protège les changements sans bloquer un fichier sale explicitement visé", () => {
     const enriched = withFileScopeInstruction("surveille ERA5");
     expect(enriched.startsWith("surveille ERA5")).toBe(true);
     expect(enriched).toContain("Automated, heartbeat, monitoring, status, and wait turns are read-only");
     expect(enriched).toContain("Never use git add -A");
     expect(enriched).toContain("pre-existing worktree change");
+    expect(enriched).toContain("A dirty file may be modified when directly required");
+    expect(enriched).toContain("do not demand special exception wording");
+    expect(enriched).not.toContain("Never modify, stage, commit, restore, or delete it");
   });
 
   it("retire tous les blocs internes des messages restaurés", () => {

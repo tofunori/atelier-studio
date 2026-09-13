@@ -1,6 +1,7 @@
 //! Provider trait — common lifecycle, not capability normalization.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::future::Future;
 use std::pin::Pin;
@@ -8,6 +9,10 @@ use std::sync::Arc;
 
 pub type InteractionFuture = Pin<Box<dyn Future<Output = Option<Value>> + Send>>;
 pub type InteractionFn = Arc<dyn Fn(String, Value) -> InteractionFuture + Send + Sync>;
+pub type SessionBindingFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+/// A provider calls this after opening/resuming its native thread and awaits
+/// the durable Atelier binding before it is allowed to start native work.
+pub type SessionBindingFn = Arc<dyn Fn(String) -> SessionBindingFuture + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct ProviderCaps {
@@ -43,6 +48,9 @@ pub struct SendRequest {
     pub mode: SendMode,
     /// Called with each provider-native event (undecorated kind payload).
     pub on_event: Arc<dyn Fn(Value) + Send + Sync>,
+    /// Durable native-session acknowledgement. Providers without an early
+    /// session-open phase keep the compatibility default `None`.
+    pub on_session_opened: Option<SessionBindingFn>,
     /// Provider server request → interaction utilisateur. `None` signifie
     /// refus sûr ou absence d'interface interactive.
     pub on_interaction: Option<InteractionFn>,
@@ -124,6 +132,31 @@ pub struct CommitMessageDetails {
     pub description: String,
 }
 
+/// Paramètres explicites de l'assistance de réécriture des consignes.
+///
+/// Les champs du formulaire restent des données de l'utilisateur. Ils ne
+/// servent plus à smuggler le mode demandé dans `description`, ce qui
+/// permet au provider d'appliquer une politique système adaptée à chaque
+/// action (et de réserver la sortie « questions » au premier appel).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RewriteOptions {
+    /// `correct`, `clarify`, `shorten`, `structure`, `questions` ou `custom`.
+    pub mode: Option<String>,
+    /// Langue de l'interface pour les questions générées. Les transformations
+    /// d'un texte existant conservent, elles, la langue de ce texte.
+    #[serde(default)]
+    pub language: Option<String>,
+    /// Texte libre de l'action `custom`.
+    #[serde(default)]
+    pub custom: Option<String>,
+    /// Questions retournées par l'appel `questions` précédent.
+    #[serde(default)]
+    pub questions: Option<String>,
+    /// Réponses de l'utilisateur aux questions précédentes.
+    #[serde(default)]
+    pub answers: Option<String>,
+}
+
 /// Prompts de l'assistance « Reformuler » de l'éditeur de consignes.
 /// N'emporte que les trois champs du formulaire — jamais le fil, les
 /// fichiers du projet ou CLAUDE.md. Vit ici (pas dans `codex.rs`) : c'est le
@@ -133,24 +166,128 @@ pub struct CommitMessageDetails {
 /// diverge (codex concatène système + utilisateur, claude a un vrai
 /// `--system-prompt`).
 pub fn prompts_reformulation(nom: &str, description: &str, texte: &str) -> (String, String) {
-    let vide = texte.trim().is_empty();
-    let verbe = if vide {
-        "Rédige une consigne à partir du nom et de la description fournis."
-    } else {
-        "Reformule la consigne fournie : resserre-la, mets-la à l'impératif, coupe le flou."
+    prompts_reformulation_with_options(nom, description, texte, None)
+}
+
+/// Variante de [`prompts_reformulation`] qui applique l'action choisie par
+/// l'éditeur. Le système reste la source de vérité pour le format de sortie;
+/// les champs de la consigne et les réponses sont seulement injectés dans le
+/// message utilisateur, entre libellés stables.
+pub fn prompts_reformulation_with_options(
+    nom: &str,
+    description: &str,
+    texte: &str,
+    options: Option<&RewriteOptions>,
+) -> (String, String) {
+    // Keep the old public helper byte-for-byte compatible for callers that do
+    // not send an action. New UI calls always include `mode`, and therefore
+    // use the explicit policy branches below.
+    if options.is_none() {
+        let vide = texte.trim().is_empty();
+        let verbe = if vide {
+            "Rédige une consigne à partir du nom et de la description fournis."
+        } else {
+            "Reformule la consigne fournie : resserre-la, mets-la à l'impératif, coupe le flou."
+        };
+        let systeme = format!(
+            "Tu écris des consignes destinées à un assistant de programmation. {verbe} \
+             Écris à l'impératif, en français, une instruction par ligne, cinq lignes au maximum. \
+             Ne commente pas, ne justifie pas : renvoie uniquement le texte de la consigne."
+        );
+        return prompt_with_system(&systeme, nom, description, texte, None, None, None);
+    }
+
+    let mode = options
+        .and_then(|value| value.mode.as_deref())
+        .unwrap_or("");
+    let questions = options
+        .and_then(|value| value.questions.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let answers = options
+        .and_then(|value| value.answers.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let language = options
+        .and_then(|value| value.language.as_deref())
+        .unwrap_or("fr");
+    let is_english = language.eq_ignore_ascii_case("en");
+    let custom = (mode == "custom")
+        .then(|| {
+            options
+                .and_then(|value| value.custom.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .flatten();
+    let output_language = if is_english { "English" } else { "français" };
+
+    let systeme = match mode {
+        "correct" => "Corrige uniquement l'orthographe, la grammaire et la ponctuation. Conserve la langue, les mots, le sens, le niveau de détail et toutes les exigences de la consigne.",
+        "clarify" => "Clarifie la consigne et rends ses exigences précises et vérifiables. Conserve la langue et l'intention; supprime les ambiguïtés sans ajouter d'exigence nouvelle.",
+        "shorten" => "Raccourcis la consigne en supprimant les répétitions et les mots inutiles. Conserve la langue, toutes les exigences et le sens.",
+        "structure" => "Structure la consigne en étapes ou en règles ordonnées et cohérentes. Conserve la langue, toutes les exigences et le sens.",
+        "custom" => "Applique l'ajustement personnalisé demandé dans le message utilisateur. Respecte le sens et toutes les exigences de la consigne.",
+        "questions" if answers.is_none() => {
+            return prompt_with_system(
+                if is_english {
+                "You help clarify instructions for an assistant. Ask at most five short, concrete questions that resolve useful ambiguities. Number the questions. Return only the questions, without commentary or an instruction draft."
+                } else {
+                    "Tu aides à préciser une consigne destinée à un assistant. Pose au maximum cinq questions courtes et concrètes pour lever les ambiguïtés utiles. Numérote les questions. Renvoie uniquement les questions, sans commentaire ni proposition de consigne."
+                },
+                nom,
+                description,
+                texte,
+                custom,
+                questions,
+                answers,
+            );
+        }
+        "questions" => if is_english {
+            "Draft final instructions using only requirements explicitly provided in the current instruction, its description and the user answers. Questions are prompts for clarification, not requirements: leave unanswered points unspecified. Never invent numerical thresholds, technical criteria, automatic actions or approval requirements. Do not mention the conversation or the questions. Preserve the language of the current instruction."
+        } else {
+            "Rédige une consigne finale avec uniquement les exigences explicitement fournies dans la consigne actuelle, sa description et les réponses de l'utilisateur. Les questions ne sont pas des exigences : laisse les points sans réponse non spécifiés. N'invente jamais de seuil numérique, de critère technique, d'action automatique ou d'obligation de validation. Ne mentionne pas la conversation ni les questions. Conserve la langue de la consigne actuelle."
+        },
+        _ if texte.trim().is_empty() => "Rédige une consigne à partir du nom et de la description fournis.",
+        _ => "Reformule la consigne fournie : resserre-la, mets-la à l'impératif, coupe le flou.",
     };
+
     let systeme = format!(
-        "Tu écris des consignes destinées à un assistant de programmation. {verbe} \
-         Écris à l'impératif, en français, une instruction par ligne, cinq lignes au maximum. \
-         Ne commente pas, ne justifie pas : renvoie uniquement le texte de la consigne."
+        "Tu écris une consigne destinée à un assistant logiciel. {systeme} \
+         Retourne uniquement la consigne transformée, sans commentaire ni justification. \
+         Conserve la langue de la consigne actuelle; si elle est vide, écris en {output_language}."
     );
-    let utilisateur =
-        format!("Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}");
-    (systeme, utilisateur)
+    prompt_with_system(&systeme, nom, description, texte, custom, questions, answers)
+}
+
+fn prompt_with_system(
+    systeme: &str,
+    nom: &str,
+    description: &str,
+    texte: &str,
+    custom: Option<&str>,
+    questions: Option<&str>,
+    answers: Option<&str>,
+) -> (String, String) {
+    let mut utilisateur = format!(
+        "Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}"
+    );
+    if let Some(custom) = custom {
+        utilisateur.push_str(&format!("\nAjustement personnalisé demandé :\n{custom}"));
+    }
+    if let Some(questions) = questions {
+        utilisateur.push_str(&format!("\nQuestions posées :\n{questions}"));
+    }
+    if let Some(answers) = answers {
+        utilisateur.push_str(&format!("\nRéponses de l'utilisateur :\n{answers}"));
+    }
+    (systeme.to_string(), utilisateur)
 }
 
 #[async_trait]
 pub trait Provider: Send + Sync {
+    /// Thread-level native events, independent of any active send future.
+    fn set_native_event_sink(&self, _sink: Arc<dyn Fn(String, Value) + Send + Sync>) {}
     fn id(&self) -> &str;
     fn label(&self) -> &str;
     fn caps(&self) -> ProviderCaps;
@@ -188,6 +325,23 @@ pub trait Provider: Send + Sync {
         _project_root: &str,
     ) -> Option<String> {
         None
+    }
+
+    /// Variante avec action explicite. Les providers historiques peuvent
+    /// conserver leur chemin précédent; le défaut appelle donc la méthode
+    /// sans options. Codex et Claude redéfinissent ce hook pour appliquer les
+    /// politiques système de chaque mode.
+    async fn reformuler_consigne_with_options(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+        _options: Option<&RewriteOptions>,
+    ) -> Option<String> {
+        self.reformuler_consigne(nom, description, texte, model, project_root)
+            .await
     }
 
     /// Optional native steer (Codex). Default: not supported.
@@ -340,5 +494,77 @@ mod tests {
             atelier_mcp_fingerprint(&mk("a")),
             atelier_mcp_fingerprint(&atelier_mcp_servers(None))
         );
+    }
+
+    #[test]
+    fn les_modes_de_recriture_portent_une_politique_systeme_explicitement() {
+        let options = RewriteOptions {
+            mode: Some("correct".into()),
+            language: Some("en".into()),
+            ..RewriteOptions::default()
+        };
+        let (system, user) = prompts_reformulation_with_options(
+            "Name",
+            "Description",
+            "Fix this sentence.",
+            Some(&options),
+        );
+        assert!(system.contains("Corrige uniquement"), "{system}");
+        assert!(system.contains("Conserve la langue"), "{system}");
+        assert!(!system.contains("Écris à l'impératif"), "{system}");
+        assert!(user.contains("Fix this sentence."), "{user}");
+    }
+
+    #[test]
+    fn le_mode_questions_change_de_sortie_apres_les_reponses() {
+        let question_options = RewriteOptions {
+            mode: Some("questions".into()),
+            language: Some("en".into()),
+            ..RewriteOptions::default()
+        };
+        let (question_system, question_user) = prompts_reformulation_with_options(
+            "Name",
+            "Description",
+            "Current instruction",
+            Some(&question_options),
+        );
+        assert!(question_system.contains("Ask at most five"), "{question_system}");
+        assert!(question_system.contains("only the questions"), "{question_system}");
+        assert!(!question_user.contains("Réponses de l'utilisateur"));
+
+        let answer_options = RewriteOptions {
+            questions: Some("1. Which files?".into()),
+            answers: Some("Only source files.".into()),
+            ..question_options
+        };
+        let (answer_system, answer_user) = prompts_reformulation_with_options(
+            "Name",
+            "Description",
+            "Current instruction",
+            Some(&answer_options),
+        );
+        assert!(answer_system.contains("Draft final instructions"), "{answer_system}");
+        assert!(answer_system.contains("Never invent numerical thresholds"), "{answer_system}");
+        assert!(answer_system.contains("leave unanswered points unspecified"), "{answer_system}");
+        assert!(answer_user.contains("Which files?"), "{answer_user}");
+        assert!(answer_user.contains("Only source files."), "{answer_user}");
+    }
+
+    #[test]
+    fn la_demande_custom_reste_dans_les_donnees_utilisateur() {
+        let options = RewriteOptions {
+            mode: Some("custom".into()),
+            custom: Some("Preserve my tone".into()),
+            ..RewriteOptions::default()
+        };
+        let (system, user) = prompts_reformulation_with_options(
+            "Name",
+            "Description",
+            "Instruction",
+            Some(&options),
+        );
+        assert!(!system.contains("Preserve my tone"), "{system}");
+        assert!(user.contains("Ajustement personnalisé demandé"), "{user}");
+        assert!(user.contains("Preserve my tone"), "{user}");
     }
 }

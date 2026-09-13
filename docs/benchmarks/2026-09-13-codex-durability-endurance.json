@@ -1,0 +1,604 @@
+{
+  "schemaVersion": 1,
+  "kind": "chat-recovery-benchmark",
+  "startedAt": "2026-09-13T15:37:52.571Z",
+  "finishedAt": "2026-09-13T15:48:03.563Z",
+  "url": "ws://127.0.0.1:55947/",
+  "appDir": "/var/folders/lx/xw0kd3hs76v7_lsd5lrr9z6m0000gn/T/atelier-durability-review-x0IbhJ",
+  "profile": "external-server-profile",
+  "durationMs": 600000,
+  "actualDurationMs": 610992.202,
+  "maxReceipts": 7200,
+  "receiptsSent": 3778,
+  "ok": true,
+  "failure": null,
+  "protocolErrors": [],
+  "terminalStateConflicts": [],
+  "pacingMs": 250,
+  "longFixture": {
+    "turnsPerChat": 12,
+    "promptChars": 4096
+  },
+  "provider": "fake",
+  "providerTime": "unavailable from WS contract; no external provider cost claimed",
+  "scenarios": [
+    {
+      "chats": 1,
+      "history": "short",
+      "iterations": 299,
+      "reconnectCycles": 3,
+      "budgetMs": 99999,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 83.332,
+      "durationMs": 100370.051,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-1-short-0",
+          "expected": 299,
+          "users": 299,
+          "texts": 299,
+          "uniqueMessages": 299
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 299,
+          "medianMs": 17.049,
+          "p95Ms": 21.12,
+          "maxMs": 57.709
+        },
+        "confirmation": {
+          "count": 299,
+          "medianMs": 41.811,
+          "p95Ms": 45.299,
+          "maxMs": 82.716
+        },
+        "ping": {
+          "count": 299,
+          "medianMs": 0.169,
+          "p95Ms": 0.273,
+          "maxMs": 0.815
+        },
+        "recovery": {
+          "count": 605,
+          "medianMs": 31.372,
+          "p95Ms": 68.604,
+          "maxMs": 101.329
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 299,
+        "duplicateTerminalFrames": 0,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 4,
+          "minBytes": 26116096,
+          "maxBytes": 33177600,
+          "deltaBytes": 7061504
+        },
+        "receiptsSent": 299,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 299,
+          "medianMs": 41.811,
+          "p95Ms": 45.299,
+          "maxMs": 82.716
+        }
+      }
+    },
+    {
+      "chats": 1,
+      "history": "long",
+      "iterations": 22,
+      "reconnectCycles": 3,
+      "budgetMs": 99925,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 999.25,
+      "durationMs": 100635.91,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-1-long-0",
+          "expected": 264,
+          "users": 264,
+          "texts": 264,
+          "uniqueMessages": 264
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 264,
+          "medianMs": 31.874,
+          "p95Ms": 38.694,
+          "maxMs": 70.583
+        },
+        "confirmation": {
+          "count": 264,
+          "medianMs": 46.11,
+          "p95Ms": 52.077,
+          "maxMs": 81.675
+        },
+        "ping": {
+          "count": 22,
+          "medianMs": 0.181,
+          "p95Ms": 0.226,
+          "maxMs": 0.236
+        },
+        "recovery": {
+          "count": 535,
+          "medianMs": 38.317,
+          "p95Ms": 126.841,
+          "maxMs": 149.823
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 264,
+        "duplicateTerminalFrames": 0,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 4,
+          "minBytes": 33521664,
+          "maxBytes": 41943040,
+          "deltaBytes": 8421376
+        },
+        "receiptsSent": 264,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 264,
+          "medianMs": 46.11,
+          "p95Ms": 52.077,
+          "maxMs": 81.675
+        }
+      }
+    },
+    {
+      "chats": 5,
+      "history": "short",
+      "iterations": 165,
+      "reconnectCycles": 3,
+      "budgetMs": 99748,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 415.617,
+      "durationMs": 100521.531,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-5-short-0",
+          "expected": 165,
+          "users": 165,
+          "texts": 165,
+          "uniqueMessages": 165
+        },
+        {
+          "threadId": "bench-thread-5-short-1",
+          "expected": 165,
+          "users": 165,
+          "texts": 165,
+          "uniqueMessages": 165
+        },
+        {
+          "threadId": "bench-thread-5-short-2",
+          "expected": 165,
+          "users": 165,
+          "texts": 165,
+          "uniqueMessages": 165
+        },
+        {
+          "threadId": "bench-thread-5-short-3",
+          "expected": 165,
+          "users": 165,
+          "texts": 165,
+          "uniqueMessages": 165
+        },
+        {
+          "threadId": "bench-thread-5-short-4",
+          "expected": 165,
+          "users": 165,
+          "texts": 165,
+          "uniqueMessages": 165
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 825,
+          "medianMs": 122.163,
+          "p95Ms": 219.993,
+          "maxMs": 373.762
+        },
+        "confirmation": {
+          "count": 825,
+          "medianMs": 79.605,
+          "p95Ms": 123.663,
+          "maxMs": 270.371
+        },
+        "ping": {
+          "count": 165,
+          "medianMs": 0.163,
+          "p95Ms": 0.255,
+          "maxMs": 0.509
+        },
+        "recovery": {
+          "count": 1673,
+          "medianMs": 17.181,
+          "p95Ms": 35.163,
+          "maxMs": 59.944
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 825,
+        "duplicateTerminalFrames": 0,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 8,
+          "minBytes": 30621696,
+          "maxBytes": 41795584,
+          "deltaBytes": -7274496
+        },
+        "receiptsSent": 825,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 825,
+          "medianMs": 79.605,
+          "p95Ms": 123.663,
+          "maxMs": 270.371
+        }
+      }
+    },
+    {
+      "chats": 5,
+      "history": "long",
+      "iterations": 13,
+      "reconnectCycles": 3,
+      "budgetMs": 99489,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 4974.45,
+      "durationMs": 107826.744,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-5-long-0",
+          "expected": 156,
+          "users": 156,
+          "texts": 156,
+          "uniqueMessages": 156
+        },
+        {
+          "threadId": "bench-thread-5-long-1",
+          "expected": 156,
+          "users": 156,
+          "texts": 156,
+          "uniqueMessages": 156
+        },
+        {
+          "threadId": "bench-thread-5-long-2",
+          "expected": 156,
+          "users": 156,
+          "texts": 156,
+          "uniqueMessages": 156
+        },
+        {
+          "threadId": "bench-thread-5-long-3",
+          "expected": 156,
+          "users": 156,
+          "texts": 156,
+          "uniqueMessages": 156
+        },
+        {
+          "threadId": "bench-thread-5-long-4",
+          "expected": 156,
+          "users": 156,
+          "texts": 156,
+          "uniqueMessages": 156
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 780,
+          "medianMs": 99.879,
+          "p95Ms": 249.641,
+          "maxMs": 609.877
+        },
+        "confirmation": {
+          "count": 780,
+          "medianMs": 76.854,
+          "p95Ms": 141.573,
+          "maxMs": 417.647
+        },
+        "ping": {
+          "count": 13,
+          "medianMs": 0.196,
+          "p95Ms": 0.409,
+          "maxMs": 0.409
+        },
+        "recovery": {
+          "count": 1583,
+          "medianMs": 24.392,
+          "p95Ms": 75.975,
+          "maxMs": 193.188
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 780,
+        "duplicateTerminalFrames": 0,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 9,
+          "minBytes": 34848768,
+          "maxBytes": 38567936,
+          "deltaBytes": 1785856
+        },
+        "receiptsSent": 780,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 780,
+          "medianMs": 76.854,
+          "p95Ms": 141.573,
+          "maxMs": 417.647
+        }
+      }
+    },
+    {
+      "chats": 10,
+      "history": "short",
+      "iterations": 89,
+      "reconnectCycles": 3,
+      "budgetMs": 95320,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 794.333,
+      "durationMs": 96614.868,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-10-short-0",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-1",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-2",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-3",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-4",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-5",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-6",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-7",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-8",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        },
+        {
+          "threadId": "bench-thread-10-short-9",
+          "expected": 89,
+          "users": 89,
+          "texts": 89,
+          "uniqueMessages": 89
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 890,
+          "medianMs": 607.684,
+          "p95Ms": 745.307,
+          "maxMs": 1198.52
+        },
+        "confirmation": {
+          "count": 890,
+          "medianMs": 236.655,
+          "p95Ms": 378.347,
+          "maxMs": 672.642
+        },
+        "ping": {
+          "count": 89,
+          "medianMs": 0.12,
+          "p95Ms": 0.187,
+          "maxMs": 0.213
+        },
+        "recovery": {
+          "count": 1823,
+          "medianMs": 8.256,
+          "p95Ms": 18.363,
+          "maxMs": 83.389
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 881,
+        "duplicateTerminalFrames": 0,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 9,
+        "rssBytes": {
+          "samples": 8,
+          "minBytes": 37060608,
+          "maxBytes": 44072960,
+          "deltaBytes": 5685248
+        },
+        "receiptsSent": 890,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 890,
+          "medianMs": 236.655,
+          "p95Ms": 378.347,
+          "maxMs": 672.642
+        }
+      }
+    },
+    {
+      "chats": 10,
+      "history": "long",
+      "iterations": 6,
+      "reconnectCycles": 3,
+      "budgetMs": 94025,
+      "scenarioQuota": 1200,
+      "targetBatchMs": 9402.5,
+      "durationMs": 105016.704,
+      "historyCounts": [
+        {
+          "threadId": "bench-thread-10-long-0",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-1",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-2",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-3",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-4",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-5",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-6",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-7",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-8",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        },
+        {
+          "threadId": "bench-thread-10-long-9",
+          "expected": 72,
+          "users": 72,
+          "texts": 72,
+          "uniqueMessages": 72
+        }
+      ],
+      "metrics": {
+        "admission": {
+          "count": 720,
+          "medianMs": 855.974,
+          "p95Ms": 1219.576,
+          "maxMs": 1690.537
+        },
+        "confirmation": {
+          "count": 720,
+          "medianMs": 211.134,
+          "p95Ms": 425.327,
+          "maxMs": 1132.435
+        },
+        "ping": {
+          "count": 6,
+          "medianMs": 0.127,
+          "p95Ms": 3.141,
+          "maxMs": 3.141
+        },
+        "recovery": {
+          "count": 1483,
+          "medianMs": 12.04,
+          "p95Ms": 37.3,
+          "maxMs": 66.492
+        },
+        "uncertainReceipts": 0,
+        "confirmationTimeouts": 0,
+        "terminalReceiptFrames": 721,
+        "duplicateTerminalFrames": 1,
+        "conflictingTerminalStates": 0,
+        "failedReceipts": 0,
+        "receiptLosses": 0,
+        "rssBytes": {
+          "samples": 8,
+          "minBytes": 42762240,
+          "maxBytes": 45727744,
+          "deltaBytes": 2965504
+        },
+        "receiptsSent": 720,
+        "providerTimeMs": null,
+        "atelierTimeMs": {
+          "count": 720,
+          "medianMs": 211.134,
+          "p95Ms": 425.327,
+          "maxMs": 1132.435
+        }
+      }
+    }
+  ]
+}

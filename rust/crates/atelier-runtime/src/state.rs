@@ -79,6 +79,7 @@ struct Inner {
     /// callback synchrone `on_event` du provider, qui ne peut pas `.await`.
     qa_transcripts: std::sync::Mutex<HashMap<String, Vec<QaLine>>>,
     retitle_running: AtomicBool,
+    goal_events_started: AtomicBool,
     /// Capability grants for atelier-agent-mcp (plan 057) — ephemeral, hashed.
     capabilities: Mutex<CapabilityRegistry>,
     /// Durable inter-agent mailbox (plan 057).
@@ -132,7 +133,7 @@ impl AppState {
                 let _ = threads.upsert(serde_json::json!({"id": t.id, "status": "idle"}), true);
             }
         }
-        Self {
+        let state = Self {
             inner: Arc::new(Inner {
                 ws_budget: Arc::new(crate::ws_dispatch::Budget::default()),
                 threads_revision: AtomicU64::new(0),
@@ -160,12 +161,33 @@ impl AppState {
                 qa_sessions: Mutex::new(HashMap::new()),
                 qa_transcripts: std::sync::Mutex::new(HashMap::new()),
                 retitle_running: AtomicBool::new(false),
+                goal_events_started: AtomicBool::new(false),
                 capabilities: Mutex::new(CapabilityRegistry::new()),
                 mailbox: Mutex::new(mailbox),
                 delivery_tx,
                 delivery_rx: Mutex::new(Some(delivery_rx)),
                 mailbox_drain_lock: Mutex::new(()),
             }),
+        };
+
+        state
+    }
+
+    pub(crate) fn start_goal_events(&self) {
+        if let (Some(provider), Ok(runtime)) = (self.provider("codex"), tokio::runtime::Handle::try_current()) {
+            if self.inner.goal_events_started.swap(true, Ordering::SeqCst) { return; }
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+            provider.set_native_event_sink(Arc::new(move |id, event| { let _ = tx.send((id, event)); }));
+            let weak = Arc::downgrade(&self.inner);
+            runtime.spawn(async move {
+                // One ordered pump: clear cannot be overtaken by an earlier update.
+                while let Some((id, event)) = rx.recv().await {
+                    let Some(inner) = weak.upgrade() else { break; };
+                    let state = AppState { inner };
+                    let exists = state.threads().lock().await.get(&id).map(|t| t.provider == "codex").unwrap_or(false);
+                    if exists { crate::goals::emit_native(&state, &id, event).await; }
+                }
+            });
         }
     }
 

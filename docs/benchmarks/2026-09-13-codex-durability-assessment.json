@@ -1,0 +1,19 @@
+{
+  "kind": "independent-durability-assessment",
+  "serverSha256": "09895415aff1ce0dbd80fa2ac7801a1f8082ad436d6d469e1779f3631e56c70c",
+  "rawWrapperOk": false,
+  "rawWrapperFailure": "AssertionError [ERR_ASSERTION]: unexpected receiptLosses in 10/short\n\n9 !== 0\n\n    at file:///Users/tofunori/Documents/atelier-studio/scripts/codex-durability-review.mjs:299:16",
+  "provider": "fake",
+  "actualDurationMs": 610992.202,
+  "receiptsSent": 3778,
+  "reconnects": 18,
+  "historyCountsExact": true,
+  "terminalConflicts": 0,
+  "protocolErrors": 0,
+  "confirmationTimeouts": 0,
+  "failedReceipts": 0,
+  "earlyUncorrelatedTerminalFrameGaps": 9,
+  "notificationDeliveryUniversallyVerified": false,
+  "assessment": "Final journal counts and receipt reconciliation verified on an isolated fake-provider run; original strict notification assertion remains failed. Nine uncorrelated terminal frames were not observed at the sampling point; late versus missing spontaneous notification is not distinguished. No inference of durable event loss from that counter.",
+  "appRebuiltOrRelaunched": false
+}

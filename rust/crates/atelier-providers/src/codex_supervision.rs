@@ -11,6 +11,14 @@ use tokio::time::Instant;
 pub type Handler = Arc<dyn Fn(&str, &Value) + Send + Sync>;
 pub type CompletionHint = Option<(String, Instant, Option<String>)>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObservedState {
+    RecentActivity,
+    InProgress,
+    AwaitingHuman,
+    Unknown,
+}
+
 pub fn notification_turn_id(params: &Value) -> Option<&str> {
     params.get("turnId").or_else(|| params.pointer("/turn/id"))
         .or_else(|| params.pointer("/msg/turn_id"))
@@ -91,29 +99,108 @@ pub async fn reconcile_native_turn(
     thread_id: &str,
     map: &Arc<Mutex<TurnMapState>>,
     activity: &TurnActivity,
+    silence_threshold: Duration,
     handler: Handler,
+    on_event: Arc<dyn Fn(Value) + Send + Sync>,
 ) {
     let mut observed = activity.ticks();
     let mut last_activity = Instant::now();
+    let mut state = ObservedState::RecentActivity;
+    let poll = std::cmp::max(
+        Duration::from_millis(10),
+        std::cmp::min(Duration::from_secs(5), silence_threshold / 4),
+    );
+    let mut retry = std::cmp::max(Duration::from_millis(100), poll);
+    let mut next_probe = Instant::now() + silence_threshold;
     loop {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(poll).await;
         let current = activity.ticks();
-        if observed != current || activity.awaiting_human() {
+        if activity.awaiting_human() {
+            state = ObservedState::AwaitingHuman;
             observed = current;
             last_activity = Instant::now();
+            next_probe = last_activity + silence_threshold;
+            retry = std::cmp::max(Duration::from_millis(100), poll);
             continue;
         }
-        if last_activity.elapsed() < Duration::from_secs(15) { continue; }
+        if observed != current {
+            if matches!(state, ObservedState::InProgress | ObservedState::Unknown) {
+                on_event(json!({
+                    "kind":"activity",
+                    "id":"codex-supervision",
+                    "name":"codex_supervision",
+                    "status":"completed",
+                    "title":"Activité Codex reprise.",
+                    "supervisionState":"recentActivity",
+                }));
+            }
+            state = ObservedState::RecentActivity;
+            observed = current;
+            last_activity = Instant::now();
+            next_probe = last_activity + silence_threshold;
+            retry = std::cmp::max(Duration::from_millis(100), poll);
+            continue;
+        }
+        if Instant::now() < next_probe || last_activity.elapsed() < silence_threshold { continue; }
         let Some(id) = map.lock().ok().and_then(|state| state.native_turn_id.clone()) else { continue; };
         // A failed/stalled read proves nothing about the running turn. Bounded,
         // one in flight, dropped together with the parent send future.
-        let Ok(Ok(snapshot)) = tokio::time::timeout(Duration::from_secs(2), connection.request(
+        let snapshot = tokio::time::timeout(Duration::from_secs(2), connection.request(
             "thread/read", json!({"threadId":thread_id,"includeTurns":true}),
-        )).await else { continue; };
+        )).await;
+        let snapshot = match snapshot {
+            Ok(Ok(snapshot)) => snapshot,
+            _ => {
+                if state != ObservedState::Unknown {
+                    on_event(json!({
+                        "kind":"activity",
+                        "id":"codex-supervision",
+                        "name":"codex_supervision",
+                        "status":"failed",
+                        "title":"Statut Codex incertain: lecture native temporairement indisponible; le tour reste actif et peut être arrêté.",
+                        "supervisionState":"unknown",
+                    }));
+                    state = ObservedState::Unknown;
+                }
+                next_probe = Instant::now() + retry;
+                retry = std::cmp::min(retry.saturating_mul(2), Duration::from_secs(120));
+                continue;
+            }
+        };
         if activity.ticks() != current || activity.awaiting_human() { continue; }
-        let Some(turn) = terminal_snapshot(&snapshot, thread_id, &id) else { continue; };
-        deliver_snapshot(turn, &id, &handler);
-        return;
+        if let Some(turn) = terminal_snapshot(&snapshot, thread_id, &id) {
+            deliver_snapshot(turn, &id, &handler);
+            return;
+        }
+        let in_progress = snapshot.pointer("/thread/id").and_then(Value::as_str) == Some(thread_id)
+            && snapshot.pointer("/thread/turns").and_then(Value::as_array).is_some_and(|turns| {
+                turns.iter().any(|turn| turn["id"] == id && turn["status"] == "inProgress")
+            });
+        if in_progress {
+            if state != ObservedState::InProgress {
+                on_event(json!({
+                    "kind":"activity",
+                    "id":"codex-supervision",
+                    "name":"codex_supervision",
+                    "status":"running",
+                    "title":"Tour Codex confirmé en cours malgré l'absence de sortie.",
+                    "supervisionState":"inProgress",
+                }));
+                state = ObservedState::InProgress;
+            }
+        } else if state != ObservedState::Unknown {
+            on_event(json!({
+                "kind":"activity",
+                "id":"codex-supervision",
+                "name":"codex_supervision",
+                "status":"failed",
+                "title":"Statut Codex incertain: le tour attendu n'est pas terminal dans la lecture native; le tour reste actif.",
+                "supervisionState":"unknown",
+            }));
+            state = ObservedState::Unknown;
+        }
+        retry = std::cmp::max(Duration::from_millis(100), poll);
+        next_probe = Instant::now() + std::cmp::max(silence_threshold, Duration::from_secs(30));
     }
 }
 

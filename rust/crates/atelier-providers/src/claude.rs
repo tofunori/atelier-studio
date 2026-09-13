@@ -6,8 +6,8 @@
 
 use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
 use crate::traits::{
-    prompts_reformulation, CommitMessageDetails, Provider, ProviderCaps, SendMode, SendRequest,
-    SendResult,
+    prompts_reformulation_with_options, CommitMessageDetails, Provider, ProviderCaps,
+    RewriteOptions, SendMode, SendRequest, SendResult,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -1140,7 +1140,28 @@ impl Provider for ClaudeProvider {
         model: &str,
         project_root: &str,
     ) -> Option<String> {
-        let (system, prompt) = prompts_reformulation(nom, description, texte);
+        self.reformuler_consigne_with_options(
+            nom,
+            description,
+            texte,
+            model,
+            project_root,
+            None,
+        )
+        .await
+    }
+
+    async fn reformuler_consigne_with_options(
+        &self,
+        nom: &str,
+        description: &str,
+        texte: &str,
+        model: &str,
+        project_root: &str,
+        options: Option<&RewriteOptions>,
+    ) -> Option<String> {
+        let (system, prompt) =
+            prompts_reformulation_with_options(nom, description, texte, options);
         let cwd = if !project_root.is_empty() && std::path::Path::new(project_root).is_dir() {
             project_root.to_string()
         } else {
@@ -1282,6 +1303,7 @@ mod drapeaux_tests {
             fork_pending: fork,
             mode: SendMode::Normal,
             on_event: std::sync::Arc::new(|_| {}),
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
             consigne: None,
@@ -1551,6 +1573,7 @@ mod title_tests {
             fork_pending: false,
             mode: SendMode::Normal,
             on_event: Arc::new(|_| {}),
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
             consigne: None,
@@ -1744,6 +1767,7 @@ mod interrupt_tests {
                 let seen = Arc::clone(&events_seen);
                 Arc::new(move |ev| seen.lock().unwrap().push(ev))
             },
+            on_session_opened: None,
             on_interaction: None,
             // Le flag asynchrone ne se propage JAMAIS ici : le marqueur posé
             // par interrupt() doit suffire.
@@ -1825,6 +1849,7 @@ mod idle_tests {
             fork_pending: false,
             mode: SendMode::Normal,
             on_event,
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: Arc::new(|| false),
             consigne: None,
@@ -2005,6 +2030,7 @@ mod session_vivante_tests {
             fork_pending: false,
             mode,
             on_event,
+            on_session_opened: None,
             on_interaction,
             is_cancelled: Arc::new(|| false),
             consigne: None,

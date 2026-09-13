@@ -87,6 +87,7 @@ impl ServerHandle {
 
 /// Build the Axum router (used by tests and production).
 pub fn app_router(state: AppState) -> Router {
+    state.start_goal_events();
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)

@@ -39,6 +39,9 @@ const longPromptChars = Math.max(1024, Number(args.get("long-prompt-chars") || 4
 const pacingMs = Math.max(0, Number(args.get("pacing-ms") || 250));
 const token = process.env.ATELIER_TOKEN;
 const liveSockets = new Set();
+const protocolErrors = [];
+const observedTerminalStates = new Map();
+const terminalStateConflicts = [];
 const execFileAsync = promisify(execFile);
 
 if (typeof WebSocket !== "function") {
@@ -135,12 +138,25 @@ function connect() {
     ws.addEventListener("message", (event) => {
       try {
         const message = JSON.parse(String(event.data));
+        if (message.type === "error") {
+          protocolErrors.push({ code: message.code, message: message.message,
+            requestId: message.requestId, requestType: message.requestType });
+          if (protocolErrors.length > 32) protocolErrors.shift();
+        }
         const receivedAt = performance.now();
         Object.defineProperty(message, "__receivedAt", {
           value: receivedAt,
           enumerable: false,
         });
         if (message.type === "sendReceipt" && typeof message.clientMessageId === "string") {
+          if (["completed", "failed", "cancelled", "uncertain"].includes(message.status)) {
+            const identity = JSON.stringify([message.status, message.turnId, message.threadId, message.provider]);
+            const previous = observedTerminalStates.get(message.clientMessageId);
+            if (previous != null && previous !== identity && terminalStateConflicts.length < 32) {
+              terminalStateConflicts.push({ clientMessageId: message.clientMessageId, previous, identity });
+            }
+            observedTerminalStates.set(message.clientMessageId, identity);
+          }
           const events = receiptEvents.get(message.clientMessageId) ?? [];
           events.push({
             status: message.status,
@@ -148,6 +164,7 @@ function connect() {
             requestId: message.requestId ?? null,
             threadId: message.threadId ?? null,
             provider: message.provider ?? null,
+            turnId: message.turnId ?? null,
           });
           if (events.length > 32) events.splice(0, events.length - 32);
           receiptEvents.set(message.clientMessageId, events);
@@ -191,14 +208,20 @@ function connect() {
 }
 
 async function request(ws, payload, predicate, timeoutMs = 5000) {
-  const pending = ws.waitFor(predicate, timeoutMs);
+  const correlatedError = (message) => message.type === "error" && (
+    (payload.requestId != null && message.requestId === payload.requestId)
+    || (payload.clientMessageId != null && message.clientMessageId === payload.clientMessageId)
+  );
+  const pending = ws.waitFor((message) => predicate(message) || correlatedError(message), timeoutMs);
   try {
     ws.send(JSON.stringify(payload));
   } catch (error) {
     throw new Error(`WS send failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   try {
-    return await pending;
+    const response = await pending;
+    if (correlatedError(response)) throw new Error(`WS ${response.code ?? "error"}: ${response.message}`);
+    return response;
   } catch (error) {
     const identity = ["requestId", "clientMessageId", "threadId", "type"]
       .map((key) => payload[key] == null ? null : `${key}=${String(payload[key])}`)
@@ -317,20 +340,39 @@ async function runWorkload(ws, count, shape, metrics, iteration) {
     return threadAccepted;
   })).then((rows) => rows.flat());
   if (accepted.length !== plannedSends) throw new Error("benchmark admission count mismatch");
-  const confirmed = await Promise.all(accepted.map(({ response, acceptedAt }) =>
-    receipt(ws, response, acceptedAt, metrics)));
+  // Ten concurrent chats do not authorize an unlimited burst of status reads:
+  // the WS contract admits eight FastRead requests per connection. Keep probes
+  // below that bound without reducing the number of concurrently active chats.
+  const confirmed = new Array(accepted.length);
+  let nextConfirmation = 0;
+  await Promise.all(Array.from({ length: Math.min(4, accepted.length) }, async () => {
+    while (nextConfirmation < accepted.length) {
+      const index = nextConfirmation++;
+      const { response, acceptedAt } = accepted[index];
+      confirmed[index] = await receipt(ws, response, acceptedAt, metrics);
+    }
+  }));
   for (const { response } of accepted) {
     const events = ws.receiptEvents?.get(response.clientMessageId) ?? [];
     const terminalEvents = events.filter((event) =>
-      ["completed", "failed", "cancelled", "uncertain"].includes(event.status),
+      event.requestId == null && ["completed", "failed", "cancelled", "uncertain"].includes(event.status),
     );
     metrics.terminalReceiptFrames += terminalEvents.length;
     metrics.duplicateTerminalFrames += Math.max(0, terminalEvents.length - 1);
-    if (!terminalEvents.length) metrics.receiptLosses += 1;
+    // A late send reply can legitimately repeat the terminal state already
+    // broadcast (send.rs reads the current receipt at reply time). Count those
+    // repeated frames, but do not equate them with a second provider execution.
+    const states = new Set(events.filter((event) => ["completed", "failed", "cancelled", "uncertain"].includes(event.status))
+      .map((event) => JSON.stringify([event.status, event.turnId])));
+    metrics.conflictingTerminalStates += Math.max(0, states.size - 1);
+    // A successful receiptStatus may race ahead of the uncorrelated broadcast.
+    // This is an early observation gap, not evidence of missing durable data.
+    if (!terminalEvents.length) metrics.terminalFramesNotObservedAtMeasurement += 1;
   }
   const cursors = new Map();
   for (const response of confirmed) {
     if (response.status === "uncertain") metrics.uncertain += 1;
+    if (["failed", "cancelled"].includes(response.status)) metrics.failedReceipts += 1;
     const historyResponse = await history(ws, response.threadId, undefined, metrics);
     if (historyResponse.historyCursor) cursors.set(response.threadId, historyResponse.historyCursor);
     if (historyResponse.historyCursor) await history(ws, response.threadId, historyResponse.historyCursor, metrics);
@@ -342,7 +384,7 @@ async function runScenario(count, shape, budgetMs, globalState) {
   const metrics = {
     admission: [], confirmation: [], ping: [], recovery: [], uncertain: 0,
     confirmationTimeouts: 0, terminalReceiptFrames: 0, duplicateTerminalFrames: 0,
-    receiptLosses: 0, rssBytes: [],
+    terminalFramesNotObservedAtMeasurement: 0, conflictingTerminalStates: 0, failedReceipts: 0, rssBytes: [],
   };
   const turnsPerChat = shape === "long" ? longTurns : 1;
   const plannedSends = count * turnsPerChat;
@@ -388,6 +430,19 @@ async function runScenario(count, shape, budgetMs, globalState) {
   }
   const rssAtEnd = await sampleServerRssBytes();
   if (rssAtEnd != null) metrics.rssBytes.push(rssAtEnd);
+  const historyCounts = [];
+  for (let index = 0; index < count; index++) {
+    const threadId = `bench-thread-${count}-${shape}-${index}`;
+    const snapshot = await history(ws, threadId, undefined, metrics);
+    const users = snapshot.events.filter((event) => event.kind === "user");
+    const texts = snapshot.events.filter((event) => event.kind === "text");
+    const expected = iteration * turnsPerChat;
+    const uniqueMessages = new Set(users.map((event) => event.meta?.messageId)).size;
+    if (users.length !== expected || texts.length !== expected || uniqueMessages !== expected) {
+      throw new Error(`history count mismatch ${threadId}: expected=${expected} user=${users.length} text=${texts.length} uniqueMessages=${uniqueMessages}`);
+    }
+    historyCounts.push({ threadId, expected, users: users.length, texts: texts.length, uniqueMessages });
+  }
   ws.close();
   return {
     chats: count,
@@ -398,6 +453,7 @@ async function runScenario(count, shape, budgetMs, globalState) {
     scenarioQuota,
     targetBatchMs: Number(targetBatchMs.toFixed(3)),
     durationMs: Number((performance.now() - scenarioStarted).toFixed(3)),
+    historyCounts,
     metrics: {
       admission: summarize(metrics.admission),
       confirmation: summarize(metrics.confirmation),
@@ -407,7 +463,9 @@ async function runScenario(count, shape, budgetMs, globalState) {
       confirmationTimeouts: metrics.confirmationTimeouts,
       terminalReceiptFrames: metrics.terminalReceiptFrames,
       duplicateTerminalFrames: metrics.duplicateTerminalFrames,
-      receiptLosses: metrics.receiptLosses,
+      conflictingTerminalStates: metrics.conflictingTerminalStates,
+      failedReceipts: metrics.failedReceipts,
+      terminalFramesNotObservedAtMeasurement: metrics.terminalFramesNotObservedAtMeasurement,
       rssBytes: summarizeRss(metrics.rssBytes),
       receiptsSent: scenarioSends,
       providerTimeMs: null,
@@ -442,6 +500,9 @@ try {
     scenariosCompleted: scenarios.length,
   };
 }
+if (!failure && terminalStateConflicts.length) {
+  failure = { name: "TerminalStateConflict", message: "Conflicting terminal receipt identities observed", scenariosCompleted: scenarios.length };
+}
 const report = {
   schemaVersion: 1,
   kind: "chat-recovery-benchmark",
@@ -456,6 +517,8 @@ const report = {
   receiptsSent: globalState.sends,
   ok: failure === null,
   failure,
+  protocolErrors,
+  terminalStateConflicts,
   pacingMs,
   longFixture: { turnsPerChat: longTurns, promptChars: longPromptChars },
   provider: "fake",

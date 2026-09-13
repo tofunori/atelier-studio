@@ -7,6 +7,7 @@ fn provider(fake: &FakeCodex) -> CodexProvider {
         server: Arc::new(fake.server()),
         active: Arc::default(),
         settled_models: Arc::default(),
+        goal_owners: Arc::default(),
         idle: Duration::from_millis(100),
         stop_wait: Duration::from_millis(150),
     }
@@ -31,6 +32,7 @@ fn request(
         fork_pending: false,
         mode: SendMode::Normal,
         on_event: Arc::new(move |e| events.lock().unwrap().push(e)),
+        on_session_opened: None,
         on_interaction: None,
         is_cancelled: Arc::new(move || {
             probes.fetch_add(1, Ordering::SeqCst);
@@ -65,15 +67,29 @@ async fn completed_turn_leaves_no_cancellation_watcher() {
     assert_eq!(interrupts(&fake), 0);
 }
 #[tokio::test]
-async fn idle_turn_requests_interrupt_and_reports_confirmed_stop_once() {
+async fn silent_in_progress_turn_is_not_interrupted_until_explicit_cancel() {
     let fake = FakeCodex::new("turn-hang");
-    let provider = provider(&fake);
+    let provider = Arc::new(provider(&fake));
     let events = Arc::new(StdMutex::new(vec![]));
-    let result = provider
-        .send(request(events.clone(), Arc::default(), Arc::default()))
-        .await;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let p = provider.clone();
+    let req = request(events.clone(), Arc::default(), cancelled.clone());
+    let send = tokio::spawn(async move { p.send(req).await });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let requests = fake.requests();
+            if requests.iter().any(|request| request["method"] == "thread/read") { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(interrupts(&fake), 0);
+    assert!(events.lock().unwrap().iter().any(|event| {
+        event["name"] == "codex_supervision" && event["supervisionState"] == "inProgress"
+    }));
+    cancelled.store(true, Ordering::SeqCst);
+    let result = tokio::time::timeout(Duration::from_secs(1), send).await.unwrap().unwrap();
     assert!(!result.ok);
-    assert!(result.error.unwrap().contains("arrêt confirmé"));
+    assert!(result.error.unwrap().contains("annulation demandée — arrêt confirmé"));
     assert_eq!(interrupts(&fake), 1);
     let events = events.lock().unwrap();
     let terminals: Vec<_> = events
@@ -81,21 +97,60 @@ async fn idle_turn_requests_interrupt_and_reports_confirmed_stop_once() {
         .filter(|e| e["kind"] == "error" || e["kind"] == "done")
         .collect();
     assert_eq!(terminals.len(), 1);
-    assert!(terminals[0]["message"]
-        .as_str()
-        .unwrap()
-        .contains("arrêt confirmé"));
+    assert!(terminals[0]["message"].as_str().unwrap().contains("arrêt confirmé"));
     assert!(provider.active.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn unavailable_native_read_reports_uncertainty_without_interrupting() {
+    let fake = FakeCodex::new("turn-hang-read-unavailable");
+    let provider = Arc::new(provider(&fake));
+    let events = Arc::new(StdMutex::new(vec![]));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let p = provider.clone();
+    let req = request(events.clone(), Arc::default(), cancelled.clone());
+    let send = tokio::spawn(async move { p.send(req).await });
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            if events.lock().unwrap().iter().any(|event| {
+                event["name"] == "codex_supervision"
+                    && event["supervisionState"] == "unknown"
+            }) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(interrupts(&fake), 0);
+    cancelled.store(true, Ordering::SeqCst);
+    let result = tokio::time::timeout(Duration::from_secs(1), send)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!result.ok);
+    assert_eq!(interrupts(&fake), 1);
 }
 #[tokio::test]
 async fn interrupt_ack_without_terminal_never_claims_a_confirmed_stop() {
     for mode in ["turn-hang-no-ack", "turn-hang-ack-only"] {
         let fake = FakeCodex::new(mode);
-        let provider = provider(&fake);
+        let provider = Arc::new(provider(&fake));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let p = provider.clone();
+        let req = request(Arc::default(), Arc::default(), cancelled.clone());
         let start = tokio::time::Instant::now();
-        let result = provider
-            .send(request(Arc::default(), Arc::default(), Arc::default()))
-            .await;
+        let send = tokio::spawn(async move { p.send(req).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !fake.requests().iter().any(|r| r["method"] == "turn/start") {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        cancelled.store(true, Ordering::SeqCst);
+        let result = send.await.unwrap();
         assert!(!result.ok);
         assert!(result.error.unwrap().contains("arrêt non confirmé"));
         assert!(start.elapsed() < Duration::from_secs(3));
@@ -211,11 +266,20 @@ async fn dropped_send_before_ack_or_started_still_interrupts_delayed_native_turn
 async fn transport_failure_during_interrupt_cannot_confirm_native_stop() {
     let fake = FakeCodex::new("turn-hang-no-ack");
     let provider = Arc::new(provider(&fake));
+    let cancelled = Arc::new(AtomicBool::new(false));
     let p = provider.clone();
+    let req = request(Arc::default(), Arc::default(), cancelled.clone());
     let send = tokio::spawn(async move {
-        p.send(request(Arc::default(), Arc::default(), Arc::default()))
-            .await
+        p.send(req).await
     });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !fake.requests().iter().any(|r| r["method"] == "turn/start") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    cancelled.store(true, Ordering::SeqCst);
     tokio::time::timeout(Duration::from_secs(2), async {
         while interrupts(&fake) == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -226,6 +290,68 @@ async fn transport_failure_during_interrupt_cannot_confirm_native_stop() {
     provider.server.fail_for_test();
     let result = send.await.unwrap();
     assert!(result.error.unwrap().contains("arrêt non confirmé"));
+}
+
+#[tokio::test]
+async fn native_session_binding_finishes_before_first_turn_start() {
+    let fake = FakeCodex::new("normal");
+    let mut req = request(Arc::default(), Arc::default(), Arc::default());
+    let request_log = fake.dir.path().join("requests");
+    let bound = Arc::new(AtomicBool::new(false));
+    let bound_flag = bound.clone();
+    req.on_session_opened = Some(Arc::new(move |native_id| {
+        let request_log = request_log.clone();
+        let bound_flag = bound_flag.clone();
+        Box::pin(async move {
+            assert_eq!(native_id, "native");
+            let log = std::fs::read_to_string(request_log).unwrap();
+            assert!(log.contains("thread/start"));
+            assert!(!log.contains("turn/start"));
+            bound_flag.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+    }));
+    let result = provider(&fake).send(req).await;
+    assert!(result.ok, "{:?}", result.error);
+    assert!(bound.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn failed_native_session_binding_prevents_first_turn_start() {
+    let fake = FakeCodex::new("normal");
+    let mut req = request(Arc::default(), Arc::default(), Arc::default());
+    req.on_session_opened = Some(Arc::new(|_| {
+        Box::pin(async { Err("threads.json indisponible".to_string()) })
+    }));
+    let result = provider(&fake).send(req).await;
+    assert!(!result.ok);
+    assert!(result.error.unwrap().contains("liaison Atelier non sauvegardée"));
+    let requests = fake.requests();
+    assert!(requests.iter().any(|request| request["method"] == "thread/start"));
+    assert!(!requests.iter().any(|request| request["method"] == "turn/start"));
+}
+
+#[tokio::test]
+async fn resumed_session_is_bound_before_turn_start() {
+    let fake = FakeCodex::new("normal");
+    let mut req = request(Arc::default(), Arc::default(), Arc::default());
+    req.session_id = Some("saved-native".to_string());
+    let request_log = fake.dir.path().join("requests");
+    req.on_session_opened = Some(Arc::new(move |native_id| {
+        let request_log = request_log.clone();
+        Box::pin(async move {
+            assert_eq!(native_id, "native");
+            let log = std::fs::read_to_string(request_log).unwrap();
+            assert!(log.contains("thread/resume"));
+            assert!(!log.contains("turn/start"));
+            Ok(())
+        })
+    }));
+    let result = provider(&fake).send(req).await;
+    assert!(result.ok, "{:?}", result.error);
+    let requests = fake.requests();
+    assert_eq!(requests.iter().filter(|request| request["method"] == "thread/resume").count(), 1);
+    assert!(!requests.iter().any(|request| request["method"] == "thread/start"));
 }
 
 #[tokio::test]
@@ -290,10 +416,16 @@ async fn legacy_completion_recovers_once_without_interrupt_and_native_completion
 async fn child_completion_does_not_finish_parent() {
     let fake = FakeCodex::new("child-complete");
     let mut provider = provider(&fake);
-    provider.idle = Duration::from_secs(1);
-    let result = provider.send(request(Arc::default(), Arc::default(), Arc::default())).await;
+    provider.idle = Duration::from_millis(100);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancel = cancelled.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        cancel.store(true, Ordering::SeqCst);
+    });
+    let result = provider.send(request(Arc::default(), Arc::default(), cancelled)).await;
     assert!(!result.ok);
-    assert!(result.error.unwrap().contains("Codex muet"));
+    assert!(result.error.unwrap().contains("annulation demandée"));
     assert_eq!(interrupts(&fake), 1);
 }
 
@@ -315,7 +447,7 @@ async fn human_question_pauses_idle_timeout_and_resumes_after_response() {
 async fn quiet_completed_snapshot_backfills_final_text_without_duplicate_items() {
     let fake = FakeCodex::new("silent-completed");
     let mut provider = provider(&fake);
-    provider.idle = Duration::from_secs(60);
+    provider.idle = Duration::from_millis(100);
     let events = Arc::new(StdMutex::new(vec![]));
     let result = tokio::time::timeout(Duration::from_secs(25), provider.send(request(events.clone(), Arc::default(), Arc::default()))).await.unwrap();
     assert!(result.ok, "{:?}", result.error);
@@ -340,4 +472,19 @@ async fn legacy_final_payload_is_recovered_before_done() {
     let final_index = events.iter().position(|event| event["text"] == "Recovered legacy final").unwrap();
     let done_index = events.iter().position(|event| event["kind"] == "done").unwrap();
     assert!(final_index < done_index);
+}
+
+#[tokio::test]
+async fn goal_created_on_first_turn_has_an_atelier_owner_before_send_returns() {
+    let fake = FakeCodex::new("goal-first-turn");
+    let provider = provider(&fake);
+    let goals = Arc::new(StdMutex::new(Vec::new()));
+    let sink = goals.clone();
+    provider.set_native_event_sink(Arc::new(move |id, event| { sink.lock().unwrap().push((id, event)); }));
+    let result = provider.send(request(Arc::default(), Arc::default(), Arc::default())).await;
+    assert!(result.ok);
+    let goals = goals.lock().unwrap();
+    assert_eq!(goals.len(), 1);
+    assert_eq!(goals[0].0, "ui");
+    assert_eq!(goals[0].1["goal"]["objective"], "first turn");
 }

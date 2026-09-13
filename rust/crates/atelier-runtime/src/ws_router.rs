@@ -1857,6 +1857,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 _ => "goalGet",
             };
             let mut params = json!({
+                "threadId": thread_id,
                 "sessionId": thread.session_id,
                 "projectRoot": thread.project_root,
                 "atelierMcp": atelier_mcp_param(state, &thread).await,
@@ -1867,19 +1868,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 params["tokenBudget"] = msg.get("tokenBudget").cloned().unwrap_or(Value::Null);
             }
             match provider.native_command(command, params).await {
-                Ok(value) => {
-                    let cleared = command == "goalClear";
-                    let goal = value.get("goal").cloned().unwrap_or(value);
-                    vec![json_msg(json!({
-                        "type": "event",
-                        "threadId": thread_id,
-                        "event": {
-                            "kind": "goal",
-                            "cleared": cleared || goal.is_null(),
-                            "goal": if cleared { Value::Null } else { goal },
-                        },
-                    }))]
-                }
+                // Native responses and notifications share the ordered RPC event pump.
+                Ok(_) => vec![],
                 Err(error) => vec![err_thread(thread_id, format!("goal: {error}"))],
             }
         }
@@ -1947,10 +1937,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "reformulerConsigne" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
             let provider_id = msg.get("provider").and_then(Value::as_str).unwrap_or("");
             let Some(provider) = state.provider(provider_id) else {
                 return vec![json_msg(json!({
                     "type": "consigneReformulee",
+                    "requestId": request_id,
                     "texte": Value::Null,
                 }))];
             };
@@ -1959,11 +1951,23 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let texte = msg.get("texte").and_then(Value::as_str).unwrap_or("");
             let model = msg.get("model").and_then(Value::as_str).unwrap_or("");
             let project_root = msg.get("projectRoot").and_then(Value::as_str).unwrap_or("");
+            let rewrite = msg
+                .get("rewrite")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<atelier_providers::RewriteOptions>(value).ok());
             let resultat = provider
-                .reformuler_consigne(nom, description, texte, model, project_root)
+                .reformuler_consigne_with_options(
+                    nom,
+                    description,
+                    texte,
+                    model,
+                    project_root,
+                    rewrite.as_ref(),
+                )
                 .await;
             vec![json_msg(json!({
                 "type": "consigneReformulee",
+                "requestId": request_id,
                 "texte": resultat,
             }))]
         }
@@ -3721,7 +3725,18 @@ async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<String> {
         }
     }
     let event_id = msg.get("eventId").and_then(|v| v.as_str());
-    let _ = state.journal().copy_thread(from, new_id, event_id);
+    if state.journal().has_journal(from)
+        && !state.journal().copy_thread(from, new_id, event_id)
+    {
+        let rollback = state.threads().lock().await.delete(new_id);
+        let detail = match rollback {
+            Ok(_) => "la branche Atelier a été annulée",
+            Err(_) => "la branche Atelier n'a pas pu être annulée proprement",
+        };
+        return vec![err(format!(
+            "fork: copie durable de l'historique impossible; {detail}"
+        ))];
+    }
     broadcast_threads(state).await
 }
 
@@ -4121,6 +4136,7 @@ async fn handle_quick_ask(state: &AppState, msg: &Value) -> Vec<String> {
             fork_pending: false,
             mode: atelier_providers::SendMode::Normal,
             on_event,
+            on_session_opened: None,
             on_interaction: None,
             is_cancelled: std::sync::Arc::new(|| false),
             consigne: None,
@@ -4740,6 +4756,27 @@ mod tests {
         let response: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(response["type"], "zoteroItems");
         assert_eq!(response["requestId"], "req-42");
+    }
+
+    #[tokio::test]
+    async fn reformuler_consigne_echoes_request_id_when_provider_is_unavailable() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let message = json!({
+            "type": "reformulerConsigne",
+            "requestId": "rewrite-missing",
+            "provider": "provider-that-is-not-installed",
+            "model": "missing-model",
+            "nom": "Test",
+            "description": "Description",
+            "texte": "Texte",
+            "rewrite": {"mode": "correct", "language": "fr"},
+        });
+        let out = route_ws(&s, &message.to_string()).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["type"], "consigneReformulee");
+        assert_eq!(response["requestId"], "rewrite-missing");
+        assert!(response["texte"].is_null());
     }
 
     /// Sans requestId fourni, la réponse ne doit pas en inventer un.

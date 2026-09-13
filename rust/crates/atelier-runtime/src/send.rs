@@ -3,7 +3,7 @@
 use crate::agent_mcp::journal_mcp;
 use crate::state::AppState;
 use atelier_harness::EmitFn;
-use atelier_providers::{provider_status_list, InteractionFn, SendMode, SendRequest};
+use atelier_providers::{provider_status_list, InteractionFn, SendMode, SendRequest, SessionBindingFn};
 use atelier_store::{request_fingerprint, CommandReceipt, ReceiptReservation};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,7 +93,7 @@ fn enrich_structured_inputs(
 
 fn with_file_scope_instruction(prompt: String) -> String {
     format!(
-        "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Never modify, stage, commit, restore, or delete it.\n- Modify only files directly required by the user's current request. Before expanding scope, stop and ask for approval with the exact paths and reason.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes.\n- Do not include a file-change summary or mention whether files were modified in the final response.\n</atelier-file-scope>"
+        "{prompt}\n\n<atelier-file-scope>\nRepository safety policy for the current turn:\n- Treat every pre-existing worktree change as user-owned or owned by another task. Preserve it: never overwrite, restore, delete, or silently include unrelated existing work in this turn.\n- A dirty file may be modified when directly required by the user's current request. Preserve unrelated hunks, inspect the diff before and after editing, and limit changes to the requested task.\n- A clear user request to edit, integrate, stage, commit, or push is sufficient authorization for that action within the stated scope; do not demand special exception wording. If the scope is ambiguous, ask one concrete question naming the exact paths and action.\n- Automated, heartbeat, monitoring, status, and wait turns are read-only. If they discover a defect, report it and stop; a standing goal or automation is not permission to patch source files.\n- Never use git add -A, git commit -a, stage all, or commit unrelated changes. Stage only explicitly requested changes, using exact paths or hunks as needed.\n- Do not include a file-change summary or mention whether files were modified in the final response.\n</atelier-file-scope>"
     )
 }
 
@@ -460,7 +460,7 @@ async fn maybe_title_new_thread(
     state.publish(message);
 }
 
-fn make_emit(state: AppState, thread_id: String) -> EmitFn {
+pub(crate) fn make_emit(state: AppState, thread_id: String) -> EmitFn {
     Arc::new(move |event: Value| {
         // record_thread_event ne consomme que done/error (automations.rs) :
         // tester ICI évite un clone profond du Value (deltas, tool_result
@@ -917,6 +917,41 @@ fn consigne_du_fil(previous: Option<&atelier_store::Thread>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn native_session_binding(
+    state: AppState,
+    thread_id: String,
+    expected_previous: Option<String>,
+) -> SessionBindingFn {
+    Arc::new(move |native_id: String| {
+        let state = state.clone();
+        let thread_id = thread_id.clone();
+        let expected_previous = expected_previous.clone();
+        Box::pin(async move {
+            if native_id.trim().is_empty() {
+                return Err("identifiant de session native vide".into());
+            }
+            let snapshot = {
+                let mut store = state.threads().lock().await;
+                let Some(existing) = store.get(&thread_id) else {
+                    return Err(format!("liaison de session périmée: le fil Atelier {thread_id} a été supprimé"));
+                };
+                let current = existing.session_id.clone();
+                if current != expected_previous && current.as_deref() != Some(native_id.as_str()) {
+                    return Err(format!(
+                        "liaison de session périmée: le fil Atelier {thread_id} a déjà changé de session"
+                    ));
+                }
+                store
+                .upsert_durable(json!({"id":thread_id,"sessionId":native_id}), true)
+                    .map_err(|error| format!("impossible de sauvegarder la session native: {error}"))?;
+                state.threads_snapshot_locked(&store)
+            };
+            state.publish(snapshot);
+            Ok(())
+        })
+    })
+}
+
 pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let preparation_cancelled = crate::ws_dispatch::send_cancel_flag();
     let thread_id = msg
@@ -1281,6 +1316,18 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let mut guard = h.lock().await;
             guard.steer(client_mid.as_deref(), Some(user_event.clone()))
         };
+        let turn_id = match turn_id {
+            Ok(turn_id) => turn_id,
+            Err(error) => {
+                update_receipt(state, client_mid.as_deref(), "failed", None, None, Some(&error.to_string())).await;
+                let message = format!("Impossible de sauvegarder le message avant son envoi: {error}");
+                return vec![crate::ws_dispatch::failure(
+                    msg,
+                    "JOURNAL_STORAGE_UNAVAILABLE",
+                    &message,
+                )];
+            }
+        };
         if let Some(turn_id) = turn_id {
             let cancelled = Arc::new(AtomicBool::new(false));
             let cancelled_probe = Arc::clone(&cancelled);
@@ -1309,6 +1356,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 previous.as_ref(),
             )
             .await;
+            let session_binding = native_session_binding(
+                state.clone(),
+                thread_id.clone(),
+                session_id.clone(),
+            );
             let req = SendRequest {
                 additional_directories: additional_directories.clone(),
                 thread_id: thread_id.clone(),
@@ -1338,6 +1390,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 on_event: Arc::new(move |ev| {
                     let _ = tx.send(ev);
                 }),
+                on_session_opened: Some(session_binding),
                 on_interaction: Some(interaction),
                 is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
                 consigne: consigne_du_fil(previous.as_ref()),
@@ -1346,14 +1399,22 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             // Pump events into harness
             let h_pump = Arc::clone(&h);
             let turn_pump = turn_id.clone();
-            tokio::spawn(async move {
+            let persistence_failure = Arc::new(std::sync::Mutex::new(None::<String>));
+            let persistence_pump = persistence_failure.clone();
+            let persistence_cancel = cancelled.clone();
+            let pump = tokio::spawn(async move {
                 while let Some(ev) = ev_rx.recv().await {
                     let mut g = h_pump.lock().await;
                     let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                    if kind == "done" || kind == "error" {
-                        g.terminal(&turn_pump, ev);
+                    let persisted = if kind == "done" || kind == "error" {
+                        g.terminal(&turn_pump, ev)
                     } else {
-                        g.emit(&turn_pump, ev, None);
+                        g.emit(&turn_pump, ev, None).map(|_| true)
+                    };
+                    if let Err(error) = persisted {
+                        *persistence_pump.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                        persistence_cancel.store(true, Ordering::SeqCst);
+                        break;
                     }
                 }
             });
@@ -1377,13 +1438,18 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let receipt_turn_id = turn_id.clone();
             tokio::spawn(async move {
                 let result = pimpl.send(req).await;
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), pump).await;
+                let persistence_error = persistence_failure
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
                 update_receipt(
                     &receipt_state,
                     receipt_id.as_deref(),
-                    if result.ok { "completed" } else { "failed" },
+                    if result.ok && persistence_error.is_none() { "completed" } else { "failed" },
                     Some(&receipt_turn_id),
                     None,
-                    result.error.as_deref(),
+                    persistence_error.as_deref().or(result.error.as_deref()),
                 )
                 .await;
             });
@@ -1430,9 +1496,21 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             .await
             .upsert(json!({"id":thread_id,"lastSnapshot":snapshot}), true);
     }
-    let turn_id = {
+    let turn_id = match {
         let mut guard = h.lock().await;
         guard.start_turn(None, client_mid.as_deref(), Some(user_event))
+    } {
+        Ok(turn_id) => turn_id,
+        Err(error) => {
+            let _ = state.threads().lock().await.upsert(json!({"id":thread_id,"status":"idle"}), true);
+            update_receipt(state, client_mid.as_deref(), "failed", None, None, Some(&error.to_string())).await;
+            let message = format!("Impossible de sauvegarder le message avant son envoi: {error}");
+            return vec![crate::ws_dispatch::failure(
+                msg,
+                "JOURNAL_STORAGE_UNAVAILABLE",
+                &message,
+            )];
+        }
     };
     update_receipt(
         state,
@@ -1543,6 +1621,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     };
     let linked_reply_state = state.clone();
     let receipt_id = client_mid.clone();
+    let persistence_failure = Arc::new(std::sync::Mutex::new(None::<String>));
+    let persistence_pump = persistence_failure.clone();
+    let persistence_cancel = cancelled.clone();
     let pump = tokio::spawn(async move {
         let mut linked_reply_text = String::new();
         while let Some(ev) = ev_rx.recv().await {
@@ -1607,8 +1688,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             }
             let mut g = h_pump.lock().await;
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            if kind == "done" || kind == "error" {
-                g.terminal(&turn_pump, ev);
+            let persisted = if kind == "done" || kind == "error" {
+                g.terminal(&turn_pump, ev)
             } else {
                 // Keep the provider item identity alongside the turn identity
                 // in the durable harness metadata. This matters for image
@@ -1616,7 +1697,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 // same item across reconnects) must not collapse into one UI
                 // action or one history record.
                 let item_id = ev.get("id").and_then(Value::as_str).map(str::to_owned);
-                g.emit(&turn_pump, ev, item_id.as_deref());
+                g.emit(&turn_pump, ev, item_id.as_deref()).map(|_| true)
+            };
+            if let Err(error) = persisted {
+                *persistence_pump.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                persistence_cancel.store(true, Ordering::SeqCst);
+                break;
             }
         }
     });
@@ -1670,6 +1756,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         // entrées d'historique pour un seul tour.
         let prov_fallback = prov_turn;
         let interaction = make_interaction_relay(state2.clone(), tid.clone(), ev_tx.clone());
+        let session_binding = native_session_binding(
+            state2.clone(),
+            tid.clone(),
+            session_id.clone(),
+        );
         let req = SendRequest {
             additional_directories: additional_directories.clone(),
             thread_id: tid.clone(),
@@ -1703,6 +1794,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 }
                 let _ = ev_tx.send(ev);
             }),
+            on_session_opened: Some(session_binding),
             on_interaction: Some(interaction),
             is_cancelled: Arc::new(move || cancelled_probe.load(Ordering::SeqCst)),
             consigne: consigne_du_fil(previous.as_ref()),
@@ -1729,11 +1821,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             std::time::Duration::from_secs(2)
         };
         let _ = tokio::time::timeout(drain, pump).await;
+        let mut persistence_error = persistence_failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         // force terminal if needed (providers sans done natif, ex. fake)
         {
             let mut g = h2.lock().await;
             if g.turn_status(&turn_id) != Some(atelier_harness::TurnStatus::Done) {
-                if result.ok {
+                let terminal_result = if result.ok && persistence_error.is_none() {
                     g.terminal(
                         &turn_id,
                         normalize_provider_event(
@@ -1743,23 +1839,29 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                             fallback_snapshot.as_deref(),
                             Some(&prov_fallback),
                         ),
-                    );
+                    )
                 } else {
                     g.terminal(
                         &turn_id,
                         json!({
                             "kind": "error",
-                            "message": result.error.clone().unwrap_or_else(|| "failed".into())
+                            "message": persistence_error
+                                .clone()
+                                .or_else(|| result.error.clone())
+                                .unwrap_or_else(|| "failed".into())
                         }),
-                    );
+                    )
+                };
+                if let Err(error) = terminal_result {
+                    persistence_error.get_or_insert_with(|| error.to_string());
                 }
             }
         }
-        let succeeded = result.ok;
+        let succeeded = result.ok && persistence_error.is_none();
         update_receipt(
             &state2,
             receipt_id.as_deref(),
-            if result.ok {
+            if succeeded {
                 "completed"
             } else if result
                 .error
@@ -1772,7 +1874,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             },
             Some(&turn_id),
             None,
-            result.error.as_deref(),
+            persistence_error.as_deref().or(result.error.as_deref()),
         )
         .await;
         if succeeded && needs_agent_seed {
@@ -1780,21 +1882,30 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
         if let Some(sid) = result.session_id {
             let mut store = state2.threads().lock().await;
-            let mut patch = json!({"id": tid, "sessionId": sid.clone(), "status": "idle",
-                "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash});
-            if succeeded {
-                patch["forkContext"] = Value::Null;
-                patch["forkPending"] = Value::Bool(false);
+            let current_session = store.get(&tid).and_then(|thread| thread.session_id.clone());
+            let codex_binding_is_current = pimpl.id() != "codex" || current_session.as_deref() == Some(sid.as_str());
+            if codex_binding_is_current {
+                let mut patch = json!({"id": tid, "status": "idle",
+                    "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash});
+                patch["sessionId"] = json!(sid.clone());
+                if succeeded {
+                    patch["forkContext"] = Value::Null;
+                    patch["forkPending"] = Value::Bool(false);
+                }
+                let _ = store.upsert(patch, false);
             }
-            let _ = store.upsert(patch, false);
         } else {
             let mut store = state2.threads().lock().await;
-            let mut patch = json!({"id": tid, "status": "idle"});
-            if succeeded {
-                patch["forkContext"] = Value::Null;
-                patch["forkPending"] = Value::Bool(false);
+            // A thread deleted while the provider was running must remain
+            // deleted; completion is not an authorization to recreate it.
+            if store.get(&tid).is_some() {
+                let mut patch = json!({"id": tid, "status": "idle"});
+                if succeeded {
+                    patch["forkContext"] = Value::Null;
+                    patch["forkPending"] = Value::Bool(false);
+                }
+                let _ = store.upsert(patch, false);
             }
-            let _ = store.upsert(patch, false);
         }
         state2.harness().clear_running(&tid).await;
         // Plan 057: schedule mailbox drain on a detached task (handle_send is re-entrant).
@@ -2173,6 +2284,79 @@ mod tests {
             "consigne": { "id": "concis", "texte": "  " },
         }));
         assert_eq!(consigne_du_fil(Some(&vide)), None);
+    }
+
+    #[tokio::test]
+    async fn native_session_binding_is_reopenable_and_published_before_turn_work() {
+        let dir = tempdir().unwrap();
+        let paths = AppPaths::from_app_dir(dir.path().to_path_buf());
+        let state = AppState::new(
+            paths.clone(),
+            None,
+            "t".into(),
+            "test".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id":"t1","provider":"codex"}), false)
+            .unwrap();
+        let mut bus = state.subscribe_bus();
+        native_session_binding(state.clone(), "t1".into(), None)("native-1".into())
+            .await
+            .unwrap();
+        let published: Value = serde_json::from_str(&bus.recv().await.unwrap()).unwrap();
+        assert!(published["threads"].as_array().unwrap().iter().any(|thread| {
+            thread["id"] == "t1" && thread["sessionId"] == "native-1"
+        }));
+        assert_eq!(
+            atelier_store::ThreadStore::open(paths.app_dir.join("threads.json"))
+                .get("t1")
+                .unwrap()
+                .session_id
+                .as_deref(),
+            Some("native-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_or_deleted_native_session_binding_cannot_replace_identity() {
+        let dir = tempdir().unwrap();
+        let paths = AppPaths::from_app_dir(dir.path().to_path_buf());
+        let state = AppState::new(
+            paths.clone(),
+            None,
+            "t".into(),
+            "test".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        state
+            .threads()
+            .lock()
+            .await
+            .upsert_durable(
+                json!({"id":"t1","provider":"codex","sessionId":"newer"}),
+                false,
+            )
+            .unwrap();
+        assert!(native_session_binding(state.clone(), "t1".into(), Some("old".into()))("late".into())
+            .await
+            .is_err());
+        assert_eq!(
+            state.threads().lock().await.get("t1").unwrap().session_id.as_deref(),
+            Some("newer")
+        );
+        state.threads().lock().await.delete("t1").unwrap();
+        assert!(native_session_binding(state.clone(), "t1".into(), None)("late".into())
+            .await
+            .is_err());
+        assert!(atelier_store::ThreadStore::open(paths.app_dir.join("threads.json"))
+            .get("t1")
+            .is_none());
     }
 
     #[test]
@@ -2909,6 +3093,9 @@ mod tests {
             .contains("Automated, heartbeat, monitoring, status, and wait turns are read-only"));
         assert!(enriched.contains("Never use git add -A"));
         assert!(enriched.contains("pre-existing worktree change"));
+        assert!(enriched.contains("A dirty file may be modified when directly required"));
+        assert!(enriched.contains("do not demand special exception wording"));
+        assert!(!enriched.contains("Never modify, stage, commit, restore, or delete it"));
         assert!(enriched.contains("Do not include a file-change summary"));
     }
 

@@ -23,6 +23,7 @@ pub type ServerRequestHandler =
 #[derive(Default)]
 struct ConnectionState {
     pending: HashMap<u64, oneshot::Sender<Result<Value, String>>>,
+    goal_requests: HashMap<u64, (String, String)>,
     handlers: HashMap<String, NotifHandler>,
     request_handlers: HashMap<String, ServerRequestHandler>,
     sandboxes: HashMap<String, String>,
@@ -32,6 +33,7 @@ struct Connection {
     child: Mutex<Child>,
     stdin: Mutex<ChildStdin>,
     state: StdMutex<ConnectionState>,
+    goal_observer: Arc<StdMutex<Option<NotifHandler>>>,
     ready: AtomicBool,
     closed: watch::Sender<bool>,
     next_id: AtomicU64,
@@ -107,6 +109,11 @@ impl Connection {
                 return Err("app-server Codex fermé".into());
             }
             state.pending.insert(id, tx);
+            if matches!(method, "thread/goal/get" | "thread/goal/set" | "thread/goal/clear") {
+                if let Some(tid) = params.get("threadId").and_then(Value::as_str) {
+                    state.goal_requests.insert(id, (method.to_string(), tid.to_string()));
+                }
+            }
         }
         let _pending = PendingRequest {
             connection: Arc::clone(self),
@@ -168,7 +175,10 @@ impl Connection {
                 .await;
             });
         } else if let Some(id) = msg.get("id").and_then(Value::as_u64) {
-            let pending = self.state.lock().unwrap().pending.remove(&id);
+            let (pending, goal_request) = {
+                let mut state = self.state.lock().unwrap();
+                (state.pending.remove(&id), state.goal_requests.remove(&id))
+            };
             if let Some(pending) = pending {
                 let result = if let Some(error) = msg.get("error").filter(|v| !v.is_null()) {
                     Err(error
@@ -179,6 +189,15 @@ impl Connection {
                 } else {
                     Ok(msg.get("result").cloned().unwrap_or(Value::Null))
                 };
+                if let (Ok(value), Some((method, tid))) = (&result, goal_request) {
+                    let observer = self.goal_observer.lock().unwrap().clone();
+                    if let Some(observer) = observer {
+                        let goal = if method == "thread/goal/clear" { Value::Null }
+                            else { value.get("goal").cloned().unwrap_or_else(|| value.clone()) };
+                        observer(if goal.is_null() { "thread/goal/cleared" } else { "thread/goal/updated" },
+                            &json!({"threadId":tid,"goal":goal}));
+                    }
+                }
                 let _ = pending.send(result);
             }
         } else if let Some(method) = msg.get("method").and_then(Value::as_str) {
@@ -190,6 +209,11 @@ impl Connection {
                 .or_else(|| params.pointer("/thread/id"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            // Thread-level goals outlive the per-turn handler and its cleanup.
+            if matches!(method, "thread/goal/updated" | "thread/goal/cleared") {
+                let observer = self.goal_observer.lock().unwrap().clone();
+                if let Some(observer) = observer { observer(method, &params); }
+            }
             // Legacy task_complete may carry only a native turn id. Each
             // scoped handler checks that identity before accepting the hint.
             let handlers: Vec<_> = {
@@ -214,12 +238,9 @@ struct PendingRequest {
 }
 impl Drop for PendingRequest {
     fn drop(&mut self) {
-        self.connection
-            .state
-            .lock()
-            .unwrap()
-            .pending
-            .remove(&self.id);
+        let mut state = self.connection.state.lock().unwrap();
+        state.pending.remove(&self.id);
+        state.goal_requests.remove(&self.id);
     }
 }
 struct IncompleteWrite {
@@ -250,6 +271,7 @@ impl Drop for Startup {
 pub struct CodexAppServer {
     inner: StdMutex<Option<Arc<Connection>>>,
     initialization: Mutex<()>,
+    goal_observer: Arc<StdMutex<Option<NotifHandler>>>,
     binary: Option<PathBuf>,
     timeout_override: Option<Duration>,
 }
@@ -369,9 +391,14 @@ impl CodexAppServer {
         Self {
             inner: StdMutex::new(None),
             initialization: Mutex::new(()),
+            goal_observer: Arc::new(StdMutex::new(None)),
             binary: None,
             timeout_override: None,
         }
+    }
+
+    pub fn set_goal_observer(&self, observer: NotifHandler) {
+        *self.goal_observer.lock().unwrap() = Some(observer);
     }
 
     #[cfg(test)]
@@ -485,6 +512,7 @@ impl CodexAppServer {
             child: Mutex::new(child),
             stdin: Mutex::new(stdin),
             state: StdMutex::default(),
+            goal_observer: self.goal_observer.clone(),
             ready: AtomicBool::new(false),
             closed: watch::channel(false).0,
             next_id: AtomicU64::new(1),
