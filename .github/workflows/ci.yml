@@ -56,10 +56,6 @@ jobs:
         run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
-        env:
-          # Production ships the Rust backend and Node gallery runtime. The
-          # legacy Python reference remains available for local migration checks.
-          ATELIER_SKIP_LEGACY_PYTHON_PARITY: "1"
       - name: Gallery E2E
         run: npm run verify:e2e
       - name: Install Playwright Chromium (root, golden states)

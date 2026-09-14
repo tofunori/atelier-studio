@@ -1,5 +1,5 @@
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import { spawnGalleryServer } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync, renameSync, utimesSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -7,7 +7,6 @@ import path from 'node:path';
 import net from 'node:net';
 import {removeTempRoot} from './temp-root.js';
 
-const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -35,9 +34,7 @@ async function withLongLatex(run) {
   try {
     writeFileSync(target, lines);
     const port = await freePort();
-    server = spawn(process.execPath, [path.join(GALLERY, 'server', 'main.mjs')], {
-      cwd: root, env: {...process.env, FIG_PORT: String(port), GALLERY_ROOT: root}, stdio: 'ignore',
-    });
+    server = spawnGalleryServer({ root, port });
     await expect.poll(async () => fetch(`http://127.0.0.1:${port}/ping`).then(r => r.ok).catch(() => false)).toBe(true);
     await run({
       root, target, lines,

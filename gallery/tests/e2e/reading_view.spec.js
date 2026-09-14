@@ -1,11 +1,10 @@
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import { spawnGalleryServer, serveHostPage } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync, readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
-const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 function freePort(){return new Promise((res,rej)=>{const s=net.createServer();s.unref();s.on('error',rej);s.listen(0,'127.0.0.1',()=>{const{port}=s.address();s.close(()=>res(port));});});}
 
 test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async ({page}) => {
@@ -23,14 +22,14 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     'At 500~m these surfaces cannot be separated from snow.',
   ].join('\n'));
   const port = await freePort();
-  const server = spawn(process.execPath, [path.join(GALLERY,'server','main.mjs')], {cwd: root, env:{...process.env, FIG_PORT:String(port), GALLERY_ROOT:root}, stdio:'ignore'});
+  const server = spawnGalleryServer({ root, port });
   try {
     await expect.poll(()=>fetch(`http://127.0.0.1:${port}/ping`).then(r=>r.ok).catch(()=>false)).toBe(true);
     await page.setViewportSize({width: 1100, height: 800});
-    writeFileSync(path.join(root,'host.html'),
+    const hostUrl = await serveHostPage(page, port,
       `<!doctype html><meta charset="utf-8"><style>body{margin:0}#f{width:100vw;height:100vh;border:0}</style>`+
       `<iframe id="f" src="/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(file)}&embedded=atelier"></iframe>`);
-    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    await page.goto(hostUrl);
     const fr = () => page.frames().find(f => f.url().includes('latex_studio'));
     await expect.poll(()=>fr()?.evaluate(()=>!!window.cm).catch(()=>false)).toBe(true);
     await fr().click('#readBtn');

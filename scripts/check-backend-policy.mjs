@@ -4,17 +4,16 @@
  *
  * Depuis le plan 065 phase A (retrait du sidecar chat Node), il n'y a plus
  * qu'un backend chat : Rust (`atelier-studio-server`), sans sélecteur. Ce
- * script vérifie que ce fait reste vrai dans le code — indépendamment du
- * reste du bundle : le repli base de connaissances
- * (`ATELIER_KB_ENGINE=node`, plan 065 phase C, soak en cours) et le backend
- * galerie (`ATELIER_GALLERY_BACKEND`, retiré par le plan 065 phase B)
- * sont des politiques SÉPARÉES avec leur propre calendrier de retrait.
- * `sidecar-dist` (chaîne KB + wrapper `atelier-gallery-tool`) et `node-dist`
- * (runtime Node embarqué, encore utilisé par la galerie Node et par
- * `atelier-gallery-tool`) restent donc légitimement dans tauri.conf.json
- * après la clôture de CE soak — ce script ne les vérifie plus.
+ * script vérifie que ce fait reste vrai dans le code. Depuis le 2026-09-14
+ * (clôture du plan 065) le dépôt ne contient plus AUCUN runtime Node :
+ * `sidecar/` (chat + chaîne KB) et `gallery/server/` (serveur galerie) sont
+ * supprimés ; leurs contrats survivent en fixtures (gallery/tests/kb_parity,
+ * rust/crates/atelier-runtime/tests/fixtures/kb_node_oracle). Ce script
+ * verrouille aussi cette absence — réintroduire un .mjs de runtime est une
+ * violation de la règle Rust-first (CLAUDE.md).
  *
  * Toujours :
+ *  - sidecar/ et gallery/server/ n'existent pas ;
  *  - src-tauri/src/sidecar.rs ne contient plus BackendKind::Node ni de
  *    lecture de ATELIER_BACKEND, ni de résolution de sidecar/index.mjs
  *    (branche chat Node totalement retirée) ;
@@ -62,6 +61,13 @@ if (!/atelier-studio-server/.test(sidecarRs) || !/resolve_rust_server/.test(side
   errors.push(
     "sidecar.rs: résolution atelier-studio-server absente — le backend chat Rust doit rester câblé",
   );
+}
+
+// 1b) Aucun runtime Node dans le dépôt (plan 065 clos le 2026-09-14)
+for (const rel of ["sidecar", "gallery/server"]) {
+  if (existsSync(resolve(root, rel))) {
+    errors.push(`${rel}/ existe encore — runtime Node retiré (plan 065) ; toute nouvelle implémentation backend s'écrit en Rust`);
+  }
 }
 
 // 2) tauri.conf stage + resources (backend chat Rust)

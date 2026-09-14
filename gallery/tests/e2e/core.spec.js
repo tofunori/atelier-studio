@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { spawnGalleryServer, serveHostPage } from '../gallery_server.mjs';
 import { existsSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -124,15 +125,9 @@ async function withGallery(run) {
       stdio: 'pipe',
     });
     const port = await freePort();
-    server = spawn(process.execPath, [path.join(REPO, 'server', 'main.mjs')], {
-      cwd: root,
-      env: {
-        ...process.env,
-        GALLERY_ROOT: root,
-        FIG_PORT: String(port),
-        ATELIER_STUDIO: '1',
-        GALLERY_NO_THUMBS: '1',
-      },
+    server = spawnGalleryServer({
+      root, port,
+      env: { ATELIER_STUDIO: '1', GALLERY_NO_THUMBS: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     await waitForPing(port);
@@ -633,10 +628,10 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
   await withGallery(async ({ root, port }) => {
     // la galerie doit se croire embarquée (window.self !== window.top) : une
     // page hôte servie par le MÊME serveur l'encadre et capture les postMessage
-    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+    const hostUrl = await serveHostPage(page, port, `<!doctype html><body style="margin:0">
 <script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type){window.__msgs.push(e.data);if(e.data.type==='atelier-add-to-chat')e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
 <iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
-    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    await page.goto(hostUrl);
     const g = page.frameLocator('#g');
     await g.locator('#grid .card').first().waitFor();
 
@@ -664,10 +659,10 @@ test('add-to-chat from an embedded gallery card is idempotent on rapid double ac
 // affichait « Added to chat ✓ » alors que le message s'était perdu.
 test('annotation add-to-chat waits for the host ACK and retries', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
-    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+    const hostUrl = await serveHostPage(page, port, `<!doctype html><body style="margin:0">
 <script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat'){window.__msgs.push(e.data);if(window.__msgs.length>1)e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
 <iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
-    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    await page.goto(hostUrl);
     const g = page.frameLocator('#g');
     await g.locator('#grid .card').first().waitFor();
     await annotateOnce(page, g, 'note ack');
@@ -685,10 +680,10 @@ test('annotation add-to-chat waits for the host ACK and retries', async ({ page 
 
 test('annotation add-to-chat never claims success when the host stays silent', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
-    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+    const hostUrl = await serveHostPage(page, port, `<!doctype html><body style="margin:0">
 <script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat')window.__msgs.push(e.data)});</script>
 <iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
-    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    await page.goto(hostUrl);
     const g = page.frameLocator('#g');
     await g.locator('#grid .card').first().waitFor();
     await annotateOnce(page, g, 'note muette');
@@ -716,10 +711,10 @@ async function annotateOnce(page, g, note) {
 
 test('add-to-chat retries when the host misses the first postMessage during startup', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
-    writeFileSync(path.join(root, 'host.html'), `<!doctype html><body style="margin:0">
+    const hostUrl = await serveHostPage(page, port, `<!doctype html><body style="margin:0">
 <script>window.__msgs=[];window.addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-add-to-chat'){window.__msgs.push(e.data);if(window.__msgs.length>1)e.source.postMessage({type:'atelier-add-to-chat-ack',nonce:e.data.nonce,requestId:e.data.requestId,ok:true},e.origin)}});</script>
 <iframe id="g" src="/figures_index.html#atelier_nonce=test-nonce" style="width:1200px;height:800px;border:0"></iframe></body>`);
-    await page.goto(`http://127.0.0.1:${port}/host.html`);
+    await page.goto(hostUrl);
     const g = page.frameLocator('#g');
     const card = g.locator('.card[data-card="preview-alpha.png"]');
     await card.waitFor();

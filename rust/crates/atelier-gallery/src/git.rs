@@ -1485,6 +1485,8 @@ mod tests {
         .unwrap();
         assert_eq!(details.title, "Clarify RAQDPS method");
         assert_eq!(details.description, "Explain the revised comparison.");
+        // texte libre (pas un objet JSON) → refus, jamais un titre deviné
+        assert!(parse_editor_commit_message("message libre incomplet:").is_err());
     }
 
     #[test]

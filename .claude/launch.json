@@ -51,9 +51,10 @@
     },
     {
       "name": "gallery-server",
-      "runtimeExecutable": "node",
+      "runtimeExecutable": "rust/target/debug/atelier-gallery-server",
       "runtimeArgs": [
-        "gallery/server/main.mjs"
+        "--port",
+        "8790"
       ],
       "port": 8790
     },

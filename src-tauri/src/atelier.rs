@@ -71,7 +71,7 @@ fn stop_stale_gallery(port: u16, health: Option<&ProcessHealth>) {
     }
     for pid in listener_pids(port) {
         let cmd = pid_command(pid);
-        if cmd.contains("server/main.mjs") || cmd.contains("atelier-gallery-server") {
+        if cmd.contains("atelier-gallery-server") {
             kill_pid(pid);
         }
     }
@@ -218,11 +218,12 @@ pub fn start_atelier(
                 .resource_dir()
                 .map(|r| r.join("gallery"))
                 .unwrap_or_default();
-            if dev.join("server/main.mjs").exists() || dev.join("cmux_gallery.py").exists() {
+            // Marqueur = le template de la galerie (toujours présent dans
+            // gallery/ et dans la ressource bundlée) — l'ancien serveur Node
+            // (server/main.mjs) a quitté le dépôt le 2026-09-14.
+            if dev.join("assets/gallery_template.html").exists() {
                 dev
-            } else if bundled.join("server/main.mjs").exists()
-                || bundled.join("cmux_gallery.py").exists()
-            {
+            } else if bundled.join("assets/gallery_template.html").exists() {
                 bundled
             } else {
                 home.join("Documents/cmux-gallery") // legacy fallback

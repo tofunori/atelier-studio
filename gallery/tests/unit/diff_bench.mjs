@@ -1,10 +1,11 @@
 import { chromium } from "@playwright/test";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnGalleryServer } from "../gallery_server.mjs";
 
 const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "atelier-diff-bench-"));
@@ -23,9 +24,7 @@ const port = await new Promise((resolve, reject) => {
   const socket = net.createServer(); socket.unref(); socket.on("error", reject);
   socket.listen(0, "127.0.0.1", () => { const value = socket.address().port; socket.close(() => resolve(value)); });
 });
-const server = spawn(process.execPath, [path.join(GALLERY, "server", "main.mjs")], {
-  cwd: root, env: {...process.env, FIG_PORT: String(port), GALLERY_ROOT: root}, stdio: "ignore",
-});
+const server = spawnGalleryServer({ root, port });
 let browser;
 try {
   const deadline = Date.now() + 8000;

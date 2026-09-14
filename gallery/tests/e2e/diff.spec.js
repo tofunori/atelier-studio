@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { spawnGalleryServer } from '../gallery_server.mjs';
 import { mkdtempSync, readFileSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +8,6 @@ import path from 'node:path';
 import net from 'node:net';
 import { removeTempRoot } from './temp-root.js';
 
-const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INITIAL_TEXT = [
   '\\section{Observations}',
   'The glacier surface stayed bright after fresh snow covered the dark ice.',
@@ -93,11 +93,7 @@ async function withEditor(kind, run, engine = 'cm6') {
     execFileSync('git', ['commit', '-qm', `initial ${kind} fixture`], { cwd: root });
 
     const port = await freePort();
-    server = spawn(process.execPath, [path.join(GALLERY, 'server', 'main.mjs')], {
-      cwd: root,
-      env: { ...process.env, FIG_PORT: String(port), GALLERY_ROOT: root },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    server = spawnGalleryServer({ root, port, stdio: ['ignore', 'pipe', 'pipe'] });
     await waitForPing(port);
     const engineQuery = `&engine=${engine}`;
     const url = `http://127.0.0.1:${port}/.fig_thumbs/${editor.asset}?path=${encodeURIComponent(filePath)}${engineQuery}`;

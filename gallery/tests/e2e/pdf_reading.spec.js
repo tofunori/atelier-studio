@@ -1,7 +1,7 @@
 // Mode lecture du lecteur PDF : colonne, découpe, typographie, recherche,
 // annotation aller-retour. Rejoué en WebKit (moteur du WKWebView).
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import { spawnGalleryServer } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync, copyFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -36,9 +36,7 @@ test.beforeAll(async () => {
   writeFileSync(path.join(root, 'figures_data.json'), '{"files":[]}');
   writeFileSync(path.join(root, 'figures_index.html'), '<html></html>');
   port = await freePort();
-  server = spawn(path.join(REPO, 'rust/target/debug/atelier-gallery-server'),
-    ['--root', root, '--port', String(port), '--no-watch'],
-    {env: {...process.env, ATELIER_ASSETS_DIR: path.join(GALLERY, 'assets'), ATELIER_STUDIO: '1'}, stdio: 'ignore'});
+  server = spawnGalleryServer({ root, port, env: { ATELIER_STUDIO: '1' }, watch: false });
   // Le premier /reflow spawne pdftohtml : on attend d'abord que le serveur écoute.
   await expect.poll(() => fetch(`http://127.0.0.1:${port}/ping`).then(r => r.ok).catch(() => false),
     {timeout: 10_000}).toBe(true);
