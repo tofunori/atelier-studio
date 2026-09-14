@@ -1012,6 +1012,7 @@ export function ChatTimeline(p: {
               liveKind={isActiveStep ? activeStatus?.kind : undefined}
               liveSince={workingSince ?? undefined}
               hideThinking={penseeMasquee} thinkingCollapsed={penseeRepliee} threadId={threadId}
+              eventsByThreadId={eventsByThreadId}
               onOpenAgent={onOpenAgent} renderToolLine={renderToolLine} />;
           }
           if (item.type === "agents") {

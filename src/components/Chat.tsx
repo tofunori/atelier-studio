@@ -26,6 +26,7 @@ import { ChatComposer } from "./chat/ChatComposer";
 import { QueuedTurns } from "./chat/QueuedTurns";
 import {
   AgentDetailPanel,
+  agentsFromActions, agentWithTranscriptState, isAgentActivityAction,
   type AgentDisplay,
 } from "./chat/AgentActivity";
 import { mentionLabel } from "./chat/mentions";
@@ -203,6 +204,10 @@ export default function Chat(p: {
   ) => void;
 }) {
   const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
+  const localCurrentAgent = localSelectedAgent ? agentWithTranscriptState(
+    agentsFromActions(p.events.filter(isAgentActivityAction)).find(agent => agent.threadId === localSelectedAgent.threadId) ?? localSelectedAgent,
+    p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? [],
+  ) : null;
   const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
   const [localText, setLocalText] = useState("");
   const text = p.draftText ?? localText;
@@ -1073,7 +1078,7 @@ export default function Chat(p: {
         }}
         rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
         list={{
-          renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
+          renderedEvents, eventsByThreadId: p.eventsByThreadId, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
           renderToolLine, fmtWorkDur, plugins: p.plugins ?? [], onOpenAgent: openAgent,
         }}
         msg={{
@@ -1186,7 +1191,7 @@ export default function Chat(p: {
         </div>
       )}
       </div>
-      {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent}
+      {!p.onOpenAgent && localSelectedAgent && localCurrentAgent ? <AgentDetailPanel agent={localCurrentAgent}
         events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
         onClose={() => setLocalSelectedAgent(null)} /> : null}
     </div>

@@ -260,7 +260,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-row-name { display: block; color: var(--text-primary); font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-row-description { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--fs-s); }
-.agent-row[data-agent-status="working"] .agent-row-description, .agent-state-icon[data-agent-status="working"] { color: var(--accent); }
+.agent-state-icon[data-agent-status="working"] { color: var(--accent); }
 .agent-row[data-agent-status="failed"] .agent-row-description, .agent-state-icon[data-agent-status="failed"] { color: var(--status-error); }
 .agent-state-icon, .agent-row-arrow, .agent-glyph { flex-shrink: 0; color: var(--text-muted); }
 .agent-state-icon[data-agent-status="working"] { animation: agent-working-spin 1.4s linear infinite; }
@@ -5795,3 +5795,4 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .agent-report > :last-child { margin-bottom: 0; }
 .agent-detail-panel button:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
 .agent-row-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-detail-panel [data-slot="scroll-area-viewport"]:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
