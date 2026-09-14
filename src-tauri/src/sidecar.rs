@@ -2,11 +2,9 @@
 //!
 //! Rust only (`atelier-studio-server`) — the historical `ATELIER_BACKEND=node`
 //! chat fallback (Node sidecar `index.mjs`) has been removed after soak; see
-//! `docs/soak/033-COMPLETE.md`. Node is still spawned elsewhere for two
-//! UNRELATED reasons that do not go through this module: the
-//! `ATELIER_KB_ENGINE=node` knowledge-base fallback
-//! (`rust/crates/atelier-runtime/src/ws_router.rs`, soaking — plan 065 phase C)
-//! and the gallery Node backend (`src-tauri/src/atelier.rs`, plan 065 phase B).
+//! `docs/soak/033-COMPLETE.md`. No Node runtime is spawned anywhere any more:
+//! the KB engine is in-process Rust and the gallery backend is
+//! `atelier-gallery-server` (plan 065 closed 2026-09-14).
 //!
 //! Lifecycle: reuse in-process handle → reuse lockfile when health+identity match
 //! → spawn new → kill child on failed health (no orphan loops).
@@ -370,10 +368,6 @@ pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         .env("ATELIER_TOKEN", &token)
         .env("ATELIER_APP_VERSION", identity::APP_VERSION)
         .env("ATELIER_BUNDLE_HASH", &bundle_hash)
-        // Moteur KB : Rust, et lui seul depuis le retrait de Node (2026-08-22).
-        // La variable reste posée pour les outils qui la lisent, mais il n'y a
-        // plus de moteur Node à sélectionner — le chemin a quitté la production.
-        .env("ATELIER_KB_ENGINE", std::env::var("ATELIER_KB_ENGINE").unwrap_or_else(|_| "rust".into()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

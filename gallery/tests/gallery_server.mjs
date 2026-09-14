@@ -3,10 +3,13 @@
 // depuis le 2026-09-14 — le serveur Node `gallery/server/main.mjs` qu'ils
 // lançaient auparavant a quitté le dépôt (plan 065 phase B, clôture).
 //
-// Résolution du binaire (dans l'ordre) : `ATELIER_GALLERY_SERVER_BIN=<chemin>`,
-// src-tauri/rust-server-dist/, rust/target/release/, rust/target/debug/, sinon
-// `cargo build -p atelier-gallery --bin atelier-gallery-server` (debug). Le
-// harnais ne saute jamais silencieusement faute de binaire.
+// Résolution du binaire : `ATELIER_GALLERY_SERVER_BIN=<chemin>` (doit
+// exister), sinon le PLUS RÉCENT (mtime) parmi rust/target/debug/,
+// rust/target/release/ et src-tauri/rust-server-dist/ — le dist est suivi
+// par git et peut être périmé par rapport à la source, un `cargo build`
+// frais doit gagner —, sinon `cargo build -p atelier-gallery --bin
+// atelier-gallery-server` (debug). Le harnais ne saute jamais silencieusement
+// faute de binaire.
 //
 // Contrat identique à ce que l'app passe au serveur : `--root <projet>`,
 // `--port <n>` et `ATELIER_ASSETS_DIR=gallery/assets` (coquille live +
@@ -31,21 +34,29 @@ let resolved = "";
 export function resolveGalleryServerBin() {
   if (resolved) return resolved;
   const fromEnv = process.env.ATELIER_GALLERY_SERVER_BIN || "";
-  if (fromEnv) return (resolved = fromEnv);
+  if (fromEnv) {
+    if (!fs.existsSync(fromEnv)) throw new Error(`gallery_server: ATELIER_GALLERY_SERVER_BIN introuvable : ${fromEnv}`);
+    return (resolved = fromEnv);
+  }
+  const debugBin = path.join(REPO_DIR, "rust", "target", "debug", "atelier-gallery-server");
   const candidates = [
-    path.join(REPO_DIR, "src-tauri", "rust-server-dist", "atelier-gallery-server"),
+    debugBin,
     path.join(REPO_DIR, "rust", "target", "release", "atelier-gallery-server"),
-    path.join(REPO_DIR, "rust", "target", "debug", "atelier-gallery-server"),
+    path.join(REPO_DIR, "src-tauri", "rust-server-dist", "atelier-gallery-server"),
   ];
-  for (const c of candidates) if (fs.existsSync(c)) return (resolved = c);
+  const newest = candidates
+    .filter((c) => fs.existsSync(c))
+    .map((c) => ({ c, mtime: fs.statSync(c).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)[0];
+  if (newest) return (resolved = newest.c);
   const build = spawnSync("cargo", [
     "build", "--manifest-path", path.join(REPO_DIR, "rust", "Cargo.toml"),
     "-p", "atelier-gallery", "--bin", "atelier-gallery-server",
   ], { stdio: "inherit" });
-  if (build.status !== 0 || !fs.existsSync(candidates[2])) {
+  if (build.status !== 0 || !fs.existsSync(debugBin)) {
     throw new Error("gallery_server: atelier-gallery-server introuvable et `cargo build` a échoué");
   }
-  return (resolved = candidates[2]);
+  return (resolved = debugBin);
 }
 
 /**
@@ -55,17 +66,25 @@ export function spawnGalleryServer({ root, port, env = {}, cwd = root, stdio = "
   const bin = resolveGalleryServerBin();
   const args = ["--root", root, "--port", String(port)];
   if (!watch) args.push("--no-watch");
-  return spawn(bin, args, {
+  const child = spawn(bin, args, {
     cwd,
     env: { ...process.env, ATELIER_ASSETS_DIR: ASSETS_DIR, ...env },
     stdio,
   });
+  // Un binaire non exécutable / absent émet `error` de façon asynchrone : sans
+  // écouteur, Node lève une exception brute hors de tout test. On la garde
+  // pour que waitForServer échoue avec un message lisible.
+  child.__spawnError = null;
+  child.on("error", (e) => { child.__spawnError = e; });
+  return child;
 }
 
-/** Attend `GET /ping` 200 (ou échoue après `timeoutMs`). */
-export async function waitForServer(port, { timeoutMs = 15_000, intervalMs = 100 } = {}) {
+/** Attend `GET /ping` 200 — échoue tout de suite si le serveur est mort, sinon après `timeoutMs`. */
+export async function waitForServer(port, { timeoutMs = 15_000, intervalMs = 100, child = null } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (child?.__spawnError) throw new Error(`gallery_server: spawn impossible — ${child.__spawnError.message}`);
+    if (child && child.exitCode !== null) throw new Error(`gallery_server: le serveur s'est arrêté (code ${child.exitCode}) avant d'écouter sur ${port}`);
     try {
       const r = await fetch(`http://127.0.0.1:${port}/ping`);
       if (r.ok) return true;

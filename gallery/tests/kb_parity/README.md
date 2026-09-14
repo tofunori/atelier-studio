@@ -116,9 +116,9 @@ fixture pour le détail des pièges gelés.
 - **`zotero` (kind) exclu.** Dépend d'une vraie bibliothèque Zotero locale
   (`~/Zotero/storage/…`) — spécifique à la machine de l'opérateur, jamais
   testable sans données réelles. Le chemin de résolution
-  (`resolveZoteroPdf`, garde anti-traversée) est couvert par
-  `sidecar/zotero_passages.test.mjs` (tests unitaires existants avec un
-  faux `storageRoot`), pas repris ici.
+  (`resolve_zotero_pdf`, garde anti-traversée) est couvert par les tests
+  unitaires Rust de `rust/crates/atelier-kb/src/zotero.rs` et
+  `zotero_cli.rs` (faux `storageRoot`), pas repris ici.
 - **Ids non portables gelés en `<ID>`.** Pour `file`/`pdf`/`folder`/`zotero`,
   l'id est `sha256(kind + "\n" + cheminAbsoluRésolu)` — le chemin absolu
   dépend d'où le dépôt est cloné, donc l'id diffère d'une machine à l'autre.
