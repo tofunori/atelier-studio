@@ -619,7 +619,7 @@ describe("orchestration App — caractérisation", () => {
     expect(upserts[0].thread).toMatchObject({ provider: "codex", projectRoot: PROJECT_ROOT });
   });
 
-  it("ouvrir un fil sans projet le rend VISIBLE sans faire perdre son projet à l'atelier", async () => {
+  it("ouvrir un fil sans projet quitte le contexte du projet", async () => {
     const { sock } = await mountApp();
     const loose = makeThread({ id: "thread-U", title: "Fil sans projet", projectRoot: "" });
     await pushThreads(sock, [THREAD_A, THREAD_B, loose]);
@@ -635,8 +635,8 @@ describe("orchestration App — caractérisation", () => {
 
     // la conversation ouverte est listée…
     expect(inSidebar().length).toBeGreaterThan(0);
-    // …et le projet actif ne bouge PAS : la galerie et les onglets le suivent
-    expect(screen.getAllByText("albedo-pipeline").length).toBeGreaterThan(0);
+    // Le contexte précédent reste accessible dans le rail, mais est désélectionné.
+    expect(document.querySelector(".rail-proj.on")).toBeNull();
   });
 
   it("le picker de modèles reste verrouillé sur le provider du fil", async () => {
@@ -693,8 +693,8 @@ describe("orchestration App — caractérisation", () => {
 
     // projet actif = premier de atelier-studio.projects → visible dans la TopBar
     expect(screen.getAllByText("albedo-pipeline").length).toBeGreaterThan(0);
-    const chatButton = screen.getByRole("button", { name: t("view.chats") });
-    expect(chatButton).toHaveClass("on");
+    const chatButton = screen.getByRole("button", { name: t("discussions.title") });
+    expect(chatButton).not.toHaveClass("on");
     expect(screen.queryByText(t("highlights.empty"))).toBeNull();
   });
 

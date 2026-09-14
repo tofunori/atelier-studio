@@ -1,3 +1,6 @@
+import { isDiscussionContext, isDiscussionRoot } from "./lib/discussions";
+import { DiscussionDocuments } from "./components/DiscussionDocuments";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { ReadingChatOverlay } from "./components/ReadingChatOverlay";
@@ -588,6 +591,9 @@ export default function App() {
   // (disconnected) pour le Research Home — plan 017 § Chargement
   const sidecarEverConnected = useRef(false);
   const [projects, setProjects] = useState<string[]>(loadProjects);
+  const discussionNavigation = useRef(false);
+  const creatingDiscussion = useRef(false);
+  const [creatingDocument, setCreatingDocument] = useState(false);
   const [activeProject, setActiveProject] = useState<string | null>(
     () => loadProjects()[0] ?? null,
   );
@@ -705,8 +711,10 @@ export default function App() {
   const [usageByThread, setUsageByThread] = useState<
     Record<string, { context: number; output: number; cost: number | null; turns: number | null; window?: number | null }>
   >({});
-  const [commands, setCommands] = useState<Command[]>([]);
-  const [files, setFiles] = useState<string[]>([]);
+  const [commandCatalog, setCommandCatalog] = useState<{ root: string | null; commands: Command[] }>({ root: null, commands: [] });
+  const commands = useMemo(() => commandCatalog.root === activeProject ? commandCatalog.commands : [], [commandCatalog, activeProject]);
+  const [fileCatalog, setFileCatalog] = useState<{ root: string | null; files: string[] }>({ root: null, files: [] });
+  const files = useMemo(() => fileCatalog.root === activeProject ? fileCatalog.files : [], [fileCatalog, activeProject]);
   // Le catalogue a un plafond : sans ce drapeau, un fichier coupé passait
   // pour un fichier inexistant (vécu 2026-09-02, dépôt de 24 414 fichiers).
   const [filesTruncated, setFilesTruncated] = useState(false);
@@ -1133,6 +1141,7 @@ export default function App() {
   // (lus dans le corps) + setActiveView (déjà stabilisé plus haut) ; refs et
   // setters useState omis (stables garantis par React).
   const selectProject = useCallback((root: string) => {
+    discussionNavigation.current = false;
     if (activeView === "highlights") {
       setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
@@ -1527,7 +1536,7 @@ export default function App() {
             const have = new Set(tabs.map((t) => t.url));
             const news = pinned
               .filter((pt) => !have.has(pt.url))
-              .map((pt) => ({ id: crypto.randomUUID(), ...pt, projectRoot: project, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
+              .map((pt) => ({ id: stableTabId(atelierTabIdentity(pt.url)), ...pt, projectRoot: project, url: withAtelierNonce(pt.url, atelierNonce), pinned: true }));
             return [...tabs, ...news];
           });
         }
@@ -2330,6 +2339,7 @@ export default function App() {
           // l'identifiant de bundle, qui indexe le localStorage WKWebView.
           // Constaté pour de vrai sur Linux (run CI 31967329679).
           setActiveProject((current) => {
+            if (discussionNavigation.current) return current;
             const decision = pickActiveProjectFromDisk(current, diskProjects);
             return decision.shouldAdopt ? decision.next : current;
           });
@@ -2995,7 +3005,9 @@ export default function App() {
       if (msg.type === "sessions") {
         window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
       }
-      if (msg.type === "commands") setCommands(msg.commands);
+      if (msg.type === "commands" && (msg.projectRoot == null || msg.projectRoot === activeProjectRef.current)) {
+        setCommandCatalog({ root: msg.projectRoot ?? activeProjectRef.current, commands: msg.commands });
+      }
       if (msg.type === "plugins" && msg.requestId === pluginRequestId.current) {
         const catalog = Array.isArray(msg.plugins) ? msg.plugins : [];
         setPlugins(catalog);
@@ -3006,7 +3018,7 @@ export default function App() {
         setPluginsLoading(false);
       }
       if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
-        setFiles(Array.isArray(msg.files) ? msg.files : []);
+        setFileCatalog({ root: msg.projectRoot, files: Array.isArray(msg.files) ? msg.files : [] });
         setFilesTruncated(msg.truncated === true);
         setDiskRecents(Array.isArray(msg.recentFiles) ? msg.recentFiles : []);
       }
@@ -3673,13 +3685,39 @@ export default function App() {
         // même fichier déjà ouvert : re-cibler la ligne demandée si besoin
         return existing.url !== url ? tabs.map((t) => (t.id === existing.id ? { ...t, url } : t)) : tabs;
       }
-      return [...tabs, { id: focusId, url, title: name, projectRoot: activeProject }];
+      const next = [...tabs, { id: focusId, url, title: name, projectRoot: activeProject,
+        ...(isDiscussionRoot(activeProject) ? { pinned: true } : {}) }];
+      if (isDiscussionRoot(activeProject)) savePinned(next);
+      return next;
     });
     setActiveTab(focusId);
     // l'onglet vit dans la surface Atelier : la rendre visible ET y amener le
     // fichier — pas la galerie (voir revealAtelierTab).
     revealAtelierTab(focusId);
   }
+  const [pendingDiscussionDocument, setPendingDiscussionDocument] = useState<{ root: string; file: string } | null>(null);
+  useEffect(() => {
+    const pending = pendingDiscussionDocument;
+    if (!pending || pending.root !== activeProject || !atelierUrl) return;
+    setPendingDiscussionDocument(null);
+    openFileTab(pending.file);
+  }, [pendingDiscussionDocument, activeProject, atelierUrl]);
+
+  async function createDiscussionDocument(format: "md" | "tex") {
+    if (!activeId || !isDiscussionRoot(activeProject) || creatingDocument) return;
+    const root = activeProject!;
+    // Linked conversations may share their parent's workspace.
+    const workspaceId = root.split("/").pop()!;
+    setCreatingDocument(true);
+    try {
+      const file = await invoke<string>("discussion_create_document", { threadId: workspaceId, format });
+      if (activeProjectRef.current !== root) return;
+      requestFileCatalogWithRecovery(root);
+      setPendingDiscussionDocument({ root, file });
+    } catch (error) { void showError(String(error)); }
+    finally { setCreatingDocument(false); }
+  }
+
   async function openSourceFile(sourceRoot: string, rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     if (sourceRoot === activeProject) { openFileTab(rel, line, options); return; }
     const owner = activeProject;
@@ -3953,11 +3991,21 @@ export default function App() {
     // 13 du navigateur : fil actif toujours listé), disparaissait du projet
     // au redémarrage — le filtre strict (règle 1) l'excluait (Thierry
     // 2026-08-23, threads.json alternait "" et le projet actif).
-    setNewChatRequest({ projectRoot: activeProject ?? "" });
+    setNewChatRequest({ projectRoot: isDiscussionContext(activeProject) ? "" : activeProject! });
   }, [activeProject]);
 
-  function createChat(projectRoot: string, provider: string) {
+  async function createChat(projectRoot: string, provider: string) {
+    if (creatingDiscussion.current) return;
     const id = crypto.randomUUID();
+    if (isDiscussionContext(projectRoot)) {
+      creatingDiscussion.current = true;
+      try {
+        projectRoot = await invoke<string>("discussion_workspace", { threadId: id });
+      } catch (error) {
+        void showError(String(error));
+        return;
+      } finally { creatingDiscussion.current = false; }
+    }
     // consigne choisie avant toute conversation (plan 2026-09-01) : consommée
     // AVANT consumePendingKb pour pouvoir la lui transmettre — un id encore
     // inconnu du backend ne doit jamais recevoir de patch partiel (ThreadStore
@@ -4002,12 +4050,13 @@ export default function App() {
     setActiveId(id);
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: [] }));
+    discussionNavigation.current = isDiscussionRoot(projectRoot);
     if (projectRoot) setActiveProject(projectRoot);
     setNewChatRequest(null);
   }
 
   function newThread(projectRoot: string) {
-    setNewChatRequest({ projectRoot });
+    setNewChatRequest({ projectRoot: isDiscussionContext(projectRoot) ? "" : projectRoot });
   }
 
   function selectThread(threadId: string, projectRoot: string) {
@@ -4017,6 +4066,8 @@ export default function App() {
     setActiveId(threadId);
     activeIdRef.current = threadId;
     if (!projectRoot) {
+      setActiveProject(null);
+      discussionNavigation.current = true;
       setUnread((u) => { const n = new Set(u); n.delete(threadId); return n; });
       // (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde `!length`)
       if (reselect && (!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
@@ -4031,6 +4082,7 @@ export default function App() {
       n.delete(threadId);
       return n;
     });
+    discussionNavigation.current = isDiscussionRoot(projectRoot);
     setActiveProject(projectRoot);
     // conversation pas encore en mémoire → recharger l'historique de la
     // session (ou fil ÉVINCÉ — cf. evictedThreadsRef : contourne la garde
@@ -4939,7 +4991,7 @@ export default function App() {
   const projLabelRaw = activeProject ? projMeta[activeProject]?.label : null;
   // nom d'affichage du projet partagé par le Research Home et les en-têtes
   // locaux (plan 018) : label projMeta sinon dernier segment du chemin
-  const displayProjectName = projLabelRaw && !projLabelRaw.startsWith("icon:")
+  const displayProjectName = isDiscussionRoot(activeProject) ? t("discussions.title") : projLabelRaw && !projLabelRaw.startsWith("icon:")
     ? projLabelRaw
     : (activeProject?.split("/").filter(Boolean).pop() ?? null);
   // « connecting » = démarrage à froid (jamais connecté) → état de chargement ;
@@ -5125,7 +5177,7 @@ export default function App() {
     <TopBarMemo
       projects={projects}
       projMeta={projMeta}
-      activeProject={activeProject}
+      activeProject={isDiscussionContext(activeProject) ? null : activeProject}
       onSelectProject={selectProject}
       onAddProject={addProject}
       layout={layout}
@@ -5153,6 +5205,15 @@ export default function App() {
   // fix Task 25 : ils restent listés ici comme deps exactes (le corps les
   // lit), mais leur propre stabilité fait que handleSelectView/
   // handleOpenSettings ne changent plus d'identité entre deux renders.
+  const handleDiscussions = useCallback(() => {
+    discussionNavigation.current = true;
+    const latest = allThreadsRef.current.filter(th => isDiscussionContext(th.projectRoot) && !th.agentLink)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+    setActiveView("chats");
+    setCompact(false);
+    if (latest) selectThread(latest.id, latest.projectRoot);
+    else { setActiveId(null); activeIdRef.current = null; setActiveProject(null); }
+  }, [setActiveView]);
   const handleSelectView = useCallback((view: ViewId) => {
     setActiveView(view);
     setCompact(false);
@@ -5194,6 +5255,7 @@ export default function App() {
           running={runningProjects}
           activeView={activeView}
           onNewChat={newChat}
+          onDiscussions={handleDiscussions}
           onSelectView={handleSelectView}
           onSelectProject={selectProject}
           onAddProject={addProject}
@@ -5476,6 +5538,13 @@ export default function App() {
             {activeDeliveryState.status === "unknown" && "État de l’envoi introuvable"}
           </div>
         )}
+        {activeId && isDiscussionRoot(activeProject) && <DiscussionDocuments
+          files={files.filter(file => /\.(md|tex)$/i.test(file))}
+          busy={creatingDocument}
+          onCreate={createDiscussionDocument}
+          onOpen={openFileTab}
+          onReveal={() => { if (activeProject) void revealItemInDir(activeProject).catch(error => void showError(String(error))); }}
+        />}
         <ThreadChat
           notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? chatNotice : null}
           threadId={activeId}

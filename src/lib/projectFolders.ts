@@ -1,3 +1,4 @@
+import { isDiscussionContext } from "./discussions";
 export type ProjectFolder = {
   path: string;
   name: string;
@@ -33,6 +34,7 @@ export function normalizeProjectFolders(root: string, value?: Partial<ProjectFol
   return { mainGallery: value?.mainGallery !== false, folders };
 }
 export function projectWritableDirectories(root: string | null, settings: { projectFolders?: Record<string, ProjectFolders>; additionalDirectories: string }): string[] {
+  if (isDiscussionContext(root)) return [];
   if (root && settings.projectFolders?.[root]) return normalizeProjectFolders(root, settings.projectFolders[root]).folders.filter(f => f.access === "write").map(f => f.path);
   return settings.additionalDirectories.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
 }

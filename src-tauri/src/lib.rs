@@ -3,6 +3,7 @@ mod atelier;
 mod boot_metrics;
 mod browser;
 mod dictation;
+mod discussions;
 mod identity;
 mod local_image;
 mod macos_badge_permission;
@@ -78,6 +79,8 @@ pub fn run() {
             dictation::dictation_stop,
             dictation::dictation_cancel,
             atelier::start_atelier,
+            discussions::discussion_workspace,
+            discussions::discussion_create_document,
             remote_gateway::remote_device_action,
             atelier::gallery_token,
             appsnap::appsnap_get_state,

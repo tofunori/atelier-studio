@@ -198,11 +198,11 @@ export function ResearchHome(p: ResearchHomeBundle) {
       <div className="research-home">
         <div className="rh-noproject">
           <EmptyState
-            title={t("home.no-project-title")}
-            description={t("home.no-project-desc")}
+            title={t("discussions.home")}
+            description={t("discussions.description")}
             actions={
-              <Button variant="primary" onClick={actions.onOpenProject}>
-                {t("action.open-project")}
+              <Button variant="primary" onClick={actions.onNewChat}>
+                {t("action.new-chat")}
               </Button>
             }
           />

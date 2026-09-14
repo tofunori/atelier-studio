@@ -1,3 +1,4 @@
+import { isDiscussionContext } from "../../lib/discussions";
 // Modèle de vue PUR du Research Navigator (plan 024, étape 2) — aucune
 // dépendance React/DOM. Le panneau ne répond qu'à une question : « dans ce
 // projet, quel travail reprendre et quelles conversations ouvrir ? ».
@@ -90,7 +91,7 @@ function updatedTs(t: Thread): number {
 
 export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavigatorModel {
   const now = input.now ?? Date.now();
-  const mode: NavigatorMode = input.activeProject ? "project" : "unscoped";
+  const mode: NavigatorMode = isDiscussionContext(input.activeProject) ? "unscoped" : "project";
   const root = input.activeProject ?? "";
 
   // règles 1-2 : contexte strict (projet actif OU chats sans projet), avec
@@ -98,7 +99,7 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
   const seen = new Set<string>();
   const context: Thread[] = [];
   for (const t of input.threads) {
-    if (threadRoot(t) !== root) continue;
+    if (mode === "unscoped" ? !isDiscussionContext(threadRoot(t)) : threadRoot(t) !== root) continue;
     if (seen.has(t.id)) continue;
     seen.add(t.id);
     context.push(t);

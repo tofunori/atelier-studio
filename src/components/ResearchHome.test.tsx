@@ -45,12 +45,12 @@ function model(partial: Partial<ResearchHomeInputs> = {}) {
 }
 
 describe("ResearchHome", () => {
-  it("zéro projet : titre factuel + action Ouvrir un projet, aucune section", () => {
+  it("sans projet : démarrer une discussion", () => {
     const a = actions();
     render(<ResearchHome model={model({ activeProject: null })} actions={a} />);
-    expect(screen.getByText("Aucun projet ouvert")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Ouvrir un projet" }));
-    expect(a.onOpenProject).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(t("discussions.home"))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
+    expect(a.onNewChat).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Continuer")).toBeNull();
     expect(screen.queryByText("Démarrer")).toBeNull();
   });

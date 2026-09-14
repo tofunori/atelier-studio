@@ -92,7 +92,8 @@ for line in sys.stdin:
             if mode == 'resume-empty-once' and resumes == 1:
                 emit({'id': req['id'], 'error': {'message': 'failed to read session metadata: rollout /tmp/session.jsonl is empty'}})
                 continue
-        reply(req, {'thread': {'id': 'native'}, 'sandbox': {'type': 'readOnly'}})
+        thread_id = p.get('threadId', 'native') if mode == 'rewind-race' else 'native'
+        reply(req, {'thread': {'id': thread_id}, 'sandbox': {'type': 'readOnly'}})
     elif method == 'thread/read' and mode.startswith('rewind'):
         reply(req, {'thread': {'id': 'native', 'turns': [
             {'id': 'first', 'status': 'completed', 'items': [{'type': 'userMessage'}, {'type': 'userMessage'}]},
@@ -104,15 +105,16 @@ for line in sys.stdin:
     elif method == 'thread/read':
         reply(req, {'thread': {'id': 'native', 'turns': [{'id': 'turn', 'status': 'inProgress'}] if active_turn else []}})
     elif method == 'turn/start':
+        turn_thread_id = 'new' if mode == 'rewind-race' else 'native'
         if mode == 'start-delayed':
             def start_later():
                 global active_turn
                 active_turn = True
-                note('turn/started', turn={'id': 'turn', 'status': 'inProgress'})
+                note('turn/started', turn_thread_id, turn={'id': 'turn', 'status': 'inProgress'})
             threading.Timer(.25, start_later).start()
             continue
         active_turn = True
-        note('turn/started', turn={'id': 'turn', 'status': 'inProgress'})
+        note('turn/started', turn_thread_id, turn={'id': 'turn', 'status': 'inProgress'})
         if mode == 'start-rpc-hang': continue
         reply(req, {'turn': {'id': 'turn', 'status': 'inProgress'}})
         if mode == 'goal-first-turn': note('thread/goal/updated', goal={'objective':'first turn','status':'active'})
@@ -123,8 +125,8 @@ for line in sys.stdin:
         if mode == 'child-complete':
             emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'child'}}})
             continue
-        note('item/agentMessage/delta', delta='OK')
-        note('item/completed', item={'id': 'm', 'type': 'agentMessage', 'text': 'OK'})
+        note('item/agentMessage/delta', turn_thread_id, delta='OK')
+        note('item/completed', turn_thread_id, item={'id': 'm', 'type': 'agentMessage', 'text': 'OK'})
         if mode == 'silent-completed': continue
         if mode == 'legacy-final-missing':
             emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'turn','last_agent_message':'Recovered legacy final'}}})
@@ -132,7 +134,7 @@ for line in sys.stdin:
         if mode in ['legacy-complete', 'legacy-and-native']:
             emit({'method':'codex/event/task_complete','params':{'msg':{'turn_id':'turn','last_agent_message':'OK'}}})
             if mode == 'legacy-complete': continue
-        note('turn/completed', turn={'id': 'turn', 'status': 'completed'})
+        note('turn/completed', turn_thread_id, turn={'id': 'turn', 'status': 'completed'})
     elif method == 'turn/interrupt':
         if mode == 'turn-hang-no-ack': continue
         reply(req, {})

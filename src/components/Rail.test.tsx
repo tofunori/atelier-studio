@@ -97,7 +97,7 @@ describe("Rail — identité et vues", () => {
   it("garde les vues dans les actions secondaires", async () => {
     const onSelectView = vi.fn();
     renderUi(<Rail {...makeProps({ onSelectView })} />);
-    expect(screen.getByRole("button", { name: t("view.chats") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discussions libres" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
     expect(await screen.findByRole("menuitem", { name: t("automations.title") })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: t("view.highlights") }));
@@ -218,4 +218,29 @@ it("ouvre au clavier et affiche tous les favoris sans panneau supplémentaire", 
   expect(screen.queryByRole("button", { name: "Gérer les chats épinglés" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Chat 6 — projet6" }));
   expect(onOpen).toHaveBeenLastCalledWith(threads[6]);
+});
+
+ it("opens Discussions directly while keeping project shortcuts", () => {
+   const onDiscussions = vi.fn();
+   const { container } = renderUi(<Rail {...makeProps({ onDiscussions })} />);
+   const button = screen.getByRole("button", { name: "Discussions libres" });
+   expect(button.classList.contains("on")).toBe(false);
+   fireEvent.click(button);
+   expect(onDiscussions).toHaveBeenCalledTimes(1);
+   expect(container.querySelectorAll(".rail-proj").length).toBe(2);
+ });
+
+it("orders commands, Discussions, pinned chats and projects with one active destination", () => {
+  const thread = { id: "pin", title: "Mon chat", projectRoot: "/Users/t/thèse", status: "idle" } as any;
+  const favorites = { threads: [thread], activeId: "pin", onOpen: vi.fn(), onToggle: vi.fn(), onReorder: vi.fn() };
+  const { container, rerender } = renderUi(<Rail {...makeProps({ favorites, compact: false })} />);
+  expect(Array.from(container.querySelector(".rail-scroll")!.children).map(el => el.className)).toEqual([
+    "rail-top", "rail-views", "rail-favorites", "rail-sep", "rail-projects",
+  ]);
+  expect(container.querySelectorAll(".rail .on")).toHaveLength(1);
+  expect(container.querySelector(".rail-favorite.on")).toBeTruthy();
+  expect(screen.getByRole("button", { name: t("action.collapse-sidebar") }).getAttribute("aria-expanded")).toBe("true");
+  rerender(<Rail {...makeProps({ activeProject: null, favorites: { ...favorites, activeId: null } })} />);
+  expect(container.querySelectorAll(".rail .on")).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Discussions libres" }).getAttribute("aria-current")).toBe("page");
 });

@@ -1,3 +1,4 @@
+import { isDiscussionContext, isDiscussionRoot } from "../lib/discussions";
 // Panneau Projets = Research Navigator du projet actif (plan 024, option A
 // approuvée). Le panneau ne répond qu'à une question : « dans ce projet, quel
 // travail reprendre et quelles conversations ouvrir ? ». Le changement de
@@ -391,7 +392,7 @@ export default function Sidebar(p: {
               children: unlinkItems,
             }]
           : []),
-      ...(p.projects.some((root) => root !== threadRoot(thread))
+      ...(!isDiscussionRoot(thread.projectRoot) && p.projects.some((root) => root !== threadRoot(thread))
         ? [{
             key: "move",
             label: t("thread.move"),
@@ -531,7 +532,7 @@ export default function Sidebar(p: {
 
         <SidebarContent className="tw:min-h-0 tw:overflow-hidden tw:p-0">
           {/* key = contexte : remount + fondu 140 ms au changement de projet */}
-          <div className="side-scroll pnav-scroll" key={p.activeProject ?? "@sans-projet"}>
+          <div className="side-scroll pnav-scroll" key={isDiscussionContext(p.activeProject) ? "@sans-projet" : p.activeProject!}>
         {contextEmpty && (
           <p className="pnav-empty">
             {t(model.mode === "project" ? "sidebar.empty-project" : "sidebar.empty-unscoped")}

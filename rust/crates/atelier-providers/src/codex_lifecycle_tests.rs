@@ -456,6 +456,7 @@ async fn rewind_first_message_can_resume_immediately_without_an_empty_rollout_ra
     req.session_id = prepared["sessionId"].as_str().map(str::to_string);
     let result = provider.send(req).await;
     assert!(result.ok, "{:?}", result.error);
+    assert_eq!(result.session_id.as_deref(), Some("new"));
     let requests = fake.requests();
     assert!(!requests.iter().any(|request| request["method"] == "thread/start"));
     assert!(requests.iter().any(|request| {

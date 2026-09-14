@@ -1,3 +1,4 @@
+import { isDiscussionContext } from "../lib/discussions";
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
@@ -42,6 +43,7 @@ export default function Rail(p: {
   activeView: ViewId;
   compact: boolean;
   onNewChat: () => void;
+  onDiscussions?: () => void;
   onSelectView: (view: ViewId) => void;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
@@ -59,46 +61,52 @@ export default function Rail(p: {
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
+  const favoriteActive = p.activeView === "chats" && Boolean(
+    p.favorites?.threads.some(th => th.id === p.favorites?.activeId),
+  );
+  const discussionsActive = p.activeView === "chats" && !favoriteActive && isDiscussionContext(p.activeProject);
+
   return (
-    <div className={`rail rail-clean ${p.activeView === "chats" && p.favorites?.threads.some(th => th.id === p.favorites?.activeId) ? "has-active-favorite" : ""}`}>
-      {/* zone scrollable : tout sauf Réglages (épinglé en bas) */}
+    <nav className="rail rail-clean" aria-label="Navigation principale">
       <div className="rail-scroll">
-      {/* zone haute : vues et surfaces. Elle défile POUR ELLE-MÊME quand le
-          tiroir « autres surfaces » s'ouvre — sinon elle écrasait les projets,
-          qui n'ont rien demandé. */}
-      <div className="rail-top">
-      <IconButton className={`rail-btn ${!p.compact ? "on" : ""}`}
-        label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
-        title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
-        <SidebarIcon size={19} />
-      </IconButton>
-      <div className="rail-views">
-        <IconButton className={`rail-view ${!p.favorites?.threads.some(th => th.id === p.favorites?.activeId) && p.activeView === "chats" ? "on" : ""}`}
-          label={t("view.chats")} title={t("view.chats")} onClick={() => p.onSelectView("chats")}>
-          <ChatsIcon size={19} />
-        </IconButton>
-        <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
-          trigger={<IconButton className="rail-btn" label="Autres actions" title="Autres actions">…</IconButton>}
-          items={[
-            { key: "activity", label: "Activité en cours", onSelect: () => setShowActivity(v => !v) },
-            { key: "new", label: t("action.new-chat"), onSelect: p.onNewChat },
-            { key: "automations", label: t("automations.title"), onSelect: () => p.onSelectView("automations") },
-            { key: "highlights", label: t("view.highlights"), onSelect: () => p.onSelectView("highlights") },
-          ]} />
-      </div>
-      </div>{/* fin rail-top */}
-      <div className="rail-sep" />
-      {p.favorites && p.favorites.threads.length > 0 && <><RailFavorites {...p.favorites} activeId={p.activeView === "chats" ? p.favorites.activeId : null} /><div className="rail-sep" /></>}
-      {/* zone des projets : sa propre zone de défilement, jamais comprimée */}
-      <div className="rail-projects">
+        <div className="rail-top" role="group" aria-label="Commandes">
+          <IconButton className="rail-btn"
+            aria-expanded={!p.compact}
+            label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
+            title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
+            <SidebarIcon size={19} />
+          </IconButton>
+          <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
+            trigger={<IconButton className="rail-btn" label="Autres actions" title="Autres actions">…</IconButton>}
+            items={[
+              { key: "activity", label: "Activité en cours", onSelect: () => setShowActivity(v => !v) },
+              { key: "new", label: t("action.new-chat"), onSelect: p.onNewChat },
+              { key: "automations", label: t("automations.title"), onSelect: () => p.onSelectView("automations") },
+              { key: "highlights", label: t("view.highlights"), onSelect: () => p.onSelectView("highlights") },
+            ]} />
+        </div>
+        <div className="rail-views" role="group" aria-label="Discussions libres">
+          <IconButton className={`rail-view ${discussionsActive ? "on" : ""}`}
+            aria-current={discussionsActive ? "page" : undefined}
+            label="Discussions libres" title="Discussions libres"
+            onClick={() => p.onDiscussions ? p.onDiscussions() : p.onSelectView("chats")}>
+            <ChatsIcon size={19} />
+          </IconButton>
+        </div>
+        {p.favorites && p.favorites.threads.length > 0 && (
+          <RailFavorites {...p.favorites} activeId={p.activeView === "chats" ? p.favorites.activeId : null} />
+        )}
+        <div className="rail-sep" aria-hidden="true" />
+        <div className="rail-projects" role="group" aria-label="Projets">
       {p.projects.map((root) => {
         const m = p.meta[root];
-        const active = root === p.activeProject;
+        const active = root === p.activeProject && p.activeView === "chats" && !favoriteActive;
         return (
           <RowButton
             key={root}
             className={`rail-proj ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
+            aria-current={active ? "page" : undefined}
             title={root.split("/").pop()}
             draggable
             onDragStart={(e) => {
@@ -137,7 +145,7 @@ export default function Rail(p: {
           </RowButton>
         );
       })}
-      <IconButton className="rail-btn" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
+      <IconButton className="rail-btn rail-add-project" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
         <PlusIcon size={19} />
       </IconButton>
       </div>{/* fin rail-projects */}
@@ -165,6 +173,6 @@ export default function Rail(p: {
           anchor={{ x: 56, y: menu.y }}
         />
       )}
-    </div>
+    </nav>
   );
 }

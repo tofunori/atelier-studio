@@ -1174,20 +1174,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    le sépare, un filet suivrait le rayon du coin en arc de 1px */
 .rail { width: 48px; flex-shrink: 0; background: var(--surface-panel); display: flex;
   flex-direction: column; align-items: center; position: relative; }
-/* zone scrollable : vues + surfaces + projets. DEUX zones indépendantes —
-   ouvrir le tiroir des surfaces ne doit pas déplacer ni comprimer les projets.
-   PIÈGE : dans une colonne flex, `height: 38px` n'est qu'une base — sans
-   `flex: none`, les icônes s'écrasent au lieu de faire défiler le conteneur. */
+/* Commands and Discussions stay reachable; favorites and projects scroll
+   independently when the window is short. Controls never shrink. */
 .rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 10px 0 8px; }
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  padding: 8px 0; }
 .rail-scroll > *, .rail-top > *, .rail-projects > * { flex: none; }
 .rail-top, .rail-projects { width: 100%; display: flex; flex-direction: column;
   align-items: center; gap: 8px; overflow-y: auto; overflow-x: hidden;
   scrollbar-width: none; min-height: 0; }
 /* la zone haute cède la place en premier ; les projets gardent trois rangées */
-.rail-top { flex: 0 1 auto; }
-.rail-projects { flex: 1 1 auto; gap: 4px; min-height: 90px; }
+.rail-top { flex: none; gap: 2px; margin-bottom: 14px; }
+.rail-projects { flex: 1 1 auto; gap: 4px; min-height: 80px; }
 .rail-scroll::-webkit-scrollbar, .rail-top::-webkit-scrollbar,
 .rail-projects::-webkit-scrollbar { display: none; }
 /* zone épinglée en bas : Réglages, toujours visible */
@@ -1313,23 +1311,23 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
-  gap: 6px; padding: 8px 0 10px; border-top: 1px solid var(--border); }
+  gap: 6px; padding: 8px 0 10px; }
 .rail .flex { flex: 1; }
 .rail-btn { width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--text-secondary); font-size: var(--fs-xl); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; }
 .rail-btn:hover { color: var(--text-primary); background: var(--bg-ctl); }
 /* barre d'activité : icônes de vue (Chats / Surlignés) au-dessus des projets */
-.rail-views { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail-views { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; margin-bottom: 12px; }
 .rail-view { position: relative; width: 38px; height: 38px; border-radius: var(--r-m); border: none;
   background: transparent; color: var(--text-secondary); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background-color var(--ease), color var(--ease); }
 .rail-view:hover { color: var(--text-primary); background: var(--bg-ctl); }
 .rail-view.on { color: var(--text-primary); background: var(--bg-ctl); }
-.rail-view.on::before { content: ""; position: absolute; left: -5px; top: 7px; bottom: 7px;
+.rail-view.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px;
   width: 2px; border-radius: var(--r-s); background: var(--accent); }
-.rail-sep { width: 26px; height: 1px; background: var(--border); margin: 2px 0 4px; flex-shrink: 0; }
+.rail-sep { width: 26px; height: 1px; background: var(--border); margin: 4px 0 12px; flex-shrink: 0; }
 /* tiroir « Autres surfaces » : les surfaces secondaires se déplient en place */
 .rail-more svg { transition: transform var(--motion-fast) var(--ease-out); }
 .rail-more.open svg { transform: rotate(90deg); }
@@ -1341,9 +1339,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   font-size: var(--fs-xl); font-weight: 500; cursor: pointer; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-/* la couleur du projet = un fin liseré bas, pas un aplat criard */
-.rail-proj::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 3px;
-  height: 2px; border-radius: var(--r-pill); background: var(--proj-c, transparent); opacity: .72; }
+/* Identity is a small dot; selection has its own left marker. */
+.rail-proj::after { content: ""; position: absolute; right: 5px; bottom: 5px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--proj-c, transparent); opacity: .85; }
+.rail-add-project { margin-top: 2px; color: var(--text-muted); }
 /* actif = fond + trace orange courte à gauche — jamais fond + bordure orange
    + liseré empilés (plan 023, étape 6 Rail) */
 .rail-proj:hover { color: var(--text-primary); background: color-mix(in srgb, var(--bg-ctl) 70%, transparent) !important; }
@@ -5761,14 +5760,13 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-image-deliverable { margin: 4px 0 8px; }
 
 /* Compact navigation: global chat favorites, then project identities. */
-.rail-clean .rail-favorites { display:flex; flex-direction:column; align-items:center; gap:6px; width:100%; flex:0 1 auto; max-height:40vh; overflow-y:auto; min-height:44px; scrollbar-width:none; }
-.rail-clean .rail-favorite { display:flex; flex-direction:column; gap:2px; width:38px; height:42px; flex:none; position:relative; border-radius:var(--r-m); color:var(--text-secondary); }
+.rail-clean .rail-favorites { display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; flex:0 1 auto; max-height:28vh; overflow-y:auto; min-height:36px; margin-bottom:8px; scrollbar-width:none; }
+.rail-clean .rail-favorite { display:flex; flex-direction:column; gap:2px; width:34px; height:34px; flex:none; position:relative; border-radius:var(--r-m); color:var(--text-secondary); }
 .rail-clean .rail-favorite > .chat-seal { width:18px; height:18px; flex:none; }
 .rail-favorite-unread { position:absolute; top:4px; right:4px; width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px var(--surface-panel); pointer-events:none; }
 .chat-seal-option { display:inline-flex; align-items:center; gap:10px; }
 .rail-clean .rail-favorite.on { color:var(--text-primary); background:var(--bg-ctl); }
 .rail-clean .rail-favorite.on::before { content:""; position:absolute; left:0; top:7px; bottom:7px; width:3px; border-radius:2px; background:var(--accent); }
-.rail-clean.has-active-favorite .rail-proj.on::before { display:none; }
 .rail-clean .rail-favorite:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 
 /* A quiet, direct pin survives the narrow navigator layout. */
