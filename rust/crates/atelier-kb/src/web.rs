@@ -1,7 +1,7 @@
 //! `add --kind web` (fetch réel) — miroir de `defaultFetchPage`/`htmlToText`
 //! (`sidecar/knowledge.mjs`). Appel réseau réel via `reqwest::blocking`
 //! (déjà utilisé par `article_meta::crossref_meta`), aucun mock : fixture de
-//! parité groupe d (`gallery/server/tests/kb_parity/fixtures/d-network.json`),
+//! parité groupe d (`gallery/tests/kb_parity/fixtures/d-network.json`),
 //! best-effort — sautée par le harnais si le réseau est indisponible.
 //!
 //! EXCEPTION documentée au principe de parité stricte (plan 065, B7/KBS-03 —

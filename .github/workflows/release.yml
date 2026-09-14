@@ -28,8 +28,6 @@ jobs:
         run: brew install poppler
       - name: Install frontend deps
         run: npm ci
-      - name: Install sidecar deps (pour le staging)
-        run: cd sidecar && npm ci
       - name: Install gallery deps
         run: npm --prefix gallery ci
       - name: Install shared protocol deps
@@ -45,7 +43,7 @@ jobs:
           bash scripts/stage-rust-server.sh
           bash scripts/stage-appsnap.sh
       # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
-      - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
+      - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
         env:
           # The shipped gallery runtime and the app backend are both Rust.

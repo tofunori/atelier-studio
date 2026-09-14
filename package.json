@@ -24,11 +24,11 @@
     "build:web": "vite build",
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",
-    "test:sidecar": "npm --prefix sidecar test",
+    "test:kb:parity": "node --test gallery/tests/kb_parity.test.mjs",
     "test:gallery:unit": "python3 -m unittest discover -s gallery/tests && node --test gallery/server/tests/gallery_commands.test.mjs gallery/server/tests/pdf_passage.test.mjs gallery/server/tests/pdf_selection.test.mjs gallery/server/tests/csv_table.test.mjs gallery/server/tests/csv_view_surface.test.mjs gallery/server/tests/studio_editor_contract.test.mjs",
     "test:gallery:parity": "cd gallery && node server/tests/parity.mjs",
     "test:gallery:diff": "node gallery/server/tests/diff_suite.mjs",
-    "test:gallery": "npm run test:gallery:unit && npm run test:gallery:parity && npm run test:gallery:diff",
+    "test:gallery": "npm run test:gallery:unit && npm run test:gallery:diff && npm run test:kb:parity",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "test:rust-workspace": "cargo test --manifest-path rust/Cargo.toml --locked",
     "test:remote": "cargo test -p atelier-remote --manifest-path rust/Cargo.toml --locked",
@@ -41,7 +41,7 @@
     "verify:mobile": "npm run test:protocol && npm run test:remote && npm run mobile:typecheck && npm run mobile:test && npm run mobile:build && npm run mobile:check-secrets",
     "check:backend-policy": "node scripts/check-backend-policy.mjs",
     "soak:sidecar": "bash scripts/soak-rust-sidecar.sh",
-    "verify": "npm run typecheck:all && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:sidecar && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",
+    "verify": "npm run typecheck:all && npm run build:web && node scripts/check_entry_budget.mjs && npm run test:frontend && npm run test:gallery && npm run test:rust && npm run test:protocol && npm run test:rust-workspace && npm run check:backend-policy",
     "verify:e2e": "npm --prefix gallery run test:e2e"
   },
   "dependencies": {

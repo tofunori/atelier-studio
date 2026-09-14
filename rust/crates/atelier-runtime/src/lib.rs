@@ -12,7 +12,6 @@ mod goals;
 pub mod instance;
 pub mod kb_block;
 mod message_edits;
-pub mod parity;
 pub mod paths;
 mod project_folders;
 pub mod prov;

@@ -25,7 +25,6 @@ dist-ssr
 src-tauri/target/
 rust/target/
 *.tsbuildinfo
-sidecar/node_modules/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
 src-tauri/node-dist/

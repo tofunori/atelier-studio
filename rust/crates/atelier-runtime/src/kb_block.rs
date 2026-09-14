@@ -709,27 +709,13 @@ mod tests {
         assert_eq!(ids(&native["archivedSources"]), vec!["cccc3333"]);
         assert_eq!(native["collections"][0]["slug"], json!("agu26"));
 
-        // parité contre le CLI réel quand node est disponible
-        let node = match crate::ws_router::kb_node_bin_for_tests() {
-            Some(node) => node,
-            None => return,
-        };
-        let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
-        if !sidecar.join("kb_cli.mjs").is_file() {
-            return;
-        }
-        let out = std::process::Command::new(node)
-            .arg(sidecar.join("kb_cli.mjs"))
-            .args(["list", "--dir"])
-            .arg(&knowledge)
-            .output()
-            .expect("node exécutable");
-        assert!(
-            out.status.success(),
-            "CLI list: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let cli: Value = serde_json::from_slice(&out.stdout).unwrap();
+        // Parité contre la sortie du CLI Node `list`, figée le 2026-09-14
+        // (dernière exécution réelle de `sidecar/kb_cli.mjs` avant son
+        // retrait — plan 065). Le natif doit rester identique à cet oracle.
+        let cli: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/kb_node_oracle/list.json"
+        ))
+        .unwrap();
         assert_eq!(ids(&cli["sources"]), ids(&native["sources"]));
         assert_eq!(cli["archivedCount"], native["archivedCount"]);
         assert_eq!(
@@ -741,15 +727,9 @@ mod tests {
 
     #[test]
     fn kb_block_parity_node() {
-        // Parité octet-pour-octet avec sidecar/kb_prompt.mjs + kbBlockEntries.
-        let node = match crate::ws_router::kb_node_bin_for_tests() {
-            Some(node) => node,
-            None => return,
-        };
-        let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../sidecar");
-        if !sidecar.join("kb_prompt.mjs").is_file() {
-            return;
-        }
+        // Parité octet-pour-octet avec `sidecar/kb_prompt.mjs::withKbBlock`
+        // + `knowledge.mjs::kbBlockEntries`, figée le 2026-09-14 (dernière
+        // exécution réelle du module Node avant son retrait — plan 065).
         let dir = tempdir().unwrap();
         write_fixture(dir.path());
         let knowledge_dir = dir.path().join("knowledge");
@@ -769,34 +749,8 @@ mod tests {
             true,
         );
 
-        let script = r#"
-const { pathToFileURL } = require("node:url");
-(async () => {
-  const kbPrompt = await import(pathToFileURL(process.env.SIDECAR + "/kb_prompt.mjs").href);
-  const knowledge = await import(pathToFileURL(process.env.SIDECAR + "/knowledge.mjs").href);
-  const store = new knowledge.KnowledgeStore(process.env.KDIR);
-  const entries = knowledge.kbBlockEntries(store,
-    ["aaaa1111", "bbbb2222", "cccc3333", "dddd4444", "gbrain"], ["cccc3333"]);
-  const block = kbPrompt.withKbBlock("PROMPT", {
-    toolPath: "/srv/atelier-kb", entries, gbrain: true,
-  });
-  process.stdout.write(block + "\u0000" + kbPrompt.stripKbBlock(block));
-})().catch((e) => { console.error(e); process.exit(1); });
-"#;
-        let out = std::process::Command::new(node)
-            .arg("-e")
-            .arg(script)
-            .env("SIDECAR", sidecar.as_os_str())
-            .env("KDIR", knowledge_dir.as_os_str())
-            .output()
-            .expect("node exécutable");
-        assert!(
-            out.status.success(),
-            "script node en échec: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let raw = String::from_utf8(out.stdout).unwrap();
-        let (node_out, node_stripped) = raw.split_once('\u{0}').expect("séparateur");
+        let node_out = include_str!("../tests/fixtures/kb_node_oracle/block.txt");
+        let node_stripped = include_str!("../tests/fixtures/kb_node_oracle/block_stripped.txt");
         assert_eq!(rust_out, node_out, "bloc <atelier-kb> divergent mjs vs rs");
         // parité du strip aussi — malgré le titre piégé du fixture
         assert_eq!(node_stripped, "PROMPT");

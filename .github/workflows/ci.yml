@@ -22,7 +22,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            sidecar/package-lock.json
             gallery/package-lock.json
             mobile/package-lock.json
             packages/atelier-protocol/package-lock.json
@@ -40,8 +39,6 @@ jobs:
         run: brew install poppler
       - name: Install root deps
         run: npm ci
-      - name: Install sidecar deps
-        run: npm --prefix sidecar ci
       - name: Install gallery deps
         run: npm --prefix gallery ci
       - name: Install mobile deps
@@ -57,7 +54,7 @@ jobs:
           bash scripts/stage-appsnap.sh
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
-      - name: Verify (typecheck, build, frontend, sidecar, gallery, Rust)
+      - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
         env:
           # Production ships the Rust backend and Node gallery runtime. The

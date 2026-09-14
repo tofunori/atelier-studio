@@ -1112,7 +1112,7 @@ mod tests {
         // PDF réel (fixture de parité) : la conversion locale doit réussir
         // ensuite, avec le warning MinerU qui documente la tentative ratée —
         // même contrat que Node (repli, jamais un échec sec).
-        let pdf_path = PathBuf::from("../../../gallery/server/tests/kb_parity/inputs/sample.pdf");
+        let pdf_path = PathBuf::from("../../../gallery/tests/kb_parity/inputs/sample.pdf");
         assert!(pdf_path.exists(), "fixture PDF introuvable: {}", pdf_path.display());
         let convert = convert_pdf_with(&pdf_path, tmp.path(), mineru, "/bin/sh", &mut |_| {}).unwrap();
         assert_eq!(convert.converter, "local");

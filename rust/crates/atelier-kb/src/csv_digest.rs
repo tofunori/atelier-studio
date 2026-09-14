@@ -1,6 +1,6 @@
 //! Port de `sidecar/csv_digest.mjs` (plan 065, C3) — miroir fonctionnel
 //! (pas octet-pour-octet visé, mais vérifié par les fixtures de parité
-//! `gallery/server/tests/kb_parity/fixtures/a-local-store.json`).
+//! `gallery/tests/kb_parity/fixtures/a-local-store.json`).
 //! Aucun réseau/spawn — fonction pure.
 
 use once_cell::sync::Lazy;
@@ -332,7 +332,7 @@ mod tests {
     }
 
     /// Capture réelle de `sidecar/csv_digest.mjs::csvDigest` sur
-    /// `gallery/server/tests/kb_parity/inputs/large.csv` (node -e, 2026-08-15)
+    /// `gallery/tests/kb_parity/inputs/large.csv` (node -e, 2026-08-15)
     /// — embarquée en dur pour que le test reste autonome (pas de dépendance
     /// à Node à l'exécution de `cargo test`). Vérifie notamment l'arrondi
     /// flottant (`moy. 2012`, `moy. 0.5034`) octet pour octet.
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn large_csv_matches_node_capture() {
-        let raw = std::fs::read_to_string("../../../gallery/server/tests/kb_parity/inputs/large.csv").unwrap();
+        let raw = std::fs::read_to_string("../../../gallery/tests/kb_parity/inputs/large.csv").unwrap();
         let out = csv_digest(&raw, "large.csv", CSV_FULL_MAX).unwrap();
         assert_eq!(out, LARGE_CSV_EXPECTED);
         assert_eq!(js_len(&out), 1299);

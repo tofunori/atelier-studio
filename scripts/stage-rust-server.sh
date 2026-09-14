@@ -5,12 +5,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 DIST=src-tauri/rust-server-dist
 BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp)
-# Wrappers agents KB (plan 065, vague 3 — préparation) : binaires Rust
-# stagés CÔTÉ À CÔTÉ des scripts sh existants (sidecar/atelier-kb,
-# sidecar/atelier-zotero-passages), jamais à leur place — le suffixe `-rs`
-# les distingue dans le dist. Rien ne les invoque en production tant que
-# les chemins injectés dans les prompts (kb_block.rs, send.rs) n'ont pas
-# basculé ; ce basculement est une décision d'activation séparée.
+# Wrappers agents KB (plan 065 phase C) : binaires Rust invoqués par les
+# prompts (kb_block.rs, send.rs). Le suffixe `-rs` est un héritage : ils ont
+# cohabité avec les wrappers shell `sidecar/atelier-kb` /
+# `sidecar/atelier-zotero-passages` (retirés du dépôt le 2026-09-14).
 KB_BIN_NAMES=(atelier-kb-rs atelier-zotero-passages-rs)
 
 mkdir -p "$DIST"
