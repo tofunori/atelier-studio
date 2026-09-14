@@ -80,6 +80,7 @@ pub fn run() {
             dictation::dictation_cancel,
             atelier::start_atelier,
             discussions::discussion_workspace,
+            discussions::discussion_ensure_document,
             discussions::discussion_create_document,
             remote_gateway::remote_device_action,
             atelier::gallery_token,
