@@ -7,6 +7,18 @@
 
 ## Status
 
+- **DONE — clos le 2026-09-14** : `sidecar/` (chat + chaîne KB Node, ~26 k
+  lignes) et `gallery/server/` (serveur galerie Node, ~4 k lignes) supprimés
+  du dépôt ; `parity.rs` (dual-runner) avec eux. Les oracles Node sont figés
+  en fixtures (`rust/crates/atelier-runtime/tests/fixtures/kb_node_oracle/`,
+  `gallery/tests/kb_parity/` rejoué contre `atelier-kb-rs` dans `verify`).
+  Les harnais galerie (diff_suite étage A, e2e) spawnent
+  `atelier-gallery-server` via `gallery/tests/gallery_server.mjs`.
+  `scripts/check-backend-policy.mjs` verrouille l'absence des deux dossiers.
+  Phase D (runtime Node du bundle) était déjà effective : `node-runtime`
+  n'apparaît plus dans `tauri.conf.json`. Reste hors périmètre : les
+  serveurs galerie Python historiques (`gallery/cmux_gallery.py`,
+  `fig_annotate_server.py`), non lancés par l'app.
 - **Priority**: P2 (après la v1 commercialisable — NE PAS bloquer la signature)
 - **Effort**: L (2-4 semaines réparties)
 - **Risk**: MED (parité fonctionnelle KB)

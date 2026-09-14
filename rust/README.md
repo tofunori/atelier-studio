@@ -91,11 +91,11 @@ bash scripts/stage-rust-server.sh
 cargo build -p atelier-gallery --manifest-path rust/Cargo.toml
 ```
 
-**Important** : le sidecar chat Node (`sidecar/index.mjs`) n'est plus staged —
-voir `docs/soak/033-COMPLETE.md`. `scripts/stage-sidecar.sh` ne stage plus
-que la chaîne CLI base de connaissances (repli `ATELIER_KB_ENGINE=node`, soak
-séparé et actif — plan 065 phase C) et le wrapper agent `atelier-gallery-tool`.  
-Galerie : Rust seul, backends Node/Python retirés — voir
+**Important** : plus aucun runtime Node dans le dépôt ni dans le bundle
+(plan 065 clos le 2026-09-14) — `sidecar/` et `gallery/server/` sont
+supprimés ; `scripts/stage-rust-server.sh` stage les binaires Rust
+(serveur chat, galerie, `atelier-kb-rs`, `atelier-zotero-passages-rs`,
+`atelier-gallery-tool`). Historique : `docs/soak/033-COMPLETE.md`,
 `docs/soak/galerie-COMPLETE.md`.  
 Soak : `docs/SOAK_033_RUST_BACKEND.md` · `npm run soak:sidecar` · `npm run check:backend-policy`.
 

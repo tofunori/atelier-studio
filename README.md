@@ -101,7 +101,7 @@ PDF annotations are stored beside the project files rather than burned into the 
 <details>
 <summary>Development and architecture</summary>
 
-The desktop frontend uses React and TypeScript in Tauri. The backend and packaged gallery server are Rust. The `sidecar/` and `gallery/server/` JavaScript code remains for compatibility and testing.
+The desktop frontend uses React and TypeScript in Tauri. The backend, the knowledge-base CLI and the packaged gallery server are Rust (`rust/crates/`); the repository ships no Node runtime. JavaScript is limited to the browser-side editors (`gallery/src`, `gallery/assets`) and the test harnesses (`gallery/tests`).
 
 ```sh
 npm ci

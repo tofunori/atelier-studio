@@ -10,9 +10,9 @@ du vieux code et font croire que le fix « ne marche pas ».
 
 - L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
   Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
-- 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (Rust seul
-  depuis plan 065 phase A : `Resources/rust-server/atelier-studio-server` ; l'ancien
-  repli `ATELIER_BACKEND=node` est retiré, voir `docs/soak/033-COMPLETE.md`),
+- 3 familles de process : l'app (`tauri-app`), le **sidecar chat** (Rust :
+  `Resources/rust-server/atelier-studio-server` ; le runtime Node a quitté
+  le dépôt le 2026-09-14, plan 065 clos — voir `docs/soak/033-COMPLETE.md`),
   les **serveurs galerie** (`atelier-gallery-server` Rust seul depuis plan 065
   phase B : un par projet, zombies si non tués ; les backends Node/Python et
   `ATELIER_GALLERY_BACKEND` sont retirés, voir `docs/soak/galerie-COMPLETE.md`).
@@ -47,24 +47,18 @@ echo "Worktree testé : $ROOT"
 # 1. VÉRIFICATIONS (obligatoires avant tout build)
 npx tsc --noEmit          # doit passer
 npx vite build            # doit passer
-(cd sidecar && npx vitest run)   # 19+ tests verts
-# si gallery/ touché (serveur OU assets éditeurs) :
-(cd gallery && node server/tests/parity.mjs)      # « parity: ok »
-(cd gallery && node server/tests/diff_suite.mjs)  # « diff suite: ok (N tests) »
+npm run test:kb:parity    # contrat KB contre atelier-kb-rs (114 steps verts)
+# si gallery/ touché (assets éditeurs) — étage A sur atelier-gallery-server (Rust) :
+node gallery/tests/unit/diff_suite.mjs  # « diff suite: ok (N tests) »
 
 # 2. TUER TOUT (l'ordre importe peu, l'exhaustivité oui)
 pkill -9 -x tauri-app
-pkill -9 -f "Resources/sidecar/index.mjs"
-pkill -9 -f "sidecar/index.mjs"
 pkill -9 -f "atelier-studio-server"
 pkill -9 -f "Resources/rust-server/atelier-studio-server"
 pkill -9 -f "atelier-gallery-server"
-for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
-  case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
-done
 sleep 1
 
-# 3. BUILD .APP (stage-gallery/stage-sidecar sont automatiques ; aucun DMG ici)
+# 3. BUILD .APP (stage-gallery/stage-rust-server sont automatiques ; aucun DMG ici)
 npm run tauri:build:app > "$BUILD_LOG" 2>&1
 # exit 0 attendu ; toute erreur doit être investiguée
 grep -iE "error" "$BUILD_LOG"   # doit être VIDE

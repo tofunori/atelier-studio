@@ -2,8 +2,8 @@
 
 Leçons tirées d'échecs non triviaux résolus. **Avant de toucher à
 `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`,
-lire cette page** — puis lancer `node gallery/server/tests/diff_suite.mjs`
-(34 tests) qui verrouille tout ce qui suit. La suite est obligatoire au
+lire cette page** — puis lancer `node gallery/tests/unit/diff_suite.mjs`
+(290 tests au 2026-09-14) qui verrouille tout ce qui suit. La suite est obligatoire au
 protocole de relance dès que `gallery/` est touché.
 
 Contexte : les éditeurs sont des pages web servies dans des **iframes WebView**
@@ -90,9 +90,16 @@ ne pouvait plus jamais avancer. Verrouillé côté Rust par
 `gitcommit_places_a_milestone_when_auto_commits_left_a_clean_tree`
 (`tests/http_smoke.rs`), côté Node par « gitcommit jalon sur arbre propre ».
 
-**Leçon de parité** : un test vert dans `diff_suite.mjs` ne prouve RIEN sur le
-comportement de l'app — l'étage A de cette suite interroge le serveur Node,
-l'app tourne sur Rust. Toute route dupliquée se teste des DEUX côtés.
+**Leçon de parité** (historique) : jusqu'au 2026-09-14 l'étage A de
+`diff_suite.mjs` interrogeait le serveur Node alors que l'app tournait sur
+Rust — un test vert ne prouvait rien. Depuis, l'étage A spawne
+`atelier-gallery-server` (Rust) via `gallery/tests/gallery_server.mjs` : la
+suite exerce le même binaire que l'app. Deux pièges de ce serveur pour les
+harnais : (1) un HTML arbitraire à la racine du projet est servi sous
+`Content-Security-Policy: sandbox` → une page hôte de test doit passer par
+`serveHostPage()` (page.route), sinon la galerie encadrée a une origine
+opaque (« 0 files ») ; (2) le watcher fs doit rester actif (pas de
+`--no-watch`) pour les specs de rechargement externe.
 
 ## 4. Basculer d'onglet interne (display:none) ne déclenche NI `visibilitychange` NI `IntersectionObserver`
 

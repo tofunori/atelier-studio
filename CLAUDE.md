@@ -1,6 +1,6 @@
 # Atelier Studio — règles pour agents
 
-App macOS Tauri 2 : chat multi-agents (CLIs claude/codex/grok/opencode/kimi via backend Rust `atelier-studio-server` — le sidecar chat Node est retiré, plan 065 phase A) + atelier scientifique (galerie, éditeurs, PDF, browser, terminal). Utilisateur : Thierry (MSc glaciologie).
+App macOS Tauri 2 : chat multi-agents (CLIs claude/codex/grok/opencode/kimi via backend Rust `atelier-studio-server`) + atelier scientifique (galerie, éditeurs, PDF, browser, terminal). Utilisateur : Thierry (MSc glaciologie).
 
 ## Système de design — CONTRAIGNANT
 
@@ -18,28 +18,32 @@ Toute valeur visuelle vient des tokens — **ne jamais inventer de valeur locale
 - **Motion** : tout changement d'état visible transitionne en 120–150ms (opacity/transform). Jamais plus de 200ms. Respecter `prefers-reduced-motion`.
 - **Thèmes** : toute couleur passe par les variables CSS — jamais de hex en dur dans un composant (exceptions existantes : sémantique ok/warn/erreur documentée dans App.css).
 - **Boutons** : jamais de `<button>` nu hors `src/components/ui/` et `src/components/shadcn/` — utiliser `Button` (action textuelle), `IconButton` (icône seule) ou `RowButton` (rangée/chip/cellule/swatch/trigger cloné ; transmet ref et tous attributs natifs). Verrouillé par `css-contract.test.ts`.
-- **Menus contextuels et déroulants** : jamais de menu fait main. React → `DropdownMenu` / `ContextMenu` / `Popover` de `src/components/ui/` (shadcn) ; galerie et éditeurs → la classe `.menu` du template (`.mi` pour les rangées). Modèle commun : fond `--bg-pop`/`--card`, **aucune bordure**, ombre `--elev`, rayon 10 (conteneur) / 6 (rangées), rangées 12 px poids 400, survol `--bg-ctl`/`--card2`, sélection = ✓ SVG à droite, destructif = `--status-error`, ouverture au **clic** (jamais au survol), 120-150 ms. Verrouillé par `css-contract.test.ts` (motifs `*menu*`, `*pop*`, `*dropdown*`) et `gallery/server/tests/theme_contract.test.mjs`.
+- **Menus contextuels et déroulants** : jamais de menu fait main. React → `DropdownMenu` / `ContextMenu` / `Popover` de `src/components/ui/` (shadcn) ; galerie et éditeurs → la classe `.menu` du template (`.mi` pour les rangées). Modèle commun : fond `--bg-pop`/`--card`, **aucune bordure**, ombre `--elev`, rayon 10 (conteneur) / 6 (rangées), rangées 12 px poids 400, survol `--bg-ctl`/`--card2`, sélection = ✓ SVG à droite, destructif = `--status-error`, ouverture au **clic** (jamais au survol), 120-150 ms. Verrouillé par `css-contract.test.ts` (motifs `*menu*`, `*pop*`, `*dropdown*`) et `gallery/tests/unit/theme_contract.test.mjs`.
 - **Échelles Tailwind snappées** : dans `src/styles/shadcn.css`, `--radius-sm/md`→6px, `--radius-lg/xl`→10px, `--text-xs`→12px, `--text-sm`→13px — les classes nommées `rounded-*`/`text-xs/sm` restent donc dans le système, même dans du code généré par le CLI shadcn. Ombres d'overlay via `shadow-[var(--elevation-overlay)]`, voile de modale via `bg-[var(--scrim)]` (verrouillé aussi).
 
 ## Règle Rust-first — CONTRAIGNANTE (décision 2026-08-16)
 
 **Toute nouvelle implémentation backend s'écrit en Rust, jamais en Node.**
-Le port KB (plan 065) est en voie d'achèvement ; les `.mjs` de `sidecar/`
-sont un existant EN EXTINCTION : on les corrige (parité, bugs) mais on n'y
-ajoute AUCUNE fonctionnalité nouvelle. Une feature qui semble « plus vite en
-JS » se fait quand même en Rust (`rust/crates/`), avec ses tests. Les outils
-externes (pdftotext, yt-dlp, ssh/gbrain, MinerU) se spawnent depuis Rust.
-Seule exception : le JavaScript NAVIGATEUR (éditeurs `gallery/src/studio`,
-UI React) — c'est de l'interface, pas du runtime. En cas de doute : Rust.
+Le plan 065 est CLOS (2026-09-14) : `sidecar/` et `gallery/server/` n'existent
+plus, le dépôt ne contient aucun runtime Node (verrouillé par
+`scripts/check-backend-policy.mjs`). Les contrats de l'ancienne chaîne KB
+survivent en fixtures (`gallery/tests/kb_parity/` rejoué contre
+`atelier-kb-rs`, `rust/crates/atelier-runtime/tests/fixtures/kb_node_oracle/`).
+Une feature qui semble « plus vite en JS » se fait quand même en Rust
+(`rust/crates/`), avec ses tests. Les outils externes (pdftotext, yt-dlp,
+ssh/gbrain, MinerU) se spawnent depuis Rust. Seule exception : le JavaScript
+NAVIGATEUR (éditeurs `gallery/src/studio`, UI React) et les harnais de test
+(`gallery/tests/*.mjs`, `scripts/*.mjs`) — c'est de l'interface et de
+l'outillage, pas du runtime. En cas de doute : Rust.
 
 ## Contraintes techniques
 
-- **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`**, puis lancer `node gallery/server/tests/diff_suite.mjs` (183 tests au 2026-08-16 — la suite grossit, se fier au « ok », pas au compte ; obligatoire dès que `gallery/` change).
+- **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/assets/diff_versions.js`, `latex_studio.html` ou `code_editor.html`**, puis lancer `node gallery/tests/unit/diff_suite.mjs` (290 tests au 2026-09-14 — la suite grossit, se fier au « ok », pas au compte ; obligatoire dès que `gallery/` change ; son étage A spawne `atelier-gallery-server`, résolu par `gallery/tests/gallery_server.mjs`).
 
 - **Relance de l'app : suivre docs/PROTOCOLE_RELANCE.md À LA LETTRE** (kill exhaustif tauri-app + sidecar + serveurs galerie, build, vérif) — ne jamais improviser.
 
 - `npx tsc --noEmit` et `npx vite build` doivent passer (ignorer `src/test_auto_review*.ts`).
-- Tests sidecar : `cd sidecar && npx vitest run`.
+- Contrat KB : `npm run test:kb:parity` (fixtures `gallery/tests/kb_parity/` contre `atelier-kb-rs`).
 - Ne pas pusher sans demande explicite.
 - `npm run tauri dev` ne survit PAS lancé depuis un harness d'agent — seul Thierry le lance depuis son terminal.
 - La galerie vendorisée vit dans `gallery/` — toute modif galerie se commit ICI, jamais dans `~/Documents/cmux-gallery`. Son `assets/gallery_template.html` suit le MÊME système de design (tailles 10/11/12/13/15 + 18-34 display viewer, rayons 6/10, poids 500/600) ; après toute modif du template, reporter sur `src-tauri/gallery-dist/` et sur le `figures_index.html` servi (ou relancer un rescan).
