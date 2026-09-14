@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {groupAgentRows} from './chat/groupAgentRows';
 import { groupActivityRows } from './chat/groupActivityRows';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
@@ -89,6 +90,8 @@ type ChatZoteroItem = {
 // `Chat` pour ne pas toucher les imports d'App, tout en clarifiant le rôle.
 export default function Chat(p: {
   events: AgentEvent[];
+  /** Child rollout transcripts kept live by ThreadChat for the parent activity group. */
+  eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   /** Research Home (plan 017) — rendu par la timeline quand threadId est null */
   home?: ResearchHomeBundle | null;
   workingSince: number | null;
@@ -962,7 +965,7 @@ export default function Chat(p: {
       });
       offset = nextOffset - 1;
     }
-    return groupActivityRows(rows);
+    return groupAgentRows(groupActivityRows(rows), turnViewModels);
   }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
 
   // À la fin du tour, le pli se ferme TOUJOURS : le travail intermédiaire
@@ -1183,7 +1186,9 @@ export default function Chat(p: {
         </div>
       )}
       </div>
-      {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent} onClose={() => setLocalSelectedAgent(null)} /> : null}
+      {!p.onOpenAgent && localSelectedAgent ? <AgentDetailPanel agent={localSelectedAgent}
+        events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
+        onClose={() => setLocalSelectedAgent(null)} /> : null}
     </div>
   );
 }

@@ -18,6 +18,7 @@ interface PdfPage {
 
 interface PdfDocument {
   numPages: number;
+  destroy?(): Promise<void>;
   getPage(page: number): Promise<PdfPage>;
 }
 
@@ -101,25 +102,12 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   let pdfDocument: PdfDocument | null = null;
   let pages: Array<HTMLElement | undefined> = [];
   let viewports: Array<{scale: number; height: number} | undefined> = [];
-  const liveCanvases = new Map<number, HTMLCanvasElement>();
-  // Garde de course : `liveCanvases.has()` seul ne protège rien avant le
-  // premier `await` de renderPage() — deux appels concurrents pour la même
-  // page passeraient tous les deux la garde et prépendraient chacun un
-  // canvas, le perdant n'étant jamais suivi dans liveCanvases (canvas
-  // orphelin, jamais évincé). Scénario réel : le clic §4 (disconnect() +
-  // re-observe() de tous les gabarits à la réactivation d'onglet) met en
-  // file une entrée IO fraîche pour toute cible déjà intersectante — y
-  // compris une page dont le rendu était déjà en vol quand l'onglet a été
-  // masqué — plus un défilement rapide qui redéclenche la même page.
-  const pagesEnCours = new Set<number>();
-  // Pages actuellement intersectantes (rootMargin "150% 0%" en garde
-  // typiquement 5-7 à zoom ≤1) — evictFarthest() ne doit JAMAIS en évincer
-  // une : le callback IO ne se redéclenche pas pour une page qui reste
-  // intersectante, donc un canvas évincé pendant qu'il est encore visible
-  // ne serait plus jamais reproposé et resterait blanc à l'écran.
-  const pagesVisibles = new Set<number>();
   let pageObserver: IntersectionObserver | null = null;
   let loadToken = 0;
+  let loading = false;
+  let watchedMtime: number | null = null;
+  let watchedPath: string | null = null;
+  let statInFlight = false;
   let lastWidth = 0;
   let lastEditAt = 0;
   let forwardTimer: number | null = null;
@@ -190,6 +178,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
 
   const loadPdf = async (): Promise<void> => {
     const token = ++loadToken;
+    loading = false;
     const pdfPath = options.getPdfPath();
     const candidates = options.getPdfCandidates?.() || [];
     pdfVariants.replaceChildren(); pdfVariants.hidden = candidates.length < 2;
@@ -214,9 +203,22 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       return;
     }
     if (!pdfPath) { showStatus("Compile le document pour afficher son PDF."); return; }
-    showStatus("Chargement du PDF…");
+    // A refresh must not insert a status block into the existing page flow.
+    if (!pdfDocument) showStatus("Chargement du PDF…");
+    loading = true;
+    let loaded: PdfDocument | null = null;
+    let committed = false;
+    let abandoned = false;
+    let staging: HTMLElement | null = null;
     try {
-      const loaded = await options.pdfjs.getDocument({
+      // Capture the revision before fetching bytes. A later file change must
+      // remain detectable; sampling after rendering could swallow that change.
+      const stat = typeof win.fetch !== "function" ? null : await win.fetch(`/statfile?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}`)
+        .then(response => response.ok ? response.json() as Promise<{mtime?: number}> : null)
+        .catch(() => null);
+      if (token !== loadToken) return;
+      const revision = typeof stat?.mtime === "number" ? stat.mtime : null;
+      const nextDocument = await options.pdfjs.getDocument({
         url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}&t=${Date.now()}`,
         standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
         // pdf.js >= 5 décode JPEG2000/ICC en WebAssembly : sans ces deux URL
@@ -226,22 +228,26 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         cMapUrl: "/.fig_thumbs/pdfjs/cmaps/",
         cMapPacked: true,
       }).promise;
+      loaded = nextDocument;
       if (token !== loadToken) return;
-      pdfDocument = loaded;
-      showStatus("");
-      const scroll = options.right.scrollTop;
-      // Rechargement (compilation) : plus d'observer résident sur les gabarits
-      // détruits, plus de canvas vivant pointant vers du DOM disparu.
-      pageObserver?.disconnect();
-      pageObserver = null;
-      options.right.querySelectorAll(".pdfpage").forEach((element) => element.remove());
-      pages = [];
-      viewports = [];
-      liveCanvases.clear();
-      pagesEnCours.clear();
-      pagesVisibles.clear();
-      lastWidth = options.right.clientWidth;
-      const width = (options.right.clientWidth - 24) * options.getZoom();
+      const nextPages: Array<HTMLElement | undefined> = [];
+      const nextViewports: Array<{scale: number; height: number} | undefined> = [];
+      const liveCanvases = new Map<number, HTMLCanvasElement>();
+      const pagesEnCours = new Set<number>();
+      const pagesVisibles = new Set<number>();
+      const current = (): boolean => !abandoned && (committed ? pdfDocument === nextDocument : token === loadToken);
+      const paneWidth = options.right.clientWidth;
+      const width = Math.max(1, paneWidth - 24) * options.getZoom();
+      // Off-screen layout uses the same page CSS and scroll-container margin
+      // rules. It never changes the live pane's height or scroll position.
+      staging = doc.createElement("div");
+      staging.setAttribute("aria-hidden", "true");
+      Object.assign(staging.style, {
+        position: "fixed", left: "-100000px", top: "0", width: `${paneWidth}px`,
+        height: `${options.right.clientHeight}px`, overflow: "auto", visibility: "hidden",
+        pointerEvents: "none",
+      });
+      doc.body.appendChild(staging);
 
       const evictFarthest = (anchor: number): void => {
         let victim = -1;
@@ -265,17 +271,17 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       };
 
       const renderPage = async (pageNumber: number): Promise<void> => {
-        if (token !== loadToken || liveCanvases.has(pageNumber) || pagesEnCours.has(pageNumber)) return;
+        if (!current() || liveCanvases.has(pageNumber) || pagesEnCours.has(pageNumber)) return;
         // Marqueur synchrone posé AVANT le premier await : liveCanvases.has()
         // seul ne protège rien tant que l'entrée n'existe pas encore (elle
         // n'est écrite qu'après le rendu) — deux appels concurrents pour la
         // même page passeraient tous les deux la garde du dessus.
         pagesEnCours.add(pageNumber);
         try {
-          const element = pages[pageNumber];
-          const info = viewports[pageNumber];
+          const element = nextPages[pageNumber];
+          const info = nextViewports[pageNumber];
           if (!element || !info) return;
-          const page = await loaded.getPage(pageNumber);
+          const page = await nextDocument.getPage(pageNumber);
           const viewport = page.getViewport({scale: info.scale});
           const canvas = doc.createElement("canvas");
           canvas.width = viewport.width * win.devicePixelRatio;
@@ -283,10 +289,10 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
           canvas.style.width = `${viewport.width}px`;
           canvas.style.height = `${viewport.height}px`;
           const context = canvas.getContext("2d");
-          if (!context) return;
+          if (!context) throw new Error("PDF canvas context unavailable");
           context.scale(win.devicePixelRatio, win.devicePixelRatio);
           await page.render({canvasContext: context, viewport, intent: "print"}).promise;
-          if (token !== loadToken) return;
+          if (!current()) return;
           // prepend, jamais replaceChildren : le gabarit peut déjà porter le
           // marqueur synctex partagé (options.marker) posé par showMarker()
           // avant que cette page n'ait fini de se rendre — ne pas l'effacer.
@@ -301,7 +307,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
             element.appendChild(layer);
             try {
               const text = await page.getTextContent();
-              if (token !== loadToken) return;
+              if (!current()) return;
               // pdf.js >= 4 : renderTextLayer() a disparu, TextLayer le remplace.
               if (TextLayerClass) {
                 await new TextLayerClass({textContentSource: text, container: layer, viewport}).render();
@@ -311,16 +317,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
             } catch { layer.remove(); /* a text extraction failure never discards the page image */ }
           }
         } finally {
-          // Toujours libérer — y compris sur l'abandon `token !== loadToken` —
+          // Toujours libérer — y compris sur l'abandon `!current()` —
           // sinon une page reste marquée "en cours" à vie après un rechargement
           // et ne sera plus jamais reproposée par renderPage().
           pagesEnCours.delete(pageNumber);
         }
       };
 
-      for (let pageNumber = 1; pageNumber <= loaded.numPages; pageNumber += 1) {
-        if (token !== loadToken) return;
-        const page = await loaded.getPage(pageNumber);
+      for (let pageNumber = 1; pageNumber <= nextDocument.numPages; pageNumber += 1) {
+        if (!current()) return;
+        const page = await nextDocument.getPage(pageNumber);
         const base = page.getViewport({scale: 1});
         const scale = width / base.width;
         const viewport = page.getViewport({scale});
@@ -329,15 +335,15 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         element.dataset.page = String(pageNumber);
         element.style.width = `${viewport.width}px`;
         element.style.height = `${viewport.height}px`;
-        options.right.appendChild(element);
-        pages[pageNumber] = element;
-        viewports[pageNumber] = {scale, height: base.height};
+        staging.appendChild(element);
+        nextPages[pageNumber] = element;
+        nextViewports[pageNumber] = {scale, height: base.height};
         // Coordonnées lues sur le gabarit (toujours présent), jamais sur le
         // canvas — la page peut ne pas encore être rendue au moment du clic.
         element.onclick = (event) => {
           if (win.getSelection && !win.getSelection()?.isCollapsed) return;
           const rect = element.getBoundingClientRect();
-          const info = viewports[pageNumber];
+          const info = nextViewports[pageNumber];
           if (!info) return;
           void synctexEdit(pageNumber,
             (event.clientX - rect.left) / info.scale,
@@ -345,38 +351,79 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         };
       }
 
-      // `IntersectionObserver` vit sur le global, pas sur l'interface DOM
-      // `Window` des types TS — lu via `win` (jamais le global nu) pour
-      // respecter la fenêtre injectée par les harnais de test.
+      // Follow any scrolling that occurs while rendering, including near the
+      // end of a document that has become shorter. No await between the final
+      // viewport check and the swap.
+      let scroll = 0;
+      while (current()) {
+        scroll = Math.min(options.right.scrollTop,
+          Math.max(0, staging.scrollHeight - options.right.clientHeight));
+        const bottom = scroll + options.right.clientHeight;
+        const visible = nextPages.filter((element): element is HTMLElement => Boolean(element)
+          && element!.offsetTop + element!.offsetHeight >= scroll
+          && element!.offsetTop <= bottom);
+        if (!visible.length && nextPages[1]) visible.push(nextPages[1]);
+        pagesVisibles.clear();
+        for (const element of visible) pagesVisibles.add(Number(element.dataset.page));
+        const missing = visible.filter(element => !liveCanvases.has(Number(element.dataset.page)));
+        if (!missing.length) break;
+        await Promise.all(missing.map(element => renderPage(Number(element.dataset.page))));
+      }
+      if (!current()) return;
+      const previousDocument = pdfDocument;
+      pageObserver?.disconnect();
+      pageObserver = null;
+      options.marker.style.display = "none";
+      // Preserve the shared marker when its old page is removed.
+      options.right.appendChild(options.marker);
+      options.right.querySelectorAll(".pdfpage").forEach(element => element.remove());
+      showStatus("");
+      const fragment = doc.createDocumentFragment();
+      for (const element of nextPages) if (element) fragment.appendChild(element);
+      options.right.appendChild(fragment);
+      pages = nextPages;
+      viewports = nextViewports;
+      pdfDocument = nextDocument;
+      committed = true;
+      watchedPath = pdfPath;
+      watchedMtime = revision;
+      lastWidth = paneWidth;
+      options.right.scrollTop = scroll;
+      void previousDocument?.destroy?.().catch(() => undefined);
+
       const IObserver = (win as unknown as {IntersectionObserver?: typeof IntersectionObserver}).IntersectionObserver;
       if (typeof IObserver === "function") {
         const observer = new IObserver((entries) => {
+          if (!current()) return;
           for (const entry of entries) {
             const pageNumber = Number((entry.target as HTMLElement).dataset.page);
             if (!pageNumber) continue;
             if (!entry.isIntersecting) { pagesVisibles.delete(pageNumber); continue; }
             pagesVisibles.add(pageNumber);
-            void renderPage(pageNumber);
+            void renderPage(pageNumber).catch(error => console.warn("renderPage:", error));
           }
         }, {root: options.right, rootMargin: "150% 0%"});
         pageObserver = observer;
-        for (const element of pages) {
-          if (element) observer.observe(element);
-        }
+        for (const element of nextPages) if (element) observer.observe(element);
       } else {
-        // Repli (environnement sans IntersectionObserver, ex. harnais de
-        // test) : rendu immédiat de toutes les pages ; l'éviction au-delà de
-        // MAX_LIVE_PAGES reste active.
-        for (let pageNumber = 1; pageNumber <= loaded.numPages; pageNumber += 1) {
-          if (token !== loadToken) return;
+        for (let pageNumber = 1; pageNumber <= nextDocument.numPages; pageNumber += 1) {
+          if (!current()) return;
           await renderPage(pageNumber);
         }
       }
-
-      options.right.scrollTop = scroll;
     } catch (error) {
-      if (token === loadToken) showStatus("PDF indisponible. Compile le document, puis réessaie.", true);
+      if (token === loadToken) {
+        if (pdfDocument) options.setState("err", "Actualisation du PDF impossible — la dernière version reste affichée.");
+        else showStatus("PDF indisponible. Compile le document, puis réessaie.", true);
+      }
       console.warn("loadPdf:", error);
+    } finally {
+      staging?.remove();
+      if (!committed) {
+        abandoned = true;
+        void loaded?.destroy?.().catch(() => undefined);
+      }
+      if (token === loadToken) loading = false;
     }
   };
 
@@ -404,19 +451,25 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   // que pour la compilation interne. Sans cette veille du mtime, le pane
   // affiche une image périmée pendant que synctex répond pour le PDF neuf sur
   // disque — les sauts tombent « à côté ».
-  let watchedMtime: number | null = null;
   // Les harnais de test montent ce contrôleur avec un `window` minimal.
   if (typeof win.setInterval === "function") win.setInterval(() => {
     const pdfPath = options.getPdfPath();
-    if (!pdfPath || !pdfDocument || doc.hidden) return;
+    if (!pdfPath || !pdfDocument || doc.hidden || loading || statInFlight) return;
+    statInFlight = true;
+    const polledToken = loadToken;
     void win.fetch(`/statfile?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}`)
       .then((response) => response.ok ? response.json() as Promise<{mtime?: number}> : null)
       .then((stat) => {
-        if (typeof stat?.mtime !== "number") return;
-        if (watchedMtime !== null && stat.mtime > watchedMtime) void loadPdf();
+        if (typeof stat?.mtime !== "number" || loading || polledToken !== loadToken || pdfPath !== options.getPdfPath()) return;
+        if (watchedPath === pdfPath && watchedMtime !== null && stat.mtime > watchedMtime) {
+          void loadPdf();
+          return;
+        }
+        watchedPath = pdfPath;
         watchedMtime = stat.mtime;
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => { statInFlight = false; });
   }, 2500);
 
   doc.addEventListener("visibilitychange", () => {

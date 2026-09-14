@@ -478,7 +478,8 @@ export function projectChatTimeline(
           // Settled tool failures belong to the execution details, including
           // their output and exit code. Only actual interactions escape the fold.
           const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || isImageGenerationAction(innerEvent);
-          if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention) continue;
+          const agentActivity = innerEvent.kind === "tool_update" && innerEvent.agentActivity != null;
+          if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention && !agentActivity) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",

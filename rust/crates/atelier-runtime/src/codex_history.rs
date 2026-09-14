@@ -173,12 +173,21 @@ fn mcp_result_text(result: &Value) -> (String, &'static str) {
 }
 
 /// Outils de collaboration multi-agents : leurs appels portent les chips.
-const COLLAB_TOOLS: [&str; 5] = [
+///
+/// `wait_agent`/`followup_task`/`list_agents` sont les noms actuellement
+/// écrits dans les rollouts. Les variantes plus anciennes restent reconnues
+/// pour que la relecture d'un ancien journal conserve la même activité.
+const COLLAB_TOOLS: [&str; 10] = [
     "spawn_agent",
     "wait",
+    "wait_agent",
     "send_input",
+    "send_message",
     "resume_agent",
+    "followup_task",
     "close_agent",
+    "interrupt_agent",
+    "list_agents",
 ];
 
 /// Le protocole natif encode les messages inter-agents dans des appels
@@ -188,62 +197,403 @@ fn is_internal_collaboration_call(name: &str, namespace: Option<&str>) -> bool {
     namespace == Some("collaboration") && name == "send_message"
 }
 
-/// Ids d'agents cités par un blob JSON (`agent_thread_ids` ou `agent_thread_id`).
+/// Les messages inter-agents portent parfois un ciphertext dans `message`.
+/// Ils ne doivent jamais être recopiés dans l'historique, mais un follow-up
+/// ou une reprise doit quand même pouvoir réactiver l'état du sous-agent.
+fn is_sanitized_collaboration_call(name: &str, namespace: Option<&str>) -> bool {
+    namespace == Some("collaboration")
+        && matches!(name, "followup_task" | "resume_agent" | "send_input")
+}
+
+/// Ids d'agents cités par un blob JSON.
+///
+/// Les rollouts récents renvoient `task_name` lors d'un spawn et
+/// `agent_name`/`agent_status` dans `list_agents`; les versions app-server
+/// utilisent plutôt `receiverThreadIds`/`agentThreadId`. Seuls ces champs
+/// connus sont inspectés : une recherche récursive de toutes les chaînes
+/// ferait remonter le ciphertext ou du texte de résultat comme un agent.
 fn agent_ids_from_json(raw: &str) -> Vec<String> {
     let Ok(value) = serde_json::from_str::<Value>(raw) else {
         return Vec::new();
     };
-    if let Some(list) = value.get("agent_thread_ids").and_then(Value::as_array) {
-        return list
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect();
-    }
-    value
-        .get("agent_thread_id")
-        .and_then(Value::as_str)
-        .map(|id| vec![id.to_string()])
-        .unwrap_or_default()
+    let mut ids = Vec::new();
+    collect_agent_ids(&value, &mut ids);
+    ids
 }
 
-/// Repli sans JSON : première séquence en forme d'UUID trouvée dans le texte.
-fn uuid_like_in(text: &str) -> Vec<String> {
-    let bytes: Vec<char> = text.chars().collect();
-    for start in 0..bytes.len().saturating_sub(35) {
-        let window: String = bytes[start..start + 36].iter().collect();
-        if session_id_from_path(Path::new(&format!("{window}.jsonl"))).is_some() {
-            return vec![window];
+const AGENT_ID_KEYS: [&str; 4] = [
+    "agent_thread_ids",
+    "receiverThreadIds",
+    "agent_thread_id",
+    "agentThreadId",
+];
+
+fn push_agent_id(ids: &mut Vec<String>, raw: &str) {
+    let id = raw.trim();
+    // `task_name`, `agent_name`, and the follow-up `target` are often paths
+    // such as `/root/reviewer`, not native thread ids. They are retained as
+    // agentPath metadata below, but must not create a fake transcript target.
+    if !id.is_empty() && !id.starts_with('/') && !ids.iter().any(|known| known == id) {
+        ids.push(id.to_string());
+    }
+}
+
+fn push_target_id(ids: &mut Vec<String>, raw: &str) {
+    let id = raw.trim();
+    // `target` is a task path/name in the collaboration API. It is a native
+    // transcript target only when it is an actual rollout UUID; accepting a
+    // relative task name here would fabricate an unusable getAgentHistory id.
+    if !id.starts_with('/') && session_id_from_path(Path::new(&format!("{id}.jsonl"))).is_some() {
+        push_agent_id(ids, id);
+    }
+}
+
+fn collect_agent_ids(value: &Value, ids: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for key in AGENT_ID_KEYS {
+                let Some(value) = object.get(key) else {
+                    continue;
+                };
+                match value {
+                    Value::String(id) => push_agent_id(ids, id),
+                    Value::Array(values) => {
+                        for id in values.iter().filter_map(Value::as_str) {
+                            push_agent_id(ids, id);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(agents) = object.get("agents").and_then(Value::as_array) {
+                for agent in agents {
+                    collect_agent_ids(agent, ids);
+                }
+            }
+            if let Some(target) = object.get("target").and_then(Value::as_str) {
+                push_target_id(ids, target);
+            }
+            // `agentsStates` has the ids as object keys rather than values.
+            for key in ["agentsStates", "status"] {
+                if let Some(states) = object.get(key).and_then(Value::as_object) {
+                    for id in states.keys() {
+                        push_agent_id(ids, id);
+                    }
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_agent_ids(value, ids);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AgentStateSnapshot {
+    id: String,
+    status: &'static str,
+    message: Option<String>,
+}
+
+fn normalized_agent_status(raw: &str) -> Option<&'static str> {
+    let normalized: String = raw
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .flat_map(char::to_lowercase)
+        .collect();
+    match normalized.as_str() {
+        "running" | "inprogress" | "pending" | "queued" | "started" | "executing"
+        | "interacted" => Some("running"),
+        "completed" | "complete" | "done" | "finished" | "succeeded" | "closed" | "shutdown" => {
+            Some("completed")
+        }
+        "failed" | "failure" | "errored" | "error" | "aborted" => Some("failed"),
+        "interrupted" | "cancelled" | "canceled" => Some("interrupted"),
+        _ => None,
+    }
+}
+
+fn status_message(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(bound_output)
+}
+
+fn status_from_value(value: &Value) -> Option<(&'static str, Option<String>)> {
+    if let Some(status) = value.as_str().and_then(normalized_agent_status) {
+        return Some((status, None));
+    }
+    let object = value.as_object()?;
+    for key in ["status", "state", "kind", "outcome"] {
+        if let Some(raw) = object.get(key).and_then(Value::as_str) {
+            if let Some(status) = normalized_agent_status(raw) {
+                return Some((status, object.get("message").and_then(status_message)));
+            }
         }
     }
-    Vec::new()
+    // The real `list_agents` response uses `{ "completed": "result" }`
+    // as the value of `agent_status`. Require a single, status-shaped key so
+    // operation fields such as `{ "success": true }` cannot close a child.
+    if object.len() == 1 {
+        if let Some((key, value)) = object.iter().next() {
+            if !matches!(key.as_str(), "success" | "ok" | "error")
+                && matches!(value, Value::String(_) | Value::Null)
+            {
+                if let Some(status) = normalized_agent_status(key) {
+                    return Some((status, status_message(value)));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn set_agent_state(
+    states: &mut Vec<AgentStateSnapshot>,
+    id: &str,
+    status: &'static str,
+    message: Option<String>,
+) {
+    if let Some(existing) = states.iter_mut().find(|state| state.id == id) {
+        existing.status = status;
+        if message.is_some() {
+            existing.message = message;
+        }
+        return;
+    }
+    states.push(AgentStateSnapshot {
+        id: id.to_string(),
+        status,
+        message,
+    });
+}
+
+fn collect_explicit_agent_states(value: &Value, states: &mut Vec<AgentStateSnapshot>) {
+    let Some(object) = value.as_object() else {
+        return;
+    };
+
+    for key in ["agentsStates", "status"] {
+        if let Some(entries) = object.get(key).and_then(Value::as_object) {
+            for (id, state) in entries {
+                if let Some((status, message)) = status_from_value(state) {
+                    let mut ids = Vec::new();
+                    push_agent_id(&mut ids, id);
+                    for id in ids {
+                        set_agent_state(states, &id, status, message.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(agents) = object.get("agents").and_then(Value::as_array) {
+        for agent in agents {
+            let Some(agent) = agent.as_object() else {
+                continue;
+            };
+            let mut ids = Vec::new();
+            for key in ["agent_thread_id", "agentThreadId"] {
+                if let Some(id) = agent.get(key).and_then(Value::as_str) {
+                    push_agent_id(&mut ids, id);
+                }
+            }
+            let Some(value) = agent
+                .get("agent_status")
+                .or_else(|| agent.get("agentStatus"))
+            else {
+                continue;
+            };
+            let Some((status, message)) = status_from_value(value) else {
+                continue;
+            };
+            for id in ids {
+                set_agent_state(states, &id, status, message.clone());
+            }
+        }
+    }
+
+    // A direct `{status: ..., agent_thread_id: ...}` result is used by a few
+    // protocol versions. Do not apply a bare operation status to a child
+    // named only in the request: `ok:false`/`status:"failed"` can describe
+    // the wait/close call itself rather than the child.
+    let mut direct_ids = Vec::new();
+    if let Some(id) = object.get("agent_thread_id").and_then(Value::as_str) {
+        push_agent_id(&mut direct_ids, id);
+    }
+    if let Some(id) = object.get("agentThreadId").and_then(Value::as_str) {
+        push_agent_id(&mut direct_ids, id);
+    }
+    if !direct_ids.is_empty() {
+        if let Some((status, message)) = status_from_value(value) {
+            for id in direct_ids {
+                set_agent_state(states, &id, status, message.clone());
+            }
+        }
+    }
+}
+
+fn explicit_agent_states(output: &str) -> Vec<AgentStateSnapshot> {
+    let mut states = Vec::new();
+    if let Ok(value) = serde_json::from_str::<Value>(output) {
+        collect_explicit_agent_states(&value, &mut states);
+    }
+    states
+}
+
+fn operation_allows_running(output: &str) -> bool {
+    if matches!(
+        normalized_agent_status(output.trim()),
+        Some("failed" | "interrupted")
+    ) {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(output) else {
+        return true;
+    };
+    let Some(object) = value.as_object() else {
+        return true;
+    };
+    if object.get("ok").and_then(Value::as_bool) == Some(false)
+        || object.get("success").and_then(Value::as_bool) == Some(false)
+        || object.get("error").is_some()
+    {
+        return false;
+    }
+    !matches!(
+        status_from_value(&value),
+        Some(("failed" | "interrupted", _))
+    )
+}
+
+fn agent_path_from_json(raw: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    fn find(value: &Value) -> Option<String> {
+        match value {
+            Value::Object(object) => {
+                for key in [
+                    "agent_path",
+                    "agentPath",
+                    "task_name",
+                    "agent_name",
+                    "target",
+                ] {
+                    if let Some(path) = object
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .filter(|value| value.starts_with('/'))
+                    {
+                        return Some(path.to_string());
+                    }
+                }
+                object.get("agents")?.as_array()?.iter().find_map(find)
+            }
+            Value::Array(values) => values.iter().find_map(find),
+            _ => None,
+        }
+    }
+    find(&value)
 }
 
 fn agent_activity(name: &str, arguments: &str, output: &str) -> Value {
     let mut ids = agent_ids_from_json(arguments);
-    if ids.is_empty() {
-        ids = agent_ids_from_json(output);
+    for id in agent_ids_from_json(output) {
+        push_agent_id(&mut ids, &id);
     }
-    if ids.is_empty() {
-        ids = uuid_like_in(output);
-    }
+    let explicit = explicit_agent_states(output);
     let mut states = serde_json::Map::new();
-    for id in &ids {
+    for snapshot in explicit {
+        push_agent_id(&mut ids, &snapshot.id);
         states.insert(
-            id.clone(),
-            json!({"status": "running", "message": Value::Null}),
+            snapshot.id,
+            json!({"status": snapshot.status, "message": snapshot.message}),
         );
     }
-    json!({
+    // A wait/list/message/interrupt result only proves that the operation was
+    // observed; it does not prove the child reached a terminal state. Spawn,
+    // follow-up, and resume calls are the operations that establish a new
+    // running observation when they identify a receiver.
+    if operation_allows_running(output)
+        && matches!(
+            name,
+            "spawn_agent" | "followup_task" | "resume_agent" | "send_input"
+        )
+    {
+        for id in &ids {
+            states
+                .entry(id.clone())
+                .or_insert_with(|| json!({"status": "running", "message": Value::Null}));
+        }
+    }
+    let mut activity = json!({
         "tool": name,
         "receiverThreadIds": ids,
         "agentsStates": Value::Object(states),
-    })
+    });
+    if ids.len() == 1 {
+        if let Some(path) = agent_path_from_json(output).or_else(|| agent_path_from_json(arguments))
+        {
+            activity["agentPath"] = json!(path);
+        }
+    }
+    activity
 }
 
-fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, status: &str) -> Value {
+fn sanitized_collaboration_detail(input: &str) -> Value {
+    let Ok(value) = serde_json::from_str::<Value>(input) else {
+        return Value::Null;
+    };
+    for key in ["target", "task_name", "agent_thread_id", "agentThreadId"] {
+        if let Some(id) = value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            return Value::String(id.to_string());
+        }
+    }
+    Value::Null
+}
+
+fn sanitized_collaboration_event(
+    call_id: &str,
+    name: &str,
+    input: &str,
+    output: &str,
+    status: &str,
+    timestamp: Option<i64>,
+) -> Value {
+    let mut event = json!({
+        "kind": "tool_update",
+        "id": call_id,
+        "name": format!("agent:{name}"),
+        "detail": sanitized_collaboration_detail(input),
+        "input": {"target": sanitized_collaboration_detail(input)},
+        "output": "",
+        "status": status,
+        "agentActivity": agent_activity(name, input, output),
+    });
+    if let Some(ts) = timestamp {
+        event["ts"] = json!(ts);
+    }
+    event
+}
+
+fn tool_update_event(
+    call_id: &str,
+    name: &str,
+    input: &str,
+    output: &str,
+    status: &str,
+    timestamp: Option<i64>,
+) -> Value {
     if COLLAB_TOOLS.contains(&name) {
-        return json!({
+        let mut event = json!({
             "kind": "tool_update",
             "id": call_id,
             "name": format!("agent:{name}"),
@@ -253,8 +603,12 @@ fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, statu
             "status": status,
             "agentActivity": agent_activity(name, input, output),
         });
+        if let Some(ts) = timestamp {
+            event["ts"] = json!(ts);
+        }
+        return event;
     }
-    json!({
+    let mut event = json!({
         "kind": "tool_update",
         "id": call_id,
         "name": name,
@@ -262,7 +616,11 @@ fn tool_update_event(call_id: &str, name: &str, input: &str, output: &str, statu
         "input": {"raw": input},
         "output": bound_output(output),
         "status": status,
-    })
+    });
+    if let Some(ts) = timestamp {
+        event["ts"] = json!(ts);
+    }
+    event
 }
 
 /// Le nouveau rollout natif porte les réponses assistant dans
@@ -411,7 +769,25 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
                     .get("output")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                events.push(tool_update_event(&id, &name, &input, output, "completed"));
+                if is_sanitized_collaboration_call(&name, namespace.as_deref()) {
+                    events.push(sanitized_collaboration_event(
+                        &id,
+                        &name,
+                        &input,
+                        output,
+                        "completed",
+                        timestamp,
+                    ));
+                } else {
+                    events.push(tool_update_event(
+                        &id,
+                        &name,
+                        &input,
+                        output,
+                        "completed",
+                        timestamp,
+                    ));
+                }
                 continue;
             }
             "message" => {
@@ -590,7 +966,25 @@ pub(crate) fn load_codex_history_from_base(base: &Path, session_id: &str) -> Vec
         if is_internal_collaboration_call(&name, namespace.as_deref()) {
             continue;
         }
-        events.push(tool_update_event(&id, &name, &input, "", "inProgress"));
+        if is_sanitized_collaboration_call(&name, namespace.as_deref()) {
+            events.push(sanitized_collaboration_event(
+                &id,
+                &name,
+                &input,
+                "",
+                "inProgress",
+                None,
+            ));
+        } else {
+            events.push(tool_update_event(
+                &id,
+                &name,
+                &input,
+                "",
+                "inProgress",
+                None,
+            ));
+        }
     }
     events
 }
@@ -754,9 +1148,254 @@ mod tests {
         );
         assert_eq!(events[1]["name"], "agent:wait");
         assert_eq!(
-            events[1]["agentActivity"]["agentsStates"]["child-42"]["status"],
+            events[1]["agentActivity"]["receiverThreadIds"][0],
+            "child-42"
+        );
+        assert_eq!(events[1]["agentActivity"]["agentsStates"], json!({}));
+    }
+
+    #[test]
+    fn ambiguous_wait_timeout_and_operation_failure_keep_identity_without_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad2";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        let spawn_output =
+            serde_json::to_string(&json!({"agent_thread_id":"child-42","success":true})).unwrap();
+        let wait_arguments =
+            serde_json::to_string(&json!({"agent_thread_ids":["child-42"]})).unwrap();
+        let interrupt_arguments = wait_arguments.clone();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"spawn_agent","call_id":"s1","arguments":"{}"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"s1","output":spawn_output}})
+        )
+        .unwrap();
+        let wait_output =
+            serde_json::to_string(&json!({"message":"Wait timed out.","timed_out":true})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"wait_agent","call_id":"w1","arguments":wait_arguments.clone()}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"w1","output":wait_output}})
+        )
+        .unwrap();
+        let wait_success_output =
+            serde_json::to_string(&json!({"agent_thread_id":"child-42","success":true})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"wait_agent","call_id":"w2","arguments":wait_arguments}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"w2","output":wait_success_output}})
+        )
+        .unwrap();
+        let failed_operation_output = serde_json::to_string(
+            &json!({"ok":false,"error":"agent no longer exists","agent_thread_id":"child-42"}),
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"interrupt_agent","call_id":"i1","arguments":interrupt_arguments}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"i1","output":failed_operation_output}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        let spawn = events
+            .iter()
+            .find(|event| event["name"] == "agent:spawn_agent")
+            .unwrap();
+        assert_eq!(
+            spawn["agentActivity"]["agentsStates"]["child-42"]["status"],
             "running"
         );
+        for event in events.iter().filter(|event| {
+            event["name"] == "agent:wait_agent" || event["name"] == "agent:interrupt_agent"
+        }) {
+            assert_eq!(event["agentActivity"]["receiverThreadIds"][0], "child-42");
+            assert_eq!(event["agentActivity"]["agentsStates"], json!({}));
+        }
+    }
+
+    #[test]
+    fn maps_explicit_wait_status_map_to_terminal_agent_states() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad3";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        let output = serde_json::to_string(&json!({
+            "status": {
+                "child-success": {"completed": "résultat"},
+                "child-fail": {"failed": "erreur"},
+                "child-stop": {"interrupted": "arrêt"}
+            },
+            "timed_out": false
+        }))
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"wait_agent","call_id":"w1","arguments":"{}"}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"w1","output":output}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        let activity = &events[0]["agentActivity"];
+        let receiver_ids = activity["receiverThreadIds"].as_array().unwrap();
+        assert_eq!(receiver_ids.len(), 3);
+        for id in ["child-success", "child-fail", "child-stop"] {
+            assert!(receiver_ids.iter().any(|value| value == id));
+        }
+        assert_eq!(
+            activity["agentsStates"]["child-success"]["status"],
+            "completed"
+        );
+        assert_eq!(
+            activity["agentsStates"]["child-success"]["message"],
+            "résultat"
+        );
+        assert_eq!(activity["agentsStates"]["child-fail"]["status"], "failed");
+        assert_eq!(
+            activity["agentsStates"]["child-stop"]["status"],
+            "interrupted"
+        );
+    }
+
+    #[test]
+    fn followup_reactivates_native_id_without_replaying_ciphertext_or_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad4";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        for (call_id, target, output_value) in [
+            (
+                "f1",
+                "019f5e20-34f6-76c2-bad0-442af9683ad6",
+                json!({"message":"ok"}),
+            ),
+            ("f2", "/root/test_alpha", json!({})),
+            (
+                "f3",
+                "019f5e20-34f6-76c2-bad0-442af9683ad7",
+                json!({"ok":false,"error":"resume refused"}),
+            ),
+        ] {
+            let arguments =
+                serde_json::to_string(&json!({"target":target,"message":"gAAAAA-secret"})).unwrap();
+            let output = serde_json::to_string(&output_value).unwrap();
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"followup_task","call_id":call_id,"arguments":arguments}})
+            )
+            .unwrap();
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"response_item","payload":{"type":"function_call_output","call_id":call_id,"output":output}})
+            )
+            .unwrap();
+        }
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        assert_eq!(events.len(), 3);
+        let native = &events[0];
+        assert_eq!(
+            native["agentActivity"]["receiverThreadIds"],
+            json!(["019f5e20-34f6-76c2-bad0-442af9683ad6"])
+        );
+        assert_eq!(
+            native["agentActivity"]["agentsStates"]["019f5e20-34f6-76c2-bad0-442af9683ad6"]
+                ["status"],
+            "running"
+        );
+        let path_target = &events[1];
+        assert_eq!(path_target["agentActivity"]["receiverThreadIds"], json!([]));
+        assert_eq!(path_target["agentActivity"]["agentsStates"], json!({}));
+        assert!(path_target["agentActivity"]["agentPath"].is_null());
+        let failed = &events[2];
+        assert_eq!(
+            failed["agentActivity"]["receiverThreadIds"],
+            json!(["019f5e20-34f6-76c2-bad0-442af9683ad7"])
+        );
+        assert_eq!(failed["agentActivity"]["agentsStates"], json!({}));
+        assert!(!events
+            .iter()
+            .any(|event| event.to_string().contains("gAAAAA-secret")));
+    }
+
+    #[test]
+    fn ambiguous_wait_does_not_replace_native_terminal_activity() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "019f5e20-34f6-76c2-bad0-442af9683ad5";
+        let path = rollout_path(dir.path(), id);
+        let mut file = File::create(&path).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"event_msg","timestamp":"2026-09-06T23:41:00.767Z","payload":{"type":"item_completed","item":{"type":"SubAgentActivity","id":"subagent-completed-child-1","kind":"completed","agent_thread_id":"child-1","agent_path":"/root/test_alpha"}}})
+        )
+        .unwrap();
+        let wait_arguments =
+            serde_json::to_string(&json!({"agent_thread_ids":["child-1"]})).unwrap();
+        let wait_output =
+            serde_json::to_string(&json!({"message":"Wait completed.","timed_out":false})).unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","timestamp":"2026-09-06T23:41:01.000Z","payload":{"type":"function_call","namespace":"collaboration","name":"wait_agent","call_id":"w1","arguments":wait_arguments}})
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({"type":"response_item","timestamp":"2026-09-06T23:41:02.000Z","payload":{"type":"function_call_output","call_id":"w1","output":wait_output}})
+        )
+        .unwrap();
+
+        let events = load_codex_history_from_base(dir.path(), id);
+        let native = events
+            .iter()
+            .find(|event| event["name"] == "agent:activity")
+            .unwrap();
+        let wait = events
+            .iter()
+            .find(|event| event["name"] == "agent:wait_agent")
+            .unwrap();
+        assert_eq!(
+            native["agentActivity"]["agentsStates"]["child-1"]["status"],
+            "completed"
+        );
+        assert_eq!(wait["agentActivity"]["agentsStates"], json!({}));
+        assert!(native["ts"].as_i64().unwrap() < wait["ts"].as_i64().unwrap());
     }
 
     #[test]

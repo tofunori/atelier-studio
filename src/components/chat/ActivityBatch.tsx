@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ActivityDisclosure, RowButton } from "../ui";
 import type { ToolAction } from '../../lib/chat/turnViewModel';
+import type { AgentEvent } from '../../lib/ws';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import type { PluginCatalogEntry } from '../../lib/plugins';
 import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph, toolOutcome } from './toolPresentation';
@@ -13,6 +14,7 @@ import { Working } from './turnParts';
 /** The turn owns disclosure; its actions stay in chronological order. */
 export function ActivityBatch(p: {
   actions: ToolAction[];
+  eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
   onOpenAgent: (agent: AgentDisplay) => void;
   hideThinking?: boolean; threadId?: string | null;
@@ -57,7 +59,8 @@ export function ActivityBatch(p: {
           agentActions.push(actions[next] as AgentToolAction);
           next += 1;
         }
-        return <AgentActivityGroup key={key} actions={agentActions} onOpenAgent={p.onOpenAgent} />;
+        return <AgentActivityGroup key={key} actions={agentActions}
+          eventsByThreadId={p.eventsByThreadId} onOpenAgent={p.onOpenAgent} />;
       }
       return <Fragment key={key}>{p.renderToolLine(action, index)}</Fragment>;
     })}
@@ -227,6 +230,7 @@ function ClusterLine(p: {
  */
 export function ActivityStep(p: {
   actions: ToolAction[];
+  eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   plugins?: PluginCatalogEntry[];
   renderToolLine: (action: ToolAction, offset: number) => ReactNode;
   onOpenAgent: (agent: AgentDisplay) => void;
@@ -256,7 +260,7 @@ export function ActivityStep(p: {
   const live = p.active && p.liveLabel ? { label: p.liveLabel, since: p.liveSince ?? Date.now() } : null;
   const batch = (actions: ActivityAction[], hideErrors = false) => (
     <ActivityBatch actions={actions} renderToolLine={p.renderToolLine}
-      onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
+      eventsByThreadId={p.eventsByThreadId} onOpenAgent={p.onOpenAgent} hideThinking={p.hideThinking} threadId={p.threadId}
       thinkingCollapsed={p.thinkingCollapsed} hideErrors={hideErrors} />
   );
   if (!segments.length && !live) return null;

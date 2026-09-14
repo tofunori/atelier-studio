@@ -91,11 +91,9 @@ describe("Codex subagent activity", () => {
         agentThreadId: `child-${i}`, agentPath: `/root/reviewer_${i}`,
         agentsStates: { [`child-${i}`]: { status: "running", message: null } } },
     }))} onOpenAgent={onOpenAgent} />);
-    expect(screen.queryByRole("button", { name: "Open Reviewer 4 subagent" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "and 2 other subagent(s)" }));
     fireEvent.click(screen.getByRole("button", { name: "Open Reviewer 4 subagent" }));
     expect(onOpenAgent).toHaveBeenCalledWith(expect.objectContaining({ threadId: "child-4" }));
-    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    fireEvent.click(screen.getByRole("button", {name: /5 subagents/}));
     expect(screen.queryByRole("button", { name: "Open Reviewer 4 subagent" })).toBeNull();
   });
 
@@ -143,7 +141,7 @@ describe("Codex subagent activity", () => {
 
     expect(screen.getByTestId("subagent-activity-inline-group").textContent)
       .toContain("Editorial");
-    expect(screen.getByText("started working")).toBeTruthy();
+    expect(screen.getByText("1 working")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Editorial subagent" }));
     expect(onOpenAgent).toHaveBeenCalledWith(expect.objectContaining({ threadId: "child-1" }));
   });
@@ -178,4 +176,56 @@ describe("Codex subagent activity", () => {
     expect(ligne.querySelector("pre")).toHaveTextContent("42 a.py");
     expect(screen.getByText("Fini.")).toBeTruthy();
   });
+});
+
+it('collapses on completion, exposes the report, and reopens on follow-up', () => {
+  const running=action({agentActivity:{...action().agentActivity,agentThreadId:'child-1',agentPath:'/root/editorial'}});
+  const done=action({id:'done',agentActivity:{...running.agentActivity,agentsStates:{'child-1':{status:'completed'}}}});
+  const open=vi.fn();
+  const {rerender}=renderUi(<AgentActivityGroup actions={[running]} onOpenAgent={open}/>);
+  const header=screen.getByRole('button',{name:/One subagent/});
+  expect(header).toHaveAttribute('aria-expanded','true');
+  rerender(<AgentActivityGroup actions={[running,done]} onOpenAgent={open}/>);
+  expect(header).toHaveAttribute('aria-expanded','false');
+  expect(screen.queryByRole('button',{name:'Open Editorial subagent'})).toBeNull();
+  fireEvent.click(header);
+  fireEvent.click(screen.getByRole('button',{name:'Open Editorial subagent'}));
+  expect(open).toHaveBeenCalledWith(expect.objectContaining({status:'done'}));
+  rerender(<AgentActivityGroup actions={[running,done,{...running,id:'followup'}]} onOpenAgent={open}/>);
+  expect(header).toHaveAttribute('aria-expanded','true');
+});
+
+
+it("streams prose openly while preserving collapsed task and activity disclosures", () => {
+  const agent = agentsFromActions([action()])[0];
+  const tool: AgentEvent = {kind: "tool_update", id: "read", name: "exec", detail: "Read README", output: "Contents", status: "completed"};
+  const {rerender} = renderUi(<AgentDetailPanel agent={agent} onClose={() => {}} events={[tool, {kind: "streaming", text: "First words"}]} />);
+  expect(document.querySelector(".agent-report")).toHaveTextContent("First words");
+  expect(screen.getByText("Inspect the editor")).not.toBeVisible();
+  expect(screen.getByText("Contents")).not.toBeVisible();
+  expect(document.querySelector(".agent-report")?.closest("details")).toBeNull();
+  const disclosure = screen.getByText(/View activity/).closest("details")!;
+  fireEvent.click(screen.getByText(/View activity/));
+  expect(disclosure.open).toBe(true);
+  rerender(<AgentDetailPanel agent={agent} onClose={() => {}} events={[tool, {kind: "streaming", text: "First words and the next sentence"}]} />);
+  expect(document.querySelector(".agent-report")).toHaveTextContent("First words and the next sentence");
+  expect(disclosure.open).toBe(true);
+  rerender(<AgentDetailPanel agent={{...agent, status: "done", statusMessage: "First words and the next sentence"}} onClose={() => {}} events={[tool, {kind: "text", text: "First words and the next sentence"}]} />);
+  expect(screen.getAllByText("First words and the next sentence")).toHaveLength(1);
+  expect(document.querySelector(".agent-detail-live")).toBeNull();
+});
+
+it("updates the compact row from child events and clears activity on follow-up", () => {
+  const parent = action({ts: 10});
+  const {rerender} = renderUi(<AgentActivityGroup actions={[parent]} onOpenAgent={() => {}}
+    eventsByThreadId={new Map([["child-1", [{kind: "started", ts: 10}, {kind: "streaming", text: "Reading the sources", ts: 11}]]])} />);
+  expect(screen.getByText("Reading the sources")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: /One subagent/}));
+  rerender(<AgentActivityGroup actions={[parent]} onOpenAgent={() => {}}
+    eventsByThreadId={new Map([["child-1", [{kind: "done", ok: true, result: "Finished", ts: 20}]]])} />);
+  expect(screen.getByRole("button", {name: /One subagent/})).toHaveAttribute("aria-expanded", "false");
+  rerender(<AgentActivityGroup actions={[{...parent, ts: 30}]} onOpenAgent={() => {}}
+    eventsByThreadId={new Map([["child-1", [{kind: "streaming", text: "Reading the sources", ts: 11}, {kind: "done", ok: true, result: "Finished", ts: 20}]]])} />);
+  expect(screen.getByRole("button", {name: /One subagent/})).toHaveAttribute("aria-expanded", "true");
+  expect(screen.queryByText("Reading the sources")).toBeNull();
 });

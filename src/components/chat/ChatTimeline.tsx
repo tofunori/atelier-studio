@@ -108,6 +108,8 @@ export type TimelineReview = {
 };
 export type TimelineList = {
   renderedEvents: RenderedItem[];
+  /** Live child rollout transcripts shared with inline activity groups. */
+  eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   toolDetails?: Readonly<Record<string, boolean>>;
   openFolds: Set<string>; setOpenFolds: React.Dispatch<React.SetStateAction<Set<string>>>;
   openToolGroups: Set<string>; setOpenToolGroups: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -284,7 +286,7 @@ export function ChatTimeline(p: {
   const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
   const {
     renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
-    renderToolLine, fmtWorkDur, plugins, onOpenAgent,
+    renderToolLine, fmtWorkDur, plugins, onOpenAgent, eventsByThreadId,
   } = p.list;
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   // Vue de la transcription (sélecteur du header, façon Claude Code desktop) :
@@ -1017,6 +1019,7 @@ export function ChatTimeline(p: {
               <AgentActivityGroup
                 key={item.key}
                 actions={item.actions}
+                eventsByThreadId={eventsByThreadId}
                 onOpenAgent={onOpenAgent}
               />
             );

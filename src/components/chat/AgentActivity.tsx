@@ -1,14 +1,12 @@
-import { ChevronLeftIcon } from "lucide-react";
-import { useState } from "react";
+import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, GitBranchIcon, CheckIcon, CircleAlertIcon, LoaderCircleIcon, CircleSlashIcon } from "lucide-react";
+import { useId, useState } from "react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { normalizeMathDelimiters } from "../../lib/markdown";
-import { Bubble, BubbleContent } from "../shadcn/bubble";
-import { Message, MessageContent, MessageGroup } from "../shadcn/message";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
-import { Button, RowButton, StatusBadge, type BadgeStatus } from "../ui";
+import { Button, RowButton } from "../ui";
 import { MdBody, MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
 import { ToolGlyph, activityIconForAction, activeToolLabel } from "./toolPresentation";
 
@@ -104,12 +102,14 @@ export function agentsFromActions(actions: AgentToolAction[]): AgentDisplay[] {
         agent.displayName = displayNameFromPath(activity.agentPath) ?? agent.displayName;
       }
       const state = activity.agentsStates[threadId];
-      if (state) {
+      const current = agent.statusTs == null || action.ts == null || action.ts >= agent.statusTs;
+      if (state && current) {
         agent.status = normalizedStatus(state.status);
         agent.statusMessage = state.message?.trim() || null;
         agent.statusTs = action.ts;
-      } else if (activity.activityKind === "interrupted") {
+      } else if (!state && current && activity.activityKind === "interrupted") {
         agent.status = "interrupted";
+        agent.statusTs = action.ts;
       }
     }
   }
@@ -148,76 +148,77 @@ function agentToolLabel(event: Extract<AgentEvent, { kind: "tool" | "tool_update
   return activeToolLabel(event);
 }
 
-function hashHue(seed: string) {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
-  return hash % 360;
+export function AgentGlyph({ size = 20 }: { seed: string; size?: number }) {
+  return <GitBranchIcon className="agent-glyph" size={size} aria-hidden="true" />;
 }
 
-export function AgentGlyph({ seed, size = 20 }: { seed: string; size?: number }) {
-  const hue = hashHue(seed);
-  return (
-    <svg className="agent-glyph" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <g transform="translate(12 12)">
-        {[0, 45, 90, 135].map((angle, index) => (
-          <rect
-            key={angle}
-            x="-3.1"
-            y="-10"
-            width="6.2"
-            height="12"
-            rx="2.6"
-            transform={`rotate(${angle})`}
-            fill={`hsl(${(hue + index * 22) % 360} 78% ${56 + (index % 2) * 8}%)`}
-            opacity="0.92"
-          />
-        ))}
-        <circle r="3" fill={`hsl(${(hue + 36) % 360} 75% 72%)`} />
-      </g>
-    </svg>
-  );
+function AgentStateIcon({status}: {status: AgentDisplay["status"]}) {
+  const Icon = status === "working" ? LoaderCircleIcon : status === "done" ? CheckIcon
+    : status === "failed" ? CircleAlertIcon : CircleSlashIcon;
+  return <Icon className="agent-state-icon" data-agent-status={status} size={16} aria-hidden="true" />;
 }
 
-function groupStatus(agents: AgentDisplay[]) {
-  if (agents.some((agent) => agent.status === "failed")) return t("chat.subagents-failed");
-  if (agents.some((agent) => agent.status === "interrupted")) return t("chat.subagents-interrupted");
-  if (agents.length > 0 && agents.every((agent) => agent.status === "done")) return t("chat.subagents-finished");
-  if (agents.some((agent) => agent.statusMessage)) return t("chat.subagents-updated");
-  return t("chat.subagents-started");
-}
-
-export function AgentActivityGroup({
-  actions,
-  onOpenAgent,
-}: {
+export function AgentActivityGroup({actions, onOpenAgent, eventsByThreadId}: {
   actions: AgentToolAction[];
+  eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   onOpenAgent: (agent: AgentDisplay) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const agents = agentsFromActions(actions);
-  if (agents.length === 0) return null;
-  const visible = expanded ? agents : agents.slice(0, 3);
-  const hidden = agents.length - 3;
-  return (
-    <div className="agent-activity-group" data-testid="subagent-activity-inline-group">
-      {visible.map((agent) => (
-        <RowButton
-          key={agent.threadId}
-          className="agent-chip"
-          aria-label={t("chat.subagent-open", { name: agent.displayName })}
-          onClick={() => onOpenAgent(agent)}
-        >
-          <AgentGlyph seed={agent.threadId} size={18} />
-          <span>{agent.displayName}</span>
-        </RowButton>
-      ))}
-      {hidden > 0 ? <RowButton className="agent-group-status" aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}>
-        {expanded ? t("chat.subagents-less") : t("chat.subagents-more", { count: hidden })}
-      </RowButton> : null}
-      <span className="agent-group-status">{groupStatus(agents)}</span>
+  const id = useId();
+  const agents = agentsFromActions(actions).map(agent => agentWithTranscriptState(agent, eventsByThreadId?.get(agent.threadId) ?? []));
+  const working = agents.filter(agent => agent.status === "working").length;
+  const done = agents.filter(agent => agent.status === "done").length;
+  const failed = agents.filter(agent => agent.status === "failed").length;
+  const interrupted = agents.filter(agent => agent.status === "interrupted").length;
+  const allDone = agents.length > 0 && done === agents.length;
+  // Manual disclosure wins within a phase; completing or resuming a group
+  // returns to the appropriate default without an intermediate painted frame.
+  const phase = allDone ? "done" : "active";
+  const [disclosure, setDisclosure] = useState<{phase: string; open: boolean} | null>(null);
+  if (disclosure && disclosure.phase !== phase) setDisclosure(null);
+  const open = disclosure?.phase === phase ? disclosure.open : !allDone;
+  if (!agents.length) return null;
+  const summary = allDone ? t("chat.subagents-all-done") : [
+    done ? t(done === 1 ? "chat.subagents-count-done-one" : "chat.subagents-count-done", {count: done}) : null,
+    working ? t("chat.subagents-count-working", {count: working}) : null,
+    failed ? t("chat.subagents-count-failed", {count: failed}) : null,
+    interrupted ? t(interrupted === 1 ? "chat.subagents-count-interrupted-one" : "chat.subagents-count-interrupted", {count: interrupted}) : null,
+  ].filter(Boolean).join(" · ");
+  return <section className="agent-activity-group" data-testid="subagent-activity-inline-group"
+    aria-label={t(agents.length === 1 ? "chat.subagents-title-one" : "chat.subagents-title", {count: agents.length})}>
+    <RowButton className="agent-group-head" aria-expanded={open} aria-controls={id}
+      onClick={() => setDisclosure({phase, open: !open})}>
+      <GitBranchIcon size={16} aria-hidden="true" />
+      <span>{t(agents.length === 1 ? "chat.subagents-title-one" : "chat.subagents-title", {count: agents.length})}</span>
+      <span className="agent-group-summary" role="status">{summary}</span>
+      <ChevronDownIcon size={14} className="agent-disclosure-icon" aria-hidden="true" />
+    </RowButton>
+    <div id={id} hidden={!open} className="agent-group-rows">
+      {agents.map(agent => <RowButton key={agent.threadId} className="agent-row" data-agent-status={agent.status}
+        aria-label={t("chat.subagent-open", {name: agent.displayName})} onClick={() => onOpenAgent(agent)}>
+        <AgentStateIcon status={agent.status} />
+        <span className="agent-row-copy"><span className="agent-row-name">{agent.displayName}</span>
+          <span className="agent-row-description">{agent.status === "working" ? currentAgentActivity(agent, eventsByThreadId?.get(agent.threadId) ?? []) : statusLabel(agent)}</span></span>
+        <ChevronRightIcon size={14} className="agent-row-arrow" aria-hidden="true" />
+      </RowButton>)}
     </div>
-  );
+  </section>;
+}
+
+function currentAgentActivity(agent: AgentDisplay, events: AgentEvent[], toolsOnly = false): string {
+  // A resumed child must not show the previous turn's last command or report.
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.kind === "started" || event.kind === "done") break;
+    if (agent.statusTs != null && "ts" in event && event.ts != null && event.ts < agent.statusTs) continue;
+    if (event.kind === "tool" || event.kind === "tool_update") {
+      if (/^(?:agent:|(?:functions\.)?collaboration[.:])/u.test(event.name) || opaqueAgentText(event.detail)) continue;
+      return agentToolLabel(event);
+    }
+    if (!toolsOnly && (event.kind === "text" || event.kind === "streaming") && event.text.trim() && !opaqueAgentText(event.text)) {
+      return event.text.replace(/\s+/g, " ").trim().slice(0, 180);
+    }
+  }
+  return statusLabel(agent);
 }
 
 function statusLabel(agent: AgentDisplay) {
@@ -225,13 +226,6 @@ function statusLabel(agent: AgentDisplay) {
   if (agent.status === "done") return t("chat.subagent-done");
   if (agent.status === "interrupted") return t("chat.subagent-interrupted");
   return t("chat.subagent-failed");
-}
-
-function statusTone(agent: AgentDisplay): BadgeStatus {
-  if (agent.status === "failed") return "error";
-  if (agent.status === "working") return "running";
-  if (agent.status === "done") return "success";
-  return "warning";
 }
 
 export function AgentDetailPanel({
@@ -264,85 +258,63 @@ export function AgentDetailPanel({
       || event.kind === "error";
   });
   const plugins = useMdPlugins();
+  const prose = transcript.filter(event => event.kind === "text" || event.kind === "streaming" || event.kind === "error");
+  const activity = transcript.filter(event => event.kind === "tool" || event.kind === "tool_update" || event.kind === "thinking" || event.kind === "thinking_live");
+  const fallback = agent.statusMessage && !opaqueAgentText(agent.statusMessage)
+    && !prose.some(event => (event.kind === "error" ? event.message : "text" in event ? event.text : "").trim() === agent.statusMessage?.trim())
+    ? agent.statusMessage : null;
   return (
     <aside className={cn("agent-detail-panel", embedded && "agent-detail-embedded")} aria-label={agent.displayName}>
       <header className="agent-detail-header">
-        <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("action.close")}>
-          <ChevronLeftIcon />
-        </Button>
-        <AgentGlyph seed={agent.threadId} size={24} />
+        <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("action.close")}><ChevronLeftIcon /></Button>
+        <AgentGlyph seed={agent.threadId} size={18} />
         <span className="agent-detail-title">{agent.displayName}</span>
+        <span className="agent-detail-status" data-agent-status={agent.status} role="status">{statusLabel(agent)}</span>
       </header>
       <Separator />
       <ScrollArea className="agent-detail-scroll">
-        <div className="agent-detail-body">
-          <StatusBadge status={statusTone(agent)} role="status">{statusLabel(agent)}</StatusBadge>
-          {agent.prompt && !opaqueAgentText(agent.prompt) ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
-          {(agent.model || agent.reasoningEffort) ? (
-            <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>
+        <div className="agent-detail-body" data-testid="agent-transcript">
+          {(agent.prompt && !opaqueAgentText(agent.prompt) || agent.model || agent.reasoningEffort) ? (
+            <details className="agent-detail-disclosure" key={`mission-${agent.threadId}`}>
+              <summary>{t("chat.subagent-mission")}</summary>
+              {agent.prompt && !opaqueAgentText(agent.prompt) ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
+              <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>
+            </details>
           ) : null}
-          {agent.statusMessage && !opaqueAgentText(agent.statusMessage)
-            ? <div className="agent-detail-message">{agent.statusMessage}</div> : null}
-          {transcript.length > 0 ? (
-            <MessageGroup className="agent-transcript" data-testid="agent-transcript">
-              {transcript.map((event, index) => {
-                if (event.kind === "tool" || event.kind === "tool_update") {
-                  const failed = event.kind === "tool_update" && event.status === "failed";
-                  const output = event.kind === "tool_update" ? event.output : "";
-                  const completed = event.kind === "tool_update" && event.status === "completed";
-                  const line = <>
-                    <ToolGlyph icon={activityIconForAction(event)} />
-                    <span className="agent-tool-line-text">{agentToolLabel(event)}</span>
-                    <span className="agent-tool-status">{t(failed ? "agent-tool.failed" : completed ? "agent-tool.done" : "agent-tool.pending")}</span>
-                  </>;
-                  const key = `tool-${("id" in event ? event.id : null) ?? "legacy"}-${index}`;
-                  if (output) return (
-                    <details key={key} className="agent-tool-result" data-testid="agent-tool-line">
-                      <summary className={cn("agent-tool-line", failed && "is-failed")}>{line}</summary>
-                      <pre className="agent-tool-output">{output}</pre>
-                    </details>
-                  );
-                  return (
-                    <div
-                      key={key}
-                      className={cn("agent-tool-line", failed && "is-failed")}
-                      data-testid="agent-tool-line"
-                    >
-                      {line}
-                    </div>
-                  );
-                }
-                const isError = event.kind === "error";
-                const isThinking = event.kind === "thinking" || event.kind === "thinking_live";
-                const isStreaming = event.kind === "streaming";
-                const text = isError ? event.message : event.text;
-                const eventTs = "ts" in event ? event.ts : undefined;
-                return (
-                  <Message key={`${isThinking ? "thinking" : isError ? "error" : "text"}-${eventTs ?? index}-${index}`}>
-                    <MessageContent>
-                      <Bubble variant={isError ? "destructive" : isThinking ? "ghost" : "outline"}>
-                        <BubbleContent className={isThinking ? "agent-transcript-thinking" : "msg typeset typeset-chat"}>
-                          {event.kind === "text" || isStreaming ? (
-                            <MdBody
-                              text={normalizeMathDelimiters(text)}
-                              streaming={isStreaming}
-                              remarkPlugins={plugins.remark}
-                              rehypePlugins={plugins.rehype}
-                              components={isStreaming ? MD_COMPONENTS_STREAMING : MD_COMPONENTS}
-                            />
-                          ) : (
-                            text
-                          )}
-                        </BubbleContent>
-                      </Bubble>
-                    </MessageContent>
-                  </Message>
-                );
-              })}
-            </MessageGroup>
-          ) : (
-            <p className="agent-detail-empty" data-testid="agent-transcript-empty">{t(agent.status === "working" ? "chat.subagent-waiting" : "chat.subagent-no-transcript")}</p>
-          )}
+          {agent.status === "working" ? <div className="agent-detail-live"><AgentStateIcon status="working" />
+            <span>{currentAgentActivity(agent, events, true)}</span>
+          </div> : null}
+          <div className="agent-transcript">
+            {prose.map((event, index) => {
+              const text = event.kind === "error" ? event.message : "text" in event ? event.text : "";
+              const streaming = event.kind === "streaming";
+              return <div key={`prose-${index}`} className={cn("agent-report msg typeset typeset-chat", event.kind === "error" && "agent-report-error")}>
+                <MdBody text={normalizeMathDelimiters(text)} streaming={streaming}
+                  remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype}
+                  components={streaming ? MD_COMPONENTS_STREAMING : MD_COMPONENTS} />
+              </div>;
+            })}
+            {fallback ? <div className="agent-report msg typeset typeset-chat"><MdBody streaming={false} text={normalizeMathDelimiters(fallback)}
+              remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype} components={MD_COMPONENTS} /></div> : null}
+            {!prose.length && !fallback ? <p className="agent-detail-empty" data-testid="agent-transcript-empty">{t(agent.status === "working" ? "chat.subagent-waiting" : "chat.subagent-no-transcript")}</p> : null}
+          </div>
+          {activity.length > 0 ? <details className="agent-detail-disclosure agent-detail-activity" key={`activity-${agent.threadId}`}>
+            <summary>{t("chat.subagent-activity")} · {activity.length}</summary>
+            <div className="agent-activity-log">{activity.map((event, index) => {
+              if (event.kind !== "tool" && event.kind !== "tool_update") {
+                return <p key={`thought-${index}`} className="agent-transcript-thinking">{"text" in event ? event.text : ""}</p>;
+              }
+              const failed = event.kind === "tool_update" && event.status === "failed";
+              const completed = event.kind === "tool_update" && event.status === "completed";
+              const output = event.kind === "tool_update" ? event.output : "";
+              const line = <><ToolGlyph icon={activityIconForAction(event)} /><span className="agent-tool-line-text">{agentToolLabel(event)}</span>
+                <span className="agent-tool-status">{t(failed ? "agent-tool.failed" : completed ? "agent-tool.done" : "agent-tool.pending")}</span></>;
+              const key = `tool-${("id" in event ? event.id : null) ?? "legacy"}-${index}`;
+              return output ? <details key={key} className="agent-tool-result" data-testid="agent-tool-line">
+                <summary className={cn("agent-tool-line", failed && "is-failed")}>{line}</summary><pre className="agent-tool-output">{output}</pre>
+              </details> : <div key={key} className={cn("agent-tool-line", failed && "is-failed")} data-testid="agent-tool-line">{line}</div>;
+            })}</div>
+          </details> : null}
         </div>
       </ScrollArea>
     </aside>

@@ -495,3 +495,20 @@ describe("ThinkingBlock — vue de la transcription", () => {
     expect(screen.getByText("je réfléchis longuement")).toBeTruthy();
   });
 });
+
+it('keeps one subagent surface across prose and commands, including after the turn closes', async () => {
+  const child = (id: string, status: string, ts: number): AgentEvent => ({kind:'tool_update',id,
+    name:'agent:activity',status:'completed',output:'',ts,source:'codex',agentActivity:{tool:'activity',
+      receiverThreadIds:['child'],agentThreadId:'child',agentPath:'/root/research',agentsStates:{child:{status}}}});
+  const activity: AgentEvent[] = [events.user(),child('spawn','running',FIXED_TS+10),
+    {kind:'text',text:'Je consulte les publications.',ts:FIXED_TS+20},
+    {kind:'tool_update',id:'cmd',name:'Bash',status:'completed',output:'ok',ts:FIXED_TS+30},
+    child('progress','running',FIXED_TS+40)];
+  const {rerender}=renderUi(<Chat {...chatProps({events:activity,workingSince:FIXED_TS})}/>);
+  await waitFor(()=>expect(screen.getAllByTestId('subagent-activity-inline-group')).toHaveLength(1));
+  const completed=[...activity,child('finished','completed',FIXED_TS+50),
+    {kind:'done' as const,ok:true,result:'Synthèse finale.',ts:FIXED_TS+60}];
+  rerender(<Chat {...chatProps({events:completed,workingSince:null})}/>);
+  await waitFor(()=>expect(screen.getAllByTestId('subagent-activity-inline-group')).toHaveLength(1));
+  expect(screen.getByTestId('subagent-activity-inline-group').querySelector('.agent-group-head')).toHaveAttribute('aria-expanded','false');
+});

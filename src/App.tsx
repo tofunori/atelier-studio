@@ -5481,6 +5481,7 @@ export default function App() {
           threadId={activeId}
           home={homeBundle}
           eventStore={eventStore}
+          ws={ws.current}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
           lastEventAt={activeId ? lastEventAt[activeId] ?? null : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}

@@ -10,6 +10,8 @@ export default defineConfig({
   reporter: [['list']],
   use: {trace: 'retain-on-failure'},
   projects: [
+    {name: 'webkit-subagents', testMatch: /subagent_ui\.spec\.js/, use: {browserName: 'webkit'}},
+    {name: 'webkit-pdf-refresh', testMatch: /latex_pdf_refresh\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-chat-notice', testMatch: /chat_notice\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-markdown-selection', testMatch: /markdown_selection\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-reading-chat', testMatch: /reading_chat_overlay\.spec\.js/, use: {browserName: 'webkit'}},
