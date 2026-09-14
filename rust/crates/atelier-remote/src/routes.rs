@@ -59,6 +59,7 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/interrupt", post(interrupt_msg))
         .route("/remote/v1/interaction", post(interaction_msg))
         .route("/remote/v1/gallery/{project_id}", get(gallery_index))
+        .route("/remote/v1/file/{file_id}/favorite", post(set_gallery_favorite))
         .route(
             "/remote/v1/files/{project_id}/{*rel}",
             get(get_file_by_path),
@@ -998,14 +999,35 @@ async fn gallery_index(
     let offset = query.offset.min(total);
     let mut page: Vec<Value> = items.iter().skip(offset).take(500).cloned().collect();
     let mut g = state.inner.lock().await;
+    let project = g.projects.get(&project_id).ok_or_else(|| ApiError::not_found("projet inconnu"))?;
+    let favorites = atelier_core::gallery_favorites::read(&project.root)
+        .map(|value| atelier_core::gallery_favorites::favorites(&value))
+        .map_err(|_| ApiError::bad_request("gallery_state", "Lecture des favoris impossible"))?;
     for item in &mut page {
         if let Some(rel) = item.as_object_mut().and_then(|obj| obj.remove("_relative")) {
+            item["favorite"] = json!(favorites.contains(rel.as_str().unwrap_or_default()));
             g.projects.register_file(&project_id, rel.as_str().unwrap_or_default())?;
         }
     }
     let end = offset + page.len();
     Ok(Json(json!({"projectId": project_id, "count": page.len(), "total": total,
         "snapshot": snapshot, "nextOffset": if end < total { Some(end) } else { None }, "items": page})))
+}
+
+#[derive(Deserialize)]
+struct FavoriteBody { on: bool }
+async fn set_gallery_favorite(
+    State(state): State<GatewayState>, headers: HeaderMap,
+    Path(file_id): Path<String>, Json(body): Json<FavoriteBody>,
+) -> ApiResult<Json<Value>> {
+    guard_headers(&state, &headers).await?;
+    require_device(&state, &headers, Scope::GalleryRead).await?;
+    require_device(&state, &headers, Scope::FilesWrite).await?;
+    let (project, _, relative) = state.inner.lock().await.projects.resolve_file_id(&file_id)?;
+    tokio::task::spawn_blocking(move || atelier_core::gallery_favorites::set(&project.root, &relative, body.on))
+        .await.map_err(|_| ApiError::bad_request("gallery_state", "Enregistrement interrompu"))?
+        .map_err(|_| ApiError::bad_request("gallery_state", "Enregistrement du favori impossible"))?;
+    Ok(Json(json!({"favorite": body.on})))
 }
 
 fn scan_gallery(proj: crate::path_policy::ProjectEntry) -> Vec<Value> {
@@ -1041,6 +1063,7 @@ fn scan_gallery(proj: crate::path_policy::ProjectEntry) -> Vec<Value> {
                 }
                 continue;
             }
+            if path.file_name().is_some_and(|name| name == ".fig_state.json") { continue; }
             if !file_type.is_file() {
                 continue;
             }

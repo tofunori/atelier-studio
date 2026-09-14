@@ -56,6 +56,7 @@ export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml
 export type OpenFileRefOptions = {
   diff?: boolean;
   baseSha?: string | null;
+  page?: number | null;
 };
 
 export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
@@ -67,8 +68,20 @@ export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
       line: m[2] ?? null,
       diff: options.diff === true,
       baseSha: options.baseSha ?? null,
+      page: options.page ?? null,
     },
   }));
+}
+
+/** Certains liens PDF portent la page cible dans leur libellé plutôt que dans
+ * le href (par exemple « Voir le PDF, page 6 »). Conserver cette intention
+ * utile quand le fichier s'ouvre dans le lecteur intégré d'Atelier. */
+export function pdfPageFromLink(label: string, ref: string): number | null {
+  if (!/\.pdf$/i.test(ref)) return null;
+  const match = /\bpage\s+(\d{1,6})\b/i.exec(label);
+  if (!match) return null;
+  const page = Number(match[1]);
+  return Number.isInteger(page) && page >= 1 && page <= 100_000 ? page : null;
 }
 
 // Deux niveaux de lien interne (citation par section ou page) : seule la clé
@@ -563,7 +576,7 @@ export const MD_COMPONENTS = {
     const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
     if (ref)
       return (
-        <RowButton className="file-ref" onClick={() => openFileRef(ref)} title={t("action.open-file", { ref })}>
+        <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
           </svg>

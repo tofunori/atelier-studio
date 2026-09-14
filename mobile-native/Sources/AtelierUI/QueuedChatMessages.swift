@@ -29,14 +29,14 @@ struct QueuedChatMessages: View {
                                 .disabled(chat.sending || item.attempted)
                             if chat.supportsSteering {
                                 Button(item.attemptedMode == "steer" ? "Check Steer" : "Steer", systemImage: "arrow.turn.up.right") {
-                                    Task { await chat.steerPrepared(item.id, using: workspace.gallery) }
+                                    Task { await chat.steerPrepared(item.id, using: workspace.gallery, workspace: workspace) }
                                 }.disabled(chat.sending || (!chat.running && item.attemptedMode != "steer") || (item.attempted && item.attemptedMode != "steer"))
                             } else {
                                 Text("Steer indisponible avec cet assistant")
                             }
                             if !chat.running && item.attemptedMode != "steer" && chat.preparedForThread.first?.id == item.id {
                                 Button(item.attempted ? "Vérifier l’envoi" : "Envoyer maintenant", systemImage: "arrow.up") {
-                                    Task { await chat.deliverPrepared(using: workspace.gallery) }
+                                    Task { await chat.deliverPrepared(using: workspace.gallery, workspace: workspace) }
                                 }.disabled(chat.sending)
                             }
                             Button("Annuler le message", systemImage: "trash", role: .destructive) { chat.removePrepared(item.id) }
@@ -57,11 +57,11 @@ struct QueuedChatMessages: View {
             if let pause = editingPause {
                 chat.endPreparedEditing(threadID: pause.threadID, wasPaused: pause.wasPaused)
                 editingPause = nil
-                Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true) }
+                Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true, workspace: workspace) }
             }
         }) { item in QueuedMessageEditor(workspace: workspace, item: item) }
-        .onAppear { chat.reconcilePreparedAcknowledgements() }
-        .onChange(of: chat.rows.filter { $0.kind == "user" }.map(\.id)) { _, _ in chat.reconcilePreparedAcknowledgements() }
+        .onAppear { chat.reconcilePreparedAcknowledgements(workspace: workspace) }
+        .onChange(of: chat.rows.filter { $0.kind == "user" }.map(\.id)) { _, _ in chat.reconcilePreparedAcknowledgements(workspace: workspace) }
     }
 }
 

@@ -27,6 +27,9 @@ struct PreparedChatMessage: Identifiable, Codable, Sendable {
     var model: String
     var effort: String
     var attempted = false
+    /// Reading annotations quoted into this queued message. Optional keeps
+    /// older persisted queues decodable without a migration.
+    var annotationReferences: [AnnotationSendReference]? = nil
     // Persist the delivery intent so an uncertain steer never becomes a new turn.
     var attemptedMode: String? = nil
     var permissionModeAtTransmission: String? = nil
@@ -38,8 +41,12 @@ extension RemoteChatModel {
         guard let selected, !sending else { return }
         let text = Self.promptWithQuote(workspace.draft, quote: quote)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
-        prepared.append(PreparedChatMessage(threadID: selected.id, text: text, files: attachments, model: model, effort: effort))
+        let references = workspace.annotationReferencesForCurrentChatSend()
+        let quoteID = quote?.id
+        prepared.append(PreparedChatMessage(threadID: selected.id, text: text, files: attachments, model: model, effort: effort,
+                                             annotationReferences: references.isEmpty ? nil : references))
         workspace.draft = ""; attachments = []; quote = nil; scheduleSave(); AtelierTheme.confirmation()
+        workspace.clearAnnotationReferences(for: quoteID)
     }
     func movePrepared(_ id: String, up: Bool) {
         let ids = prepared.indices.filter { prepared[$0].threadID == selected?.id }
@@ -84,23 +91,30 @@ extension RemoteChatModel {
     func preparedWasAcknowledged(_ item: PreparedChatMessage) -> Bool {
         selected?.id == item.threadID && rows.contains { $0.kind == "user" && $0.messageID == item.id && !$0.id.hasPrefix("pending:") }
     }
-    func reconcilePreparedAcknowledgements() {
-        let acknowledged = Set(prepared.filter { preparedWasAcknowledged($0) }.map(\.id))
+    func reconcilePreparedAcknowledgements(workspace: WorkspaceModel? = nil) {
+        let acknowledgedItems = prepared.filter { preparedWasAcknowledged($0) }
+        let acknowledged = Set(acknowledgedItems.map(\.id))
         guard !acknowledged.isEmpty else { return }
+        for item in acknowledgedItems { workspace?.consumeAnnotationReferences(item.annotationReferences ?? []) }
         prepared.removeAll { acknowledged.contains($0.id) }; scheduleSave()
     }
-    func steerPrepared(_ id: String, using gateway: GalleryModel) async {
+    func steerPrepared(_ id: String, using gateway: GalleryModel, workspace: WorkspaceModel? = nil) async {
         guard !sending, let item = preparedForThread.first(where: { $0.id == id }) else { return }
-        if preparedWasAcknowledged(item) { reconcilePreparedAcknowledgements(); return }
+        if preparedWasAcknowledged(item) {
+            reconcilePreparedAcknowledgements(workspace: workspace); return
+        }
         guard supportsSteering else { error = "Cet assistant ne permet pas d’intervenir pendant sa réponse. Le message reste en attente."; return }
         guard (!item.attempted || item.attemptedMode == "steer"), running || item.attemptedMode == "steer" else { return }
         let accepted = await intervene(item.text, using: gateway, requestID: item.id, files: item.files, retry: item.attemptedMode == "steer") {
             self.markPreparedTransmitting(item.id, mode: "steer")
         }
-        if accepted || preparedWasAcknowledged(item) { prepared.removeAll { $0.id == id }; scheduleSave() }
+        if accepted || preparedWasAcknowledged(item) {
+            workspace?.consumeAnnotationReferences(item.annotationReferences ?? [])
+            prepared.removeAll { $0.id == id }; scheduleSave()
+        }
     }
-    func deliverPrepared(using gateway: GalleryModel, automatic: Bool = false) async {
-        reconcilePreparedAcknowledgements()
+    func deliverPrepared(using gateway: GalleryModel, automatic: Bool = false, workspace: WorkspaceModel? = nil) async {
+        reconcilePreparedAcknowledgements(workspace: workspace)
         guard !running, !sending, let item = preparedForThread.first, item.attemptedMode != "steer",
               (!automatic || (!item.attempted && !pausedQueues.contains(item.threadID))) else { return }
         if !automatic { pausedQueues.remove(item.threadID); scheduleSave() }
@@ -111,7 +125,10 @@ extension RemoteChatModel {
             self.markPreparedTransmitting(item.id, mode: "send", permission: requestPermission)
         }
         if selected?.id == item.threadID { model = oldModel; effort = oldEffort }
-        if accepted || preparedWasAcknowledged(item) { prepared.removeAll { $0.id == item.id }; scheduleSave() }
+        if accepted || preparedWasAcknowledged(item) {
+            workspace?.consumeAnnotationReferences(item.annotationReferences ?? [])
+            prepared.removeAll { $0.id == item.id }; scheduleSave()
+        }
     }
     func intervene(_ text: String, using gateway: GalleryModel, requestID: String, files: [GalleryArtifact] = [], retry: Bool = false, onWillTransmit: (() -> Void)? = nil) async -> Bool {
         guard !isPreview, (running || retry), !sending, let thread = selected,
@@ -197,7 +214,7 @@ struct PreparedMessagesView: View {
                     }
                 }
                 if chat.preparedForThread.isEmpty { Text("Aucun message en attente.").foregroundStyle(.secondary) }
-                else if !chat.running { Button("Envoyer le prochain message") { Task { await chat.deliverPrepared(using: workspace.gallery) } }.disabled(chat.sending) }
+                else if !chat.running { Button("Envoyer le prochain message") { Task { await chat.deliverPrepared(using: workspace.gallery, workspace: workspace) } }.disabled(chat.sending) }
             } footer: {
                 Text("Messages conservés sur cet iPhone. La suite est envoyée à la fin du tour tant que cette conversation reste ouverte et connectée. Après une interruption, vous pouvez reprendre l’envoi ici.")
             }

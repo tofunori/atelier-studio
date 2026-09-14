@@ -46,6 +46,26 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => { await stop(server); await removeTempRoot(root); });
 
+test('un lien PDF avec page seule défile jusqu’à cette page', async ({page}) => {
+  await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf&page=2`);
+  await expect.poll(() => page.locator('.pg[data-page="2"] canvas').evaluate(c => c.width).catch(() => 0),
+    {timeout: 15_000}).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await expect(page.locator('#status')).toHaveText('Page 2');
+});
+
+test('la page cible est stricte et bornée au document', async ({page}) => {
+  await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf&page=999`);
+  await expect.poll(() => page.evaluate(() => window.scrollY), {timeout: 15_000}).toBeGreaterThan(0);
+  await expect(page.locator('#status')).toHaveText('Page 2');
+
+  await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf&page=2abc`);
+  await expect.poll(() => page.locator('.pg[data-page="1"] canvas').evaluate(c => c.width).catch(() => 0),
+    {timeout: 15_000}).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.locator('#status')).not.toHaveText('Page 2');
+});
+
 test('mode lecture : colonne, découpe, taille, recherche, annotation aller-retour', async ({page}) => {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));

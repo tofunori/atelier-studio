@@ -4,6 +4,18 @@ import UIKit
 @testable import AtelierUI
 
 final class SyntaxTests: XCTestCase {
+    func testDocumentDiffNumbersReplacementAndDeletionHunks() {
+        let previous = "Titre\nAvant\ncontexte 1\ncontexte 2\ncontexte 3\ncontexte 4\ncontexte 5\nRetirer"
+        let current = "Titre\nAprès\ncontexte 1\ncontexte 2\ncontexte 3\ncontexte 4\ncontexte 5"
+        let lines = DocumentChangeLine.compare(previous: previous, current: current)
+        XCTAssertEqual(lines.first { $0.kind == .added }?.newLine, 2)
+        XCTAssertEqual(lines.first { $0.kind == .removed }?.oldLine, 2)
+        let hunks = DocumentChangeHunk.group(lines)
+        XCTAssertEqual(hunks.count, 2)
+        XCTAssertEqual(hunks.first?.currentLine, 2)
+        XCTAssertEqual(hunks.last?.currentLine, 7)
+        XCTAssertTrue(DocumentChangeHunk.group(DocumentChangeLine.compare(previous: current, current: current)).isEmpty)
+    }
     @MainActor func testPythonStringsAndCommentsDoNotColourInnerKeywords() throws {
         let text = "import numpy\nlabel = \"if # text\"\n# return comment\nreturn 42"
         let result = SourceSyntax.attributed(text, name: "analysis.py")
@@ -37,6 +49,19 @@ final class SyntaxTests: XCTestCase {
         SyntaxSourceEditor.Coordinator(workspace: model).update(newEditor)
         XCTAssertEqual(newEditor.selectedRange, NSRange(range, in: model.source))
         XCTAssertEqual(model.activePassage?.text, "Passage sélectionné")
+    }
+
+    @MainActor func testDiffHighlightRefreshPreservesSourceViewport() {
+        let model = WorkspaceModel()
+        model.source = String(repeating: "Une ligne de résultats.\n", count: 100)
+        let view = PositionRestoringSourceView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let coordinator = SyntaxSourceEditor.Coordinator(workspace: model)
+        coordinator.update(view)
+        view.layoutIfNeeded()
+        view.setContentOffset(CGPoint(x: 0, y: 500), animated: false)
+        coordinator.update(view, changedRanges: [NSRange(location: 0, length: 10)])
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.contentOffset.y, 500, accuracy: 1)
     }
 
     @MainActor func testEditorSelectionAndTypingPreserveUnicodeCitation() throws {

@@ -1,21 +1,49 @@
-/* Shared by the host chat and embedded editors: same narrow, quiet edge. */
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport){
+/* Shared by host surfaces. Editors have their own hit area below so changing
+   the code viewport never changes chat, PDF, or side-panel scrolling. */
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport){
   --scroll-thumb:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 38%,transparent);
   --scroll-thumb-hover:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 65%,transparent);
   scrollbar-width:var(--atelier-scrollbar-width,thin);
   scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transparent);
 }
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar{width:6px;height:6px}
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{background:transparent}
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
-:where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-corner{background:transparent}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar{width:6px;height:6px}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{background:transparent}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-corner{background:transparent}
 
 /* WKWebView: choose the pseudo-element path exclusively, with a painted track
    so a previous thumb cannot remain on a transparent scrolling surface. */
 @supports selector(::-webkit-scrollbar){
   :root{--atelier-scrollbar-width:auto;--atelier-scrollbar-color:auto}
-  :where(.messages,.exp-tree,.cm-scroller,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{
+  :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{
     background:var(--scroll-track,var(--bg,#1e2124));
   }
+}
+
+/* CodeMirror editor: keep a roughly 10 px native hit target while the painted
+   thumb stays quiet. The transparent border is part of the clickable area,
+   and `scrollbar-gutter` keeps line-wrap width stable as the bar appears. */
+:where(.cm-editor) .cm-scroller{
+  --scroll-thumb:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 38%,transparent);
+  --scroll-thumb-hover:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 65%,transparent);
+  overflow-y:scroll;
+  scrollbar-width:thin;
+  scrollbar-color:var(--scroll-thumb) transparent;
+  scrollbar-gutter:stable;
+}
+:where(.cm-editor) .cm-scroller::-webkit-scrollbar{width:10px;height:10px}
+:where(.cm-editor) .cm-scroller::-webkit-scrollbar-track{
+  background:var(--scroll-track,var(--surface-app,var(--bg,#1e2124)));
+}
+:where(.cm-editor) .cm-scroller::-webkit-scrollbar-thumb{
+  background:var(--scroll-thumb);
+  border:2px solid transparent;
+  border-radius:999px;
+  background-clip:padding-box;
+}
+:where(.cm-editor) .cm-scroller::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover);background-clip:padding-box}
+:where(.cm-editor) .cm-scroller::-webkit-scrollbar-corner{background:transparent}
+@supports selector(::-webkit-scrollbar){
+  :where(.cm-editor) .cm-scroller{scrollbar-width:auto;scrollbar-color:auto}
 }

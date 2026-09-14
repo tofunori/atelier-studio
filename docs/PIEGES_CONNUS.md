@@ -270,6 +270,59 @@ relancé = démotion silencieuse).
   (`~/Library/Application Support/atelier-studio/ledger/`), et
   `turn_context.sandbox_policy` dans le rollout `~/.codex/sessions/…`.
 
+## S3. La passerelle iPhone fige son amont à sa naissance — un sidecar remplacé la laisse sur un port mort
+
+Symptôme (2026-09-11) : l'iPhone affiche « Atelier est déconnecté » (ou ne
+charge rien) alors que `/remote/health` répond 200 — même via l'URL exacte du
+téléphone (`https://<machine>.<tailnet>.ts.net:8443`, relayée par Tailscale
+serve) — et que l'appareil reste récent dans `remote/devices.json`. Le chat
+macOS, lui, fonctionne normalement.
+
+Cause : `atelier-remote-gateway` reçoit son amont à la naissance
+(`ATELIER_SIDECAR_BASE=http://127.0.0.1:<port>`, posé par
+`remote_gateway::ensure()`) et ne le relit jamais. Si le sidecar a été
+remplacé (nouveau port, nouveau jeton) sans que la passerelle le soit, toutes
+les routes proxifiées (`/remote/v1/*`) partent vers un port mort → 502
+`offline` « Atelier est déconnecté ». Deux leurres : `/remote/health` ne
+teste que la passerelle (jamais l'amont), et l'auth d'un appareil met à jour
+`lastSeenAt` avant que le proxy échoue — « appareil récent » ≠ « chat
+joignable ».
+
+Diagnostic (30 s) :
+
+```bash
+APP="$HOME/Library/Application Support/atelier-studio"
+cat "$APP/remote/gateway.lock"                     # pid, bind, sidecarPort, sidecarTokenHash
+python3 -c "import json;print(json.load(open('$APP/sidecar.lock'))['port'])"
+lsof -nP -iTCP:18765 -sTCP:LISTEN                  # pid attendu = celui du verrou
+tail -3 "$APP/remote/gateway.log"                  # ligne « … listening addr=… »
+```
+
+`sidecarPort` du verrou ≠ port courant de `sidecar.lock` ⇒ passerelle
+périmée.
+
+Réparation : relancer l'app (protocole de relance) ; au boot `ensure()`
+compare `gateway.lock` au sidecar courant, tue l'ancienne passerelle et en
+relance une. Le sidecar survit (réadopté via `sidecar.lock`) et l'appairage
+iPhone aussi (le store est `remote/devices.json`, pas le process).
+
+**Règles** :
+- après toute relance d'app ou tout respawn de sidecar, recouper
+  `sidecarPort` de `gateway.lock` avec le port de `sidecar.lock` : c'est
+  l'identité de session de la passerelle ;
+- les erreurs de ce chemin (`[atelier] gateway iPhone non disponible: …`)
+  sortent sur le stderr de l'app, donc vers /dev/null quand elle est lancée
+  par `open` : relancer avec `open -n --stderr /tmp/atelier-app.log "$APP"`
+  pour les lire ;
+- un `RUST_LOG=warn` dans l'environnement du lanceur prive `gateway.log` de
+  sa ligne `listening` — absence de log ≠ absence de démarrage ;
+- vérifier la chaîne sans iPhone : `pair` puis `revoke <id>` via
+  `remote/pair.sock`, et `GET /remote/v1/threads` sur l'URL Tailscale (200
+  attendu, quelques centaines de fils) ;
+- cas encore inexpliqué (2026-09-11) : deux boots (21:57, 22:56) n'ont pas
+  remplacé une passerelle périmée, faute de trace conservée. Si ça se
+  reproduit, capturer le stderr comme ci-dessus avant de conclure.
+
 ## 12. cm6 rend le diff NATIVEMENT — la boucle de marques d'applyRender est du code mort sous cm6
 
 Symptôme (2026-08-17) : fonctionnalité branchée sur les marques du diff
@@ -386,6 +439,50 @@ même façon ; les bundles, eux, passent (esbuild résout sans extension).
   AVERTISSEMENTS ancrés sur l'ouverture orpheline ; les erreurs de compilation
   (`! … l.N`) sont les seules « erreurs », posées via `cm.setDiagnostics` dans
   un champ dédié que le linter relit (sinon la première frappe les effaçait).
+
+## 17. Recharger ou reconfigurer l'éditeur pendant une sélection : la hauteur réestimée perd la position, l'ancre de texte la garde
+
+Symptôme (2026-09-11) : après une écriture d'agent sur le `.tex`, un clic-glisser
+court se terminait en sélection de la ligne 480 jusqu'à la fin du document, et la
+vue partait en tête (mesuré : `scrollTop` 5850 → 19). Rien ne se produisait tant
+que le fichier n'était pas modifié à l'extérieur.
+
+Cause : deux mécanismes distincts, à ne pas confondre.
+1. L'ouverture AUTOMATIQUE de la vue Diff (écriture externe) passait par
+   `gotoChange(…, true)`, donc `scrollIntoView` sur le premier bloc modifié —
+   ici la ligne 20, c'est-à-dire la tête. La revue doit s'ouvrir SANS naviguer ;
+   `gotoChange` reste réservé à l'ouverture demandée par l'utilisateur (`Diff`,
+   `‹ n/N ›`).
+2. CM6 RÉESTIME la hauteur du document quand on remplace le buffer ou qu'on
+   reconfigure la vue (chunks repliés/insérés). Mesuré sur un `.tex` de 700
+   lignes : `scrollHeight` 7709 px → 4069 px, soit un plafond de `scrollTop` à
+   3395 px. Une position profonde en pixels ne désigne alors plus la même ligne,
+   et toute restauration par `scrollTop` est BORNÉE — même rejouée plus tard
+   (5850 → 3430).
+
+**Règles** :
+- Restaurer une ANCRE DE TEXTE, pas des pixels : `view.scrollSnapshot()` avant
+  la reconfiguration, puis `view.dispatch({effects: snapshot})` après DEUX
+  frames (la hauteur réestimée n'est connue qu'après le cycle de mesure) —
+  façade `reconfigurePreservingViewport` de `cm6/studio_editor.mjs`. La
+  fermeture de la revue avait déjà ce réflexe, l'ouverture non.
+- Différer TOUTE reconfiguration tant qu'un geste de sélection est en cours
+  (`pointerdown` → `pointerup`, plus `pointercancel`) : remplacer le buffer ET
+  ouvrir la vue Diff reconstruisent le DOM sous le pointeur, ce qui détache
+  l'ancre native du glisser et fait terminer la sélection à une extrémité.
+  `deferWhileSelecting` met le travail en file et l'exécute au relâchement ; le
+  buffer passe AVANT la revue, qui doit comparer le texte à jour.
+- Un test qui verrouille la position interroge l'ancre via
+  `cm.getViewportAnchor()`, jamais `getScrollInfo().top` : dans cet éditeur le
+  pixel n'est pas stable, la ligne l'est.
+
+**Vérification** : `editor_cm6_scroll.spec.js` (rechargement pendant un glisser,
+écriture pendant que la revue est ouverte, fusion distante) en WebKit **et**
+Chromium ; `rechargement agent…` et `latex individual review automatically
+opens…` (`editor_cm6.spec.js`) verrouillent l'ouverture automatique sans
+recentrage. Suite galerie complète : 101 passés, et les 5 échecs restants
+(`diff.spec.js` 434 / 800 / 830, `core.spec.js` 808) échouent à l'identique
+avant le correctif — recoupé sur `HEAD~1`.
 
 ## pdf.js ≥ 4 et le WebKit système (vécu 2026-09-06)
 - **`getTextContent()` de pdf.js 6 itère un `ReadableStream` avec `for await`** ; le WebKit livré avec macOS (Safari/WKWebView `Version/26.6`) n'a pas `ReadableStream.prototype[Symbol.asyncIterator]` → `TypeError` avalé par le pipeline, **aucune couche texte, aucune sélection dans l'app**, alors que Playwright WebKit (trunk) passe. La variante `legacy` de pdf.js a le même `for await`. Correctif : `gallery/assets/pdfjs_compat.js` (polyfill `values()`/`[Symbol.asyncIterator]`) chargé AVANT le shim module dans `pdf_viewer.html` et `latex_studio.html` (contrat : `pdfjs_compat.test.mjs`). Toute nouvelle page qui charge pdf.js doit l'inclure. Leçon : un test WebKit Playwright ne prouve pas le WebKit système — bissecter avec Safari (`open -a Safari`) et une page de diagnostic qui POSTe sur `/selinfo`.

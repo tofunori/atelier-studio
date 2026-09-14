@@ -124,6 +124,14 @@ export function createLatexSelectionPill(
             around:editor?surroundingLines(editor,lastSelection.from,lastSelection.to):undefined,
             path:options.path,page:lastSelection.page});api.hide();
         } : undefined,
+        onHighlight: options.highlight ? (color)=>{
+          const selection=lastSelection;
+          if(!selection)return;
+          options.highlight?.(selection,color);
+          lastSelection=null;
+          options.clearMarker();
+          api.hide();
+        } : undefined,
       });
     },
   });

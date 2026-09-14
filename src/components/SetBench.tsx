@@ -33,7 +33,15 @@ function benchSocket(): WebSocket {
     addEventListener: target.addEventListener.bind(target),
     removeEventListener: target.removeEventListener.bind(target),
     send(raw: string) {
-      const msg = JSON.parse(raw) as { type?: string };
+      const msg = JSON.parse(raw) as { type?: string; requestId?: string; rewrite?: { mode?: string; answers?: string } };
+      if (msg.type === "reformulerConsigne") {
+        const texte = msg.rewrite?.mode === "questions" && !msg.rewrite.answers
+          ? "1. À quel public les figures sont-elles destinées ?\n2. Quel format d’export souhaitez-vous ?"
+          : "Crée des figures scientifiques lisibles et sobres.\nVérifie les axes, les unités, les légendes et les chevauchements de texte.\nUtilise des couleurs accessibles et un export adapté à la publication.";
+        setTimeout(() => window.dispatchEvent(new CustomEvent("consigne-reformulee", {
+          detail: { requestId: msg.requestId, texte },
+        })), 150);
+      }
       if (msg.type === "providerStatus") {
         reply({
           type: "providerStatus",
@@ -73,11 +81,15 @@ export function SetBench() {
   // route doit se voir tout de suite, comme dans l'app), sinon la variante
   // historique reste figée sur DEFAULT_SETTINGS et un socket nul.
   const opencode = hash.includes("-opencode");
-  const ws = useMemo(() => (opencode ? benchSocket() : null), [opencode]);
-  const [live, setLive] = useState<Settings>({ ...DEFAULT_SETTINGS });
+  const consignes = hash.includes("-consignes");
+  const ws = useMemo(() => (opencode || consignes ? benchSocket() : null), [opencode, consignes]);
+  const [live, setLive] = useState<Settings>({ ...DEFAULT_SETTINGS, ...(consignes ? { consignes: [
+    ...DEFAULT_SETTINGS.consignes,
+    { id: "figure-bench", nom: "Figure", description: "Figures scientifiques prêtes pour publication", texte: "tu es un pro de création de figures scientifiques pour Nature. tu verifies les overlaps les labels, je veux des figures lisibles" },
+  ] } : {}) });
   return (
-    <div style={{ height: "100vh", display: "flex", background: "var(--bg)", color: "var(--text-primary)" }}>
-      {opencode ? (
+    <div style={{ height: "100vh", display: "grid", background: "var(--bg)", color: "var(--text-primary)" }}>
+      {opencode || consignes ? (
         <SettingsPage
           settings={live}
           onChange={(patch) => setLive((prev) => ({ ...prev, ...patch }))}

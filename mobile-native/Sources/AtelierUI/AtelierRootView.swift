@@ -17,6 +17,7 @@ public struct AtelierRootView: View {
     @State private var connecting = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @FocusState private var composing: Bool
 
     public init() {}
 
@@ -38,9 +39,12 @@ public struct AtelierRootView: View {
         .onChange(of: workspace.gallery.selectedProject) { _, project in
             workspace.chat.galleryProjectID = project; workspace.chat.scheduleSave()
         }
+        .onChange(of: workspace.chat.selected?.id) { _, _ in workspace.composerSelection = nil }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { workspace.chat.sceneDidEnterBackground() }
-            if phase != .active { Task { await workspace.chat.flushResume(); await workspace.flushDocumentResume() } }
+            if phase != .active {
+                workspace.chat.sceneDidLeaveActive()
+                Task { await workspace.chat.flushResume(); await workspace.flushDocumentResume() }
+            }
             else {
                 workspace.chat.sceneDidBecomeActive()
                 Task { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) }
@@ -95,6 +99,7 @@ public struct AtelierRootView: View {
         defer { connecting = false }
         do {
             try await workspace.gallery.connect(link: link)
+            workspace.chat.reconnect()
             workspace.surface = .gallery
         } catch { importError = error.localizedDescription }
     }
@@ -102,7 +107,10 @@ public struct AtelierRootView: View {
     private var workbench: some View {
         GeometryReader { geometry in
         ZStack(alignment: .leading) {
-            mainSurfaces
+            VStack(spacing: 0) {
+                mainSurfaces.frame(maxWidth: .infinity, maxHeight: .infinity)
+                bottomCommandPanel
+            }
                 .allowsHitTesting(!workspace.sidebarRequested)
                 .accessibilityHidden(workspace.sidebarRequested)
             if workspace.sidebarRequested {
@@ -160,14 +168,7 @@ public struct AtelierRootView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) { sidebarButton }
                             ToolbarItem(placement: .principal) {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Button { workspace.returnToDocumentList() } label: {
-                                        Label(workspace.documentOrigin == .articles ? "Articles" : "Galerie", systemImage: "chevron.left")
-                                            .font(.subheadline.weight(.medium))
-                                    }.labelStyle(.titleAndIcon)
-                                        .accessibilityLabel(workspace.documentOrigin == .articles ? "Retour : Articles" : "Retour : Galerie")
-                                    Text(workspace.currentName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }.frame(minHeight: 44)
+                                Text(workspace.currentName).font(.subheadline.weight(.medium)).lineLimit(1)
                             }
                         }
                 }.surfaceVisibility(workspace.surface == .document)
@@ -178,7 +179,7 @@ public struct AtelierRootView: View {
 
     private var chatStack: some View {
         NavigationStack {
-            NativeChatView(workspace: workspace)
+            NativeChatView(workspace: workspace, composing: $composing, showsComposer: sizeClass == .regular)
                 .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .principal) {
@@ -187,6 +188,42 @@ public struct AtelierRootView: View {
                     ToolbarItem(placement: .topBarLeading) { sidebarButton }
                 }
         }
+    }
+    private var bottomCommandPanel: some View {
+        VStack(spacing: 0) {
+            if sizeClass != .regular, workspace.surface == .chat, workspace.chat.selected != nil {
+                NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+            }
+            workSurfaceSwitcher
+        }
+        .background(AtelierTheme.surface.ignoresSafeArea(edges: .bottom))
+    }
+    private var workSurfaceSwitcher: some View {
+        HStack(spacing: 0) {
+            workSurfaceButton(.chat, glyph: .chat, label: "Conversation")
+            workSurfaceButton(.document, glyph: .document, label: "Fichier actif")
+            workSurfaceButton(.gallery, glyph: .gallery, label: "Galerie")
+            workSurfaceButton(.articles, glyph: .book, label: "Article Zotero")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 2)
+        .padding(.bottom, 5)
+    }
+    private func workSurfaceButton(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, label: String) -> some View {
+        let selected = workspace.selectedWorkSurface == target
+        return Button {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            workspace.switchWorkSurface(target)
+        } label: {
+            WorkSurfaceGlyph(kind: glyph)
+                .frame(width: 25, height: 25)
+                .foregroundStyle(selected ? AtelierTheme.accent : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }.buttonStyle(.plain).frame(maxWidth: .infinity)
+            .disabled(target == .document && !workspace.hasWorkingFile)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("surface-" + String(describing: target))
+            .accessibilityAddTraits(workspace.selectedWorkSurface == target ? .isSelected : [])
     }
     private var sidebarButton: some View {
         Button("Ouvrir le menu", systemImage: "sidebar.left") {
@@ -198,10 +235,52 @@ public struct AtelierRootView: View {
         ToolbarItem(placement: .topBarLeading) { sidebarButton }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
+                Button("Calculs", systemImage: "chart.bar.xaxis") { workspace.switchWorkSurface(.calculations) }
                 Button("Importer un fichier", systemImage: "folder") { workspace.importRequested = true }
                 Button("Réglages", systemImage: "gearshape") { showAbout = true }
             } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options d’Atelier")
         }
+    }
+}
+
+private struct WorkSurfaceGlyph: View {
+    enum Kind { case chat, document, gallery, book }
+    let kind: Kind
+    var body: some View {
+        Canvas { context, size in
+            let scale = min(size.width, size.height) / 24
+            context.scaleBy(x: scale, y: scale)
+            let style = StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round)
+            context.stroke(path, with: .foreground, style: style)
+        }
+        .accessibilityHidden(true)
+    }
+    private var path: Path {
+        var path = Path()
+        switch kind {
+        case .chat:
+            path.addRoundedRect(in: CGRect(x: 3, y: 4, width: 18, height: 13.5), cornerSize: CGSize(width: 3.5, height: 3.5))
+            path.move(to: CGPoint(x: 8, y: 17.2)); path.addLine(to: CGPoint(x: 5.2, y: 20.2)); path.addLine(to: CGPoint(x: 5.7, y: 16.8))
+        case .document:
+            path.move(to: CGPoint(x: 6, y: 2.5)); path.addLine(to: CGPoint(x: 14.5, y: 2.5))
+            path.addLine(to: CGPoint(x: 19, y: 7)); path.addLine(to: CGPoint(x: 19, y: 21.5))
+            path.addLine(to: CGPoint(x: 6, y: 21.5)); path.addLine(to: CGPoint(x: 6, y: 2.5))
+            path.move(to: CGPoint(x: 14.5, y: 2.8)); path.addLine(to: CGPoint(x: 14.5, y: 7)); path.addLine(to: CGPoint(x: 18.7, y: 7))
+            path.move(to: CGPoint(x: 9, y: 14)); path.addLine(to: CGPoint(x: 16, y: 14))
+        case .gallery:
+            path.addRoundedRect(in: CGRect(x: 3, y: 3, width: 7.5, height: 7.5), cornerSize: CGSize(width: 1.7, height: 1.7))
+            path.addRoundedRect(in: CGRect(x: 13.5, y: 3, width: 7.5, height: 5.5), cornerSize: CGSize(width: 1.7, height: 1.7))
+            path.addRoundedRect(in: CGRect(x: 3, y: 13.5, width: 7.5, height: 7.5), cornerSize: CGSize(width: 1.7, height: 1.7))
+            path.addRoundedRect(in: CGRect(x: 13.5, y: 11.5, width: 7.5, height: 9.5), cornerSize: CGSize(width: 1.7, height: 1.7))
+        case .book:
+            path.move(to: CGPoint(x: 3, y: 5)); path.addCurve(to: CGPoint(x: 11.8, y: 7), control1: CGPoint(x: 6, y: 3.7), control2: CGPoint(x: 9.3, y: 4.5))
+            path.addLine(to: CGPoint(x: 11.8, y: 20)); path.addCurve(to: CGPoint(x: 3, y: 18), control1: CGPoint(x: 9, y: 17.6), control2: CGPoint(x: 5.8, y: 17))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 21, y: 5)); path.addCurve(to: CGPoint(x: 12.2, y: 7), control1: CGPoint(x: 18, y: 3.7), control2: CGPoint(x: 14.7, y: 4.5))
+            path.addLine(to: CGPoint(x: 12.2, y: 20)); path.addCurve(to: CGPoint(x: 21, y: 18), control1: CGPoint(x: 15, y: 17.6), control2: CGPoint(x: 18.2, y: 17))
+            path.closeSubpath()
+        }
+        return path
     }
 }
 

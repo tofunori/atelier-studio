@@ -1,152 +1,105 @@
-// Barre de goal épinglée au composer (goal natif Codex app-server) : une seule
-// surface persistante — objectif, statut, temps/tokens — avec pause/reprise,
-// édition en place et arrêt réel (goalClear + interrupt, car turn/interrupt
-// seul laisse le goal actif côté serveur).
-import { useEffect, useState } from "react";
+// Thread-level goal: compact controls stay attached to the prompt;
+// the complete objective remains available without truncation in the disclosure.
+import { useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
-import { Input } from "../shadcn/input";
-import { Progress } from "../shadcn/progress";
-import { Button, RowButton } from "../ui";
+import { RowButton } from "../ui";
 
 export type GoalInfo = NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>;
 
-function fmtGoalTime(s: number): string {
-  const sec = Math.max(0, Math.round(s));
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+export function fmtGoalTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+    : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function fmtTokens(goal: GoalInfo): string | null {
-  if (goal.tokenBudget != null)
-    return `${Math.round((goal.tokensUsed ?? 0) / 1000)}k / ${Math.round(goal.tokenBudget / 1000)}k`;
-  if (goal.tokensUsed > 0) return `${Math.round(goal.tokensUsed / 1000)}k`;
-  return null;
-}
-
-export const GoalGlyph = ({ size = 14 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-    <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" />
+export const GoalGlyph = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M16.6 8a7.5 7.5 0 1 1-4.6-4.6M13.3 9a4 4 0 1 1-2.3-2.3" />
+    <path d="m9 11 8-8m-3 3 .3-3.3L17 1l-.2 2.2L19 3l-1.7 2.7L14 6" />
+    <circle cx="9" cy="11" r=".8" />
   </svg>
 );
 
-export function GoalBar(props: {
+const Pencil = () => <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m11.5 2 2.5 2.5-8.5 8.5-3.5 1 1-3.5ZM10 3.5 12.5 6" /></svg>;
+
+export function GoalBar({ goal, onGoal, onStop }: {
   goal: GoalInfo;
   onGoal: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   onStop: () => void;
 }) {
-  const { goal, onGoal, onStop } = props;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(goal.objective);
-  // l'objectif peut changer sous nos pieds (édition /goal, autre fenêtre) —
-  // resynchronise le brouillon tant qu'une édition n'est pas en cours
-  useEffect(() => { if (!editing) setEditText(goal.objective); }, [goal.objective, editing]);
-
-  const paused = goal.status === "paused";
+  const [elapsed, setElapsed] = useState(goal.timeUsedSeconds || 0);
+  const editButton = useRef<HTMLButtonElement>(null);
   const active = goal.status === "active";
-  // blocked : le moteur de goals attend l'utilisateur (objectif flou, question
-  // posée dans le fil) — relançable via goalSet status:"active"
-  const resumable = paused || goal.status === "blocked";
-  const statusLabel = goal.status === "blocked"
-    ? t("goal.status.awaiting")
+  const resumable = goal.status === "paused" || goal.status === "blocked";
+  const statusLabel = goal.status === "blocked" ? t("goal.status.awaiting")
     : t(`goal.status.${goal.status}` as Parameters<typeof t>[0]);
-  const tokens = fmtTokens(goal);
-  const tokenProgress = goal.tokenBudget && goal.tokenBudget > 0
-    ? Math.min(100, Math.max(0, (goal.tokensUsed / goal.tokenBudget) * 100))
-    : null;
-
-  const commitEdit = () => {
-    const v = editText.trim();
-    if (v && v !== goal.objective) onGoal("set", v, paused ? "paused" : "active");
-    setEditing(false);
+  useEffect(() => { if (!editing) setEditText(goal.objective); }, [goal.objective, editing]);
+  const clock = useRef({ key: goal.createdAt ?? goal.objective, base: goal.timeUsedSeconds || 0, at: performance.now(), running: active });
+  useEffect(() => {
+    const key = goal.createdAt ?? goal.objective;
+    const previous = clock.current;
+    const projected = previous.base + (previous.running ? (performance.now() - previous.at) / 1000 : 0);
+    const base = Math.max(0, goal.timeUsedSeconds || 0, previous.key === key ? projected : 0);
+    const started = performance.now();
+    clock.current = { key, base, at: started, running: active };
+    setElapsed(base);
+    if (!active) return;
+    const id = window.setInterval(() => setElapsed(base + (performance.now() - started) / 1000), 1000);
+    return () => window.clearInterval(id);
+  }, [goal, active]);
+  const finishEdit = () => { setEditing(false); editButton.current?.focus(); };
+  const save = () => {
+    const value = editText.trim();
+    if (!value) return;
+    if (value !== goal.objective) onGoal("set", value, goal.status === "paused" ? "paused" : "active");
+    finishEdit();
   };
-
   return (
     <div className={`goal-bar ${goal.status}${open ? " open" : ""}`}>
       <div className="goal-head">
-        <RowButton
-          className="goal-bar-summary"
-          title={t("goal.expand")}
-          aria-expanded={open}
-          onClick={() => { setOpen((v) => !v); setEditing(false); }}
-        >
-          <span className="goal-bar-glyph"><GoalGlyph /></span>
-          <span className="goal-bar-copy">
-            <span className="goal-bar-kicker">
-              <span className="goal-bar-label">{t("goal.live")}</span>
-              <span className="goal-bar-status">{statusLabel}</span>
-              {goal.timeUsedSeconds > 0 && <span className="goal-bar-time">{fmtGoalTime(goal.timeUsedSeconds)}</span>}
-            </span>
-            <span className="goal-bar-obj" title={goal.objective}>{goal.objective}</span>
-          </span>
-          <svg className="goal-bar-chev" width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 2.5l4 4-4 4" /></svg>
+        <span className="goal-bar-glyph" title={statusLabel}><GoalGlyph /></span>
+        <RowButton className="goal-bar-summary" title={t("goal.expand")} aria-label={`${t("goal.expand")} — ${statusLabel}`} aria-expanded={open}
+          onClick={() => { setOpen(!open); setEditing(false); }}>
+          <span className="goal-bar-obj" title={goal.objective}>{goal.objective}</span>
         </RowButton>
+        <span className="goal-bar-time" title={t("goal.time")} aria-label={`${t("goal.time")} : ${fmtGoalTime(elapsed)}`}>{fmtGoalTime(elapsed)}</span>
         <span className="goal-bar-actions">
-          {(active || resumable) && (
-            <RowButton
-              className="goal-bar-control" title={resumable ? t("goal.resume") : t("goal.pause")}
-              onClick={() => onGoal("set", goal.objective, resumable ? "active" : "paused")}
-            >
-              {resumable
-                ? <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2.8l6 3.7-6 3.7z" /></svg>
-                : <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M4.4 2.8v7.4M8.6 2.8v7.4" /></svg>}
-              <span>{resumable ? t("goal.resume-short") : t("goal.pause-short")}</span>
-            </RowButton>
-          )}
+          {(active || resumable) && <RowButton className="goal-bar-control" title={resumable ? t("goal.resume") : t("goal.pause")} aria-label={resumable ? t("goal.resume") : t("goal.pause")}
+            onClick={() => onGoal("set", goal.objective, resumable ? "active" : "paused")}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {resumable ? <path d="m4 2.5 7 4.5-7 4.5z" /> : <path d="M4.5 3v8M9.5 3v8" />}
+            </svg>
+          </RowButton>}
+          <RowButton ref={editButton} className="goal-bar-control" title={t("goal.edit")} aria-label={t("goal.edit")} onClick={() => { setOpen(true); setEditing(true); }}><Pencil /></RowButton>
+          <RowButton className="goal-bar-control goal-bar-stop" title={t("goal.stop")} aria-label={t("goal.stop")} onClick={() => { onGoal("clear"); onStop(); }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1" /></svg>
+          </RowButton>
+          <RowButton className="goal-bar-control" title={open ? t("action.close") : t("goal.details")} aria-label={t("goal.details")} aria-expanded={open} onClick={() => { setOpen(!open); setEditing(false); }}>
+            <svg className="goal-bar-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="m2 4 4 4 4-4" /></svg>
+          </RowButton>
         </span>
       </div>
-      {open && !editing && (
-        <div className="goal-bar-details">
-          <div className="goal-bar-meta" aria-label={t("goal.details")}>
-            {goal.timeUsedSeconds > 0 && <span>{t("goal.time")} : {fmtGoalTime(goal.timeUsedSeconds)}</span>}
-            {tokens && <span>{t("goal.tokens")} : {tokens}</span>}
-            <span>{statusLabel}</span>
-            {tokenProgress != null && (
-              <Progress
-                className="goal-bar-progress"
-                value={tokenProgress}
-                aria-label={`${t("goal.tokens")} : ${tokens}`}
-              />
-            )}
-          </div>
+      {open && <div className="goal-bar-details">
+        {editing ? <div className="goal-bar-edit">
+          <textarea autoFocus aria-label={t("goal.edit")} value={editText} rows={4} onChange={e => setEditText(e.target.value)} onKeyDown={e => {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finishEdit(); }
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+          }} />
           <div className="goal-bar-detail-actions">
-            <Button
-              variant="ghost" className="goal-bar-detail-btn" title={t("goal.edit")}
-              onClick={() => { setEditing(true); setOpen(true); }}
-            >
-              <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 1.8l1.7 1.7L4.5 10.2l-2.3.6.6-2.3z" /></svg>
-              <span>{t("goal.edit-short")}</span>
-            </Button>
-            <Button
-              variant="danger" className="goal-bar-detail-btn goal-bar-stop" title={t("goal.stop")}
-              onClick={() => { onGoal("clear"); onStop(); }}
-            >
-              <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2.2 3.5h8.6M5 3.5V2.2h3v1.3M3.3 3.5l.5 7.3h5.4l.5-7.3M5.3 5.5v3.5M7.7 5.5v3.5" /></svg>
-              <span>{t("goal.stop-short")}</span>
-            </Button>
+            <RowButton className="goal-bar-control" title={t("action.cancel")} aria-label={t("action.cancel")} onClick={finishEdit}>×</RowButton>
+            <RowButton className="goal-bar-control" title={t("goal.update")} aria-label={t("goal.update")} disabled={!editText.trim()} onClick={save}>✓</RowButton>
           </div>
+        </div> : <p className="goal-bar-objective">{goal.objective}</p>}
+        <div className="goal-bar-meta">
+          <span>{statusLabel}</span>
+          {(goal.tokensUsed > 0 || goal.tokenBudget != null) && <span>{t("goal.tokens")} : {new Intl.NumberFormat().format(goal.tokensUsed || 0)}{goal.tokenBudget != null ? ` / ${new Intl.NumberFormat().format(goal.tokenBudget)}` : ""}</span>}
         </div>
-      )}
-      {editing && (
-        <div className="goal-bar-edit">
-          <Input
-            autoFocus
-            value={editText}
-            onChange={(ev) => setEditText(ev.target.value)}
-            onKeyDown={(ev) => {
-              if (ev.key === "Enter") { ev.preventDefault(); commitEdit(); }
-              if (ev.key === "Escape") { ev.stopPropagation(); setEditing(false); setEditText(goal.objective); }
-            }}
-          />
-          <Button variant="ghost" className="ghost goal-bar-save" onClick={commitEdit}>{t("goal.update")}</Button>
-          <Button variant="ghost" className="ghost" onClick={() => { setEditing(false); setEditText(goal.objective); }}>
-            {t("action.cancel")}
-          </Button>
-        </div>
-      )}
+      </div>}
     </div>
   );
 }

@@ -891,6 +891,41 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
   });
 
+  it("retire l’alerte quand sa croix est utilisée sans renvoyer le message", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await push(sock,{type:'sendReceipt',clientMessageId:'dismiss-test',threadId:'thread-A',status:'uncertain'});
+    fireEvent.click(screen.getByRole('button',{name:'Afficher l’alerte du chat'}));
+    await act(async()=>{await flushMicrotasks(4);});
+    fireEvent.click(screen.getByRole('button',{name:'Retirer l’alerte du chat'}));
+    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+    expect(sock.sent.map(value=>JSON.parse(value)).some(message=>message.type==='send')).toBe(false);
+  });
+
+  it("retire un refus d’envoi après confirmation du même chat uniquement", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await push(sock,{type:'error',requestType:'send',threadId:'thread-A',message:'Envoi refusé',code:'REQUEST_BUSY'});
+    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    await push(sock,{type:'event',threadId:'thread-B',event:events.user('autre chat')});
+    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    await push(sock,{type:'event',threadId:'thread-A',event:events.user('envoi confirmé')});
+    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+  });
+
+  it("retire l’alerte de reçu seulement pour le message confirmé", async () => {
+    const {sock}=await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock,"Fil A — albédo");
+    await push(sock,{type:'sendReceipt',clientMessageId:'receipt-a',threadId:'thread-A',status:'uncertain'});
+    await push(sock,{type:'event',threadId:'thread-A',event:{...events.user('autre message'),meta:{messageId:'receipt-b'}}});
+    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    await push(sock,{type:'event',threadId:'thread-A',event:{...events.user('confirmé'),meta:{messageId:'receipt-a'}}});
+    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+  });
+
   it("attache l'artefact reçu par atelier-add-to-chat (nonce + origine vérifiés)", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);
@@ -960,7 +995,9 @@ describe("orchestration App — caractérisation", () => {
     expect(sent.displayEvent.text).toContain('Passage annoté');
     expect(sent.prompt.match(/Pourquoi ce seuil \?/g)).toHaveLength(1);
     fireEvent.keyDown(window,{code:'Digit0',key:'0',metaKey:true});
-    expect(document.querySelector('.user-bubble')?.textContent).toContain('Commentaire : Pourquoi ce seuil');
+    expect(document.querySelector('.chat-annotation-comment')?.textContent).toBe('Pourquoi ce seuil ?');
+    expect(document.querySelector('.user-bubble')?.textContent).not.toContain('Commentaire :');
+    expect(document.querySelector('.user-bubble .user-file-attachment')).toBeNull();
   });
 
   it("garde le texte de lecture si la mention d'agent est refusée", async () => {

@@ -556,3 +556,9 @@ Numérotation reprise à 069.
 ### Not audited (2026-09-06)
 
 `atelier-agent-mcp` en détail, `atelier-kb`, `mobile-native/` (Swift), `cargo audit` (binaire absent — déjà SEC-11), `sidecar/*.mjs` (Node en extinction), `.claude/worktrees/*`.
+
+## Harness pour la recherche scientifique — 2026-09-14
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+| --- | --- | --- | --- | --- | --- |
+| [080](080-harness-recherche-scientifique.md) | Vérification fiable, conservation des preuves, expériences reproductibles et reprise | P1 corrections ; évolution incrémentale | A M · B S · C L · D M · E M | Lots et dépendances détaillés dans le plan ; indépendant de 068 | TODO — plan rédigé, aucune implémentation engagée |

@@ -16,10 +16,12 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var projectID: String?
     var size: Int = 0
     var annotationRegion: FigureRegion?
+    var favorite: Bool? = nil
     var ext: String { (name as NSString).pathExtension.lowercased() }
     var kind: String {
         if ext == "pdf" { return "PDF" }
         if ["png", "jpg", "jpeg", "heic", "webp", "gif", "tiff"].contains(ext) { return "Figures" }
+        if ext == "py" { return "Python" }
         if ext == "tex" { return "LaTeX" }
         return "Texte"
     }
@@ -27,13 +29,16 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
 }
 
 @MainActor @Observable final class GalleryModel {
+    /// The gateway emits an idle frame every 15 seconds. A 22-second request
+    /// timeout therefore detects a suspended stream while tolerating normal jitter.
+    static let chatStreamIdleTimeout: TimeInterval = 22
     struct Project: Decodable, Identifiable {
         let projectId: String; let name: String
         var id: String { projectId }
     }
     private struct Projects: Decodable { let projects: [Project] }
     private struct Index: Decodable {
-        struct Item: Decodable { let fileId: String; let name: String; let size: Int }
+        struct Item: Decodable { let fileId: String; let name: String; let size: Int; let favorite: Bool? }
         let items: [Item]
         let nextOffset: Int?
         let snapshot: String?
@@ -47,6 +52,8 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var connectionRevision = UUID()
     var busy = false
     private var refreshID = UUID()
+    private var favoriteRevision = 0
+    private var favoriteUpdates: [String: (revision: Int, on: Bool)] = [:]
     @ObservationIgnored private var projectsRequestID = UUID()
     var error: String?
     var hasAddress: Bool { baseURL != nil }
@@ -107,7 +114,13 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         baseURL = url; token = paired.token; connected = true
         connectionRevision = UUID()
         remoteItems = []; cache = ArtifactDataCache(); identities = [:]; projects = []; selectedProject = ""
-        try await loadProjects()
+        favoriteUpdates = [:]
+        do { try await loadProjects() }
+        catch {
+            // Pairing and credential rotation already succeeded. Keep that usable
+            // connection and let the normal catalog refresh recover independently.
+            self.error = "Mac associé. Les projets seront chargés dès que la connexion sera disponible."
+        }
     }
     func loadProjects() async throws {
         let id = UUID(); projectsRequestID = id
@@ -132,6 +145,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         guard refreshID == requestID, !Task.isCancelled else { return }
         guard !selectedProject.isEmpty else { remoteItems = []; return }
         let project = selectedProject
+        let startingFavoriteRevision = favoriteRevision
         remoteItems.removeAll { $0.projectID != project }
         do {
             let items = try await galleryItems(project)
@@ -141,10 +155,26 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
                 let key = project + ":" + $0.fileId
                 let id = identities[key] ?? UUID()
                 identities[key] = id
-                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size)
+                let update = favoriteUpdates[key]
+                let favorite = (update?.revision ?? 0) > startingFavoriteRevision ? update?.on : $0.favorite
+                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size, favorite: favorite)
             }
         } catch is CancellationError {} catch {
             if refreshID == requestID && !Task.isCancelled && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
+        }
+    }
+    private(set) var favoriteRequests: Set<String> = []
+    func setFavorite(_ item: GalleryArtifact, on: Bool) async throws {
+        guard let id = item.fileID, !favoriteRequests.contains(id) else { return }
+        favoriteRequests.insert(id)
+        defer { favoriteRequests.remove(id) }
+        struct Result: Decodable { let favorite: Bool }
+        let data = try await chatRequest(["file", id, "favorite"], body: ["on": on])
+        let result = try JSONDecoder().decode(Result.self, from: data)
+        favoriteRevision += 1
+        favoriteUpdates[(item.projectID ?? "") + ":" + id] = (favoriteRevision, result.favorite)
+        for index in remoteItems.indices where remoteItems[index].fileID == id && remoteItems[index].projectID == item.projectID {
+            remoteItems[index].favorite = result.favorite
         }
     }
     func contents(_ item: GalleryArtifact) async throws -> Data {
@@ -279,7 +309,9 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     func chatStream(_ thread: String) async throws -> URLSession.AsyncBytes {
         guard let baseURL else { throw GalleryError.invalidAddress }
         let url = baseURL.appendingPathComponent("remote/v1/threads").appendingPathComponent(thread).appendingPathComponent("live")
-        var request = URLRequest(url: url); request.timeoutInterval = 60
+        var request = URLRequest(url: url); request.timeoutInterval = Self.chatStreamIdleTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue(token, forHTTPHeaderField: "x-atelier-device-token")
         let (bytes, response) = try await session.bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw GalleryError.server((response as? HTTPURLResponse)?.statusCode ?? 0) }

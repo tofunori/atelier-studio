@@ -410,6 +410,10 @@ type BenchState = {
 };
 
 const STATES: Record<string, BenchState> = {
+  annotations: {events: [
+    {kind:"user",text:"Relis les résultats et les méthodes.",label:"results_en.tex · methods_en.tex",ts:ts(10)},
+    {kind:"text",text:Array.from({length:10},(_,i)=>`### Passage ${i+1}\n\n${i===4||i===5 ? `In the other seven regions, forcing remains below 0.65~W~m $^{-2}$, although individual summers reach much higher values (${i+1}).` : `Observation ${i+1} : une phrase avec du **gras** et de l’*italique* à annoter.`}`).join("\n\n")},
+  ] as AgentEvent[],workingSince:null,attachments:[],usage:null},
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
   livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null, pins: LONG_PINS },

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Consignes } from "./Consignes";
 import { CONSIGNES_LIVREES } from "../../../lib/consignes";
@@ -54,7 +55,7 @@ describe("réglages — consignes", () => {
     expect(ajoutee.livree).toBeUndefined();
   });
 
-  it("propose Rédiger quand le champ est vide et Reformuler sinon", () => {
+  it("propose Rédiger quand le champ est vide et Clarifier sinon", () => {
     const vide = { id: "c1", nom: "Ma règle", description: "d", texte: "" };
     const { rerender } = render(<Consignes consignes={[vide]} onChange={() => {}} />);
     fireEvent.click(screen.getByText("Ma règle"));
@@ -62,19 +63,24 @@ describe("réglages — consignes", () => {
     rerender(
       <Consignes consignes={[{ ...vide, texte: "un texte" }]} onChange={() => {}} />,
     );
-    expect(screen.getByText("Reformuler")).toBeTruthy();
+    expect(screen.getByText("Clarifier")).toBeTruthy();
   });
 
   it("garde le texte original derrière Rétablir jusqu'à la frappe suivante", async () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "original" };
     const onChange = vi.fn();
-    render(
-      <Consignes consignes={[mienne]} onChange={onChange} reformuler={async () => "reformulé"} />,
-    );
+    function Harness() {
+      const [consignes, setConsignes] = useState([mienne]);
+      return <Consignes consignes={consignes} onChange={next => { onChange(next); setConsignes(next); }}
+        reformuler={async () => "reformulé"} />;
+    }
+    render(<Harness />);
     fireEvent.click(screen.getByText("Ma règle"));
-    fireEvent.click(screen.getByText("Reformuler"));
+    fireEvent.click(screen.getByRole("button", { name: "Clarifier" }));
+    expect(await screen.findByText("reformulé")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Appliquer" }));
     expect(await screen.findByText("Rétablir")).toBeTruthy();
-    fireEvent.click(screen.getByText("Rétablir"));
+    fireEvent.click(screen.getByRole("button", { name: "Rétablir" }));
     const derniers = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(derniers?.[0][0].texte).toBe("original");
   });
@@ -83,7 +89,7 @@ describe("réglages — consignes", () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
     render(<Consignes consignes={[mienne]} onChange={() => {}} reformuler={null} />);
     fireEvent.click(screen.getByText("Ma règle"));
-    expect(screen.getByText("Reformuler").closest("button")).toHaveAttribute("disabled");
+    expect(screen.getByRole("button", { name: "Clarifier" })).toHaveAttribute("disabled");
   });
 
   it("dit à l'écran qu'une reformulation a échoué au lieu de ne rien faire", async () => {
@@ -92,11 +98,17 @@ describe("réglages — consignes", () => {
     const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
     render(<Consignes consignes={[mienne]} onChange={() => {}} reformuler={async () => null} />);
     fireEvent.click(screen.getByText("Ma règle"));
-    fireEvent.click(screen.getByText("Reformuler"));
+    fireEvent.click(screen.getByRole("button", { name: "Clarifier" }));
     expect(await screen.findByRole("alert")).toBeTruthy();
     // le message s'efface à la frappe suivante
     fireEvent.change(screen.getByLabelText("Consigne"), { target: { value: "tu" } });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("expose le sélecteur d'action avec son nom accessible", () => {
+    const mienne = { id: "c1", nom: "Ma règle", description: "d", texte: "t" };
+    render(<Consignes consignes={[mienne]} onChange={() => {}} />);
+    expect(screen.getByRole("combobox", { name: "Action de reformulation" })).toBeTruthy();
   });
 
   it("laisse choisir le modèle qui reformule", async () => {

@@ -1,5 +1,5 @@
 import {StateEffect, StateField} from "@codemirror/state";
-import {Decoration, EditorView, WidgetType, layer, RectangleMarker} from "@codemirror/view";
+import {Decoration, EditorView, WidgetType, ViewPlugin, layer, RectangleMarker} from "@codemirror/view";
 import {getChunks} from "@codemirror/merge";
 
 // Revue « ancrée au passage » (variante F2, 2026-09-10) : la décision est
@@ -36,7 +36,21 @@ function currentChunk(state) {
   if (!chunks.length) return null;
   const at = state.field(reviewFocus, false);
   const pos = at == null ? state.selection.main.head : Math.max(0, Math.min(state.doc.length, at));
-  return chunks.find(c => c.fromB <= pos && c.endB >= pos) || chunks.find(c => c.fromB >= pos) || chunks[chunks.length - 1];
+  return chunks[firstChunkEndingAtOrAfter(chunks, pos)] || chunks[chunks.length - 1];
+}
+
+function firstChunkEndingAtOrAfter(chunks, pos) {
+  let low = 0, high = chunks.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (chunks[mid].endB < pos) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function chunkKey(chunk) {
+  return `${chunk.fromB}:${chunk.toB}`;
 }
 
 function svg(d) {
@@ -77,15 +91,18 @@ function describe(state, chunk) {
 }
 
 class PillWidget extends WidgetType {
-  constructor(chunk, label, config, isCurrent) { super(); this.chunk = chunk; this.label = label; this.config = config; this.isCurrent = isCurrent; }
+  constructor(chunk, label, config) { super(); this.chunk = chunk; this.label = label; this.config = config; }
   eq(other) {
-    return other.chunk.fromB === this.chunk.fromB && other.chunk.toB === this.chunk.toB
-      && other.label === this.label && other.config.readOnly === this.config.readOnly && other.isCurrent === this.isCurrent;
+    // Une sélection conserve les mêmes objets et peut réutiliser le DOM. Après
+    // une édition/reconfiguration, recréer les boutons afin que leurs actions
+    // ne gardent jamais un ancien chunk ou un ancien callback en fermeture.
+    return other.chunk === this.chunk && other.config === this.config && other.label === this.label;
   }
   ignoreEvent() { return true; }
   toDOM(view) {
     const root = document.createElement("div");
-    root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "") + (this.isCurrent ? " is-current" : "");
+    root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "");
+    root.dataset.reviewChunk = chunkKey(this.chunk);
     root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage");
     const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
     root.append(where);
@@ -118,17 +135,41 @@ class PillWidget extends WidgetType {
 function pillDecorations(state, config) {
   const chunks = getChunks(state)?.chunks || [];
   if (!chunks.length) return Decoration.none;
-  const current = currentChunk(state);
   // Une rangée SOUS chaque passage (la courante en accent) : on décide là où
   // l'on est, sans avoir à ramener le passage courant à l'écran (Thierry
   // 2026-09-11). Rangée à part entière sous la dernière ligne changée : une
   // pilule inline au milieu d'une phrase se fondait dans le texte.
   const ranges = chunks.map(chunk => {
     const at = state.doc.lineAt(extentB(state, chunk).to).to;
-    return Decoration.widget({widget: new PillWidget(chunk, describe(state, chunk), config, chunk === current), block: true, side: 1}).range(at);
+    return Decoration.widget({widget: new PillWidget(chunk, describe(state, chunk), config), block: true, side: 1}).range(at);
   });
   return Decoration.set(ranges, true);
 }
+
+// Le passage courant change souvent pendant une sélection. Mettre à jour sa
+// classe sur les seules pilules rendues évite de reconstruire la collection de
+// décorations (et ses libellés) pour tous les changements du document.
+const activePill = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.view = view;
+    this.measure = {
+      read: () => ({
+        active: currentChunk(this.view.state),
+        pills: [...this.view.contentDOM.querySelectorAll(".atelier-review-pill[data-review-chunk]")],
+      }),
+      write: ({active, pills}) => {
+        const activeKey = active ? chunkKey(active) : "";
+        for (const pill of pills) pill.classList.toggle("is-current", pill.dataset.reviewChunk === activeKey);
+      },
+    };
+    view.requestMeasure(this.measure);
+  }
+  update(update) {
+    if (update.docChanged || update.viewportChanged || update.geometryChanged || update.selectionSet
+      || update.transactions.some(tr => tr.effects.some(e => e.is(setReviewFocus))))
+      this.view.requestMeasure(this.measure);
+  }
+});
 
 function bracketMarkers(view) {
   const chunks = getChunks(view.state)?.chunks || [];
@@ -137,10 +178,18 @@ function bracketMarkers(view) {
   const scroll = view.scrollDOM.getBoundingClientRect();
   const base = {left: scroll.left - view.scrollDOM.scrollLeft, top: scroll.top - view.scrollDOM.scrollTop};
   const contentLeft = view.contentDOM.getBoundingClientRect().left - base.left;
-  const deleted = [...view.contentDOM.querySelectorAll(".cm-deletedChunk")];
+  const deletedByOffset = new Map();
+  for (const widget of view.contentDOM.querySelectorAll(".cm-deletedChunk")) {
+    const offset = view.posAtDOM(widget);
+    if (!deletedByOffset.has(offset)) deletedByOffset.set(offset, widget);
+  }
+  const pillsByChunk = new Map([...view.contentDOM.querySelectorAll(".atelier-review-pill[data-review-chunk]")]
+    .map(pill => [pill.dataset.reviewChunk, pill]));
   const markers = [];
-  for (const chunk of chunks) {
-    if (chunk.endB < view.viewport.from || chunk.fromB > view.viewport.to) continue;
+  const first = firstChunkEndingAtOrAfter(chunks, view.viewport.from);
+  for (let i = first; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (chunk.fromB > view.viewport.to) break;
     const ext = extentB(view.state, chunk);
     const a = view.coordsAtPos(ext.from, 1);
     const b = view.coordsAtPos(ext.to, -1);
@@ -148,9 +197,9 @@ function bracketMarkers(view) {
     let top = a.top, bottom = Math.max(a.bottom, b.bottom);
     // Une suppression en bloc s'affiche au-dessus, dans le widget de la
     // ligne effacée : le trait commence en haut de ce widget.
-    const widget = deleted.find(el => view.posAtDOM(el) === chunk.fromB);
+    const widget = deletedByOffset.get(chunk.fromB);
     if (widget) top = Math.min(top, widget.getBoundingClientRect().top);
-    const row = view.contentDOM.querySelectorAll(".atelier-review-pill")[chunks.indexOf(chunk)];
+    const row = pillsByChunk.get(chunkKey(chunk));
     if (row) bottom = Math.max(bottom, row.getBoundingClientRect().bottom);
     const cls = "atelier-review-bracket" + (chunk === current ? " is-current" : "");
     markers.push(new RectangleMarker(cls, contentLeft - 9, top - base.top, 2, bottom - top));
@@ -166,7 +215,7 @@ export function reviewAnchored(config) {
   const pills = StateField.define({
     create: state => pillDecorations(state, config),
     update(deco, tr) {
-      if (tr.docChanged || tr.reconfigured || tr.isUserEvent("select") || tr.effects.some(e => e.is(setReviewFocus))) return pillDecorations(tr.state, config);
+      if (tr.docChanged || tr.reconfigured) return pillDecorations(tr.state, config);
       return deco;
     },
     provide: f => EditorView.decorations.from(f),
@@ -178,5 +227,5 @@ export function reviewAnchored(config) {
       || update.transactions.some(tr => tr.effects.some(e => e.is(setReviewFocus))),
     markers: view => bracketMarkers(view),
   });
-  return [reviewFocus, pills, brackets, EditorView.editorAttributes.of({class: "atelier-review-anchored"})];
+  return [reviewFocus, pills, activePill, brackets, EditorView.editorAttributes.of({class: "atelier-review-anchored"})];
 }

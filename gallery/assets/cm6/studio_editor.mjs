@@ -684,25 +684,30 @@ export function createStudioEditor(parent, opts) {
   let pendingDocumentValue = null;
   let pendingScrollableState = null;
   let pendingDocumentFrame = null;
+  const pendingGestureCallbacks = [];
   const editorDocument = view.dom.ownerDocument;
 
-  const flushPendingDocumentValue = () => {
+  const flushPendingGestureWork = () => {
     pendingDocumentFrame = null;
-    if (selectionGestureActive || pendingDocumentValue == null) return;
+    if (selectionGestureActive) return;
+    if (pendingDocumentValue == null && pendingGestureCallbacks.length === 0) return;
     const nextValue = pendingDocumentValue;
     const scrollState = pendingScrollableState;
     pendingDocumentValue = null;
     pendingScrollableState = null;
-    applyDocumentValue(nextValue, scrollState);
+    // Le buffer d'abord : la revue ouverte ensuite compare le texte à jour.
+    if (nextValue != null) applyDocumentValue(nextValue, scrollState);
+    while (pendingGestureCallbacks.length) pendingGestureCallbacks.shift()();
   };
-  const schedulePendingDocumentValue = () => {
-    if (pendingDocumentValue == null || pendingDocumentFrame != null) return;
+  const schedulePendingGestureWork = () => {
+    if (pendingDocumentFrame != null) return;
+    if (pendingDocumentValue == null && pendingGestureCallbacks.length === 0) return;
     const raf = editorDocument.defaultView?.requestAnimationFrame;
     if (typeof raf === "function") {
-      pendingDocumentFrame = raf(flushPendingDocumentValue);
+      pendingDocumentFrame = raf(flushPendingGestureWork);
     } else {
-      pendingDocumentFrame = editorDocument.defaultView?.setTimeout(flushPendingDocumentValue, 0)
-        ?? setTimeout(flushPendingDocumentValue, 0);
+      pendingDocumentFrame = editorDocument.defaultView?.setTimeout(flushPendingGestureWork, 0)
+        ?? setTimeout(flushPendingGestureWork, 0);
     }
   };
   const onSelectionGestureStart = (event) => {
@@ -714,7 +719,7 @@ export function createStudioEditor(parent, opts) {
     selectionGestureActive = false;
     // Let CodeMirror/WebKit finish the native anchor update before replacing
     // the document. A frame also coalesces pointerup+mouseup into one apply.
-    schedulePendingDocumentValue();
+    schedulePendingGestureWork();
   };
   editorDocument.addEventListener("pointerdown", onSelectionGestureStart, true);
   editorDocument.addEventListener("mousedown", onSelectionGestureStart, true);
@@ -770,6 +775,14 @@ export function createStudioEditor(parent, opts) {
     pendingScrollableState = null;
     applyDocumentValue(nextValue);
   };
+  // Diffère une reconfiguration (ouverture de la revue, remplacement du
+  // buffer) tant qu'un geste de sélection est en cours. Pendant un glisser,
+  // reconstruire le DOM de l'éditeur détache l'ancre native du geste : le
+  // navigateur termine alors la sélection à une extrémité du document.
+  const deferWhileSelecting = (fn) => {
+    if (!selectionGestureActive) { fn(); return; }
+    pendingGestureCallbacks.push(fn);
+  };
   const operationBatcher = createOperationBatcher((updates) => {
     view.dispatch({effects: updateGutters.of(updates)});
   });
@@ -794,6 +807,7 @@ export function createStudioEditor(parent, opts) {
     // --- content ---
     getValue: () => doc().toString(),
     setValue: replaceDocumentPreservingView,
+    deferWhileSelecting,
     getLine: (n) => (n >= 0 && n < doc().lines ? doc().line(n + 1).text : ""),
     lineCount: () => doc().lines,
     lastLine: () => doc().lines - 1,
@@ -858,6 +872,23 @@ export function createStudioEditor(parent, opts) {
       const viewportCenter = rect.top + rect.height / 2;
       const block = view.lineBlockAtHeight(Math.max(0, viewportCenter - view.documentTop));
       return toPos(Math.min(block.from, doc().length));
+    },
+    // Reconfigure l'éditeur (ouverture/fermeture de la revue, wrap, thème) en
+    // conservant la position de lecture. CodeMirror RÉESTIME la hauteur du
+    // document pendant la reconfiguration : une position profonde exprimée en
+    // pixels ne représente alors plus la même ligne (mesuré sur un .tex de
+    // 700 lignes : 5850 px avant, plafond à 3395 px après), et un simple
+    // `scrollTop` est borné par la nouvelle géométrie. `scrollSnapshot` décrit
+    // la position en TEXTE (ligne + décalage) et la restaure après mesure.
+    reconfigurePreservingViewport: (fn) => {
+      const snapshot = view.scrollSnapshot();
+      fn();
+      const restore = () => view.dispatch({effects: snapshot});
+      const raf = editorDocument.defaultView?.requestAnimationFrame;
+      // Deux frames : la hauteur réestimée n'est connue qu'après le cycle de
+      // mesure déclenché par la reconfiguration.
+      if (typeof raf === "function") raf(() => raf(restore));
+      else setTimeout(restore, 0);
     },
     scrollTo: (left, top) => {
       if (left != null) view.scrollDOM.scrollLeft = left;
@@ -1044,6 +1075,7 @@ export function createStudioEditor(parent, opts) {
       pendingDocumentFrame = null;
       pendingDocumentValue = null;
       pendingScrollableState = null;
+      pendingGestureCallbacks.length = 0;
       view.destroy();
     },
   };

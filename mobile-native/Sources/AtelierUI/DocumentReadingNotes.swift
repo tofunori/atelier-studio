@@ -97,6 +97,13 @@ final class DocumentReadingNotes {
         }
     }
 
+    /// Returns the current persisted version of an annotation. The timestamp is
+    /// used by the chat handoff so a note edited after it was quoted is never
+    /// removed by an older queued send.
+    func note(id: UUID) -> ReadingNote? {
+        entries.first { $0.id == id }
+    }
+
     @discardableResult
     func upsert(id: UUID? = nil, documentKey: String, fileName: String, location: String,
                 selectedText: String, sourceText: String, sourceRange: NSRange,
@@ -129,6 +136,16 @@ final class DocumentReadingNotes {
     func remove(id: UUID) throws {
         let next = entries.filter { $0.id != id }
         try persist(next); entries = next
+    }
+
+    /// Remove a note only if it is still the version that was attached to a
+    /// chat message. A user edit between composing and delivery therefore
+    /// keeps the newer annotation visible.
+    @discardableResult
+    func removeIfUnchanged(id: UUID, updatedAt: Date) throws -> Bool {
+        guard let current = note(id: id), current.updatedAt == updatedAt else { return false }
+        try remove(id: id)
+        return true
     }
 
     func restore(_ note: ReadingNote) throws {

@@ -163,6 +163,7 @@ type AgentEventBody =
         tokenBudget: number | null;
         tokensUsed: number;
         timeUsedSeconds: number;
+        createdAt?: number;
       } | null;
       ts?: number;
     }

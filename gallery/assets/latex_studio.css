@@ -76,7 +76,7 @@
   html.tex-read-only #statusbar{display:none}
   .cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
-  .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
+  .cm-editor .cm-scroller{font-family:var(--code-font);overflow-x:auto;overflow-y:scroll}
   /* Diff : couleurs de mots lisibles sur fonds discrets — ni barré ni souligné
      (Thierry 2026-09-10), la couleur seule dit ce qui part et ce qui arrive. */
   .cm-editor{--review-add:#b5d3a7;--review-del:#edaaa5;--review-add-bg:#8caf7021;--review-del-bg:#d86c6321;--review-add-bg-word:#8caf704d;--review-del-bg-word:#d86c634d}
@@ -547,8 +547,8 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .pdf-variants[hidden]{display:none}
 #morePop .pdf-variants [data-pdf-path]{white-space:normal;overflow-wrap:anywhere;max-width:320px}
 
-.texc-hl.texc-comment{background:transparent;border-bottom:1px solid #969ca599}
-::highlight(texc-read-comment){background:transparent;text-decoration:underline;text-decoration-color:#969ca599;text-decoration-thickness:1px}
+.texc-hl.texc-comment{background:rgba(112,151,255,.18);border-bottom:0;border-radius:3px}
+::highlight(texc-read-comment){background:rgba(112,151,255,.18);text-decoration:none}
 .texread-annotation-number{position:absolute;z-index:6}
 
 /* La barre appartient au document : commandes fréquentes, puis menus. */

@@ -124,6 +124,7 @@ export default function Sidebar(p: {
   unread: Set<string>;
   heartbeatThreadIds?: Set<string>;
   favorites: string[];
+  chatSeals?: Record<string, string>;
   onToggleFavorite: (id: string) => void;
   threadOrder: "recent" | "manual";
   activeProject: string | null;
@@ -458,6 +459,7 @@ export default function Sidebar(p: {
         onUnlinkFamilyThread={p.onUnlinkConversation}
         onFamilyPreviewChange={handleFamilyPreviewChange}
         favorite={p.favorites.includes(th.id)}
+        chatSeals={p.chatSeals}
         editing={editingId === th.id}
         editText={editText}
         editRef={editRef}

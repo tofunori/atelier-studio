@@ -15,8 +15,9 @@ import {
 import { IconButton } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
-import { Clock3Icon } from "lucide-react";
+import { Clock3Icon, PinIcon } from "lucide-react";
 import { ConversationFamilyMarker } from "./ConversationFamilyMarker";
+import { ChatSeal, chatSealFor } from "./ChatSeal";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -51,15 +52,6 @@ function relativeDate(value?: string): string {
   return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
 }
 
-function StarGlyph({ filled }: { filled: boolean }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill={filled ? "currentColor" : "none"}
-      stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
-    </svg>
-  );
-}
-
 function MoreGlyph() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -86,6 +78,7 @@ export function ThreadRow(p: {
   onUnlinkFamilyThread?: (childThreadId: string) => void;
   onFamilyPreviewChange: (familyId: string, previewed: boolean) => void;
   favorite: boolean;
+  chatSeals?: Record<string, string>;
   editing: boolean;
   editText: string;
   editRef?: React.Ref<HTMLInputElement>;
@@ -158,7 +151,7 @@ export function ThreadRow(p: {
           onContextMenu={p.onRowContextMenu}
         >
           <span className="prov-ico" aria-hidden="true">
-            <ProviderIcon provider={p.thread.provider} />
+            {p.favorite ? <ChatSeal seal={chatSealFor(p.thread.id, p.chatSeals)} /> : <ProviderIcon provider={p.thread.provider} />}
           </span>
           {p.fork ? (
             <span className="pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">
@@ -191,6 +184,16 @@ export function ThreadRow(p: {
             onPreviewChange={p.onFamilyPreviewChange}
           />
         ) : null}
+          <IconButton
+            size="s"
+            label={p.favorite ? t("action.remove-favorite") : t("action.add-favorite")}
+            title={p.favorite ? t("action.remove-favorite") : t("action.add-favorite")}
+            aria-pressed={p.favorite}
+            className={cx("pnav-act pnav-favorite", p.favorite && "on")}
+            onClick={p.onToggleFavorite}
+          >
+            <PinIcon size={10} fill={p.favorite ? "currentColor" : "none"} aria-hidden="true" />
+          </IconButton>
         <span className="row-status">
           {running ? (
             <svg className="arc" role="img" aria-label={status.label} width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -204,14 +207,6 @@ export function ThreadRow(p: {
           )}
         </span>
         <span className="row-actions">
-          <IconButton
-            size="s"
-            label={p.favorite ? t("action.remove-favorite") : t("action.add-favorite")}
-            className={cx("pnav-act pnav-favorite", p.favorite && "on")}
-            onClick={p.onToggleFavorite}
-          >
-            <StarGlyph filled={p.favorite} />
-          </IconButton>
           <LazyDropdownMenu
             open={p.menuOpen}
             onOpenChange={p.onMenuOpenChange}

@@ -34,11 +34,16 @@ export function ChatAnnotationBadges({ hostRef, marks, revision, onOpen }: {
         const end = range.endContainer;
         const row = (end instanceof Element ? end : end.parentElement)?.closest<HTMLElement>(".timeline-virtual-row");
         const rects = range.getClientRects();
-        const rect = rects[rects.length - 1];
+        const rect = rects[0];
         if (!row || !rect) return;
         const origin = row.getBoundingClientRect();
         rows.add(row);
-        next.push({ n: i + 1, x: rect.right - origin.left - row.clientLeft, y: rect.top - origin.top - row.clientTop, mark, row });
+        const x = 0;
+        let y = rect.top - origin.top - row.clientTop;
+        for (const previous of next.filter(b => b.row === row).sort((a,b) => a.y-b.y)) {
+          if (Math.abs(previous.x-x)<28 && Math.abs(previous.y-y)<26) y=previous.y+26;
+        }
+        next.push({ n: i + 1, x, y, mark, row });
       });
       for (const row of observed) if (!rows.has(row)) { resize.unobserve(row); observed.delete(row); }
       for (const row of rows) if (!observed.has(row)) { resize.observe(row); observed.add(row); }

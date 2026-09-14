@@ -7,7 +7,7 @@ test('gallery inline scripts remain valid JavaScript',()=>{
   for(const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))new vm.Script(match[1]);
 });
 function fit(width,height,naturalWidth,naturalHeight,zoom=1,padding=0){
-  const stage={clientWidth:width,clientHeight:height},wrap={style:{}},img={naturalWidth,naturalHeight};
+  const stage={clientWidth:width,clientHeight:height,get offsetWidth(){return this.clientWidth;},get offsetHeight(){return this.clientHeight;}},wrap={style:{}},img={naturalWidth,naturalHeight};
   const nodes={lbViewport:stage,lbWrap:wrap,lbImg:img,lbFit:{setAttribute(){}}};
   const context={getComputedStyle:()=>({paddingLeft:'0px',paddingRight:'0px',paddingTop:padding+'px',paddingBottom:padding+'px'}),document:{getElementById:id=>nodes[id]},lb:()=>({classList:{contains:c=>c==='show'}}),lbZoomLevel:zoom};
   vm.createContext(context);

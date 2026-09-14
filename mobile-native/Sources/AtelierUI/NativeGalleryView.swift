@@ -3,6 +3,7 @@ import PDFKit
 
 struct NativeGalleryView: View {
     @Bindable var workspace: WorkspaceModel
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var filterState: GalleryFilterState { workspace.galleryFilters[workspace.gallery.selectedProject] ?? GalleryFilterState() }
     private var query: String { filterState.query }
@@ -54,6 +55,11 @@ struct NativeGalleryView: View {
     }
     private var filterActions: some View {
         HStack(spacing: 8) {
+            Button("Favoris seulement", systemImage: filterState.favoritesOnly ? "star.fill" : "star") {
+                updateFilter { $0.favoritesOnly.toggle() }
+            }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+                .accessibilityValue(filterState.favoritesOnly ? "Activé" : "Désactivé")
+                .foregroundStyle(filterState.favoritesOnly ? AtelierTheme.accent : .primary)
             Button("Filtrer les fichiers", systemImage: "line.3.horizontal.decrease") {
                 updateFilter { $0.expanded.toggle() }
             }.labelStyle(.iconOnly).frame(width: 44, height: 44)
@@ -61,6 +67,16 @@ struct NativeGalleryView: View {
             Button("Importer un fichier", systemImage: "plus") { workspace.importRequested = true }
                 .labelStyle(.iconOnly).frame(width: 44, height: 44)
         }
+    }
+    private func favoriteButton(_ item: GalleryArtifact) -> some View {
+        Button(item.favorite == true ? "Retirer des favoris" : "Ajouter aux favoris",
+               systemImage: item.favorite == true ? "star.fill" : "star") {
+            Task {
+                do { try await workspace.gallery.setFavorite(item, on: item.favorite != true) }
+                catch { self.error = error.localizedDescription }
+            }
+        }.disabled(workspace.gallery.favoriteRequests.contains(item.fileID ?? ""))
+            .foregroundStyle(item.favorite == true ? AtelierTheme.accent : .secondary)
     }
     var body: some View {
         @Bindable var gallery = workspace.gallery
@@ -92,14 +108,15 @@ struct NativeGalleryView: View {
                     ContentUnavailableView {
                         Label(query.isEmpty ? "Votre galerie" : "Aucun résultat", systemImage: "square.grid.2x2")
                     } description: {
-                        Text(!query.isEmpty || filter != "Tous" ? "Aucun fichier ne correspond à votre recherche." : "Retrouvez les fichiers de vos projets ou importez un document.")
+                        Text(!query.isEmpty || filter != "Tous" || filterState.favoritesOnly ? "Aucun fichier ne correspond à votre recherche." : "Retrouvez les fichiers de vos projets ou importez un document.")
                     } actions: {
-                        if !query.isEmpty || filter != "Tous" { Button("Réinitialiser la recherche") { updateFilter { $0.query = ""; $0.type = "Tous" } } }
+                        if !query.isEmpty || filter != "Tous" || filterState.favoritesOnly { Button("Réinitialiser la recherche") { updateFilter { $0.query = ""; $0.type = "Tous"; $0.favoritesOnly = false } } }
                         else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered) }
                     }
                 }
                 LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 16) {
                     ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 4) {
                         Button {
                             opening = item.id
                             Task {
@@ -114,18 +131,30 @@ struct NativeGalleryView: View {
                                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .overlay { if opening == item.id { ProgressView().padding().background(.regularMaterial, in: Circle()) } }
-                                Text(item.name).font(.subheadline.weight(.medium)).lineLimit(2).foregroundStyle(.primary)
-                                Text("\(item.kind) · \(item.fileID == nil ? "Importé" : "Mac")")
-                                    .font(.caption).foregroundStyle(.secondary)
                                 if !item.supported { Text("Aperçu non disponible").font(.caption2).foregroundStyle(.secondary) }
                             }
                         }.buttonStyle(.plain).disabled(opening != nil || !item.supported)
                         .accessibilityLabel("Ouvrir \(item.name)")
                         .contextMenu {
+                            if item.fileID != nil { favoriteButton(item) }
                             Button("Afficher", systemImage: "eye") { open(item) }
                             Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
                         }
-
+                        HStack(alignment: .top, spacing: 0) {
+                            Button { open(item) } label: {
+                                Text(item.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }.buttonStyle(.plain).disabled(opening != nil || !item.supported)
+                            if item.fileID != nil {
+                                favoriteButton(item).labelStyle(.iconOnly)
+                                    .font(.system(size: 16, weight: .regular))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle()).buttonStyle(.plain)
+                            }
+                        }
+                        Text("\(item.kind) · \(item.fileID == nil ? "Importé" : "Mac")")
+                            .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -134,9 +163,12 @@ struct NativeGalleryView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .searchable(text: Binding(get: { query }, set: { value in updateFilter { $0.query = value } }), prompt: "Rechercher un fichier")
         .refreshable { await gallery.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await gallery.refresh() } }
+        }
         .task(id: gallery.selectedProject) { await gallery.refresh() }
         .sheet(isPresented: $showConnection) { GalleryConnectionSheet(gallery: gallery) }
-        .alert("Ouverture impossible", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Action impossible", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
     }

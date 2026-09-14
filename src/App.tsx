@@ -723,6 +723,10 @@ export default function App() {
     onAction?: () => void;
     closable?: boolean;
   } | null>(null);
+  const chatNotice = useMemo(() => appBanner ? {
+    ...appBanner,
+    onDismiss: appBanner.closable ? () => setAppBanner(current => current === appBanner ? null : current) : undefined,
+  } : null, [appBanner]);
   type DeliveryStatus = "unconfirmed" | "received" | "started" | "completed" | "failed" | "cancelled" | "uncertain" | "unknown";
   type DeliveryState = {
     status: DeliveryStatus;
@@ -2429,6 +2433,10 @@ export default function App() {
         }
         if (msg.event.kind === "user") {
           const deliveredId = msg.event.meta?.messageId;
+          setAppBanner(banner => (
+            (banner?.requestType === "send" && banner.threadId === msg.threadId) ||
+            (banner?.requestType === "sendReceipt" && deliveredId && banner.clientMessageId === deliveredId)
+          ) ? null : banner);
           if (deliveredId) void pdfAnnotationDelivery.current.acknowledge(deliveredId, async annotation => {
             await removeDeliveredAnnotation(annotation, galleryTokenRef.current);
             document.querySelectorAll("iframe").forEach(frame => frame.contentWindow?.postMessage({
@@ -3060,7 +3068,8 @@ export default function App() {
           const previousRunContinues = msg.requestType === "send" && ["REQUEST_BUSY", "REQUEST_CANCELLED"].includes(msg.code) &&
             (confirmedRunsRef.current.has(refusedId) || (msg.code === "REQUEST_BUSY" && threadsRef.current.some((thread) => thread.id === refusedId && thread.status === "running")));
           if (!previousRunContinues) setWorkingSince((p) => (p[refusedId] == null ? p : { ...p, [refusedId]: null }));
-          setAppBanner({ text: String(msg.message ?? t("app.send-not-connected")), closable: true });
+          setAppBanner({ text: String(msg.message ?? t("app.send-not-connected")), closable: true,
+            requestType: msg.requestType, threadId: refusedId, projectRoot: msg.projectRoot || undefined });
         }
         const failedLink = actionError && [...pendingLinkedCreations.current.entries()].find(
           ([targetId, pending]) => msg.threadId === targetId || msg.threadId === pending.sourceThreadId,
@@ -5452,7 +5461,7 @@ export default function App() {
           </div>
         )}
         <ThreadChat
-          notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner : null}
+          notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? chatNotice : null}
           threadId={activeId}
           home={homeBundle}
           eventStore={eventStore}

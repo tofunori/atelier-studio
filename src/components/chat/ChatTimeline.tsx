@@ -336,6 +336,7 @@ export function ChatTimeline(p: {
       onAdd:()=>{onQuote(quote.text);close();},
       onAnnotate:()=>{const existing=marks.find(m=>m.text===quote.text.trim());setNoteDraft({x:quote.x,y:quote.y,text:quote.text,note:existing?.note || ""});window.getSelection()?.removeAllRanges();},
       onAsk:()=>{window.dispatchEvent(new CustomEvent("quick-ask-open",{detail:{context:quoteCtx}}));close();},
+      onHighlight: p.selection.addTextHighlight ? (color)=>{p.selection.addTextHighlight?.(quote.text,color);close();} : undefined,
     });
     const zone=messagesRef.current?.getBoundingClientRect();
     if(zone)setSelToolbarLeft(clampToolbarLeft(quote.x,selToolbarRef.current.offsetWidth,{left:zone.left,right:zone.right}));
@@ -380,14 +381,15 @@ export function ChatTimeline(p: {
   );
   const activeMessageStart = activeTail?.turn.startIndex ?? null;
   const activeMessageEnd = activeTail?.turn.endIndex ?? null;
-  // Étape VIVANTE du tour : le dernier item `actions` du tour actif. C'est
-  // elle qui porte le statut ; sans elle (réflexion seule au démarrage) une
-  // rangée de statut ferme le tour dans le flux. Jamais les deux à la fois.
+  // Une étape ne porte le statut vivant que si elle ferme encore le flux.
+  // Dès qu'un contenu la suit, le statut retrouve sa rangée en fin de tour.
   const activeStepKey = React.useMemo<string | null>(() => {
     if (workingSince == null || latestTurnSettled || !activeTail) return null;
     const start = activeTail.turn.startIndex;
     let key: string | null = null;
     for (const item of renderedEvents) {
+      if (item.type === "active-turn-header" || item.type === "active-turn-tail") continue;
+      key = null;
       if (item.type === "actions" && item.index >= start) key = timelineRowKey(item);
     }
     return key;

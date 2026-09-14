@@ -99,7 +99,11 @@ struct AnnotationSheet: View {
                 if workspace.sourceAvailable, draft.passage.documentID == workspace.documentID, let threadID = workspace.chat.selected?.id {
                     workspace.revisionTarget = SourceRevisionTarget(documentID: workspace.documentID, threadID: threadID, fileName: draft.passage.fileName, original: workspace.source, passage: draft.passage.text, messageID: requestID)
                 }
-                _ = workspace.sendAnnotation(draft); dismiss()
+                // The remote chat already contains the acknowledged message.
+                // Remove only this local annotation after that acknowledgement;
+                // a failed send leaves the note and its highlight untouched.
+                workspace.consumeAnnotationAfterSuccessfulSend(draft)
+                dismiss()
             }
         }
     }

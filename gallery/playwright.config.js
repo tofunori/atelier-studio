@@ -11,6 +11,7 @@ export default defineConfig({
   use: {trace: 'retain-on-failure'},
   projects: [
     {name: 'webkit-chat-notice', testMatch: /chat_notice\.spec\.js/, use: {browserName: 'webkit'}},
+    {name: 'webkit-markdown-selection', testMatch: /markdown_selection\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-reading-chat', testMatch: /reading_chat_overlay\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-annotations', testMatch: /figure_(annotations|versions)\.spec\.js/, use: {browserName: 'webkit'}},
     {name: 'webkit-review', testMatch: /editor_cm6\.spec\.js/, grep: /latex individual review/, use: {browserName: 'webkit'}},

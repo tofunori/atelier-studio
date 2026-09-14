@@ -254,7 +254,7 @@ export function ChatComposer(props: {
 
   return (
       <form
-        className="composer"
+        className={`composer${host.activeGoal && host.onGoal ? " has-goal" : ""}`}
         ref={input.formRef}
         onKeyDownCapture={(event) => {
           if (event.key === "Escape" && dictation.active) {
@@ -268,10 +268,10 @@ export function ChatComposer(props: {
           void requestSubmit(host.workingSince != null ? resolvedFollowUpMode() : "steer");
         }}
       >
+        {host.activeGoal && host.onGoal && (
+          <GoalBar goal={host.activeGoal} onGoal={host.onGoal} onStop={host.onStop} />
+        )}
         <InputGroup className="composer-input-group">
-          {host.activeGoal && host.onGoal && (
-            <GoalBar goal={host.activeGoal} onGoal={host.onGoal} onStop={host.onStop} />
-          )}
           {goalOpen && !host.activeGoal && (
             <Field className="goal-editor" onClick={(ev) => ev.stopPropagation()}>
               <div className="goal-editor-head">

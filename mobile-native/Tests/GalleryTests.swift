@@ -4,6 +4,43 @@ import UIKit
 @testable import AtelierUI
 
 final class GalleryTests: XCTestCase {
+    @MainActor func testFavoriteMutationSurvivesAnOlderRefreshResponse() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AuditDelayedProtocol.self]
+        let gallery = GalleryModel(address: URL(string: "https://favorites.test")!, token: "fixture", session: URLSession(configuration: config))
+        gallery.projects = [.init(projectId: "p", name: "Project")]; gallery.selectedProject = "p"
+        let item = GalleryArtifact(name: "model.py", fileID: "f", projectID: "p", favorite: false)
+        gallery.remoteItems = [item]
+        let refreshing = expectation(description: "refresh started")
+        AuditDelayedProtocol.state.prepare(refreshing)
+        let refresh = Task { await gallery.refresh() }
+        await fulfillment(of: [refreshing], timeout: 5)
+        let saving = expectation(description: "save started")
+        AuditDelayedProtocol.state.expect(saving)
+        let save = Task { try await gallery.setFavorite(item, on: true) }
+        await fulfillment(of: [saving], timeout: 5)
+        AuditDelayedProtocol.state.respond(1, body: #"{"favorite":true}"#)
+        try await save.value
+        AuditDelayedProtocol.state.respond(0, body: #"{"items":[{"fileId":"f","name":"model.py","size":8,"favorite":false}]}"#)
+        await refresh.value
+        XCTAssertEqual(gallery.remoteItems.first?.favorite, true)
+        XCTAssertTrue(gallery.favoriteRequests.isEmpty)
+    }
+    func testPythonAndFavoritesFiltersCombineWithSearch() throws {
+        let python = GalleryArtifact(name: "scripts/Model.PY", fileID: "a", projectID: "p", favorite: true)
+        XCTAssertEqual(python.kind, "Python")
+        XCTAssertTrue(python.supported)
+        var filter = GalleryFilterState()
+        filter.type = "Python"; filter.favoritesOnly = true; filter.query = "model"
+        XCTAssertTrue(filter.matches(python))
+        XCTAssertFalse(filter.matches(GalleryArtifact(name: "Model.py")))
+        XCTAssertFalse(filter.matches(GalleryArtifact(name: "Model.pdf", favorite: true)))
+        filter.query = "unrelated"
+        XCTAssertFalse(filter.matches(python))
+        let legacy = try JSONDecoder().decode(GalleryArtifact.self, from: JSONEncoder().encode(GalleryArtifact(name: "old.py")))
+        XCTAssertNil(legacy.favorite)
+    }
+
     func testRemoteCacheEvictsLeastRecentlyUsedBytesAndRejectsOversizedEntry() {
         var cache = ArtifactDataCache(limit: 10)
         cache.insert(Data(repeating: 1, count: 4), for: "a")

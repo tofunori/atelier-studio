@@ -16,6 +16,7 @@ export type Settings = {
   defaultEffort: Record<string, string>;
   defaultPermissionMode: string;
   threadOrder: "recent" | "manual";
+  chatSeals?: Record<string, string>;
   chatFontSize: number;
   chatWidth: number;
   chatLineHeight: number;

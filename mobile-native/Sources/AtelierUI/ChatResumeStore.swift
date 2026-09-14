@@ -44,6 +44,9 @@ struct ChatResumeSnapshot: Codable, Sendable {
     var sendAttempts: [String: SendAttempt]?
     var pausedQueues: [String]?
     var globalPermissionMode: String? = nil
+    /// Highest journal sequence applied per thread: a resumed phone asks the
+    /// gateway only for what it is missing instead of re-downloading everything.
+    var lastSequences: [String: Int]? = nil
     var transcript: ChatTranscriptSnapshot? = nil
 }
 

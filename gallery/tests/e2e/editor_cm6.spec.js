@@ -324,6 +324,10 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
         from: {line: 1, ch: 0}, to: {line: 1, ch: 8}, text: 'Anchored',
       }));
       await expect(page.locator('#texcPop')).toBeVisible();
+      const direct = page.locator('#texcPop').getByRole('button', {name:'Envoyer au chat', exact:true});
+      await expect(direct).toBeVisible();
+      await expect(direct).toHaveText('');
+      await expect(direct.locator('svg')).toBeVisible();
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
@@ -333,6 +337,14 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await page.locator('#moreBtn').click();
       await page.locator('[data-act="comments"]').click();
       await expect(page.locator('#texcPanel')).toContainText('Vérifier ce passage');
+      await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:8},text:'Anchored'}));
+      await page.locator('#texcPop textarea').fill('Envoyer directement');
+      await page.locator('#texcPop').screenshot({path:'/tmp/atelier-note-direct-chat.png'});
+      const directSaved = page.waitForResponse(response => response.url().includes('/pdfannot')
+        && response.request().method() === 'POST');
+      await direct.click();
+      expect((await directSaved).ok()).toBe(true);
+      await expect(page.locator('#texcPop')).toBeHidden();
     });
   }
 });
@@ -413,14 +425,11 @@ test('rechargement agent sur un buffer modifié : fusion, diff disponible, frapp
     await expect.poll(() => page.evaluate(() => cm.getValue()), {timeout: 10000}).toContain('REECRIT PAR L AGENT');
     // (le rewrap fluide peut couper la frappe sur deux lignes)
     expect(await page.evaluate(() => cm.getValue())).toMatch(/FRAPPE\s+LOCALE/);
-    // Le diff de l'agent est journalisé et disponible immédiatement, sans
-    // remplacer le buffer par une vue historique ni recentrer l'éditeur.
-    await expect(page.locator('#diffTag')).not.toHaveClass(/\bon\b/);
-    await expect(page.locator('#diffTag')).toBeEnabled();
-    await page.locator('#diffTag').click();
+    // Le diff de l'agent est journalisé et ouvert immédiatement (mode Diff
+    // ouvert, 1/1), sans remplacer le buffer par une vue historique et sans
+    // recentrer l'éditeur sur le premier bloc modifié.
     await expect(page.locator('#diffTag')).toHaveClass(/\bon\b/);
     await expect(page.locator('.dv-count')).toHaveText('1/1');
-    await page.locator('#diffTag').click();
 
     // La sauvegarde suivante passe sans conflit et garde les deux deltas.
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+s' : 'Control+s');
@@ -690,5 +699,36 @@ test('latex individual review anchors the decision row under the changed passage
     await expect(page.locator('.atelier-review-pill')).toHaveCount(0);
     await expect(page.locator('.atelier-review-brackets')).toHaveCount(0);
     await expect(page.locator('.atelier-review-gutter')).toHaveCount(0);
+  });
+});
+
+test('latex individual review reuses visible decision rows while the selection moves', async ({page}) => {
+  const original = Array.from({length:80}, (_, i) => `Old wording ${i}.\nStable context ${i}.\n`).join('');
+  const current = Array.from({length:80}, (_, i) => `New wording ${i}.\nStable context ${i}.\n`).join('');
+  await withProject({'sample.tex':current}, async ({url}) => {
+    await page.goto(url('latex_studio.html','sample.tex'));
+    await expectEngine(page,'cm6');
+    await page.evaluate(original => {
+      cm.showMergeDiff(original,{individual:true,anchored:true,onDecision:()=>{}});
+    }, original);
+    await expect.poll(() => page.locator('.atelier-review-pill').count()).toBeGreaterThan(2);
+    const initialActive = await page.locator('.atelier-review-pill.is-current').getAttribute('data-review-chunk');
+    await page.evaluate(() => {
+      window.__reviewRowsBeforeSelection = new Map([...document.querySelectorAll('.atelier-review-pill')]
+        .map(row => [row.dataset.reviewChunk, row]));
+      cm.setCursor({line:4,ch:0});
+    });
+    await expect.poll(() => page.locator('.atelier-review-pill.is-current').getAttribute('data-review-chunk')).not.toBe(initialActive);
+    const reuse = await page.evaluate(() => {
+      const currentRows = new Map([...document.querySelectorAll('.atelier-review-pill')]
+        .map(row => [row.dataset.reviewChunk, row]));
+      const before = window.__reviewRowsBeforeSelection;
+      return {
+        visible: before.size,
+        preserved: [...before].filter(([key, row]) => currentRows.get(key) === row).length,
+      };
+    });
+    expect(reuse.visible).toBeGreaterThan(2);
+    expect(reuse.preserved).toBe(reuse.visible);
   });
 });

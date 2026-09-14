@@ -64,10 +64,13 @@ import UIKit
 
 struct SyntaxSourceEditor: UIViewRepresentable {
     let workspace: WorkspaceModel
+    var changedRanges: [NSRange] = []
+    var revealRange: NSRange? = nil
+    var revealRequest: UUID? = nil
     @AppStorage("atelier.accent") private var accentName = "sage"
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = PositionRestoringSourceView()
         view.delegate = context.coordinator
         view.isEditable = workspace.editingSource
         view.adjustsFontForContentSizeCategory = true
@@ -81,12 +84,18 @@ struct SyntaxSourceEditor: UIViewRepresentable {
         view.showsHorizontalScrollIndicator = false
         view.keyboardDismissMode = .interactive
         view.accessibilityIdentifier = "latexSource"
-        context.coordinator.update(view)
+        context.coordinator.update(view, changedRanges: changedRanges)
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
         view.isEditable = workspace.editingSource
-        context.coordinator.update(view)
+        context.coordinator.update(view, changedRanges: changedRanges)
+        if context.coordinator.revealRequest != revealRequest, let revealRange {
+            context.coordinator.revealRequest = revealRequest
+            (view as? PositionRestoringSourceView)?.restoreOffset = nil
+            view.layoutIfNeeded()
+            if NSMaxRange(revealRange) <= view.text.utf16.count { view.scrollRangeToVisible(revealRange) }
+        }
     }
 
     @MainActor final class Coordinator: NSObject, UITextViewDelegate {
@@ -95,19 +104,26 @@ struct SyntaxSourceEditor: UIViewRepresentable {
         var applying = false
         var noteIDs: [UUID] = []
         var accentName: String?
+        var changedRanges: [NSRange] = []
+        var revealRequest: UUID?
         init(workspace: WorkspaceModel) { self.workspace = workspace }
-        func update(_ view: UITextView) {
+        func update(_ view: UITextView, changedRanges: [NSRange] = []) {
             let notes = workspace.documentReadingNotes
             let currentAccent = UserDefaults.standard.string(forKey: "atelier.accent") ?? "sage"
             let accent = UIColor(AtelierTheme.accent(named: "sage"))
             view.tintColor = accent
-            guard documentID != workspace.documentID || view.text != workspace.source || noteIDs != notes.map(\.id) || accentName != currentAccent else { return }
+            guard documentID != workspace.documentID || view.text != workspace.source || noteIDs != notes.map(\.id) || accentName != currentAccent || self.changedRanges != changedRanges else { return }
+            self.changedRanges = changedRanges
             accentName = currentAccent
             noteIDs = notes.map(\.id)
             let changedDocument = documentID != workspace.documentID
             applying = true
             let old = view.selectedRange
+            let oldOffset = (view as? PositionRestoringSourceView)?.restoreOffset ?? view.contentOffset
             let styled = NSMutableAttributedString(attributedString: SourceSyntax.attributed(workspace.source, name: workspace.sourceName))
+            for range in changedRanges where range.location != NSNotFound && NSMaxRange(range) <= styled.length {
+                styled.addAttribute(.backgroundColor, value: UIColor.systemOrange.withAlphaComponent(0.12), range: range)
+            }
             for note in notes {
                 if let range = note.resolvedRange(in: workspace.source) {
                     styled.addAttributes([
@@ -123,7 +139,20 @@ struct SyntaxSourceEditor: UIViewRepresentable {
                 view.selectedRange = NSRange(range, in: workspace.source)
             } else if changedDocument { view.selectedRange = NSRange(location: 0, length: 0) }
             else if NSMaxRange(old) <= view.text.utf16.count { view.selectedRange = old }
+            if changedDocument {
+                (view as? PositionRestoringSourceView)?.restoreOffset = workspace.sourceOffsets[workspace.documentID] ?? .zero
+                view.setNeedsLayout()
+            } else {
+                (view as? PositionRestoringSourceView)?.restoreOffset = oldOffset
+                view.setNeedsLayout()
+            }
             applying = false
+        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !applying, let documentID, documentID == workspace.documentID,
+                  workspace.surface == .document, workspace.documentMode == .source,
+                  (scrollView as? PositionRestoringSourceView)?.restoreOffset == nil else { return }
+            workspace.sourceOffsets[documentID] = scrollView.contentOffset
         }
         func textView(_ view: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let selected = Range(range, in: workspace.source), range.length > 0 else { return UIMenu(children: suggestedActions) }
@@ -168,5 +197,18 @@ struct SyntaxSourceEditor: UIViewRepresentable {
                   let range = Range(view.selectedRange, in: workspace.source) else { workspace.selection = nil; return }
             workspace.selection = TextSelection(range: range)
         }
+    }
+}
+
+final class PositionRestoringSourceView: UITextView {
+    var restoreOffset: CGPoint?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let target = restoreOffset, bounds.width > 0, bounds.height > 0 else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let measuredHeight = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height
+        let contentHeight = max(contentSize.height, measuredHeight)
+        setContentOffset(CGPoint(x: 0, y: min(max(0, target.y), max(0, contentHeight - bounds.height + adjustedContentInset.bottom))), animated: false)
+        restoreOffset = nil
     }
 }

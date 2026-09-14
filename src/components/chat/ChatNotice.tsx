@@ -6,6 +6,7 @@ import './ChatNotice.css';
 export type ChatNoticeData = {
   text: string; kind?: 'connection'; requestType?: string; clientMessageId?: string;
   actionLabel?: string; onAction?: () => void;
+  onDismiss?: () => void;
 };
 export function ChatNotice({notice}:{notice:ChatNoticeData}) {
   const [open,setOpen]=useState(false), [checking,setChecking]=useState(false);
@@ -28,7 +29,7 @@ export function ChatNotice({notice}:{notice:ChatNoticeData}) {
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger className="chat-notice-trigger" aria-label="Afficher l’alerte du chat" title={title}><CircleAlert aria-hidden="true"/></PopoverTrigger>
     <PopoverContent className="chat-notice-card" align="start">
-      <div className="chat-notice-heading"><PopoverTitle>{title}</PopoverTitle><button type="button" className="chat-notice-close" aria-label="Fermer le détail de l’alerte" onClick={()=>setOpen(false)}><X/></button></div>
+      <div className="chat-notice-heading"><PopoverTitle>{title}</PopoverTitle><button type="button" className="chat-notice-close" aria-label={notice.onDismiss ? 'Retirer l’alerte du chat' : 'Fermer le détail de l’alerte'} onClick={()=>{setOpen(false);notice.onDismiss?.();}}><X/></button></div>
       <div role="status" className="chat-notice-detail">{checking && <LoaderCircle className="chat-notice-spinner"/>}<p>{text}</p></div>
       {receipt && <p className="chat-notice-hint">Ton message n’a pas été renvoyé.</p>}
       {notice.onAction && <Button variant="secondary" disabled={checking} onClick={()=>{

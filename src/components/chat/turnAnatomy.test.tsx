@@ -629,7 +629,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(etape.querySelectorAll(".tool-output.open")).toHaveLength(1);
   });
 
-  it("garde active une commande running après une narration plus récente", () => {
+  it("garde active une commande running après une narration plus récente", async () => {
     const evs: AgentEvent[] = [
       events.user("Teste.", FIXED_TS),
       events.tool({ id: "test", name: "Bash", detail: "npm test", status: "inProgress" }),
@@ -637,14 +637,20 @@ describe("anatomie du tour — header d'activité", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
 
-    // v2 : la commande en cours reste dans le fil, portée par la ligne de sa
-    // série — et son détail s'ouvre au clic.
+    // La commande reste consultable à sa place ; le statut vivant suit
+    // la narration plus récente, même si cette commande travaille encore.
     const etape = document.querySelector(".timeline-virtual-row .activity-cluster") as HTMLElement;
     expect(etape).toBeTruthy();
     expect(etape.closest(".active-turn-tail")).toBeNull();
-    fireEvent.click(etape.querySelector(".ui-activity-trigger") as HTMLButtonElement);
+    fireEvent.click(etape.querySelector(".tool-output-head") as HTMLButtonElement);
     const inlineActivity = etape.querySelector(".activity-action-list") as HTMLElement;
     expect(inlineActivity.querySelector(".tool-output")).toBeTruthy();
+    expect(inlineActivity.querySelector(".tool-output.open")).toBeTruthy();
+    const message = await screen.findByText((_, element) =>
+      element?.textContent === "Je laisse les tests se terminer."
+      && !Array.from(element.children).some((child) => child.textContent === "Je laisse les tests se terminer."));
+    const tail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
     expect(inlineActivity.textContent).not.toContain(t("chat.working"));
     expect(document.querySelector(".active-turn-tail .thinking-shimmer")).toBeNull();
@@ -829,6 +835,30 @@ describe("anatomie du tour — header d'activité", () => {
     expect(command?.querySelector(".tool-output-name")?.textContent).toContain("Commande exécutée");
     expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
     expect(etape.querySelectorAll(".tool-output")).toHaveLength(2);
+  });
+
+  it("déplace le statut sous la réponse après un outil, puis vers l'outil suivant", () => {
+    const evs: AgentEvent[] = [
+      events.user("Analyse.", FIXED_TS),
+      events.tool({ id: "read-before-reply", name: "Read", detail: "Python.md", status: "completed" }),
+      events.text("Je poursuis la vérification.", FIXED_TS + 100),
+      { kind: "tool", name: "__thinking" },
+    ];
+    const view = renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+    const message = screen.getByText("Je poursuis la vérification.");
+    const tail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
+    expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const continued = [...evs, events.tool({ id: "next-command", name: "Bash", detail: "python check.py", status: "inProgress" })];
+    view.rerender(<Chat {...chatProps({ events: continued, workingSince: FIXED_TS })} />);
+    const nextTail = document.querySelector(".active-turn-tail") as HTMLElement;
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
+    expect(nextTail.closest(".activity-cluster")).toBeTruthy();
+    expect(screen.getByText("Je poursuis la vérification.").compareDocumentPosition(nextTail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    view.rerender(<Chat {...chatProps({ events: [...continued, events.done()], workingSince: null })} />);
+    expect(document.querySelector(".active-turn-tail")).toBeNull();
   });
 
   it("garde l'activité visible sous une narration intermédiaire tant que le tour travaille", () => {
@@ -1081,6 +1111,18 @@ describe("anatomie du tour — header d'activité", () => {
 });
 
 describe("figure annotée envoyée depuis la galerie", () => {
+  it("garde les fichiers dans la bulle et les affiche encore pendant la modification", () => {
+    renderUi(<Chat {...chatProps({events:[{kind:"user",text:"Relis ceci",label:"results_en.tex · methods_en.tex",ts:FIXED_TS}] as AgentEvent[]})} />);
+    const attachments = document.querySelectorAll(".user-bubble .user-file-attachment");
+    expect([...attachments].map(el=>el.textContent)).toEqual(["results_en.tex","methods_en.tex"]);
+    expect(document.querySelector(".user-label")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:t("action.edit-resend")}));
+    expect(document.querySelectorAll(".edit-box-shell .user-file-attachment")).toHaveLength(2);
+  });
+  it("affiche un fichier envoyé sans texte dans sa propre bulle", () => {
+    renderUi(<Chat {...chatProps({events:[{kind:"user",text:"",label:"results_en.tex",ts:FIXED_TS}] as AgentEvent[]})} />);
+    expect(document.querySelector(".user-bubble .user-file-attachment")?.textContent).toBe("results_en.tex");
+  });
   // 2026-09-04 : le fil n'affichait que le nom du fichier généré (horodaté)
   // au-dessus d'une bulle vide — vignette absente, notes jamais rendues.
   it("montre la vignette, la figure source et les badges numérotés", () => {
@@ -1250,7 +1292,7 @@ describe("en-tête et goal — retours utilisateur", () => {
     expect(document.querySelector(".chat-surface-header .ui-badge")).toBeNull();
   });
 
-  it("goal bloqué : état humain et actions rares seulement dans le détail", () => {
+  it("goal bloqué : détail lisible et arrêt directement accessible", () => {
     const onGoal = vi.fn();
     const onStop = vi.fn();
     const evs: AgentEvent[] = [
@@ -1259,9 +1301,9 @@ describe("en-tête et goal — retours utilisateur", () => {
     ];
     renderUi(<Chat {...chatProps({ events: evs, onGoal, onStop })} />);
     expect(document.querySelector(".goal-bar")).toBeTruthy();
-    expect(screen.getByText(t("goal.status.awaiting"))).toBeTruthy();
+    expect(screen.getByTitle(t("goal.status.awaiting"))).toBeTruthy();
     expect(screen.queryByText(t("goal.status.blocked"))).toBeNull();
-    expect(screen.queryByTitle(t("goal.stop"))).toBeNull();
+    expect(screen.getByTitle(t("goal.stop"))).toBeTruthy();
     fireEvent.click(screen.getByTitle(t("goal.expand")));
     fireEvent.click(screen.getByTitle(t("goal.stop")));
     expect(onGoal).toHaveBeenCalledWith("clear", undefined, undefined);

@@ -36,6 +36,9 @@ import SwiftUI
     }
     var quote: Quote? { didSet { scheduleSave() } }
     private var threadQuotes: [String: Quote] = [:]
+    /// Highest journal sequence applied per thread: a resumed conversation asks the
+    /// gateway only for what it is missing instead of re-downloading its history.
+    private(set) var lastSequences: [String: Int] = [:]
     func quotePassage(_ text: String, from rowID: String) {
         guard selected != nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         quote = Quote(text: text, sourceRowID: rowID)
@@ -92,14 +95,14 @@ import SwiftUI
         }
     }
     var reconnectGeneration = 0
-    private var enteredBackground = false
+    private var leftActiveState = false
     private(set) var resumingInBackground = false
     @ObservationIgnored private var resumeStatusTask: Task<Void, Never>?
     var showsConnectionStatus: Bool { connection != .live && !resumingInBackground }
-    func sceneDidEnterBackground() { enteredBackground = true }
+    func sceneDidLeaveActive() { leftActiveState = true }
     func sceneDidBecomeActive() {
-        guard enteredBackground else { return }
-        enteredBackground = false
+        guard leftActiveState else { return }
+        leftActiveState = false
         guard selected != nil, !isPreview, connection != .associationRequired else { return }
         // A suspended socket may still look live. Replace it immediately on return,
         // retaining the transcript, draft and reading position throughout the handoff.
@@ -133,7 +136,13 @@ import SwiftUI
         if rows.contains(where: { $0.kind == "interaction" && !$0.resolved }) { return "hand.raised" }
         return sending || running || !live ? "circle.dotted" : "circle.fill"
     }
-    func reconnect() { finishForegroundResume(); reconnectGeneration += 1 }
+    func reconnect() {
+        finishForegroundResume()
+        live = false
+        connection = selected == nil ? .idle : .connecting
+        connectionError = nil
+        reconnectGeneration += 1
+    }
 
     var error: String?
     private var seen: Set<String> = []
@@ -146,6 +155,10 @@ import SwiftUI
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var replayIndex: ChatReplayIndex?
     @ObservationIgnored private var replayingHistory = false
+    /// A delta replay can contain a completion event while the transcript is
+    /// being rebuilt. Keep one coalesced signal until the replay batch ends so
+    /// document refresh does not run once per historical event.
+    @ObservationIgnored private var replayCompletionPending = false
     private var restoring = false
     private var restoreFailed = false
     var sendAttempts: [String: SendAttempt] = [:]
@@ -188,7 +201,7 @@ import SwiftUI
             settings[selected.id] = ChatSettings(model: model, effort: effort, permissionMode: permissionMode.rawValue)
         }
         return ChatResumeSnapshot(selected: selected, pendingAttachments: selected == nil ? attachments : [], drafts: drafts, quotes: quotes, attachments: files,
-                                  settings: settings, bookmarks: bookmarks, galleryProjectID: galleryProjectID, historyFiles: historyFiles, prepared: prepared, pins: pins, sendAttempts: sendAttempts, pausedQueues: Array(pausedQueues), globalPermissionMode: permissionMode.rawValue, transcript: currentTranscript())
+                                  settings: settings, bookmarks: bookmarks, galleryProjectID: galleryProjectID, historyFiles: historyFiles, prepared: prepared, pins: pins, sendAttempts: sendAttempts, pausedQueues: Array(pausedQueues), globalPermissionMode: permissionMode.rawValue, lastSequences: lastSequences, transcript: currentTranscript())
     }
     func scheduleSave() {
         guard resumeStore != nil, !restoring, !replayingHistory, !restoreFailed, !isPreview else { return }
@@ -213,6 +226,7 @@ import SwiftUI
             settings = saved.settings; bookmarks = saved.bookmarks; galleryProjectID = saved.galleryProjectID; historyFiles = saved.historyFiles
             pausedQueues = Set(saved.pausedQueues ?? [])
             sendAttempts = saved.sendAttempts ?? [:]
+            lastSequences = saved.lastSequences ?? [:]
             prepared = saved.prepared ?? []; pins = saved.pins ?? [:]
             attachments = saved.pendingAttachments ?? []
             workspace.gallery.selectedProject = saved.galleryProjectID
@@ -266,6 +280,9 @@ import SwiftUI
         model = settings[thread.id]?.model ?? thread.model.flatMap { $0.isEmpty ? nil : $0 } ?? provider?.defaultModel ?? ""
         effort = settings[thread.id]?.effort ?? ""
         restoreTranscript(targetTranscript, for: thread); error = nil; connectionError = nil
+        // A sequence watermark is meaningful only with its matching local transcript.
+        // Without that transcript, the next observer must request a full snapshot.
+        if targetTranscript?.threadID != thread.id { lastSequences.removeValue(forKey: thread.id) }
         for item in pending { attach(item) }
         creationProjectID = thread.projectId ?? ""
         workspace.applyPendingDocumentChat()
@@ -304,11 +321,16 @@ import SwiftUI
         let thread = try JSONDecoder().decode(Thread.self, from: data)
         threads.insert(thread, at: 0); select(thread, workspace: workspace, navigateToChat: navigateToChat)
     }
+    /// Reconnect ramp: fast enough for a tunnel waking up, capped so that a long
+    /// outage never turns into a request storm.
+    static let retryDelays: [Double] = [0.15, 0.35, 0.75, 1.5, 3.0]
+
     func observe(using gateway: GalleryModel) async {
         guard !isPreview, let thread = selected else { return }
         let id = thread.id, generation = reconnectGeneration
         func current() -> Bool { !Task.isCancelled && selected?.id == id && reconnectGeneration == generation }
         live = false; connection = .connecting
+        var attempt = 0
         // Catalog refresh is independent of restoring the current conversation.
         while current() {
             do {
@@ -317,18 +339,33 @@ import SwiftUI
                 let streamTask = bytes.task
                 defer { streamTask.cancel() }
                 guard current() else { return }
+                // The open socket is what makes the conversation live: the transcript
+                // is already restored locally, so a replay must not delay that state.
+                live = true; connection = .live; connectionError = nil; finishForegroundResume()
                 try await withTaskCancellationHandler {
-                    let history = try await gateway.chatRequest(["threads", id, "history"])
+                    // Only what the transcript is missing: a resumed phone must not
+                    // download its whole journal again.
+                    let replayAfter = lastSequences[id] ?? 0
+                    var replayingDelta = replayAfter > 0
+                    var envelope = try await historyEnvelope(using: gateway, thread: id, after: replayAfter)
                     guard current() else { return }
-                    let decoded = try await ChatHistoryEnvelope.decode(history)
-                    guard current() else { return }
-                    for start in stride(from: 0, to: decoded.events.count, by: 128) {
+                    if envelope.snapshotRequired || !envelope.complete {
+                        envelope = try await historyEnvelope(using: gateway, thread: id, after: 0)
+                        replayingDelta = false
                         guard current() else { return }
-                        applyHistoryBatch(decoded.events[start..<min(start + 128, decoded.events.count)])
-                        await Task.yield()
                     }
-                    guard current() else { return }
-                    live = true; connection = .live; connectionError = nil; finishForegroundResume()
+                    // An incremental delta is the only replay that may contain
+                    // a newly completed response. Apply that delta as one
+                    // completion-aware batch so the document refresh fires once
+                    // after the full replay. A snapshot is older restoration
+                    // state and keeps the existing yielding path.
+                    let notifyCompletion = replayingDelta && envelope.complete && !envelope.snapshotRequired
+                    if notifyCompletion {
+                        applyHistoryBatch(envelope.events[...], notifyCompletion: true)
+                    } else {
+                        applyHistorySnapshot(envelope.events[...])
+                    }
+                    attempt = 0
                     for try await line in bytes.lines {
                         guard current() else { return }
                         if let data = line.data(using: .utf8), let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] { apply(event) }
@@ -345,16 +382,94 @@ import SwiftUI
             }
             guard current() else { return }
             live = false; connection = .reconnecting
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            attempt += 1
+            let delay = Self.retryDelays[min(attempt, Self.retryDelays.count) - 1]
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
         }
     }
-    func applyHistoryBatch(_ events: ArraySlice<[String: Any]>) {
+
+    private func historyEnvelope(using gateway: GalleryModel, thread: String, after: Int) async throws -> ChatHistoryEnvelope {
+        let query = after > 0 ? [URLQueryItem(name: "afterSequence", value: String(after))] : []
+        let history = try await gateway.chatRequest(["threads", thread, "history"], query: query)
+        return try await ChatHistoryEnvelope.decode(history)
+    }
+    func applyHistoryBatch(_ events: ArraySlice<[String: Any]>, notifyCompletion: Bool = false) {
+        replayCompletionPending = false
         replayingHistory = true
         replayIndex = ChatReplayIndex(rows)
-        defer { replayIndex = nil; replayingHistory = false; scheduleSave() }
+        defer {
+            replayIndex = nil
+            replayingHistory = false
+            if notifyCompletion && replayCompletionPending {
+                completedResponse = UUID()
+                if live, !isPreview, let selected {
+                    NativeNotifications.received(thread: selected.id, title: selected.title)
+                }
+            }
+            replayCompletionPending = false
+            scheduleSave()
+        }
         for event in events {
             apply(event)
             replayIndex?.synchronize(rows)
+        }
+    }
+    func applyHistorySnapshot(_ events: ArraySlice<[String: Any]>, notifyCompletion: Bool = false) {
+        let optimistic = rows.filter { $0.id.hasPrefix("pending:") }
+        let wasRunning = running
+        let previouslyActiveTurns = activeTurns
+        let lastGlobalCompletion = events.lastIndex { event in
+            guard event["kind"] as? String == "done" else { return false }
+            let meta = event["meta"] as? [String: Any]
+            return meta?["turnId"] == nil
+        }
+        let activityEvents: ArraySlice<[String: Any]>
+        if let lastGlobalCompletion {
+            activityEvents = events[events.index(after: lastGlobalCompletion)...]
+        } else {
+            activityEvents = events
+        }
+        rows = []; seen = []; interactionStates = [:]; liveRows = [:]
+        completedTurns = []; failedTurns = []; activeTurns = []; running = false
+        activityDisclosure = [:]
+        if let selected { lastSequences.removeValue(forKey: selected.id) }
+        applyHistoryBatch(events, notifyCompletion: notifyCompletion)
+        var preservedPending = false
+        for row in optimistic where !rows.contains(where: { $0.messageID == row.messageID }) {
+            rows.append(row)
+            preservedPending = true
+        }
+        if wasRunning {
+            var recoveredActiveTurns = (lastGlobalCompletion == nil ? previouslyActiveTurns : [])
+                .subtracting(completedTurns)
+                .subtracting(failedTurns)
+            for pending in optimistic {
+                let durableTurn = activityEvents.compactMap { event -> String? in
+                    guard event["kind"] as? String == "user",
+                          let meta = event["meta"] as? [String: Any],
+                          meta["messageId"] as? String == pending.messageID else { return nil }
+                    return meta["turnId"] as? String
+                }.last
+                if let durableTurn, !completedTurns.contains(durableTurn), !failedTurns.contains(durableTurn) {
+                    recoveredActiveTurns.insert(durableTurn)
+                }
+            }
+            if recoveredActiveTurns.isEmpty && preservedPending {
+                recoveredActiveTurns.formUnion(optimistic.map(\.turn))
+            }
+            if activeTurns.isEmpty && recoveredActiveTurns.isEmpty {
+                for event in activityEvents.reversed() {
+                    guard let kind = event["kind"] as? String,
+                          !["done", "error", "heartbeat", "usage"].contains(kind),
+                          let meta = event["meta"] as? [String: Any],
+                          let turn = meta["turnId"] as? String,
+                          !completedTurns.contains(turn), !failedTurns.contains(turn) else { continue }
+                    recoveredActiveTurns.insert(turn)
+                    break
+                }
+            }
+            activeTurns.formUnion(recoveredActiveTurns)
+            running = !activeTurns.isEmpty
         }
     }
     private func replayRowIndex(_ id: String) -> Int? {
@@ -374,6 +489,9 @@ import SwiftUI
         let meta = event["meta"] as? [String: Any] ?? [:]
         let eventID = meta["eventId"] as? String
         let turn = meta["turnId"] as? String ?? "legacy"
+        if let sequence = meta["sequence"] as? Int, let thread = (meta["threadId"] as? String) ?? selected?.id {
+            lastSequences[thread] = max(lastSequences[thread] ?? 0, sequence)
+        }
         if let eventID, !seen.insert(eventID).inserted {
             if kind == "text" || kind == "thinking", let stale = liveRows.removeValue(forKey: "\(turn):\(kind)") {
                 rows.removeAll { $0.id == stale }; scheduleSave()
@@ -387,9 +505,20 @@ import SwiftUI
             let wasRunning = running
             if meta["turnId"] == nil { completedTurns.formUnion(activeTurns); activeTurns.removeAll() }
             completedTurns.insert(turn); activeTurns.remove(turn); running = !activeTurns.isEmpty
-            if wasRunning, live, !isPreview, let selected, !failedTurns.contains(turn), !pausedQueues.contains(selected.id) {
-                completedResponse = UUID()
-                NativeNotifications.received(thread: selected.id, title: selected.title)
+            // A completion can arrive while the socket is reconnecting or while
+            // a send response is replayed. Publish the revision in both cases;
+            // the document view uses it to refresh the remote file. Suppress
+            // only bulk history replay, which is restoration rather than a new
+            // response.
+            if wasRunning, !failedTurns.contains(turn) {
+                if replayingHistory {
+                    replayCompletionPending = true
+                } else {
+                    completedResponse = UUID()
+                    if live, !isPreview, let selected {
+                        NativeNotifications.received(thread: selected.id, title: selected.title)
+                    }
+                }
             }
             for index in meta["turnId"] == nil ? Array(rows.indices) : replayTurnIndices(turn) {
                 rows[index].isStreaming = false
@@ -488,14 +617,26 @@ import SwiftUI
             let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard result?["proxied"] as? Bool == true else { throw ChatError.notSent }
             if result?["replay"] as? Bool == true, selected?.id == thread.id {
-                if let data = try? await gateway.chatRequest(["threads",thread.id,"history"]),
-                   let history = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let events = history["events"] as? [[String: Any]], selected?.id == thread.id {
-                    let wasLive = live; live = false
-                    for event in events { apply(event) }
-                    live = wasLive
+                let replayAfter = lastSequences[thread.id] ?? 0
+                do {
+                    var envelope = try await historyEnvelope(using: gateway, thread: thread.id, after: replayAfter)
+                    var fullSnapshot = replayAfter == 0
+                    if envelope.snapshotRequired || !envelope.complete {
+                        envelope = try await historyEnvelope(using: gateway, thread: thread.id, after: 0)
+                        fullSnapshot = true
+                    }
+                    if selected?.id == thread.id {
+                        let wasLive = live; live = false
+                        if fullSnapshot { applyHistorySnapshot(envelope.events[...], notifyCompletion: true) }
+                        else { applyHistoryBatch(envelope.events[...], notifyCompletion: true) }
+                        live = wasLive
+                        reconcileReplay(requestID: request)
+                    }
+                } catch {
+                    // The gateway already confirmed that this request is durable.
+                    // Keep the optimistic row until the restarted observer retrieves it.
+                    if selected?.id == thread.id { reconnect() }
                 }
-                if selected?.id == thread.id { reconcileReplay(requestID: request) }
             }
             if includingAttachments && selected?.id == thread.id { attachments.removeAll { item in files.contains { $0.id == item.id } } }
             else if includingAttachments, var saved = threadAttachments[thread.id] {

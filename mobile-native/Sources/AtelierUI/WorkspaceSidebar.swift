@@ -59,10 +59,6 @@ struct WorkspaceSidebar: View {
             }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 18).padding(.bottom, 12)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    destination("Chats", symbol: "bubble", section: .chat)
-                    destination("Galerie", symbol: "square.grid.2x2", section: .gallery)
-                    destination("Articles", symbol: "books.vertical", section: .articles)
-                    destination("Calculs", symbol: "chart.bar.xaxis", section: .calculations)
                     HStack {
                         Text(query.isEmpty ? "Projets" : "Résultats · tous les projets").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                         Spacer()
@@ -188,17 +184,7 @@ struct WorkspaceSidebar: View {
         }.disabled(workspace.chat.sending)
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
-    private func destination(_ title: String, symbol: String, section: WorkspaceModel.Surface) -> some View {
-        Button { workspace.navigate(to: section) } label: {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).frame(width: 22)
-                Text(title).font(.body.weight(.medium))
-                Spacer()
-                if workspace.activeSection == section { Circle().fill(AtelierTheme.accent).frame(width: 5, height: 5) }
-            }.padding(.horizontal, 12).frame(minHeight: 46)
-                .background(workspace.activeSection == section ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
+
 }
 
 struct NewConversationView: View {

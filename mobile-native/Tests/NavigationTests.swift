@@ -3,7 +3,7 @@ import SwiftUI
 @testable import AtelierUI
 
 final class NavigationTests: XCTestCase {
-    @MainActor func testForegroundResumeKeepsTranscriptAndOnlyRestartsAfterBackground() async {
+    @MainActor func testForegroundResumeKeepsTranscriptAndRestartsAfterLeavingActiveState() async {
         let workspace = WorkspaceModel(); let chat = workspace.chat
         chat.select(.init(id: "resume", title: "Resume", provider: "codex", model: nil, projectId: nil, status: "idle"), workspace: workspace)
         chat.rows = [.init(id: "visible", kind: "text", text: "Texte déjà reçu", turn: "t")]
@@ -11,8 +11,8 @@ final class NavigationTests: XCTestCase {
         chat.rememberPosition(rowID: "visible", followsTail: false, offsetY: 220)
         chat.connection = .live; chat.live = true
         chat.sceneDidBecomeActive()
-        XCTAssertEqual(chat.reconnectGeneration, 0) // inactive transitions do not break a live socket
-        chat.sceneDidEnterBackground(); chat.sceneDidBecomeActive()
+        XCTAssertEqual(chat.reconnectGeneration, 0) // Initial activation keeps the established socket.
+        chat.sceneDidLeaveActive(); chat.sceneDidBecomeActive()
         XCTAssertEqual(chat.reconnectGeneration, 1)
         XCTAssertTrue(chat.resumingInBackground)
         XCTAssertFalse(chat.showsConnectionStatus)
@@ -27,10 +27,24 @@ final class NavigationTests: XCTestCase {
     @MainActor func testForegroundResumeDoesNotOverrideExpiredAssociation() {
         let chat = RemoteChatModel()
         chat.connection = .associationRequired
-        chat.sceneDidEnterBackground(); chat.sceneDidBecomeActive()
+        chat.sceneDidLeaveActive(); chat.sceneDidBecomeActive()
         XCTAssertEqual(chat.reconnectGeneration, 0)
         XCTAssertFalse(chat.resumingInBackground)
         XCTAssertTrue(chat.showsConnectionStatus)
+    }
+
+    @MainActor func testExplicitReconnectRestartsAnExpiredAssociation() {
+        let workspace = WorkspaceModel()
+        let chat = workspace.chat
+        chat.select(.init(id: "paired-again", title: "Reconnect", provider: "codex", model: nil, projectId: nil, status: "idle"), workspace: workspace)
+        chat.connection = .associationRequired
+        chat.connectionError = "Association expirée"
+
+        chat.reconnect()
+
+        XCTAssertEqual(chat.reconnectGeneration, 1)
+        XCTAssertEqual(chat.connectionLabel, "Connexion au Mac…")
+        XCTAssertNil(chat.connectionError)
     }
 
     @MainActor func testReturnToBottomCompletesWithoutGeometryCallbacks() async {
@@ -264,7 +278,7 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(model.draft, "À conserver")
         XCTAssertEqual(model.chat.creationProjectID, "chat")
     }
-    @MainActor func testSidebarActiveSectionReturnsToListOnFirstTap() throws {
+    @MainActor func testSectionReturnsToListThenResumesBookmarkedDocument() throws {
         for section: WorkspaceModel.Surface in [.gallery, .articles] {
             let model = WorkspaceModel()
             let artifact = GalleryArtifact(name: "notes.tex", data: Data("original".utf8))
@@ -277,7 +291,9 @@ final class NavigationTests: XCTestCase {
             XCTAssertFalse(model.sidebarRequested)
             XCTAssertEqual(model.savedDocuments[artifact.id]?.source, "édition conservée")
             model.navigate(to: section)
-            XCTAssertEqual(model.surface, section)
+            XCTAssertEqual(model.surface, .document)
+            XCTAssertEqual(model.documentID, artifact.id)
+            XCTAssertEqual(model.source, "édition conservée")
         }
     }
     @MainActor func testDocumentsResumeIndependentlyAndBackReturnsToList() throws {
@@ -297,8 +313,10 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(model.documentID, article.id)
         XCTAssertEqual(model.documentOrigin, .articles)
         model.returnToDocumentList()
-        model.navigate(to: .chat); model.navigate(to: .articles)
         XCTAssertEqual(model.surface, .articles)
+        model.navigate(to: .chat); model.navigate(to: .articles)
+        XCTAssertEqual(model.surface, .document)
+        XCTAssertEqual(model.documentID, article.id)
     }
     @MainActor func testConversationSearchMatchesProjectAndRetainsUnassignedChats() {
         let threads = [RemoteChatModel.Thread(id: "a", title: "Analyse", provider: "codex", model: nil, projectId: "p", status: "idle"),

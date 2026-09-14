@@ -4,11 +4,16 @@ import Foundation
 /// decoded envelope is transferred once and only read on the main actor.
 struct ChatHistoryEnvelope: @unchecked Sendable {
     let events: [[String: Any]]
+    /// A delta the gateway cannot serve completely has to be replaced by a snapshot.
+    let complete: Bool
+    let snapshotRequired: Bool
     static func decode(_ data: Data) async throws -> Self {
         try await Task.detached(priority: .userInitiated) {
             guard let body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let events = body["events"] as? [[String: Any]] else { throw CocoaError(.fileReadCorruptFile) }
-            return Self(events: events)
+            return Self(events: events,
+                        complete: body["complete"] as? Bool ?? true,
+                        snapshotRequired: body["snapshotRequired"] as? Bool ?? false)
         }.value
     }
 }

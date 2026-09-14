@@ -1252,20 +1252,47 @@ function updateHideChip(){ updateViewChip(); }
 function toggleHide(rel){if(hidden.has(rel))hidden.delete(rel);else hidden.add(rel);saveHidden();updateHideChip();render();}
 let ratings = JSON.parse(localStorage.getItem('figRatings')||'{}');
 let stateTimer=null, stateLoaded=false, pendingPush=false;
+let favsBase=[], stateSaving=false;
+const initialFavoriteBaseline=new Set(favs);
 function pushState(){
-  if(!stateLoaded){ pendingPush=true; return; }   // never POST before the initial /state merge lands (a partial save would clobber disk)
+  if(!stateLoaded || stateSaving){ pendingPush=true; return; }   // never POST before the initial /state merge lands (a partial save would clobber disk)
   clearTimeout(stateTimer);
   stateTimer=setTimeout(()=>{
+    stateTimer=null; stateSaving=true;
+    const sentFavs=[...favs];
     fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({favs:[...favs],ratings,hidden:[...hidden],tags,hideRules,collections,workflow,
+      body:JSON.stringify({favs:sentFavs,favsBase,ratings,hidden:[...hidden],tags,hideRules,collections,workflow,
         // Filtre de types du PROJET : le localStorage du WebView meurt à chaque
         // relance de l'app (PIEGES_CONNUS §1) — le disque fait foi, comme pour
         // les favoris. N'est envoyé qu'une fois un choix EXPLICITE fait, sinon
         // les défauts intégrés resteraient figés au premier chargement.
         fileTypes: formatFilterExplicit?galleryActiveTypeKeys():null,
-        pinnedTypes:pinnedFileTypes, filePresets:customFilePresets, presentation:{...galleryPresentation,widths:detailWidths}})}).catch(()=>{});
+        pinnedTypes:pinnedFileTypes, filePresets:customFilePresets, presentation:{...galleryPresentation,widths:detailWidths}})}).then(r=>{
+          if(!r.ok) throw new Error('state save failed');
+          favsBase=sentFavs;
+        }).catch(()=>{pendingPush=true;}).finally(()=>{
+          stateSaving=false;
+          if(pendingPush){pendingPush=false;pushState();}
+        });
   },400);
 }
+let favoriteReadRevision=0;
+setInterval(async()=>{
+  if(document.hidden || !stateLoaded || stateSaving || stateTimer || pendingPush) return;
+  const before=JSON.stringify([...favs]), revision=++favoriteReadRevision;
+  try {
+    const response=await fetch('/state');
+    if(!response.ok) return;
+    const state=await response.json();
+    if(revision!==favoriteReadRevision || stateSaving || stateTimer || pendingPush || before!==JSON.stringify([...favs])) return;
+    const next=Array.isArray(state.favs)?state.favs:[];
+    favsBase=next;
+    if(JSON.stringify([...favs].sort())===JSON.stringify([...next].sort())) return;
+    favs=new Set(next);saveFavs();
+    document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
+    render();
+  } catch {}
+},5000);
 const saveRatings = ()=>{localStorage.setItem('figRatings', JSON.stringify(ratings));pushState();};
 // --- tags / collections + rule-based (smart) hiding ---------------------------
 let tags = JSON.parse(localStorage.getItem('figTags')||'{}');            // {rel:[tag,...]}
@@ -1299,7 +1326,11 @@ function matchesRule(rel){
 }
 function saveRules(){ localStorage.setItem('figHideRules', JSON.stringify(hideRules)); for(const k in _ruleRe) delete _ruleRe[k]; pushState(); }
 fetch('/state').then(r=>r.json()).then(st=>{
-  (st.favs||[]).forEach(f=>favs.add(f));
+  const localAdded=[...favs].filter(f=>!initialFavoriteBaseline.has(f));
+  const localRemoved=[...initialFavoriteBaseline].filter(f=>!favs.has(f));
+  favsBase=Array.isArray(st.favs)?st.favs:[];
+  favs=new Set(favsBase);
+  localAdded.forEach(f=>favs.add(f));localRemoved.forEach(f=>favs.delete(f));
   Object.assign(ratings, st.ratings||{});
   hidden = new Set(st.hidden||[]);   // server (.fig_state.json) is authoritative — else localStorage resurrects un-hidden files
   if(st.tags) tags = st.tags;
@@ -2083,6 +2114,7 @@ async function lbShow(i){
   if(i<0||i>=lbList.length) return;
   lbZoomLevel=1;lbPanX=0;lbPanY=0;document.getElementById('lbWrap').style.transform='';
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
+  lbVersionsReset(f);
   markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv';
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
@@ -2130,6 +2162,7 @@ async function lbShow(i){
   lb().classList.add('show');
   lbViewportRequest(true);
   requestAnimationFrame(lbFitImage);
+  if(['png','jpg','jpeg'].includes(f.ext)) void lbVersionsPoll();
 }
 // ─── Panneau Provenance ───────────────────────────────────────────────────
 // Spec docs/superpowers/specs/2026-08-27-provenance-figures-design.md (C + D).
@@ -2308,6 +2341,7 @@ async function lbClose(){
   if(lb().classList.contains('fs')||fsActiveEl()) await lbFsLeave();
   const v=document.getElementById('lbVid');if(v){v.pause();v.removeAttribute('src');v.load();}
   lb().classList.remove('show');lb().classList.remove('annot');lb().classList.remove('prov');lbIdx=-1;
+  lbVersionsReset(null);
   // provOpen meurt avec la lightbox : la prochaine figure s'ouvre nue.
   provRel='';provState=null;provSeq++;provOpen=false;provHistOpen=false;
   lbListRestore();
@@ -2338,9 +2372,10 @@ window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(f
 function lbFitImage(){
   const stage=document.getElementById('lbViewport'),img=document.getElementById('lbImg'),wrap=document.getElementById('lbWrap');
   if(!lb().classList.contains('show')||!img.naturalWidth||!stage.clientHeight)return;
-  const gap=lb().classList.contains('fs')?16:12;
+  const gap=16; // includes room for a non-overlay scrollbar when returning to fit
   const stageStyle=getComputedStyle(stage);
-  const scale=Math.min((stage.clientWidth-gap-parseFloat(stageStyle.paddingLeft)-parseFloat(stageStyle.paddingRight))/img.naturalWidth,(stage.clientHeight-gap-parseFloat(stageStyle.paddingTop)-parseFloat(stageStyle.paddingBottom))/img.naturalHeight);
+  // Scrollbars appearing after zoom must not change the zoom's reference scale.
+  const scale=Math.min((stage.offsetWidth-gap-parseFloat(stageStyle.paddingLeft)-parseFloat(stageStyle.paddingRight))/img.naturalWidth,(stage.offsetHeight-gap-parseFloat(stageStyle.paddingTop)-parseFloat(stageStyle.paddingBottom))/img.naturalHeight);
   if(scale<=0)return;
   wrap.style.width=Math.round(img.naturalWidth*scale*lbZoomLevel)+'px';
   wrap.style.height=Math.round(img.naturalHeight*scale*lbZoomLevel)+'px';
@@ -2350,7 +2385,12 @@ function lbFitImage(){
 }
 function lbSetZoom(value){
   lbPanX=0;lbPanY=0;document.getElementById('lbWrap').style.transform='';
-  lbZoomLevel=Math.max(.25,Math.min(8,value));lbFitImage();
+  const image=document.getElementById('lbImg'),wrap=document.getElementById('lbWrap');
+  const fitScale=wrap.offsetWidth/image.naturalWidth/lbZoomLevel;
+  // Preserve relative zoom while permitting the explicit 100–200% choices in narrow panes.
+  const maxZoom=Number.isFinite(fitScale)&&fitScale>0?Math.max(8,2.01/fitScale):8;
+  const minZoom=Number.isFinite(fitScale)&&fitScale>0?Math.min(.25,1/fitScale):.25;
+  lbZoomLevel=Math.max(minZoom,Math.min(maxZoom,value));lbFitImage();
   const stage=document.getElementById('lbViewport');
   stage.scrollLeft=(stage.scrollWidth-stage.clientWidth)/2;
   stage.scrollTop=(stage.scrollHeight-stage.clientHeight)/2;
@@ -2418,7 +2458,7 @@ function lbFsEnter(){
   const el=lb(), btn=document.getElementById('lbFs');
   el.classList.add('fs');
   lbHostRequest(true);
-  btn.textContent='✕';
+  btn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4m16 0h-5V4m0 16v-5h5M4 15h5v5"/></svg>';
   btn.title='Quitter le plein écran (Échap ou f)';
   btn.setAttribute('aria-label','Quitter le plein écran');
   lbZoomLevel=1;
@@ -2433,7 +2473,7 @@ function lbFsExit(){
   document.body.classList.remove('fs-mode');
   document.body.style.overflow='';
   document.documentElement.style.overflow='';
-  btn.textContent='⛶';
+  btn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/></svg>';
   btn.title='Plein écran (f)';
   btn.setAttribute('aria-label','Plein écran');
   requestAnimationFrame(lbFitImage);
@@ -2546,6 +2586,8 @@ window.addEventListener('message', function(e){
   const rel=e.data.rel;
   if(typeof rel!=='string' || !rel) return;
   if(e.data.fav) favs.add(rel); else favs.delete(rel);
+  favsBase=favsBase.filter(f=>f!==rel);
+  if(e.data.fav) favsBase.push(rel);
   saveFavs();
   document.getElementById('favChip').textContent='★ Favorites ('+favs.size+')';
   render();
@@ -3051,6 +3093,103 @@ for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill'])lb
 lbHead.append(document.getElementById('lbClose'));
 lbHead.insertBefore(document.getElementById('lbFs'),document.getElementById('lbClose'));
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';document.getElementById('lbPrev').after(lbPosition);
+// Figure history is separate from gallery navigation. Each snapshot is immutable
+// and stored by the project server, not in this webview's cache.
+const lbVersions=document.createElement('div');lbVersions.id='lbVersions';lbVersions.hidden=true;
+lbVersions.setAttribute('role','group');lbVersions.setAttribute('aria-label','Versions de la figure');
+lbVersions.innerHTML='<button type="button" class="lbBtn" id="lbVersionPrev" aria-label="Version précédente">‹</button><button type="button" class="lbBtn" id="lbVersionCurrent" aria-label="Version actuelle" aria-live="polite">v1</button><button type="button" class="lbBtn" id="lbVersionNext" aria-label="Version suivante">›</button>';
+document.getElementById('lbPrev').before(lbVersions);
+const lbFigureNavigation=document.createElement('div');lbFigureNavigation.id='lbFigureNavigation';
+lbFigureNavigation.setAttribute('role','group');lbFigureNavigation.setAttribute('aria-label','Parcourir les figures');
+lbFigureNavigation.append('Figures ',document.getElementById('lbPrev'),lbPosition,document.getElementById('lbNext'));
+lbSheet.append(lbFigureNavigation);
+const lbVersionStyle=document.createElement('style');lbVersionStyle.textContent='#lbVersions{display:flex;align-items:center;flex:none;border:1px solid var(--border);border-radius:7px;margin-right:6px}#lbVersions[hidden]{display:none}#lbVersions .lbBtn{position:static;min-width:22px;width:auto;height:26px;padding:0 5px;font-size:15px}#lbVersions #lbVersionCurrent{font-size:11px;white-space:nowrap;color:var(--muted)}#lbVersions .lbBtn:disabled{opacity:.35;cursor:default}';document.head.appendChild(lbVersionStyle);
+lbVersionStyle.textContent+='#lbFigureNavigation{display:flex;align-items:center;gap:4px;margin-top:8px;color:var(--muted);font-size:11px}#lb #lbFigureNavigation .lbBtn{position:static;display:inline-flex;align-items:center;justify-content:center}';
+let lbHistory={rel:'',rows:[],selected:null,follow:true,epoch:0,busy:false};
+let lbVersionReady=Promise.resolve();
+function lbVersionsReset(f){
+  lbHistory={rel:f&&['png','jpg','jpeg'].includes(f.ext)?f.rel:'',rows:[],selected:null,follow:true,epoch:lbHistory.epoch+1,busy:false};
+  lbVersionReady=Promise.resolve();lbVersions.hidden=!lbHistory.rel;
+  document.getElementById('lbVersionCurrent').textContent='…';
+  document.getElementById('lbVersionCurrent').title='Historique des versions enregistrées à partir de l’ouverture de cette figure';
+  for(const id of ['lbVersionPrev','lbVersionNext'])document.getElementById(id).disabled=true;
+}
+function lbAnnotationKey(){
+  const rel=lbList[lbIdx]?.rel;
+  return lbHistory.rel===rel&&lbHistory.selected!=null?rel+'::version:'+lbHistory.selected:rel;
+}
+function lbVersionsPaint(){
+  const h=lbHistory,idx=h.rows.findIndex(r=>r.version===h.selected),last=h.rows.at(-1);
+  const current=document.getElementById('lbVersionCurrent');
+  current.textContent=h.selected==null?'…':'v'+h.selected;
+  current.dataset.pending=String(!!last&&last.version!==h.selected);
+  current.title=last&&last.version!==h.selected?'Afficher la dernière version (v'+last.version+')':'Dernière version · mises à jour automatiques';
+  current.setAttribute('aria-label',current.title);
+  document.getElementById('lbVersionPrev').disabled=idx<=0;
+  document.getElementById('lbVersionNext').disabled=idx<0||idx>=h.rows.length-1;
+}
+async function lbVersionDisplay(version,automatic=false){
+  const h=lbHistory;if(!h.rel||h.selected===version)return;
+  const display= h.display=(h.display||0)+1;
+  const blocked=()=>annotBusy||annotDrag||annotCur||document.getElementById('annotNote').style.display==='block'||(automatic&&lb().classList.contains('annot')&&annotStrokes.length>0);
+  if(blocked())return;
+  const url='/figure-version?path='+encodeURIComponent(h.rel)+'&version='+version;
+  const image=new Image();image.src=url;
+  try{await image.decode();}catch{return;}
+  if(h!==lbHistory||h.display!==display||!lb().classList.contains('show')||blocked()||(automatic&&!h.follow))return;
+  if(!(await annotGuard())||h!==lbHistory)return;
+  const annotating=lb().classList.contains('annot');
+  // Annotations started before the first snapshot response belong to v1.
+  if(h.selected==null&&annotSessions.has(h.rel)){
+    annotSessions.set(h.rel+'::version:'+version,annotSessions.get(h.rel));annotSessions.delete(h.rel);
+  }
+  h.selected=version;
+  const img=document.getElementById('lbImg');img.src=url;
+  // The preloaded immutable URL has decoded; retain zoom and pan during updates.
+  annotSession=null;annotStrokes=[];annotSelected=null;annotPillUpdate();
+  document.getElementById('lbOriginal').href=url;
+  lbVersionsPaint();
+  if(annotating){
+    const key=lbAnnotationKey();
+    if(!annotSessions.has(key))annotSessions.set(key,{strokes:[],undo:[],redo:[]});
+    annotSession=annotSessions.get(key);annotStrokes=annotSession.strokes;
+    cv().width=image.naturalWidth;cv().height=image.naturalHeight;annotRedraw();
+  }
+  if(provOpen){provState=null;provRel='';provSync();}
+}
+function lbVersionsPoll(){
+  const h=lbHistory;if(!h.rel||h.busy||document.hidden||!lb().classList.contains('show'))return lbVersionReady;
+  h.busy=true;
+  lbVersionReady=(async()=>{
+    try{
+      const response=await fetch('/figure-versions?path='+encodeURIComponent(h.rel),{method:'POST',cache:'no-store'});
+      if(!response.ok)throw new Error('versions');
+      const data=await response.json();if(h!==lbHistory)return;
+      if(!Array.isArray(data.versions)||!data.versions.length)throw new Error('versions');
+      h.rows=data.versions;lbVersionsPaint();
+      if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
+    }catch{
+      if(h===lbHistory){const b=document.getElementById('lbVersionCurrent');b.title='Historique indisponible — nouvelle tentative automatique';if(h.selected==null)b.textContent='v?';}
+    }finally{h.busy=false;}
+  })();
+  return lbVersionReady;
+}
+async function lbVersionNavigate(direction){
+  const h=lbHistory,idx=h.rows.findIndex(r=>r.version===h.selected);
+  const row=direction===0?h.rows.at(-1):h.rows[idx+direction];if(!row)return;
+  if(annotBusy||annotDrag||annotCur||document.getElementById('annotNote').style.display==='block')return;
+  h.display=(h.display||0)+1;
+  const follow=h.follow;
+  h.follow=direction===0||row===h.rows.at(-1);
+  await lbVersionDisplay(row.version);
+  if(h===lbHistory&&h.selected!==row.version)h.follow=follow;
+  lbVersionsPaint();
+}
+document.getElementById('lbVersionPrev').onclick=e=>{e.stopPropagation();void lbVersionNavigate(-1);};
+document.getElementById('lbVersionNext').onclick=e=>{e.stopPropagation();void lbVersionNavigate(1);};
+document.getElementById('lbVersionCurrent').onclick=e=>{e.stopPropagation();void lbVersionNavigate(0);};
+setInterval(()=>void lbVersionsPoll(),2500);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void lbVersionsPoll();});
 // Fiche ⓘ : ouverture au clic, fermeture au clic dehors ou Échap ; le nom
 // reste en infobulle sur ⓘ pour ne pas avoir à l'ouvrir.
 const lbInfoBtn=document.getElementById('lbInfoBtn');
@@ -3070,7 +3209,21 @@ function lbNameToast(name){
   const t=document.getElementById('lbNameToast');t.textContent=name;t.classList.add('show');
   clearTimeout(lbToastTimer);lbToastTimer=setTimeout(()=>t.classList.remove('show'),1500);
 }
-document.getElementById('lbAdd').onclick=async()=>{if(annotBusy)return;document.querySelector('#annotNote .annot-close').click();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))document.getElementById('annotPillSend').click();else if(EMB){try{await postChatAttachment(lbList[lbIdx].rel);}catch{document.getElementById('lbAdd').title='Ajout impossible — réessayer';}}};
+function lbVersionContext(){
+  const row=lbHistory.rows.find(r=>r.version===lbHistory.selected);
+  return row?'Figure source : __ROOT__/'+lbHistory.rel+'\nVersion affichée : v'+row.version+' (SHA-256 '+row.hash+'). La pièce jointe correspond à cette version ; le fichier source peut avoir changé.':'';
+}
+async function lbAttachDisplayed(){
+  const f=lbList[lbIdx],context=lbVersionContext();
+  if(!context)return postChatAttachment(f.rel);
+  const img=document.getElementById('lbImg'),canvas=document.createElement('canvas');
+  canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;canvas.getContext('2d').drawImage(img,0,0);
+  const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name,dataURL:canvas.toDataURL('image/png'),embed:true,direct:false,previewOnly:true,notes:[]})});
+  if(!r.ok)throw new Error('save '+r.status);
+  const j=await r.json();if(!j.path)throw new Error('snapshot missing');
+  await postChatPayload({path:j.path,name:f.name,text:context,previewUrl:new URL(j.path,location.origin+'/').href});
+}
+document.getElementById('lbAdd').onclick=async()=>{if(annotBusy)return;document.querySelector('#annotNote .annot-close').click();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))document.getElementById('annotPillSend').click();else if(EMB){try{annotBusy=true;await lbAttachDisplayed();}catch{document.getElementById('lbAdd').title='Ajout impossible — réessayer';}finally{annotBusy=false;}}};
 
 const cv=()=>document.getElementById('annotCv');
 const annotGeometryReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/.fig_thumbs/figure_annotation_geometry.js?v=__VER__';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
@@ -3085,14 +3238,17 @@ function annotHistory(redo=false){
 }
 async function annotGuard(){if(annotBusy)return false;document.getElementById('annotNote').querySelector('.annot-close').click();annotRemember();document.getElementById('annotNote').style.display='none';document.getElementById('annotList').hidden=true;return true;}
 async function annotToggle(){
+  const history=lbHistory,index=lbIdx;
   await annotGeometryReady;
+  if(lbHistory.rel===lbList[lbIdx]?.rel&&lbHistory.selected==null&&lbHistory.busy)await lbVersionReady;
+  if(history!==lbHistory||index!==lbIdx||!lb().classList.contains('show'))return;
   if(annotBusy)return;
   document.getElementById('annotNote').querySelector('.annot-close').click();
   const on=lb().classList.toggle('annot');
   document.getElementById('lbAnnot').setAttribute('aria-pressed',String(on));
   if(on){
     const img=document.getElementById('lbImg');if(!img.naturalWidth){lb().classList.remove('annot');return;}
-    const rel=lbList[lbIdx]?.rel;
+    const rel=lbAnnotationKey();
     if(!annotSessions.has(rel))annotSessions.set(rel,{strokes:[],undo:[],redo:[]});
     annotSession=annotSessions.get(rel);annotStrokes=annotSession.strokes;annotCur=null;annotSelected=null;
     cv().width=img.naturalWidth;cv().height=img.naturalHeight;lbFitImage();annotRedraw();
@@ -3373,9 +3529,10 @@ function annotInit(){
   });
   async function annotPost(direct,only=null){
     const f=lbList[lbIdx];
+    const versionContext=lbVersionContext();
     const sentSession=annotSession;
     const sentNotes=(only?[only]:annotStrokes).filter(s=>s.note).map(s=>({stroke:structuredClone(s),note:s.note,n:s.n}));
-    const body=(dataURL)=>JSON.stringify({name:f.name,dataURL,direct:!!direct,
+    const body=(dataURL)=>JSON.stringify({name:f.name,dataURL,direct:!!direct,sourceContext:versionContext,
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:sentNotes.map(s=>({n:s.n,text:s.note}))});
     annotRedraw(sentNotes.map(s=>s.stroke));
@@ -3524,6 +3681,10 @@ const galleryUiAsset=path=>{
 document.getElementById('galleryUiCss').href=galleryUiAsset('gallery-ui.css');
 import(galleryUiAsset('gallery-ui.js'))
   .catch(err=>console.error('[gallery-ui] React/shadcn mount failed',err));
+const viewerToolbarScript=document.createElement('script');
+viewerToolbarScript.src='/.fig_thumbs/gallery_viewer_toolbar.js?v=__VER__';
+document.body.append(viewerToolbarScript);
 </script>
+<link rel="stylesheet" href="/.fig_thumbs/gallery_viewer_toolbar.css?v=__VER__">
 </body>
 </html>

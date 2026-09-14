@@ -1,203 +1,180 @@
-# Protocole de relance d'Atelier Studio (agents : Codex, Claude, forks)
+# Atelier Studio — procédure actuelle de validation
 
-**À suivre EXACTEMENT avant de valider toute modification qui touche l'app, le
-runtime, le build ou la galerie. Aucune improvisation.**
-Une modification limitée aux documents/plans ne nécessite pas de rebuild.
-Le non-respect crée des zombies (serveurs galerie/sidecar orphelins) qui servent
-du vieux code et font croire que le fix « ne marche pas ».
+Cette procédure s’applique aux changements qui touchent l’app, le runtime, le
+build ou la galerie. Une modification limitée aux documents ou aux plans ne
+demande ni rebuild ni relance; une vérification ciblée des liens ou de la syntaxe
+reste permise.
 
-## Ce qu'il faut savoir (2 min)
+## Autorisation avant arrêt
 
-- L'app buildée = `src-tauri/target/release/bundle/macos/Atelier.app`.
-  Son process s'appelle **`tauri-app`** (PAS « Atelier ») → `pkill -x Atelier` ne matche jamais.
-- 3 familles de process : l'app (`tauri-app`), le **sidecar chat**
-  (Rust seul depuis plan 065 phase A : `Resources/rust-server/atelier-studio-server` ;
-  l'ancien repli `ATELIER_BACKEND=node` est retiré, voir `docs/soak/033-COMPLETE.md`),
-  les **serveurs galerie**
-  (`node …/server/main.mjs`, un par projet ouvert — ils SURVIVENT aux relances et
-  l'app les réutilise → zombies = vieux code servi).
-- `npm run tauri dev` ne survit PAS lancé par un agent (reaping du harness).
-  Seul Thierry le lance depuis son terminal. Les agents utilisent le BUILD.
-- Vite dev sert `src/` en direct, mais l'app buildée fige tout au build :
-  **aucun changement n'est visible sans rebuild.**
-- Le build quotidien génère seulement le bundle macOS `.app`. Le DMG est réservé
-  aux releases explicites afin d'éviter les grosses images temporaires `rw.*.dmg`.
-- Chaque worktree garde ses propres `target/` pour éviter les collisions. Cargo
-  passe par `sccache` quand il est installé afin d'accélérer une reconstruction
-  après nettoyage ; le wrapper retombe sur `rustc` sinon.
-- Le protocole se lance depuis le worktree qui contient les changements. Il
-  détecte sa racine Git et construit/ouvre le `Atelier.app` de CE worktree.
-  Une seule instance d'Atelier peut tourner à la fois : la phase d'arrêt reste
-  donc globale, même lorsque le build est local au worktree.
-- La galerie a 2 copies : source `gallery/` (à committer) et bundle
-  `src-tauri/gallery-dist/` (régénéré par `scripts/stage-gallery.sh`).
-  Modifier `gallery/assets/*` sans restager = bundle périmé.
+Une seule instance d’Atelier peut tourner à la fois. Avant tout arrêt, build ou
+remplacement, vérifier si `tauri-app` est ouvert. Si oui, continuer seulement si
+la session contient une autorisation explicite d’arrêter/reconstruire/relancer
+l’instance. Sans cette autorisation, terminer les contrôles qui ne demandent pas
+de relance et rapporter que la validation du bundle est en attente.
 
-## Protocole (copier-coller)
+L’arrêt autorisé est global, mais ses cibles restent limitées à Atelier. Ne pas
+tuer un processus Node, Rust ou Vite sur la seule base de son langage ou de son
+nom partiel. Résoudre la commande complète et ne viser que `tauri-app`, les
+binaires du bundle et les serveurs `gallery/server/main.mjs` d’Atelier.
+
+## Repères stables
+
+- Le bundle du worktree courant est
+  `src-tauri/target/release/bundle/macos/Atelier.app`.
+- Son processus principal s’appelle `tauri-app`.
+- Le backend chat de production est le binaire Rust
+  `Resources/rust-server/atelier-studio-server`.
+- La source de la galerie est `gallery/`. `src-tauri/gallery-dist/` est régénéré
+  par `scripts/stage-gallery.sh` et ne se modifie jamais directement.
+- `npm run tauri:build:app` appelle le wrapper verrouillé du dépôt. Le
+  `beforeBuildCommand` compile le frontend et stage galerie, mobile, serveur Rust
+  et AppSnap; ne pas répéter systématiquement `tsc` puis `vite build` juste avant.
+- Chaque worktree garde son propre `target/`.
+
+## Contrôles proportionnés
+
+`package.json` est la source de vérité des commandes. Exécuter les contrôles qui
+couvrent la surface modifiée et le risque introduit, par exemple:
+
+- frontend: `npm run typecheck`, `npm run test:frontend`;
+- sidecar TypeScript: `npm run test:sidecar`;
+- galerie: `npm run typecheck:gallery`, `npm run test:gallery`, puis
+  `npm run verify:e2e` si le comportement navigateur est concerné;
+- runtime Rust: le paquet ou test ciblé, puis `npm run test:rust` ou
+  `npm run test:rust-workspace` selon la portée;
+- protocole/mobile: `npm run test:protocol`, `npm run verify:mobile` selon la
+  surface;
+- changement transversal ou à haut risque: `npm run verify`.
+
+Ne pas figer un nombre attendu de tests dans cette documentation. Une régression
+ciblée doit couvrir le défaut corrigé lorsqu’elle apporte une preuve utile. Un
+test ou build réussi ne prouve pas à lui seul que l’instance visible utilise le
+nouveau bundle.
+
+## Build et relance
+
+Depuis le worktree qui contient les changements, exécuter le bloc avec Bash.
+Si un ancien serveur Node provient d’un autre worktree, inspecter sa commande
+complète et arrêter ce PID identifié avant le build; ne pas utiliser un motif
+générique qui pourrait viser la galerie d’un autre produit.
 
 ```bash
 ROOT="$(git rev-parse --show-toplevel)" || exit 1
-cd "$ROOT"
+cd "$ROOT" || exit 1
 APP="$ROOT/src-tauri/target/release/bundle/macos/Atelier.app"
 APP_BIN="$APP/Contents/MacOS/tauri-app"
 BUILD_LOG="/tmp/tauri-build-$(basename "$ROOT")-$$.log"
-echo "Worktree testé : $ROOT"
 
-# 1. VÉRIFICATIONS (obligatoires avant tout build)
-npx tsc --noEmit          # doit passer
-npx vite build            # doit passer
-(cd sidecar && npx vitest run)   # 19+ tests verts
-# si gallery/ touché (serveur OU assets éditeurs) :
-(cd gallery && node server/tests/parity.mjs)      # « parity: ok »
-(cd gallery && node server/tests/diff_suite.mjs)  # « diff suite: ok (N tests) »
+# Précondition hors script: l’arrêt/relaunch d’une instance ouverte est autorisé.
+# Une cible absente est normale; une cible trouvée mais impossible à arrêter est fatale.
+stop_pattern() {
+  PATTERN="$1"
+  PIDS="$(pgrep -f "$PATTERN" 2>/dev/null || true)"
+  [ -z "$PIDS" ] && return 0
+  kill -9 $PIDS
+  STOP_STATUS=$?
+  if [ "$STOP_STATUS" -ne 0 ]; then
+    echo "ÉCHEC — arrêt refusé pour: $PATTERN"
+    exit "$STOP_STATUS"
+  fi
+  sleep 1
+  if pgrep -f "$PATTERN" >/dev/null 2>&1; then
+    echo "ÉCHEC — processus Atelier encore présent: $PATTERN"
+    exit 1
+  fi
+}
 
-# 2. TUER TOUT (l'ordre importe peu, l'exhaustivité oui)
-pkill -9 -x tauri-app
-pkill -9 -f "Resources/sidecar/index.mjs"
-pkill -9 -f "sidecar/index.mjs"
-pkill -9 -f "atelier-studio-server"
-pkill -9 -f "Resources/rust-server/atelier-studio-server"
-pkill -9 -f "atelier-gallery-server"
-for p in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep node | awk '{print $2}' | sort -u); do
-  case "$(ps -p $p -o command= 2>/dev/null)" in *"server/main.mjs"*) kill -9 $p;; esac
-done
-sleep 1
+APP_PIDS="$(pgrep -x tauri-app 2>/dev/null || true)"
+if [ -n "$APP_PIDS" ]; then
+  kill -9 $APP_PIDS
+  STOP_STATUS=$?
+  if [ "$STOP_STATUS" -ne 0 ]; then
+    echo "ÉCHEC — arrêt de tauri-app refusé"
+    exit "$STOP_STATUS"
+  fi
+  sleep 1
+  if pgrep -x tauri-app >/dev/null 2>&1; then
+    echo "ÉCHEC — tauri-app encore présent"
+    exit 1
+  fi
+fi
+stop_pattern '/Atelier\.app/Contents/Resources/rust-server/atelier-studio-server'
+stop_pattern '/Atelier\.app/Contents/Resources/rust-server/atelier-gallery-server'
+stop_pattern '/Atelier\.app/Contents/Resources/rust-server/atelier-remote-gateway'
+# Ancien serveur Node du worktree courant uniquement; pas tout dossier "gallery".
+GALLERY_PATTERN="$(python3 -c 'import re, sys; print(re.escape(sys.argv[1]) + r"/gallery/server/main\.mjs([[:space:]]|$)")' "$ROOT")" || exit 1
+stop_pattern "$GALLERY_PATTERN"
 
-# 3. BUILD .APP (stage-gallery/stage-sidecar sont automatiques ; aucun DMG ici)
-npm run tauri:build:app > "$BUILD_LOG" 2>&1
-# exit 0 attendu ; toute erreur doit être investiguée
-grep -iE "error" "$BUILD_LOG"   # doit être VIDE
+npm run tauri:build:app >"$BUILD_LOG" 2>&1
+BUILD_STATUS=$?
+if [ "$BUILD_STATUS" -ne 0 ]; then
+  tail -n 80 "$BUILD_LOG"
+  echo "ÉCHEC — build .app (code $BUILD_STATUS)"
+  exit "$BUILD_STATUS"
+fi
 
-# 4. RELANCER + VÉRIFIER (jamais « open » seul sans vérif)
-test -x "$APP_BIN" || { echo "ÉCHEC — binaire absent dans $APP"; exit 1; }
-open -n "$APP"
+if [ ! -x "$APP_BIN" ]; then
+  echo "ÉCHEC — binaire absent dans $APP"
+  exit 1
+fi
+
+open -n "$APP" || exit $?
 sleep 4
 APP_PID="$(pgrep -x tauri-app | head -1)"
-[ -n "$APP_PID" ] || { echo "ÉCHEC — tauri-app absent"; exit 1; }
+if [ -z "$APP_PID" ]; then
+  echo "ÉCHEC — tauri-app absent"
+  exit 1
+fi
 RUNNING_CMD="$(ps -p "$APP_PID" -o command=)"
 case "$RUNNING_CMD" in
   "$APP_BIN"*) echo "OK — $ROOT (pid $APP_PID)" ;;
-  *) echo "ÉCHEC — mauvais worktree lancé : $RUNNING_CMD"; exit 1 ;;
+  *) echo "ÉCHEC — mauvais worktree lancé: $RUNNING_CMD"; exit 1 ;;
 esac
 ```
 
-### Quel worktree lancer ?
+Le code de sortie du build est décisif. Une recherche textuelle de `error` dans
+le journal peut aider au diagnostic, mais ne constitue pas un critère bloquant:
+des messages légitimes peuvent contenir ce mot.
 
-- Test avant fusion : ouvrir un terminal dans le worktree modifié, puis exécuter
-  le protocole ci-dessus. Le build et l'app viennent de ce worktree.
-- Validation canonique : fusionner d'abord la branche dans `main`, ouvrir un
-  terminal dans le checkout principal, puis réexécuter le même protocole.
-- Release/DMG : uniquement depuis le checkout principal sur la branche `main`.
-- Un worktree ancien n'hérite pas magiquement des fichiers ajoutés sur `main` :
-  il doit d'abord intégrer le commit de protocole par merge, rebase ou cherry-pick.
+Après la relance, exercer dans ce bundle le comportement demandé. Si l’accès à
+la surface réelle manque, distinguer explicitement: code inspecté, contrôles
+passés, bundle construit, processus vérifié et comportement encore non validé.
 
-### Développement rapide ou app buildée ?
+## Worktrees, disque et releases
 
-- Thierry peut lancer `npm run tauri dev` depuis son propre terminal : le frontend
-  se recharge sans build release complet et Rust se recompile au besoin.
-- Les agents ne lancent jamais ce mode, car leur harness le termine et peut laisser
-  des processus orphelins. Ils valident avec le protocole `.app` ci-dessus.
-- Avant de déclarer une modification de l'app terminée, effectuer au moins une
-  validation complète avec le `.app` du bon worktree.
-- Une modification de documentation ou de plan seulement ne nécessite pas de
-  reconstruire ni de relancer Atelier.
+- Test avant fusion: exécuter depuis le worktree modifié.
+- Validation canonique: fusionner d’abord dans `main`, puis répéter depuis le
+  checkout principal.
+- DMG de release seulement: `npm run tauri:build:dmg`, depuis le checkout
+  principal sur `main`.
+- Aperçu des targets inactifs: `npm run rust:targets:prune`.
+- Suppression après lecture de l’aperçu seulement:
+  `npm run rust:targets:prune -- --apply`.
+- Ne jamais définir un `CARGO_TARGET_DIR` commun à plusieurs worktrees ni
+  contourner `npm run tauri:build:app`.
 
-## Discipline disque Rust / Tauri
+## Diagnostic actuel du sidecar Rust
 
-- Build et relance ordinaires : `npm run tauri:build:app`.
-- Cette commande prend un verrou atomique propre au worktree et refuse un second
-  build simultané qui écrirait dans le même `target/`.
-- DMG de release seulement : `npm run tauri:build:dmg`. Ce wrapper supprime
-  uniquement les images temporaires `bundle/macos/rw.*.dmg` avant et après le build.
-- Aperçu sans suppression des `target/` inactifs : `npm run rust:targets:prune`.
-- Application après lecture de l'aperçu :
-  `npm run rust:targets:prune -- --apply` (seuil par défaut : 14 jours).
-- Le checkout principal, le worktree courant et tout worktree où Cargo/Rustc
-  tourne sont exclus du nettoyeur. Les branches et fichiers sources ne sont jamais touchés.
-- État du cache partagé plafonné à 10 Gio : `npm run rust:cache:status`.
+Cette section décrit le code actuel; elle n’est pas une preuve qu’un incident
+particulier a été reproduit en direct.
 
-## Interdits
+1. Vérifier que le processus complet pointe dans
+   `Atelier.app/Contents/Resources/rust-server/atelier-studio-server`.
+2. Lire `~/Library/Application Support/atelier-studio/sidecar.lock` et comparer
+   son identité au bundle lancé.
+3. Tester `/health` avec le port et le jeton du lockfile sans afficher ni conserver
+   le jeton.
+4. Si le gateway distant est concerné, comparer aussi
+   `remote/gateway.lock` au port et à l’identité du sidecar; `/remote/health` seul
+   ne valide pas le routage protégé.
 
-- ❌ `pkill -x Atelier` / `pgrep -x Atelier` (mauvais nom ; utiliser `tauri-app`)
-- ❌ `open Atelier.app` sans avoir tué l'existant (active le zombie, ne relance rien)
-- ❌ builder sans avoir tué les serveurs galerie (ils serviront le vieux code)
-- ❌ `npm run tauri dev` depuis un agent (meurt en ~2 min, laisse des orphelins sur :1420)
-- ❌ construire un DMG pour une simple relance locale
-- ❌ contourner `tauri:build:app` avec un build direct lorsqu'un autre build peut tourner
-- ❌ définir un `CARGO_TARGET_DIR` unique pour plusieurs worktrees parallèles
-- ❌ lancer le nettoyeur avec `--apply` sans avoir lu son aperçu
-- ❌ modifier `src-tauri/gallery-dist/` directement (écrasé au prochain stage — modifier `gallery/`)
-- ❌ conclure « le fix ne marche pas » sans avoir vérifié qu'AUCUN zombie ne sert l'ancien code
+L’ancien diagnostic Node/TCC est conservé uniquement comme historique dans
+[atelier-runtime-history.md](atelier-runtime-history.md).
 
-## Workflow shadcn/ui
+## Invariant du bundle
 
-Pour toute création, utilisation ou mise à jour d'une primitive shadcn :
-
-- lire le skill projet `.agents/skills/shadcn/SKILL.md` et vérifier le contexte
-  avec `npx shadcn@latest info --json` ;
-- consulter `npx shadcn@latest docs <component>` et rechercher le registre avant
-  d'inventer une primitive ;
-- lancer `add <component> --dry-run`, puis examiner `--diff` si un fichier
-  existant est concerné ;
-- ne jamais utiliser `--overwrite`, `--force` ou `add --all` sans demande
-  explicite ; les sources shadcn restent dans `src/components/shadcn/` et
-  l'API produit dans `src/components/ui/` ;
-- conserver le préfixe Tailwind `tw`, les tokens Precision Native, l'absence de
-  Preflight et les règles de composition/a11y du skill ;
-- le serveur MCP de projet est déclaré dans `.mcp.json`. Le MCP Codex global,
-  s'il est nécessaire, se configure séparément dans `~/.codex/config.toml` et
-  ne doit pas être modifié depuis ce dépôt sans autorisation explicite.
-
-## Diagnostic express « je ne vois pas mon changement »
-
-```bash
-ls -la src-tauri/target/release/bundle/macos/Atelier.app/Contents/MacOS/tauri-app  # binaire frais ?
-pgrep -fl "server/main.mjs"   # serveurs galerie : leurs process datent de quand ?
-ps -o lstart= -p <pid>        # un lstart antérieur au build = zombie → kill -9
-```
-
-## Premier lancement post-build : lenteur TCC NORMALE — vérifier la convergence, pas l'instantané
-
-Sans identité de signature stable, l'app est signée **adhoc** : chaque
-rebuild = nouvelle identité pour macOS → les consultations TCC/Gatekeeper
-repartent de zéro au premier lancement. (Le plan 019 a ajouté
-`signingIdentity: "Atelier Dev Signing"` dans tauri.conf sur
-feat/generateur-images — les branches qui l'ont re-consultent beaucoup
-moins ; la règle « pas d'écriture dans le bundle » reste valable partout.)
-Conséquences attendues (macOS 26) :
-
-- le premier boot du sidecar peut être lent ; son event loop peut geler
-  quelques secondes (fs synchrone + consultations) ;
-- le mécanisme anti-boucle (health retry + kill des orphelins + backoff +
-  single-instance, commit 44c94d0) peut **remplacer une fois** un sidecar
-  gelé — c'est l'auto-guérison, pas un échec.
-
-**Convergence attendue < ~30 s.** Vérification (copier-coller) :
-
-```bash
-APP="$HOME/Library/Application Support/atelier-studio"
-P=$(pgrep -f "Resources/sidecar/index.mjs" | head -1)
-[ "$(cat "$APP/sidecar.pid")" = "$P" ] && [ -f "$APP/sidecar.lock" ] && echo "pid+lock OK"
-PORT=$(sed -E 's/.*"port":([0-9]+).*/\1/' "$APP/sidecar.lock")
-TOKEN=$(sed -E 's/.*"token":"([^"]+)".*/\1/' "$APP/sidecar.lock")
-curl -s -m 5 -H "x-atelier-token: $TOKEN" "http://127.0.0.1:$PORT/health"   # {"ok":true,...}
-```
-
-Si ça boucle encore (sidecars qui meurent toutes les ~4-6 s, jamais de pid
-file) :
-
-```bash
-sample $(pgrep -f "Resources/sidecar/index.mjs" | head -1) 1 -file /tmp/s.txt
-grep -E "node::fs::|uv_fs_" /tmp/s.txt   # un appel fs SYNC bloqué = le coupable
-```
-
-**Piège d'origine (résolu, ne pas réintroduire)** : `terminal.mjs` faisait un
-`chmodSync` à l'import DANS le bundle .app → consultation TCC « App
-Management » bloquante > 4 s (budget startup Rust) → sidecar tué en boucle,
-app « Sidecar déconnecté » pour toujours. **Règle : jamais d'écriture (chmod,
-write, mkdir) dans le bundle .app au chargement d'un module sidecar** — tout
-bit/fichier nécessaire se pose au build (stage-sidecar.sh) ; au runtime,
-vérifier en lecture seule (`accessSync`) avant d'écrire. Nota : le blocage est
-INVISIBLE en manuel (`node index.mjs` depuis un terminal marche parfaitement)
-— seul le contexte app le déclenche ; tester avec l'app, pas seulement le
-sidecar isolé.
+Ne jamais faire `chmod`, `write` ou `mkdir` dans le bundle `.app` au chargement
+d’un module sidecar. Les fichiers et bits nécessaires sont posés au build; le
+runtime vérifie en lecture seule avant toute écriture dans un emplacement de
+données autorisé.

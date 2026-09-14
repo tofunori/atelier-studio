@@ -2,6 +2,8 @@ import SwiftUI
 
 struct NativeChatView: View {
     @Bindable var workspace: WorkspaceModel
+    var composing: FocusState<Bool>.Binding
+    var showsComposer = true
     @AppStorage("atelier.follow") private var followPreference = true
     @AppStorage("atelier.density") private var density = "comfortable"
     @State private var showingWork = false
@@ -12,7 +14,6 @@ struct NativeChatView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @AppStorage("atelier.motion") private var motion = "native"
     private var reduceMotion: Bool { systemReduceMotion || motion == "off" }
-    @FocusState private var composing: Bool
     var body: some View {
         @Bindable var chat = workspace.chat
         Group {
@@ -29,9 +30,11 @@ struct NativeChatView: View {
             else { chatContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if chat.selected != nil { composer }
+            VStack(spacing: 0) {
+                if showsComposer, chat.selected != nil { NativeComposerView(workspace: workspace, composing: composing) }
+            }
         }
-        .toolbar(composing ? .hidden : .visible, for: .tabBar)
+        .toolbar(composing.wrappedValue ? .hidden : .visible, for: .tabBar)
         .toolbar {
             if workspace.chat.selected != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -45,12 +48,12 @@ struct NativeChatView: View {
             }
         }
 
-        .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing = true }
+        .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing.wrappedValue = true }
         .sheet(isPresented: $showingOptions) { ChatOptionsView(chat: chat) }
         .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
         .onChange(of: chat.completedResponse) { _, _ in
             if chat.connection == .live && chat.error == nil {
-                Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true) }
+                Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true, workspace: workspace) }
             }
         }
         .sheet(isPresented: $workspace.chatPickerRequested) { ConversationPicker(workspace: workspace) }
@@ -82,7 +85,7 @@ struct NativeChatView: View {
                     followsResponse = chat.selected.flatMap { chat.bookmarks[$0.id]?.followsTail } ?? true
                 }
                 .onChange(of: chat.sending) { _, sending in if sending { returnToBottom() } }
-                .onChange(of: chat.quote?.id) { _, quoteID in if quoteID != nil { composing = true; returnToBottom() } }
+                .onChange(of: chat.quote?.id) { _, quoteID in if quoteID != nil { composing.wrappedValue = true; returnToBottom() } }
                 .overlay(alignment: .bottom) {
                     if !nearBottom {
                         ChatReturnToBottomButton(returning: false, reduceMotion: reduceMotion) { returnToBottom() }
@@ -106,7 +109,6 @@ struct NativeChatView: View {
         followsResponse = true; returnRequest = UUID()
         workspace.chat.rememberPosition(rowID: nil, followsTail: true)
     }
-    private var composer: some View { NativeComposerView(workspace: workspace, composing: $composing) }
 }
 
 private struct ChatReturnToBottomButton: View {

@@ -1344,3 +1344,38 @@ async fn generated_image_save_uses_thread_project_and_requires_write_scope() {
     assert_eq!(client().post(&url).header("host",&host).header("x-atelier-device-token",&token).send().await.unwrap().status(),403);
     h.shutdown().await;
 }
+
+#[tokio::test]
+async fn gallery_favorites_share_project_state_and_preserve_metadata() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "favorites").await;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("scripts")).unwrap();
+    std::fs::write(root.path().join("scripts/model.py"), b"print(1)").unwrap();
+    let state_path = root.path().join(".fig_state.json");
+    std::fs::write(&state_path, r#"{"favs":["scripts/model.py"],"ratings":{"figure.pdf":4},"tags":{"figure.pdf":["retain"]}}"#).unwrap();
+    let pid = h.state.inner.lock().await.projects.register_project(root.path(), None).project_id;
+    let url = format!("{base}/remote/v1/gallery/{pid}");
+    let index: Value = client().get(&url).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().json().await.unwrap();
+    let item = &index["items"][0];
+    assert_eq!(item["name"], "model.py");
+    assert_eq!(item["favorite"], true);
+    let favorite_url = format!("{base}/remote/v1/file/{}/favorite", item["fileId"].as_str().unwrap());
+    assert_eq!(client().post(&favorite_url).header("host", &host).json(&json!({"on":false})).send().await.unwrap().status(), 401);
+    for on in [false, true, true, false] {
+        let response = client().post(&favorite_url).header("host", &host).header("x-atelier-device-token", &token).json(&json!({"on":on})).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        let stored: Value = serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        assert_eq!(stored["favs"], if on {json!(["scripts/model.py"])} else {json!([])});
+        assert_eq!(stored["ratings"]["figure.pdf"], 4);
+        assert_eq!(stored["tags"]["figure.pdf"], json!(["retain"]));
+        // Existing pagination snapshot must still expose the current favorites.
+        let page: Value = client().get(format!("{url}?snapshot={}", index["snapshot"].as_str().unwrap())).header("host", &host).header("x-atelier-device-token", &token).send().await.unwrap().json().await.unwrap();
+        assert_eq!(page["items"][0]["favorite"], on);
+    }
+    std::fs::write(&state_path, b"invalid JSON").unwrap();
+    assert!(!client().post(&favorite_url).header("host", &host).header("x-atelier-device-token", &token).json(&json!({"on":true})).send().await.unwrap().status().is_success());
+    assert_eq!(std::fs::read(&state_path).unwrap(), b"invalid JSON");
+    h.shutdown().await;
+}

@@ -24,7 +24,7 @@ function blockOf(node: Node): Element | null {
   return el;
 }
 
-function flatten(root: HTMLElement): { text: string; map: CharMap } {
+function flatten(root: HTMLElement, mathSelection = false): { text: string; map: CharMap } {
   const nodes: Text[] = [];
   const offsets: number[] = [];
   let text = "";
@@ -34,8 +34,11 @@ function flatten(root: HTMLElement): { text: string; map: CharMap } {
   while ((node = walker.nextNode())) {
     // Annotation controls are UI, not part of the quoted message.
     if (node.parentElement?.closest(".anno-badge")) continue;
+    // Selection.toString() omits KaTeX's hidden TeX source. Keep the MathML
+    // and visual text for compatibility with selections already saved by WebKit.
+    if (mathSelection && node.parentElement?.closest(".katex annotation")) continue;
     const own = blockOf(node);
-    if (text && own !== block && !text.endsWith(" ")) {
+    if (!mathSelection && text && own !== block && !text.endsWith(" ")) {
       // espace de frontière : jamais une extrémité de match (le besoin est trimé)
       text += " ";
       nodes.push(node as Text);
@@ -45,6 +48,7 @@ function flatten(root: HTMLElement): { text: string; map: CharMap } {
     const raw = node.textContent ?? "";
     for (let i = 0; i < raw.length; i += 1) {
       const isSpace = /\s/.test(raw[i]);
+      if (mathSelection && isSpace) continue;
       // un run d'espaces (quelle qu'en soit la forme) compte pour une espace
       if (isSpace && text.endsWith(" ")) continue;
       text += isSpace ? " " : raw[i];
@@ -62,12 +66,37 @@ function normalize(needle: string): string {
 export function findTextRanges(root: HTMLElement, needle: string): Range[] {
   const target = normalize(needle);
   if (!target) return [];
-  const { text, map } = flatten(root);
+  const exact = rangesIn(flatten(root), target);
+  if (exact.length || !root.querySelector(".katex")) return exact;
+  // Browser selection inserts layout whitespace around superscripts. Only
+  // accept this fallback for ranges actually crossing a rendered formula.
+  const math = [...root.querySelectorAll(".katex")];
+  const projected = flatten(root, true);
+  const indices = [...target.matchAll(/\S/g)].map(match => match.index!);
+  return rangesIn(projected, target.replace(/\s/g, ""), at => {
+    // Ignore layout whitespace only at a formula. Prose still distinguishes
+    // "can not" from "cannot", even when the same selection includes math.
+    for (let i=1; i<indices.length; i++) {
+      const left = projected.map.nodes[at+i-1], right = projected.map.nodes[at+i];
+      if (left.parentElement?.closest(".katex") || right.parentElement?.closest(".katex")) continue;
+      const gap = document.createRange();
+      gap.setStart(left, projected.map.offsets[at+i-1]+1);
+      gap.setEnd(right, projected.map.offsets[at+i]);
+      const space = /\s/.test(gap.toString()) || blockOf(left)!==blockOf(right);
+      if (space !== /\s/.test(target.slice(indices[i-1]+1,indices[i]))) return false;
+    }
+    return true;
+  })
+    .filter(range => math.some(el => range.intersectsNode(el)));
+}
+
+function rangesIn({ text, map }: { text: string; map: CharMap }, target: string, accept = (_at: number) => true): Range[] {
   const out: Range[] = [];
   let from = 0;
   for (;;) {
     const at = text.indexOf(target, from);
     if (at < 0) break;
+    if (!accept(at)) { from=at+target.length; continue; }
     const last = at + target.length - 1;
     const range = document.createRange();
     range.setStart(map.nodes[at], map.offsets[at]);

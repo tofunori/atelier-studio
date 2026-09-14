@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findTextRanges } from "./markRanges";
+import katex from "katex";
 
 function root(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -45,4 +46,19 @@ it("ignores annotation numbers when matching quoted text", () => {
   const ranges = findTextRanges(host, "1");
   expect(ranges).toHaveLength(1);
   expect(ranges[0].endContainer.parentElement?.tagName).toBe("P");
+});
+
+it("finds saved WebKit selections crossing KaTeX without matching the hidden TeX source", () => {
+  const host = root(`<p>Forcing below 0.65 W m ${katex.renderToString('^{-2}')}, although summers vary.</p>`);
+  const ranges = findTextRanges(host, "Forcing below 0.65 W m \n−\n2\n−2\n , although summers vary.");
+  expect(ranges).toHaveLength(1);
+  expect(ranges[0].startContainer.textContent).toContain("Forcing below");
+  expect(ranges[0].endContainer.textContent).toContain("although summers vary");
+});
+
+it("does not loosen ordinary word boundaries just because another paragraph contains math", () => {
+  const host = root(`<p>some words here</p><p>${katex.renderToString('x')}</p>`);
+  expect(findTextRanges(host, "somewords here")).toHaveLength(0);
+  const withMath = root(`<p>cannot ${katex.renderToString('^{-2}')} vary</p>`);
+  expect(findTextRanges(withMath, "can not − 2 −2 vary")).toHaveLength(0);
 });

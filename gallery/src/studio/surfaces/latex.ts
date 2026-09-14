@@ -846,6 +846,13 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             around: editor ? surroundingLines(editor, sel.from, sel.to) : undefined, path, page: sel.page});
           host.style.display = "none";
         } : undefined,
+        onHighlight: (color) => {
+          const sel = current(); if (!sel) return;
+          // The diff pill is still backed by the same source editor and
+          // annotation store as the regular LaTeX selection pill.
+          ensureAnnotations().highlight(sel, color);
+          host.style.display = "none";
+        },
       });
     },
     postToHost: dependencies.postToHost,

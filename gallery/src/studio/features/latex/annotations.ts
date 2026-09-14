@@ -125,7 +125,9 @@ export function createLatexAnnotationsController(
 ): LatexAnnotationsController {
   const doc = options.document || document;
   const win = options.window || window;
-  const noteUI = createNoteEditor(options.popover, {onSubmit(){}, onDelete(){}});
+  const noteUI = createNoteEditor(options.popover, {
+    onSubmit(){}, onDelete(){}, onSendDirect(){void persistCurrent(true);},
+  });
   const quote = doc.createElement("div");
   const textarea = noteUI.input;
   const saveButton = options.popover.querySelector<HTMLButtonElement>(".send2")!;
@@ -288,7 +290,7 @@ export function createLatexAnnotationsController(
     show(current, true, selection.anchor);
   };
   let saving = false;
-  const persistCurrent = async (): Promise<void> => {
+  const persistCurrent = async (direct = false): Promise<void> => {
     if(!current || saving) return;
     const annotation=current;
     annotation.comment=textarea.value.trim();
@@ -300,7 +302,7 @@ export function createLatexAnnotationsController(
     const saved=await save();
     saving=false;noteUI.busy(false);
     if(!saved) return;
-    options.postToHost({type:"atelier-add-to-chat",
+    options.postToHost({type:"atelier-add-to-chat", direct,
       text:`${options.path} (L${annotation.from.line+1}-${annotation.to.line+1}) : « ${annotation.text} »\nCommentaire : ${annotation.comment || "(voir passage)"}`,
       pdfAnnotation:{rel:relation,id:annotation.id}});
     if(current===annotation){options.popover.style.display="none";current=null;}

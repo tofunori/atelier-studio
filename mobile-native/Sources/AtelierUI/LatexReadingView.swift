@@ -108,6 +108,9 @@ struct LatexReadingView: View {
     @State private var restoredPosition = false
     @State private var restoreTarget: Double?
     let workspace: WorkspaceModel
+    var changedLines: Set<Int> = []
+    var revealLine: Int? = nil
+    var revealRequest: UUID? = nil
     @State private var selectionError = false
     var body: some View {
         ScrollView {
@@ -122,10 +125,18 @@ struct LatexReadingView: View {
                                 workspace.annotationDraft = workspace.readingDraft(for: note)
                             }
                         }, onQuote: { use(RichTextSelection(text: $0), in: block, annotate: false) })
+                        .padding(.leading, 10)
+                        .background(changedLines.contains { (block.firstLine...block.lastLine).contains($0) } ? Color.orange.opacity(0.07) : .clear)
+                        .overlay(alignment: .leading) {
+                            if changedLines.contains(where: { (block.firstLine...block.lastLine).contains($0) }) {
+                                RoundedRectangle(cornerRadius: 2).fill(Color.orange).frame(width: 3).accessibilityHidden(true)
+                            }
+                        }
+                        .id(block.id)
                 }
                 Text("Lecture simplifiée · les références gardent leurs clés LaTeX. Les citations conservent le texte source.")
                     .font(.caption).foregroundStyle(.secondary)
-            }.padding(20)
+            }.scrollTargetLayout().padding(20)
         }
         .scrollPosition($readingPosition)
         .onScrollGeometryChange(for: CGSize.self) { CGSize(width: $0.contentOffset.y, height: $0.contentSize.height) } action: { _, geometry in
@@ -141,6 +152,13 @@ struct LatexReadingView: View {
             restoredPosition = false
             let target = workspace.readingOffsets[workspace.documentID] ?? 0
             restoreTarget = target; readingPosition.scrollTo(y: target)
+        }
+        .onChange(of: revealRequest) { _, _ in
+            guard let revealLine else { return }
+            let blocks = LatexReadingBlock.parse(workspace.source)
+            guard let block = blocks.first(where: { $0.lastLine >= revealLine }) ?? blocks.last else { return }
+            restoreTarget = nil; restoredPosition = true
+            readingPosition.scrollTo(id: block.id, anchor: .top)
         }
         .alert("Sélection à préciser", isPresented: $selectionError) {
             Button("Ouvrir la source") { workspace.documentMode = .source }

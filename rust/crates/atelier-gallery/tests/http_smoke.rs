@@ -1148,3 +1148,16 @@ fn reflow_sert_un_pdf_zotero() {
     assert!(body.contains("\"blocks\""));
     let _ = fs::remove_dir_all(&zotero);
 }
+
+#[test]
+fn stale_gallery_state_preserves_favorites_changed_on_phone() {
+    let srv = start_server();
+    assert_eq!(http(srv.port, "POST", "/state", Some(r#"{"favs":["old.pdf"]}"#)).0, 200);
+    assert_eq!(http(srv.port, "POST", "/favorite", Some(r#"{"rel":"phone.py","on":true}"#)).0, 200);
+    assert_eq!(http(srv.port, "POST", "/favorite", Some(r#"{"rel":"old.pdf","on":false}"#)).0, 200);
+    assert_eq!(http(srv.port, "POST", "/state", Some(r#"{"favsBase":["old.pdf"],"favs":["old.pdf","mac.py"],"ratings":{"figure.pdf":4}}"#)).0, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["favs"], serde_json::json!(["mac.py","phone.py"]));
+    assert_eq!(value["ratings"]["figure.pdf"], 4);
+}

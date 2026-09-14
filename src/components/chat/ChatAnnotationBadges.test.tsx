@@ -24,7 +24,7 @@ it("anchors to the message row across scrolling and opens at the current viewpor
     expect(node).not.toBeNull(); return node!;
   });
   expect(badge.parentElement).toHaveClass("timeline-virtual-row");
-  expect(badge.style.left).toBe("220px");
+  expect(badge.style.left).toBe("0px");
   expect(badge.style.top).toBe("40px");
   scroll = 150;
   fireEvent.scroll(container.querySelector(".messages")!);

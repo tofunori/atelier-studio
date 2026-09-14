@@ -145,8 +145,8 @@
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:#2c313a;color:var(--txt);border:1px solid #3a414d;white-space:nowrap;font-family:inherit;font-size:13px}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
-  .pdfcomment{position:absolute;z-index:8;background:#f7f7f5;color:#41454a}
-  .pdfcomment-line{position:absolute;z-index:7;height:0;border-bottom:1px solid #73777d99;pointer-events:none}
+  .pdfcomment{position:absolute;z-index:8}
+  .pdfcomment-line{position:absolute;z-index:7;background:rgba(112,151,255,.18);border-radius:3px;pointer-events:none}
   #annotPop{position:fixed;z-index:9999;display:none}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:var(--card, #24282d);border-radius:10px;padding:6px;
@@ -343,10 +343,12 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 
 const rel = new URLSearchParams(location.search).get("file");
 const __passageParams = new URLSearchParams(location.search);
+const targetPageParam = __passageParams.get("page");
+const hasTargetPage = targetPageParam !== null && /^[1-9]\d{0,5}$/.test(targetPageParam) && Number(targetPageParam) <= 100000;
 // Lien de citation interne : `page`/`quote` (passage exact) OU `section`
 // (numérotation résolue plus bas sur l'analyse du mode lecture, qui POSE
 // alors page et citation) — d'où des `let` et non des `const`.
-let targetPage = Math.max(1, parseInt(__passageParams.get("page") || "1", 10) || 1);
+let targetPage = hasTargetPage ? Number(targetPageParam) : 1;
 let targetQuote = (__passageParams.get("quote") || "").slice(0, 900);
 const targetSection = (__passageParams.get("section") || "").slice(0, 12);
 let targetRevealed = false;
@@ -452,7 +454,7 @@ window.__readingMode = (function(){
   // Outils liés à la GÉOMÉTRIE des pages : sans page à l'écran ils n'ont pas
   // de cible. Le CSS les grise, `disabled` les retire aussi du clavier et des
   // lecteurs d'écran (revue de branche, I5).
-  const PAGE_TOOLS = '#areaBtn, #pdftools [data-t="note"], .pdf-mark-tools [data-t="erase"]';
+  const PAGE_TOOLS = '#areaBtn, header [data-t="note"], header [data-t="erase"]';
   function disablePageTools(off){
     for (const el of document.querySelectorAll(PAGE_TOOLS)) el.disabled = off;
   }
@@ -636,6 +638,7 @@ async function main(){
       standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
       wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
       cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
     __readingPdf = pdf;
   } catch(e) {
     const p = document.getElementById("pages");
@@ -954,10 +957,20 @@ async function main(){
     }, 2500);
   })();
   await renderAll();
+  // Un lien de fichier peut viser une page sans fournir de citation à
+  // surligner. Dans ce cas, la page reste tout de même une destination : ne
+  // pas la laisser à la page 1 ni restaurer une ancienne position de lecture.
+  if (hasTargetPage && !targetQuote && !targetSection) {
+    const page = document.querySelector('.pg[data-page="' + targetPage + '"]');
+    if (page) {
+      page.scrollIntoView({block:"start"});
+      document.getElementById("status").textContent = "Page " + targetPage;
+    }
+  }
   try {
     const k = "pdfv_scroll_" + location.search;
     const r = parseFloat(sessionStorage.getItem(k));
-    if (!targetQuote && !targetSection && r > 0) {
+    if (!hasTargetPage && !targetQuote && !targetSection && r > 0) {
       sessionStorage.removeItem(k);
       const el = document.scrollingElement || document.documentElement;
       el.scrollTop = r * el.scrollHeight;
@@ -1301,6 +1314,7 @@ const selApi = SelPill.attach({
     AtelierAnnotationUI.createSelectionActions(actions, {
       onAdd: () => go.click(),
       onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
+      onHighlight: (color) => addHighlightFromSel("hl", color),
       onAsk: () => {
         const text = hlText(); if(!text) return;
         __atelierPost({type:"atelier-quick-ask",text,path:rel,page:String(selPage)});
@@ -1406,7 +1420,7 @@ const annPane = (function(){
     location.href = u.toString();
   }
   function filtered(list){
-    return only ? list.filter(a => a.color === only) : list;
+    return only ? list.filter(a => normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
   }
   // rangée d'annotation — partagée par les deux portées. Hors article ouvert :
   // pas de vignette possible (le canvas n'existe pas), une zone s'affiche en
@@ -1417,7 +1431,7 @@ const annPane = (function(){
     it.className = "it" + (here ? "" : " lib-row");
     const bar = document.createElement("span");
     bar.className = "bar";
-    bar.style.background = (a.color || HL_COLORS[0]).replace(",.40", ",.9");
+    bar.style.background = normalizeHighlightColor(a.color || HL_COLORS[0]).replace(",.40", ",.9");
     const body = document.createElement("div");
     const text = (a.text || "").replace(/\s+/g, " ").trim();
     if (a.kind === "area") {
@@ -1823,7 +1837,8 @@ function drawAnnots(pgDiv, n){
         line.dataset.aid = String(a.id);
         line.setAttribute("aria-hidden", "true");
         line.style.left = rect[0] * 100 + "%";
-        line.style.top = (rect[1] + rect[3]) * 100 + "%";
+        line.style.top = rect[1] * 100 + "%";
+        line.style.height = rect[3] * 100 + "%";
         line.style.width = rect[2] * 100 + "%";
         pgDiv.appendChild(line);
       }
@@ -1858,7 +1873,7 @@ function drawAnnots(pgDiv, n){
       el.dataset.aid = String(a.id);
       el.style.left = (rc[0]*100)+"%"; el.style.top = (rc[1]*100)+"%";
       el.style.width = (rc[2]*100)+"%"; el.style.height = (rc[3]*100)+"%";
-      const col = a.color || "rgba(255,213,74,.4)";
+      const col = normalizeHighlightColor(a.color || "rgba(255,213,74,.4)");
       const solid = col.replace(/,\s*\.?\d+\)/, ",.95)");
       if(a.kind === "ul"){ el.style.background = "transparent"; el.style.borderBottom = "2px solid " + solid; }
       else if(a.kind === "st"){ el.style.background = "linear-gradient(transparent 46%," + solid + " 46%," + solid + " 58%,transparent 58%)"; }
@@ -1926,19 +1941,32 @@ function drawReadingAnnots(){
     mark.dataset.annot = String(a.id);
     // soulignement / barré : la couleur porte le trait, pas un aplat (les
     // classes correspondantes vident le fond dans pdf_reading.css).
-    if (a.color) mark.style.setProperty(a.kind === "ul" || a.kind === "st" ? "--read-mark-line" : "background", a.color);
+    if (a.kind === "comment") mark.style.background = "rgba(112,151,255,.18)";
+    else if (a.color) mark.style.setProperty(a.kind === "ul" || a.kind === "st" ? "--read-mark-line" : "background", normalizeHighlightColor(a.color));
     try { range.surroundContents(mark); } catch(_) { /* plage à cheval sur des nœuds : ignorée, l'annotation reste visible en vue pages */ continue; }
     mark.onclick = (ev) => { ev.stopPropagation(); annotMenu(a, ev.clientX, ev.clientY); };
   }
 }
 document.addEventListener("atelier-reading-rendered", drawReadingAnnots);
+// Shared selection actions use stable color names; the PDF sidecar stores the
+// actual RGBA swatch so page and reading-mode marks render consistently with
+// the dedicated PDF toolbar.
+function normalizeHighlightColor(color){
+  const names = {
+    amber: "rgba(255,213,74,.40)",
+    green: "rgba(120,220,140,.40)",
+    blue: "rgba(120,170,255,.40)",
+    red: "rgba(255,140,160,.40)",
+  };
+  return names[color] || color || names.amber;
+}
 function addHighlightFromSel(kind, color){
   // Aiguillage unique de « annoter la sélection » : en mode lecture la
   // sélection est native et vit dans la colonne, pas dans la couche texte.
   // défauts posés AVANT l'aiguillage : la colonne de lecture recevait sinon
   // un `kind` indéfini et créait un commentaire là où on voulait un
   // surlignage (revue de branche, I4).
-  kind = kind || "hl"; color = color || HL_COLORS[0];
+  kind = kind || "hl"; color = normalizeHighlightColor(color || HL_COLORS[0]);
   if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
   if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   const model = selectionModel();
@@ -2025,25 +2053,33 @@ let eraseMark = false;
   const refresh=()=>tools.forEach(([button,kind])=>button.setAttribute("aria-pressed",String(kind==="erase"?eraseMark:!eraseMark&&markKind===kind)));
   for(const [kind,label] of [["hl","Surligner"],["ul","Souligner"]]){
     const button=tool(label,kind,()=>{
-      // palette repliée (fenêtre étroite) : un clic sur l'outil déjà actif ouvre les couleurs
-      if(!eraseMark&&markKind===kind&&getComputedStyle(palette).display==="none"){bar.classList.toggle("palette-open");return;}
-      bar.classList.remove("palette-open");eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});
+      setPalette(false);eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});
     button.classList.add("pdf-mark-pen");tools.push([button,kind]);
   }
-  const palette=document.createElement("span");palette.className="pdf-mark-colors";bar.appendChild(palette);
+  const colorToggle = document.createElement("button");
+  colorToggle.type = "button"; colorToggle.className = "pdf-color-toggle";
+  colorToggle.title = "Couleur du surlignage"; colorToggle.setAttribute("aria-label", colorToggle.title);
+  colorToggle.setAttribute("aria-expanded", "false"); colorToggle.setAttribute("aria-controls", "pdf-color-palette");
+  colorToggle.innerHTML = '<span class="pdf-current-color"></span><span aria-hidden="true">⌄</span>';
+  const setPalette = open => { bar.classList.toggle("palette-open", open); colorToggle.setAttribute("aria-expanded", String(open)); };
+  colorToggle.onclick = () => setPalette(!bar.classList.contains("palette-open"));
+  bar.appendChild(colorToggle);
+  const palette=document.createElement("span");palette.className="pdf-mark-colors";palette.id="pdf-color-palette";
+  palette.setAttribute("role", "group");palette.setAttribute("aria-label", "Couleurs de surlignage");bar.appendChild(palette);
   const colors=[];
   HL_COLORS.forEach((color,i)=>{
     const button=document.createElement("button");button.type="button";button.className="pdf-mark-color";
     button.title=["Jaune","Vert","Bleu","Rose"][i];button.setAttribute("aria-label",button.title);
     button.style.setProperty("--mark-color",color.replace(",.40)",",1)"));
     button.setAttribute("aria-pressed",String(i===0));
-    button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));bar.classList.remove("palette-open");eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
+    button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));setPalette(false);eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
     palette.appendChild(button);colors.push(button);
   });
   const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
   bar.style.setProperty("--mark-current",HL_COLORS[0].replace(",.40)",",1)"));
-  document.addEventListener("pointerdown",e=>{ if(!e.target.closest(".pdf-mark-tools")) bar.classList.remove("palette-open"); });
+  document.addEventListener("pointerdown",e=>{ if(!e.target.closest(".pdf-mark-tools")) setPalette(false); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && bar.classList.contains("palette-open")) { setPalette(false); colorToggle.focus(); } });
   document.getElementById("selinfo").before(bar);refresh();
 })();
 // Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
@@ -2110,9 +2146,9 @@ async function removeAnnot(a){
 /** Envoi au chat — partagé par le menu et le panneau. Une ZONE part en image
  *  via /save (seul chemin que l'app hôte sait attacher) ; un passage de texte
  *  part en citation via /quote. `onFail` reçoit la raison quand ça échoue. */
-async function sendAnnot(a, onFail, relOverride, fromEditor){
+async function sendAnnot(a, onFail, relOverride, fromEditor, direct = false){
   if(!fromEditor && annotationEditor && annotationEditor.a.id === a.id && (!relOverride || relOverride === rel))
-    return annotationEditor.commit(false, "force");
+    return annotationEditor.commit(false, "force", direct);
   const fail = onFail || sendFail;
   const r = relOverride || rel;
   const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
@@ -2132,7 +2168,7 @@ async function sendAnnot(a, onFail, relOverride, fromEditor){
     if(!response.ok) throw new Error("HTTP " + response.status);
     const result = await response.json();
     if(!result.message || result.error || window.self === window.top) throw new Error(result.error || "réponse vide");
-    __atelierPost({type:"atelier-add-to-chat", text:result.message,
+    __atelierPost({type:"atelier-add-to-chat", text:result.message, direct,
       ...(a.kind === "comment" ? {pdfAnnotation: {rel:r, id:String(a.id)}} : {})});
     document.getElementById("status").textContent = "Annotation ajoutée au chat";
     return true;
@@ -2169,7 +2205,8 @@ window.addEventListener("message", e => {
 });
 async function annotMenu(a, x, y){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
-  AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){}});
+  AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
+    onSendDirect(){void editor.commit(true, "force", true);}});
   const inp = annotPop.querySelector("textarea");
   inp.value = a.note || "";
   const status = annotPop.querySelector(".annotation-status");
@@ -2177,7 +2214,7 @@ async function annotMenu(a, x, y){
   annotationEditor = editor;
   let saving = false;
   let attachedNote = a.note || "";
-  editor.commit = async (close, send) => {
+  editor.commit = async (close, send, direct = false) => {
     if(saving) return false;
     // A fresh annotation (just created by Annoter/zone/note libre) whose note
     // is still empty when the editor closes WITHOUT explicit validation
@@ -2212,7 +2249,7 @@ async function annotMenu(a, x, y){
     let attached = true;
     if(saved && send && (send === "force" || (a.note.trim() && a.note !== attachedNote))) {
       status.textContent = "Ajout au chat…";
-      attached = await sendAnnot(a, why => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true);
+      attached = await sendAnnot(a, why => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true, direct);
       if(attached) attachedNote = a.note;
     }
     saving = false;
@@ -2376,6 +2413,7 @@ if(window.self !== window.top){
     e.stopPropagation();
     TOOL = (TOOL === "note") ? null : "note";
     noteB.classList.toggle("ton", TOOL === "note");
+    noteB.setAttribute("aria-pressed", String(TOOL === "note"));
   };
   // outil note : clic sur la page = pastille de note
   document.addEventListener("click", (e) => {
@@ -2419,6 +2457,70 @@ if(window.self !== window.top){
     }
   `;
   document.head.appendChild(st);
+}
+
+// Une barre de lecture : navigation, annotations, puis affichage.
+// Les contrôles sont déplacés, pas recréés : leurs handlers et états restent liés.
+if (window.self !== window.top) {
+  const header = document.querySelector("header");
+  header.classList.add("pdf-compact-toolbar");
+  const nav = document.createElement("div"); nav.className = "pdf-toolbar-nav";
+  const marks = document.querySelector(".pdf-mark-tools");
+  const zoom = document.getElementById("zoomCtl");
+  const more = document.createElement("details"); more.className = "pdf-toolbar-more";
+  const summary = document.createElement("summary"); summary.textContent = "⋯";
+  summary.setAttribute("aria-label", "Autres outils du PDF"); summary.title = "Autres outils du PDF";
+  more.appendChild(summary);
+  const menu = document.createElement("div"); menu.className = "pdf-toolbar-menu";
+  more.appendChild(menu);
+  const move = (id, host) => { const el = document.getElementById(id); if(el) host.appendChild(el); };
+  move("paneBtn", nav);
+  const prev = document.getElementById("annPrev"), next = document.getElementById("annNext");
+  [prev, next].forEach(el => { if(el) nav.appendChild(el); });
+  const note = document.querySelector('#pdftools [data-t="note"]');
+  if(note) { note.setAttribute("aria-pressed", "false"); note.setAttribute("aria-label", "Ajouter une note sur la page"); marks.appendChild(note); }
+  ["areaBtn", "invBtn", "readBtn", "compileBtn"].forEach(id => move(id, menu));
+  const eraser = marks.querySelector('[data-t="erase"]'); if(eraser) menu.appendChild(eraser);
+  menu.querySelectorAll("button").forEach(button => {
+    const label = document.createElement("span"); label.textContent = button.getAttribute("aria-label") || button.title;
+    button.appendChild(label);
+  });
+  document.getElementById("pdftools").remove();
+  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(more);
+  document.addEventListener("pointerdown", e => { if(!more.contains(e.target)) more.open = false; });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && more.open) { more.open = false; summary.focus(); } });
+  const css = document.createElement("style");
+  css.textContent = `
+    header.pdf-compact-toolbar { height:36px!important; min-height:36px!important; padding:0 8px!important; gap:6px!important; background:var(--card)!important; border-color:var(--border)!important; }
+    .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
+    .pdf-toolbar-nav button { width:26px; height:26px; }
+    header.pdf-compact-toolbar .pdf-mark-tools { margin:0; padding:0; border:0; }
+    header.pdf-compact-toolbar .pdf-mark-colors { display:none; position:absolute; top:31px; left:0; z-index:30; padding:12px; gap:12px; border:1px solid var(--border); border-radius:8px; background:var(--card); box-shadow:0 6px 18px #0003; }
+    header.pdf-compact-toolbar .palette-open .pdf-mark-colors { display:flex; }
+    header.pdf-compact-toolbar .pdf-mark-pen::after { display:none; }
+    .pdf-current-color { width:11px; height:11px; border-radius:50%; background:var(--mark-current); display:block; }
+    header.pdf-compact-toolbar .pdf-color-toggle { width:32px; gap:4px; }
+    header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
+    header.pdf-compact-toolbar #zPct { border:0; }
+    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:11px; }
+    header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
+    .pdf-toolbar-more { position:relative; flex:none; }
+    .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:5px; font-size:20px; }
+    .pdf-toolbar-more summary::-webkit-details-marker { display:none; }
+    .pdf-toolbar-more summary:hover { background:var(--card2); }
+    .pdf-toolbar-menu { position:absolute; right:0; top:31px; width:260px; max-width:calc(100vw - 20px); display:flex; flex-direction:column; align-items:stretch; padding:6px; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 20px #0003; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button { width:100%; height:auto; min-height:32px; margin:0; display:flex; align-items:center; justify-content:flex-start; gap:10px; padding:7px 9px!important; text-align:left; white-space:normal; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu #compileBtn { display:none; }
+    .pdf-toolbar-menu svg { width:14px; height:14px; flex:none; }
+    header.pdf-compact-toolbar button { color:var(--muted)!important; }
+    header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
+    header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--accent)!important; }
+    header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
+    header.pdf-compact-toolbar .pdf-mark-color:hover, header.pdf-compact-toolbar .pdf-mark-color[aria-pressed="true"] { background:var(--mark-color)!important; }
+
+    @media(max-width:360px) { .pdf-toolbar-nav #annPrev,.pdf-toolbar-nav #annNext { display:none; } header.pdf-compact-toolbar .zoomctl #zOut,header.pdf-compact-toolbar .zoomctl #zIn { display:none; } }
+  `;
+  document.head.appendChild(css);
 }
 
 // ---- bouton Compiler (2026-08-24) -----------------------------------------

@@ -31,9 +31,10 @@ function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<t
   };
 }
 
-/** Sélectionne un passage rendu et ouvre l'éditeur d'annotation, comme le
- *  ferait un glissement de souris sur la réponse. */
-async function openEditor(fragment: string): Promise<HTMLTextAreaElement> {
+/** Sélectionne un passage rendu, comme le ferait un glissement de souris sur
+ *  la réponse. Les actions de la pilule restent testables indépendamment de
+ *  l’éditeur de note. */
+async function selectPassage(fragment: string): Promise<void> {
   const node = [...document.querySelectorAll(".messages p, .messages li, .messages div")]
     .flatMap((el) => [...el.childNodes])
     .find((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.includes(fragment));
@@ -53,8 +54,11 @@ async function openEditor(fragment: string): Promise<HTMLTextAreaElement> {
   });
 
   await screen.findByRole("button",{name:"Annoter"});
-  expect([...document.querySelectorAll(".atelier-chat-selection button")].map(button=>button.getAttribute("aria-label"))).toEqual(["Add to Chat","Annoter","Quick Ask"]);
-  expect(document.querySelector(".atelier-chat-selection .atelier-swatch")).toBeNull();
+}
+
+/** Sélectionne un passage rendu et ouvre l’éditeur d’annotation. */
+async function openEditor(fragment: string): Promise<HTMLTextAreaElement> {
+  await selectPassage(fragment);
   fireEvent.click(screen.getByRole("button",{name:"Annoter"}));
   return await waitFor(() => {
     const field = document.querySelector(".atelier-chat-note textarea") as HTMLTextAreaElement | null;
@@ -121,6 +125,16 @@ describe("popover d'annotation — annoter et envoyer", () => {
     expect(screen.getByRole("button",{name:"Supprimer l’annotation"})).toBeTruthy();
     expect(screen.getByRole("button",{name:"Ajouter l’annotation au chat"})).toBeTruthy();
     expect(document.querySelector(".atelier-note-row")).toBeTruthy();
+  });
+
+  it("surligne directement la sélection avec la couleur choisie", async () => {
+    renderUi(<Chat {...chatProps()}/>);
+    await selectPassage("seuil hypsométrique");
+    fireEvent.click(screen.getByRole("button", {name: "Choisir la couleur du surlignage"}));
+    fireEvent.click(screen.getByRole("button", {name: "Surligner en bleu"}));
+    const saved = JSON.parse(localStorage.getItem("atelier-studio.marks.thread-A") || "[]") as Mark[];
+    expect(saved).toEqual([{text: "seuil hypsométrique", kind: "an", color: "blue"}]);
+    expect(document.querySelector(".atelier-chat-selection")).toBeNull();
   });
 
 });

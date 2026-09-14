@@ -18,7 +18,7 @@ function menu(saved = true, initialNote = "") {
   Object.assign(win, {
     annotPop: win.document.getElementById('annotPop'), HL_COLORS: ['rgba(255,213,74,.40)'],
     saveAnnots: async () => { writes.push(JSON.parse(JSON.stringify(win.annotation))); return saved; },
-    drawAnnots: () => {}, sendAnnot: async a => { sends.push(JSON.parse(JSON.stringify(a))); return true; },
+    drawAnnots: () => {}, sendAnnot: async (a, fail, rel, fromEditor, direct) => { sends.push({...JSON.parse(JSON.stringify(a)), ...(direct ? {direct} : {})}); return true; },
     copyWithCitation: () => {}, annPane: {refresh(){}},
   });
   vm.runInContext(html.slice(html.indexOf('async function removeAnnot(a)'), html.indexOf('/** Envoi au chat')), dom.getInternalVMContext());
@@ -86,7 +86,7 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   assert.equal(m.sends.at(-1).note,'Previously saved');m.close();
  });
 
-test('a comment draws a number and neutral underlines without a colored passage', () => {
+test('a comment draws a number and a full-height comment highlight', () => {
  const dom=new JSDOM('<div id="page"></div>',{runScripts:'outside-only'});
  const win=dom.window;
  win.PDF_ANNOTS=[{id:'n1',page:1,kind:'comment',number:7,rects:[[.2,.3,.4,.02]],note:'A question'}];
@@ -96,8 +96,9 @@ test('a comment draws a number and neutral underlines without a colored passage'
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
  assert.equal(page.querySelectorAll('.pdfhl').length,0);
  assert.equal(page.querySelectorAll('.pdfcomment-line').length,1);
- assert.equal(page.querySelector('.pdfcomment-line').style.top,'32%');
+ assert.equal(page.querySelector('.pdfcomment-line').style.top,'30%');
  assert.equal(page.querySelector('.pdfcomment-line').style.width,'40%');
+ assert.equal(page.querySelector('.pdfcomment-line').style.height,'2%');
  const marker=page.querySelector('.pdfcomment');assert.equal(marker.textContent,'7');
  assert.equal(marker.style.left,'95px');marker.click();assert.equal(opened,'n1');
  win.drawAnnots(page,1);assert.equal(page.querySelectorAll('.pdfcomment').length,1);
@@ -194,9 +195,10 @@ test('color selection marks text directly; only Annoter opens the editor', () =>
    selectionModel:()=>({spans:[span],segments:[{index:0,text:'Passage'}]}),
    selectionClientRects:()=>[{span,rect:{left:100,top:200,width:150,height:20}}],
    drawAnnots(){},saveAnnots(){},clearHl(){},selHide(){},annotMenu:a=>opened.push(a.kind)});
- vm.runInContext(html.slice(html.indexOf('function addHighlightFromSel('),html.indexOf('// PDF marks live')),dom.getInternalVMContext());
- win.addHighlightFromSel('hl','yellow');
+ vm.runInContext(html.slice(html.indexOf('function normalizeHighlightColor('),html.indexOf('// PDF marks live')),dom.getInternalVMContext());
+ win.addHighlightFromSel('hl','blue');
  assert.equal(win.PDF_ANNOTS.length,1);assert.deepEqual(opened,[]);
+ assert.equal(win.PDF_ANNOTS[0].color,'rgba(120,170,255,.40)');
  win.addHighlightFromSel('comment','yellow');
  assert.deepEqual(opened,['comment']);win.close();
 });
@@ -210,10 +212,25 @@ test('PDF selection offers Quick Ask and Annoter, with source page and no redund
  vm.runInContext(html.slice(html.indexOf('const selPill = document.getElementById'),html.indexOf('function selPillShow(')),dom.getInternalVMContext());
  const go=win.document.getElementById('go');options.embedExtras(go);
  assert.equal(go.style.display,'none');
- const ask=[...win.document.querySelectorAll('button')].find(button=>button.textContent.includes('Quick Ask'));
+ const ask=[...win.document.querySelectorAll('button')].find(button=>/question rapide|quick ask/i.test(button.getAttribute('aria-label') || ''));
  ask.click();
  assert.deepEqual(JSON.parse(JSON.stringify(sent)),[{type:'atelier-quick-ask',text:'Selected passage',path:'paper.pdf',page:'3'}]);
  assert.equal(hidden,true);win.close();
+});
+
+test('PDF selection routes the shared highlight action to the persistent mark path', () => {
+ const dom=new JSDOM('<div id="selPill"><textarea></textarea><button class="go">Add to chat</button></div><div id="tgMenu"></div>',{runScripts:'outside-only'});
+ const win=dom.window; let options, actions; const calls=[];
+ Object.assign(win,{rel:'paper.pdf',selPage:3,hlText:()=> 'Selected passage',
+   addHighlightFromSel:(kind,color)=>calls.push([kind,color]),
+   SelPill:{attach:opts=>{options=opts;return{hide(){}};}},
+   AtelierAnnotationUI:{createSelectionActions:(_host,opts)=>{actions=opts;}}});
+ vm.runInContext(html.slice(html.indexOf('const selPill = document.getElementById'),html.indexOf('function selPillShow(')),dom.getInternalVMContext());
+ options.embedExtras(win.document.querySelector('.go'));
+ assert.equal(typeof actions.onHighlight,'function');
+ actions.onHighlight('blue');
+ assert.deepEqual(calls,[['hl','blue']]);
+ win.close();
 });
 
 test('shared capsules expose the three chat actions in order, without colors',()=>{
@@ -221,7 +238,7 @@ test('shared capsules expose the three chat actions in order, without colors',()
  vm.runInContext(sharedUI,dom.getInternalVMContext());
  win.AtelierAnnotationUI.createSelectionActions(win.document.getElementById('actions'),{onAdd:()=>calls.push('add'),onAnnotate:()=>calls.push('note'),onAsk:()=>calls.push('ask')});
  const buttons=[...win.document.querySelectorAll('button')];
- assert.deepEqual(buttons.map(b=>b.getAttribute('aria-label')),['Add to Chat','Annoter','Quick Ask']);
+ assert.deepEqual(buttons.map(b=>b.getAttribute('aria-label')),['Ajouter au chat','Annoter','Question rapide']);
  buttons.forEach(b=>b.click());assert.deepEqual(calls,['add','note','ask']);
  assert.equal(win.document.querySelector('.atelier-swatch'),null);win.close();
 });
@@ -248,3 +265,13 @@ test('pointerdown on header colors preserves the live PDF selection',()=>{
  win.document.querySelector('button').dispatchEvent(new win.MouseEvent('pointerdown',{bubbles:true}));
  assert.equal(cleared,0);win.close();
 });
+
+ test('direct chat icon saves the note and requests immediate delivery', async () => {
+  const m=menu();
+  m.root.querySelector('textarea').value='Check this passage';
+  m.root.querySelector('.send-direct').click();await tick();
+  assert.equal(m.writes[0].note,'Check this passage');
+  assert.equal(m.sends.length,1);
+  assert.equal(m.sends[0].direct,true);
+  assert.equal(m.root.style.display,'none');m.close();
+ });

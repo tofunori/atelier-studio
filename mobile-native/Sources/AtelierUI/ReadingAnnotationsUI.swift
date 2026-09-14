@@ -10,7 +10,7 @@ extension WorkspaceModel {
     func readingDraft(for note: ReadingNote) -> AnnotationDraft {
         let draft = AnnotationDraft(passage: DocumentPassage(documentID: documentID, fileName: note.fileName,
             location: note.location, text: note.sourceText, sourceRange: note.sourceRange, selectedText: note.selectedText))
-        draft.note = note.note; draft.readingNoteID = note.id
+        draft.note = note.note; draft.readingNoteID = note.id; draft.readingNoteUpdatedAt = note.updatedAt
         draft.markingStyle = note.style; draft.ink = note.color
         return draft
     }
@@ -21,9 +21,13 @@ extension WorkspaceModel {
         else { applyPendingDocumentChat() }
     }
     func addReadingNotesToChat() {
-        let prompt = DocumentReadingNotes.groupedPrompt(notes: documentReadingNotes)
+        queueReadingNotesToChat(documentReadingNotes)
+    }
+    func queueReadingNotesToChat(_ notes: [ReadingNote]) {
+        let prompt = DocumentReadingNotes.groupedPrompt(notes: notes)
         guard !prompt.isEmpty else { return }
         pendingDocumentPrompt = prompt
+        pendingAnnotationReferences = annotationReferences(for: notes.map(\.id))
         surface = .chat
         if chat.selected == nil { chatPickerRequested = true }
         else { applyPendingDocumentChat() }
@@ -32,7 +36,10 @@ extension WorkspaceModel {
         guard chat.selected != nil else { return }
         var added = false
         if let passage = pendingDocumentPassage {
-            chat.quote = .init(text: passage.text, sourceRowID: "document:\(passage.documentID)", sourceLabel: passage.citation)
+            let previousID = chat.quote?.id
+            if let previousID { annotationReferencesByQuote.removeValue(forKey: previousID) }
+            let quote = RemoteChatModel.Quote(text: passage.text, sourceRowID: "document:\(passage.documentID)", sourceLabel: passage.citation)
+            chat.quote = quote
             pendingDocumentPassage = nil; added = true
         }
         if let prompt = pendingDocumentPrompt {
@@ -40,17 +47,22 @@ extension WorkspaceModel {
             if let parts = AnnotationMessageParts(prompt) {
                 // Keep existing context when another annotation is added before sending.
                 let previous = chat.quote
+                let previousReferences = previous.flatMap { annotationReferencesByQuote[$0.id] } ?? []
+                if let previousID = previous?.id { annotationReferencesByQuote.removeValue(forKey: previousID) }
                 let passage = previous.map { $0.text + "\n\n---\n\n" } ?? ""
                 let label = previous.map { ($0.sourceLabel ?? "Passage cité") + " · " } ?? ""
                 let article = prompt.hasPrefix("Article Zotero : ") ? String(prompt.prefix { $0 != "\n" }) + "\n\n" : ""
-                chat.quote = .init(text: passage + article + parts.passage, sourceRowID: "reading-notes",
-                                   sourceLabel: label + parts.citation)
+                let quote = RemoteChatModel.Quote(text: passage + article + parts.passage, sourceRowID: "reading-notes",
+                                                  sourceLabel: label + parts.citation)
+                chat.quote = quote
+                let references = previousReferences + pendingAnnotationReferences
+                if !references.isEmpty { annotationReferencesByQuote[quote.id] = references }
                 message = parts.note
             } else { message = prompt }
             if !message.isEmpty && !draft.hasSuffix(message) {
                 draft += (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n") + message
             }
-            chat.updateDraft(draft); pendingDocumentPrompt = nil; added = true
+            chat.updateDraft(draft); pendingDocumentPrompt = nil; pendingAnnotationReferences.removeAll(); added = true
         }
         if added { focusChatRequest = UUID() }
     }
@@ -163,10 +175,7 @@ struct ReadingAnnotationsCard: View {
                                 Menu {
                                     Button("Modifier", systemImage: "pencil") { edit(note) }
                                     Button("Ajouter au chat", systemImage: "arrow.up") {
-                                        workspace.pendingDocumentPrompt = DocumentReadingNotes.groupedPrompt(notes: [note])
-                                        workspace.surface = .chat
-                                        if workspace.chat.selected == nil { workspace.chatPickerRequested = true }
-                                        else { workspace.applyPendingDocumentChat() }
+                                        workspace.queueReadingNotesToChat([note])
                                         collapse()
                                     }
                                     Button("Supprimer", systemImage: "trash", role: .destructive) {

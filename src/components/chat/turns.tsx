@@ -22,6 +22,8 @@ import { ActivityDisclosure, Button, EmptyState, IconButton, RowButton, Tooltip,
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 import { Textarea } from "../shadcn/textarea";
+import { annotationCards, isAnnotationLabel } from "../../lib/annotationCards";
+import { AnnotationCard } from "./AnnotationCard";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -129,6 +131,20 @@ export const UserTurn = memo(function UserTurn(p: {
 }) {
   const e = p.event;
   const i = p.index;
+  const annotationView = !e.imageUrl && !e.notes?.length ? annotationCards(e.text) : { prompt: e.text, cards: [] };
+  const attachmentLabels = e.label?.split(" · ").filter(label => p.editingText != null || !isAnnotationLabel(label, annotationView.cards)) ?? [];
+  const fileAttachments = e.label && !e.imageUrl && !e.notes?.length ? (
+    <div className="user-file-attachments">
+      {attachmentLabels.map((label,index) => (
+        <span className="user-file-attachment" title={label} key={`${index}:${label}`}>
+          <svg width="16" height="18" viewBox="0 0 16 18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <path d="M9 1H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6zM9 1v5h5" />
+          </svg>
+          <span>{label}</span>
+        </span>
+      ))}
+    </div>
+  ) : null;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const textarea = editTextareaRef.current;
@@ -166,7 +182,7 @@ export const UserTurn = memo(function UserTurn(p: {
       ) : (
         <>
           {e.imageUrl && <img className="user-img" src={e.imageUrl} alt="" />}
-          {e.label && <div className="user-label">{e.label}</div>}
+          {e.label && e.imageUrl && <div className="user-label">{e.label}</div>}
         </>
       )}
       {e.kb && e.kb.count > 0 && (
@@ -202,6 +218,7 @@ export const UserTurn = memo(function UserTurn(p: {
       })}
       {p.editingText != null ? (
         <div className="edit-box-shell">
+          {fileAttachments}
           <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>
             <div className="edit-message-body">
               <label className="sr-only" htmlFor={`edit-message-${i}`}>
@@ -249,10 +266,14 @@ export const UserTurn = memo(function UserTurn(p: {
             </div>
           </form>
         </div>
-      ) : e.text.trim() ? (
+      ) : e.text.trim() || (e.label && !e.imageUrl && !e.notes?.length) ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-2xl">
-            {p.renderBubbleText(e.text)}
+            {attachmentLabels.length > 0 && fileAttachments}
+            {annotationView.cards.length ? <>
+              {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}
+              {annotationView.cards.map((annotation, index) => <AnnotationCard key={index} annotation={annotation} />)}
+            </> : p.renderBubbleText(e.text)}
           </BubbleContent>
         </Bubble>
       ) : null /* pièce jointe seule (figure annotée) : pas de bulle vide */}

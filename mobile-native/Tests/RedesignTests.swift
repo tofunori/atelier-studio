@@ -3,6 +3,82 @@ import SwiftUI
 @testable import AtelierUI
 
 final class RedesignTests: XCTestCase {
+    @MainActor func testSourceViewportRestoresAfterEditorRecreation() throws {
+        let model = WorkspaceModel()
+        let bytes = Data((0..<200).map { "print(\($0))" }.joined(separator: "\n").utf8)
+        try model.openArtifact(GalleryArtifact(name: "long.py", data: bytes), data: bytes)
+        let first = PositionRestoringSourceView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        let coordinator = SyntaxSourceEditor.Coordinator(workspace: model)
+        first.delegate = coordinator
+        coordinator.update(first)
+        first.layoutIfNeeded()
+        first.setContentOffset(CGPoint(x: 0, y: 900), animated: false)
+        coordinator.scrollViewDidScroll(first)
+        XCTAssertEqual(model.sourceOffsets[model.documentID]?.y, 900)
+        let second = PositionRestoringSourceView(frame: first.frame)
+        let restored = SyntaxSourceEditor.Coordinator(workspace: model)
+        second.delegate = restored
+        restored.update(second)
+        second.layoutIfNeeded()
+        XCTAssertEqual(second.contentOffset.y, 900, accuracy: 1)
+    }
+    @MainActor func testDockKeepsSeparateFileAndArticleAcrossGalleryAndChat() throws {
+        let model = WorkspaceModel()
+        let file = GalleryArtifact(name: "results.tex", data: Data("Texte original".utf8))
+        try model.openArtifact(file, data: file.data!)
+        model.source = "Texte modifié"
+        model.documentMode = .source
+        model.readingOffsets[file.id] = 440
+        model.switchWorkSurface(.gallery)
+        XCTAssertEqual(model.surface, .gallery)
+        let article = GalleryArtifact(name: "article.txt", data: Data("Article".utf8))
+        try model.openArtifact(article, data: article.data!)
+        model.documentOrigin = .articles
+        model.readingOffsets[article.id] = 820
+        model.documentMode = .reading
+        model.draft = "Question en cours"
+        model.switchWorkSurface(.chat)
+        model.switchWorkSurface(.document)
+        XCTAssertEqual(model.documentID, file.id)
+        XCTAssertEqual(model.source, "Texte modifié")
+        XCTAssertEqual(model.documentMode, .source)
+        model.switchWorkSurface(.articles)
+        XCTAssertEqual(model.documentID, article.id)
+        XCTAssertEqual(model.documentMode, .reading)
+        XCTAssertEqual(model.selectedWorkSurface, .articles)
+        model.returnToDocumentList()
+        XCTAssertEqual(model.surface, .articles)
+        model.switchWorkSurface(.gallery)
+        model.switchWorkSurface(.articles)
+        XCTAssertEqual(model.documentID, article.id)
+        XCTAssertEqual(model.surface, .document)
+        XCTAssertEqual(model.readingOffsets[file.id], 440)
+        XCTAssertEqual(model.readingOffsets[article.id], 820)
+        XCTAssertEqual(model.draft, "Question en cours")
+    }
+    @MainActor func testDirectFileSwitchPreservesWorkingState() throws {
+        let model = WorkspaceModel()
+        model.surface = .chat
+        model.switchWorkSurface(.document)
+        XCTAssertEqual(model.surface, .chat)
+        let bytes = Data("print('original')".utf8)
+        try model.openArtifact(GalleryArtifact(name: "model.py", data: bytes), data: bytes)
+        let documentID = model.documentID
+        model.source = "print('edited')"
+        model.draft = "Mon brouillon de question"
+        model.composerSelection = TextSelection(insertionPoint: model.draft.endIndex)
+        model.readingOffsets[documentID] = 640
+        model.pdfPage = 3
+        model.switchWorkSurface(.chat)
+        model.switchWorkSurface(.document)
+        XCTAssertEqual(model.surface, .document)
+        XCTAssertEqual(model.documentID, documentID)
+        XCTAssertEqual(model.source, "print('edited')")
+        XCTAssertEqual(model.draft, "Mon brouillon de question")
+        XCTAssertNotNil(model.composerSelection)
+        XCTAssertEqual(model.readingOffsets[documentID], 640)
+        XCTAssertEqual(model.pdfPage, 3)
+    }
     func testLatexReadingKeepsExactSourceAndLineNumbers() throws {
         let text = "\\documentclass{article}\n\\begin{document}\n\\section{Titre}\n\nLe \\textbf{glacier} et \\cite{reference}.\nDeuxième ligne.\n\n\\end{document}"
         let blocks = LatexReadingBlock.parse(text)
@@ -247,5 +323,99 @@ final class DocumentRefreshTests: XCTestCase {
             XCTAssertEqual(lines.filter { $0.kind != .added }.map(\.text).joined(separator: "\n"), old)
             XCTAssertEqual(lines.filter { $0.kind != .removed }.map(\.text).joined(separator: "\n"), new)
         }
+    }
+}
+
+final class DocumentReviewTests: XCTestCase {
+    func testExactChunksRoundTripUnicodeBlankLinesAndFinalNewline() {
+        let pairs = [
+            ("avant\n\n❄️\nfin", "avant\n\n🌋\nfin\n"),
+            ("début\nfin", "début\ninséré\nfin"),
+            ("début\nretirer\nfin", "début\nfin"),
+            ("", "ajout\n"),
+            ("ancien\n", "")
+        ]
+
+        for (previous, current) in pairs {
+            let session = DocumentReviewSession(previous: previous, current: current)
+            XCTAssertEqual(session.renderedSource, current, "pending render changed the current source")
+            XCTAssertEqual(session.applying(.accepted, to: nil).renderedSource, current)
+            XCTAssertEqual(session.applying(.rejected, to: nil).renderedSource, previous,
+                           "reject-all must restore the exact old source")
+        }
+    }
+
+    func testAllDecisionTouchesPendingChunksOnlyAndUndoRestoresSnapshot() {
+        let session = DocumentReviewSession(previous: "A\nold\nC\nold2\nE", current: "A\nnew\nC\nnew2\nE")
+        XCTAssertGreaterThanOrEqual(session.chunks.count, 2)
+        let first = try! XCTUnwrap(session.chunks.first)
+        let rejected = session.applying(.rejected, to: first.id)
+        XCTAssertEqual(rejected.chunks[first.id].decision, .rejected)
+        let acceptedPending = rejected.applying(.accepted, to: nil)
+        XCTAssertEqual(acceptedPending.chunks[first.id].decision, .rejected,
+                       "accept-all must leave an already-resolved rejection intact")
+        XCTAssertTrue(acceptedPending.chunks.dropFirst(first.id + 1).allSatisfy { $0.decision == .accepted })
+        XCTAssertTrue(acceptedPending.canUndo)
+        XCTAssertEqual(acceptedPending.undoing()?.renderedSource, rejected.renderedSource)
+    }
+
+    func testSessionIdentityAndDecisionsReconcileOnlyForSameVersion() {
+        let initial = DocumentReviewSession(previous: "a\nb", current: "a\nc")
+        let accepted = initial.applying(.accepted, to: initial.chunks[0].id)
+        let refreshed = DocumentReviewSession(previous: accepted.previous, current: accepted.current,
+                                              preserving: accepted)
+        XCTAssertEqual(refreshed.id, accepted.id)
+        XCTAssertEqual(refreshed.chunks, accepted.chunks)
+
+        let changed = DocumentReviewSession(previous: "a\nb", current: "a\nd", preserving: accepted)
+        XCTAssertNotEqual(changed.id, accepted.id)
+        XCTAssertTrue(changed.pendingChunks.allSatisfy { $0.decision == .pending })
+
+        let large = String(repeating: "ligne\n", count: 7_000)
+        XCTAssertTrue(DocumentReviewSession(previous: large, current: large).chunks.isEmpty)
+    }
+
+    @MainActor
+    func testLocalCASFailureRetainsPendingDecisionAndSource() async throws {
+        let model = WorkspaceModel()
+        let item = GalleryArtifact(name: "review.tex", data: Data("avant".utf8))
+        model.gallery.localItems = [item]
+        try model.openArtifact(item, data: Data("avant".utf8))
+        model.receiveDocumentVersion("après\n", for: item.id, expectedSource: "avant")
+        model.gallery.localItems[0].data = Data("après\n".utf8)
+        await model.prepareDocumentReview()
+        let session = try XCTUnwrap(model.documentReview)
+        XCTAssertEqual(session.pendingCount, 1)
+
+        model.gallery.localItems[0].data = Data("quelqu’un d’autre".utf8)
+        let changed = await model.decideDocumentReview(chunkID: session.chunks[0].id, accept: false)
+        XCTAssertFalse(changed)
+        XCTAssertEqual(model.source, "après\n")
+        XCTAssertEqual(model.documentReview?.pendingCount, 1)
+        XCTAssertNotNil(model.documentError)
+    }
+
+    @MainActor
+    func testLocalReviewRejectThenUndoUsesCASAndRestoresCurrent() async throws {
+        let model = WorkspaceModel()
+        let item = GalleryArtifact(name: "review.tex", data: Data("avant".utf8))
+        model.gallery.localItems = [item]
+        try model.openArtifact(item, data: Data("avant".utf8))
+        model.receiveDocumentVersion("après", for: item.id, expectedSource: "avant")
+        model.gallery.localItems[0].data = Data("après".utf8)
+        await model.prepareDocumentReview()
+        let chunkID = try XCTUnwrap(model.documentReview?.chunks.first?.id)
+
+        let rejected = await model.decideDocumentReview(chunkID: chunkID, accept: false)
+        XCTAssertTrue(rejected)
+        XCTAssertEqual(model.source, "avant")
+        XCTAssertEqual(model.gallery.localItems[0].data, Data("avant".utf8))
+        XCTAssertTrue(model.documentReview?.canUndo == true)
+
+        let undone = await model.undoDocumentReview()
+        XCTAssertTrue(undone)
+        XCTAssertEqual(model.source, "après")
+        XCTAssertEqual(model.gallery.localItems[0].data, Data("après".utf8))
+        XCTAssertEqual(model.documentReview?.pendingCount, 1)
     }
 }

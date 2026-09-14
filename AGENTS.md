@@ -1,27 +1,45 @@
 # Atelier Studio — instructions agents
 
+## Portée et autorisations
+
+- Préserver les modifications présentes et le travail des autres agents. Ne pas
+  nettoyer, réinitialiser, committer, pousser, installer ou publier hors de la
+  portée demandée.
+- Une demande de modification autorise les changements locaux et les contrôles
+  proportionnés nécessaires. Elle n’autorise pas une release, un DMG, une
+  mutation externe, ni l’arrêt ou le remplacement d’une instance Atelier déjà
+  ouverte.
+- Poursuivre sans confirmation pour les choix réversibles dans la portée. Demander
+  seulement avant d’arrêter/remplacer une instance ouverte, sauf autorisation déjà
+  donnée dans la session, ou si une information manquante change réellement le but.
+
 ## App, runtime, build, galerie et diagnostic
 
-Avant toute intervention dans ces domaines, lire et suivre intégralement
-[le protocole de relance](docs/agent-reference/atelier-runtime.md). Cette référence
-fait partie des instructions obligatoires : commandes, critères de réussite,
-arrêts sur échec, nettoyage, worktrees, shadcn et diagnostic TCC sont conservés.
-
-- Avant de déclarer une modification de l’app terminée, valider le `.app` du bon
-  worktree avec ce protocole. Documents/plans seuls : aucun rebuild ni relancement.
-- Les agents utilisent `npm run tauri:build:app`, jamais `npm run tauri dev`.
-  Arrêter l’app, les sidecars et les serveurs galerie avant le build ; vérifier
-  le chemin du processus `tauri-app` après relance. Pas de simple `open`.
+- Avant de préparer un build ou une relance, lire et suivre la
+  [procédure actuelle](docs/agent-reference/atelier-runtime.md). Pour un diagnostic
+  runtime, charger seulement la référence correspondant au symptôme; les invariants
+  ci-dessous suffisent avant une petite modification locale.
+- Documents et plans seuls : aucun rebuild ni relance; les contrôles ciblés de
+  liens, syntaxe ou structure restent permis.
+- Les agents utilisent `npm run tauri:build:app`, jamais `npm run tauri dev` ni un
+  build Tauri direct. Ne pas contourner le verrou et garder un `target/` par
+  worktree.
+- Avant de déclarer une modification applicative terminée, effectuer les contrôles
+  proportionnés, construire le `.app` du bon worktree, vérifier le chemin du
+  processus `tauri-app`, puis exercer le comportement demandé dans ce bundle.
+  Si une étape est impossible, rapporter précisément la limite de validation.
 - Modifier `gallery/`, jamais `src-tauri/gallery-dist/`. DMG uniquement pour une
-  release explicite, depuis le checkout principal sur `main`.
-- Garder un `target/` par worktree ; ne pas contourner le verrou de build.
-  Lire l’aperçu avant `rust:targets:prune -- --apply`.
-- Ne jamais écrire dans le bundle `.app` au chargement d’un module sidecar.
+  release explicitement demandée, depuis le checkout principal sur `main`.
+- Lire l’aperçu avant `npm run rust:targets:prune -- --apply`. Ne jamais écrire
+  dans le bundle `.app` au chargement d’un module sidecar.
 
-## Primitives shadcn
+## Primitives shadcn et Base UI
 
-Avant création, utilisation ou mise à jour : lire
-[le skill projet](.agents/skills/shadcn/SKILL.md) et la section « Workflow shadcn/ui »
-du protocole. Conserver `tw`, Precision Native, absence de Preflight et a11y.
-Ne pas utiliser `--overwrite`, `--force` ou `add --all` sans demande explicite.
-Ne pas modifier la configuration MCP globale sans autorisation explicite.
+- Avant d’ajouter, mettre à jour ou migrer une primitive, lire le
+  [skill shadcn du projet](.agents/skills/shadcn/SKILL.md). Lire aussi
+  [migrate-radix-to-base](.agents/skills/migrate-radix-to-base/SKILL.md) seulement
+  pour une migration Radix vers Base UI explicitement demandée.
+- Conserver le préfixe Tailwind `tw`, Precision Native, l’absence de Preflight et
+  l’accessibilité. Ne pas utiliser `--overwrite`, `--force` ou `add --all` sans
+  demande explicite, ni modifier la configuration MCP globale depuis ce dépôt sans
+  demande explicite.

@@ -10,6 +10,92 @@ struct NativeDocumentView: View {
     @State private var pendingFigure: DocumentPassage?
     @State private var pdfReading = PDFReadingModel()
     @State private var showingPDFAnnotations = false
+    @State private var showingInlineReview = true
+    @State private var selectedChange: Int?
+    @State private var reviewNotice: String?
+    @State private var reviewOffsets: [UUID: Double] = [:]
+
+    private struct ReviewKey: Hashable {
+        let id: UUID
+        let previous: String
+        let current: String
+    }
+    private var reviewKey: ReviewKey {
+        let update = workspace.currentDocumentUpdate
+        return ReviewKey(id: workspace.documentID,
+                         previous: update?.previous ?? workspace.comparisonSources[workspace.documentID] ?? workspace.source,
+                         current: update?.current ?? workspace.source)
+    }
+    private var inlineReviewVisible: Bool {
+        showingInlineReview && workspace.canReviewDocument && !workspace.editingSource
+            && workspace.documentMode != .pdf && workspace.documentReview != nil
+    }
+    private func decide(_ chunkID: Int?, accept: Bool) {
+        let documentID = workspace.documentID
+        Task {
+            if await workspace.decideDocumentReview(chunkID: chunkID, accept: accept), workspace.documentID == documentID {
+                reviewNotice = accept ? "Modification acceptée" : "Ancien passage rétabli"
+            }
+        }
+    }
+    private func undoReview() {
+        let documentID = workspace.documentID
+        Task {
+            if await workspace.undoDocumentReview(), workspace.documentID == documentID { reviewNotice = nil }
+        }
+    }
+    private var viewingPDFMarks: Bool {
+        workspace.pdfDocument != nil && (workspace.documentMode == .pdf || !workspace.sourceAvailable)
+    }
+    private var visibleAnnotationCount: Int {
+        viewingPDFMarks ? workspace.documentPDFMarks.count : workspace.documentReadingNotes.count
+    }
+    private var annotationButton: some View {
+        Button {
+            if viewingPDFMarks { showingPDFAnnotations = true }
+            else { showingReadingNotes.toggle() }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "text.bubble").font(.system(size: 15, weight: .regular))
+                Text("\(visibleAnnotationCount)").font(.caption.monospacedDigit())
+            }.frame(minWidth: 44, minHeight: 44)
+        }.buttonStyle(.plain).foregroundStyle(.secondary)
+            .accessibilityLabel("\(visibleAnnotationCount) annotation\(visibleAnnotationCount == 1 ? "" : "s"). Ouvrir les notes")
+            .accessibilityIdentifier(viewingPDFMarks ? "pdfAnnotations" : "readingAnnotations")
+            .popover(isPresented: $showingReadingNotes, arrowEdge: .top) {
+                ReadingAnnotationsCard(workspace: workspace) { showingReadingNotes = false }
+                    .frame(idealWidth: 340, maxWidth: 360)
+                    .presentationCompactAdaptation(.popover)
+            }
+    }
+    private var documentModes: some View {
+        HStack(spacing: 8) {
+            Picker("Vue du document", selection: $workspace.documentMode) {
+                ForEach(workspace.availableDocumentModes, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+            }.pickerStyle(.segmented)
+            if visibleAnnotationCount > 0 { annotationButton }
+            if workspace.currentDocumentUpdate?.conflict == true {
+                Button { showingDiff = true } label: { Image(systemName: "exclamationmark.arrow.triangle.2.circlepath").frame(minWidth: 44, minHeight: 44) }
+                    .foregroundStyle(.orange).accessibilityLabel("Comparer avec la version du Mac — brouillon conservé")
+            } else if let review = workspace.documentReview {
+                Button {
+                    let wasEditing = workspace.editingSource
+                    workspace.editingSource = false
+                    if workspace.canReviewDocument {
+                        if wasEditing { showingInlineReview = true } else { showingInlineReview.toggle() }
+                        if workspace.documentMode == .pdf { workspace.documentMode = .source; showingInlineReview = true }
+                    } else { workspace.editingSource = wasEditing; showingDiff = true }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: review.pendingChunks.isEmpty ? "checkmark" : "arrow.left.arrow.right")
+                        if !review.pendingChunks.isEmpty { Text("\(review.pendingChunks.count)").monospacedDigit() }
+                    }.font(.caption).frame(minWidth: 44, minHeight: 44)
+                }.foregroundStyle(AtelierTheme.accent(named: "sage"))
+                    .accessibilityLabel("\(review.pendingChunks.count) modifications. Afficher ou masquer le diff")
+                    .accessibilityIdentifier("document.reviewToggle")
+            }
+        }.padding(.horizontal, 16).padding(.vertical, 4)
+    }
 
     private var readingDraft: AnnotationDraft? {
         guard let draft = workspace.annotationDraft,
@@ -28,27 +114,36 @@ struct NativeDocumentView: View {
     var body: some View {
         VStack(spacing: 0) {
             if workspace.image == nil && !workspace.availableDocumentModes.isEmpty {
-                Picker("Vue du document", selection: $workspace.documentMode) {
-                    ForEach(workspace.availableDocumentModes, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 8)
-            }
-            if workspace.remoteDocumentChanged {
-                Text("Le fichier a changé sur le Mac. Votre brouillon est conservé ; utilisez Recharger depuis le Mac pour comparer.")
-                    .font(.caption).padding(12)
+                documentModes
             }
             if let image = workspace.image {
                 ZoomableArtifactImage(image: image)
+            } else if inlineReviewVisible, let review = workspace.documentReview {
+                InlineDocumentReviewView(review: review, sourceMode: workspace.documentMode == .source,
+                                         sourceName: workspace.sourceName, documentID: workspace.documentID,
+                                         selectedChange: $selectedChange,
+                                         scrollOffset: Binding(get: {
+                                             reviewOffsets[workspace.documentID] ?? workspace.readingOffsets[workspace.documentID] ?? 0
+                                         }, set: { reviewOffsets[workspace.documentID] = $0 }),
+                                         busy: workspace.savingDocument,
+                                         decide: { decide($0, accept: $1) },
+                                         onQuote: { text in
+                                             workspace.addDocumentPassageToChat(DocumentPassage(documentID: workspace.documentID,
+                                                 fileName: workspace.sourceName, location: "Passage du document", text: text))
+                                         })
             } else if workspace.documentMode == .reading {
-                if workspace.sourceAvailable { LatexReadingView(workspace: workspace) }
+                if workspace.sourceAvailable {
+                    LatexReadingView(workspace: workspace)
+                }
                 else { PDFReadingView(workspace: workspace, model: pdfReading).id(workspace.documentID) }
             } else if workspace.documentMode == .source {
                 SyntaxSourceEditor(workspace: workspace)
             } else {
                 NativePDFView(workspace: workspace)
             }
+        }
+        .task(id: reviewKey) {
+            await workspace.prepareDocumentReview()
         }
         .task(id: workspace.documentID) {
             await workspace.refreshDocumentIfNeeded()
@@ -62,8 +157,15 @@ struct NativeDocumentView: View {
             if phase == .active { Task { await workspace.refreshDocumentIfNeeded() } }
         }
         .sheet(isPresented: $showingDiff) {
-            DocumentChangesView(previous: workspace.comparisonSources[workspace.documentID] ?? workspace.originalSources[workspace.documentID] ?? workspace.source,
-                                current: workspace.source, name: workspace.sourceName)
+            if let update = workspace.currentDocumentUpdate {
+                DocumentChangesView(previous: update.applied ? update.previous : workspace.source,
+                                    current: update.current, name: workspace.sourceName,
+                                    explanation: update.applied ? "Version précédente → Version du Mac" : "Brouillon iPhone → Version du Mac",
+                                    useMacVersion: update.applied ? nil : { _ = workspace.adoptIncomingDocument() })
+            } else {
+                DocumentChangesView(previous: workspace.comparisonSources[workspace.documentID] ?? workspace.originalSources[workspace.documentID] ?? workspace.source,
+                                    current: workspace.source, name: workspace.sourceName)
+            }
         }
         .onChange(of: workspace.source) { _, _ in workspace.scheduleDocumentResume() }
         .onChange(of: workspace.pdfPage) { _, _ in workspace.scheduleDocumentResume() }
@@ -79,16 +181,10 @@ struct NativeDocumentView: View {
                     showingReadingNotes = !workspace.documentReadingNotes.isEmpty
                 }
                 .id(draft.id).padding(.horizontal, 8).padding(.vertical, 6)
-            } else if showingReadingNotes && workspace.sourceAvailable {
-                ReadingAnnotationsCard(workspace: workspace) { showingReadingNotes = false }
-                    .padding(.horizontal, 8).padding(.vertical, 6)
-            } else {
+            } else if !inlineReviewVisible && (workspace.image != nil || workspace.activePassage != nil) {
                 VStack(spacing: 6) {
                 if workspace.image != nil {
                     Button("Annoter la figure", systemImage: "highlighter") { annotatingFigure = true }.frame(minHeight: 44)
-                } else if workspace.documentMode == .reading && !workspace.sourceAvailable {
-                    Text("Figures, tableaux et annotations dans le PDF")
-                        .font(.caption).foregroundStyle(.secondary)
                 } else if let passage = workspace.activePassage {
                     HStack {
                         Text(passage.location).font(.caption).foregroundStyle(.secondary)
@@ -104,37 +200,41 @@ struct NativeDocumentView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("annotateSelection")
                     }
-                } else {
-                    Text(workspace.documentMode == .pdf
-                         ? "Page \(workspace.pdfPage + 1) · sélectionnez un passage pour l’annoter"
-                         : "Sélectionnez un passage pour l’annoter")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if workspace.sourceAvailable {
-                    Button { showingReadingNotes = true } label: {
-                        Label("\(workspace.documentReadingNotes.count) annotation\(workspace.documentReadingNotes.count == 1 ? "" : "s")", systemImage: "text.bubble")
-                            .font(.caption).padding(.horizontal, 16).frame(minHeight: 44)
-                    }.buttonStyle(.plain).background(AtelierTheme.surface, in: Capsule())
-                        .accessibilityIdentifier("readingAnnotations")
-                }
-                if workspace.pdfDocument != nil && workspace.image == nil && (workspace.documentMode == .pdf || !workspace.sourceAvailable) {
-                    Button { showingPDFAnnotations = true } label: {
-                        Label("Annotations (\(workspace.documentPDFMarks.count))", systemImage: "text.bubble")
-                            .font(.caption).frame(minHeight: 44)
-                    }.accessibilityIdentifier("pdfAnnotations")
                 }
             }
             .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(.background)
             }
         }
-        .onChange(of: workspace.documentID) { _, _ in showingReadingNotes = false }
+        .onChange(of: workspace.documentID) { _, _ in
+            showingReadingNotes = false; selectedChange = nil; reviewNotice = nil
+            showingInlineReview = true
+        }
+        .onChange(of: visibleAnnotationCount) { _, count in
+            if count == 0 { showingReadingNotes = false; showingPDFAnnotations = false }
+        }
+        .onChange(of: workspace.annotationDraft?.id) { _, id in
+            if id != nil { showingReadingNotes = false }
+        }
+        .overlay(alignment: .bottom) {
+            if let reviewNotice {
+                HStack(spacing: 8) {
+                    Text(reviewNotice).font(.caption)
+                    Spacer(minLength: 0)
+                    Button("Annuler") { undoReview() }.font(.caption).disabled(workspace.savingDocument)
+                    Button { self.reviewNotice = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                        .accessibilityLabel("Fermer l’avis")
+                }.padding(.leading, 14).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .padding(12).accessibilityIdentifier("document.reviewUndo")
+            }
+        }
+        .task(id: reviewNotice) {
+            guard reviewNotice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            reviewNotice = nil
+        }
         .alert("Document", isPresented: Binding(get: { workspace.documentError != nil }, set: { if !$0 { workspace.documentError = nil } })) { Button("OK") { workspace.documentError = nil } } message: { Text(workspace.documentError ?? "") }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if workspace.sourceAvailable {
-                    Button("Diff") { showingDiff = true }.accessibilityLabel("Voir les modifications")
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 if workspace.documentMode == .reading && !workspace.sourceAvailable && workspace.pdfDocument != nil {
                     PDFReadingSettings()
@@ -153,6 +253,22 @@ struct NativeDocumentView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if let item = workspace.viewedArtifact {
                     Menu {
+                        Button(workspace.documentOrigin == .articles ? "Bibliothèque Zotero" : "Galerie", systemImage: "chevron.left") { workspace.returnToDocumentList() }
+                        if workspace.sourceAvailable {
+                            if let review = workspace.documentReview {
+                                Button(showingInlineReview ? "Masquer les différences" : "Afficher les différences", systemImage: "square.split.2x1") {
+                                    showingInlineReview.toggle(); workspace.editingSource = false
+                                }
+                                Button("Tout accepter", systemImage: "checkmark") { decide(nil, accept: true) }
+                                    .disabled(!workspace.canReviewDocument || review.pendingChunks.isEmpty || workspace.savingDocument)
+                                Button("Tout rejeter", systemImage: "xmark") { decide(nil, accept: false) }
+                                    .disabled(!workspace.canReviewDocument || review.pendingChunks.isEmpty || workspace.savingDocument)
+                                Button("Annuler la dernière décision", systemImage: "arrow.uturn.backward") { undoReview() }
+                                    .disabled(!workspace.canReviewDocument || !review.canUndo || workspace.savingDocument)
+                            } else {
+                                Button("Voir les modifications", systemImage: "square.split.2x1") { showingDiff = true }
+                            }
+                        }
                         Button("Joindre au chat", systemImage: "paperclip") { workspace.attachToChat(item) }
                         if workspace.sourceAvailable && item.fileID != nil {
                             Button("Recharger depuis le Mac", systemImage: "arrow.clockwise") { Task { await workspace.reloadDocument() } }

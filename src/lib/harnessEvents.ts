@@ -550,12 +550,19 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     return next;
   }
   if (ev.kind === "todos" || ev.kind === "goal") {
-    // singletons : le serveur ré-émet l'état complet à chaque mise à jour
-    // (goal : temps/tokens à chaque tour) — remplacement en place, comme le
-    // journal sidecar (SINGLETON_KINDS)
+    // Le serveur ré-émet l'état complet à chaque mise à jour. Dans un tour
+    // canonique, remplacer seulement le snapshot de CE tour : déplacer le
+    // goal du tour suivant à l'ancienne position faisait se chevaucher les
+    // plages de tours et changeait la clé virtuelle de la réponse précédente.
+    // Les vieux journaux sans metadata gardent leur singleton global.
+    const incomingTurn = turnOf(ev);
     let idx = -1;
     for (let i = next.length - 1; i >= 0; i--) {
-      if (next[i].kind === ev.kind) { idx = i; break; }
+      if (next[i].kind !== ev.kind) continue;
+      if (!incomingTurn || turnOf(next[i]) === incomingTurn) {
+        idx = i;
+        break;
+      }
     }
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) next[idx] = upd;
@@ -623,7 +630,14 @@ function sanitizeHistory(events: AgentEvent[]): AgentEvent[] {
   for (const ev of events) {
     if (ev.kind === "user") {
       const text = stripGalleryIntegration(String(ev.text ?? ""));
-      if (text.trim()) sanitized.push({ ...ev, text });
+      // Un envoi peut être composé uniquement d'une pièce jointe. Les
+      // collages archivés n'en conservent volontairement que le badge
+      // name+lines, donc un texte vide ne signifie pas un message vide.
+      const hasAttachment = Boolean(
+        ev.imageUrl || ev.label?.trim() || ev.pastes?.length ||
+        ev.notes?.length || (ev.kb?.count ?? 0) > 0,
+      );
+      if (text.trim() || hasAttachment) sanitized.push({ ...ev, text });
       continue;
     }
     if (ev.kind === "streaming") {

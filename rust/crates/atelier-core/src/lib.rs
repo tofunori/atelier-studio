@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub mod gallery_builder;
+pub mod gallery_favorites;
 pub mod svg_edits;
 
 pub const ARTIFACT_EXTENSIONS: &[&str] = &[

@@ -104,6 +104,17 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     expect(screen.getByText("Analyse albédo")).toBeTruthy();
   });
 
+  it("épingle directement sans ouvrir le chat ni son menu", () => {
+    const p = makeProps({ threads: projectThreads() });
+    const { container } = renderUi(<Sidebar {...p} />);
+    const pin = container.querySelector(".pnav-row-end > .pnav-favorite") as HTMLButtonElement;
+    expect(pin).toBeTruthy();
+    fireEvent.click(pin);
+    expect(p.onToggleFavorite).toHaveBeenCalledTimes(1);
+    expect(p.onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("menu contextuel : Renommer / Favori / Supprimer appellent leurs callbacks", () => {
     const p = makeProps({ threads: projectThreads() });
     renderUi(<Sidebar {...p} />);

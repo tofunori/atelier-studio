@@ -168,7 +168,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
   it("ignore une réponse périmée arrivant après la plus récente", () => {
     const ws = mount(makeWs());
     // la portée change : une seconde requête part, la première est périmée
-    act(() => fireEvent.click(screen.getByLabelText("Favoris")));
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Favoris" })));
     const ids = sent(ws, "zoteroSearch").map((msg) => msg.requestId as number);
     expect(ids).toEqual([1, 2]);
 
@@ -196,7 +196,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     const ws = mount(makeWs());
     deliver(ITEMS, 1);
     expect(sent(ws, "zoteroSearch")).toHaveLength(1);
-    act(() => fireEvent.click(screen.getByLabelText("Favoris")));
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Favoris" })));
     expect(sent(ws, "zoteroSearch")).toHaveLength(2);
   });
 
@@ -206,10 +206,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     act(() => window.dispatchEvent(new CustomEvent("zotero-collections", {
       detail: { collections: [{ id: 7, name: "Glaciologie", parent: null }] },
     })));
-    fireEvent.click(screen.getByLabelText("Collection Zotero"));
-    const option = (await screen.findByText("Glaciologie")).closest('[role="option"]') as HTMLElement;
-    fireEvent.pointerDown(option);
-    fireEvent.pointerUp(option);
+    const option = await screen.findByText("Glaciologie");
     fireEvent.click(option);
     const searches = sent(ws, "zoteroSearch");
     expect(searches).toHaveLength(2);
@@ -224,7 +221,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     act(() => fireEvent.click(screen.getByLabelText("Seulement avec PDF")));
     expect(rowTitles()).toEqual(["Névés du Québec"]);
     act(() => fireEvent.click(screen.getByLabelText("Seulement avec PDF")));
-    act(() => fireEvent.click(screen.getByLabelText("Favoris")));
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Favoris" })));
     deliver(ITEMS, 2);
     expect(rowTitles()).toEqual(["Melt ponds"]);
   });
@@ -290,12 +287,11 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(screen.getByText(/favori n’a pas pu être enregistré/)).toBeTruthy();
   });
 
-  it("la rangée porte un badge PDF monochrome et une année en chiffres alignés", () => {
+  it("la rangée expose l'action PDF et une année en chiffres alignés", () => {
     mount(makeWs());
     deliver(ITEMS, 1);
-    expect(document.querySelectorAll(".biblio-pdf-badge")).toHaveLength(1);
-    expect(document.querySelector(".biblio-pdf-badge")?.textContent).toBe("PDF");
-    expect(document.querySelectorAll(".biblio-meta-year")).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /Ouvrir le PDF/ })).toHaveLength(3);
+    expect(document.querySelectorAll(".biblio-table-year")).toHaveLength(3);
   });
 
   // ── Raffinement 2026-09-06 : une barre, des années, un rail ──
@@ -306,10 +302,10 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(document.querySelector(".biblio-filters")).toBeNull();
     expect(document.querySelectorAll(".biblio-bar")).toHaveLength(1);
     expect(document.querySelector(".biblio-search-kbd")?.textContent).toBe("/");
-    // les deux bascules disent leur état à la techno d'assistance
-    expect(screen.getByLabelText("Favoris").getAttribute("aria-pressed")).toBe("false");
-    act(() => fireEvent.click(screen.getByLabelText("Favoris")));
-    expect(screen.getByLabelText("Favoris").getAttribute("aria-pressed")).toBe("true");
+    // le rail expose la portée active à la techno d'assistance
+    expect(screen.getByRole("button", { name: "Favoris" }).getAttribute("aria-current")).toBeNull();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Favoris" })));
+    expect(screen.getByRole("button", { name: "Favoris" }).getAttribute("aria-current")).toBe("true");
   });
 
   it("la ligne de portée annonce la collection, le nombre de références et de PDF", () => {
@@ -317,7 +313,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     deliver(ITEMS, 1);
     const scope = document.querySelector(".biblio-scope") as HTMLElement;
     expect(scope).toBeTruthy();
-    expect(scope.textContent).toContain("Collection");
+    expect(scope.textContent).toContain("Tous les articles");
     expect(scope.textContent).toContain("3 références");
     expect(scope.textContent).toContain("1 PDF");
   });
@@ -326,8 +322,7 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     localStorage.setItem("atelier-studio.biblio.sort", "year");
     mount(makeWs());
     deliver(ITEMS, 1);
-    expect([...document.querySelectorAll(".biblio-year")].map((el) => el.textContent))
-      .toEqual(["20201", "20011", "19981"]);
+    expect(document.querySelectorAll(".biblio-year")).toHaveLength(0);
     cleanup();
     localStorage.setItem("atelier-studio.biblio.sort", "title");
     mount(makeWs());
@@ -356,24 +351,38 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     deliver(ITEMS, 1);
     const side = document.querySelectorAll(".biblio-row-side");
     expect(side).toHaveLength(3);
-    expect(side[2].querySelector(".biblio-pdf-badge")?.textContent).toBe("PDF");
+    expect(side[2].querySelector('[aria-label^="Ouvrir le PDF"]')).toBeTruthy();
     expect(side[2].querySelector(".biblio-star")).toBeTruthy();
   });
 
-  it("l'en-tête du lecteur propose Épingler et Citer en icônes discrètes, sans bouton plein", () => {
+  it("le panneau d'information expose Épingler et Citer en icônes discrètes", () => {
     mount(makeWs());
     deliver(ITEMS, 1);
-    const head = document.querySelector(".biblio-reader-head") as HTMLElement;
-    const pin = head.querySelector(".biblio-pin") as HTMLButtonElement;
-    const cite = head.querySelector(".biblio-cite-action") as HTMLButtonElement;
-    expect(pin.getAttribute("aria-label")).toBe("Ajouter à la base de connaissances");
-    expect(cite.getAttribute("aria-label")).toBe("Citer");
-    expect(pin.classList.contains("ui-iconbtn")).toBe(true);
-    expect(cite.classList.contains("ui-iconbtn")).toBe(true);
-    expect(head.textContent).not.toContain("Épingler");
-    expect(head.textContent).not.toContain("Citer");
-    expect(head.querySelector(".ui-btn")).toBeNull();
-    expect(document.querySelector(".biblio-citekey")).toBeNull();
+    fireEvent.click(document.querySelector(".biblio-main-button") as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Informations de l’article" }));
+    const panel = document.querySelector(".biblio-information") as HTMLElement;
+    expect(panel.querySelector('[aria-label="Ajouter à la base de connaissances"]')).toBeTruthy();
+    expect(panel.querySelector('[aria-label="Citer"]')).toBeTruthy();
+    expect(panel.querySelector(".ui-btn")).toBeNull();
+  });
+
+  it("conserve le même iframe quand on revient à la bibliothèque puis à l'article", () => {
+    const ws = makeWs();
+    renderUi(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="http://gallery" />);
+    deliver(ITEMS.map((item) => item.key === "A" ? { ...item, pdfKey: "PDFKEY01", pdfFile: "paper.pdf" } : item), 1);
+    const row = [...document.querySelectorAll<HTMLElement>(".biblio-row")]
+      .find((candidate) => candidate.textContent?.includes("Névés du Québec"))
+      ?.querySelector(".biblio-main-button") as HTMLElement;
+    fireEvent.doubleClick(row);
+    const frame = document.querySelector(".biblio-frame") as HTMLIFrameElement;
+    expect(frame).toBeTruthy();
+    const articleTab = screen.getByRole("tab", { name: "Névés du Québec" });
+    fireEvent.click(screen.getByRole("tab", { name: "Bibliothèque" }));
+    expect(frame.isConnected).toBe(true);
+    expect(frame.closest(".biblio-reader")).toHaveAttribute("hidden");
+    fireEvent.click(articleTab);
+    expect(document.querySelector(".biblio-frame")).toBe(frame);
+    expect(frame.closest(".biblio-reader")).not.toHaveAttribute("hidden");
   });
 
   it("le menu contextuel d'une rangée ouvre les actions et copie la clé Zotero", async () => {

@@ -112,7 +112,8 @@ extension WorkspaceModel {
     }
     func passage(for mark: PDFMark) -> DocumentPassage {
         DocumentPassage(documentID: documentID, fileName: mark.fileName, location: "page \(mark.page + 1)", text: mark.text,
-            regions: mark.regions.map { .init(pageIndex: $0.page, bounds: $0.bounds) }, articleKey: currentArticle?.key, articleAttachmentKey: currentArticle?.pdfKey)
+            regions: mark.regions.map { .init(pageIndex: $0.page, bounds: $0.bounds) }, articleKey: currentArticle?.key, articleAttachmentKey: currentArticle?.pdfKey,
+            annotationID: mark.id)
     }
     func showPDFMark(_ mark: PDFMark) { pdfPage = mark.page; pdfNavigationRequest = UUID(); documentMode = .pdf }
 }

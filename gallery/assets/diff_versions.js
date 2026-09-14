@@ -720,9 +720,19 @@ window.DiffVersions = function(opts){
       // du volet éditeur ; `toolbar: true` = ni gouttière ni bouton dans le texte.
       // Variante F2 (2026-09-10) : décision ancrée au passage (pilule inline +
       // trait en rangées visuelles) ; ni gouttière, ni carte, ni barre.
-      changePts = cm.showMergeDiff(v.before, individualReview
-        ? {onDecision: !tt ? decideReview : null, individual: true, anchored: true, onLatest: () => showStep(interList().length - 1)}
-        : undefined) || [];
+      const openMerge = () => {
+        changePts = cm.showMergeDiff(v.before, individualReview
+          ? {onDecision: !tt ? decideReview : null, individual: true, anchored: true, onLatest: () => showStep(interList().length - 1)}
+          : undefined) || [];
+      };
+      // Ouverture à la demande (`navigate`) : l'utilisateur veut aller au
+      // passage, gotoChange s'en charge. Ouverture déclenchée par une écriture
+      // externe : la revue s'ouvre SANS déplacer la lecture — la
+      // reconfiguration change la géométrie (chunks repliés/insérés), donc on
+      // restaure l'ancre de texte au lieu de laisser CodeMirror réancrer.
+      if(!navigate && typeof cm.reconfigurePreservingViewport === "function")
+        cm.reconfigurePreservingViewport(openMerge);
+      else openMerge();
       changeAt = 0;
       if(changePts.length){
         const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
@@ -1614,18 +1624,24 @@ window.DiffVersions = function(opts){
     // marques contre le buffer courant → le cumul grossit quand même).
     arm();
     persist(liveText());
-    // Toute écriture journalise et arme Diff sans l'ouvrir : l'activer à
-    // chaque sauvegarde ou rechargement bloquerait la frappe en silence et
-    // pourrait remplacer/recentrer la sélection en cours. Si la revue est
-    // déjà ouverte, le dernier passage est rafraîchi sans navigation.
+    // Les sauvegardes utilisateur arment Diff sans l'ouvrir : l'activer à
+    // chaque sauvegarde bloquerait la frappe en silence. Une écriture externe
+    // (passage d'agent) ouvre la revue, mais SANS navigation : le rechargement
+    // peut tomber pendant une sélection ou un glisser, et le premier bloc ne
+    // doit ni recentrer la fenêtre ni déplacer la sélection sous les yeux de
+    // l'utilisateur.
     if(individualReview){
       navMode = interList().length - 1;
-      // Une écriture externe journalise et arme Diff, mais ne doit jamais
-      // naviguer/recentrer automatiquement à la place de l'utilisateur. Si
-      // la revue est déjà ouverte, rafraîchir le dernier passage sans
-      // gotoChange : le rechargement peut tomber pendant une sélection ou un
-      // drag et le premier bloc ne doit pas recentrer la fenêtre.
-      if(shown) showStep(navMode, {navigate: false});
+      const openReview = () => {
+        if(shown || meta?.source === "external-reload" || meta?.source === "external-merge")
+          showStep(navMode, {navigate: false});
+      };
+      // Pendant un glisser, reconstruire la vue Diff casse l'ancre native du
+      // geste (la sélection part alors vers une extrémité du document) : la
+      // revue s'ouvre au relâchement, comme le buffer fusionné.
+      const cm = getCm();
+      if(cm && typeof cm.deferWhileSelecting === "function") cm.deferWhileSelecting(openReview);
+      else openReview();
       updateNav();
     } else if(shown) render();
     // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent

@@ -623,6 +623,36 @@ test("LaTeX notes persist exact passages, keep their mark until authenticated de
   dom.window.close();
 });
 
+test("LaTeX direct chat icon waits for persistence and preserves draft actions", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url:'http://localhost'});
+  const win=dom.window, doc=win.document, sends=[];
+  let finish;
+  win.fetch=()=>new Promise(resolve=>{finish=ok=>resolve({ok,json:async()=>ok?{ok:true}:{error:'disk'}});});
+  const from={line:0,ch:0},to={line:0,ch:7};
+  const editor={charCoords:()=>({left:100,top:80,bottom:100}),markText:()=>({clear(){},find:()=>({from,to})})};
+  const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost:p=>sends.push(p),document:doc,window:win});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+  const direct=doc.querySelector('.send-direct');
+  assert.equal(direct.textContent,'');
+  assert.equal(direct.getAttribute('aria-label'),'Envoyer au chat');
+  for (const [selector,ok] of [['.send-direct',true],['.send2',true],['.send-direct',false]]) {
+    notes.open({text:'Passage',from,to});
+    doc.querySelector('textarea').value='Question';
+    const before=sends.length;
+    doc.querySelector(selector).click();
+    await tick();
+    assert.equal(direct.disabled,true);
+    direct.click();
+    assert.equal(sends.length,before);
+    finish(ok);await tick();
+    assert.equal(direct.disabled,false);
+    assert.equal(sends.length,before+(ok?1:0));
+    if(ok){assert.equal(sends.at(-1).direct,selector==='.send-direct');assert.ok(sends.at(-1).text.includes('Question'));assert.equal(sends.at(-1).pdfAnnotation.rel,'tex-comments:paper.tex');}
+    else {assert.equal(doc.getElementById('pop').style.display,'block');assert.equal(doc.querySelector('textarea').value,'Question');}
+  }
+  dom.window.close();
+});
+
 test("LaTeX: a fresh Annoter left empty and closed via Escape leaves no mark, no push, no save", async () => {
   const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
   const win = dom.window, doc = win.document, writes = [];

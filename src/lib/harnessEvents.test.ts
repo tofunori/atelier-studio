@@ -194,6 +194,34 @@ describe("reduceHarnessEvent — branches", () => {
     expect(goal?.timeUsedSeconds).toBe(61);
   });
 
+  it("goal canonique : remplace dans le même tour mais s'ajoute au début d'un nouveau tour", () => {
+    const g = (turnId: string, eventId: string, sequence: number, tokensUsed: number): AgentEvent => ({
+      kind: "goal",
+      goal: {
+        objective: "vérifier le fil",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed,
+        timeUsedSeconds: sequence,
+      },
+      meta: meta({ eventId, turnId, sequence }),
+    });
+    const out = runLive([
+      g("turn-1", "goal-1a", 1, 0),
+      g("turn-1", "goal-1b", 2, 100),
+      { kind: "text", text: "Réponse terminée", meta: meta({ eventId: "answer-1", turnId: "turn-1", sequence: 3 }) },
+      { ...events.done(), meta: meta({ eventId: "done-1", turnId: "turn-1", sequence: 4 }) },
+      { kind: "user", text: "", pastes: [{ name: "Texte collé", lines: 25 }], meta: meta({ eventId: "user-2", turnId: "turn-2", sequence: 5 }) },
+      g("turn-2", "goal-2", 6, 0),
+    ]);
+
+    const goals = out.filter((event): event is Extract<AgentEvent, { kind: "goal" }> => event.kind === "goal");
+    expect(goals).toHaveLength(2);
+    expect(goals.map((event) => event.meta && "turnId" in event.meta ? event.meta.turnId : null))
+      .toEqual(["turn-1", "turn-2"]);
+    expect(goals[0].goal?.tokensUsed).toBe(100);
+  });
+
   it("done fige une bulle streaming non vide en text (ts de la bulle conservé) ; une bulle vide disparaît", () => {
     const frozen = runLive([
       { kind: "delta", text: "réponse partielle", ts: FIXED_TS + 100 },
@@ -397,6 +425,23 @@ describe("materializeHarnessHistory — replay = live", () => {
     expect((out[0] as Extract<AgentEvent, { kind: "user" }>).text).toBe(
       "Citation de la conversation :\n> extrait\n\nmais vulgarise je ne comprends pas",
     );
+  });
+
+  it("conserve au rejeu un message sans texte qui contient un collage archivé", () => {
+    const pasted: AgentEvent = {
+      kind: "user",
+      text: "",
+      pastes: [{ name: "Texte collé", lines: 25 }],
+      meta: meta({ eventId: "pasted-user", turnId: "turn-pasted", sequence: 1 }),
+    };
+    const out = materializeHarnessHistory([pasted]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      kind: "user",
+      text: "",
+      pastes: [{ name: "Texte collé", lines: 25 }],
+    });
   });
 
   it("ancien history sans metadata : pas de crash, identités synthétiques stables et distinctes", () => {

@@ -3,6 +3,7 @@ mod documents;
 mod files;
 mod gallery;
 mod git;
+mod figure_versions;
 mod host;
 mod openable;
 mod ranged;
@@ -231,7 +232,18 @@ async fn save_gallery_state(
         )
             .into_response();
     }
+    let _state_lock = match atelier_core::gallery_favorites::lock(&state.root) {
+        Ok(lock) => lock,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state lock failed"}))).into_response(),
+    };
     let mut sanitized = sanitize_gallery_state(&value);
+    if let Some(base) = value.get("favsBase").filter(|v| v.is_array()) {
+        let previous = match atelier_core::gallery_favorites::read(&state.root) {
+            Ok(value) => value,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state read failed"}))).into_response(),
+        };
+        sanitized["favs"] = atelier_core::gallery_favorites::merge(&previous, base, &value["favs"]);
+    }
     // Requête sans texAutoRewrap (la galerie POste /state avec ses seules
     // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
     // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
@@ -301,6 +313,10 @@ async fn toggle_favorite(
         )
             .into_response();
     }
+    let _state_lock = match atelier_core::gallery_favorites::lock(&state.root) {
+        Ok(lock) => lock,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state lock failed"}))).into_response(),
+    };
     let path = state.root.join(".fig_state.json");
     let mut current = std::fs::read_to_string(&path)
         .ok()
@@ -1447,10 +1463,14 @@ async fn save_annotation(
             message.push_str(&lines.join("\n"));
         }
     }
+    if let Some(context) = request.get("sourceContext").and_then(Value::as_str).filter(|s| s.len() <= 4096 && !s.is_empty()) {
+        message.push('\n');
+        message.push_str(context);
+    }
     if direct {
         message.push_str("\nApplique directement ces annotations : retrouve le script qui genere cette figure, fais les corrections demandees et regenere la figure.");
     }
-    if state.agent_token.is_empty() {
+    if state.agent_token.is_empty() || request.get("previewOnly").and_then(Value::as_bool) == Some(true) {
         return (
             StatusCode::OK,
             Json(json!({
@@ -2384,6 +2404,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/claude-event", post(gallery::post_agent_event))
         // Phase 3 — Git + historique de versions
         .route("/githead", get(git::githead))
+        .route("/figure-versions", post(figure_versions::snapshot))
+        .route("/figure-version", get(figure_versions::image))
         .route("/gitlog", get(git::gitlog))
         .route("/gitshow", get(git::gitshow))
         .route("/commitmsg", get(git::commitmsg))

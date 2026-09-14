@@ -332,8 +332,8 @@ describe("sélection dans la réponse", () => {
     selectionner(reponse.firstChild ?? reponse, "partial pooling");
     fireEvent.mouseUp(container.querySelector(".qa-body") as HTMLElement);
 
-    await waitFor(() => expect(screen.getByText("Add to chat")).toBeTruthy());
-    fireEvent.mouseDown(screen.getByText("Add to chat"));
+    await waitFor(() => expect(screen.getByRole("button", {name:"Add to chat"})).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", {name:"Add to chat"}));
 
     // la puce de contexte du Quick Ask porte le passage — rien n'est parti
     // vers le chat principal

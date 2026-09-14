@@ -94,6 +94,23 @@ final class ChatTests: XCTestCase {
         XCTAssertTrue(second.chat.rows[0].resolved)
     }
 
+    @MainActor func testMissingTranscriptInvalidatesItsSequenceWatermark() {
+        let workspace = WorkspaceModel()
+        let a = RemoteChatModel.Thread(id: "watermark-a", title: "A", provider: "codex", model: nil, projectId: nil, status: "idle")
+        let b = RemoteChatModel.Thread(id: "watermark-b", title: "B", provider: "codex", model: nil, projectId: nil, status: "idle")
+        let c = RemoteChatModel.Thread(id: "watermark-c", title: "C", provider: "codex", model: nil, projectId: nil, status: "idle")
+        workspace.chat.select(a, workspace: workspace)
+        workspace.chat.apply(["kind": "text", "text": "A", "meta": ["eventId": "a", "turnId": "a", "threadId": a.id, "sequence": 9]])
+        XCTAssertEqual(workspace.chat.lastSequences[a.id], 9)
+
+        workspace.chat.select(b, workspace: workspace)
+        workspace.chat.select(c, workspace: workspace)
+        workspace.chat.select(a, workspace: workspace)
+
+        XCTAssertTrue(workspace.chat.rows.isEmpty)
+        XCTAssertNil(workspace.chat.lastSequences[a.id])
+    }
+
     @MainActor func testLegacyResumeWithoutTranscriptStillRestoresDraft() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -470,6 +487,163 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(ChatTimelineItem.group(rows).flatMap(\.rows).map(\.id), rows.map(\.id))
     }
 
+    @MainActor func testHistoryDeltaTracksHighestSequenceAndSurvivesRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ChatResumeStore(directory: directory)
+        let first = WorkspaceModel(resumeStore: store)
+        let thread = RemoteChatModel.Thread(id: "delta", title: "Delta", provider: "codex", model: nil, projectId: nil, status: "idle")
+        first.chat.select(thread, workspace: first)
+        first.chat.apply(["kind": "user", "text": "Question", "meta": ["eventId": "u", "turnId": "t", "threadId": thread.id, "sequence": 4]])
+        first.chat.apply(["kind": "text", "text": "Réponse", "meta": ["eventId": "a", "turnId": "t", "threadId": thread.id, "sequence": 9]])
+        // A replayed duplicate must never lower the watermark.
+        first.chat.apply(["kind": "delta", "text": "rejeu", "meta": ["eventId": "u", "turnId": "t", "threadId": thread.id, "sequence": 4]])
+        XCTAssertEqual(first.chat.lastSequences[thread.id], 9)
+        await first.chat.flushResume()
+        let second = WorkspaceModel(resumeStore: store)
+        await second.chat.restore(workspace: second)
+        XCTAssertEqual(second.chat.lastSequences[thread.id], 9)
+        XCTAssertEqual(second.chat.rows.map(\.text), ["Question", "Réponse"])
+    }
+
+    @MainActor func testResumeAnnouncesLiveBeforeHistoryAndAsksOnlyForTheDelta() async throws {
+        HistoryDeltaProtocol.state.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HistoryDeltaProtocol.self]
+        let gateway = GalleryModel(address: URL(string: "https://delta.invalid")!, token: "test", session: URLSession(configuration: configuration))
+        let workspace = WorkspaceModel()
+        workspace.gallery = gateway
+        let thread = RemoteChatModel.Thread(id: "delta-thread", title: "Delta", provider: "codex", model: nil, projectId: nil, status: "idle")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.apply(["kind": "user", "text": "Question", "meta": ["eventId": "u", "turnId": "t", "threadId": thread.id, "sequence": 7]])
+        let task = Task { await workspace.chat.observe(using: gateway) }
+        defer { task.cancel() }
+        let historyAsked = XCTestExpectation(description: "history requested")
+        HistoryDeltaProtocol.state.hold(historyAsked)
+        let wait = await XCTWaiter.fulfillment(of: [historyAsked], timeout: 8)
+        XCTAssertEqual(wait, .completed)
+        // The socket is already open, so the conversation is live while the replay pends.
+        XCTAssertTrue(workspace.chat.live)
+        XCTAssertEqual(workspace.chat.connectionLabel, "Mac connecté")
+        XCTAssertEqual(HistoryDeltaProtocol.state.sequenceQueries, ["7"])
+        XCTAssertEqual(HistoryDeltaProtocol.state.liveTimeout, GalleryModel.chatStreamIdleTimeout)
+        XCTAssertEqual(HistoryDeltaProtocol.state.liveCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertEqual(HistoryDeltaProtocol.state.liveCacheControl, "no-cache")
+        HistoryDeltaProtocol.state.release()
+        for _ in 0..<200 {
+            if workspace.chat.lastSequences[thread.id] == 11 { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 11)
+        XCTAssertEqual(workspace.chat.rows.map(\.text), ["Question", "Réponse finale"])
+        task.cancel()
+    }
+
+    @MainActor func testDeltaTheGatewayCannotServeFallsBackToAFullSnapshot() async throws {
+        HistoryDeltaProtocol.state.reset(snapshotRequired: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HistoryDeltaProtocol.self]
+        let gateway = GalleryModel(address: URL(string: "https://delta.invalid")!, token: "test", session: URLSession(configuration: configuration))
+        let workspace = WorkspaceModel()
+        workspace.gallery = gateway
+        let thread = RemoteChatModel.Thread(id: "delta-thread", title: "Delta", provider: "codex", model: nil, projectId: nil, status: "idle")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.apply(["kind": "user", "text": "Question", "meta": ["eventId": "u", "turnId": "t", "threadId": thread.id, "sequence": 7]])
+        let task = Task { await workspace.chat.observe(using: gateway) }
+        defer { task.cancel() }
+        let historyAsked = XCTestExpectation(description: "history requested")
+        HistoryDeltaProtocol.state.hold(historyAsked)
+        let wait = await XCTWaiter.fulfillment(of: [historyAsked], timeout: 8)
+        XCTAssertEqual(wait, .completed)
+        HistoryDeltaProtocol.state.release()
+        for _ in 0..<200 {
+            if workspace.chat.lastSequences[thread.id] == 11 { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        // The refused delta is retried without a cursor, i.e. as a full snapshot.
+        XCTAssertEqual(HistoryDeltaProtocol.state.sequenceQueries, ["7", nil])
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 11)
+        XCTAssertEqual(workspace.chat.rows.map(\.text), ["Réponse finale"])
+        task.cancel()
+    }
+
+    @MainActor func testFullSnapshotReplacesStaleRowsAndPreservesUnsyncedPendingMessage() {
+        let workspace = WorkspaceModel()
+        let thread = RemoteChatModel.Thread(id: "snapshot", title: "Snapshot", provider: "codex", model: nil, projectId: nil, status: "idle")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.apply(["kind": "text", "text": "Ancienne ligne", "meta": ["eventId": "old", "turnId": "old", "threadId": thread.id, "sequence": 4]])
+        workspace.chat.rows.append(.init(id: "pending:local", kind: "user", text: "Envoi local", turn: "local", messageID: "local"))
+        workspace.chat.running = true
+
+        let snapshot: [[String: Any]] = [
+            ["kind": "text", "text": "État actuel", "meta": ["eventId": "new", "turnId": "new", "threadId": thread.id, "sequence": 8]]
+        ]
+        workspace.chat.applyHistorySnapshot(snapshot[...])
+
+        XCTAssertEqual(workspace.chat.rows.map(\.text), ["État actuel", "Envoi local"])
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 8)
+        XCTAssertTrue(workspace.chat.running)
+        XCTAssertTrue(workspace.chat.isTurnRunning("local"))
+    }
+
+    @MainActor func testFullSnapshotAbsorbsDurablePendingMessageAndEndsCompletedTurn() {
+        let workspace = WorkspaceModel()
+        let thread = RemoteChatModel.Thread(id: "durable-snapshot", title: "Snapshot", provider: "codex", model: nil, projectId: nil, status: "running")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.rows.append(.init(id: "pending:request", kind: "user", text: "Question", turn: "request", messageID: "request"))
+        workspace.chat.running = true
+
+        let snapshot: [[String: Any]] = [
+            ["kind": "user", "text": "Question", "meta": ["eventId": "user", "messageId": "request", "turnId": "request", "threadId": thread.id, "sequence": 1]],
+            ["kind": "text", "text": "Réponse", "meta": ["eventId": "answer", "turnId": "request", "threadId": thread.id, "sequence": 2]],
+            ["kind": "done", "meta": ["eventId": "done", "turnId": "request", "threadId": thread.id, "sequence": 3]]
+        ]
+        workspace.chat.applyHistorySnapshot(snapshot[...])
+
+        XCTAssertEqual(workspace.chat.rows.map(\.text), ["Question", "Réponse"])
+        XCTAssertFalse(workspace.chat.rows.contains { $0.id.hasPrefix("pending:") })
+        XCTAssertFalse(workspace.chat.running)
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 3)
+    }
+
+    @MainActor func testFullSnapshotAbsorbsDurablePendingMessageAndKeepsUnfinishedTurnRunning() {
+        let workspace = WorkspaceModel()
+        let thread = RemoteChatModel.Thread(id: "active-snapshot", title: "Snapshot", provider: "codex", model: nil, projectId: nil, status: "running")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.rows.append(.init(id: "pending:request", kind: "user", text: "Question", turn: "request", messageID: "request"))
+        workspace.chat.running = true
+
+        let snapshot: [[String: Any]] = [
+            ["kind": "user", "text": "Question", "meta": ["eventId": "user", "messageId": "request", "turnId": "request", "threadId": thread.id, "sequence": 1]],
+            ["kind": "text", "text": "Réponse partielle", "meta": ["eventId": "answer", "turnId": "request", "threadId": thread.id, "sequence": 2]]
+        ]
+        workspace.chat.applyHistorySnapshot(snapshot[...])
+
+        XCTAssertEqual(workspace.chat.rows.map(\.text), ["Question", "Réponse partielle"])
+        XCTAssertFalse(workspace.chat.rows.contains { $0.id.hasPrefix("pending:") })
+        XCTAssertTrue(workspace.chat.running)
+        XCTAssertTrue(workspace.chat.isTurnRunning("request"))
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 2)
+    }
+
+    @MainActor func testLegacyGlobalDoneDoesNotResurrectPreviouslyActiveTurn() {
+        let workspace = WorkspaceModel()
+        let thread = RemoteChatModel.Thread(id: "legacy-done-snapshot", title: "Snapshot", provider: "codex", model: nil, projectId: nil, status: "running")
+        workspace.chat.select(thread, workspace: workspace)
+        workspace.chat.apply(["kind": "started", "meta": ["eventId": "started", "turnId": "request", "threadId": thread.id, "sequence": 1]])
+
+        let snapshot: [[String: Any]] = [
+            ["kind": "user", "text": "Question", "meta": ["eventId": "user", "turnId": "request", "threadId": thread.id, "sequence": 1]],
+            ["kind": "text", "text": "Réponse", "meta": ["eventId": "answer", "turnId": "request", "threadId": thread.id, "sequence": 2]],
+            ["kind": "done", "meta": ["eventId": "done", "threadId": thread.id, "sequence": 3]]
+        ]
+        workspace.chat.applyHistorySnapshot(snapshot[...])
+
+        XCTAssertFalse(workspace.chat.running)
+        XCTAssertFalse(workspace.chat.isTurnRunning("request"))
+        XCTAssertEqual(workspace.chat.lastSequences[thread.id], 3)
+    }
+
 }
 
 final class AnnotationMessagePresentationTests: XCTestCase {
@@ -585,4 +759,75 @@ final class UnifiedActivityTests: XCTestCase {
         XCTAssertFalse(ChatTimelineItem.displayItems([], running: false).contains(where: \.awaitingActivity))
         XCTAssertTrue(ChatTimelineItem.displayItems([], running: true).last!.awaitingActivity)
     }
+}
+
+private final class HistoryDeltaProtocol: URLProtocol, @unchecked Sendable {
+    final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var gate: DispatchSemaphore?
+        private var asked: XCTestExpectation?
+        private var queries: [String?] = []
+        private var snapshotRequired = false
+        private var streamTimeout: TimeInterval?
+        private var streamCachePolicy: URLRequest.CachePolicy?
+        private var streamCacheControl: String?
+        func reset(snapshotRequired: Bool = false) {
+            lock.withLock {
+                gate = nil; asked = nil; queries = []; self.snapshotRequired = snapshotRequired
+                streamTimeout = nil; streamCachePolicy = nil; streamCacheControl = nil
+            }
+        }
+        func hold(_ expectation: XCTestExpectation) { lock.withLock { asked = expectation; gate = DispatchSemaphore(value: 0) } }
+        func release() { lock.withLock { gate?.signal() } }
+        /// Records the delta cursor of one replay request and answers whether it is the
+        /// first one. Only that first request is held for the test to inspect.
+        func noteHistory(_ request: URLRequest) -> Bool {
+            let (expectation, semaphore, isFirst) = lock.withLock { () -> (XCTestExpectation?, DispatchSemaphore?, Bool) in
+                let isFirst = queries.isEmpty
+                queries.append(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "afterSequence" }?.value)
+                // Only the first request waits; the gate must stay reachable for release().
+                return (isFirst ? asked : nil, isFirst ? gate : nil, isFirst)
+            }
+            expectation?.fulfill()
+            semaphore?.wait()
+            return isFirst
+        }
+        var sequenceQueries: [String?] { lock.withLock { queries } }
+        var snapshotMode: Bool { lock.withLock { snapshotRequired } }
+        func noteLive(_ request: URLRequest) {
+            lock.withLock {
+                streamTimeout = request.timeoutInterval
+                streamCachePolicy = request.cachePolicy
+                streamCacheControl = request.value(forHTTPHeaderField: "Cache-Control")
+            }
+        }
+        var liveTimeout: TimeInterval? { lock.withLock { streamTimeout } }
+        var liveCachePolicy: URLRequest.CachePolicy? { lock.withLock { streamCachePolicy } }
+        var liveCacheControl: String? { lock.withLock { streamCacheControl } }
+    }
+    static let state = State()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return }
+        if url.path.hasSuffix("/live") {
+            Self.state.noteLive(request)
+            // Serve one line, then end the body late: AsyncBytes resolves either on
+            // the response or on completion, so this keeps both paths testable.
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("{\"type\":\"heartbeat\"}\n".utf8))
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { [self] in
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            return
+        }
+        let first = Self.state.noteHistory(request)
+        let body = first && Self.state.snapshotMode
+            ? #"{"type":"history","complete":false,"snapshotRequired":true,"events":[]}"#
+            : #"{"type":"history","complete":true,"snapshotRequired":false,"events":[{"kind":"text","text":"Réponse finale","meta":{"eventId":"final","turnId":"t","threadId":"delta-thread","sequence":11}}]}"#
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

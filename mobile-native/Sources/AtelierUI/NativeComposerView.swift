@@ -3,18 +3,18 @@ import SwiftUI
 struct NativeComposerView: View {
     @Bindable var workspace: WorkspaceModel
     var composing: FocusState<Bool>.Binding
+    var embedded = false
     @State private var dictating = false
     @State private var choosingModel = false
     @State private var choosingEffort = false
     @State private var modelAfterEffort = false
     @State private var expandedQuote = false
-    @State private var selection: TextSelection?
     @State private var suggestions = ComposerSuggestionsModel()
     @State private var choosingPermissions = false
     private var trigger: ComposerTrigger? {
         guard composing.wrappedValue else { return nil }
         var caret: Int? = nil
-        if let selection {
+        if let selection = workspace.composerSelection {
             guard case .selection(let range) = selection.indices, range.isEmpty else { return nil }
             // SwiftUI can publish the new selection before the new text.
             guard let offset = ComposerTrigger.caretOffset(in: workspace.draft, index: range.lowerBound) else { return nil }
@@ -61,14 +61,17 @@ struct NativeComposerView: View {
                                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { expandedQuote = false } } }
                             }.presentationDetents([.medium, .large])
                         }
-                    Button { chat.quote = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    Button {
+                        workspace.clearAnnotationReferences(for: chat.quote?.id)
+                        chat.quote = nil
+                    } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
                         .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Retirer la citation").disabled(chat.sending)
                 }.fixedSize(horizontal: false, vertical: true)
             }
             if !chat.attachments.isEmpty { ChatAttachmentBar(workspace: workspace) }
             HStack(spacing: 4) {
                 if !expanded { attachButton }
-                TextField("Message…", text: $workspace.draft, selection: $selection, axis: .vertical)
+                TextField("Message…", text: $workspace.draft, selection: $workspace.composerSelection, axis: .vertical)
                     .lineLimit(expanded ? 1...5 : 1...1).focused(composing)
                     .padding(.horizontal, expanded ? 6 : 0).padding(.top, expanded ? 4 : 0)
                     .accessibilityIdentifier("chatDraft")
@@ -108,19 +111,19 @@ struct NativeComposerView: View {
         .padding(.horizontal, expanded ? 10 : 8).padding(.vertical, expanded ? 10 : 4)
         .background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: expanded ? 22 : 26))
         .overlay(RoundedRectangle(cornerRadius: expanded ? 22 : 26).strokeBorder(.primary.opacity(0.07), lineWidth: 1))
-        .padding(.horizontal, 12).padding(.vertical, 8).background(.background)
+        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, embedded ? 3 : 8)
+        .background(embedded ? Color.clear : Color(uiColor: .systemBackground))
         .sheet(isPresented: $dictating) { NativeDictationSheet(workspace: workspace) }
         .sheet(isPresented: $choosingModel) { NativeModelSheet(chat: chat) }
         .sheet(isPresented: $choosingPermissions) { ChatOptionsView(chat: chat) }
         .task(id: suggestionKey) {
             await suggestions.load(kind: trigger?.kind, thread: chat.selected, project: suggestionProject, gallery: workspace.gallery, preview: chat.isPreview)
         }
-        .onChange(of: chat.selected?.id) { _, _ in selection = nil }
     }
     private func insertSuggestion(_ value: String, trigger: ComposerTrigger) {
         guard let result = trigger.replacing(in: workspace.draft, with: value) else { return }
         workspace.draft = result.text
-        if let range = Range(NSRange(location: result.caret, length: 0), in: result.text) { selection = TextSelection(insertionPoint: range.lowerBound) }
+        if let range = Range(NSRange(location: result.caret, length: 0), in: result.text) { workspace.composerSelection = TextSelection(insertionPoint: range.lowerBound) }
         composing.wrappedValue = true
     }
     private func handleLocalCommand() -> Bool {
@@ -133,7 +136,7 @@ struct NativeComposerView: View {
         case "/permissions": choosingPermissions = true
         default: return false
         }
-        workspace.draft = parts.count > 1 ? String(parts[1]) : ""; selection = nil
+        workspace.draft = parts.count > 1 ? String(parts[1]) : ""; workspace.composerSelection = nil
         return true
     }
     private var attachButton: some View {
@@ -151,8 +154,11 @@ struct NativeComposerView: View {
             else if chat.running { Task { await chat.stop(using: workspace.gallery) } }
             else {
                 let prompt = workspace.draft, thread = chat.selected?.id
+                let annotationReferences = workspace.annotationReferencesForCurrentChatSend()
                 Task {
-                    if await chat.send(prompt, using: workspace.gallery, includingAttachments: true), chat.selected?.id == thread, workspace.draft == prompt {
+                    let accepted = await chat.send(prompt, using: workspace.gallery, includingAttachments: true)
+                    if accepted { workspace.consumeAnnotationReferences(annotationReferences) }
+                    if accepted, chat.selected?.id == thread, workspace.draft == prompt {
                         workspace.draft = ""; composing.wrappedValue = false
                     }
                 }

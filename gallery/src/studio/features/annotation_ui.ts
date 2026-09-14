@@ -5,15 +5,18 @@ export const annotationColors = [
   {name:"blue", label:"Bleu", value:"rgba(120,170,255,.40)"},
   {name:"red", label:"Rose", value:"rgba(255,140,160,.40)"},
 ] as const;
+const selectionColors = new WeakMap<Document, string>();
 const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
 export function createNoteEditor(host: HTMLElement, options: {
   value?: string; onSubmit(value: string): void; onDelete(): void;
-  onDismiss?(): void; onChange?(value: string): void;
+  onDismiss?(): void; onChange?(value: string): void; onSendDirect?(value: string): void;
 }) {
   host.classList.add("atelier-note");
   host.innerHTML = '<div class="atelier-note-row"><textarea aria-label="Commentaire sur le passage" placeholder="Ajouter une note…" rows="1"></textarea>'
     + '<button type="button" class="delete-note" title="Supprimer l’annotation" aria-label="Supprimer l’annotation">'+trash+'</button>'
-    + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">↑</button></div><div class="annotation-status" role="status"></div>';
+    + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">↑</button>'
+    + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg></button>' : '')
+    + '</div><div class="annotation-status" role="status"></div>';
   const input = host.querySelector("textarea")!;
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
@@ -25,6 +28,8 @@ export function createNoteEditor(host: HTMLElement, options: {
     if(event.key==="Escape"){event.preventDefault();options.onDismiss?.();}
   };
   host.querySelector<HTMLButtonElement>(".send2")!.onclick=()=>options.onSubmit(input.value);
+  const directButton = host.querySelector<HTMLButtonElement>(".send-direct");
+  if(directButton) directButton.onclick=()=>options.onSendDirect?.(input.value);
   host.querySelector<HTMLButtonElement>(".delete-note")!.onclick=options.onDelete;
   return {input,status,fit,focus(){fit();input.focus({preventScroll:true});},busy(value:boolean){
     input.disabled=value;host.querySelectorAll("button").forEach(button=>button.disabled=value);
@@ -32,6 +37,7 @@ export function createNoteEditor(host: HTMLElement, options: {
 }
 export function createSelectionActions(host: HTMLElement, options: {
   onColor?(name: string, value: string): void; onAdd?(): void; onAnnotate(): void; onAsk?(): void;
+  onHighlight?(color: string): void; highlightColor?: string;
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
   const doc=host.ownerDocument;
@@ -40,7 +46,39 @@ export function createSelectionActions(host: HTMLElement, options: {
     button.setAttribute("aria-label",label);button.title=label;button.innerHTML=html;
     button.onmousedown=e=>e.preventDefault();button.onclick=e=>{e.stopPropagation();action();};host.appendChild(button);return button;
   };
-  if(options.onAdd) add("Add to Chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg> Add to Chat',options.onAdd);
-  add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg> Annoter',options.onAnnotate);
-  if(options.onAsk) add("Quick Ask",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg> Quick Ask',options.onAsk);
+  if(options.onAdd) add("Ajouter au chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg>',options.onAdd);
+  add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>',options.onAnnotate);
+  if(options.onAsk) add("Question rapide",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg>',options.onAsk);
+  if(options.onHighlight) {
+    let color=annotationColors.find(c=>c.name===(selectionColors.get(doc) || options.highlightColor))?.name || "amber";
+    const group=doc.createElement("div");group.className="atelier-highlight-actions";
+    const mark=add("Surligner",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 11 8-8 4 4-8 8M9 11l4 4-3 3-4-4zM6 14l-3 6h6l1-2"/></svg>',()=>apply(color));
+    const toggle=add("Choisir la couleur du surlignage",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>',()=>{
+      palette.hidden=!palette.hidden;toggle.setAttribute("aria-expanded",String(!palette.hidden));
+      if(!palette.hidden){
+        palette.style.top="";palette.style.bottom="";
+        palette.style.translate="0px 0";
+        const rect=palette.getBoundingClientRect(), width=doc.documentElement.clientWidth;
+        palette.style.translate=`${Math.max(0,8-rect.left)-Math.max(0,rect.right-width+8)}px 0`;
+        if(rect.top<8){palette.style.bottom="auto";palette.style.top="calc(100% + 6px)";}
+      }
+    },"atelier-capsule atelier-color-toggle");
+    toggle.setAttribute("aria-expanded","false");
+    const palette=doc.createElement("div");palette.className="atelier-color-palette";palette.hidden=true;
+    palette.setAttribute("role","group");palette.setAttribute("aria-label","Couleur du surlignage");
+    function paint(){
+      const selected=annotationColors.find(c=>c.name===color)!;
+      mark.style.setProperty("--annotation-color",selected.value.replace(".40","1"));
+      mark.title=`Surligner — ${selected.label}`;
+      palette.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.color===color)));
+    }
+    function apply(name:typeof color){color=name;selectionColors.set(doc,color);paint();palette.hidden=true;toggle.setAttribute("aria-expanded","false");options.onHighlight?.(color);}
+    for(const entry of annotationColors){
+      const swatch=add(`Surligner en ${entry.label.toLowerCase()}`,"",()=>apply(entry.name),"atelier-swatch");
+      swatch.dataset.color=entry.name;swatch.style.setProperty("--annotation-color",entry.value.replace(".40","1"));palette.append(swatch);
+    }
+    group.append(mark,toggle,palette);host.append(group);paint();
+    group.addEventListener("keydown",event=>{if(event.key==="Escape"&&!palette.hidden){event.stopPropagation();palette.hidden=true;toggle.setAttribute("aria-expanded","false");toggle.focus();}});
+    group.addEventListener("focusout",event=>{if(!group.contains(event.relatedTarget as Node|null)){palette.hidden=true;toggle.setAttribute("aria-expanded","false");}});
+  }
 }

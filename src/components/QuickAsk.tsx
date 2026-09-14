@@ -626,11 +626,14 @@ export default function QuickAsk({
           )}
         </div>
         {quote && (
-          <div className="sel-toolbar qa-sel-toolbar" ref={selToolbarRef}
+          <div className="sel-toolbar qa-sel-toolbar atelier-selection" ref={selToolbarRef}
             style={{ left: selToolbarLeft ?? quote.x, top: quote.y - 44 }}>
             <RowButton
-              onMouseDown={(e) => {
-                e.preventDefault();
+              className="atelier-capsule"
+              aria-label={t("action.add-to-chat")}
+              title={t("action.add-to-chat")}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
                 const src = quote.msgIndex == null ? undefined : msgs[quote.msgIndex];
                 setCtx({
                   selection: quote.text,
@@ -645,7 +648,6 @@ export default function QuickAsk({
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
                 <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
               </svg>
-              {t("action.add-to-chat")}
             </RowButton>
           </div>
         )}

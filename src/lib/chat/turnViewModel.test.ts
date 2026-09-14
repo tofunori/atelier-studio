@@ -54,6 +54,40 @@ describe("chat turn view model", () => {
     expect(turns[1].provider).toBe("claude");
   });
 
+  it("garde la clé de la réponse terminée quand un nouveau tour démarre avec un collage et un goal", () => {
+    const goal = (eventId: string, turnId: string, sequence: number): AgentEvent => ({
+      kind: "goal",
+      goal: null,
+      meta: meta(eventId, turnId, sequence),
+    });
+    const firstTurn: AgentEvent[] = [
+      { kind: "user", text: "Question 1", meta: meta("user-1", "turn-1", 1) },
+      goal("goal-1", "turn-1", 2),
+      { kind: "text", text: "Réponse complète du premier tour.", meta: meta("answer-1", "turn-1", 3) },
+      { kind: "done", ok: true, result: "", meta: meta("done-1", "turn-1", 4) },
+    ];
+    const before = firstTurn.reduce((list, event) => reduceHarnessEvent(list, event), [] as AgentEvent[]);
+    const beforeAnswer = projectChatTimeline(
+      before,
+      buildChatTurnViewModels(before, null),
+      new Set(),
+    ).find((row) => row.type === "event" && row.event.kind === "text");
+
+    const after = [
+      ...before,
+      { kind: "user", text: "", pastes: [{ name: "Texte collé", lines: 25 }], meta: meta("user-2", "turn-2", 5) } as AgentEvent,
+      goal("goal-2", "turn-2", 6),
+    ].reduce((list, event) => reduceHarnessEvent(list, event), [] as AgentEvent[]);
+    const turns = buildChatTurnViewModels(after, T0 + 600);
+    const afterAnswer = projectChatTimeline(after, turns, new Set())
+      .find((row) => row.type === "event" && row.event.kind === "text");
+
+    expect(turns.map((turn) => turn.key)).toEqual(["turn:turn-1", "turn:turn-2"]);
+    expect(turns[1].startIndex).toBe(after.findIndex((event) => event.kind === "user" && event.meta && "turnId" in event.meta && event.meta.turnId === "turn-2"));
+    expect(beforeAnswer?.key).toBe("event:turn:turn-1:txt:0");
+    expect(afterAnswer?.key).toBe(beforeAnswer?.key);
+  });
+
   it("priorise attente, activité running, reasoning live puis Thinking", () => {
     const user: AgentEvent = { kind: "user", text: "Travaille", ts: T0 };
     const pending: AgentEvent[] = [

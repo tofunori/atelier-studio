@@ -21,6 +21,7 @@ export function createCodeSelectionActions(editor: StudioEditor, path: string, d
     onAdd(){if(!current)return;post({type:"atelier-add-to-chat",text:`${path} (${page()}) : « ${current.text} »`});hide();},
     onAnnotate(){if(!current)return;annotations.open(current);hide();},
     onAsk(){if(!current)return;post({type:"atelier-quick-ask",text:current.text,path,page:page()});hide();},
+    onHighlight(color){if(!current)return;annotations.highlight(current,color);current=null;hide();},
   });
   editor.on("scroll",hide);
   doc.addEventListener("keydown",event=>{if(event.key==="Escape")hide();});

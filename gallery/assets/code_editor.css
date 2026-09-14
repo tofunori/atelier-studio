@@ -20,7 +20,7 @@
   .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;
               font-family:var(--code-font);line-height:1.5}
   .cm-editor{background:#1e2126;color:#d8d3c8;min-height:0}
-  .cm-editor .cm-scroller{font-family:var(--code-font);overflow:auto}
+  .cm-editor .cm-scroller{font-family:var(--code-font);overflow-x:auto;overflow-y:scroll}
   .cm-editor .cm-gutters{background:transparent;border-right:1px solid #2a2f3a;color:#5b6270}
   /* breathing room between line numbers and code (esp. 3-digit lines) */
   .CodeMirror-linenumber{padding:0 14px 0 22px !important;color:#5b6270}

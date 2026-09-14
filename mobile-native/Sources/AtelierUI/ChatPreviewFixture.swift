@@ -82,6 +82,33 @@ import Foundation
             workspace.documentMode = .source
             workspace.surface = .document
         }
+        if ProcessInfo.processInfo.arguments.contains("--inline-review-fixture") {
+            let before = "\\section{Résultats}\n\nNous comparons les estimations entre régions et zones glaciaires.\n\nLe modèle confirme un effet négatif dans toutes les régions.\n\nCet effet est significatif.\n\n\\subsection{Interprétation}\n\nCes résultats démontrent un mécanisme commun.\n"
+            let after = before
+                .replacingOccurrences(of: "Le modèle confirme un effet négatif dans toutes les régions.", with: "Les estimations centrales sont négatives ; leur incertitude varie selon les régions.")
+                .replacingOccurrences(of: "Cet effet est significatif.", with: "L’intervalle recouvre zéro : le sens de cet effet reste incertain.")
+                .replacingOccurrences(of: "Ces résultats démontrent un mécanisme commun.", with: "Ces résultats suggèrent une réponse commune, sans établir le mécanisme sous-jacent.")
+            let file = GalleryArtifact(name: "results_en.tex", data: Data(before.utf8))
+            workspace.gallery.localItems.append(file)
+            try? workspace.openArtifact(file, data: Data(before.utf8))
+            workspace.receiveDocumentVersion(after, for: file.id, expectedSource: before)
+            if let index = workspace.gallery.localItems.firstIndex(where: { $0.id == file.id }) {
+                workspace.gallery.localItems[index].data = Data(after.utf8)
+            }
+            workspace.documentMode = .reading; workspace.surface = .document
+        }
+        if ProcessInfo.processInfo.arguments.contains("--document-update-review-fixture") {
+            let before = "\\section{Résultats}\n\nNous comparons les estimations entre régions.\n\nLe modèle confirme un effet négatif.\n\n\\subsection{Discussion}\n\nLa lecture des intervalles complète celle des estimations centrales.\n"
+            let after = before.replacingOccurrences(of: "Le modèle confirme un effet négatif.", with: "L’intervalle recouvre zéro : le sens de cet effet reste incertain.")
+            let file = GalleryArtifact(name: "results_en.tex", data: Data(before.utf8))
+            try? workspace.openArtifact(file, data: Data(before.utf8))
+            if ProcessInfo.processInfo.arguments.contains("--document-conflict-fixture") {
+                workspace.source = before + "\nUne précision rédigée sur l’iPhone.\n"
+            }
+            workspace.receiveDocumentVersion(after, for: file.id, expectedSource: before)
+            workspace.documentMode = .reading
+            workspace.surface = .document
+        }
         if ProcessInfo.processInfo.arguments.contains("--reading-capsule-fixture") {
             let source = String(repeating: "Individual summers show much larger regional forcings: $14.31$~W~m$^{-2}$ in 2023. ", count: 5)
             let prompt = "Voici mes remarques de lecture. Propose des révisions en tenant compte de chaque remarque.\n\nresults_en.tex — lignes 90–100\nCitation :\n" + source + "\n\nSource exacte :\n" + source + "\n\nRemarque :\nVarier reaches."
