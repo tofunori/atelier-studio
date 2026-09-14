@@ -240,6 +240,8 @@ export type UserDisplayEvent = {
 export type Thread = {
   id: string;
   projectRoot: string;
+  /** Managed free-discussion draft, relative to projectRoot. */
+  discussionDocument?: string;
   title: string;
   provider: string;
   sessionId: string | null;
@@ -403,6 +405,8 @@ async function connectSidecarAttempt(
 export type SendOptions = {
   threadId: string;
   projectRoot: string;
+  /** Exact Markdown draft exposed by the managed free-discussion surface. */
+  discussionDocument?: string;
   provider: string;
   prompt: string;
   inputs?: (

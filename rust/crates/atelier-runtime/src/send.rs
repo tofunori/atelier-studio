@@ -97,6 +97,38 @@ fn with_file_scope_instruction(prompt: String) -> String {
     )
 }
 
+fn with_discussion_workspace_instruction(
+    prompt: String,
+    project_root: &str,
+    discussion_document: Option<&str>,
+) -> String {
+    if !is_managed_workspace(project_root) {
+        return prompt;
+    }
+    let document = discussion_document
+        .filter(|value| {
+            !value.trim().is_empty()
+                && !value.starts_with('/')
+                && !value.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        })
+        .unwrap_or("brouillon.md");
+    format!(
+        "{prompt}\n\n<atelier-discussion-workspace>\nThis is a permanent free-discussion workspace managed by Atelier. The exact Markdown draft is {document} inside the current workspace. Read and edit that file directly when the user asks for writing or revision, and keep local edits intact. To show or open it, use the Atelier surface and its Markdown editor; never invoke cmux or create a temporary Markdown copy. The draft is available every turn, including resumed sessions.\n</atelier-discussion-workspace>"
+    )
+}
+
+fn is_managed_workspace(root: &str) -> bool {
+    const MARKER: &str = "/Library/Application Support/atelier-studio/discussions/";
+    let Some((prefix, id)) = root.split_once(MARKER) else { return false; };
+    !prefix.is_empty()
+        && !id.is_empty()
+        && !id.contains('/')
+        && id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) { byte == b'-' } else { byte.is_ascii_hexdigit() }
+        })
+}
+
 pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
     let mut out = text.to_string();
     const OPEN: &str = "<atelier-file-scope>";
@@ -1127,6 +1159,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         crate::project_folders::context(&project_root, &folder_settings)
     );
     let provider_prompt = with_file_scope_instruction(provider_prompt);
+    let provider_prompt = with_discussion_workspace_instruction(
+        provider_prompt,
+        &project_root,
+        msg.get("discussionDocument").and_then(Value::as_str),
+    );
     // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
     // message alors que l'historique natif du provider les conserve tous — une
     // conversation Kimi à 7 sources a dépassé les 2 Mo de la limite API. Les

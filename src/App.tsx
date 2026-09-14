@@ -1,4 +1,11 @@
-import { isDiscussionContext, isDiscussionRoot } from "./lib/discussions";
+import {
+  discussionMarkdownFile,
+  discussionWorkspaceId,
+  isDiscussionContext,
+  isDiscussionRoot,
+  isFreeDiscussionThread,
+  isLegacyDiscussionThread,
+} from "./lib/discussions";
 import { DiscussionDocuments } from "./components/DiscussionDocuments";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
@@ -593,6 +600,14 @@ export default function App() {
   const [projects, setProjects] = useState<string[]>(loadProjects);
   const discussionNavigation = useRef(false);
   const creatingDiscussion = useRef(false);
+  // Legacy free chats have no workspace root. Migration is keyed by thread and
+  // deduplicated across selection, submit retry, and the idle-after-running
+  // transition. The provider process remains on its old cwd until the run is
+  // finished; only then do we publish the managed root.
+  const discussionMigrationsRef = useRef(new Map<string, Promise<string | null>>());
+  const discussionMigrationDeferredRef = useRef(new Set<string>());
+  const discussionDocumentsRef = useRef(new Set<string>());
+  const discussionDocumentRequestsRef = useRef(new Map<string, Promise<string | null>>());
   const [creatingDocument, setCreatingDocument] = useState(false);
   const [activeProject, setActiveProject] = useState<string | null>(
     () => loadProjects()[0] ?? null,
