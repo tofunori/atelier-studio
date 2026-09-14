@@ -561,4 +561,4 @@ Numérotation reprise à 069.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| [080](080-harness-recherche-scientifique.md) | Vérification fiable, conservation des preuves, expériences reproductibles et reprise | P1 corrections ; évolution incrémentale | A M · B S · C L · D M · E M | Lots et dépendances détaillés dans le plan ; indépendant de 068 | TODO — plan rédigé, aucune implémentation engagée |
+| [080](080-harness-recherche-scientifique.md) | Vérification fiable, conservation des preuves, expériences reproductibles et reprise | P1 corrections ; évolution incrémentale | A M · B S · C L · D M · E M | Lots et dépendances détaillés dans le plan ; indépendant de 068 | TODO — [annexe d'exécution](080-harness-recherche-scientifique-execution.md) précisée ; Grok implémente, Codex vérifie |
