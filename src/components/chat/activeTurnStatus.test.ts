@@ -16,6 +16,30 @@ function status(events: AgentEvent[]) {
 beforeEach(() => setLanguage('fr'));
 
 describe('activité unique du tour', () => {
+  const codexUser: AgentEvent = { ...user, meta: { schemaVersion: 1, eventId: 'user', provider: 'codex', threadId: 't', turnId: 'a', sequence: 1, ts: 1000, durable: true, origin: 'atelier' } };
+  const supervision = (state: 'running' | 'completed' | 'failed', sequence = 3): AgentEvent => ({
+    kind: 'activity', id: 'codex-supervision', title: 'Ancien statut technique', status: state,
+    meta: { ...codexUser.meta!, eventId: `probe-${sequence}`, sequence, ts: sequence * 1000 },
+  });
+  it('ne présente pas une attente Codex comme une réflexion attestée', () => {
+    expect(status([codexUser])).toEqual({ kind: 'processing', label: 'En attente du modèle…' });
+    expect(status([codexUser, supervision('running')])).toEqual({ kind: 'processing', label: 'En attente du modèle…' });
+    expect(status([codexUser, supervision('failed')]).label).toContain('Connexion à vérifier');
+    expect(status([codexUser, { kind: 'tool', name: '__thinking' }])).toEqual({ kind: 'thinking', label: 'Réflexion en cours…' });
+  });
+  it('priorise la compaction, les outils et les demandes humaines sur la surveillance', () => {
+    for (const name of ['__compacted', 'web_search', 'Read']) {
+      const action = tool('action', 'inProgress', name);
+      expect(status([codexUser, action, supervision('running')])).toEqual(status([codexUser, action]));
+    }
+    expect(status([codexUser, supervision('running'), { kind: 'permission', requestId: 'p', toolName: 'Bash', answered: null }]).kind).toBe('waiting');
+  });
+  it('la reprise et une sonde périmée ne remplacent pas la rédaction', () => {
+    const writing: AgentEvent = { kind: 'streaming', text: 'La réponse', meta: { ...codexUser.meta!, eventId: 'writing', sequence: 5, ts: 5000 } };
+    expect(status([codexUser, supervision('completed', 6), writing]).kind).toBe('writing');
+    expect(status([codexUser, supervision('running', 3), writing]).kind).toBe('writing');
+    expect(status([codexUser, supervision('running'), { kind: 'done', ok: true, result: '' }]).kind).toBe('completed');
+  });
   it('présente uniquement le lifecycle dérivé, même si le tableau fourni diverge', () => {
     const completed = tool('r', 'completed');
     const events = [user, completed];

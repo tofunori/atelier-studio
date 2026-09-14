@@ -56,18 +56,38 @@ async fn goal_read_recovers_empty_new_session_without_replaying_mutations() {
         let provider = provider(&fake);
         let result = provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native","projectRoot":"/tmp"})).await;
         assert!(result.is_ok(), "{mode}: {result:?}");
-        assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), 2);
+        assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), if mode == "resume-empty-once" { 2 } else { 1 });
         assert!(!fake.requests().iter().any(|r| r["method"] == "turn/start" || r["method"] == "thread/goal/set"));
     }
 }
 
 #[tokio::test]
-async fn goal_read_does_not_resume_an_active_session() {
+async fn goal_read_does_not_resume_an_open_session_before_turn_start() {
     let fake = FakeCodex::new("normal");
     let provider = provider(&fake);
-    provider.active.lock().unwrap().insert("ui".into(), ActiveTurn { codex_id:"native".into(), turn_id:Some("turn".into()) });
+    provider.server.request("thread/start", json!({})).await.unwrap();
+    assert!(provider.active.lock().unwrap().is_empty());
     assert!(provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await.is_ok());
     assert!(!fake.requests().iter().any(|r| r["method"] == "thread/resume"));
+}
+
+#[tokio::test]
+async fn goal_read_rechecks_session_readiness_between_retries() {
+    let fake = FakeCodex::new("resume-empty-once");
+    let provider = Arc::new(provider(&fake));
+    provider.server.request("test/ready", json!({})).await.unwrap();
+    let p = provider.clone();
+    let read = tokio::spawn(async move {
+        p.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !fake.requests().iter().any(|r| r["method"] == "thread/resume") {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }).await.unwrap();
+    provider.server.request("thread/start", json!({})).await.unwrap();
+    assert!(read.await.unwrap().is_ok());
+    assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), 1);
 }
 
 #[tokio::test]

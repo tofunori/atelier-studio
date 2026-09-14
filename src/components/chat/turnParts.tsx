@@ -585,7 +585,7 @@ export function Working(
     return () => clearTimeout(id);
   }, [note]);
   const duration = workDuration(Math.max(0, Date.now() - since));
-  if (compact) return <span className="turn-activity-elapsed" aria-label={t("chat.working")}>{duration}</span>;
+  if (compact) return <span className="turn-activity-elapsed" title={t("chat.total-turn-duration", { duration })} aria-label={t("chat.total-turn-duration", { duration })}>{duration}</span>;
   return (
     <div className="working working-header">
       {/* Façon Hermes : le pulse + le temps suffisent — « Travaille depuis »

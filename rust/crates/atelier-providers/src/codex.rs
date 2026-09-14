@@ -608,10 +608,10 @@ async fn open_thread(server: &CodexAppServer, session_id: Option<&str>, opts: Va
 /// A new session id can reach the UI before Codex flushes session_meta.
 /// Retry only that transient store error; an absent/corrupt session must still
 /// surface, and no goal mutation is replayed here.
-async fn read_native_goal(server: &CodexAppServer, session_id: &str, opts: Value, active: bool) -> Result<Value, String> {
+async fn read_native_goal(server: &CodexAppServer, session_id: &str, opts: Value) -> Result<Value, String> {
     for attempt in 0..=4 {
         let result = async {
-            let id = if active { session_id.to_string() } else {
+            let id = if server.has_open_thread(session_id) { session_id.to_string() } else {
                 open_thread(server, Some(session_id), opts.clone()).await?
             };
             server.request("thread/goal/get", json!({"threadId": id})).await
@@ -1488,8 +1488,7 @@ impl Provider for CodexProvider {
             if let Some(owner) = params.get("threadId").and_then(Value::as_str) {
                 self.goal_owners.lock().unwrap().insert(session_id.to_string(), owner.to_string());
             }
-            let active = self.active.lock().unwrap().values().any(|turn| turn.codex_id == session_id);
-            return read_native_goal(&self.server, session_id, native_open_opts(cwd, sandbox, &params), active).await;
+            return read_native_goal(&self.server, session_id, native_open_opts(cwd, sandbox, &params)).await;
         }
         let codex_id = open_thread(
             &self.server,

@@ -213,6 +213,53 @@ export type InteractionResponseMessage = {
 export type PingMessage = { type: "ping" };
 export type PongMessage = { type: "pong" };
 
+export type RequestReviewMessage = {
+  type: "requestReview";
+  requestId?: string;
+  threadId: string;
+  turnId?: string;
+  mode?: "claims" | "git";
+  projectRoot?: string;
+  autoReview?: {
+    enabled?: boolean;
+    provider?: string;
+    model?: string;
+    effort?: string;
+    trigger?: string;
+    autofix?: boolean;
+  };
+};
+
+export type GetReviewsMessage = {
+  type: "getReviews";
+  requestId?: string;
+  threadId: string;
+  before?: string;
+  limit?: number;
+  projectRoot?: string;
+};
+
+export type ReviewResultMessage = {
+  type: "reviewResult";
+  requestId?: string;
+  threadId: string;
+  turnId?: string;
+  reviewId?: string;
+  status: "running" | "done";
+  executionStatus?: "queued" | "running" | "completed" | "error" | "cancelled" | "interrupted";
+  verdict?: "ok" | "issues" | "inconclusive" | "error" | null;
+  outcome?: "passed" | "failed" | "inconclusive" | null;
+  coverage?: "complete" | "partial" | "unavailable";
+  mode?: "claims" | "git";
+};
+
+export type ReviewsMessage = {
+  type: "reviews";
+  requestId?: string;
+  threadId: string;
+  reviews: ReviewResultMessage[];
+};
+
 export type ClientWireMessage =
   | ClientHelloMessage
   | ListThreadsMessage
@@ -221,6 +268,8 @@ export type ClientWireMessage =
   | InterruptMessage
   | InteractionResponseMessage
   | PingMessage
+  | RequestReviewMessage
+  | GetReviewsMessage
   | { type: string; [key: string]: unknown };
 
 export type ServerWireMessage =
@@ -230,4 +279,6 @@ export type ServerWireMessage =
   | HistoryMessage
   | EventMessage
   | PongMessage
+  | ReviewResultMessage
+  | ReviewsMessage
   | { type: string; [key: string]: unknown };

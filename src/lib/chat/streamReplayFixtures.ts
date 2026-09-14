@@ -21,7 +21,7 @@ export type ReplayCheckpoint = {
   /** Expected projection status at this point (if a turn is still active). */
   phase?: "prework" | "final_answer" | "completed" | "failed";
   activeState?: "thinking" | "reasoning" | "activity" | "answering" | null;
-  statusKind?: "thinking" | "action" | "writing" | "failed";
+  statusKind?: "thinking" | "action" | "writing" | "failed" | "processing";
 };
 
 export type StreamReplayFixture = {
@@ -428,11 +428,11 @@ export const codexComposite: StreamReplayFixture = {
   events: codexCompositeEvents,
   frames: frameAt(codexCompositeEvents, 1, 3, 5, 7, 9, 11, 13),
   checkpoints: [
-    { after: 1, label: "empty active turn", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 1, label: "empty active turn", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 3, label: "reasoning deltas", phase: "prework", activeState: "reasoning", statusKind: "thinking" },
     { after: 5, label: "two parallel tools running", phase: "prework", activeState: "activity", statusKind: "action" },
-    { after: 7, label: "one completed and one failed tool", phase: "prework", activeState: "thinking", statusKind: "thinking" },
-    { after: 9, label: "return to reasoning", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 7, label: "one completed and one failed tool", phase: "prework", activeState: "thinking", statusKind: "processing" },
+    { after: 9, label: "awaiting next output after recorded reasoning", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 11, label: "answer streaming", phase: "final_answer", activeState: "answering", statusKind: "writing" },
     { after: 13, label: "completed", phase: "completed", activeState: null },
   ],

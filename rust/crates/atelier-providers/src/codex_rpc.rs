@@ -22,6 +22,7 @@ pub type ServerRequestHandler =
 
 #[derive(Default)]
 struct ConnectionState {
+    opened_threads: std::collections::HashSet<String>,
     pending: HashMap<u64, oneshot::Sender<Result<Value, String>>>,
     goal_requests: HashMap<u64, (String, String)>,
     handlers: HashMap<String, NotifHandler>,
@@ -121,7 +122,13 @@ impl Connection {
         };
         self.write(&json!({"id":id,"method":method,"params":params}))
             .await?;
-        rx.await.map_err(|_| "requête Codex annulée".to_string())?
+        let result = rx.await.map_err(|_| "requête Codex annulée".to_string())??;
+        if matches!(method, "thread/start" | "thread/resume") {
+            if let Some(id) = result.pointer("/thread/id").and_then(Value::as_str) {
+                self.state.lock().unwrap().opened_threads.insert(id.to_string());
+            }
+        }
+        Ok(result)
     }
 
     fn dispatch(self: &Arc<Self>, msg: Value) {
@@ -387,6 +394,12 @@ impl Drop for ThreadConnection {
 }
 
 impl CodexAppServer {
+    /// Session readiness belongs to this process, not to a running turn. The
+    /// set is cleared with the connection, so a replacement must resume again.
+    pub(crate) fn has_open_thread(&self, id: &str) -> bool {
+        self.current().is_some_and(|connection| !connection.is_closed()
+            && connection.state.lock().unwrap().opened_threads.contains(id))
+    }
     pub fn new() -> Self {
         Self {
             inner: StdMutex::new(None),

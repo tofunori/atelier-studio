@@ -26,6 +26,7 @@ export type ProviderCapabilities = {
    *  skills (kimi). */
   skillsAttach?: boolean;
   review?: boolean;
+  structuredReview?: boolean;
   compact?: boolean;
   durableHistory?: boolean;
   /** Le provider accepte des inputs structurés avec images (plan 046). */

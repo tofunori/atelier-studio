@@ -38,6 +38,10 @@ export {
   type ServerWireMessage,
   type PingMessage,
   type PongMessage,
+  type RequestReviewMessage,
+  type GetReviewsMessage,
+  type ReviewResultMessage,
+  type ReviewsMessage,
 } from "./envelopes.ts";
 
 export {

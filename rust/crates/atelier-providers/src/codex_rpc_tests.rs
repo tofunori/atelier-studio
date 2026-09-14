@@ -5,6 +5,18 @@ use tempfile::TempDir;
 pub(crate) struct FakeCodex {
     pub dir: TempDir,
 }
+
+#[tokio::test]
+async fn opened_sessions_do_not_survive_connection_replacement() {
+    let fake = FakeCodex::new("normal");
+    let server = fake.server();
+    server.request("thread/start", json!({})).await.unwrap();
+    assert!(server.has_open_thread("native"));
+    server.fail_for_test();
+    assert!(!server.has_open_thread("native"));
+    server.request("thread/resume", json!({"threadId":"native"})).await.unwrap();
+    assert!(server.has_open_thread("native"));
+}
 impl FakeCodex {
     pub fn new(mode: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();

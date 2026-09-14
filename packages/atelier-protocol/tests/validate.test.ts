@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { GetReviewsMessage, RequestReviewMessage, ReviewResultMessage } from "../src/envelopes.ts";
 import {
   parseJsonMessage,
   validateClientHello,
@@ -139,5 +140,36 @@ describe("validateGetHistory", () => {
     const r = validateGetHistory({ type: "getHistory", threadId: "t", afterSequence: 3 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.afterSequence).toBe(3);
+  });
+});
+
+describe("review wire (plan 080 A2)", () => {
+  it("accepte requestReview additif et getReviews paginé", () => {
+    const request: RequestReviewMessage = {
+      type: "requestReview",
+      requestId: "req-1",
+      threadId: "t1",
+      mode: "git",
+    };
+    const list: GetReviewsMessage = {
+      type: "getReviews",
+      requestId: "g1",
+      threadId: "t1",
+      limit: 20,
+    };
+    const result: ReviewResultMessage = {
+      type: "reviewResult",
+      threadId: "t1",
+      turnId: "turn-1",
+      reviewId: "11111111-1111-1111-1111-111111111111",
+      status: "running",
+      executionStatus: "queued",
+      verdict: null,
+      mode: "git",
+    };
+    expect(request.mode).toBe("git");
+    expect(list.limit).toBe(20);
+    expect(result.executionStatus).toBe("queued");
+    expect(result.status).toBe("running");
   });
 });

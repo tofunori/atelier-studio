@@ -260,7 +260,7 @@ mod tests {
             }
             if matches!(
                 *t,
-                "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview"
+                "pinPassage" | "listPins" | "unpinPassage" | "getTurnContextPreview" | "getReviews"
             ) {
                 continue; // preuves (panneau) : contrat Rust seulement, pas de pendant Node
             }

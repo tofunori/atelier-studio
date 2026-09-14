@@ -2078,6 +2078,11 @@ export default function App() {
         requestId,
         ...(cursor ? { historyCursor: cursor } : {}),
       }));
+      ws.current.send(JSON.stringify({
+        type: "getReviews",
+        requestId: crypto.randomUUID(),
+        threadId,
+      }));
     } catch {
       forgetHistoryRequestBoundary(requestId);
       return false;
@@ -2978,6 +2983,9 @@ export default function App() {
           }
         }
       }
+      if (msg.type === "reviews") {
+        window.dispatchEvent(new CustomEvent("reviews-list", { detail: msg }));
+      }
       if (msg.type === "qaEvent") {
         window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
       }
@@ -3206,7 +3214,13 @@ export default function App() {
     const onRequestReview = (e: Event) => {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (threadId && ws.current?.readyState === 1) {
-        ws.current.send(JSON.stringify({ type: "requestReview", threadId, autoReview: settingsRef.current.autoReview }));
+        ws.current.send(JSON.stringify({
+          type: "requestReview",
+          requestId: crypto.randomUUID(),
+          threadId,
+          mode: "claims",
+          autoReview: settingsRef.current.autoReview,
+        }));
       }
     };
     const onQaToggle = () => {
@@ -4229,11 +4243,13 @@ export default function App() {
     const reviewSupported = selectedCapabilities?.review ?? Boolean(codexActive);
     if (nativeCommand?.name === "review" && codexActive && reviewSupported && activeId && ws.current?.readyState === 1) {
       window.dispatchEvent(new CustomEvent("review-result", {
-        detail: { type: "reviewResult", threadId: activeId, status: "running" },
+        detail: { type: "reviewResult", threadId: activeId, status: "running", mode: "git" },
       }));
       ws.current.send(JSON.stringify({
         type: "requestReview",
+        requestId: crypto.randomUUID(),
         threadId: activeId,
+        mode: "git",
         autoReview: settingsRef.current.autoReview,
       }));
       return;

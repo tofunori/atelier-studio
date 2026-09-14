@@ -145,6 +145,7 @@ export function makeCapabilities(over: Partial<ProviderCapabilities> = {}): Prov
     plugins: false,
     skills: true,
     review: false,
+    structuredReview: false,
     compact: false,
     durableHistory: false,
     permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"],

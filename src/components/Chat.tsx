@@ -416,7 +416,7 @@ export default function Chat(p: {
   }, [selectionKey, provider, model, effort, fastMode, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string; messageIndex: number | null } | null>(null);
-  const [review, setReview] = useState<{ status: string; verdict?: string; mode?: string; text?: string | null; error?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
+  const [review, setReview] = useState<{ status: string; verdict?: string; mode?: string; text?: string | null; error?: string; turnId?: string; reviewId?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
   const [pasteView, setPasteView] = useState<{ name: string; text: string } | null>(null);
@@ -433,16 +433,42 @@ export default function Chat(p: {
   useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
   useEffect(() => setReview(null), [p.threadId]);
   useEffect(() => {
-    const onReview = (e: Event) => {
-      const msg = (e as CustomEvent).detail;
-      if (msg.threadId === p.threadId) {
-        setReview(msg);
-        if (msg.status === "done") setFixing(false);
+    const lastTurnId = (() => {
+      for (let i = p.events.length - 1; i >= 0; i -= 1) {
+        const event = p.events[i];
+        if (event.kind !== "done" && event.kind !== "error") continue;
+        const meta = event.meta;
+        if (meta && "turnId" in meta && typeof meta.turnId === "string" && meta.turnId) return meta.turnId;
       }
+      return null;
+    })();
+    const applyReview = (msg: Record<string, unknown>) => {
+      if (msg.threadId !== p.threadId || typeof msg.status !== "string") return;
+      const verdict = msg.verdict === "unparseable" || msg.verdict === "unavailable"
+        ? "inconclusive"
+        : typeof msg.verdict === "string" ? msg.verdict : undefined;
+      const turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+      if (turnId && lastTurnId && turnId !== lastTurnId) return;
+      setReview({ ...msg, status: msg.status, verdict, turnId } as typeof review);
+      if (msg.status === "done") setFixing(false);
+    };
+    const onReview = (e: Event) => applyReview((e as CustomEvent).detail ?? {});
+    const onList = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.threadId !== p.threadId) return;
+      const reviews = Array.isArray(msg.reviews) ? msg.reviews : [];
+      const chosen = lastTurnId
+        ? [...reviews].reverse().find((item: { turnId?: string }) => item.turnId === lastTurnId)
+        : null;
+      if (chosen) applyReview(chosen);
     };
     window.addEventListener("review-result", onReview);
-    return () => window.removeEventListener("review-result", onReview);
-  }, [p.threadId]);
+    window.addEventListener("reviews-list", onList);
+    return () => {
+      window.removeEventListener("review-result", onReview);
+      window.removeEventListener("reviews-list", onList);
+    };
+  }, [p.threadId, p.events]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
 
   // ---- annotations persistantes sur les réponses ----

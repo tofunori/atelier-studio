@@ -67,7 +67,8 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"
-        | "listPins" => Class::Read,
+        | "listPins"
+        | "getReviews" => Class::Read,
         _ => Class::Ordered,
     }
 }
@@ -81,7 +82,8 @@ pub(crate) fn lane(request: &Value) -> Option<String> {
     let id = match kind {
         "upsertThread" => request.pointer("/thread/id").or_else(|| request.get("id")),
         "send" | "renameThread" | "moveThread" | "deleteThread" | "prepareMessageEdit"
-        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" => {
+        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear"
+        | "requestReview" => {
             request.get("threadId")
         }
         _ => None,

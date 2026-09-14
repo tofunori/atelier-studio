@@ -104,6 +104,9 @@ pub struct ProviderCapabilities {
     pub skills_attach: bool,
     #[serde(default)]
     pub review: bool,
+    /// Isolated structured review, distinct from native `review` (plan 080 A2).
+    #[serde(default)]
+    pub structured_review: bool,
     #[serde(default)]
     pub compact: bool,
     /// Inputs structurés avec images acceptés par le provider (plan 046).
@@ -309,6 +312,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: true,
                 skills_attach: false,
                 review: false,
+                structured_review: false,
                 compact: false,
                 image_input: false,
                 durable_history: false,
@@ -364,6 +368,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: true,
                 skills_attach: false,
                 review: true,
+                structured_review: false,
                 compact: true,
                 image_input: true,
                 durable_history: false,
@@ -409,6 +414,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: true,
                 skills_attach: true,
                 review: false,
+                structured_review: false,
                 compact: true,
                 image_input: false,
                 durable_history: true,
@@ -457,6 +463,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 // (compact/status/usage/mcp/tasks/help) — règle du plan :
                 // sans méthode documentée, la capability reste false.
                 review: false,
+                structured_review: false,
                 compact: true,
                 image_input: true,
                 durable_history: true,
@@ -517,6 +524,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                 skills: false,
                 skills_attach: false,
                 review: false,
+                structured_review: false,
                 compact: false,
                 image_input: false,
                 durable_history: false,
@@ -588,6 +596,10 @@ mod tests {
         assert!(kimi.capabilities.permissions);
         assert!(kimi.capabilities.interactive_input);
         assert!(!kimi.capabilities.review, "pas de builtin review ACP 0.26");
+        assert!(
+            !kimi.capabilities.structured_review,
+            "structuredReview opt-in, jamais déduit de review natif"
+        );
         assert_eq!(kimi.capabilities.permission_modes.len(), 4);
     }
 

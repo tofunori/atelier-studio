@@ -34,6 +34,11 @@ export type ReviewState = {
   mode?: string;
   text?: string | null;
   error?: string;
+  turnId?: string;
+  reviewId?: string;
+  outcome?: string | null;
+  coverage?: string;
+  executionStatus?: string;
   issues?: { claim: string; problem: string; severity: string; fix?: string }[];
 } | null;
 

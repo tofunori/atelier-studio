@@ -1957,6 +1957,42 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector(".chat-surface-header")?.textContent).toContain(THREAD_A.title);
   });
 
+  it("/review demande une revue Git isolée du tour, pas native_command", async () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ defaultProvider: "codex" }));
+    const { sock } = await mountApp();
+    await push(sock, {
+      type: "providerStatus",
+      providers: [
+        makeProviderInfo({
+          id: "codex",
+          label: "Codex",
+          models: ["gpt-5.5"],
+          defaultModel: "gpt-5.5",
+          capabilities: makeCapabilities({ review: true }),
+        }),
+      ],
+    });
+    const codexThread = makeThread({
+      id: "thread-A",
+      title: "Fil A — albédo",
+      provider: "codex",
+    });
+    await pushThreads(sock, [codexThread]);
+    await selectThread(sock, "Fil A — albédo");
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/review" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+    const review = sock.sent.map((raw) => JSON.parse(raw)).find((message) => message.type === "requestReview");
+    expect(review).toMatchObject({
+      type: "requestReview",
+      threadId: "thread-A",
+      mode: "git",
+    });
+    expect(review.requestId).toEqual(expect.any(String));
+    expect(sock.sent.map((raw) => JSON.parse(raw)).some((message) => message.type === "send")).toBe(false);
+  });
+
   it("crée une continuité depuis le menu, attend l'ack puis permet de la délier", async () => {
     const { sock } = await mountApp();
     await push(sock, {

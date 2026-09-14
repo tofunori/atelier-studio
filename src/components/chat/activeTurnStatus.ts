@@ -32,6 +32,9 @@ export function activeTurnStatus(turn: ChatTurnViewModel, _events?: AgentEvent[]
   if (lifecycle.state.kind === 'waiting' || lifecycle.pendingInteractionIndex != null) {
     return { kind: 'waiting', label: t('chat.awaiting-response') };
   }
+  if (lifecycle.supervision?.status === 'failed') {
+    return { kind: 'processing', label: t('chat.connection-uncertain') };
+  }
 
   const activeAgents = lifecycle.runningAgents.length;
   const runningTools = lifecycle.runningTools;
@@ -48,9 +51,6 @@ export function activeTurnStatus(turn: ChatTurnViewModel, _events?: AgentEvent[]
   const latestActivity = lifecycle.latestActivity;
   if (lifecycle.state.kind === 'activity' && latestActivity && latestActivity.status !== 'completed' && latestActivity.status !== 'failed') {
     return { kind: 'action', label: latestActivity.title || t('chat.activity') };
-  }
-  if (lifecycle.supervision?.status === 'failed') {
-    return { kind: 'processing', label: t('chat.connection-uncertain') };
   }
   if (lifecycle.supervision?.status === 'running') {
     return { kind: 'processing', label: t('chat.awaiting-model') };

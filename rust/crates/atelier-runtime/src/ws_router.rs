@@ -146,6 +146,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "interactionResponse",
     "retitleAll",
     "requestReview",
+    "getReviews",
     "getUsage",
     "quickAsk",
     "qaPromote",
@@ -1729,35 +1730,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             vec![]
         }
         "retitleAll" => handle_retitle_all(state).await,
-        "requestReview" => {
-            let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
-            let thread = state.threads().lock().await.get(thread_id).cloned();
-            let provider = state.provider("codex");
-            let Some(thread) = thread else {
-                return vec![err_thread(thread_id, "review: chat absent")];
-            };
-            let Some(provider) = provider else {
-                return vec![err_thread(thread_id, "review: provider Codex absent")];
-            };
-            let state_review = state.clone();
-            let thread_id_owned = thread_id.to_string();
-            tokio::spawn(async move {
-                let mcp = atelier_mcp_param(&state_review, &thread).await;
-                let result = provider
-                    .native_command(
-                        "review",
-                        json!({
-                            "sessionId": thread.session_id,
-                            "projectRoot": thread.project_root,
-                            "atelierMcp": mcp,
-                        }),
-                    )
-                    .await;
-                let message = crate::review::review_result_from_native(&thread_id_owned, result);
-                state_review.publish(message.to_string());
-            });
-            vec![json_msg(crate::review::review_running(thread_id))]
-        }
+        "requestReview" => crate::review::handle_request_review(state, &msg).await,
+        "getReviews" => crate::review::handle_get_reviews(state, &msg).await,
         "getUsage" => handle_get_usage(state).await,
         "quickAsk" => handle_quick_ask(state, &msg).await,
         "qaPromote" => handle_qa_promote(state, &msg).await,

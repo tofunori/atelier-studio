@@ -406,7 +406,7 @@ function agentSnapshots(
 
 type ActivityEvent = Extract<AgentEvent, { kind: "activity" }>;
 
-export function isCodexSupervision(event: AgentEvent): event is ActivityEvent {
+export function isCodexSupervision(event: AgentEvent): boolean {
   return event.kind === "activity" && event.id === "codex-supervision";
 }
 
@@ -582,7 +582,9 @@ export function deriveTurnLifecycle(
         isAfter(events, latestReasoningIndex, latestAssistantIndex)
       ) {
         const latestReasoning = events[latestReasoningIndex];
-        const liveReasoning = latestReasoning?.kind === "thinking_live" || latestReasoning?.kind === "thinking_delta";
+        const liveReasoning = latestReasoning?.kind === "thinking_live" || latestReasoning?.kind === "thinking_delta"
+          || latestReasoning?.kind === "thinking_progress"
+          || (latestReasoning?.kind === "tool" && latestReasoning.name === REASONING_TOOL);
         activeState = {
           kind: liveReasoning ? "reasoning" : "thinking",
           ...(liveReasoning ? { texts: reasoningTexts, live: true } : {}),

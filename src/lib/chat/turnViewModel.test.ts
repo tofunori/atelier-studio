@@ -24,6 +24,26 @@ function meta(eventId: string, turnId: string, sequence: number, provider = "cod
 }
 
 describe("chat turn view model", () => {
+  it("garde la surveillance hors du transcript sans perdre son état ni déplacer la réponse finale", () => {
+    const events: AgentEvent[] = [
+      { kind: "user", text: "Bonjour", meta: meta("u", "a", 1) },
+      { kind: "activity", id: "codex-supervision", title: "Attente", status: "running", meta: meta("s", "a", 2) },
+    ];
+    let turns = buildChatTurnViewModels(events, T0);
+    expect(turns[0].lifecycle.supervision?.status).toBe("running");
+    expect(projectChatTimeline(events, turns, new Set()).filter(row => row.type === "event")).toHaveLength(1);
+    events.push(
+      { kind: "text", text: "Bonjour !", meta: meta("answer", "a", 3) },
+      { kind: "activity", id: "codex-supervision", title: "Activité Codex reprise.", status: "completed", meta: meta("recovery", "a", 4) },
+      { kind: "done", ok: true, result: "", meta: meta("done", "a", 5) },
+    );
+    turns = buildChatTurnViewModels(events, null);
+    expect(turns[0].finalAssistantIndex).toBe(2);
+    expect(turns[0].fold).toBeNull();
+    const rows = projectChatTimeline(events, turns, new Set());
+    expect(rows.some(row => row.type === "event" && row.event.kind === "activity")).toBe(false);
+    expect(rows.some(row => row.type === "event" && row.event === events[2])).toBe(true);
+  });
   it("replie les commandes en échec tout en laissant les autorisations en attente visibles", () => {
     const events: AgentEvent[] = [
       { kind: "user", text: "Teste", ts: T0 },
@@ -127,7 +147,7 @@ describe("chat turn view model", () => {
       completed,
       { kind: "tool", name: "__thinking" },
     ], T0)[0];
-    expect(backToThinking.activeState).toEqual({ kind: "thinking" });
+    expect(backToThinking.activeState).toEqual({ kind: "reasoning", live: true, texts: [] });
 
     const nextFastTool = buildChatTurnViewModels([
       user,

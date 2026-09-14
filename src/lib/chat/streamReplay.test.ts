@@ -141,9 +141,9 @@ describe("replay fixtures — projection observable du tour", () => {
     expect(open.some((row) => row.type === "event" && row.event.kind === "text")).toBe(true);
   });
 
-  it("retourne à Thinking après les outils terminés, puis passe à Writing pendant les deltas", () => {
+  it("attend le modèle après les outils terminés, puis passe à Writing pendant les deltas", () => {
     const afterTools = currentTurn(codexComposite, 9);
-    expect(activeTurnStatus(afterTools.turn, afterTools.events)).toMatchObject({ kind: "thinking" });
+    expect(activeTurnStatus(afterTools.turn, afterTools.events)).toMatchObject({ kind: "processing" });
     const streaming = currentTurn(codexComposite, 11);
     expect(streaming.turn.activeState).toMatchObject({ kind: "answering" });
     expect(activeTurnStatus(streaming.turn, streaming.events)).toMatchObject({ kind: "writing" });

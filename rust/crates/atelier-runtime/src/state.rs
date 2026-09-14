@@ -7,7 +7,7 @@ use atelier_protocol::Health;
 use atelier_providers::{build_registry, Provider};
 use atelier_store::{
     AgentMailboxStore, AutomationStore, CommandReceiptStore, HarnessJournal, HighlightStore,
-    ThreadStore,
+    ReviewStore, ThreadStore,
 };
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
@@ -66,6 +66,8 @@ struct Inner {
     journal: HarnessJournal,
     /// Durable admission receipts shared by every WebSocket connection.
     receipts: CommandReceiptStore,
+    reviews: ReviewStore,
+    review_limiter: crate::review::ReviewLimiter,
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
     terminals: Arc<TerminalHub>,
@@ -105,6 +107,7 @@ impl AppState {
         let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let receipts = CommandReceiptStore::open(paths.app_dir.join("chat-receipts.json"));
+        let reviews = ReviewStore::open(paths.app_dir.join("reviews"));
         let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
         let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
@@ -151,6 +154,8 @@ impl AppState {
                 automation_runs: Mutex::new(HashMap::new()),
                 journal,
                 receipts,
+                reviews,
+                review_limiter: crate::review::ReviewLimiter::new(),
                 bus,
                 terminals,
                 harness,
@@ -291,6 +296,14 @@ impl AppState {
         &self.inner.receipts
     }
 
+    pub fn reviews(&self) -> &ReviewStore {
+        &self.inner.reviews
+    }
+
+    pub fn review_limiter(&self) -> &crate::review::ReviewLimiter {
+        &self.inner.review_limiter
+    }
+
     pub fn subscribe_bus(&self) -> broadcast::Receiver<String> {
         self.inner.bus.subscribe()
     }
@@ -333,6 +346,17 @@ impl AppState {
         inner.providers.insert(
             id.to_string(),
             Arc::new(atelier_providers::FakeProvider::new(id)),
+        );
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_review_provider(mut self, id: &str, body: &str) -> Self {
+        let inner = Arc::get_mut(&mut self.inner)
+            .expect("test providers must be installed before AppState is cloned");
+        inner.providers.insert(
+            id.to_string(),
+            Arc::new(atelier_providers::FakeProvider::new(id).with_review_json(body)),
         );
         self
     }

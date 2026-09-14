@@ -835,6 +835,7 @@ export function ChatTimeline(p: {
               ) : (
                 <div className="rm-native">
                   {review.mode === "git" ? <div className="rm-mode">{t("review.git-native")}</div> : null}
+                  {review.mode === "git" ? <div className="rm-mode">{t("review.git-scope")}</div> : null}
                   {review.error ? <div className="rm-problem">{review.error}</div> : null}
                   {review.text?.trim() ? <div className="rm-problem">{review.text}</div> : null}
                   {!review.error && !review.text?.trim() ? (
@@ -917,7 +918,7 @@ export function ChatTimeline(p: {
             return (
               <div className="timeline-virtual-row" id="message-live-status" data-message-id="message-live-status">
                 <div className="working-stack active-turn-tail">
-                  <TurnActivityStatus label={t("chat.turn-active")} kind="thinking" since={workingSince ?? Date.now()} />
+                  <TurnActivityStatus label={t("chat.processing")} kind="processing" since={workingSince ?? Date.now()} />
                 </div>
               </div>
             );

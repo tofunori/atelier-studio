@@ -257,7 +257,15 @@ pub fn prompts_reformulation_with_options(
          Retourne uniquement la consigne transformée, sans commentaire ni justification. \
          Conserve la langue de la consigne actuelle; si elle est vide, écris en {output_language}."
     );
-    prompt_with_system(&systeme, nom, description, texte, custom, questions, answers)
+    prompt_with_system(
+        &systeme,
+        nom,
+        description,
+        texte,
+        custom,
+        questions,
+        answers,
+    )
 }
 
 fn prompt_with_system(
@@ -269,9 +277,8 @@ fn prompt_with_system(
     questions: Option<&str>,
     answers: Option<&str>,
 ) -> (String, String) {
-    let mut utilisateur = format!(
-        "Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}"
-    );
+    let mut utilisateur =
+        format!("Nom : {nom}\nDescription : {description}\nConsigne actuelle :\n{texte}");
     if let Some(custom) = custom {
         utilisateur.push_str(&format!("\nAjustement personnalisé demandé :\n{custom}"));
     }
@@ -618,8 +625,14 @@ mod tests {
             "Current instruction",
             Some(&question_options),
         );
-        assert!(question_system.contains("Ask at most five"), "{question_system}");
-        assert!(question_system.contains("only the questions"), "{question_system}");
+        assert!(
+            question_system.contains("Ask at most five"),
+            "{question_system}"
+        );
+        assert!(
+            question_system.contains("only the questions"),
+            "{question_system}"
+        );
         assert!(!question_user.contains("Réponses de l'utilisateur"));
 
         let answer_options = RewriteOptions {
@@ -633,9 +646,18 @@ mod tests {
             "Current instruction",
             Some(&answer_options),
         );
-        assert!(answer_system.contains("Draft final instructions"), "{answer_system}");
-        assert!(answer_system.contains("Never invent numerical thresholds"), "{answer_system}");
-        assert!(answer_system.contains("leave unanswered points unspecified"), "{answer_system}");
+        assert!(
+            answer_system.contains("Draft final instructions"),
+            "{answer_system}"
+        );
+        assert!(
+            answer_system.contains("Never invent numerical thresholds"),
+            "{answer_system}"
+        );
+        assert!(
+            answer_system.contains("leave unanswered points unspecified"),
+            "{answer_system}"
+        );
         assert!(answer_user.contains("Which files?"), "{answer_user}");
         assert!(answer_user.contains("Only source files."), "{answer_user}");
     }
