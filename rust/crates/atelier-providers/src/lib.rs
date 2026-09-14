@@ -45,6 +45,7 @@ pub use opencode::OpenCodeProvider;
 pub use opencode_parse::{normalize_opencode_message, parse_opencode_jsonl};
 pub use registry::{build_registry, builtin_catalog, provider_status_list, ProviderId};
 pub use traits::{
-    AtelierMcpLaunch, CommitMessageDetails, InteractionFn, Provider, ProviderCaps, SendMode,
-    RewriteOptions, SendRequest, SendResult, SessionBindingFn,
+    AtelierMcpLaunch, CommitMessageDetails, InteractionFn, Provider, ProviderCaps, ReviewError,
+    ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,
+    SessionBindingFn,
 };

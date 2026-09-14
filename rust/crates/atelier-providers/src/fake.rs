@@ -1,6 +1,9 @@
 //! Deterministic fake provider for contract tests and Porte 5 soak.
 
-use crate::traits::{Provider, ProviderCaps, SendMode, SendRequest, SendResult};
+use crate::traits::{
+    Provider, ProviderCaps, ReviewError, ReviewRequest, ReviewResponse, SendMode, SendRequest,
+    SendResult,
+};
 use async_trait::async_trait;
 use serde_json::json;
 use std::time::Duration;
@@ -9,6 +12,8 @@ use std::time::Duration;
 pub struct FakeProvider {
     id: String,
     delay_ms: u64,
+    structured_review: bool,
+    review_text: String,
 }
 
 impl FakeProvider {
@@ -16,11 +21,19 @@ impl FakeProvider {
         Self {
             id: id.into(),
             delay_ms: 5,
+            structured_review: false,
+            review_text: String::new(),
         }
     }
 
     pub fn with_delay(mut self, ms: u64) -> Self {
         self.delay_ms = ms;
+        self
+    }
+
+    pub fn with_review_json(mut self, text: impl Into<String>) -> Self {
+        self.structured_review = true;
+        self.review_text = text.into();
         self
     }
 }
@@ -88,6 +101,20 @@ impl Provider for FakeProvider {
 
     async fn interrupt(&self, _thread_id: &str) -> bool {
         true
+    }
+
+    fn structured_review(&self) -> bool {
+        self.structured_review
+    }
+
+    async fn review(&self, req: ReviewRequest) -> Result<ReviewResponse, ReviewError> {
+        if !self.structured_review {
+            return Err(ReviewError::Unsupported);
+        }
+        let _ = (&req.model, &req.effort, &req.dossier);
+        Ok(ReviewResponse {
+            text: self.review_text.clone(),
+        })
     }
 }
 

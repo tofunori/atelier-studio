@@ -605,6 +605,28 @@ async fn open_thread(server: &CodexAppServer, session_id: Option<&str>, opts: Va
     open_thread_settings(server, session_id, opts).await.map(|(id, _)| id)
 }
 
+/// A new session id can reach the UI before Codex flushes session_meta.
+/// Retry only that transient store error; an absent/corrupt session must still
+/// surface, and no goal mutation is replayed here.
+async fn read_native_goal(server: &CodexAppServer, session_id: &str, opts: Value, active: bool) -> Result<Value, String> {
+    for attempt in 0..=4 {
+        let result = async {
+            let id = if active { session_id.to_string() } else {
+                open_thread(server, Some(session_id), opts.clone()).await?
+            };
+            server.request("thread/goal/get", json!({"threadId": id})).await
+        }.await;
+        match result {
+            Err(error) if attempt < 4 && error.contains("failed to read")
+                && error.contains("rollout") && error.contains(" is empty") => {
+                tokio::time::sleep(Duration::from_millis(100 << attempt)).await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("last attempt always returns")
+}
+
 async fn open_thread_settings(server: &CodexAppServer, session_id: Option<&str>, mut opts: Value) -> Result<(String, Value), String> {
     let method = if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
         opts.as_object_mut().unwrap().insert("threadId".into(), json!(sid));
@@ -1462,6 +1484,13 @@ impl Provider for CodexProvider {
         } else {
             "danger-full-access"
         };
+        if name == "goalGet" {
+            if let Some(owner) = params.get("threadId").and_then(Value::as_str) {
+                self.goal_owners.lock().unwrap().insert(session_id.to_string(), owner.to_string());
+            }
+            let active = self.active.lock().unwrap().values().any(|turn| turn.codex_id == session_id);
+            return read_native_goal(&self.server, session_id, native_open_opts(cwd, sandbox, &params), active).await;
+        }
         let codex_id = open_thread(
             &self.server,
             Some(session_id),
@@ -1489,11 +1518,6 @@ impl Provider for CodexProvider {
                     }),
                 )
                 .await,
-            "goalGet" => {
-                self.server
-                    .request("thread/goal/get", json!({"threadId": codex_id}))
-                    .await
-            }
             "goalClear" => {
                 self.server
                     .request("thread/goal/clear", json!({"threadId": codex_id}))

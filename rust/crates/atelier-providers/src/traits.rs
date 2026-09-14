@@ -432,6 +432,44 @@ pub trait Provider: Send + Sync {
     fn native_commands(&self) -> Vec<Value> {
         Vec::new()
     }
+
+    /// Isolated structured review (plan 080 A2). Distinct from native `review`.
+    fn structured_review(&self) -> bool {
+        false
+    }
+
+    async fn review(&self, _req: ReviewRequest) -> Result<ReviewResponse, ReviewError> {
+        Err(ReviewError::Unsupported)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewRequest {
+    pub model: String,
+    pub effort: String,
+    pub dossier: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewResponse {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewError {
+    Unsupported,
+    Timeout,
+    Provider(String),
+}
+
+impl std::fmt::Display for ReviewError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported => write!(f, "REVIEW_UNSUPPORTED"),
+            Self::Timeout => write!(f, "REVIEW_TIMEOUT"),
+            Self::Provider(message) => write!(f, "{message}"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -439,6 +477,58 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    struct CapsOnly;
+
+    #[async_trait]
+    impl Provider for CapsOnly {
+        fn id(&self) -> &str {
+            "caps-only"
+        }
+        fn label(&self) -> &str {
+            "Caps"
+        }
+        fn caps(&self) -> ProviderCaps {
+            ProviderCaps {
+                resume: false,
+                steering: false,
+                queue: false,
+                goals: false,
+                tools: false,
+            }
+        }
+        fn models(&self) -> Vec<String> {
+            vec!["x".into()]
+        }
+        fn default_model(&self) -> String {
+            "x".into()
+        }
+        fn efforts(&self) -> Vec<String> {
+            vec![]
+        }
+        async fn send(&self, _req: SendRequest) -> SendResult {
+            SendResult {
+                session_id: None,
+                ok: false,
+                error: Some("unused".into()),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_review_defaults_to_unsupported() {
+        let provider = CapsOnly;
+        assert!(!provider.structured_review());
+        let err = provider
+            .review(ReviewRequest {
+                model: "x".into(),
+                effort: "high".into(),
+                dossier: "{}".into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err, ReviewError::Unsupported);
+    }
 
     #[test]
     fn atelier_mcp_uses_the_acp_env_variable_wire() {

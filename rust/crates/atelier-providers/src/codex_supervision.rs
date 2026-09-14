@@ -183,7 +183,8 @@ pub async fn reconcile_native_turn(
                     "id":"codex-supervision",
                     "name":"codex_supervision",
                     "status":"running",
-                    "title":"Tour Codex confirmé en cours malgré l'absence de sortie.",
+                    "title":"En attente du modèle…",
+                    "detail":"Le tour est encore ouvert. Aucune nouvelle sortie reçue; ce statut ne confirme pas une progression du modèle.",
                     "supervisionState":"inProgress",
                 }));
                 state = ObservedState::InProgress;

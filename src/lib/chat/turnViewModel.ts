@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../ws";
 import {
   deriveTurnLifecycle,
+  isCodexSupervision,
   type LifecycleActiveState,
   type LifecycleToolAction,
   type LifecycleToolGroup,
@@ -268,6 +269,7 @@ function terminalAssistantIndex(
   const lastVisible = [...indexes].reverse().find((index) => {
     if (index >= terminalIndex) return false;
     const event = events[index];
+    if (isCodexSupervision(event)) return false;
     return isAssistantText(event) || isToolAction(event) || event.kind === "activity" || event.kind === "edit";
   }) ?? null;
   if (lastVisible != null && isAssistantText(events[lastVisible])) return lastVisible;
@@ -303,7 +305,7 @@ export function buildChatTurnViewModels(
       latestAssistantIndex,
     });
     const groups = lifecycle.actionGroups;
-    const activityIndexes = indexes.filter((index) => events[index].kind === "activity");
+    const activityIndexes = indexes.filter((index) => events[index].kind === "activity" && !isCodexSupervision(events[index]));
     const reasoningTexts = lifecycle.reasoningTexts;
     const activeActionGroups = lifecycle.activeActionGroups;
     const activeWorkIndexes = new Set(indexes.filter((index) => {
@@ -342,7 +344,7 @@ export function buildChatTurnViewModels(
       const foldStart = userIndex + 1;
       const containsWork = indexes.some((index) => index >= foldStart && index < foldEnd && (
         isReasoning(events[index]) || isToolAction(events[index]) ||
-        events[index].kind === "activity" || isAssistantText(events[index])
+        (events[index].kind === "activity" && !isCodexSupervision(events[index])) || isAssistantText(events[index])
       ));
       const terminalStatus = phase === "stopped" || phase === "failed";
       if ((containsWork && foldEnd > foldStart) || terminalStatus) {
@@ -513,7 +515,7 @@ export function projectChatTimeline(
     // conserver comme lignes LegendList leur donne malgré tout une hauteur
     // estimée, puis 0 px après mesure — exactement le saut observé au premier
     // `started` reçu du provider.
-    if (NON_VISUAL_TIMELINE_KINDS.has(event.kind)) continue;
+    if (NON_VISUAL_TIMELINE_KINDS.has(event.kind) || isCodexSupervision(event)) continue;
     const turn = turnByIndex.get(index);
     const turnKey = turn?.key ?? "orphan";
     let suffix: string;

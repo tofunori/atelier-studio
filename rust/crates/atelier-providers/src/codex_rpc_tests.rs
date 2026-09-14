@@ -17,6 +17,8 @@ mode = open(root + '/mode').read()
 with open(root + '/boots', 'a') as f: f.write(str(os.getpid()) + '\n')
 boots = len(open(root + '/boots').readlines())
 active_turn = False
+goal_reads = 0
+resumes = 0
 lock = threading.Lock()
 log = open(root + '/requests', 'a', buffering=1)
 def emit(value):
@@ -40,6 +42,11 @@ for line in sys.stdin:
         else: reply(req, {})
     elif method == 'initialized': pass
     elif method == 'thread/goal/get':
+        goal_reads += 1
+        if mode == 'goal-store-error' or mode == 'goal-empty-always' or (mode == 'goal-empty-once' and goal_reads == 1):
+            message = 'failed to read thread: rollout /tmp/session.jsonl is empty' if mode != 'goal-store-error' else 'failed to read thread: permission denied'
+            emit({'id': req['id'], 'error': {'message': message}})
+            continue
         reply(req, {'goal': {'objective':'snapshot','status':'active','timeUsedSeconds':10}})
         note('thread/goal/updated', goal={'objective':'newer','status':'paused','timeUsedSeconds':11})
     elif method == 'thread/goal/clear':
@@ -60,6 +67,11 @@ for line in sys.stdin:
     elif method == 'thread/fork' and mode.startswith('rewind'):
         reply(req, {'thread': {'id': 'new', 'turns': [] if mode == 'rewind-wrong-prefix' else [{'id': 'first'}]}})
     elif method in ['thread/start', 'thread/resume']:
+        if method == 'thread/resume':
+            resumes += 1
+            if mode == 'resume-empty-once' and resumes == 1:
+                emit({'id': req['id'], 'error': {'message': 'failed to read session metadata: rollout /tmp/session.jsonl is empty'}})
+                continue
         reply(req, {'thread': {'id': 'native'}, 'sandbox': {'type': 'readOnly'}})
     elif method == 'thread/read' and mode.startswith('rewind'):
         reply(req, {'thread': {'id': 'native', 'turns': [

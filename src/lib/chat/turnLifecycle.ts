@@ -81,6 +81,8 @@ export type TurnLifecycle = {
   failedAgents: LifecycleAgent[];
   latestToolAction: LifecycleToolAction | null;
   latestActivity: Extract<AgentEvent, { kind: "activity" }> | null;
+  /** Transport observation, never an action or evidence of model progress. */
+  supervision: Extract<AgentEvent, { kind: "activity" }> | null;
   /** Indices retained after exact event-id de-duplication. */
   dedupedIndexes: number[];
 };
@@ -404,6 +406,10 @@ function agentSnapshots(
 
 type ActivityEvent = Extract<AgentEvent, { kind: "activity" }>;
 
+export function isCodexSupervision(event: AgentEvent): event is ActivityEvent {
+  return event.kind === "activity" && event.id === "codex-supervision";
+}
+
 /**
  * Return one provider snapshot per activity item.  Activity events are
  * replacement updates just like `tool_update`: scanning every raw event would
@@ -458,11 +464,12 @@ export function deriveTurnLifecycle(
     ?? null;
   const latestReasoningIndex = latestIndex(events, dedupedIndexes, isReasoning);
   const latestToolIndex = latestIndex(events, dedupedIndexes, isToolAction);
-  const latestActivityIndex = latestIndex(events, dedupedIndexes, (event) => event.kind === "activity");
+  const latestActivityIndex = latestIndex(events, dedupedIndexes, (event) => event.kind === "activity" && !isCodexSupervision(event));
+  const supervisionIndex = latestIndex(events, dedupedIndexes, isCodexSupervision);
   const latestEventIndex = latestIndex(events, dedupedIndexes, () => true);
   const latestMeaningfulIndex = latestIndex(events, dedupedIndexes, (event) => (
     isReasoning(event) || isAssistantText(event) || isToolAction(event) ||
-    event.kind === "activity" || event.kind === "edit" || event.kind === "drafting"
+    (event.kind === "activity" && !isCodexSupervision(event)) || event.kind === "edit" || event.kind === "drafting"
   ));
   const reasoningTexts = dedupedIndexes.flatMap((index) => {
     const text = reasoningText(events[index]!);
@@ -534,6 +541,7 @@ export function deriveTurnLifecycle(
     // just as Synara's work-log live activity is. It must participate in the
     // same candidate ordering as tools instead of being silently ignored.
     for (const snapshot of activitySnapshots) {
+      if (isCodexSupervision(snapshot.event)) continue;
       const { event, index } = snapshot;
       const status = normalizeStatus(event.status);
       const explicitRunning = status === "running";
@@ -655,6 +663,8 @@ export function deriveTurnLifecycle(
     failedAgents: active ? agentState.failed : [],
     latestToolAction: latestTool?.action ?? null,
     latestActivity,
+    supervision: active && supervisionIndex != null && isAfter(events, supervisionIndex, latestMeaningfulIndex)
+      ? events[supervisionIndex] as ActivityEvent : null,
     dedupedIndexes,
   };
 }

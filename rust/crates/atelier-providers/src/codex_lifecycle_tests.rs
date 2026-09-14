@@ -48,6 +48,38 @@ fn interrupts(fake: &FakeCodex) -> usize {
         .filter(|r| r["method"] == "turn/interrupt")
         .count()
 }
+
+#[tokio::test]
+async fn goal_read_recovers_empty_new_session_without_replaying_mutations() {
+    for mode in ["resume-empty-once", "goal-empty-once"] {
+        let fake = FakeCodex::new(mode);
+        let provider = provider(&fake);
+        let result = provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native","projectRoot":"/tmp"})).await;
+        assert!(result.is_ok(), "{mode}: {result:?}");
+        assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), 2);
+        assert!(!fake.requests().iter().any(|r| r["method"] == "turn/start" || r["method"] == "thread/goal/set"));
+    }
+}
+
+#[tokio::test]
+async fn goal_read_does_not_resume_an_active_session() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    provider.active.lock().unwrap().insert("ui".into(), ActiveTurn { codex_id:"native".into(), turn_id:Some("turn".into()) });
+    assert!(provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await.is_ok());
+    assert!(!fake.requests().iter().any(|r| r["method"] == "thread/resume"));
+}
+
+#[tokio::test]
+async fn goal_read_keeps_real_failures_visible_and_bounds_empty_session_retries() {
+    for (mode, attempts) in [("goal-store-error", 1), ("goal-empty-always", 5)] {
+        let fake = FakeCodex::new(mode);
+        let provider = provider(&fake);
+        let error = provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await.unwrap_err();
+        assert!(error.contains(if attempts == 1 { "permission denied" } else { "is empty" }));
+        assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/goal/get").count(), attempts);
+    }
+}
 #[tokio::test]
 async fn completed_turn_leaves_no_cancellation_watcher() {
     let fake = FakeCodex::new("normal");

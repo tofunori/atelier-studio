@@ -49,8 +49,17 @@ export function activeTurnStatus(turn: ChatTurnViewModel, _events?: AgentEvent[]
   if (lifecycle.state.kind === 'activity' && latestActivity && latestActivity.status !== 'completed' && latestActivity.status !== 'failed') {
     return { kind: 'action', label: latestActivity.title || t('chat.activity') };
   }
+  if (lifecycle.supervision?.status === 'failed') {
+    return { kind: 'processing', label: t('chat.connection-uncertain') };
+  }
+  if (lifecycle.supervision?.status === 'running') {
+    return { kind: 'processing', label: t('chat.awaiting-model') };
+  }
   if (lifecycle.state.kind === 'answering') return { kind: 'writing', label: t('chat.answering') };
   if (lifecycle.state.kind === 'reasoning') return { kind: 'thinking', label: t('chat.turn-active') };
   if (lifecycle.state.kind === 'processing') return { kind: 'processing', label: t('chat.processing') };
+  if (lifecycle.provider === 'codex' && lifecycle.state.kind === 'thinking') {
+    return { kind: 'processing', label: t('chat.awaiting-model') };
+  }
   return { kind: 'thinking', label: t('chat.turn-active') };
 }
