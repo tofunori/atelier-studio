@@ -73,16 +73,36 @@ describe("Codex subagent activity", () => {
   it("shows readable activity rather than orchestration code or opaque messages", () => {
     renderUi(<AgentDetailPanel agent={agentsFromActions([action()])[0]} onClose={() => {}}
       events={[
-        { kind: "tool_update", id: "exec", name: "functions.exec", detail: "const r = await tools.exec_command({cmd:'pwd'});", output: "/project", status: "completed" },
+        { kind: "tool_update", id: "exec", name: "functions.exec", detail: "const r = await tools.exec_command({cmd:'cat Makefile'});", input: {raw: "const r = await tools.exec_command({cmd:'cat Makefile'});"}, output: "verify:\n", status: "completed" },
         { kind: "tool_update", id: "message", name: "collaboration.send_message", detail: '{"message":"gAAAAAabcdefghijklmnopqrstuvwxyz0123456789"}', output: "", status: "completed" },
         { kind: "text", text: "I am reading the project README." },
       ]} />);
     const transcript = screen.getByTestId("agent-transcript");
-    expect(transcript).toHaveTextContent("Ran a command");
+    expect(transcript).toHaveTextContent("Reading Makefile");
     expect(transcript).toHaveTextContent("I am reading the project README.");
     expect(transcript).not.toHaveTextContent("const r");
     expect(transcript).not.toHaveTextContent("gAAAAA");
-    expect(transcript.querySelector("pre")).toHaveTextContent("/project");
+    expect(transcript.querySelector("pre")).toHaveTextContent("verify:");
+  });
+
+  it("names wrapped reads, searches and verification commands precisely", () => {
+    const wrapped = (id: string, command: string): AgentEvent => ({
+      kind: "tool_update", id, name: "functions.exec",
+      detail: `const result = await tools.exec_command({cmd: '${command}'});`,
+      input: { raw: `const result = await tools.exec_command({cmd: '${command}'});` },
+      output: "ok", status: "completed",
+    });
+    renderUi(<AgentDetailPanel agent={agentsFromActions([action()])[0]} onClose={() => {}}
+      events={[
+        wrapped("read", "cat Makefile"),
+        wrapped("search", "rg -n verify Makefile"),
+        wrapped("verify", "make verify"),
+      ]} />);
+    const transcript = screen.getByTestId("agent-transcript");
+    expect(transcript).toHaveTextContent("Reading Makefile");
+    expect(transcript).toHaveTextContent("Searching Makefile");
+    expect(transcript).toHaveTextContent("Ran make verify");
+    expect(transcript).not.toHaveTextContent("const result");
   });
   it("opens every agent beyond the three-chip preview", () => {
     const onOpenAgent = vi.fn();

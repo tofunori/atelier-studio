@@ -1343,20 +1343,21 @@ impl Provider for CodexProvider {
             }
             target
         }.ok_or("Message introuvable dans les tours Codex : historique conservé")?;
-        // New Codex threads reject thread/rollback. Fork the preserved prefix
-        // instead; the source session remains intact until the runtime commits
-        // the new session id and its local history cut.
-        let result = if target == 0 {
-            self.server.request("thread/start", json!({
-                "cwd": history.pointer("/thread/cwd"),
-                "approvalPolicy": "never", "sandbox": "read-only",
-            })).await?
-        } else {
-            let last = turns[target - 1]["id"].as_str().ok_or("Identité du tour Codex absente")?;
-            self.server.request("thread/fork", json!({
-                "threadId": session_id, "lastTurnId": last,
-            })).await?
-        };
+        // `beforeTurnId` sait aussi forker AVANT le premier tour. L'ancien
+        // cas spécial utilisait `thread/start`, puis le renvoi immédiat faisait
+        // `thread/resume` avant que le nouveau rollout vide soit durable :
+        // `no rollout found`, puis `list_turns is not supported yet`.
+        //
+        // Un fork avant le tour cible garde la session originale intacte et
+        // produit un rollout complet, reprenable immédiatement, même lorsque
+        // son préfixe ne contient encore aucun tour.
+        let before = turns[target]["id"]
+            .as_str()
+            .ok_or("Identité du tour Codex absente")?;
+        let result = self.server.request("thread/fork", json!({
+            "threadId": session_id,
+            "beforeTurnId": before,
+        })).await?;
         let new_id = result.pointer("/thread/id").and_then(Value::as_str)
             .filter(|id| !id.is_empty() && *id != session_id)
             .ok_or("Codex n'a pas créé la session corrigée")?;

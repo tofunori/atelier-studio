@@ -139,11 +139,67 @@ function opaqueAgentText(text: string | null | undefined): boolean {
   return /\bgAAAAA[A-Za-z0-9_-]{24,}/u.test(text ?? "");
 }
 
+/** Codex journalise `functions.exec` comme un petit programme JavaScript.
+ * On en extrait uniquement la chaîne `cmd` afin de présenter l'action réelle
+ * sans exposer le wrapper interne ni évaluer du code provenant du rollout. */
+function wrappedExecCommand(event: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string | null {
+  const input = event.kind === "tool_update" && event.input && typeof event.input === "object"
+    ? event.input as Record<string, unknown>
+    : null;
+  const candidates = [typeof input?.raw === "string" ? input.raw : null, event.detail].filter(
+    (value): value is string => Boolean(value),
+  );
+  for (const source of candidates) {
+    const call = /\btools\.exec_command\s*\(\s*\{/u.exec(source);
+    if (!call) continue;
+    const tail = source.slice(call.index + call[0].length);
+    const field = /\bcmd\s*:\s*/u.exec(tail);
+    if (!field) continue;
+    const start = field.index + field[0].length;
+    const quote = tail[start];
+    if (quote !== '"' && quote !== "'" && quote !== "`") continue;
+    let value = "";
+    for (let index = start + 1; index < tail.length; index += 1) {
+      const char = tail[index];
+      if (char === quote) return value.trim() || null;
+      if (char !== "\\") {
+        value += char;
+        continue;
+      }
+      const escaped = tail[index + 1];
+      if (escaped == null) break;
+      value += escaped === "n" ? "\n" : escaped === "r" ? "\r" : escaped === "t" ? "\t" : escaped;
+      index += 1;
+    }
+  }
+  return null;
+}
+
+function wrappedCommandDisplay(command: string): { name: string; detail: string; input?: { command: string } } {
+  const first = command.split(/\r?\n/u, 1)[0]?.trim() ?? command.trim();
+  const tokens = first.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/gu) ?? [];
+  const executable = tokens[0]?.replace(/^.*[/\\]/u, "").toLowerCase() ?? "";
+  const targetToken = [...tokens.slice(1)].reverse().find(token => !token.startsWith("-"));
+  const target = targetToken?.replace(/^["']|["']$/gu, "").split(/[/\\]/u).pop() ?? "";
+  if (["cat", "bat", "head", "tail", "less", "more", "sed"].includes(executable) && target) {
+    return { name: "cat", detail: target };
+  }
+  if (["rg", "grep", "egrep", "fgrep", "ag", "ack", "find", "fd"].includes(executable) && target) {
+    return { name: "search", detail: target };
+  }
+  if (["ls", "tree"].includes(executable)) {
+    return { name: "ls", detail: target };
+  }
+  return { name: "command", detail: command, input: { command } };
+}
+
 function agentToolLabel(event: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
   if (/^(?:functions\.)?exec$/u.test(event.name)) {
+    const command = wrappedExecCommand(event);
     const code = /\b(?:const|let|await|tools\.)\b/u.test(event.detail ?? "");
-    const display = { ...event, name: "command", detail: code ? "" : event.detail };
-    return activeToolLabel(display.kind === "tool_update" ? { ...display, input: undefined } : display);
+    const readable = command ? wrappedCommandDisplay(command) : { name: "command", detail: code ? "" : event.detail };
+    const display = { ...event, ...readable };
+    return activeToolLabel(display);
   }
   return activeToolLabel(event);
 }

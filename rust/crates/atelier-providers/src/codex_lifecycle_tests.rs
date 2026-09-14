@@ -414,7 +414,7 @@ async fn rewind_uses_persisted_session_and_exact_native_turn() {
     assert_eq!(result["sessionId"], "new");
     let requests = fake.requests();
     let fork = requests.iter().find(|r| r["method"] == "thread/fork").unwrap();
-    assert_eq!(fork["params"], json!({"threadId":"saved-session", "lastTurnId":"first"}));
+    assert_eq!(fork["params"], json!({"threadId":"saved-session", "beforeTurnId":"second"}));
     assert!(requests.iter().any(|r| r["method"] == "thread/read" && r["params"]["includeTurns"] == true));
 }
 
@@ -425,15 +425,42 @@ async fn rewind_legacy_counts_user_items_and_refuses_mid_turn() {
     assert!(provider.rewind_session("ui", Some("saved"), 1, None).await.is_err());
     assert!(!fake.requests().iter().any(|r| r["method"] == "thread/fork"));
     provider.rewind_session("ui", Some("saved"), 2, None).await.unwrap();
-    assert_eq!(fake.requests().last().unwrap()["params"]["lastTurnId"], "first");
+    assert_eq!(fake.requests().last().unwrap()["params"]["beforeTurnId"], "second");
 }
 
 #[tokio::test]
-async fn rewind_first_message_starts_empty_session() {
+async fn rewind_first_message_forks_a_resumable_empty_prefix() {
     let fake = FakeCodex::new("rewind");
     let result = provider(&fake).rewind_session("ui", Some("saved"), 0, Some("first")).await.unwrap();
     assert_eq!(result, json!({"sessionId":"new", "preservesContext":false}));
-    assert_eq!(fake.requests().last().unwrap()["method"], "thread/start");
+    let requests = fake.requests();
+    let fork = requests.iter().find(|request| request["method"] == "thread/fork").unwrap();
+    assert_eq!(fork["params"], json!({"threadId":"saved", "beforeTurnId":"first"}));
+    assert!(!requests.iter().any(|request| request["method"] == "thread/start"));
+}
+
+#[tokio::test]
+async fn rewind_first_message_can_resume_immediately_without_an_empty_rollout_race() {
+    let fake = FakeCodex::new("rewind-race");
+    let provider = provider(&fake);
+    let prepared = provider
+        .rewind_session("ui", Some("saved"), 0, Some("first"))
+        .await
+        .unwrap();
+    let events = Arc::new(StdMutex::new(Vec::new()));
+    let mut req = request(
+        events,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    req.session_id = prepared["sessionId"].as_str().map(str::to_string);
+    let result = provider.send(req).await;
+    assert!(result.ok, "{:?}", result.error);
+    let requests = fake.requests();
+    assert!(!requests.iter().any(|request| request["method"] == "thread/start"));
+    assert!(requests.iter().any(|request| {
+        request["method"] == "thread/resume" && request["params"]["threadId"] == "new"
+    }));
 }
 
 #[tokio::test]

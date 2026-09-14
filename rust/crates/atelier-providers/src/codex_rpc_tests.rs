@@ -31,6 +31,7 @@ boots = len(open(root + '/boots').readlines())
 active_turn = False
 goal_reads = 0
 resumes = 0
+rewind_started_empty = False
 lock = threading.Lock()
 log = open(root + '/requests', 'a', buffering=1)
 def emit(value):
@@ -73,14 +74,21 @@ for line in sys.stdin:
         note('turn/completed', turn={'id': 'turn', 'status': 'completed'})
         sys.exit(0)
     elif method == 'thread/start' and mode.startswith('rewind'):
+        rewind_started_empty = True
         reply(req, {'thread': {'id': 'new', 'turns': []}})
     elif method == 'thread/fork' and mode == 'rewind-fail':
         emit({'id': req['id'], 'error': {'message': 'fork refused'}})
     elif method == 'thread/fork' and mode.startswith('rewind'):
-        reply(req, {'thread': {'id': 'new', 'turns': [] if mode == 'rewind-wrong-prefix' else [{'id': 'first'}]}})
+        before = req['params'].get('beforeTurnId')
+        turns = [] if before == 'first' else [{'id': 'first'}]
+        if mode == 'rewind-wrong-prefix': turns = []
+        reply(req, {'thread': {'id': 'new', 'turns': turns}})
     elif method in ['thread/start', 'thread/resume']:
         if method == 'thread/resume':
             resumes += 1
+            if mode == 'rewind-race' and rewind_started_empty:
+                emit({'id': req['id'], 'error': {'message': 'no rollout found for thread id new'}})
+                continue
             if mode == 'resume-empty-once' and resumes == 1:
                 emit({'id': req['id'], 'error': {'message': 'failed to read session metadata: rollout /tmp/session.jsonl is empty'}})
                 continue
