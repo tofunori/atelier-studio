@@ -1753,46 +1753,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         }),
                     )
                     .await;
-                let message = match result {
-                    Ok(value) => {
-                        let review = value
-                            .get("review")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .trim();
-                        let lower = review.to_lowercase();
-                        let clean = review.is_empty()
-                            || lower.contains("no findings")
-                            || lower.contains("aucun problème")
-                            || lower.contains("aucun probleme");
-                        json!({
-                            "type": "reviewResult",
-                            "threadId": thread_id_owned,
-                            "status": "done",
-                            "verdict": if clean { "ok" } else { "issues" },
-                            "issues": if clean { json!([]) } else { json!([{
-                                "claim": "Revue Codex",
-                                "problem": review,
-                                "severity": "review",
-                            }]) },
-                        })
-                    }
-                    Err(error) => json!({
-                        "type": "reviewResult",
-                        "threadId": thread_id_owned,
-                        "status": "done",
-                        "verdict": "error",
-                        "issues": [],
-                        "error": error,
-                    }),
-                };
+                let message = crate::review::review_result_from_native(&thread_id_owned, result);
                 state_review.publish(message.to_string());
             });
-            vec![json_msg(json!({
-                "type": "reviewResult",
-                "threadId": thread_id,
-                "status": "running",
-            }))]
+            vec![json_msg(crate::review::review_running(thread_id))]
         }
         "getUsage" => handle_get_usage(state).await,
         "quickAsk" => handle_quick_ask(state, &msg).await,

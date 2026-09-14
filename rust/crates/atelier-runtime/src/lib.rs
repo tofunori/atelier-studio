@@ -16,6 +16,7 @@ pub mod parity;
 pub mod paths;
 mod project_folders;
 pub mod prov;
+pub mod review;
 pub mod send;
 pub mod server;
 pub mod state;

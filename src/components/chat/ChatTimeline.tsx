@@ -808,7 +808,9 @@ export function ChatTimeline(p: {
           </div>
           {barOpen && review.status === "done" ? (
             <div className="reviewer-menu">
-              {review.issues?.length ? (
+              {review.verdict === "ok" ? (
+                <div className="rm-ok">{t("review.ok-detail")}</div>
+              ) : review.verdict === "issues" && review.issues?.length ? (
                 <>
                   {review.issues.map((iss, k) => (
                     <div key={k} className={`rm-issue s-${iss.severity}`}>
@@ -831,7 +833,14 @@ export function ChatTimeline(p: {
                   </Button>
                 </>
               ) : (
-                <div className="rm-ok">{t("review.ok-detail")}</div>
+                <div className="rm-native">
+                  {review.mode === "git" ? <div className="rm-mode">{t("review.git-native")}</div> : null}
+                  {review.error ? <div className="rm-problem">{review.error}</div> : null}
+                  {review.text?.trim() ? <div className="rm-problem">{review.text}</div> : null}
+                  {!review.error && !review.text?.trim() ? (
+                    <div className="rm-problem">{t("review.inconclusive-detail")}</div>
+                  ) : null}
+                </div>
               )}
               {(review.checkedTools?.length || review.checkedFiles?.length) ? (
                 <div className="rm-checked">

@@ -416,7 +416,7 @@ export default function Chat(p: {
   }, [selectionKey, provider, model, effort, fastMode, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string; messageIndex: number | null } | null>(null);
-  const [review, setReview] = useState<{ status: string; verdict?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
+  const [review, setReview] = useState<{ status: string; verdict?: string; mode?: string; text?: string | null; error?: string; model?: string; checks?: number; issues?: { claim: string; problem: string; severity: string; fix?: string }[]; checkedTools?: string[]; checkedFiles?: string[] } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [barOpen, setBarOpen] = useState(false);
   const [pasteView, setPasteView] = useState<{ name: string; text: string } | null>(null);

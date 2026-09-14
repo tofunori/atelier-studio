@@ -31,6 +31,9 @@ type DoneEvent = Extract<AgentEvent, { kind: "done" }>;
 export type ReviewState = {
   status: string;
   verdict?: string;
+  mode?: string;
+  text?: string | null;
+  error?: string;
   issues?: { claim: string; problem: string; severity: string; fix?: string }[];
 } | null;
 
