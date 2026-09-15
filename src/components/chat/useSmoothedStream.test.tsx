@@ -5,12 +5,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { publishStreamHandoff, takeStreamHandoff, useSmoothedStream } from "./useSmoothedStream";
+import { publishStreamHandoff, streamTickTimer, takeStreamHandoff, useSmoothedStream } from "./useSmoothedStream";
 
 describe("useSmoothedStream — typewriter du flux", () => {
   it("les deltas alimentent la même boucle, y compris lors de la finition", () => {
-    const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockReturnValue(42);
-    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const raf = vi.spyOn(streamTickTimer, "schedule").mockReturnValue(42);
+    const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
     const view = renderHook(({ text, working }) => useSmoothedStream(text, working, "continuous-loop"), {
       initialProps: { text: "Premier paquet de texte.", working: true },
     });
@@ -27,26 +27,89 @@ describe("useSmoothedStream — typewriter du flux", () => {
 
   it("une reprise après une pause ne révèle pas un paquet entier à la première frame", () => {
     let now = 0;
-    let pending: FrameRequestCallback | null = null;
+    let pending: (() => void) | null = null;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-    const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { pending = callback; return 1; });
-    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const raf = vi.spyOn(streamTickTimer, "schedule").mockImplementation(callback => { pending = callback; return 1; });
+    const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
     const initial = "Un début.";
     const view = renderHook(({ text }) => useSmoothedStream(text, true, "idle-resume"), { initialProps: { text: initial } });
     try {
       for (let i = 0; i < 60 && pending; i++) {
         now += 16;
-        const callback: FrameRequestCallback = pending;
+        const callback: () => void = pending;
         pending = null;
-        act(() => callback(now));
+        act(() => callback());
       }
       expect(view.result.current).toBe(initial);
       now += 10000;
       view.rerender({ text: initial + " glacier".repeat(30) });
       now += 16;
-      act(() => pending?.(now));
+      act(() => pending?.());
       expect(view.result.current.length - initial.length).toBeLessThan(30);
       expect(view.result.current.length).toBeGreaterThan(initial.length);
+    } finally {
+      view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
+    }
+  });
+
+  // Banc chat_stream_bench (2026-09-15) : un delta « mot␣ » donnait DEUX
+  // publications — le mot (snap en fin de mot), puis l'espace seul une frame
+  // plus tard (« cible atteinte → publier tout de suite »). Sur des paquets
+  // fins (Sonnet, 20/s), c'était deux fois plus de rendus Markdown que de
+  // deltas. Le snap avale maintenant l'espace qui suit le mot, et la limite
+  // de 40 ms vaut aussi pour la cible atteinte pendant le tour.
+  it("un delta « mot␣ » se publie en une fois, jamais le mot puis l'espace", () => {
+    let now = 0;
+    let pending: (() => void) | null = null;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const raf = vi.spyOn(streamTickTimer, "schedule").mockImplementation(callback => { pending = callback; return 1; });
+    const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
+    const published: string[] = [];
+    const view = renderHook(({ text, working }) => { const out = useSmoothedStream(text, working, "word-space"); published.push(out); return out; }, { initialProps: { text: "Début ", working: true } });
+    try {
+      for (let f = 0; f < 60 && pending; f++) { now += 8; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb()); }
+      expect(view.result.current).toBe("Début ");
+      published.length = 0;
+      now += 48;
+      view.rerender({ text: "Début nuages ", working: true });
+      for (let f = 0; f < 60 && pending; f++) { now += 8; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb()); }
+      expect(view.result.current).toBe("Début nuages ");
+      const steps = [...new Set(published)].filter(v => v !== "Début ");
+      expect(steps).toEqual(["Début nuages "]);
+    } finally {
+      view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
+    }
+  });
+
+  it("pendant le tour, une cible atteinte moins de 40 ms après la dernière publication attend la frame suivante", () => {
+    let now = 0;
+    let pending: (() => void) | null = null;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const raf = vi.spyOn(streamTickTimer, "schedule").mockImplementation(callback => { pending = callback; return 1; });
+    const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
+    let renders = 0;
+    const view = renderHook(({ text, working }) => { renders += 1; return useSmoothedStream(text, working, "gate"); }, { initialProps: { text: "Un ", working: true } });
+    try {
+      for (let f = 0; f < 60 && pending; f++) { now += 8; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb()); }
+      // deltas de 3 caractères toutes les 16 ms (rafale) pendant 400 ms
+      const before = renders;
+      let text = "Un ";
+      for (let k = 0; k < 25; k++) {
+        text += "ab ";
+        now += 8; view.rerender({ text, working: true });
+        now += 8; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb());
+      }
+      for (let f = 0; f < 30 && pending; f++) { now += 8; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb()); }
+      expect(view.result.current).toBe(text);
+      const publishes = renders - before - 25;
+      // 25 deltas sur 400 ms : sans limite ≈ 25 publications ; avec, ≤ 400/40 + 2
+      expect(publishes).toBeLessThanOrEqual(12);
+      expect(publishes).toBeGreaterThanOrEqual(5);
+      // fin du tour : sans attendre
+      text += "fin.";
+      now += 1; view.rerender({ text, working: false });
+      for (let f = 0; f < 10 && pending; f++) { now += 1; const cb = pending as (() => void) | null; pending = null; if (cb) act(() => cb()); }
+      expect(view.result.current).toBe(text);
     } finally {
       view.unmount(); clock.mockRestore(); raf.mockRestore(); cancel.mockRestore();
     }
@@ -243,7 +306,9 @@ describe("paceStep — débit constant adaptatif", () => {
       t += 33;
       paceStep(p, full, t);
       if (p.revealed < full.length) {
-        expect(/\s/.test(full[p.revealed])).toBe(true);
+        // jamais en plein mot : le pas s'arrête après le blanc qui suit le mot
+        // (ou, à la limite, juste devant lui)
+        expect(/\s/.test(full[p.revealed - 1]) || /\s/.test(full[p.revealed])).toBe(true);
       }
     }
   });
@@ -265,10 +330,10 @@ describe("paceStep — débit constant adaptatif", () => {
 
 it("à 120 Hz, publie à cadence bornée sans laisser les rendus parents avancer le texte", () => {
   let now = 0;
-  let callback: FrameRequestCallback | undefined;
+  let callback: (() => void) | undefined;
   const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-  const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(cb => { callback = cb; return 1; });
-  const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+  const raf = vi.spyOn(streamTickTimer, "schedule").mockImplementation(cb => { callback = cb; return 1; });
+  const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
   const text = "glacier ".repeat(1000);
   const view = renderHook(() => useSmoothedStream(text, true, "cadence-120"));
   let changes = 0;
@@ -276,7 +341,7 @@ it("à 120 Hz, publie à cadence bornée sans laisser les rendus parents avancer
   try {
     for (let i = 0; i < 120; i++) {
       now += 1000 / 120;
-      act(() => callback?.(now));
+      act(() => callback?.());
       const published = view.result.current;
       view.rerender();
       expect(view.result.current).toBe(published);
@@ -287,7 +352,7 @@ it("à 120 Hz, publie à cadence bornée sans laisser les rendus parents avancer
     expect(changes).toBeGreaterThan(10);
     now += 16;
     while (view.result.current !== text && now < 4000) {
-      act(() => callback?.(now));
+      act(() => callback?.());
       now += 16;
     }
     expect(view.result.current).toBe(text);
@@ -298,16 +363,16 @@ it("à 120 Hz, publie à cadence bornée sans laisser les rendus parents avancer
 
 it("une cible raccourcie entre deux publications finit de s'afficher", () => {
   let now = 0;
-  let callback: FrameRequestCallback | undefined;
+  let callback: (() => void) | undefined;
   const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-  const raf = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(cb => { callback = cb; return 1; });
-  const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+  const raf = vi.spyOn(streamTickTimer, "schedule").mockImplementation(cb => { callback = cb; return 1; });
+  const cancel = vi.spyOn(streamTickTimer, "cancel").mockImplementation(() => {});
   const text = "x ".repeat(200);
   const view = renderHook(({ text }) => useSmoothedStream(text, true, "short-snapshot"), { initialProps: { text } });
   try {
-    now = 16; act(() => callback?.(now));
+    now = 16; act(() => callback?.());
     const first = view.result.current.length;
-    now = 32; act(() => callback?.(now));
+    now = 32; act(() => callback?.());
     expect(view.result.current.length).toBe(first);
     const corrected = text.slice(0, first + 2);
     view.rerender({ text: corrected });

@@ -46,6 +46,14 @@ const MIN_FRAME_DT_MS = 1;
 // avec un débit quasi nul (span énorme) et un premier paquet révélé à
 // 2 caractères par frame.
 const RATE_STALE_MS = 5000;
+// Cadence de révélation : au plus une émission toutes les 30 ms (~30 fps).
+// Chaque émission déclenche un rendu du fil (~6,5 ms de JS sur un fil de
+// 2 000 événements, banc chat_stream_bench 2026-09-15) : à 60 fps, un paquet
+// Fable révélé 2 caractères par frame coûtait 40 % d'un cœur. À 30 fps le
+// budget par frame double (même vitesse de lecture), le coût est divisé par
+// deux, et l'œil ne distingue pas un pas de 4 caractères d'un pas de 2. La
+// première frame d'un tour n'attend pas ; un flush (fin de tour) non plus.
+const REVEAL_MIN_INTERVAL_MS = 30;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -164,6 +172,11 @@ export function createStreamCoalescer(
 
     const last = lastFrameAt.get(threadId);
     const t = now();
+    if (last != null && t - last < REVEAL_MIN_INTERVAL_MS) {
+      // trop tôt depuis la dernière émission : on laisse passer cette frame
+      scheduleFrame(threadId);
+      return;
+    }
     const dt = last == null ? NOMINAL_FRAME_MS : clamp(t - last, MIN_FRAME_DT_MS, MAX_FRAME_DT_MS);
     lastFrameAt.set(threadId, t);
     const rate = estimateRate(threadId);

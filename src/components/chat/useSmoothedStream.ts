@@ -57,6 +57,19 @@ const FINISH_CATCHUP_MS = 300;
  * d'un composant à l'autre. */
 const handoffs = new Map<string, number>();
 const MAX_HANDOFFS = 256;
+
+/** Cadence du typewriter : une minuterie de 40 ms, PAS requestAnimationFrame.
+ * Les publications étaient déjà bornées à 25 Hz ; en rAF, la boucle tournait
+ * à la fréquence de l'écran (120 Hz sur ProMotion) pour ne rien publier 4
+ * frames sur 5 — et chaque frame d'animation coûte à WebKit une passe de
+ * rendu entière (banc chat_stream_bench, WebKit : ~10 % d'un cœur pour une
+ * boucle rAF VIDE sur cette page). Exporté pour que les tests pilotent le
+ * temps sans toucher aux minuteries globales de React. */
+export const STREAM_TICK_MS = 40;
+export const streamTickTimer = {
+  schedule: (tick: () => void): number => window.setTimeout(tick, STREAM_TICK_MS),
+  cancel: (id: number): void => window.clearTimeout(id),
+};
 export function publishStreamHandoff(key: string, revealed: number): void {
   handoffs.delete(key);
   handoffs.set(key, revealed);
@@ -126,6 +139,10 @@ export function paceStep(p: StreamPace, full: string, now: number, finishing = f
     const cap = Math.min(total, next + 24);
     while (next < cap && !/\s/.test(full[next])) next += 1;
   }
+  // Le blanc qui suit le mot part avec lui : un delta « mot␣ » se révélait en
+  // deux pas (le mot, puis l'espace seul une frame plus tard) — deux rendus
+  // Markdown par delta sur des paquets fins (banc chat_stream_bench, 2026-09-15).
+  while (next < total && /\s/.test(full[next])) next += 1;
   // Le mot complété dépense aussi son avance : sans cette dette, chaque
   // frame gagnait gratuitement un mot et vidait les petits deltas trop vite.
   p.fractional -= next - p.revealed;
@@ -167,10 +184,13 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
   const frame = useRef<number | null>(null);
   const [published, setPublished] = useState(pace.current.revealed);
   const lastPublishAt = useRef<number | null>(null);
+  // pas révélé mais pas encore publié (limite de cadence) : la boucle rAF
+  // continue jusqu'à la publication, sans attendre le prochain delta
+  const pendingPublish = useRef(false);
   target.current = text;
 
   useEffect(() => () => {
-    if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
+    if (frame.current != null) { streamTickTimer.cancel(frame.current); frame.current = null; }
   }, []);
 
   useEffect(() => {
@@ -188,21 +208,27 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
       }
     }
     if (working) paceGrowth(p, text.length, performance.now());
-    const tick = (time: number) => {
+    const tick = () => {
+      const time = performance.now();
       frame.current = null;
       const finishing = !active.current;
       const advanced = paceStep(p, target.current, time, finishing);
-      // Le moteur suit les frames ; React/Markdown publient au plus à 25 Hz
-      // pendant le rattrapage. Le premier pas et la cible atteinte passent
-      // immédiatement, sans ajouter de délai aux petits paquets.
-      if (advanced && (lastPublishAt.current == null || time - lastPublishAt.current >= 40
-        || p.revealed >= target.current.length)) {
+      const reached = p.revealed >= target.current.length;
+      // Le moteur suit les frames ; React/Markdown publient au plus à 25 Hz —
+      // cible atteinte comprise pendant le tour (une frame de retard au pire ;
+      // la publier « tout de suite » doublait les rendus sur des paquets fins).
+      // Le premier pas et la fin du tour passent sans attendre.
+      if (advanced) pendingPublish.current = true;
+      const canPublish = lastPublishAt.current == null || time - lastPublishAt.current >= 40
+        || (finishing && reached);
+      if (pendingPublish.current && canPublish) {
+        pendingPublish.current = false;
         lastPublishAt.current = time;
         if (handoffKey != null) publishStreamHandoff(handoffKey, p.revealed);
         setPublished(p.revealed);
       }
-      if (p.revealed < target.current.length) {
-        frame.current = requestAnimationFrame(tick);
+      if (!reached || pendingPublish.current) {
+        frame.current = streamTickTimer.schedule(tick);
       } else if (finishing && handoffKey != null) {
         handoffs.delete(handoffKey);
       }
@@ -210,7 +236,7 @@ export function useSmoothedStream(text: string, working: boolean, handoffKey?: s
     if (frame.current == null && p.revealed < target.current.length) {
       // Une pause réseau n'est pas du temps de frappe à rattraper d'un coup.
       p.lastTickAt = performance.now();
-      frame.current = requestAnimationFrame(tick);
+      frame.current = streamTickTimer.schedule(tick);
     }
   }, [text, working, reduceMotion, handoffKey]);
 

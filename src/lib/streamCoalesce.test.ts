@@ -106,8 +106,37 @@ describe("streamCoalesce", () => {
     expect(pacingBudget({ remainingLen: 32, rateCharsPerMs: 0.01, dtMs: 16, ageMs: 0 })).toBe(32);
   });
 
+  // Banc chat_stream_bench (2026-09-15) : chaque émission coûte ~6,5 ms de
+  // JS (rendu du fil) ; révéler à 60 fps un paquet Fable brûlait 40 % d'un
+  // cœur pour un pas de 2 caractères par frame. À 30 fps le pas double (une
+  // syllabe), invisible à l'œil, et le coût est divisé par deux.
+  it("ne révèle pas plus d'une fois toutes les 30 ms, sans rien perdre ni retarder au-delà d'une frame", () => {
+    const { now, raf, caf, advanceTo } = makeHarness();
+    // une frame peut émettre plusieurs deltas d'un coup : on compte les instants d'émission
+    const frameTimes = new Set<number>();
+    let text = "";
+    const c = createStreamCoalescer((_id, ev) => { frameTimes.add(now()); text += ev.text; }, raf, caf, now);
+    // paquets fins à 60 Hz (Sonnet 5 en rafale) pendant une seconde
+    for (let k = 0; k < 60; k++) {
+      c.push("t1", { kind: "delta", text: "abcdefgh" });
+      advanceTo(now() + 16);
+    }
+    advanceTo(now() + 100);
+    expect(text).toBe("abcdefgh".repeat(60));
+    const emits = [...frameTimes].sort((a, b) => a - b);
+    expect(emits.length).toBeLessThanOrEqual(36);
+    expect(emits.length).toBeGreaterThanOrEqual(28);
+    for (let k = 1; k < emits.length; k++) expect(emits[k] - emits[k - 1]).toBeGreaterThanOrEqual(30);
+    // le tout premier paquet d'un tour part à la première frame, sans attente
+    frameTimes.clear();
+    c.flush("t1");
+    c.push("t1", { kind: "delta", text: "z" });
+    advanceTo(now() + 16);
+    expect(frameTimes.size).toBe(1);
+  });
+
   it("scénario Fable : paquets de 120 caractères espacés — révélation progressive, jamais au-delà du reçu, 1er paquet fini avant ~900 ms", () => {
-    const { now, raf, caf, advanceTo, jumpTo, hasPending, fireIfPending } = makeHarness();
+    const { now, raf, caf, advanceTo, jumpTo } = makeHarness();
     const revealed: Record<string, string> = {};
     const c = createStreamCoalescer((id, ev) => { revealed[id] = (revealed[id] ?? "") + ev.text; }, raf, caf, now);
 
@@ -115,18 +144,18 @@ describe("streamCoalesce", () => {
 
     c.push("t1", { kind: "delta", text: packet(120) });
 
+    // Observation par pas de 16 ms (une frame sur deux n'émet rien : cadence
+    // 30 fps) : la révélation ne recule jamais, ne dépasse jamais le reçu, et
+    // le premier paquet est entier bien avant 900 ms.
     let firstDoneAt: number | null = null;
     let previousLen = 0;
-    for (let guard = 0; guard < 200 && now() < 750; guard++) {
-      if (!hasPending()) { advanceTo(Math.min(now() + 16, 750)); continue; }
-      const before = revealed.t1?.length ?? 0;
-      fireIfPending();
-      const after = revealed.t1?.length ?? 0;
-      expect(after).toBeGreaterThan(before); // croît strictement à chaque frame
-      expect(after).toBeLessThanOrEqual(120); // jamais plus que le reçu
-      if (after === 120 && firstDoneAt == null) firstDoneAt = now();
-      previousLen = after;
-      if (now() < 750) advanceTo(Math.min(now() + 16, 750));
+    for (let t = 16; t <= 750; t += 16) {
+      advanceTo(t);
+      const len = revealed.t1?.length ?? 0;
+      expect(len).toBeGreaterThanOrEqual(previousLen);
+      expect(len).toBeLessThanOrEqual(120);
+      if (len === 120 && firstDoneAt == null) firstDoneAt = t;
+      previousLen = len;
     }
     expect(previousLen).toBe(120);
     expect(firstDoneAt).not.toBeNull();
