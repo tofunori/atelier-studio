@@ -22,6 +22,7 @@ export default function ThreadChat({ eventStore, threadPins, setPins, ws = null,
     ws,
     parentThreadId: props.threadId,
     parentEvents: events,
+    parentWorkingSince: props.workingSince,
   });
   const rawPins = threadPins ?? EMPTY_PINS;
   const pins = useMemo(() => resolvePins(events, rawPins), [events, rawPins]);

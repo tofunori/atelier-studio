@@ -98,8 +98,10 @@ async function openAgentPane(sock: FakeWS) {
   // tour parent vivant + action agent visible dans le fil
   await push(sock, { type: "event", threadId: THREAD_A.id, event: events.started() });
   await push(sock, { type: "event", threadId: THREAD_A.id, event: agentRunAction(Date.now()) });
-  const opener = document.querySelector(".agent-chip");
-  expect(opener, "chip d'ouverture du panneau agent (.agent-chip)").toBeTruthy();
+  // depuis df9505b6, la chip a cédé la place à une rangée (.agent-row) sous un
+  // pli de groupe, ouvert tant qu'un sous-agent travaille
+  const opener = document.querySelector(".agent-row");
+  expect(opener, "rangée d'ouverture du panneau agent (.agent-row)").toBeTruthy();
   await act(async () => {
     (opener as HTMLButtonElement).click();
     await flushMicrotasks(4);
@@ -150,7 +152,7 @@ describe("polling getAgentHistory", () => {
     });
     expect(document.querySelector(".agent-detail-panel")).not.toBeVisible();
     await act(async () => {
-      (document.querySelector(".agent-chip") as HTMLButtonElement).click();
+      (document.querySelector(".agent-row") as HTMLButtonElement).click();
       await flushMicrotasks(4);
     });
     expect(document.querySelector(".agent-detail-panel")).toBeVisible();
@@ -160,7 +162,7 @@ describe("polling getAgentHistory", () => {
     });
     expect(document.querySelector(".agent-detail-panel")).toBeNull();
     await act(async () => {
-      (document.querySelector(".agent-chip") as HTMLButtonElement).click();
+      (document.querySelector(".agent-row") as HTMLButtonElement).click();
       await flushMicrotasks(4);
     });
     expect(document.querySelector(".agent-detail-panel")).toBeVisible();
