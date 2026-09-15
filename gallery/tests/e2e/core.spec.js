@@ -778,8 +778,12 @@ test('705x795: command bar stays on one row and viewer opens without a drawer', 
     );
     expect(Math.max(...toolbarBoxes.map((box) => box.top)) - Math.min(...toolbarBoxes.map((box) => box.top))).toBeLessThanOrEqual(2);
     expect(Math.max(...toolbarBoxes.map((box) => box.right))).toBeLessThanOrEqual(705);
-    await page.locator('#grid .card [data-act="lb"]').first().click();
+    // Une image raster : en mode .vw (SVG/PDF/MD/code) l'en-tête de la
+    // lightbox est masqué par design (l'éditeur embarqué a le sien) et
+    // #lbClose n'est pas cliquable — `.first()` tombait sur plot-alpha.svg.
+    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
     await expect(page.locator('#lb')).toHaveClass(/show/);
+    await expect(page.locator('#lb')).not.toHaveClass(/vw/);
     await expect(page.locator('body')).not.toHaveClass(/has-insp/);
     const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(scrollW).toBeLessThanOrEqual(706);

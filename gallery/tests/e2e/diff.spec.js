@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { spawnGalleryServer, freePort, waitForServer } from '../gallery_server.mjs';
 import { mkdtempSync, readFileSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,14 +140,16 @@ function writeExternal(filePath, text) {
   renameSync(tempPath, filePath);
 }
 
+// Le client n'envoie un texte dans `texts` que si le serveur ne le connaît
+// pas encore (dédoublonnage par hash, diff_versions.js `known`) : le texte
+// initial part avec la première révision et n'est plus jamais répété. On
+// compare donc les HASHES (SHA-256, comme hashText côté client), jamais le
+// texte relu dans le même op.
+const sha256 = text => createHash('sha256').update(text).digest('hex');
 function matchingInterventions(payload, expected) {
-  return (payload?.ops || []).filter(op => op.type === 'append').map(op => ({
-    ...op.intervention,
-    before: op.texts?.[op.intervention.fromHash],
-    after: op.texts?.[op.intervention.toHash],
-  })).filter(entry =>
-    entry.before === expected.before
-      && entry.after === expected.after
+  return (payload?.ops || []).filter(op => op.type === 'append').map(op => op.intervention).filter(entry =>
+    entry.fromHash === sha256(expected.before)
+      && entry.toHash === sha256(expected.after)
       && entry.source === expected.source
       && entry.status === expected.status);
 }
@@ -777,15 +780,27 @@ for (const kind of ['latex', 'code']) {
       writeExternal(filePath, disk);
 
       if (kind === 'latex') {
-        await page.waitForTimeout(2500);
-        expect(await editorText(page)).toBe(local);
+        // LaTeX (« when-clean » + merge, 2026-09-11) : le delta disque de
+        // l'agent est rejoué dans le buffer sale ; le disque n'est PAS
+        // réécrit (buffer toujours sale) et l'intervention external-merge va
+        // du buffer local au texte fusionné (ce que l'agent a changé chez moi).
+        const merged = local.replace(
+          'Measured albedo declined near the exposed terminus late in the season.',
+          'Measured albedo recovered after the external observation was applied.',
+        );
+        await expect.poll(() => editorText(page), { timeout: 7000 }).toBe(merged);
         expect(readFileSync(filePath, 'utf8')).toBe(disk);
-        expect(versionPayloads.some(payload => hasIntervention([payload], {
+        await expect.poll(() => hasIntervention(versionPayloads, {
+          before: local, after: merged, source: 'external-merge', status: 'applied',
+        }), { timeout: 7000 }).toBe(true);
+        expect(hasIntervention(versionPayloads, {
           before: initialText, after: disk, source: 'external-reload', status: 'applied',
-        }))).toBe(false);
+        })).toBe(false);
+        await expect(page.locator('.atelier-conflict')).toBeHidden();
         return;
       }
 
+      // Code (« always ») : rechargement du disque, intervention external-reload.
       await expect.poll(() => hasIntervention(versionPayloads, {
         before: initialText, after: disk, source: 'external-reload', status: 'applied',
       }), { timeout: 7000 }).toBe(true);

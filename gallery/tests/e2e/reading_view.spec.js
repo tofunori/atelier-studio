@@ -70,7 +70,9 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
                 && !!centre && (centre === el || el.contains(centre)),
               gauche: Math.round(r.left),
               haut: Math.round(el.getBoundingClientRect().top),
-              boutons: [...el.querySelectorAll('button')].map(b => (b.textContent||'').trim()).filter(Boolean),
+              // Boutons d'action unifiés (2026-09-05, annotation_ui) : icônes SVG
+              // seules, le libellé vit dans aria-label/title — jamais dans le texte.
+              boutons: [...el.querySelectorAll('button')].map(b => (b.getAttribute('aria-label') || b.title || '').trim()).filter(Boolean),
               plage: el.dataset.page || null};
     });
     console.log('PASTILLE ' + JSON.stringify(pill));
@@ -79,11 +81,11 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // qui dit si la pastille est réellement à l'écran.
     expect(pill.vraimentVisible).toBe(true);
     expect(pill.boutons).toContain('Annoter');
-    expect(pill.boutons).toContain('Add to chat');
+    expect(pill.boutons).toContain('Ajouter au chat');
     // Le §13 des pièges connus : une UI d'éditeur ne se déclare faite qu'ici,
     // dans un vrai navigateur — un contrat qui grep le source encoderait le
     // bug au lieu de l'attraper.
-    expect(pill.boutons).toContain('Quick Ask');
+    expect(pill.boutons).toContain('Question rapide');
     // Quick Ask parle à l'hôte, pas au serveur : le message porte la
     // sélection, les lignes voisines et la plage source.
     const quickAsk = await fr().evaluate(() => new Promise((resolve) => {
@@ -91,7 +93,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
       const post = window.__atelierPost;
       window.__atelierPost = (payload) => { vu.push(payload); if (post) post(payload); };
       [...document.querySelectorAll('#selPill button')]
-        .find((b) => (b.textContent || '').includes('Quick Ask'))
+        .find((b) => (b.getAttribute('aria-label') || '') === 'Question rapide')
         .dispatchEvent(new MouseEvent('click', {bubbles: true}));
       setTimeout(() => resolve(vu.find((m) => m && m.type === 'atelier-quick-ask') || null), 150);
     }));
@@ -109,7 +111,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     const [requete] = await Promise.all([
       page.waitForRequest(r => r.url().includes('/quote') && r.method() === 'POST'),
       fr().evaluate(() => [...document.querySelectorAll('#selPill button')]
-        .find(b => (b.textContent||'').includes('Add to chat')).dispatchEvent(
+        .find(b => (b.getAttribute('aria-label')||'') === 'Ajouter au chat').dispatchEvent(
           new MouseEvent('click', {bubbles: true}))),
     ]);
     const envoi = JSON.parse(requete.postData() || '{}');
@@ -136,7 +138,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     });
     await fr().waitForTimeout(200);
     await fr().evaluate(() => [...document.querySelectorAll('#selPill button')]
-      .find(b => (b.textContent||'').includes('Annoter')).dispatchEvent(
+      .find(b => (b.getAttribute('aria-label')||'') === 'Annoter').dispatchEvent(
         new MouseEvent('click', {bubbles: true})));
     await fr().waitForTimeout(150);
     await fr().locator('#texcPop textarea').fill('à revoir');
