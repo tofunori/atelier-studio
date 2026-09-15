@@ -75,37 +75,58 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 // temps CPU cumulé de l'arbre de processus du navigateur (ps), avant/après.
 const ENGINE = args.browser === "webkit" ? "webkit" : "chromium";
 const browser = ENGINE === "webkit" ? await webkit.launch() : await chromium.launch();
-function browserTreeCpuSeconds() {
-  // tous les processus du navigateur Playwright (bundle ms-playwright/<moteur>) :
-  // navigateur + WebContent/GPU/Networking. Un seul banc à la fois.
+function browserCpuByRole() {
+  // processus du navigateur Playwright (bundle ms-playwright/<moteur>), par rôle :
+  // WebContent (page + JS + layout/peinture), GPU, Networking, navigateur. Un seul
+  // banc à la fois. `time` = CPU cumulé du processus (tous threads).
   const marker = ENGINE === "webkit" ? "ms-playwright/webkit" : "ms-playwright/chromium";
-  const rows = execFileSync("ps", ["-axo", "time=,command="], { encoding: "utf8" }).trim().split("\n");
+  const rows = execFileSync("ps", ["-axo", "pid=,time=,command="], { encoding: "utf8" }).trim().split("\n");
   const toSec = (t) => t.split(":").reduce((acc, v) => acc * 60 + Number(v), 0);
-  let total = 0;
-  for (const row of rows) { if (!row.includes(marker)) continue; total += toSec(row.trim().split(/\s+/)[0]); }
-  return total;
+  const out = { total: 0, byRole: {}, pids: {} };
+  for (const row of rows) {
+    if (!row.includes(marker)) continue;
+    const [pid, time, ...cmd] = row.trim().split(/\s+/);
+    const c = cmd.join(" ");
+    const role = /WebContent\.xpc/.test(c) ? "webcontent" : /WebKit\.GPU\.xpc/.test(c) ? "gpu" : /Networking\.xpc/.test(c) ? "networking"
+      : /Playwright\.app\/Contents\/MacOS\/Playwright/.test(c) ? "browser"
+      : /--type=renderer/.test(c) ? "webcontent" : /--type=gpu-process/.test(c) ? "gpu" : /--type=utility.*network/i.test(c) ? "networking"
+      : /Chromium\.app\/Contents\/MacOS\/Chromium(?:\s|$)/.test(c) && !/--type=/.test(c) ? "browser" : null;
+    if (!role) continue; // wrappers (bash pw_run.sh, shells) et autres helpers : hors mesure
+    const sec = toSec(time);
+    out.total += sec; out.byRole[role] = (out.byRole[role] ?? 0) + sec; out.pids[pid] = role;
+  }
+  return out;
 }
+const cpuDelta = (a, b) => ({
+  total: +(b.total - a.total).toFixed(2),
+  byRole: Object.fromEntries([...new Set([...Object.keys(a.byRole), ...Object.keys(b.byRole)])].map((r) => [r, +(((b.byRole[r] ?? 0) - (a.byRole[r] ?? 0))).toFixed(2)])),
+  sameProcesses: JSON.stringify(Object.keys(a.pids).sort()) === JSON.stringify(Object.keys(b.pids).sort()),
+});
 const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
 page.on("pageerror", (e) => console.error("[page error]", e.message));
 const DEBUG = "debug" in args;
 if (DEBUG) page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.error(`[console ${m.type()}]`, m.text().slice(0, 300)); });
-await page.addInitScript(({ port, root, galleryUrl }) => {
+const PROBES = "probes" in args;
+await page.addInitScript(({ port, root, galleryUrl, probes }) => {
   // Projet actif = celui du fil, sinon l'app ouvre sur les discussions libres
   // et la barre latérale ne liste pas le fil.
   try { localStorage.setItem("atelier-studio.projects", JSON.stringify([root])); } catch {}
   // Tauri absent : on répond aux commandes que le boot appelle, null ailleurs.
   const answers = { sidecar_port: { port, token: "bench" }, start_atelier: galleryUrl, gallery_token: "bench", boot_clock_elapsed_ms: 0, "plugin:event|listen": 1 };
   window.isTauri = true;
+  if (location.search.includes("nomargin")) window.__benchNoMarginMeasure = true;
+  if (location.search.includes("nullbubble")) window.__benchNullBubble = true;
   window.__TAURI_INTERNALS__ = {
     invoke: (cmd) => Promise.resolve(cmd in answers ? answers[cmd] : null),
     transformCallback: () => 0,
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
   };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
-  // compteurs côté page : mutations DOM du fil et frames rAF réellement tirées
-  window.__bench = { mutations: 0, rafs: 0, timers: 0 };
+  // compteurs côté page (--probes seulement : la capture de pile à chaque rAF
+  // et le MutationObserver coûtent du CPU et fausseraient une mesure nue)
+  window.__bench = { mutations: 0, rafs: 0, timers: 0, rafSites: {} };
+  if (!probes) return;
   const rawRaf = window.requestAnimationFrame.bind(window);
-  window.__bench.rafSites = {};
   window.requestAnimationFrame = (cb) => {
     // site d'appel = première ligne de pile hors de ce wrapper
     const site = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at /, "").replace(/\(?https?:\/\/[^)]*\/([^/)]+)\)?$/, "$1")).join(" ← ");
@@ -118,7 +139,7 @@ await page.addInitScript(({ port, root, galleryUrl }) => {
     new MutationObserver((records) => { window.__bench.mutations += records.length; })
       .observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
   });
-}, { port: PORT_SIDECAR, root: THREAD.projectRoot, galleryUrl: `${origin}/blank.html` });
+}, { port: PORT_SIDECAR, root: THREAD.projectRoot, galleryUrl: `${origin}/blank.html`, probes: PROBES });
 
 let sock = null;
 let streaming = null;
@@ -139,10 +160,14 @@ await page.routeWebSocket(new RegExp(`^ws://127\\.0\\.0\\.1:${PORT_SIDECAR}`), (
 // --reduced-motion : le lissage est court-circuité (texte publié tel quel) —
 // isole le coût de la boucle rAF 120 Hz de useSmoothedStream.
 if ("reduced-motion" in args) await page.emulateMedia({ reducedMotion: "reduce" });
-await page.goto(origin + "/");
+await page.goto(origin + "/" + ("nomargin" in args ? "?nomargin=1" : "nullbubble" in args ? "?nullbubble=1" : ""));
 // --no-animations : neutralise toute animation/transition CSS (fondu des mots,
 // shimmer, glyphes) — isole leur coût de rendu.
 if ("no-animations" in args) await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" });
+// ablations CSS ciblées (sans rebuild) : fondu par mot, curseur, transitions
+if ("no-wordfade" in args) await page.addStyleTag({ content: ".msg.is-streaming .sw, .thinking-live-stream .sw { animation: none !important; }" });
+if ("no-caret" in args) await page.addStyleTag({ content: ".stream-caret, .stream-caret::after { animation: none !important; }" });
+if ("no-transitions" in args) await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
 try {
   await page.locator(".sidebar").getByText(THREAD.title).first().click({ timeout: 15000 });
 } catch (e) {
@@ -176,7 +201,10 @@ if (cdp) try {
   await cdp.send("LayerTree.disable");
 } catch { layerCount = null; }
 const before = await metricsOf();
-const cpuBefore = browserTreeCpuSeconds();
+const cpuBefore = browserCpuByRole();
+// garde : un seul navigateur de banc vivant, sinon la mesure agrège un orphelin
+const browserCount = Object.values(cpuBefore.pids).filter((r) => r === "browser").length;
+if (browserCount !== 1) { console.error(`ÉCHEC — ${browserCount} instances ${ENGINE} de banc vivantes (orphelins ?) : pkill -f ms-playwright/${ENGINE}`); await browser.close(); server.close(); process.exit(2); }
 const countersBefore = await page.evaluate(() => ({ ...window.__bench }));
 // --trace : trace Chromium (devtools.timeline) agrégée par nom d'événement —
 // attribue le temps hors script (peinture, calques, GC, frames).
@@ -201,6 +229,7 @@ if (!IDLE) emit({ kind: "user", text: "Explique la formation des nuages en 400 m
 if (!IDLE) emit({ kind: "started", ts: Date.now(), meta: meta() });
 const words = "Les nuages naissent quand l'air humide se refroidit sous son point de rosée et que la vapeur se condense sur des noyaux ; la convection, le relief et les fronts fournissent l'ascendance nécessaire. ".split(" ");
 let i = 0, deltas = 0;
+let sent = "";
 const total = IDLE ? 0 : SECONDS * HZ;
 // --scroll-away : après le premier delta, on remonte le fil en haut (le suivi
 // se coupe) — la bulle vivante n'est plus dans la fenêtre. Si le coût tombe,
@@ -217,24 +246,29 @@ while (deltas < total) {
   if (CHUNK) { while (chunk.length < CHUNK) { chunk += words[i++ % words.length] + " "; if (i % 60 === 0) chunk += "\n\n"; } }
   else chunk = words[i++ % words.length] + " " + (deltas % 40 === 39 ? "\n\n" : "");
   emit({ kind: "delta", text: chunk, ts: Date.now(), meta: meta() });
+  sent += chunk;
   deltas++;
   await page.waitForTimeout(1000 / HZ);
 }
-const streamedText = await page.evaluate(() => (document.querySelector(".streaming, .assistant-message:last-of-type, .msg-text:last-of-type")?.textContent ?? "").length);
+const streamWall = (Date.now() - t0) / 1000;
+const cpuAfterStream = browserCpuByRole();
+const streamedText = await page.evaluate(() => (document.querySelector(".is-streaming")?.textContent ?? "").length);
 const liveRows = await page.evaluate(() => ({ streaming: document.querySelectorAll(".is-streaming").length, liveThinking: document.querySelectorAll(".thinking.live, .thinking-live").length, rows: document.querySelectorAll(".timeline-virtual-row").length }));
 // garde-fous : la bulle affiche bien le texte reçu (≥ 90 % — le lissage peut
 // avoir un pas de retard) et la liste suit toujours le bas pendant le stream
-const sentChars = deltas * (CHUNK ?? 6);
+const sentChars = sent.length;
 const follow = await page.evaluate(() => {
   const el = document.querySelector(".messages") ?? document.scrollingElement;
   return el ? { gap: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight), scrollable: el.scrollHeight > el.clientHeight + 10 } : null;
 });
-if (!IDLE) emit({ kind: "text", text: Array.from({ length: total }, (_, k) => words[k % words.length]).join(" "), ts: Date.now(), meta: meta() });
+// le texte final est EXACTEMENT ce qui a été streamé : un texte différent
+// changerait la géométrie de la bulle à la finalisation, hors sujet
+if (!IDLE) emit({ kind: "text", text: sent, ts: Date.now(), meta: meta() });
 if (!IDLE) emit({ kind: "done", ok: true, result: "", ts: Date.now(), meta: meta() });
 await page.waitForTimeout(1500);
 const wall = (Date.now() - t0) / 1000;
 const profile = PROFILE ? (await cdp.send("Profiler.stop")).profile : { nodes: [], samples: [], timeDeltas: [] };
-const cpuAfter = browserTreeCpuSeconds();
+const cpuAfter = browserCpuByRole();
 let traceSummary = null;
 if (TRACE && cdp) {
   const buf = await browser.stopTracing();
@@ -299,7 +333,14 @@ console.log(JSON.stringify({
   history: { events: history.length, source: args.history ? "captured" : "synthetic" },
   stream: { seconds: SECONDS, hz: HZ, chunk: CHUNK ?? "word", deltas, wallSeconds: +wall.toFixed(1), renderedChars: streamedText, sentCharsApprox: sentChars, liveRows, follow },
   engine: ENGINE,
-  browserCpuSeconds: cpuBefore != null && cpuAfter != null ? +(cpuAfter - cpuBefore).toFixed(2) : null,
+  probes: PROBES,
+  // CPU du navigateur (s) : pendant les deltas seulement, puis finalisation (text+done+1,5 s)
+  cpu: {
+    streaming: { ...cpuDelta(cpuBefore, cpuAfterStream), wallSeconds: +streamWall.toFixed(1),
+      pctOfWall: +((cpuAfterStream.total - cpuBefore.total) / streamWall * 100).toFixed(1),
+      webcontentPctOfWall: +(((cpuAfterStream.byRole.webcontent ?? 0) - (cpuBefore.byRole.webcontent ?? 0)) / streamWall * 100).toFixed(1) },
+    finalization: cpuDelta(cpuAfterStream, cpuAfter),
+  },
   page: {
     scriptSeconds: d("ScriptDuration"), layoutSeconds: d("LayoutDuration"), styleSeconds: d("RecalcStyleDuration"), taskSeconds: d("TaskDuration"),
     cpuPctOfWall: +((d("TaskDuration") / wall) * 100).toFixed(1),
