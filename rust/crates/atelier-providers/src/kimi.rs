@@ -473,6 +473,7 @@ pub(crate) fn sanitize_replay_user(text: &str) -> String {
     let mut out = text.to_string();
     for (open, close) in [
         ("<atelier-file-scope>", "</atelier-file-scope>"),
+        ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         (
             "<atelier-gallery-integration>",
             "</atelier-gallery-integration>",

@@ -1,0 +1,59 @@
+/* Precision Native: the viewer's width controls disclosure, including host split panes. */
+#lb.responsive-viewer{container-type:inline-size;container-name:figure-viewer}
+#lb.responsive-viewer #lbHead{height:48px;min-height:48px;padding:8px;gap:4px;box-sizing:border-box}
+#lb.responsive-viewer #lbHead .lb-space{min-width:0}
+#lb.responsive-viewer #lbHead>button,#lb.responsive-viewer summary{width:auto;min-width:32px;height:32px;padding:0 8px;flex:none;border-radius:6px;font-size:13px;box-sizing:border-box;gap:7px}
+#lb.responsive-viewer svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#lb.responsive-viewer #lbVersions{background:color-mix(in srgb,var(--txt) 4%,transparent);border:0;border-radius:6px;margin:0;gap:1px}
+#lb.responsive-viewer #lbVersions .lbBtn{height:32px;min-width:32px;width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent}
+#lb.responsive-viewer #lbVersions #lbVersionCurrent{font-size:12px;width:auto;padding:0 5px}
+#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--primary);background:color-mix(in srgb,var(--primary) 13%,transparent)}
+#lb.responsive-viewer #lbZoomMenu{position:relative;flex:none}
+#lb.responsive-viewer #lbZoomMenu summary{display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;color:var(--txt)}
+#lb.responsive-viewer summary::-webkit-details-marker{display:none}
+#lb.responsive-viewer .viewer-menu,#lb.responsive-viewer #lbMore>div{position:absolute;top:40px;right:0;width:224px;max-width:calc(100cqw - 16px);padding:6px;background:var(--card);border-radius:10px;box-shadow:var(--elev);z-index:110;box-sizing:border-box}
+#lb.responsive-viewer #lbZoomMenu .viewer-menu{left:0;right:auto}
+#lb.responsive-viewer #lbZoom{display:flex;position:static!important;opacity:1;pointer-events:auto;transform:none;width:100%;gap:2px}
+#lb.responsive-viewer #lbZoom #lbFit{flex:1}
+#lb.responsive-viewer .viewer-menu>button,#lb.responsive-viewer #lbOverflow button,#lb.responsive-viewer #lbOverflowVersions button{display:flex;align-items:center;justify-content:flex-start;width:100%;height:34px;border:0;background:transparent;color:var(--txt);font:inherit;font-size:12px;gap:8px;padding:0 8px;box-sizing:border-box;white-space:nowrap}
+#lb.responsive-viewer #lbOverflow,#lb.responsive-viewer #lbOverflowVersions{display:none}
+#lb.responsive-viewer #annotBar{position:absolute!important;top:58px;left:50%;right:auto;transform:translateX(-50%)!important;display:none!important;width:max-content;max-width:calc(100% - 16px);padding:6px;gap:2px;background:var(--card);border:0;border-radius:10px;box-shadow:var(--elev);z-index:108;box-sizing:border-box}
+#lb.responsive-viewer.annot #annotBar{display:flex!important}
+#lb.responsive-viewer #annotBar>button,#lb.responsive-viewer #annotShapes summary{display:inline-flex;align-items:center;justify-content:center;width:32px;min-width:32px;height:32px;padding:0;box-sizing:border-box}
+#lb.responsive-viewer #annotShapes summary{width:42px;gap:0}
+#lb.responsive-viewer #annotBar i{display:none}
+#lb.responsive-viewer #annotBar #annotZoomOut,#lb.responsive-viewer #annotBar #annotFit,#lb.responsive-viewer #annotBar #annotZoomIn{display:none}
+#lb.responsive-viewer #annotBar .sel{background:color-mix(in srgb,var(--primary) 13%,transparent);color:var(--primary)}
+#lb.responsive-viewer #annotDone{color:var(--txt)}
+#lb.responsive-viewer #annotPill{position:static!important;display:flex!important;transform:none!important;opacity:1;margin:4px 0;padding:0;width:100%;flex-wrap:wrap}
+#lb.responsive-viewer #annotPillN{font-size:12px;text-align:left}
+#lb.responsive-viewer #lbSheet{max-width:calc(100% - 16px);box-sizing:border-box}
+#lb.responsive-viewer #lbFigureCaption{position:absolute;bottom:17px;left:16px;right:16px;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+#lb.responsive-viewer.vw #lbFigureCaption{display:none}
+#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:28px 24px 46px}
+#lb.responsive-viewer #lbHead:has(~ #annotBar) {border-bottom:1px solid color-mix(in srgb,var(--txt) 4%,transparent)}
+#lb.responsive-viewer button:focus-visible,#lb.responsive-viewer summary:focus-visible{outline:1px solid var(--primary);outline-offset:2px}
+@media(hover:hover){#lb.responsive-viewer button:hover,#lb.responsive-viewer summary:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}}
+@container figure-viewer (max-width:760px){#lb.responsive-viewer .viewer-label{display:none}#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding-left:16px;padding-right:16px}}
+@container figure-viewer (max-width:490px){
+  #lb.responsive-viewer #lbInfoBtn,#lb.responsive-viewer #lbAdd{display:none}
+  #lb.responsive-viewer #lbZoomMenu{position:static;width:0;min-width:0}
+  #lb.responsive-viewer #lbZoomMenu summary{display:none}
+  #lb.responsive-viewer #lbZoomMenu .viewer-menu{left:auto;right:8px;top:54px}
+  #lb.responsive-viewer #lbHead{gap:2px}
+  #lb.responsive-viewer #lbOverflow{display:block}
+  #lb.responsive-viewer #lbOverflow .viewer-label{display:inline}
+}
+@container figure-viewer (max-width:300px){#lb.responsive-viewer #lbVersions #lbVersionPrev,#lb.responsive-viewer #lbVersions #lbVersionNext{display:none}#lb.responsive-viewer #lbOverflowVersions{display:block}#lb.responsive-viewer #lbHead{padding:6px}}
+#lb.responsive-viewer #lbMore{position:static}
+#lb.responsive-viewer #lbMore>div{right:8px;top:54px}
+
+/* Atelier promotes the embedded gallery iframe into the macOS window's top
+   layer. Keep the reader toolbar persistent there and reserve the traffic-light
+   area; the host title bar remains overlaid above the webview. */
+html.emb #lb.responsive-viewer.fs #lbHead{display:flex;padding-left:112px}
+html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
+@media(max-width:360px){
+  html.emb #lb.responsive-viewer.fs #lbHead{margin-top:40px;padding-left:6px}
+  html.emb #lb.responsive-viewer.fs #annotBar{top:98px}
+}

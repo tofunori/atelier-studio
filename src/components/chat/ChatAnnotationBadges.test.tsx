@@ -16,7 +16,7 @@ it("anchors to the message row across scrolling and opens at the current viewpor
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function(this: HTMLElement) {
     return new DOMRect(100, 200 - scroll, 600, 100);
   });
-  Range.prototype.getClientRects = () => [new DOMRect(120, 240 - scroll, 200, 20)] as unknown as DOMRectList;
+  Range.prototype.getClientRects = () => [new DOMRect(260, 240 - scroll, 200, 20)] as unknown as DOMRectList;
   const onOpen = vi.fn();
   const { container } = render(<Harness onOpen={onOpen}/>);
   const badge = await waitFor(() => {
@@ -24,7 +24,7 @@ it("anchors to the message row across scrolling and opens at the current viewpor
     expect(node).not.toBeNull(); return node!;
   });
   expect(badge.parentElement).toHaveClass("timeline-virtual-row");
-  expect(badge.style.left).toBe("0px");
+  expect(badge.style.left).toBe("135px");
   expect(badge.style.top).toBe("40px");
   scroll = 150;
   fireEvent.scroll(container.querySelector(".messages")!);

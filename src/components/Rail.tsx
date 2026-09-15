@@ -85,10 +85,10 @@ export default function Rail(p: {
               { key: "highlights", label: t("view.highlights"), onSelect: () => p.onSelectView("highlights") },
             ]} />
         </div>
-        <div className="rail-views" role="group" aria-label="Discussions libres">
+        <div className="rail-views" role="group" aria-label={t("discussions.title")}>
           <IconButton className={`rail-view ${discussionsActive ? "on" : ""}`}
             aria-current={discussionsActive ? "page" : undefined}
-            label="Discussions libres" title="Discussions libres"
+            label={t("discussions.title")} title={t("discussions.title")}
             onClick={() => p.onDiscussions ? p.onDiscussions() : p.onSelectView("chats")}>
             <ChatsIcon size={19} />
           </IconButton>

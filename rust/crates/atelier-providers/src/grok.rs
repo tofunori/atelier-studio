@@ -1478,6 +1478,7 @@ fn strip_atelier_blocks(text: &str) -> String {
         ),
         ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
         ("<atelier-kb>", "</atelier-kb>"),
+        ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         ("<atelier-file-scope>", "</atelier-file-scope>"),
     ] {
         while let Some(start) = output.find(open) {

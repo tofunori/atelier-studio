@@ -80,7 +80,16 @@ export function visibleTabsForProject<T extends AtelierTabLike>(
   activeProject: string | null,
   atelierOrigin: string | null,
 ): T[] {
-  if (!activeProject || !atelierOrigin) return [...tabs];
+  if (!activeProject) return [...tabs];
+  // During A → B, B's gallery server has not returned an origin yet. Do not
+  // fall back to every tab: that briefly mounts A's editor against the new
+  // AtelierPane. Only tabs with an explicit B ownership can be shown until
+  // the URL-based fallback becomes safe again.
+  if (!atelierOrigin) {
+    return tabs.filter((tab) => tab.kind === "term"
+      ? tab.cwd === activeProject
+      : tab.projectRoot === activeProject);
+  }
   return tabs.filter((tab) => {
     if (tab.kind === "term") return !tab.cwd || tab.cwd === activeProject;
     if (tab.projectRoot) return tab.projectRoot === activeProject;

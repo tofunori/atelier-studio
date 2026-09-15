@@ -38,7 +38,7 @@ export function ChatAnnotationBadges({ hostRef, marks, revision, onOpen }: {
         if (!row || !rect) return;
         const origin = row.getBoundingClientRect();
         rows.add(row);
-        const x = 0;
+        const x = Math.max(0, rect.left - origin.left - row.clientLeft - 25);
         let y = rect.top - origin.top - row.clientTop;
         for (const previous of next.filter(b => b.row === row).sort((a,b) => a.y-b.y)) {
           if (Math.abs(previous.x-x)<28 && Math.abs(previous.y-y)<26) y=previous.y+26;

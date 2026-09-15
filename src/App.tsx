@@ -6,8 +6,6 @@ import {
   isFreeDiscussionThread,
   isLegacyDiscussionThread,
 } from "./lib/discussions";
-import { DiscussionDocuments } from "./components/DiscussionDocuments";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { ReadingChatOverlay } from "./components/ReadingChatOverlay";
@@ -153,6 +151,7 @@ const TopBarMemo = memo(TopBar);
 const RailMemo = memo(Rail);
 
 const PROJECTS_KEY = "atelier-studio.projects";
+const DISCUSSION_WORKSPACE_IDS_KEY = "atelier-studio.discussion-workspace-ids";
 // Le localStorage WKWebView peut perdre ses toutes dernières écritures si le
 // process est tué (kill -9, protocole de relance) — c'est pour ça que
 // projets/réglages/favoris/etc. sont aussi miroités sur disque (settings.json
@@ -311,6 +310,20 @@ function loadProjects(): string[] {
   } catch {
     return [];
   }
+}
+
+function loadDiscussionWorkspaceIds(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DISCUSSION_WORKSPACE_IDS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  return typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 // nom court d'un projet à partir de son chemin absolu — même convention que
@@ -608,7 +621,8 @@ export default function App() {
   const discussionMigrationDeferredRef = useRef(new Set<string>());
   const discussionDocumentsRef = useRef(new Set<string>());
   const discussionDocumentRequestsRef = useRef(new Map<string, Promise<string | null>>());
-  const [creatingDocument, setCreatingDocument] = useState(false);
+  const pendingDiscussionUpsertsRef = useRef(new Map<string, Thread>());
+  const discussionWorkspaceIdsRef = useRef(loadDiscussionWorkspaceIds());
   const [activeProject, setActiveProject] = useState<string | null>(
     () => loadProjects()[0] ?? null,
   );
@@ -1258,6 +1272,20 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<string>("gallery");
   const [layout, setLayout] = useState<"split" | "chat" | "atelier">("split");
+  // Free discussions use the normal document tabs and Chat / Split controls.
+  // Restore their writing surface when entering the workspace, without adding
+  // another toolbar above the full-height chat.
+  useEffect(() => {
+    if (!activeProject || !isDiscussionRoot(activeProject)) return;
+    setLayout((current) => current === "chat" ? "split" : current);
+    const thread = allThreadsRef.current.find((entry) => entry.id === activeIdRef.current);
+    const file = thread?.discussionDocument ?? discussionMarkdownFile(filesRef.current);
+    if (file && atelierUrlRef.current) {
+      window.setTimeout(() => {
+        if (activeProjectRef.current === activeProject) openFileTab(file);
+      }, 0);
+    }
+  }, [activeProject]);
   const [openedAgent, setOpenedAgent] = useState<AgentDisplay | null>(null);
   // Miroir de openedAgent lu par l'effet d'éviction (pas en dépendance, pour
   // ne pas le redéclencher à chaque ouverture/fermeture d'agent) : voir usage
@@ -1288,6 +1316,95 @@ export default function App() {
   }, [activeId]);
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
+
+  function discussionWorkspaceIdForThread(thread: Pick<Thread, "id" | "discussionWorkspaceId">): string {
+    const persisted = thread.discussionWorkspaceId;
+    if (isUuid(persisted)) return persisted;
+    if (isUuid(thread.id)) return thread.id;
+    const known = discussionWorkspaceIdsRef.current[thread.id];
+    if (isUuid(known)) return known;
+    const generated = crypto.randomUUID();
+    discussionWorkspaceIdsRef.current[thread.id] = generated;
+    try {
+      localStorage.setItem(DISCUSSION_WORKSPACE_IDS_KEY, JSON.stringify(discussionWorkspaceIdsRef.current));
+    } catch {}
+    return generated;
+  }
+
+  function discussionThreadIsRunning(thread: Pick<Thread, "id" | "status">): boolean {
+    return thread.status === "running"
+      || workingSinceRef.current[thread.id] != null
+      || confirmedRunsRef.current.has(thread.id);
+  }
+
+  function patchDiscussionThread(thread: Thread, patch: { projectRoot?: string; discussionDocument?: string; discussionWorkspaceId?: string }) {
+    const next = { ...thread, ...patch };
+    setThreads((current) => current.map((entry) => entry.id === thread.id ? { ...entry, ...patch } : entry));
+    setDraftThreads((current) => current.map((entry) => entry.id === thread.id ? { ...entry, ...patch } : entry));
+    threadsRef.current = threadsRef.current.map((entry) => entry.id === thread.id ? { ...entry, ...patch } : entry);
+    allThreadsRef.current = allThreadsRef.current.map((entry) => entry.id === thread.id ? { ...entry, ...patch } : entry);
+    pendingDiscussionUpsertsRef.current.set(thread.id, next);
+    if (ws.current?.readyState === 1) {
+      try {
+        ws.current.send(JSON.stringify({
+          type: "upsertThread",
+          thread: {
+            id: next.id,
+            provider: next.provider,
+            title: next.title,
+            projectRoot: next.projectRoot,
+            ...(next.sessionId ? { sessionId: next.sessionId } : {}),
+            ...(next.discussionDocument ? { discussionDocument: next.discussionDocument } : {}),
+            ...(next.discussionWorkspaceId ? { discussionWorkspaceId: next.discussionWorkspaceId } : {}),
+          },
+        }));
+        pendingDiscussionUpsertsRef.current.delete(thread.id);
+      } catch {
+        // Keep the full patch queued; the reconnect effect below retries it.
+      }
+    }
+  }
+
+  function migrateLegacyDiscussion(thread: Thread): Promise<string | null> {
+    if (!isLegacyDiscussionThread(thread)) return Promise.resolve(thread.projectRoot || null);
+    if (discussionThreadIsRunning(thread)) {
+      discussionMigrationDeferredRef.current.add(thread.id);
+      return Promise.resolve(null);
+    }
+    const pending = discussionMigrationsRef.current.get(thread.id);
+    if (pending) return pending;
+    const workspaceId = discussionWorkspaceIdForThread(thread);
+    const promise = invoke<string>("discussion_workspace", { threadId: workspaceId })
+      .then((root) => {
+        if (!isDiscussionRoot(root) || discussionWorkspaceId(root) !== workspaceId) {
+          throw new Error("Dossier de discussion invalide");
+        }
+        // The provider may have started, been moved, or been deleted while
+        // discussion_workspace was running. Never resurrect the stale input
+        // object or move the active project in those cases.
+        const current = allThreadsRef.current.find((entry) => entry.id === thread.id);
+        if (!current || !isLegacyDiscussionThread(current) || discussionThreadIsRunning(current)) {
+          discussionMigrationDeferredRef.current.add(thread.id);
+          return null;
+        }
+        patchDiscussionThread(current, { projectRoot: root, discussionWorkspaceId: workspaceId });
+        if (activeIdRef.current === current.id) {
+          discussionNavigation.current = true;
+          setActiveProject(root);
+          requestCatalogWithRecovery(root, current.provider);
+        }
+        discussionMigrationDeferredRef.current.delete(thread.id);
+        return root;
+      })
+      .catch((error) => {
+        void showError(String(error));
+        return null;
+      })
+      .finally(() => discussionMigrationsRef.current.delete(thread.id));
+    discussionMigrationsRef.current.set(thread.id, promise);
+    return promise;
+  }
+
   const activeComposerKey = composerDraftKey(activeId, activeProject);
   const {
     draft: activeComposerDraft,
@@ -3718,21 +3835,6 @@ export default function App() {
     openFileTab(pending.file);
   }, [pendingDiscussionDocument, activeProject, atelierUrl]);
 
-  async function createDiscussionDocument(format: "md" | "tex") {
-    if (!activeId || !isDiscussionRoot(activeProject) || creatingDocument) return;
-    const root = activeProject!;
-    // Linked conversations may share their parent's workspace.
-    const workspaceId = root.split("/").pop()!;
-    setCreatingDocument(true);
-    try {
-      const file = await invoke<string>("discussion_create_document", { threadId: workspaceId, format });
-      if (activeProjectRef.current !== root) return;
-      requestFileCatalogWithRecovery(root);
-      setPendingDiscussionDocument({ root, file });
-    } catch (error) { void showError(String(error)); }
-    finally { setCreatingDocument(false); }
-  }
-
   async function openSourceFile(sourceRoot: string, rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     if (sourceRoot === activeProject) { openFileTab(rel, line, options); return; }
     const owner = activeProject;
@@ -3805,6 +3907,36 @@ export default function App() {
   openFileTabRef.current = openFileTab;
   const filesRef = useRef(files);
   filesRef.current = files;
+
+  function ensureDiscussionMarkdown(thread: Thread, root: string): Promise<string | null> {
+    if (!isFreeDiscussionThread(thread) || !isDiscussionRoot(root)) return Promise.resolve(null);
+    const workspaceId = discussionWorkspaceId(root);
+    if (!workspaceId) return Promise.resolve(null);
+    const key = `${thread.id}:${root}`;
+    if (discussionDocumentsRef.current.has(key)) return Promise.resolve(thread.discussionDocument ?? null);
+    const existingRequest = discussionDocumentRequestsRef.current.get(key);
+    if (existingRequest) return existingRequest;
+    const request = invoke<string>("discussion_ensure_document", { threadId: workspaceId, format: "md" })
+      .then((file) => {
+        // Tauri returns a single basename. Refuse an unexpected path before it
+        // reaches the editor URL or the runtime instruction.
+        if (!/^[^/\\]+\.md$/i.test(file)) throw new Error("Document de discussion invalide");
+        const current = allThreadsRef.current.find((entry) => entry.id === thread.id);
+        if (!current || current.projectRoot !== root || !isFreeDiscussionThread(current)) return null;
+        discussionDocumentsRef.current.add(key);
+        patchDiscussionThread(current, { discussionDocument: file });
+        requestFileCatalogWithRecovery(root);
+        setPendingDiscussionDocument({ root, file });
+        return file;
+      })
+      .catch((error) => {
+        void showError(String(error));
+        return null;
+      })
+      .finally(() => discussionDocumentRequestsRef.current.delete(key));
+    discussionDocumentRequestsRef.current.set(key, request);
+    return request;
+  }
 
   const atelierUrlRef = useRef(atelierUrl);
   atelierUrlRef.current = atelierUrl;
@@ -4021,14 +4153,22 @@ export default function App() {
         return;
       } finally { creatingDiscussion.current = false; }
     }
+    const managedDiscussion = isDiscussionRoot(projectRoot);
+    // A free discussion is an isolated workspace. Pending project selections
+    // (KB/consigne) belong to the previous context and must not be copied into
+    // this new thread; the thread keeps only its own future attachments.
+    if (managedDiscussion) {
+      setPendingKb({ kbSourceIds: [], kbFullContent: [] });
+      setPendingConsigne(null);
+    }
     // consigne choisie avant toute conversation (plan 2026-09-01) : consommée
     // AVANT consumePendingKb pour pouvoir la lui transmettre — un id encore
     // inconnu du backend ne doit jamais recevoir de patch partiel (ThreadStore
     // normalise provider→claude et projectRoot→"" pour un id absent du store,
     // cf. commentaire consumePendingKb ci-dessous : même piège que le KB).
-    const consigneAttente = consumePendingConsigne();
+    const consigneAttente = managedDiscussion ? null : consumePendingConsigne();
     // sélection KB faite avant toute conversation : adoptée par le fil créé
-    const kbInit = consumePendingKb({
+    const kbInit = managedDiscussion ? {} : consumePendingKb({
       id, provider, projectRoot, title: t("app.new-chat-title"),
       ...(consigneAttente ? { consigne: consigneAttente } : {}),
     });
@@ -4040,6 +4180,7 @@ export default function App() {
       sessionId: null,
       status: "idle" as const,
       updatedAt: new Date().toISOString(),
+      ...(managedDiscussion ? { discussionWorkspaceId: discussionWorkspaceId(projectRoot) ?? undefined } : {}),
       ...kbInit,
       ...(consigneAttente ? { consigne: consigneAttente } : {}),
     };
@@ -4055,6 +4196,7 @@ export default function App() {
         type: "upsertThread",
         thread: {
           id, projectRoot, provider, title: created.title,
+          ...(managedDiscussion ? { discussionWorkspaceId: discussionWorkspaceId(projectRoot) ?? undefined } : {}),
           ...(consigneAttente ? { consigne: consigneAttente } : {}),
         },
       }));
@@ -4078,6 +4220,7 @@ export default function App() {
     // A changed id is loaded by the activeId effect. Clicking the same empty
     // chat remains an explicit retry, without duplicating every navigation.
     const reselect = activeIdRef.current === threadId;
+    const selectedThread = allThreadsRef.current.find((thread) => thread.id === threadId);
     setActiveId(threadId);
     activeIdRef.current = threadId;
     if (!projectRoot) {
@@ -4088,6 +4231,9 @@ export default function App() {
       if (reselect && (!eventsRef.current[threadId]?.length || evictedThreadsRef.current.has(threadId)) && ws.current?.readyState === 1) {
         requestHistory(threadId);
         evictedThreadsRef.current.delete(threadId);
+      }
+      if (selectedThread && isLegacyDiscussionThread(selectedThread)) {
+        void migrateLegacyDiscussion(selectedThread);
       }
       return;
     }
@@ -4149,6 +4295,11 @@ export default function App() {
     }));
   }
 
+  // Migration retries must invoke the newest submit closure after React has
+  // committed the managed root. Calling the closure that started the async
+  // migration would still see the legacy empty projectRoot.
+  const submitRef = useRef<((...args: Parameters<typeof submit>) => void) | null>(null);
+
   function submit(
     prompt: string,
     provider: ProviderId,
@@ -4206,6 +4357,21 @@ export default function App() {
       void showInfo(
         `${activeThread?.provider ?? provider} · ${model || "modèle par défaut"} · ${effort || "effort auto"} · ${permissionMode}${context}`,
       );
+      return;
+    }
+    // Legacy free chats must acquire their managed cwd before a new provider
+    // turn. The migration is deferred while a native run is active; once it
+    // resolves, retry this exact composer submission against the persisted
+    // root so the prompt and attachments are not lost.
+    if (activeThread && isLegacyDiscussionThread(activeThread) && !discussionThreadIsRunning(activeThread)) {
+      void migrateLegacyDiscussion(activeThread).then((root) => {
+        if (!root || activeIdRef.current !== activeThread.id) return;
+        window.setTimeout(() => {
+          const current = allThreadsRef.current.find((entry) => entry.id === activeThread.id);
+          if (!current || current.projectRoot !== root) return;
+          submitRef.current?.(prompt, provider, model, effort, permissionMode, mode, fastMode, isolatedAttachments, onAccepted);
+        }, 0);
+      });
       return;
     }
     if (!activeId && !activeProject) return;
@@ -4457,7 +4623,7 @@ export default function App() {
         // compte aussi (elle sera transférée au fil créé dans ce même envoi)
         const kbIds = Array.isArray(activeThread?.kbSourceIds) && activeThread.kbSourceIds.length
           ? activeThread.kbSourceIds
-          : (!activeIdRef.current ? pendingKbRef.current.kbSourceIds : []);
+          : (!activeIdRef.current && !isDiscussionRoot(activeProject) ? pendingKbRef.current.kbSourceIds : []);
         if (!kbIds.length) return {};
         const known = kbSourcesSnapshot();
         return {
@@ -4498,12 +4664,13 @@ export default function App() {
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
       id = crypto.randomUUID();
+      const managedDiscussion = isDiscussionRoot(activeProject);
       // consigne « en attente » (accueil/boot) : consommée AVANT
       // consumePendingKb pour lui être transmise — même patch complet,
       // jamais un second message partiel (plan 2026-09-01).
-      const consigneAttente = consumePendingConsigne();
+      const consigneAttente = managedDiscussion ? null : consumePendingConsigne();
       // sélection KB « en attente » (accueil/boot) adoptée par ce fil
-      const kbInit = consumePendingKb({
+      const kbInit = managedDiscussion ? {} : consumePendingKb({
         id, provider, projectRoot: activeProject ?? "", title: displayPrompt.slice(0, 40),
         ...(consigneAttente ? { consigne: consigneAttente } : {}),
       });
@@ -4516,6 +4683,7 @@ export default function App() {
           sessionId: null,
           status: "idle" as const,
           updatedAt: new Date().toISOString(),
+          ...(managedDiscussion ? { discussionWorkspaceId: discussionWorkspaceId(activeProject) ?? undefined } : {}),
           ...kbInit,
           ...(consigneAttente ? { consigne: consigneAttente } : {}),
         },
@@ -4610,6 +4778,9 @@ export default function App() {
         autoReview: settingsRef.current.autoReview,
         threadId: id,
         projectRoot: threadRoot,
+        ...(activeThread?.id === id && activeThread.discussionDocument
+          ? { discussionDocument: activeThread.discussionDocument }
+          : {}),
         provider,
         prompt: fullPrompt,
         clientMessageId,
@@ -4641,6 +4812,8 @@ export default function App() {
       clearSubmittedAttachments();
     }
   }
+
+  submitRef.current = submit;
 
   /** Envoie un snapshot déjà placé dans la file, sans dépendre du chat actif.
    * Le tour possède sa bulle et son messageId seulement à cet instant. */
@@ -4741,6 +4914,7 @@ export default function App() {
       ...(queued.autoReview ? { autoReview: queued.autoReview } : {}),
       threadId: targetThreadId,
       projectRoot: thread.projectRoot ?? "",
+      ...(thread.discussionDocument ? { discussionDocument: thread.discussionDocument } : {}),
       provider: queued.provider,
       prompt: fullPrompt,
       clientMessageId,
@@ -4781,6 +4955,22 @@ export default function App() {
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
   allThreadsRef.current = allThreads;
+  // A legacy discussion selected while its provider is idle is migrated as
+  // soon as the authoritative thread list contains it. A running provider is
+  // deliberately left on its original cwd; the next idle snapshot retries.
+  useEffect(() => {
+    if (!activeId) return;
+    const thread = allThreads.find((entry) => entry.id === activeId);
+    if (!thread || !isLegacyDiscussionThread(thread) || discussionThreadIsRunning(thread)) return;
+    void migrateLegacyDiscussion(thread);
+  }, [activeId, allThreads, workingSince]);
+  useEffect(() => {
+    const root = activeProject;
+    if (!activeId || !root || !isDiscussionRoot(root)) return;
+    const thread = allThreads.find((entry) => entry.id === activeId);
+    if (!thread || !isFreeDiscussionThread(thread)) return;
+    void ensureDiscussionMarkdown(thread, root);
+  }, [activeId, activeProject, allThreads, atelierUrl]);
   // Filet de persistance : un fil créé pendant que la WS était fermée
   // (reconnexion, redémarrage serveur) n'avait envoyé aucun upsertThread — et
   // rien ne le rejouait au retour de la connexion : le fil vivait en mémoire
@@ -4789,6 +4979,36 @@ export default function App() {
   // côté store — un doublon transitoire est sans effet).
   useEffect(() => {
     if (!wsReady || ws.current?.readyState !== 1) return;
+    // A legacy discussion may be migrated while the socket is reconnecting.
+    // Keep its complete identity patch until the socket accepts a send;
+    // otherwise the next restart would restore the old empty projectRoot.
+    for (const [id, draft] of pendingDiscussionUpsertsRef.current) {
+      const current = allThreadsRef.current.find((thread) => thread.id === id);
+      if (!current || current.projectRoot !== draft.projectRoot
+        || (draft.discussionWorkspaceId && current.discussionWorkspaceId !== draft.discussionWorkspaceId)) {
+        // The thread was deleted or changed elsewhere while offline. Do not
+        // resurrect an old migration over the authoritative state.
+        pendingDiscussionUpsertsRef.current.delete(id);
+        continue;
+      }
+      try {
+        ws.current.send(JSON.stringify({
+          type: "upsertThread",
+          thread: {
+            id: draft.id,
+            provider: draft.provider,
+            title: draft.title,
+            projectRoot: draft.projectRoot,
+            ...(draft.sessionId ? { sessionId: draft.sessionId } : {}),
+            ...(draft.discussionDocument ? { discussionDocument: draft.discussionDocument } : {}),
+            ...(draft.discussionWorkspaceId ? { discussionWorkspaceId: draft.discussionWorkspaceId } : {}),
+          },
+        }));
+        pendingDiscussionUpsertsRef.current.delete(id);
+      } catch {
+        break;
+      }
+    }
     const known = new Set(threads.map((t) => t.id));
     for (const draft of draftThreads) {
       if (known.has(draft.id) || publishedDraftsRef.current.has(draft.id)) continue;
@@ -4797,6 +5017,8 @@ export default function App() {
         type: "upsertThread",
         thread: {
           id: draft.id, projectRoot: draft.projectRoot, provider: draft.provider, title: draft.title,
+          ...(draft.discussionDocument ? { discussionDocument: draft.discussionDocument } : {}),
+          ...(draft.discussionWorkspaceId ? { discussionWorkspaceId: draft.discussionWorkspaceId } : {}),
           // La consigne voyage AVEC le fil : elle n'existait que localement
           // tant que la WS était fermée, et le rafraîchissement d'avant-tour
           // (submit) ne la republie pas — il ne patche QUE si le catalogue a
@@ -5555,13 +5777,6 @@ export default function App() {
             {activeDeliveryState.status === "unknown" && "État de l’envoi introuvable"}
           </div>
         )}
-        {activeId && isDiscussionRoot(activeProject) && <DiscussionDocuments
-          files={files.filter(file => /\.(md|tex)$/i.test(file))}
-          busy={creatingDocument}
-          onCreate={createDiscussionDocument}
-          onOpen={openFileTab}
-          onReveal={() => { if (activeProject) void revealItemInDir(activeProject).catch(error => void showError(String(error))); }}
-        />}
         <ThreadChat
           notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? chatNotice : null}
           threadId={activeId}

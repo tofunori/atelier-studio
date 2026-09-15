@@ -83,9 +83,10 @@ describe("visibleTabsForProject", () => {
   const galleryA = { id: "1", url: "http://127.0.0.1:8410/edit?f=x.tex", title: "x.tex" };
   const galleryB = { id: "2", url: "http://127.0.0.1:8733/edit?f=y.tex", title: "y.tex" };
   const termA = { id: "3", url: "", title: "zsh", kind: "term" as const, cwd: A };
+  const termB = { id: "5", url: "", title: "zsh B", kind: "term" as const, cwd: B };
   const owned = { id: "4", url: "https://example.org", title: "doc", projectRoot: B };
   const originA = "http://127.0.0.1:8410";
-  const tabs = [galleryA, galleryB, termA, owned];
+  const tabs = [galleryA, galleryB, termA, termB, owned];
 
   it("ne montre que les onglets du projet actif", () => {
     expect(visibleTabsForProject(tabs, A, originA)).toEqual([galleryA, termA]);
@@ -101,7 +102,7 @@ describe("visibleTabsForProject", () => {
 
   it("fait confiance à projectRoot avant l'origine de l'URL", () => {
     expect(visibleTabsForProject(tabs, B, "http://127.0.0.1:8733"))
-      .toEqual([galleryB, owned]);
+      .toEqual([galleryB, termB, owned]);
   });
 
   it("garde un terminal sans cwd, qui n'appartient à aucun projet", () => {
@@ -109,11 +110,12 @@ describe("visibleTabsForProject", () => {
     expect(visibleTabsForProject([flottant], B, originA)).toEqual([flottant]);
   });
 
-  it("ne cache rien tant que le projet ou son serveur manquent", () => {
-    // au boot, l'URL de l'atelier arrive après le projet : cacher ici ferait
-    // clignoter la bande d'onglets
+  it("ne montre pas A pendant que le serveur de B démarre", () => {
+    // L'URL de B arrive après le projet. Les onglets sans appartenance
+    // explicite sont masqués jusqu'à cette URL, au lieu d'afficher A.
     expect(visibleTabsForProject(tabs, null, originA)).toEqual(tabs);
-    expect(visibleTabsForProject(tabs, A, null)).toEqual(tabs);
+    expect(visibleTabsForProject(tabs, A, null)).toEqual([termA]);
+    expect(visibleTabsForProject(tabs, B, null)).toEqual([termB, owned]);
   });
 
   it("cache un onglet dont l'URL est inexploitable", () => {

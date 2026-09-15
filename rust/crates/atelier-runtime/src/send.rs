@@ -109,9 +109,13 @@ fn with_discussion_workspace_instruction(
         .filter(|value| {
             !value.trim().is_empty()
                 && !value.starts_with('/')
+                && !value.contains('\\')
                 && !value.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+                && value.to_ascii_lowercase().ends_with(".md")
+                && !value.chars().any(|character| character.is_control() || matches!(character, '<' | '>' | '"'))
         })
         .unwrap_or("brouillon.md");
+    let document = serde_json::to_string(document).unwrap_or_else(|_| "\"brouillon.md\"".into());
     format!(
         "{prompt}\n\n<atelier-discussion-workspace>\nThis is a permanent free-discussion workspace managed by Atelier. The exact Markdown draft is {document} inside the current workspace. Read and edit that file directly when the user asks for writing or revision, and keep local edits intact. To show or open it, use the Atelier surface and its Markdown editor; never invoke cmux or create a temporary Markdown copy. The draft is available every turn, including resumed sessions.\n</atelier-discussion-workspace>"
     )
@@ -131,15 +135,18 @@ fn is_managed_workspace(root: &str) -> bool {
 
 pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
     let mut out = text.to_string();
-    const OPEN: &str = "<atelier-file-scope>";
-    const CLOSE: &str = "</atelier-file-scope>";
-    while let Some(start) = out.find(OPEN) {
-        let Some(rel_end) = out[start + OPEN.len()..].find(CLOSE) else {
-            break;
-        };
-        let end = start + OPEN.len() + rel_end + CLOSE.len();
-        let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
-        out.replace_range(remove_from..end, "");
+    for (open, close) in [
+        ("<atelier-file-scope>", "</atelier-file-scope>"),
+        ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
+    ] {
+        while let Some(start) = out.find(open) {
+            let Some(rel_end) = out[start + open.len()..].find(close) else {
+                break;
+            };
+            let end = start + open.len() + rel_end + close.len();
+            let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
+            out.replace_range(remove_from..end, "");
+        }
     }
     out.trim().to_string()
 }
@@ -1159,10 +1166,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         crate::project_folders::context(&project_root, &folder_settings)
     );
     let provider_prompt = with_file_scope_instruction(provider_prompt);
+    let discussion_document = msg
+        .get("discussionDocument")
+        .and_then(Value::as_str)
+        .or_else(|| previous.as_ref().and_then(|thread| {
+            thread.extra.get("discussionDocument").and_then(Value::as_str)
+        }));
     let provider_prompt = with_discussion_workspace_instruction(
         provider_prompt,
         &project_root,
-        msg.get("discussionDocument").and_then(Value::as_str),
+        discussion_document,
     );
     // Cadence d'injection (2026-07-19) : ces blocs étaient REcollés à chaque
     // message alors que l'historique natif du provider les conserve tous — une
@@ -3138,8 +3151,32 @@ mod tests {
 
     #[test]
     fn file_scope_instruction_is_never_part_of_displayed_history() {
-        let text = "question\n\n<atelier-file-scope>old</atelier-file-scope>\n\n<atelier-file-scope>new</atelier-file-scope>";
+        let text = "question\n\n<atelier-file-scope>old</atelier-file-scope>\n\n<atelier-discussion-workspace>internal</atelier-discussion-workspace>\n\n<atelier-file-scope>new</atelier-file-scope>";
         assert_eq!(strip_file_scope_instruction(text), "question");
+    }
+
+    #[test]
+    fn discussion_instruction_is_scoped_and_keeps_the_exact_safe_draft_name() {
+        let root = "/Users/test/Library/Application Support/atelier-studio/discussions/12345678-1234-4321-abcd-123456789012";
+        let enriched = with_discussion_workspace_instruction(
+            "révise mon texte".into(),
+            root,
+            Some("notes.md"),
+        );
+        assert!(enriched.contains("\"notes.md\""));
+        assert!(enriched.contains("Atelier surface"));
+        assert!(enriched.contains("never invoke cmux"));
+        assert_eq!(
+            with_discussion_workspace_instruction("x".into(), "/project", Some("notes.md")),
+            "x"
+        );
+        let unsafe_name = with_discussion_workspace_instruction(
+            "x".into(),
+            root,
+            Some("../private.md"),
+        );
+        assert!(unsafe_name.contains("brouillon.md"));
+        assert!(!unsafe_name.contains("../private.md"));
     }
 
     #[test]

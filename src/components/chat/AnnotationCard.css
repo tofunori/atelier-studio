@@ -1,0 +1,14 @@
+.chat-annotation-card { display:flex; flex-direction:column; gap:12px; min-width:0; white-space:normal; }
+.chat-annotation-card + .chat-annotation-card { margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.chat-annotation-source { display:flex; align-items:center; gap:8px; width:100%; min-width:0; color:var(--text-secondary); font-size:var(--fs-s); text-align:left; }
+.chat-annotation-source svg { flex:none; color:var(--text-muted); }
+.chat-annotation-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.chat-annotation-location { flex:none; color:var(--text-muted); }
+.chat-annotation-source .chat-annotation-open { margin-left:auto; }
+.chat-annotation-source:hover { color:var(--text-primary); }
+.chat-annotation-source:focus-visible, .chat-annotation-expand:focus-visible { outline-offset:4px; border-radius:var(--radius-control); }
+.chat-annotation-card .chat-annotation-quote { margin:0; padding:0 0 0 12px; border-left:2px solid var(--text-muted); color:var(--text-secondary); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.55; }
+.chat-annotation-quote.is-collapsed { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+.chat-annotation-comment { color:var(--text-primary); white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-annotation-expand { align-self:flex-start; color:var(--text-muted); font-size:var(--fs-s); }
+.chat-annotation-prompt { margin-bottom:14px; }

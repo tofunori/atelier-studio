@@ -245,6 +245,8 @@ export type Thread = {
   projectRoot: string;
   /** Managed free-discussion draft, relative to projectRoot. */
   discussionDocument?: string;
+  /** Stable UUID used for legacy thread ids that predate managed workspaces. */
+  discussionWorkspaceId?: string;
   title: string;
   provider: string;
   sessionId: string | null;
