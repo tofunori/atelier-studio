@@ -15,7 +15,11 @@ vi.mock("./Chat", () => ({ default: ({ threadId, events, pins }: { threadId: str
 const props = {} as Omit<ComponentProps<typeof ThreadChat>, "eventStore" | "threadId" | "threadPins" | "setPins">;
 
 describe("ThreadChat — production subscription boundary", () => {
-  it("1000 fragments update only their transcript, with no workspace or sibling renders", () => {
+  // Canal vivant (2026-09-15) : le premier fragment fait APPARAÎTRE la bulle
+  // (structurel : Chat se re-rend une fois) ; les 999 suivants ne font que la
+  // faire grandir — Chat garde son instantané, seule la bulle abonnée au canal
+  // live lit le texte complet (store.liveText).
+  it("1000 fragments: one structural render for the bubble, then only the live channel moves", () => {
     counts.clear();
     const store = createThreadEventStore({ a: [], b: [{ kind: "text", text: "stable" }] });
     let rootRenders = 0;
@@ -32,8 +36,11 @@ describe("ThreadChat — production subscription boundary", () => {
     })));
     expect(rootRenders).toBe(baseline.root);
     expect(counts.get("b")).toBe(baseline.b);
-    expect(counts.get("a")).toBe(baseline.a + 1000);
-    expect(JSON.parse(screen.getByTestId("a").textContent!).events[0].text).toBe("x".repeat(1000));
+    expect(counts.get("a")).toBe(baseline.a + 1);
+    // la liste committed porte la bulle telle qu'apparue ; la vérité complète est dans le store
+    expect(JSON.parse(screen.getByTestId("a").textContent!).events[0]).toMatchObject({ kind: "streaming", text: "x" });
+    expect(store.liveText("a", "streaming")).toBe("x".repeat(1000));
+    expect((store.getThread("a")[0] as { text?: string }).text).toBe("x".repeat(1000));
     view.unmount();
   });
 
@@ -54,8 +61,9 @@ describe("ThreadChat — production subscription boundary", () => {
     })));
     expect(root).toBe(1);
     for (const id of ["a", "b"]) {
-      expect(counts.get(id)).toBe(1001);
-      expect(JSON.parse(screen.getByTestId(id).textContent!).events[0].text).toBe(id.repeat(1000));
+      expect(counts.get(id)).toBe(2);
+      expect(JSON.parse(screen.getByTestId(id).textContent!).events[0]).toMatchObject({ kind: "streaming", text: id });
+      expect(store.liveText(id, "streaming")).toBe(id.repeat(1000));
     }
     view.unmount();
   });

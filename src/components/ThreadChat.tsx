@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import Chat from "./Chat";
 import { useSubagentEvents } from "../hooks/useSubagentEvents";
-import { useThreadEvents } from "../hooks/useThreadEvents";
+import { ThreadEventStoreContext, useThreadEvents } from "../hooks/useThreadEvents";
 import type { ThreadEventStore } from "../lib/threadEventStore";
 import { resolvePins, type Pin } from "../lib/pins";
 
@@ -31,5 +31,9 @@ export default function ThreadChat({ eventStore, threadPins, setPins, ws = null,
     if (!id || !pins.length || pins === rawPins) return;
     setPins(current => current[id] === rawPins ? { ...current, [id]: pins } : current);
   }, [props.threadId, pins, rawPins, setPins]);
-  return <Chat {...props} events={events} eventsByThreadId={eventsByThreadId} pins={pins} />;
+  return (
+    <ThreadEventStoreContext.Provider value={eventStore}>
+      <Chat {...props} events={events} eventsByThreadId={eventsByThreadId} pins={pins} />
+    </ThreadEventStoreContext.Provider>
+  );
 }
