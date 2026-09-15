@@ -373,13 +373,16 @@
       color:var(--faint);font-size:var(--fs-body-s, 12px)}
   #annotPill button#annotPillTarget:hover,#annotPill button#annotPillTarget.set{background:var(--card2);border:none;color:var(--primary)}
   #annotPill svg{width:13px;height:13px;display:block;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  /* Envoi : libellé + icône SVG d'état (flèche / coche / alerte), jamais de glyphe texte ni d'emoji */
+  #annotPill button#annotPillSend{display:inline-flex;align-items:center;gap:6px}
   #annotPill button#annotPillSend .ic-arrow{display:block}
+  #annotPill button#annotPillSend .ic-ok,#annotPill button#annotPillSend .ic-err{display:none}
   #annotPill button#annotPillSend.is-busy .ic-arrow,
   #annotPill button#annotPillSend.is-ok .ic-arrow,
   #annotPill button#annotPillSend.is-err .ic-arrow{display:none}
-  #annotPill button#annotPillSend.is-busy::after{content:'\23F3'}
-  #annotPill button#annotPillSend.is-ok::after{content:'\2713'}
-  #annotPill button#annotPillSend.is-err::after{content:'!'}
+  #annotPill button#annotPillSend.is-busy .lbl::after{content:'…'}
+  #annotPill button#annotPillSend.is-ok .ic-ok{display:block}
+  #annotPill button#annotPillSend.is-err .ic-err{display:block;color:var(--status-error, var(--primary))}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;cursor:pointer}
   #tgMenu .it:hover{background:var(--card2)}
   #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
@@ -893,7 +896,7 @@
     <textarea rows="2" aria-label="Commentaire" placeholder="Ajouter une annotation…"></textarea>
     <footer><button class="annot-delete" title="Supprimer" aria-label="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button class="annot-draft" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat" disabled><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button><button class="annot-send" title="Envoyer directement au chat" aria-label="Envoyer directement au chat" disabled><svg viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button></footer>
   </div>
-  <div id="annotPill"><button id="annotPillN" aria-expanded="false" aria-controls="annotList">0 annotation</button><button id="annotPillTarget" title="Choisir la session cible">◎</button><button id="annotPillCancel" title="Supprimer tous les commentaires" aria-label="Supprimer tous les commentaires" hidden>×</button><button id="annotPillSend">Ajouter au chat ↑</button></div>
+  <div id="annotPill"><button id="annotPillN" aria-expanded="false" aria-controls="annotList">0 annotation</button><button id="annotPillTarget" title="Choisir la session cible" aria-label="Choisir la session cible"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg></button><button id="annotPillCancel" title="Supprimer tous les commentaires" aria-label="Supprimer tous les commentaires" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button><button id="annotPillSend"><span class="lbl">Ajouter au chat</span><svg class="ic-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg><svg class="ic-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><svg class="ic-err" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6M12 17h.01"/></svg></button></div>
   <div id="annotList" hidden><header>Annotations<button id="annotListClose" aria-label="Fermer la liste">×</button></header><div id="annotItems"></div></div>
   <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:var(--card);border-radius:10px;padding:6px;box-shadow:var(--elev);font-size:13px"></div>
   <iframe id="lbPdf" style="display:none;width:94vw;height:86vh;border:none;border-radius:6px;background:#fff"></iframe>

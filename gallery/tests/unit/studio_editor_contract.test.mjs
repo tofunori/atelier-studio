@@ -94,7 +94,9 @@ test("CM6 ghost recomputes only when the suggestion changes and never on a non-e
 test("latex_studio.html loads the CM6 engine only", () => {
   assert.doesNotMatch(latexStudioHtml, /\/\.fig_thumbs\/cm\//);
   assert.match(latexStudioHtml, /cm6\/studio_cm6\.bundle\.js/);
-  assert.doesNotMatch(latexStudioCss, /\.CodeMirror|cm-s-material-darker|cm-clsel|cm-selectionLayer/);
+  // Marqueurs CM5 seulement : .cm-selectionLayer est une classe CM6 légitime
+  // (règle de sélection de revue ciblée `.cm-editor …`, 2026-08-13).
+  assert.doesNotMatch(latexStudioCss, /\.CodeMirror|cm-s-material-darker|cm-clsel/);
   assert.match(editorFactorySource, /CM5 not loaded on this page; using CM6/);
 });
 
@@ -138,7 +140,13 @@ test("CM6 exposes the official merge renderer behind the engine-neutral diff jou
   assert.match(source, /hideMergeDiff:/);
   assert.match(source, /unifiedMergeView/);
   assert.match(source, /allowInlineDiffs:\s*true/);
-  assert.match(source, /mergeControls:\s*review\?\.onDecision/);
+  // Décisions dans le texte (2026-09-10) : mergeControls fabrique les boutons
+  // Accepter/Refuser (SVG monochromes, data-decision) quand la revue est
+  // inText, sinon délègue à la barre ; jamais de contrôles par défaut CM6.
+  assert.match(source, /mergeControls:\s*inText \? \(kind\) => \{/);
+  assert.match(source, /button\.dataset\.decision = kind;/);
+  assert.match(source, /const label = kind === "accept" \? "Accepter" : "Refuser";/);
+  assert.match(source, /createElementNS\("http:\/\/www\.w3\.org\/2000\/svg", "svg"\)/);
   assert.match(source, /collapseUnchanged/);
   assert.match(diffVersionsSource, /cm\.hasNativeMergeDiff/);
   assert.match(diffVersionsSource, /cm\.getViewportAnchor/);

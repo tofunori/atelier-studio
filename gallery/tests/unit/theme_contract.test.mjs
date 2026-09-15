@@ -127,9 +127,15 @@ test("#annotPill : aucun glyphe emoji/texte pour l'icône, la cible ou l'envoi �
 
   const pillMarkup = galleryTemplate.match(/<div id="annotPill">[\s\S]*?<\/div>/);
   assert.ok(pillMarkup, "balisage #annotPill introuvable");
-  assert.match(pillMarkup[0], /<span class="ic"><svg/, "l'icône de commentaire doit être un <svg> inline");
+  // 1.8.0 : compteur et libellé d'envoi TEXTUELS (Button = action textuelle),
+  // icônes cible / annulation / état d'envoi = <svg> inline monochromes.
+  assert.match(pillMarkup[0], /id="annotPillN"[^>]*>\d+ annotation</, "le compteur est un bouton textuel");
   assert.match(pillMarkup[0], /id="annotPillTarget"[^>]*><svg/, "le bouton cible doit contenir un <svg> inline");
-  assert.match(pillMarkup[0], /id="annotPillSend"[^>]*><svg/, "le bouton d'envoi doit contenir un <svg> inline");
+  assert.match(pillMarkup[0], /id="annotPillCancel"[^>]*><svg/, "le bouton d'annulation doit contenir un <svg> inline");
+  assert.match(pillMarkup[0], /id="annotPillSend"><span class="lbl">Ajouter au chat<\/span><svg class="ic-arrow"/, "envoi = libellé + flèche SVG");
+  assert.match(pillMarkup[0], /<svg class="ic-ok"/); assert.match(pillMarkup[0], /<svg class="ic-err"/);
+  for (const glyph of ["◎", "↑", "×", "\\23F3", "\\2713"]) assert.ok(!pillMarkup[0].includes(glyph) && !galleryTemplate.includes(`#annotPillSend.is-ok::after{content:'${glyph}'}`), `glyphe interdit : ${glyph}`);
+  assert.doesNotMatch(galleryTemplate, /annotPillSend\.is-(busy|ok|err)::after\{content:'\\/, "les états d'envoi passent par des SVG, pas par des glyphes ::after");
 });
 
 test("#annotPillSend : l'état d'envoi passe par des classes is-busy/is-ok/is-err, jamais par un remplacement de textContent du bouton", () => {

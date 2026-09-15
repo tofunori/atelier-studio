@@ -1644,7 +1644,9 @@ async function latexStudioTests() {
 
   // C4. autoForwardSync : forward-sync auto en split (curseur → PDF), gardé
   {
-    const featureContext = {};
+    // loadPdf journalise ses échecs via console.warn : les rendre visibles
+    // pour que le harnais échoue sur la cause, pas sur un symptôme aval.
+    const featureContext = { console: { error() {}, warn: (...a) => console.error("[loadPdf]", ...a.map(String)), log() {} } };
     vm.runInNewContext(fs.readFileSync(path.join(ASSETS, "latex_features.bundle.js"), "utf8"), featureContext);
     let now = 100000, requests = [], timers = [], cursorLine = 5;
     const flush = () => { const t = timers; timers = []; t.forEach((f) => f()); };
@@ -1666,7 +1668,12 @@ async function latexStudioTests() {
       document: {
         addEventListener() {},
         getElementById: () => null,
-        createElement: () => ({style: {}, setAttribute() {}, replaceChildren() {}, appendChild() {}}),
+        // loadPdf (2026-09-14) monte un conteneur de mise en page hors écran
+        // dans document.body puis le retire dans son finally : le faux
+        // document doit offrir body.appendChild et remove() sur ses éléments.
+        body: {appendChild() {}},
+        createElement: () => ({style: {}, dataset: {}, scrollHeight: 0, setAttribute() {}, replaceChildren() {}, appendChild() {}, remove() {}, querySelectorAll: () => []}),
+        createDocumentFragment: () => ({appendChild() {}, append() {}}),
         createTextNode: (text) => ({textContent: text}),
       }, window: fakeWindow,
     });

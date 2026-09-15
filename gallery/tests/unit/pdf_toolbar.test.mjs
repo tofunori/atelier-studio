@@ -28,7 +28,12 @@ test("fenêtre étroite : la palette se replie dans le stylo et s'ouvre en popov
   assert.match(html, /\.pdf-mark-tools\.palette-open \.pdf-mark-colors\{display:flex\}/);
   assert.match(html, /button\.classList\.add\("pdf-mark-pen"\)/);
   assert.match(html, /bar\.style\.setProperty\("--mark-current"/);
-  assert.match(html, /bar\.classList\.toggle\("palette-open"\)/);
+  // Bascule explicite (booléen) et état exposé aux lecteurs d'écran : le
+  // bouton de couleur porte aria-expanded/aria-controls vers la palette.
+  assert.match(html, /bar\.classList\.toggle\("palette-open", open\)/);
+  assert.match(html, /colorToggle\.setAttribute\("aria-expanded", String\(open\)\)/);
+  assert.match(html, /colorToggle\.setAttribute\("aria-controls", "pdf-color-palette"\)/);
+  assert.match(html, /palette\.id="pdf-color-palette"/);
 });
 
 test("système de design : transitions ≤ 150 ms et reduced-motion sur la barre de marquage", () => {
