@@ -129,7 +129,11 @@ describe("AtelierPane", () => {
     expect(screen.getByRole("complementary", { name: "Editorial" })).toBeInTheDocument();
     expect(screen.getByText("Review editorial figure guidelines")).toBeInTheDocument();
     expect(container.querySelector('[data-slot="scroll-area"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-slot="badge"]')).toBeInTheDocument();
+    // df9505b6 : le statut est un texte d'en-tête (rôle status), plus un badge shadcn
+    const status = container.querySelector(".agent-detail-status");
+    expect(status).toBeInTheDocument();
+    expect(status).toHaveAttribute("data-agent-status", "working");
+    expect(status).toHaveAttribute("role", "status");
     expect(container.querySelector('[data-slot="separator"]')).toBeInTheDocument();
     expect(screen.getByTestId("agent-transcript")).toHaveTextContent("Child message visible in the panel");
   });

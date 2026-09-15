@@ -128,6 +128,26 @@ function transcript() {
   return within(document.querySelector(".messages") as HTMLElement);
 }
 
+/** Bouton Stop du composeur : icône seule, nommée par son aria-label (l'indice
+ * texte « esc Interrompre » du fil a été retiré au 3a5dcfb4 — le statut vivant
+ * habite le dock du composeur). Présent = tour actif côté UI. */
+function stopButton() {
+  return screen.queryByRole("button", { name: t("action.interrupt") });
+}
+
+/** Alerte du chat (163c11f9) : une icône dans l'en-tête ; le message n'apparaît
+ * qu'en ouvrant son popover. Ouvre-le au besoin et renvoie le texte affiché —
+ * null quand aucune alerte n'est portée. */
+async function noticeText(): Promise<string | null> {
+  const trigger = screen.queryByRole("button", { name: "Afficher l’alerte du chat" });
+  if (!trigger) return null;
+  if (!document.querySelector(".chat-notice-detail")) {
+    fireEvent.click(trigger);
+    await act(async () => { await flushMicrotasks(4); });
+  }
+  return document.querySelector(".chat-notice-detail p")?.textContent ?? null;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   resetTestState();
@@ -259,17 +279,17 @@ describe("orchestration App — caractérisation", () => {
     fireEvent.change(textarea, { target: { value: "allo" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(2); });
-    // le tour local est parti : l'indicateur d'interruption est visible
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    // le tour local est parti : le bouton Stop est visible
+    expect(stopButton()).toBeTruthy();
 
     await push(sock, {
       type: "error",
       threadId: "thread-A",
       message: "projet verrouillé par une autre tâche (t-zombie) — attends sa fin ou arrête-la avant toute écriture",
     });
-    // le refus est visible et le spinner éteint
-    expect(screen.getByText(/projet verrouillé par une autre tâche/)).toBeTruthy();
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    // le refus est visible (alerte du chat) et le spinner éteint
+    expect(await noticeText()).toMatch(/projet verrouillé par une autre tâche/);
+    expect(stopButton()).toBeNull();
   });
 
   it("une lecture expirée et une action retardée laissent le chat actif", async () => {
@@ -281,13 +301,13 @@ describe("orchestration App — caractérisation", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     await act(async () => { await flushMicrotasks(2); });
     await push(sock, { type: "error", requestType: "getHistory", threadId: "thread-A", code: "REQUEST_TIMEOUT", message: "Historique trop lent" });
-    expect(screen.getByText("Historique trop lent")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expect(await noticeText()).toBe("Historique trop lent");
+    expect(stopButton()).toBeTruthy();
     await push(sock, { type: "requestDelayed", requestType: "send", threadId: "thread-A", message: "Envoi encore en préparation" });
-    expect(screen.getByText("Envoi encore en préparation")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expect(await noticeText()).toBe("Envoi encore en préparation");
+    expect(stopButton()).toBeTruthy();
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", code: "REQUEST_CANCELLED", message: "Envoi annulé" });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expect(stopButton()).toBeNull();
   });
 
   it("retire le refus d'historique seulement après récupération du même chat", async () => {
@@ -295,11 +315,11 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "error", requestType: "getHistory", threadId: "thread-A", code: "REQUEST_BUSY", message: "Historique indisponible" });
-    expect(screen.getByText("Historique indisponible")).toBeTruthy();
+    expect(await noticeText()).toBe("Historique indisponible");
     await push(sock, { type: "history", threadId: "other", events: [] });
-    expect(screen.getByText("Historique indisponible")).toBeTruthy();
+    expect(await noticeText()).toBe("Historique indisponible");
     await push(sock, { type: "history", threadId: "thread-A", events: [] });
-    expect(screen.queryByText("Historique indisponible")).toBeNull();
+    expect(await noticeText()).toBeNull();
   });
 
   it("retire le refus du catalogue après succès du même projet uniquement", async () => {
@@ -307,11 +327,11 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "error", requestType: "listCommands", projectRoot: THREAD_A.projectRoot, code: "REQUEST_BUSY", message: "Catalogue indisponible" });
-    expect(screen.getByText("Catalogue indisponible")).toBeTruthy();
+    expect(await noticeText()).toBe("Catalogue indisponible");
     await push(sock, { type: "commands", projectRoot: "/other", commands: [] });
-    expect(screen.getByText("Catalogue indisponible")).toBeTruthy();
+    expect(await noticeText()).toBe("Catalogue indisponible");
     await push(sock, { type: "commands", projectRoot: THREAD_A.projectRoot, commands: [] });
-    expect(screen.queryByText("Catalogue indisponible")).toBeNull();
+    expect(await noticeText()).toBeNull();
   });
 
   it("un ancien instantané ne supprime ni ne ressuscite un chat confirmé", async () => {
@@ -334,10 +354,10 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
     await push(sock, { type: "error", requestType: "send", threadId: "thread-A", clientMessageId: "steer-refused", code: "REQUEST_BUSY", message: "Envoi refusé" });
-    expect(screen.getByText("Envoi refusé")).toBeTruthy();
-    expect(screen.getByText(t("action.interrupt"))).toBeTruthy();
+    expect(await noticeText()).toBe("Envoi refusé");
+    expect(stopButton()).toBeTruthy();
     await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true } });
-    expect(screen.queryByText(t("action.interrupt"))).toBeNull();
+    expect(stopButton()).toBeNull();
   });
 
   it("la récupération d'un done manqué libère aussi la confirmation du tour", async () => {
@@ -727,7 +747,13 @@ describe("orchestration App — caractérisation", () => {
   it("ouvre les automatisations dans le panneau latéral sans remplacer le workspace", async () => {
     await mountApp();
 
-    fireEvent.click(screen.getByRole("button", { name: t("automations.title") }));
+    // Automatisations et surlignages vivent dans le menu « … » du rail (4dc49144)
+    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(4);
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: t("automations.title") }));
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(4);
@@ -750,11 +776,15 @@ describe("orchestration App — caractérisation", () => {
     await mountApp();
     expect(document.querySelector(".side-fixed")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: t("view.highlights") }));
+    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(4);
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: t("view.highlights") }));
     await act(async () => { await flushMicrotasks(2); });
 
     expect(document.querySelector(".side-fixed")).toBeTruthy();
-    expect(screen.getByRole("button", { name: t("view.highlights") })).toHaveClass("on");
     expect(screen.getByText(t("highlights.empty"))).toBeTruthy();
   });
 
@@ -1924,7 +1954,7 @@ describe("orchestration App — caractérisation", () => {
     await push(sock, { type: "error", threadId: "thread-A", message: "Session corrigée indisponible" });
     expect(sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send")).toHaveLength(sendsBefore);
     expect((document.querySelector(".composer textarea") as HTMLTextAreaElement).value).toBe("Texte corrigé conservé");
-    expect(screen.getByText("Session corrigée indisponible")).toBeTruthy();
+    expect(await noticeText()).toBe("Session corrigée indisponible");
   });
 
   it("Fork transmet l'eventId exact du point de bifurcation", async () => {

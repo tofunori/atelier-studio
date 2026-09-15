@@ -2581,15 +2581,10 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .qa-sel-toolbar { z-index: var(--z-quick-ask-popover); }
 /* Encre du lecteur : ambre --hl-line, la couleur des fiches Surlignés — pas
    l'accent, qui signale partout ailleurs « actif / interactif ». */
-::highlight(chat-an) { background: color-mix(in srgb, var(--hl-line) 26%, transparent); }
-/* Pastille d'annotation : calque fixe posé au bout du passage, JAMAIS insérée
-   dans le DOM du markdown (React le reconstruit à chaque frame de streaming).
-   Monochrome — l'accent signale « actif », pas « annoté ». */
+/* Pastille commune aux documents, ancrée au passage dans la ligne virtualisée.
+   Le calque reste hors du markdown reconstruit pendant le streaming. */
 .anno-badge {position:absolute;z-index:1;transform:none}
-.timeline-virtual-row:has(>.anno-badge){padding-left:32px;box-sizing:border-box}
-.anno-badge.atelier-annotation-number { min-width:24px;height:24px;padding:0 5px;border-radius:7px;background:#6d481c;color:#fff5df;border:1px solid #c68a36;font-size:12px;font-weight:700;line-height:22px;box-shadow:0 1px 3px #0004; }
-.anno-badge.atelier-annotation-number:hover {background:#835820;color:#fff}
-.anno-badge.atelier-annotation-number:focus-visible {outline:2px solid #edb766;outline-offset:2px}
+.anno-badge.atelier-annotation-number:focus-visible {outline-offset:2px}
 /* Same chat typography; long excerpts scroll instead of clipping a line. */
 .anno-editor { position: fixed; z-index: var(--z-popover); width: min(320px, calc(100vw - 24px)); transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;
@@ -4394,7 +4389,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Goal: content-width tab joined to the prompt, no reserved space without a goal. */
 .composer.has-goal { position: relative; padding-top: 34px; }
 .goal-bar { --goal-state: var(--mark-neutral); position: absolute; top: 0; left: 50%;
-  transform: translateX(-50%); z-index: 5; width: max-content; max-width: calc(100% - 32px);
+  transform: translateX(-50%); z-index: 1; width: max-content; max-width: calc(100% - 32px);
   color: var(--text-secondary); background: var(--bg-ctl); border: 1px solid var(--border-interactive);
   border-bottom: 0; border-radius: var(--radius-composer) var(--radius-composer) 0 0; }
 .goal-bar.active { --goal-state: var(--info); }
@@ -4415,8 +4410,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .goal-bar.open .goal-bar-chev { transform: rotate(180deg); }
 .goal-bar-details { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   width: min(440px, calc(100vw - 48px)); max-height: min(50vh, 420px); overflow: auto;
-  padding: 12px; background: var(--surface-overlay); border: 1px solid var(--border-interactive);
-  border-radius: var(--radius-composer); box-shadow: 0 8px 24px #0003; }
+  padding: 12px; background: var(--surface-overlay);
+  border-radius: var(--radius-composer); box-shadow: var(--elev); }
 .goal-bar-objective { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-s); line-height: 1.5; }
 .goal-bar-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: var(--fs-xs); color: var(--text-muted); }
 .goal-bar-stop { margin-left: auto; }
@@ -5539,9 +5534,9 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 .atelier-chat-note{position:fixed;z-index:var(--z-popover);transform:translateX(-50%)}
 .sel-toolbar.atelier-chat-selection,.sel-toolbar.qa-sel-toolbar{background:transparent;border:0;box-shadow:none;padding:0}
 /* Annotations : contraste ambre conservant la lecture du passage. */
-::highlight(chat-an){background:rgba(191,128,37,.23);color:#f3e9d6;text-decoration:underline;text-decoration-color:#c68a36;text-decoration-thickness:1px}
+::highlight(chat-an){background:rgba(112,151,255,.18)}
 .user-file-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;white-space:normal}
-.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 10px;border:1px solid color-mix(in srgb,var(--text-muted) 25%,transparent);border-radius:8px;background:rgba(0,0,0,.1);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
+.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 10px;border:1px solid color-mix(in srgb,var(--text-muted) 25%,transparent);border-radius:var(--radius-control);background:rgba(0,0,0,.1);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
 .user-file-attachment svg{flex:none;color:var(--text-muted)}
 .user-file-attachment>span{overflow-wrap:anywhere;min-width:0}
 ::highlight(chat-highlight-amber){background:rgba(255,213,74,.40)}
@@ -5775,7 +5770,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .rail-favorite-unread { position:absolute; top:4px; right:4px; width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px var(--surface-panel); pointer-events:none; }
 .chat-seal-option { display:inline-flex; align-items:center; gap:10px; }
 .rail-clean .rail-favorite.on { color:var(--text-primary); background:var(--bg-ctl); }
-.rail-clean .rail-favorite.on::before { content:""; position:absolute; left:0; top:7px; bottom:7px; width:3px; border-radius:2px; background:var(--accent); }
+.rail-clean .rail-favorite.on::before { content:""; position:absolute; left:0; top:7px; bottom:7px; width:3px; border-radius:var(--radius-pill); background:var(--accent); }
 .rail-clean .rail-favorite:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 
 /* A quiet, direct pin survives the narrow navigator layout. */
@@ -5794,7 +5789,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .agent-detail-live { display: flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--text-muted); font-size: var(--fs-s); }
 .agent-detail-live span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-detail-disclosure { color: var(--text-muted); font-size: var(--fs-s); }
-.agent-detail-disclosure > summary { cursor: pointer; padding: 8px 0; border-radius: 4px; }
+.agent-detail-disclosure > summary { cursor: pointer; padding: 8px 0; border-radius: var(--radius-control); }
 .agent-detail-activity { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--border); }
 .agent-activity-log { display: flex; flex-direction: column; gap: 16px; padding-top: 16px; }
 .agent-report { min-width: 0; overflow-wrap: anywhere; }

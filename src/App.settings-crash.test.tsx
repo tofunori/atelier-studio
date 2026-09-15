@@ -76,9 +76,17 @@ beforeEach(() => {
 describe("Réglages", () => {
   it("s'ouvrent sans casser le rendu", async () => {
     await mountApp();
+    // Le bouton Réglages du rail ouvre un menu (Réglages / Usage) depuis
+    // 4dc49144 : la feuille s'ouvre par son item, après le chunk du menu.
     const button = screen.getByRole("button", { name: t("action.settings") });
     await act(async () => {
       fireEvent.click(button);
+      await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(50);
+      await flushMicrotasks(20);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: t("action.settings") }));
       await vi.advanceTimersByTimeAsync(50);
       await flushMicrotasks(20);
     });

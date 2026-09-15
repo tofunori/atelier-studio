@@ -459,6 +459,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
     expect(loops.sort()).toEqual([
+      // glyphe d'un sous-agent au travail (rangée AgentActivity) — spin 1.4 s,
+      // coupé sous prefers-reduced-motion comme les autres
+      '.agent-state-icon[data-agent-status="working"]',
       ".turn-activity-glyph",
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
