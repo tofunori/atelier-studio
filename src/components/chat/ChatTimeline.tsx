@@ -91,7 +91,6 @@ export type TimelineThread = {
   workingSince: number | null;
   /** Canonical terminal state of the latest projected turn. */
   latestTurnSettled: boolean;
-  lastEventAt?: number | null;
   /** tokens de sortie du tour en cours — affichés à côté du temps écoulé */
   liveTokens: number | null;
   liveNote?: string | null;
@@ -479,10 +478,9 @@ export function ChatTimeline(p: {
     workingSince,
     activeMessageStart,
     activeMessageEnd,
-    lastEventAt: p.thread.lastEventAt,
     activeStepKey,
     activeStatusLabel: activeStatus?.label ?? null,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, p.thread.lastEventAt, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -996,7 +994,7 @@ export function ChatTimeline(p: {
             );
           }
           if (item.type === "active-turn-tail") {
-            return <ActiveTurnTail key={item.key} turn={item.turn} events={events} lastEventAt={p.thread.lastEventAt} onStop={onStop} />;
+            return <ActiveTurnTail key={item.key} turn={item.turn} events={events} onStop={onStop} />;
           }
           if (item.type === "actions") {
             const isActiveStep = activeStepKey === row.key;
@@ -1074,7 +1072,7 @@ export function ChatTimeline(p: {
               />
             );
           if (e.kind === "streaming")
-            return <StreamingText key={i} text={e.text} working={workingSince != null} streamKey={`${threadId ?? "home"}:${item.key}`} />;
+            return <StreamingText key={i} text={e.text} threadId={threadId} working={workingSince != null} streamKey={`${threadId ?? "home"}:${item.key}`} />;
           if (e.kind === "text")
             return (
               <React.Fragment key={i}>

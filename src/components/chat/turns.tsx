@@ -5,6 +5,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { activeTurnStatus } from "./activeTurnStatus";
 import { useSmoothedStream } from "./useSmoothedStream";
+import { useLiveTailText } from "../../hooks/useThreadEvents";
 import { CheckIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
@@ -321,9 +322,12 @@ function useKbCiteSources(text: string) {
   return sources;
 }
 
-export function StreamingText(p: { text: string; working: boolean; streamKey?: string }) {
+export function StreamingText(p: { text: string; working: boolean; streamKey?: string; threadId?: string | null }) {
   const plugins = useMdPlugins();
-  const text = useSmoothedStream(p.text, p.working, p.streamKey);
+  // Le texte vient du canal live du store (la liste committed ne bouge pas
+  // pendant le streaming) ; `p.text` sert de repli sans store.
+  const liveText = useLiveTailText(p.threadId ?? null, "streaming", p.text);
+  const text = useSmoothedStream(liveText, p.working, p.streamKey);
   const kbCiteSources = useKbCiteSources(text);
   return (
     <Message align="start" className="chat-message assistant-message">
@@ -575,7 +579,6 @@ export function ToolRunTicker(
 export function ActiveTurnTail(p: {
   turn: ChatTurnViewModel;
   events: AgentEvent[];
-  lastEventAt?: number | null;
   onStop: () => void;
   since?: number;
 }) {

@@ -432,7 +432,7 @@ describe("anatomie du tour — header d'activité", () => {
     try {
       const evs: AgentEvent[] = [events.user("Analyse.", FIXED_TS),
         events.tool({ id: "review", name: "Review results", status: "completed", ts: FIXED_TS })];
-      const props = chatProps({ events: evs, workingSince: FIXED_TS, lastEventAt: FIXED_TS });
+      const props = chatProps({ events: evs, workingSince: FIXED_TS });
       const view = renderUi(<Chat {...props} />);
       // v2 : le statut vit dans la ligne fusionnée de la série active.
       const row = document.querySelector(".activity-cluster .ui-activity");
@@ -440,8 +440,8 @@ describe("anatomie du tour — header d'activité", () => {
       act(() => { vi.advanceTimersByTime(30_000); });
       expect(row?.textContent).toContain("Réflexion en cours");
       expect(row?.querySelector(".activity-cluster-live .turn-working-shimmer")).toBeTruthy();
-      // A new receipt preserves the persistent status and Stop.
-      view.rerender(<Chat {...props} lastEventAt={Date.now()} />);
+      // A new receipt (re-render without any prop change) preserves the persistent status and Stop.
+      view.rerender(<Chat {...props} />);
       expect(document.querySelector(".activity-cluster .ui-activity")).toBe(row);
       expect(row?.textContent).toContain("Réflexion en cours");
       expect(row?.querySelector(".stop-hint")).toBeNull();
@@ -456,7 +456,7 @@ describe("anatomie du tour — header d'activité", () => {
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_TS + 40_000);
     try {
-      const base = chatProps({ workingSince: FIXED_TS, lastEventAt: FIXED_TS });
+      const base = chatProps({ workingSince: FIXED_TS });
       const view = renderUi(<Chat {...base} events={[events.user("Analyse.", FIXED_TS),
         events.tool({ id: "cmd", status: "inProgress", ts: FIXED_TS })]} />);
       expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Lit");
@@ -505,7 +505,7 @@ describe("anatomie du tour — header d'activité", () => {
     vi.setSystemTime(FIXED_TS + 60_000);
     try {
       const evs = [events.user("Analyse.", FIXED_TS), events.text("Résultat", FIXED_TS + 1000)];
-      const props = chatProps({ events: evs, workingSince: FIXED_TS, lastEventAt: FIXED_TS + 1000 });
+      const props = chatProps({ events: evs, workingSince: FIXED_TS });
       const first = renderUi(<Chat {...props} />);
       first.unmount();
       const view = renderUi(<Chat {...props} />);

@@ -74,6 +74,52 @@ describe("chat turn view model", () => {
     expect(turns[1].provider).toBe("claude");
   });
 
+  // Banc chat_stream_bench (2026-09-15) : rebâtir les modèles de TOUS les tours
+  // à chaque delta pesait un tiers du coût d'un tour en streaming sur un fil
+  // de 2 000 événements. Un tour terminé dont les événements et les indexes
+  // n'ont pas bougé rend le MÊME objet ; seul le tour vivant se recalcule.
+  it("réutilise le modèle d'un tour terminé quand un delta s'ajoute au dernier tour", () => {
+    const finished: AgentEvent[] = [
+      { kind: "user", text: "Q1", meta: meta("u1", "turn-1", 1) },
+      { kind: "tool_update", id: "t1", name: "Bash", status: "completed", output: "", meta: meta("t1", "turn-1", 2) },
+      { kind: "text", text: "R1", meta: meta("a1", "turn-1", 3) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 4) },
+    ];
+    const live: AgentEvent[] = [...finished, { kind: "user", text: "Q2", meta: meta("u2", "turn-2", 5) }];
+    let events = reduceHarnessEvent(live, { kind: "delta", text: "Je ", meta: { ...meta("s1", "turn-2", 6), durable: false } });
+    const before = buildChatTurnViewModels(events, T0 + 500);
+    events = reduceHarnessEvent(events, { kind: "delta", text: "regarde", meta: { ...meta("s2", "turn-2", 7), durable: false } });
+    const after = buildChatTurnViewModels(events, T0 + 500);
+    expect(after).toHaveLength(2);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after[1].phase).toBe(before[1].phase);
+  });
+
+  it("recalcule un tour terminé dont les indexes ou l'état actif ont changé", () => {
+    const first: AgentEvent[] = [
+      { kind: "user", text: "Q1", meta: meta("u1", "turn-1", 1) },
+      { kind: "text", text: "R1", meta: meta("a1", "turn-1", 2) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 3) },
+    ];
+    const base = buildChatTurnViewModels(first, null);
+    // décalage : un événement inséré devant (rejeu) déplace les indexes
+    const shifted = buildChatTurnViewModels([{ kind: "goal", goal: { objective: "x", status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 }, meta: meta("g0", "turn-0", 0) } as AgentEvent, ...first], null);
+    const turn1 = shifted.find((turn) => turn.key === "turn:turn-1")!;
+    expect(turn1).not.toBe(base[0]);
+    expect(turn1.startIndex).toBe(1);
+    // un tour sans terminal qui cesse d'être le dernier n'est plus actif
+    const open: AgentEvent[] = [
+      { kind: "user", text: "Q1", meta: meta("u1", "turn-1", 1) },
+      { kind: "text", text: "R1", meta: meta("a1", "turn-1", 2) },
+    ];
+    const active = buildChatTurnViewModels(open, T0)[0];
+    expect(active.phase).not.toBe("completed");
+    const superseded = buildChatTurnViewModels([...open, { kind: "user", text: "Q2", meta: meta("u2", "turn-2", 3) }], T0)[0];
+    expect(superseded).not.toBe(active);
+    expect(superseded.activeTailIndex).toBeNull();
+  });
+
   it("garde la clé de la réponse terminée quand un nouveau tour démarre avec un collage et un goal", () => {
     const goal = (eventId: string, turnId: string, sequence: number): AgentEvent => ({
       kind: "goal",

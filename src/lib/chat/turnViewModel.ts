@@ -278,6 +278,32 @@ function terminalAssistantIndex(
   return heaviestNarrativeStart(events, indexes, terminalIndex);
 }
 
+/** Cache par tour : un tour terminé dont les événements (par identité) et les
+ * indexes n'ont pas bougé rend le MÊME modèle. Sans lui, chaque delta de
+ * streaming rebâtissait les modèles de tous les tours du fil — un tiers du
+ * coût d'un tour sur un fil de 2 000 événements (banc chat_stream_bench,
+ * 2026-09-15). Clé faible sur le premier événement du tour : les entrées
+ * meurent avec le transcript. Un tour actif n'est jamais mis en cache — sa
+ * fin de fil (activeTailIndex) et ses événements changent à chaque delta. */
+type TurnCacheEntry = { indexes: number[]; refs: AgentEvent[]; model: ChatTurnViewModel };
+const turnCache = new WeakMap<AgentEvent, TurnCacheEntry>();
+
+function cachedTurn(events: AgentEvent[], indexes: number[]): ChatTurnViewModel | null {
+  const first = events[indexes[0]];
+  const entry = first ? turnCache.get(first) : undefined;
+  if (!entry || entry.indexes.length !== indexes.length) return null;
+  for (let i = 0; i < indexes.length; i += 1) {
+    if (entry.indexes[i] !== indexes[i] || entry.refs[i] !== events[indexes[i]]) return null;
+  }
+  return entry.model;
+}
+
+function rememberTurn(events: AgentEvent[], indexes: number[], model: ChatTurnViewModel) {
+  const first = events[indexes[0]];
+  if (!first) return;
+  turnCache.set(first, { indexes: indexes.slice(), refs: indexes.map((index) => events[index]), model });
+}
+
 export function buildChatTurnViewModels(
   events: AgentEvent[],
   workingSince: number | null,
@@ -291,6 +317,12 @@ export function buildChatTurnViewModels(
     const terminalIndex = [...indexes].reverse().find((index) => isTerminal(events[index])) ?? null;
     const isLastTurn = turnIndex === grouped.length - 1;
     const isActive = isLastTurn && workingSince != null && terminalIndex == null;
+    // Un tour terminé ou dépassé ne dépend que de ses événements et de leurs
+    // places : s'ils sont identiques, le modèle précédent est le bon.
+    if (!isActive) {
+      const cached = cachedTurn(events, indexes);
+      if (cached) return cached;
+    }
     const latestAssistantIndex = [...indexes].reverse().find((index) => isAssistantText(events[index])) ?? null;
     const finalAssistantIndex = terminalAssistantIndex(events, indexes, terminalIndex);
     // One lifecycle pass owns activity state, tool identity, child-agent
@@ -359,7 +391,7 @@ export function buildChatTurnViewModels(
       }
     }
 
-    return {
+    const model: ChatTurnViewModel = {
       key: builder.key,
       turnId: builder.turnId,
       provider: builder.provider,
@@ -384,6 +416,8 @@ export function buildChatTurnViewModels(
       activeState,
       lifecycle,
     };
+    if (!isActive) rememberTurn(events, indexes, model);
+    return model;
   });
 }
 

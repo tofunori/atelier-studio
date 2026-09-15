@@ -716,7 +716,10 @@ export default function App() {
   }
   const streamCoalescer = streamCoalescerRef.current;
   const [workingSince, setWorkingSince] = useState<Record<string, number | null>>({});
-  const [lastEventAt, setLastEventAt] = useState<Record<string, number>>({});
+  // Dernier événement reçu par fil : une ref, jamais un état — le lire au
+  // rendu ferait re-rendre TOUT App à chaque delta de streaming (banc
+  // chat_stream_bench 2026-09-15 : ~25 % du coût d'un tour). Seul le filet
+  // d'inactivité (requestHistory) le consulte.
   const lastEventAtRef = useRef<Record<string, number>>({});
   const lastQuietReadRef = useRef<Record<string, number>>({});
   const workingSinceRef = useRef<Record<string, number | null>>({});
@@ -2558,7 +2561,6 @@ export default function App() {
         const receivedAt = Date.now();
         if (!["heartbeat", "usage"].includes(msg.event.kind)) {
           lastEventAtRef.current[msg.threadId] = receivedAt;
-          setLastEventAt(previous => ({ ...previous, [msg.threadId]: receivedAt }));
         }
         const eventMeta = msg.event?.meta;
         if (typeof msg.threadId === "string" && eventMeta?.durable !== false &&
@@ -5784,7 +5786,6 @@ export default function App() {
           eventStore={eventStore}
           ws={ws.current}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
-          lastEventAt={activeId ? lastEventAt[activeId] ?? null : null}
           liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
           liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
