@@ -5,7 +5,7 @@
   "scripts": {
     "build:cm6": "node scripts/build-cm6.mjs",
     "typecheck:studio": "tsc -p tsconfig.json",
-    "test": "python3 -m unittest discover -s tests -v && npm run test:e2e",
+    "test": "python3 -m unittest discover -s tests -p test_reapply_edits.py -v && node --test tests/unit/*.test.mjs && npm run test:e2e",
     "test:e2e": "playwright test"
   },
   "devDependencies": {

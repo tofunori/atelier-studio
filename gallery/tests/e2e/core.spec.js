@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import { spawnGalleryServer, serveHostPage, freePort, waitForServer } from '../gallery_server.mjs';
 import { existsSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +6,6 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { removeTempRoot } from './temp-root.js';
 
-const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 
 async function waitForGallery(port) {
   const deadline = Date.now() + 10_000;
@@ -89,15 +87,9 @@ async function withGallery(run) {
   let server;
   try {
     writeFixtureProject(root);
-    execFileSync('python3', [path.join(REPO, 'build_gallery.py')], {
-      cwd: root,
-      env: { ...process.env, GALLERY_ROOT: root, GALLERY_NO_THUMBS: '1' },
-      stdio: 'pipe',
-    });
-    execFileSync('python3', ['-c', `import sys; sys.path.insert(0, ${JSON.stringify(REPO)}); import cmux_gallery; cmux_gallery.provision_viewers(${JSON.stringify(root)})`], {
-      cwd: REPO,
-      stdio: 'pipe',
-    });
+    // Ni build_gallery.py ni provision_viewers : atelier-gallery-server (Rust)
+    // bâtit l'index au boot (`figures_data.json` absent → rebuild) et sert les
+    // viewers depuis ATELIER_ASSETS_DIR ; waitForGallery() attend l'index.
     const port = await freePort();
     server = spawnGalleryServer({
       root, port,
