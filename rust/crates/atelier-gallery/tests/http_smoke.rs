@@ -61,11 +61,31 @@ fn http_with_origin(
     }
     req.push_str("\r\n");
     stream.write_all(req.as_bytes()).unwrap();
+    // Un corps au-delà de la limite (DefaultBodyLimit) : le serveur répond 413
+    // et ferme AVANT d'avoir tout lu — le client peut alors recevoir EPIPE /
+    // ConnectionReset en plein write. Ce n'est pas un échec du test, c'est le
+    // refus lui-même : on tente quand même de lire la réponse, et sans elle on
+    // rend un statut 0 (≠ 200) plutôt que de paniquer (flake vu sous charge).
+    let reset = |e: &std::io::Error| {
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+        )
+    };
     if !body_bytes.is_empty() {
-        stream.write_all(body_bytes).unwrap();
+        if let Err(e) = stream.write_all(body_bytes) {
+            assert!(reset(&e), "write body: {e}");
+        }
     }
     let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).unwrap();
+    if let Err(e) = stream.read_to_end(&mut buf) {
+        assert!(reset(&e) || !buf.is_empty(), "read response: {e}");
+    }
+    if buf.is_empty() {
+        return (0, "connexion fermée par le serveur avant toute réponse".into());
+    }
     let text = String::from_utf8_lossy(&buf);
     let status = text
         .lines()

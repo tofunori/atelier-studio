@@ -25,7 +25,7 @@
     "build:gallery-ui": "vite build --config gallery/react-ui/vite.config.ts",
     "test:frontend": "vitest run",
     "test:kb:parity": "node --test gallery/tests/kb_parity.test.mjs",
-    "test:gallery:unit": "python3 -m unittest discover -s gallery/tests -p test_reapply_edits.py && node --test gallery/tests/unit/fullscreen_contract.test.mjs gallery/tests/unit/gallery_commands.test.mjs gallery/tests/unit/pdf_passage.test.mjs gallery/tests/unit/pdf_selection.test.mjs gallery/tests/unit/csv_table.test.mjs gallery/tests/unit/csv_view_surface.test.mjs gallery/tests/unit/studio_editor_contract.test.mjs",
+    "test:gallery:unit": "python3 -m unittest discover -s gallery/tests -p test_reapply_edits.py && node --test \"gallery/tests/unit/*.test.mjs\"",
     "test:gallery:diff": "node gallery/tests/unit/diff_suite.mjs",
     "test:gallery": "npm run test:gallery:unit && npm run test:gallery:diff && npm run test:kb:parity",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
