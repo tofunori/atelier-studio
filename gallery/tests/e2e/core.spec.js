@@ -1,39 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { spawnGalleryServer, serveHostPage } from '../gallery_server.mjs';
+import { spawnGalleryServer, serveHostPage, freePort, waitForServer } from '../gallery_server.mjs';
 import { existsSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import zlib from 'node:zlib';
 import { removeTempRoot } from './temp-root.js';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForPing(port) {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/ping`);
-      if (res.ok) return;
-    } catch {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`server on ${port} did not answer /ping`);
-}
 
 async function waitForGallery(port) {
   const deadline = Date.now() + 10_000;
@@ -130,7 +104,7 @@ async function withGallery(run) {
       env: { ATELIER_STUDIO: '1', GALLERY_NO_THUMBS: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    await waitForPing(port);
+    await waitForServer(port, { child: server });
     await waitForGallery(port);
     await run({ root, port, url: `http://127.0.0.1:${port}/figures_index.html` });
   } finally {

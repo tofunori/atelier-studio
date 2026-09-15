@@ -2,12 +2,11 @@
 // par nœuds, pliage par environnement/section, plan par arbre, diagnostics de
 // structure et de compilation. Rejoué aussi en WebKit (moteur du WKWebView).
 import {test, expect} from '@playwright/test';
-import { spawnGalleryServer } from '../gallery_server.mjs';
+import { spawnGalleryServer, freePort, stopGalleryServer as stop } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import net from 'node:net';
 import {removeTempRoot} from './temp-root.js';
 
 
@@ -26,21 +25,6 @@ const DOC = [
   '\\end{document}',
   '',
 ].join('\n');
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const socket = net.createServer();
-    socket.unref(); socket.on('error', reject);
-    socket.listen(0, '127.0.0.1', () => { const {port} = socket.address(); socket.close(() => resolve(port)); });
-  });
-}
-
-async function stop(server) {
-  if (!server || server.exitCode !== null) return;
-  server.kill('SIGTERM');
-  await Promise.race([new Promise(resolve => server.once('exit', resolve)), new Promise(resolve => setTimeout(resolve, 1000))]);
-  if (server.exitCode === null) server.kill('SIGKILL');
-}
 
 async function withTex(text, run) {
   const root = mkdtempSync(path.join(tmpdir(), 'atelier-lezer-'));

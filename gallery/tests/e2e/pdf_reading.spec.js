@@ -1,32 +1,17 @@
 // Mode lecture du lecteur PDF : colonne, découpe, typographie, recherche,
 // annotation aller-retour. Rejoué en WebKit (moteur du WKWebView).
 import {test, expect} from '@playwright/test';
-import { spawnGalleryServer } from '../gallery_server.mjs';
+import { spawnGalleryServer, freePort, stopGalleryServer as stop } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync, copyFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import net from 'node:net';
 import {removeTempRoot} from './temp-root.js';
 
 const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO = path.resolve(GALLERY, '..');
 const FIXTURE = path.join(REPO, 'rust/crates/atelier-gallery/tests/fixtures/reflow/twocol.pdf');
 const SHOT = process.env.PDF_READING_SHOT || '';
-
-function freePort(){
-  return new Promise((resolve, reject) => {
-    const socket = net.createServer();
-    socket.unref(); socket.on('error', reject);
-    socket.listen(0, '127.0.0.1', () => { const {port} = socket.address(); socket.close(() => resolve(port)); });
-  });
-}
-
-async function stop(server){
-  if (!server || server.exitCode !== null) return;
-  server.kill('SIGTERM');
-  await new Promise(resolve => server.once('exit', resolve));
-}
 
 let root, server, port;
 

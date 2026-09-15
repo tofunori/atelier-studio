@@ -1,12 +1,9 @@
 import {test, expect} from '@playwright/test';
-import { spawnGalleryServer, serveHostPage } from '../gallery_server.mjs';
+import { spawnGalleryServer, serveHostPage, freePort } from '../gallery_server.mjs';
 import {mkdtempSync, writeFileSync, readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import net from 'node:net';
-function freePort(){return new Promise((res,rej)=>{const s=net.createServer();s.unref();s.on('error',rej);s.listen(0,'127.0.0.1',()=>{const{port}=s.address();s.close(()=>res(port));});});}
-
 test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async ({page}) => {
   const root = mkdtempSync(path.join(tmpdir(), 'read-'));
   const file = path.join(root, 'methods.tex');

@@ -1,11 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { spawnGalleryServer } from '../gallery_server.mjs';
+import { spawnGalleryServer, freePort, waitForServer } from '../gallery_server.mjs';
 import { mkdtempSync, readFileSync, writeFileSync, utimesSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import net from 'node:net';
 import { removeTempRoot } from './temp-root.js';
 
 const INITIAL_TEXT = [
@@ -31,31 +30,6 @@ const EDITORS = {
   latex: { asset: 'latex_studio.html', filename: 'contract.tex', initialText: INITIAL_TEXT, query: '' },
   code: { asset: 'code_editor.html', filename: 'contract.py', initialText: CODE_INITIAL_TEXT, query: '' },
 };
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForPing(port) {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/ping`);
-      if (response.ok) return;
-    } catch {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`server on ${port} did not answer /ping`);
-}
 
 function waitForExit(server, timeoutMs) {
   if (server.exitCode !== null || server.signalCode !== null) return Promise.resolve(true);
@@ -94,7 +68,7 @@ async function withEditor(kind, run, engine = 'cm6') {
 
     const port = await freePort();
     server = spawnGalleryServer({ root, port, stdio: ['ignore', 'pipe', 'pipe'] });
-    await waitForPing(port);
+    await waitForServer(port, { child: server });
     const engineQuery = `&engine=${engine}`;
     const url = `http://127.0.0.1:${port}/.fig_thumbs/${editor.asset}?path=${encodeURIComponent(filePath)}${engineQuery}`;
     await run({ root, filePath, texPath: filePath, port, url, kind, initialText: editor.initialText });

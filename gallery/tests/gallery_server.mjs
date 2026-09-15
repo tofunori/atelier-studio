@@ -21,6 +21,7 @@
 // `GALLERY_NO_THUMBS`, …) sont conservées.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -107,4 +108,28 @@ export async function serveHostPage(page, port, html) {
   const url = `http://127.0.0.1:${port}/host.html`;
   await page.route(url, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html }));
   return url;
+}
+
+/** Port TCP libre sur 127.0.0.1 (ouvre/ferme un serveur éphémère). */
+export function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+/** Arrête proprement un serveur spawné (SIGTERM, puis SIGKILL après `graceMs`). */
+export async function stopGalleryServer(child, { graceMs = 1000 } = {}) {
+  if (!child || child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([
+    new Promise((resolve) => child.once("exit", resolve)),
+    new Promise((resolve) => setTimeout(resolve, graceMs)),
+  ]);
+  if (child.exitCode === null) child.kill("SIGKILL");
 }
