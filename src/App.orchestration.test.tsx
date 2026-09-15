@@ -220,6 +220,32 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByTestId("queued-follow-up-row")).toBeNull();
   });
 
+  it("un collage archivé garde son texte : la chip reste ouvrable après restauration", async () => {
+    // Vécu 2026-09-14 : « Texte collé (lines 34) » dans une bulle restaurée —
+    // clic sans effet. L'archive ne portait que {name, lines} (plan 025), donc
+    // la bulle rechargée (changement de fil, snapshot, relance) perdait le
+    // texte et turns.tsx rendait la chip inerte. Le collage est du contenu de
+    // l'utilisateur, pas un contexte injecté : il s'archive avec son texte.
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    const pasted = Array.from({ length: 34 }, (_, i) => `ligne ${i + 1}`).join("\n");
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [], getData: (type: string) => (type === "text/plain" ? pasted : "") },
+    });
+    fireEvent.change(textarea, { target: { value: "résume ce passage" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+    const sent = sock.sent.map((value) => JSON.parse(value)).find((message) => message.type === "send");
+    expect(sent).toBeTruthy();
+    expect(sent.displayEvent.text).toBe("résume ce passage");
+    expect(sent.displayEvent.pastes).toEqual([{ name: t("chat.pasted-text"), lines: 34, text: pasted }]);
+    // le prompt provider reçoit le collage une seule fois, en tête
+    expect(sent.prompt.startsWith(pasted)).toBe(true);
+    expect(sent.prompt.match(/ligne 34/g)).toHaveLength(1);
+  });
+
   it("un send refusé par le serveur éteint le spinner et affiche le refus", async () => {
     // Vécu 2026-08-25 : un tour zombie gardait le writer du projet, le serveur
     // refusait chaque send suivant ({"type":"error"}) — mais l'erreur mourait

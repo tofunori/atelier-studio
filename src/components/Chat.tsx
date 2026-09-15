@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {groupAgentRows} from './chat/groupAgentRows';
 import { groupActivityRows } from './chat/groupActivityRows';
 import { open } from "@tauri-apps/plugin-dialog";
@@ -11,8 +11,9 @@ import { buildAnnotationBlock, migrateMarks, type Mark } from "../lib/annotation
 import { findTextRanges } from "../lib/markRanges";
 import { messageIndexFromNode, quoteContext } from "../lib/quickAskContext";
 import type { HighlightEntry } from "./Rail";
-import { CloseIcon } from "./icons";
-import { Button, IconButton } from "./ui";
+import { CheckIcon, CloseIcon, CopyIcon } from "./icons";
+import { classifyPaste, pasteMetaLabel } from "../lib/pasteView";
+import { IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
@@ -430,6 +431,8 @@ export default function Chat(p: {
   const [barOpen, setBarOpen] = useState(false);
   const [pasteView, setPasteView] = useState<{ name: string; text: string } | null>(null);
   const [pasteCopied, setPasteCopied] = useState(false);
+  // lecture choisie par le contenu (Source / Texte) — cf. lib/pasteView
+  const pasteContent = useMemo(() => classifyPaste(pasteView?.text ?? ""), [pasteView]);
   useEffect(() => {
     if (!pasteView) return;
     setPasteCopied(false);
@@ -437,6 +440,12 @@ export default function Chat(p: {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [pasteView]);
+  // retour de copie : la coche revient à l'icône après 1,2 s
+  useEffect(() => {
+    if (!pasteCopied) return;
+    const timer = window.setTimeout(() => setPasteCopied(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [pasteCopied]);
   const [fixing, setFixing] = useState(false);
   const [reviewMin, setReviewMin] = useState(false);
   useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
@@ -1171,22 +1180,38 @@ export default function Chat(p: {
           visible. La largeur de la modale est en % pour la même raison. */}
       {pasteView && (
         <div className="paste-overlay" onClick={() => setPasteView(null)}>
-          <div className="paste-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="paste-modal" role="dialog" aria-labelledby="paste-modal-title" onClick={(e) => e.stopPropagation()}>
             <div className="paste-modal-head">
-              <span className="paste-modal-title">{pasteView.name}</span>
-              <span className="paste-modal-lines">{t("chat.lines", { lines: String(pasteView.text.split("\n").length) })}</span>
-              <span className="flex" />
-              <Button variant="ghost" className="ghost" onClick={() => {
-                navigator.clipboard.writeText(pasteView.text);
-                setPasteCopied(true);
-              }}>
-                {pasteCopied ? t("chat.output-copied") : t("chat.output-copy")}
-              </Button>
-              <IconButton className="ghost" label={t("action.close")} onClick={() => setPasteView(null)}>
+              <span className="paste-modal-title" id="paste-modal-title">{pasteView.name}</span>
+              <span className="paste-modal-meta">{pasteMetaLabel(pasteContent)}</span>
+              <IconButton label={pasteCopied ? t("action.copied") : t("action.copy")}
+                title={pasteCopied ? t("action.copied") : t("action.copy")}
+                onClick={() => {
+                  void navigator.clipboard?.writeText(pasteView.text);
+                  setPasteCopied(true);
+                }}>
+                {pasteCopied ? <CheckIcon /> : <CopyIcon />}
+              </IconButton>
+              <IconButton label={t("action.close")} title={t("action.close")} onClick={() => setPasteView(null)}>
                 <CloseIcon />
               </IconButton>
             </div>
-            <div className="paste-modal-body">{pasteView.text}</div>
+            <div className="paste-modal-body">
+              {pasteContent.mode === "source" ? (
+                <ol className="paste-source">
+                  {pasteContent.lines.map((line, i) => (
+                    <li key={i}>
+                      <span className="paste-ln" aria-hidden="true">{i + 1}</span>
+                      <span className="paste-tx">{line}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="paste-prose">
+                  {pasteContent.paragraphs.map((paragraph, i) => <p key={i}>{paragraph}</p>)}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

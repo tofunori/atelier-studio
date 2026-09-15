@@ -4577,7 +4577,9 @@ export default function App() {
     }
     if (ws.current) {
       // bulle user archivable : texte tapé + attachments structurés (chemins,
-      // lignes) — jamais le handoff, les textes injectés ni une data URL
+      // lignes) — jamais le handoff, les textes injectés ni une data URL. Le
+      // collage garde son texte : c'est du contenu de l'utilisateur, et sans
+      // lui la chip d'une bulle restaurée n'ouvrait rien (2026-09-14).
       const displayEvent = {
         kind: "user" as const,
         text: transcriptText,
@@ -4587,7 +4589,7 @@ export default function App() {
           ? {
               pastes: attachments
                 .filter((a) => a.kind === "paste")
-                .map((a) => ({ name: a.name, lines: a.text.split("\n").length })),
+                .map((a) => ({ name: a.name, lines: a.text.split("\n").length, text: a.text })),
             }
           : {}),
         ...(imagePaths.length ? { imagePaths } : {}),
@@ -4751,7 +4753,7 @@ export default function App() {
           ? {
               pastes: queuedAttachments
                 .filter((attachment) => attachment.kind === "paste")
-                .map((attachment) => ({ name: attachment.name, lines: attachment.text.split("\n").length })),
+                .map((attachment) => ({ name: attachment.name, lines: attachment.text.split("\n").length, text: attachment.text })),
             }
           : {}),
       },

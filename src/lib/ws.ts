@@ -31,7 +31,8 @@ export type ProvisionalEventMeta = { provisional: true; messageId: string };
 type AgentEventBody =
   | { kind: "user"; text: string; imageUrl?: string; label?: string;
       context?: TurnContext;
-      /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines seulement */
+      /* pastes locaux = texte complet ; restaurés (UserDisplayEvent archivé) = name+lines,
+         plus le texte depuis 2026-09-14 — les archives antérieures n'en ont pas */
       pastes?: { name: string; text?: string; lines?: number }[];
       /* sources KB attachées AU MOMENT de l'envoi (plan 049) — méta fidèle à l'historique */
       kb?: { count: number; titles: string[] };
@@ -227,13 +228,15 @@ export type InteractionResponse =
 
 /** Bulle user telle qu'archivée par le sidecar : le texte réellement tapé et
  * des attachments structurés (chemins, noms, nombres de lignes) — jamais de
- * data URL ni de contexte injecté (handoff, textes de pièces jointes). */
+ * data URL ni de contexte injecté (handoff, textes de pièces jointes). Un
+ * collage est du contenu de l'utilisateur : son texte s'archive pour que la
+ * chip reste ouvrable après restauration (`text` absent = archive d'avant). */
 export type UserDisplayEvent = {
   kind: "user";
   text: string;
   ts?: number;
   label?: string;
-  pastes?: { name: string; lines: number }[];
+  pastes?: { name: string; lines: number; text?: string }[];
   imagePaths?: string[];
 };
 

@@ -243,6 +243,14 @@ export function HomeIcon({ size = 13 }: IconProps) {
   );
 }
 
+export function CheckIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M3.2 8.4l3.1 3.1 6.5-7" />
+    </StrokeIcon>
+  );
+}
+
 export function CopyIcon({ size = 13 }: IconProps) {
   return (
     <StrokeIcon size={size}>

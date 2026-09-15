@@ -1,7 +1,7 @@
 // Anatomie du tour : modèle Synara — un seul état actif, journal humain
 // dépliable et, une fois terminé, pli compact « Worked for… ».
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), isTauri: () => false }));
 vi.mock("../../lib/localImage", () => ({
@@ -1036,6 +1036,7 @@ describe("anatomie du tour — header d'activité", () => {
         line: null,
         diff: true,
         baseSha,
+        page: null, // page PDF : seulement pour les liens « Voir le PDF, page N »
       });
     } finally {
       window.removeEventListener("chat-open-file", onOpen);
@@ -1313,8 +1314,9 @@ describe("en-tête et goal — retours utilisateur", () => {
 });
 
 // Régression 2026-07-16 : au boot, le replay renvoie la bulle user ARCHIVÉE
-// (UserDisplayEvent : pastes {name, lines}, jamais de texte) — le fil doit la
-// rendre sans crasher, méta lignes comprise, chip inerte (rien à ouvrir).
+// (UserDisplayEvent : pastes {name, lines} — sans texte avant le 2026-09-14) —
+// le fil doit la rendre sans crasher, méta lignes comprise, chip inerte
+// (rien à ouvrir) ; avec texte archivé, la chip ouvre l'aperçu comme en direct.
 describe("bulle user restaurée — pastes archivés sans texte", () => {
   it("pastes {name, lines} : rendu sans crash, nom + méta lignes affichés", () => {
     const restored: AgentEvent = {
@@ -1325,7 +1327,7 @@ describe("bulle user restaurée — pastes archivés sans texte", () => {
     const chip = document.querySelector(".paste-chip") as HTMLElement;
     expect(chip).toBeTruthy();
     expect(chip.textContent).toContain("atelier");
-    expect(chip.textContent).toContain(t("chat.lines", { lines: "12" }));
+    expect(chip.textContent).toContain(t("chat.line-count", { n: 12 }));
   });
 
   // L'aperçu vit DANS le panneau de chat, délibérément : la webview NATIVE du
@@ -1347,6 +1349,42 @@ describe("bulle user restaurée — pastes archivés sans texte", () => {
     expect(document.querySelector(".chat-primary")?.contains(overlay)).toBe(true);
   });
 
+  it("pastes archivés {name, lines, text} : la chip restaurée ouvre l'aperçu", () => {
+    const restored: AgentEvent = {
+      kind: "user", text: "résume ce passage", ts: FIXED_TS,
+      pastes: [{ name: "Texte collé", lines: 3, text: "a\nb\nc" }],
+    };
+    renderUi(<Chat {...chatProps({ events: [restored] })} />);
+    fireEvent.click(document.querySelector(".paste-chip") as HTMLElement);
+    const overlay = document.querySelector(".paste-overlay") as HTMLElement;
+    expect(overlay, "aperçu non ouvert au clic").toBeTruthy();
+    // prose de trois lignes : lecture Texte, lignes recollées en un paragraphe
+    expect([...overlay.querySelectorAll(".paste-prose p")].map((p) => p.textContent)).toEqual(["a b c"]);
+  });
+
+  // Refonte 2026-09-14 : la boîte choisit sa lecture. Source pour du LaTeX
+  // (mono, numéros de ligne, méta « n lignes · LaTeX »), copie avec retour.
+  it("collage LaTeX : lecture Source numérotée, méta, copie avec retour", async () => {
+    const text = "Albedo recovered~\\citep{Marshall2020}.\nLow albedo persisted.";
+    const local: AgentEvent = {
+      kind: "user", text: "Relis.", ts: FIXED_TS,
+      pastes: [{ name: "Texte collé", text }],
+    };
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderUi(<Chat {...chatProps({ events: [local] })} />);
+    fireEvent.click(document.querySelector(".paste-chip") as HTMLElement);
+    const modal = document.querySelector(".paste-modal") as HTMLElement;
+    expect(modal.querySelector(".paste-modal-meta")?.textContent).toBe("2 lignes · LaTeX");
+    expect([...modal.querySelectorAll(".paste-source .paste-ln")].map((n) => n.textContent)).toEqual(["1", "2"]);
+    expect([...modal.querySelectorAll(".paste-source .paste-tx")].map((n) => n.textContent)).toEqual(text.split("\n"));
+    // « Copier » existe aussi ailleurs dans le fil : on vise l'en-tête de la modale
+    const head = within(modal.querySelector(".paste-modal-head") as HTMLElement);
+    fireEvent.click(head.getByRole("button", { name: t("action.copy") }));
+    expect(writeText).toHaveBeenCalledWith(text);
+    expect(head.getByRole("button", { name: t("action.copied") })).toBeTruthy();
+  });
+
   it("pastes locaux {name, text} : méta lignes calculée depuis le texte", () => {
     const local: AgentEvent = {
       kind: "user", text: "Voici le fichier.", ts: FIXED_TS,
@@ -1354,6 +1392,6 @@ describe("bulle user restaurée — pastes archivés sans texte", () => {
     };
     renderUi(<Chat {...chatProps({ events: [local] })} />);
     const chip = document.querySelector(".paste-chip") as HTMLElement;
-    expect(chip.textContent).toContain(t("chat.lines", { lines: "3" }));
+    expect(chip.textContent).toContain(t("chat.line-count", { n: 3 }));
   });
 });

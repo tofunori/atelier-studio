@@ -10,6 +10,7 @@ import { AgentEvent } from "../../lib/ws";
 import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
+import { pasteLineCountLabel } from "../../lib/pasteView";
 import { normalizeMathDelimiters } from "../../lib/markdown";
 import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
@@ -209,7 +210,7 @@ export const UserTurn = memo(function UserTurn(p: {
         </div>
       )}
       {e.pastes && e.pastes.map((pa, j) => {
-        // bulle restaurée : l'archive ne porte que {name, lines} — chip inerte
+        // archive d'avant 2026-09-14 : {name, lines} sans texte — chip inerte
         const text = pa.text;
         const lineCount = text != null ? text.split("\n").length : pa.lines;
         return (
@@ -220,7 +221,7 @@ export const UserTurn = memo(function UserTurn(p: {
             <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
           </svg>
           <span className="chip-label">{pa.name}</span>
-          {lineCount != null && <span className="chip-lines">{t("chat.lines", { lines: String(lineCount) })}</span>}
+          {lineCount != null && <span className="chip-lines">{pasteLineCountLabel(lineCount)}</span>}
         </RowButton>
         );
       })}
