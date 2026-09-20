@@ -1,3 +1,4 @@
+import { useOpenChatTabs } from "./hooks/useOpenChatTabs";
 import {
   discussionMarkdownFile,
   discussionWorkspaceId,
@@ -4956,6 +4957,14 @@ export default function App() {
     const knownIds = new Set(threads.map((t) => t.id));
     return [...draftThreads.filter((t) => !knownIds.has(t.id)), ...threads];
   }, [draftThreads, threads]);
+  const projectChatCandidates = useMemo(() => {
+    if (isDiscussionContext(activeProject)) return [];
+    return allThreads.filter(thread => thread.projectRoot === activeProject);
+  }, [allThreads, activeProject]);
+  const chatTabs = useOpenChatTabs(isDiscussionContext(activeProject) ? null : activeProject, activeId, projectChatCandidates);
+  const projectChats = useMemo(() => projectChatCandidates.filter(thread =>
+    !thread.agentLink || thread.id === activeId || chatTabs.openChats.some(open => open.id === thread.id)
+  ), [projectChatCandidates, activeId, chatTabs.openChats]);
   allThreadsRef.current = allThreads;
   // A legacy discussion selected while its provider is idle is migrated as
   // soon as the authoritative thread list contains it. A running provider is
@@ -5416,11 +5425,28 @@ export default function App() {
   }, []);
   const topBarNode = (
     <TopBarMemo
-      projects={projects}
-      projMeta={projMeta}
+      dividerVisible={layout === "split" && showAtelier && !!activeProject}
+      chats={projectChats}
+      chatTabControls={{
+        openChats: chatTabs.openChats,
+        pinnedIds: chatTabs.pinnedIds,
+        onTogglePin: chatTabs.togglePin,
+        onClose: (ids) => {
+          const next = chatTabs.close(ids);
+          if (next === activeId) return;
+          const thread = projectChats.find(entry => entry.id === next);
+          if (thread) selectThread(thread.id, thread.projectRoot);
+          else { setActiveId(null); activeIdRef.current = null; }
+        },
+      }}
+      activeChatId={activeId}
+      chatTitle={activeId ? allThreads.find(thread => thread.id === activeId)?.title : undefined}
+      onSelectChat={(id) => {
+        const thread = projectChats.find(entry => entry.id === id);
+        if (thread) { selectThread(thread.id, thread.projectRoot); setLayout(current => current === "atelier" ? "split" : current); }
+      }}
+      onNewChat={() => { newChat(); setLayout(current => current === "atelier" ? "split" : current); }}
       activeProject={isDiscussionContext(activeProject) ? null : activeProject}
-      onSelectProject={selectProject}
-      onAddProject={addProject}
       layout={layout}
       onSetLayout={setLayout}
       onOpenPalette={handleOpenPalette}
@@ -5780,6 +5806,7 @@ export default function App() {
           </div>
         )}
         <ThreadChat
+          headerInTopBar
           notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? chatNotice : null}
           threadId={activeId}
           home={homeBundle}
@@ -6085,7 +6112,7 @@ export default function App() {
       </Panel>
       {showAtelier && activeProject && (
         <>
-          <PanelResizeHandle className="handle" onDragging={setDragging} />
+          <PanelResizeHandle id="chat-atelier-divider" className="handle" onDragging={setDragging} />
           <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
             <div className="atelier-host">
             <AtelierPane

@@ -108,7 +108,7 @@ export default function ProjectGallery({ root, config, mainGallery, onManage, re
       {urls[folder.path] ? <iframe key={`${folder.path}-${reloadKey}`} className="atelier" data-atelier-role="gallery"
         data-folder-root={folder.path} src={embeddedUrl(urls[folder.path])}
         style={all ? { height: "clamp(400px, 70vh, 720px)", flex: "none" } : { flex: 1, minHeight: 0 }}
-        title={`Galerie — ${folder.name}`} />
+        aria-label={`Galerie — ${folder.name}`} title="" />
         : <p role={errors[folder.path] ? "alert" : "status"}>{errors[folder.path] || t("project.folders-loading")}</p>}
     </section>)}
   </div>;

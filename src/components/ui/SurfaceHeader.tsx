@@ -6,6 +6,7 @@ import { cx } from "./internal";
 
 export function SurfaceHeader(props: {
   title: React.ReactNode;
+  titleLabel?: string;
   eyebrow?: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
@@ -15,7 +16,7 @@ export function SurfaceHeader(props: {
     <header className={cx("ui-surface-header", className)}>
       <div className="titles">
         {eyebrow != null && <span className="eyebrow">{eyebrow}</span>}
-        <h2 className="title">{title}</h2>
+        <h2 className="title" aria-label={props.titleLabel}>{title}</h2>
       </div>
       <div className="spacer" />
       {actions != null && <div className="actions">{actions}</div>}

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
-import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuGroup, ContextMenuLabel, ContextMenuItem, ContextMenuCheckboxItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from "./shadcn/context-menu";
 import { Tooltip } from "./ui/Tooltip";
 import { IconButton } from "./ui/IconButton";
 
@@ -17,7 +17,7 @@ export type TargetId = Surface | "ide" | "explorer" | "annots";
 const PIN_KEY = "atelier-studio.topbar-surfaces";
 /** Plafond large : c'est la fenêtre qui décide vraiment (règle CSS de repli),
  *  pas un quota arbitraire. Dix laisse la place au crumb et aux contrôles. */
-export const MAX_PINNED = 10;
+export const MAX_PINNED = 12;
 /** Trois épinglées par défaut (lot 068). La largeur de la barre appartient
  *  désormais aux onglets du pane, et une surface OUVERTE apparaît déjà comme
  *  onglet à quelques pixels de sa propre icône : les épingles ne sont qu'un
@@ -58,7 +58,8 @@ export function readPinned(): TargetId[] {
       return DEFAULT_PINNED;
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PINNED;
+    if (!Array.isArray(parsed)) return DEFAULT_PINNED;
+    if (parsed.length === 0) return [];
     const list = parsed
       .filter((id): id is string => typeof id === "string")
       // surface renommée 2026-09-06 : une épingle persistée « narval » suit
@@ -201,12 +202,11 @@ export default function TopBarSurfaces(p: {
   onToggleAnnots: () => void;
 }) {
   const [pinned, setPinned] = useState<TargetId[]>(readPinned);
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [customizing, setCustomizing] = useState(true);
   const targets = buildTargets(p);
   const byId = new Map(targets.map((target) => [target.id, target]));
   const visible = pinned.map((id) => byId.get(id)).filter((x): x is TopBarTarget => Boolean(x));
-  // une surface active mais non épinglée reste atteignable sans ouvrir le menu
-  const revealed = targets.find((target) => target.active && !pinned.includes(target.id));
 
   function togglePin(id: TargetId) {
     setPinned((current) => {
@@ -255,79 +255,31 @@ export default function TopBarSurfaces(p: {
     );
   };
 
-  return (
-    <span className="topbar-surfaces">
+  return <ContextMenu onOpenChange={(open) => { if (open) setCustomizing(true); }}>
+    <ContextMenuTrigger render={<span className="topbar-surfaces" role="toolbar" tabIndex={0} aria-label={t("topbar.surfaces")} onKeyDown={(event) => {
+      if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {bubbles:true, clientX:rect.left, clientY:rect.bottom}));
+    }} />}>
       {visible.map(button)}
-      {revealed && button(revealed)}
-      <LazyDropdownMenu
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        align="end"
-        label={t("atelier.more")}
-        header={<div className="topbar-menu-head">{t("topbar.surfaces")}</div>}
-        trigger={(
-          <IconButton
-            label={t("atelier.more")}
-            title={t("atelier.more")}
-            className={`ghost topbar-qa topbar-surface-more ${menuOpen ? "on" : ""}`}
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <circle cx="3" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="13" cy="8" r="1.3" />
-            </svg>
-          </IconButton>
-        )}
-        groups={[
-          {
-            key: "surfaces",
-            items: visible.map((target, index) => ({
-              key: target.id,
-              className: `topbar-menu-row ${target.active ? "on" : ""}`,
-              label: <><span className="topbar-menu-icon">{target.icon}</span><span className="topbar-menu-name">{target.label}</span></>,
-              children: [
-                { key: `${target.id}-open`, label: target.label, onSelect: target.onSelect },
-                {
-                  key: `${target.id}-move-up`,
-                  className: "topbar-menu-move",
-                  label: t("topbar.move-up"),
-                  disabled: index === 0,
-                  onSelect: () => movePinned(target.id, -1),
-                },
-                {
-                  key: `${target.id}-move-down`,
-                  className: "topbar-menu-move",
-                  label: t("topbar.move-down"),
-                  disabled: index === visible.length - 1,
-                  onSelect: () => movePinned(target.id, 1),
-                },
-                {
-                  key: `${target.id}-pin`,
-                  className: "topbar-menu-pin",
-                  label: t("topbar.unpin"),
-                  onSelect: () => togglePin(target.id),
-                },
-              ],
-            })),
-          },
-          {
-            key: "available",
-            separatorBefore: visible.length > 0,
-            items: targets.filter((target) => !pinned.includes(target.id)).map((target) => ({
-              key: target.id,
-              className: `topbar-menu-row ${target.active ? "on" : ""}`,
-              label: <><span className="topbar-menu-icon">{target.icon}</span><span className="topbar-menu-name">{target.label}</span></>,
-              children: [
-                { key: `${target.id}-open`, label: target.label, onSelect: target.onSelect },
-                {
-                  key: `${target.id}-pin`,
-                  className: "topbar-menu-pin",
-                  label: t("topbar.pin"),
-                  onSelect: () => togglePin(target.id),
-                },
-              ],
-            })),
-          },
-        ]}
-      />
-    </span>
-  );
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuGroup>
+        <ContextMenuLabel>{t(customizing ? "topbar.show-in-center" : "topbar.surfaces")}</ContextMenuLabel>
+        <ContextMenuItem closeOnClick={false} onClick={() => setCustomizing(!customizing)}>{t(customizing ? "topbar.back-surfaces" : "topbar.customize")}</ContextMenuItem>
+        <ContextMenuSeparator />
+        {targets.map(target => customizing ? <ContextMenuCheckboxItem key={target.id} checked={pinned.includes(target.id)} closeOnClick={false} onCheckedChange={() => togglePin(target.id)}>
+          <span className="topbar-menu-icon">{target.icon}</span>{target.label}
+        </ContextMenuCheckboxItem> : <ContextMenuItem key={target.id} onClick={target.onSelect}>{target.icon}{target.label}</ContextMenuItem>)}
+        {customizing && visible.length > 1 && <ContextMenuSub>
+          <ContextMenuSubTrigger>{t("topbar.reorder")}</ContextMenuSubTrigger>
+          <ContextMenuSubContent><ContextMenuGroup>{visible.flatMap((target,index) => [
+            <ContextMenuItem key={`${target.id}-left`} disabled={index === 0} onClick={() => movePinned(target.id,-1)}>{target.label} — {t("topbar.move-up")}</ContextMenuItem>,
+            <ContextMenuItem key={`${target.id}-right`} disabled={index === visible.length-1} onClick={() => movePinned(target.id,1)}>{target.label} — {t("topbar.move-down")}</ContextMenuItem>,
+          ])}</ContextMenuGroup></ContextMenuSubContent>
+        </ContextMenuSub>}
+      </ContextMenuGroup>
+    </ContextMenuContent>
+  </ContextMenu>;
 }

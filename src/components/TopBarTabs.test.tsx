@@ -133,7 +133,7 @@ describe("TopBarTabs", () => {
     const onSelectTab = vi.fn();
     const { container } = renderUi(<TopBarTabs {...props({ tabs: many, onSelectTab })} />);
     expect(container.querySelectorAll(".topbar-tab").length).toBe(MAX_TABS);
-    fireEvent.click(screen.getByText("+3"));
+    fireEvent.click(screen.getByRole("button", {name:t("tabs.open-files")}));
     await act(async () => { await vi.dynamicImportSettled(); });
     fireEvent.click(screen.getByText("fichier_10.tex"));
     expect(onSelectTab).toHaveBeenCalledWith("document:t10");

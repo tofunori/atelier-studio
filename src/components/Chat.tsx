@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { useChatHeaderHost } from "./ChatHeaderSlot";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {groupAgentRows} from './chat/groupAgentRows';
 import { groupActivityRows } from './chat/groupActivityRows';
@@ -148,6 +150,7 @@ export default function Chat(p: {
   imageProjectRoot?: string | null;
   /** nom d'affichage du projet (projMeta) — eyebrow de l'en-tête local */
   projectName?: string | null;
+  headerInTopBar?: boolean;
   threadTitle?: string;
   threadProvider?: string;
   highlights: HighlightEntry[];
@@ -203,6 +206,7 @@ export default function Chat(p: {
     isolatedAttachments?: DraftAttachment[],
   ) => void;
 }) {
+  const headerHost = useChatHeaderHost();
   const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
   const localCurrentAgent = localSelectedAgent ? agentWithTranscriptState(
     agentsFromActions(p.events.filter(isAgentActivityAction)).find(agent => agent.threadId === localSelectedAgent.threadId) ?? localSelectedAgent,
@@ -1052,12 +1056,9 @@ export default function Chat(p: {
   // capsule/le fil. L'en-tête ne porte que le titre et le provider.
   const headerStatus = null;
 
-  return (
-    <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
-      <div className="chat-primary">
-      {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
-      {p.threadId && (
+  const chatHeader = p.threadId ? (
         <ChatHeader
+          compact={p.headerInTopBar}
           title={p.threadTitle || t("app.new-chat-title")}
           notice={p.notice}
           provider={p.threadProvider ?? ""}
@@ -1072,7 +1073,13 @@ export default function Chat(p: {
           consigneDuFil={p.consigneDuFil ?? null}
           consignes={p.defaults.consignes ?? []}
         />
-      )}
+  ) : null;
+
+  return (
+    <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
+      <div className="chat-primary">
+      {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
+      {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
       <ChatTimeline
         thread={{
           threadId: p.threadId,

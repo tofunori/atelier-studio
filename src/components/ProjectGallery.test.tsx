@@ -29,7 +29,7 @@ describe("project gallery", () => {
   it("uses both complete galleries in All folders, never the reduced catalog", async () => {
     const { container } = setup();
     showAllFolders();
-    const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
+    const secondary = await screen.findByLabelText("Galerie — Data") as HTMLIFrameElement;
     expect(screen.getByTitle("main gallery")).toBeVisible();
     expect(secondary).toBeVisible();
     expect(screen.getAllByRole("heading").map(h => h.textContent)).toEqual(["main", "Data"]);
@@ -42,7 +42,7 @@ describe("project gallery", () => {
   it("keeps both frame instances while selecting one folder and returning to All", async () => {
     const { container } = setup();
     showAllFolders();
-    const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
+    const secondary = await screen.findByLabelText("Galerie — Data") as HTMLIFrameElement;
     const main = screen.getByTitle("main gallery") as HTMLIFrameElement;
     message(secondary, { type: "atelier-folder-select", path: "/data" });
     expect(main).not.toBeVisible(); expect(secondary).toBeVisible();
@@ -50,14 +50,14 @@ describe("project gallery", () => {
     message(secondary, { type: "atelier-folder-select", path: "all" });
     expect(main).toBeVisible(); expect(secondary).toBeVisible();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
-    expect(screen.getByTitle("Galerie — Data")).toBe(secondary);
+    expect(screen.getByLabelText("Galerie — Data")).toBe(secondary);
     message(main, { type: "atelier-folder-select", path: "/main" });
     expect(main).toBeVisible(); expect(secondary).not.toBeVisible();
   });
   it("validates the frame, origin and folder in both grouped and individual modes", async () => {
     const { onManage } = setup();
     showAllFolders();
-    const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
+    const secondary = await screen.findByLabelText("Galerie — Data") as HTMLIFrameElement;
     const main = screen.getByTitle("main gallery") as HTMLIFrameElement;
     const post = vi.spyOn(secondary.contentWindow!, "postMessage");
     fireEvent.load(secondary);
@@ -75,7 +75,7 @@ describe("project gallery", () => {
   it("reveals the folder targeted by a host gallery command", async () => {
     setup();
     showAllFolders();
-    const secondary = await screen.findByTitle("Galerie — Data") as HTMLIFrameElement;
+    const secondary = await screen.findByLabelText("Galerie — Data") as HTMLIFrameElement;
     message(secondary, { type: "atelier-folder-select", path: "/data" });
     act(() => window.dispatchEvent(new CustomEvent("atelier-gallery-reveal-folder", { detail: { root: "/main" } })));
     expect(screen.getByTitle("main gallery")).toBeVisible();
@@ -93,7 +93,7 @@ describe("project gallery", () => {
     expect(invoke).not.toHaveBeenCalledWith("start_atelier", expect.objectContaining({ root: "/data" }));
     // « Tous les dossiers » reste accessible et empile alors les galeries.
     showAllFolders();
-    expect(await screen.findByTitle("Galerie — Data")).toBeVisible();
+    expect(await screen.findByLabelText("Galerie — Data")).toBeVisible();
     expect(screen.getAllByRole("heading").map(h => h.textContent)).toEqual(["main", "Data"]);
   });
   it("keeps the single-folder view without a second heading or toolbar", () => {

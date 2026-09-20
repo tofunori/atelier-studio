@@ -3,6 +3,7 @@
 // complet), zone statut (méta provider + StatusBadge) séparée de l'action
 // overflow, ≤ 3 actions visibles. Aucune logique métier ici : le renommage
 // reste le workflow existant côté App (callback onRename).
+import { ProjectChatTabs, type ProjectChatTab } from "./ProjectChatTabs";
 import { useRef, useState, type ReactElement } from "react";
 import { Button, IconButton, StatusBadge, SurfaceHeader, Tooltip } from "../ui";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
@@ -43,6 +44,11 @@ const TRANSCRIPT_VIEWS: { id: TranscriptView; icon: () => ReactElement }[] = [
 export function ChatHeader(p: {
   /** Titre du thread (record) — tronqué par CSS, nom complet via title=. */
   title: string;
+  compact?: boolean;
+  projectChats?: ProjectChatTab[];
+  activeId?: string;
+  onSelectChat?: (id: string) => void;
+  onNewChat?: () => void;
   notice?: ChatNoticeData | null;
   /** "claude" | "codex" | … — méta discrète à côté du badge. */
   provider: string;
@@ -125,12 +131,16 @@ export function ChatHeader(p: {
     // eyebrow projet supprimé (demande Thierry 2026-07-10) : l'identité
     // projet ne vit qu'au crumb de la TopBar
     <SurfaceHeader
-      className="chat-surface-header"
+      titleLabel={p.title}
+      className={`chat-surface-header${p.compact ? " chat-header-in-topbar" : ""}${p.projectChats?.length && p.onSelectChat && p.onNewChat ? " has-project-tabs" : ""}`}
       // SurfaceHeader ne propage aucun attribut title : wrapper span pour
       // exposer le nom complet du titre que le CSS .title tronque.
-      title={<><span title={p.title}>{p.title}</span>{p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice}/>}</>}
+      title={<>{p.projectChats?.length && p.activeId && p.onSelectChat && p.onNewChat
+        ? <ProjectChatTabs chats={p.projectChats} activeId={p.activeId} onSelect={p.onSelectChat} onNew={p.onNewChat} />
+        : <span title={p.title}>{p.title}</span>}{!p.compact && p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice}/>}</>}
       actions={
         <>
+          {p.compact && p.notice && <ChatNotice notice={p.notice} />}
           {/* demande Thierry (2026-07-10) : pas de méta provider dans
               l'en-tête — le provider est visible dans le composer */}
           {p.onTranscriptViewChange != null && (() => {

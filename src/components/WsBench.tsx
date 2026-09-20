@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/primitives.css";
 import "../App.css";
+import { TopBarBench } from "./TopBarBench";
 import { ChatHeader } from "./chat/ChatHeader";
 import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";
 import { ContextInspector, type InspectedFile } from "./ContextInspector";
@@ -35,6 +36,13 @@ function Card(p: { title: string; children: React.ReactNode }) {
 
 export function WsBench() {
   const light = window.location.hash.includes("-light");
+  const [chatId, setChatId] = useState("a");
+  const [tabChats, setTabChats] = useState([
+    { id: "a", title: "Lire l’image collée" },
+    { id: "b", title: "Données Copernicus" },
+    { id: "c", title: "Analyse albédo — comparaison des séries et des fenêtres temporelles" },
+    { id: "d", title: "Discussion" },
+  ]);
   const [addState, setAddState] = useState<"idle" | "pending" | "added">(
     window.location.hash.includes("-added") ? "added" : "idle",
   );
@@ -43,11 +51,23 @@ export function WsBench() {
     return () => document.documentElement.removeAttribute("data-theme");
   }, [light]);
 
+  if (window.location.hash.includes("-topbar")) return <TopBarBench />;
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--surface-app)", padding: "var(--sp-6)",
       display: "grid", gridTemplateColumns: "minmax(0, 2fr) 320px", gap: "var(--sp-5)",
       fontFamily: "var(--font-chrome)", color: "var(--text-primary)", alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)", minWidth: 0 }}>
+        <Card title="ChatHeader — onglets du projet">
+          <ChatHeader title={tabChats.find(chat => chat.id === chatId)?.title ?? ""}
+            provider="codex" projectName="Thèse albédo" status={null}
+            projectChats={tabChats} activeId={chatId} onSelectChat={setChatId}
+            onNewChat={() => {
+              const id = String(tabChats.length);
+              setTabChats(chats => [...chats, { id, title: "Nouveau chat" }]);
+              setChatId(id);
+            }} onTranscriptViewChange={() => {}} />
+        </Card>
         <Card title="ChatHeader — terminé">
           <ChatHeader title="Rewrap figure 3 — albédo saisonnier" provider="claude"
             projectName="Thèse albédo" projectPath="/Users/tofunori/Documents/these-albedo"

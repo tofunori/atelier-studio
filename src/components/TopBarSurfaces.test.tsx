@@ -23,7 +23,8 @@ function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) 
 
 /** Le menu se charge en différé : laisser l'import dynamique se poser. */
 async function openMenu() {
-  fireEvent.click(screen.getByRole("button", { name: t("atelier.more") }));
+  fireEvent.contextMenu(screen.getByRole("toolbar", { name: t("topbar.surfaces") }));
+  fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.back-surfaces")}));
   await act(async () => { await vi.dynamicImportSettled(); });
 }
 
@@ -66,7 +67,7 @@ describe("cibles", () => {
     localStorage.setItem("atelier-studio.topbar-surfaces", "pas du json");
     expect(readPinned()).toEqual(DEFAULT_PINNED);
     localStorage.setItem("atelier-studio.topbar-surfaces", "[]");
-    expect(readPinned()).toEqual(DEFAULT_PINNED);
+    expect(readPinned()).toEqual([]);
   });
 });
 
@@ -80,10 +81,9 @@ describe("TopBarSurfaces", () => {
     expect(screen.queryByRole("button", { name: t("atelier.calculs") })).toBeNull();
   });
 
-  it("révèle la surface active même non épinglée", () => {
+  it("respecte le choix même quand une surface non épinglée est active", () => {
     renderUi(<TopBarSurfaces {...props({ activeSurface: "calculs" })} />);
-    const calculs = screen.getByRole("button", { name: t("atelier.calculs") });
-    expect(calculs.classList.contains("on")).toBe(true);
+    expect(screen.queryByRole("button", { name: t("atelier.calculs") })).toBeNull();
   });
 
   it("bascule de surface au clic", () => {
@@ -100,20 +100,21 @@ describe("TopBarSurfaces", () => {
     expect(screen.getByText(t("atelier.biblio"))).toBeTruthy();
   });
 
-  it("ouvre les actions d'une surface au clavier", async () => {
-    renderUi(<TopBarSurfaces {...props()} />);
+  it("ouvre directement une surface sans sous-menu répétant son nom", async () => {
+    const onSelectSurface=vi.fn();
+    renderUi(<TopBarSurfaces {...props({onSelectSurface})} />);
     await openMenu();
-    const surface = screen.getByRole("menuitem", { name: t("atelier.connaissances") });
-    surface.focus();
-    fireEvent.keyDown(surface, { key: "ArrowRight" });
-    expect(await screen.findByRole("menuitem", { name: t("topbar.unpin") })).toBeInTheDocument();
+    const surface=screen.getByRole("menuitem",{name:t("atelier.connaissances")});
+    expect(surface).not.toHaveAttribute("aria-haspopup");
+    fireEvent.click(surface);
+    expect(onSelectSurface).toHaveBeenCalledWith("connaissances");
   });
 
   it("épingle depuis le menu, et le choix survit au remontage", async () => {
     const { unmount } = renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    await openSurfaceActions(t("atelier.calculs"));
-    fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.pin") }));
+    fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.customize")}));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", {name:t("atelier.calculs")}));
     expect(readPinned()).toContain("calculs");
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);
 
@@ -127,8 +128,9 @@ describe("TopBarSurfaces", () => {
     await openMenu();
     const before = readPinned();
     // Connaissances est en 3ᵉ position par défaut : une flèche gauche la remonte
-    await openSurfaceActions(t("atelier.connaissances"));
-    fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.move-up") }));
+    fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.customize")}));
+    await openSurfaceActions(t("topbar.reorder"));
+    fireEvent.click(screen.getByRole("menuitem", { name: `${t("atelier.connaissances")} — ${t("topbar.move-up")}` }));
     const after = readPinned();
     expect(after.indexOf("connaissances")).toBe(before.indexOf("connaissances") - 1);
     expect(after).toHaveLength(before.length);
@@ -137,8 +139,9 @@ describe("TopBarSurfaces", () => {
   it("la première épinglée ne peut pas remonter, la dernière pas descendre", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
     await openMenu();
-    await openSurfaceActions(t("atelier.file-explorer"));
-    const firstUp = screen.getByRole("menuitem", { name: t("topbar.move-up") });
+    fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.customize")}));
+    await openSurfaceActions(t("topbar.reorder"));
+    const firstUp = screen.getByRole("menuitem", { name: `${t("atelier.file-explorer")} — ${t("topbar.move-up")}` });
     expect(firstUp).toHaveAttribute("data-disabled");
     fireEvent.click(firstUp);
     expect(readPinned()).toEqual(DEFAULT_PINNED);
@@ -146,10 +149,10 @@ describe("TopBarSurfaces", () => {
 
   it("accepte d'épingler au-delà de la sélection courte", async () => {
     renderUi(<TopBarSurfaces {...props()} />);
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem",{name:t("topbar.customize")}));
     for (const label of [t("atelier.calculs"), t("atelier.biblio"), t("atelier.browser")]) {
-      await openMenu();
-      await openSurfaceActions(label);
-      fireEvent.click(screen.getByRole("menuitem", { name: t("topbar.pin") }));
+      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
     }
     expect(readPinned().length).toBe(DEFAULT_PINNED.length + 3);
     expect(readPinned().length).toBeLessThanOrEqual(MAX_PINNED);
@@ -267,4 +270,24 @@ describe("migration annots-v1 (panneau Annotations)", () => {
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
     expect(readPinned()).toEqual(["explorer", "git"]);
   });
+});
+
+it("personnalise plusieurs surfaces sans fermer le menu et mémorise une barre vide", async () => {
+  const { unmount } = renderUi(<TopBarSurfaces {...props()} />);
+  await openMenu();
+  fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.customize")}));
+  for (const target of buildTargets(props())) {
+    const item = screen.getByRole("menuitemcheckbox", {name:target.label});
+    if (item.getAttribute("aria-checked") === "true") fireEvent.click(item);
+  }
+  expect(readPinned()).toEqual([]);
+  expect(screen.getByRole("menuitemcheckbox", {name:t("atelier.calculs")})).toBeVisible();
+  unmount();
+  renderUi(<TopBarSurfaces {...props()} />);
+  expect(screen.queryByRole("button", {name:t("atelier.connaissances")})).toBeNull();
+  await openMenu();
+  fireEvent.click(screen.getByRole("menuitem", {name:t("topbar.customize")}));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", {name:t("atelier.calculs")}));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", {name:t("atelier.git")}));
+  expect(readPinned()).toEqual(["calculs", "git"]);
 });

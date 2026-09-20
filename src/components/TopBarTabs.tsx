@@ -7,7 +7,8 @@
 // et la croix de fermeture tient sans manger le libellé.
 //
 // Le rail garde ce qu'il sait porter : les vues, les projets, l'activité.
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { t } from "../lib/i18n";
 import { CloseIcon } from "./icons";
 import { type Surface } from "./surfaces";
@@ -134,12 +135,33 @@ export function isDocumentTab(tab: PaneTab): boolean {
 
 export default function TopBarTabs(p: {
   tabs: PaneTab[];
+  allTabsMenu?: boolean;
   activeTab: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const documents = p.tabs.filter(isDocumentTab);
+  const strip = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const element = strip.current;
+    if (!element) return;
+    const measure = () => {
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width && !Array.from(element.querySelectorAll<HTMLElement>(".topbar-tab")).some(tab => getComputedStyle(tab).display === "none")) return;
+      setClipped(Array.from(element.querySelectorAll<HTMLElement>(".topbar-tab")).some(tab => {
+        const rect = tab.getBoundingClientRect();
+        return !rect.width || rect.right > bounds.right + 1 || rect.left < bounds.left - 1;
+      }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.parentElement) observer.observe(element.parentElement);
+    return () => observer.disconnect();
+  }, [p.tabs, p.activeTab]);
+
   // aucun document ouvert : le ruban DISPARAÎT au lieu d'afficher un vide —
   // la barre retrouve exactement sa forme d'avant le lot 068
   if (documents.length === 0) return null;
@@ -149,7 +171,7 @@ export default function TopBarTabs(p: {
   const prefixes = folderPrefixes(visible);
 
   return (
-    <div className="topbar-tabs" aria-label={t("tabs.open-files")}>
+    <div ref={strip} className="topbar-tabs" aria-label={t("tabs.open-files")}>
       {visible.map((tab) => {
         // Le glisser d'un onglet vers un autre pane suivait les tuiles du
         // rail depuis la disparition de la bande ; il suit les onglets ici,
@@ -208,14 +230,14 @@ export default function TopBarTabs(p: {
           </span>
         );
       })}
-      {overflow.length > 0 && (
+      {(clipped || overflow.length > 0) && (
         <LazyDropdownMenu
           open={menuOpen}
           onOpenChange={setMenuOpen}
           align="start"
           label={t("tabs.open-files")}
-          trigger={<RowButton className="topbar-tab-more">+{overflow.length}</RowButton>}
-          items={overflow.map((tab) => ({
+          trigger={<RowButton className="topbar-tab-more" aria-label={t("tabs.open-files")}>{<ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />}</RowButton>}
+          items={documents.map((tab) => ({
             key: tab.id,
             label: tabLabel(tab.title),
             onSelect: () => p.onSelectTab(tab.id),

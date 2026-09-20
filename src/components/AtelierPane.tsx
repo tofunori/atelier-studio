@@ -1,7 +1,6 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { EllipsisIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
@@ -794,7 +793,7 @@ export default function AtelierPane({
               title={t("workspace.pane-actions")}
               size="s"
             >
-              <EllipsisIcon />
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M9 3v10"/></svg>
             </IconButton>
           )}
         />
@@ -840,7 +839,9 @@ export default function AtelierPane({
           className="atelier workspace-tab-content"
           style={{ display: active ? "block" : "none" }}
           src={current.url}
-          title={current.title}
+          // Keep the accessible name without a native tooltip over the whole document.
+          aria-label={current.title}
+          title=""
         />
       );
     }

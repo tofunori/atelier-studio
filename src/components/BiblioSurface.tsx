@@ -383,7 +383,7 @@ export default function BiblioSurface({
           <div className="biblio-frame-wrap">
             {!tab.item.hasPdf && <div className="biblio-placeholder">{t("biblio.no-pdf")}</div>}
             {tab.item.hasPdf && !url && <div className="biblio-placeholder">{t("biblio.no-project")}</div>}
-            {url && <iframe className="biblio-frame atelier" data-atelier-role="biblio-pdf" src={url} title={tab.item.title} />}
+            {url && <iframe className="biblio-frame atelier" data-atelier-role="biblio-pdf" src={url} aria-label={tab.item.title} title="" />}
           </div>
         </section>;
       })}

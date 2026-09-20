@@ -113,6 +113,9 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(mainFrame?.style.display).toBe("block");
     expect(analysisFrame?.style.display).toBe("block");
     expect(mainFrame).toBe(originalMainFrame);
+    expect(mainFrame).toHaveAttribute("aria-label", "main.tex");
+    expect(mainFrame).toHaveAttribute("title", "");
+    expect(analysisFrame).toHaveAttribute("title", "");
     expect(mainFrame?.closest(".workspace-content-layer")?.getAttribute("data-owner-pane"))
       .not.toBe(analysisFrame?.closest(".workspace-content-layer")?.getAttribute("data-owner-pane"));
   });
