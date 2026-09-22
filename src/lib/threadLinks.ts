@@ -175,3 +175,25 @@ export function linkedConversationForProvider(
     (relation) => relation.thread.provider === provider,
   );
 }
+
+export type LinkedAgentSummary = {
+  id: string;
+  provider: string;
+  title: string;
+  paused: boolean;
+  direction: "parent" | "child";
+};
+
+/** Conversations liées au fil actif, telles que l'en-tête du chat les liste. */
+export function linkedAgentSummaries(threads: Thread[], threadId: string | null): LinkedAgentSummary[] {
+  if (!threadId) return [];
+  return linkedConversations(threads, threadId).map((relation) => ({
+    id: relation.thread.id,
+    provider: relation.thread.provider === "opencode"
+      ? "OpenCode"
+      : relation.thread.provider.charAt(0).toUpperCase() + relation.thread.provider.slice(1),
+    title: relation.thread.title,
+    paused: relation.paused,
+    direction: relation.direction,
+  }));
+}
