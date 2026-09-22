@@ -65,6 +65,9 @@ export default function AnnotationsPanel(p: {
   const [search, setSearch] = useState("");
   const [color, setColor] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Rangée dont la « Note » est en cours d'édition, et son brouillon.
+  const [editing, setEditing] = useState<{ rel: string; id: string } | null>(null);
+  const [draft, setDraft] = useState("");
   const origin = p.galleryOrigin;
   const seq = useRef(0);
   const lastJson = useRef("");
@@ -126,6 +129,43 @@ export default function AnnotationsPanel(p: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rel, annots: next }),
+    }).catch(() => load());
+  }
+
+  // La « Note » d'une annotation est `memo` (jamais envoyée au chat) ; une
+  // note libre (kind "note") EST sa note : on édite alors `note`.
+  function memoField(a: PdfAnnot): "memo" | "note" {
+    return a.kind === "note" ? "note" : "memo";
+  }
+
+  function startEdit(rel: string, a: PdfAnnot) {
+    setEditing({ rel, id: String(a.id) });
+    setDraft(a[memoField(a)] ?? "");
+  }
+
+  function finishEdit(save: boolean) {
+    const cur = editing;
+    setEditing(null);
+    if (!save || !cur || !origin || !lib) return;
+    const a = (lib[cur.rel] ?? []).find((x) => String(x.id) === cur.id);
+    if (!a) return;
+    const field = memoField(a);
+    const updated: PdfAnnot = { ...a };
+    if (field === "memo") {
+      if (draft.trim()) updated.memo = draft;
+      else delete updated.memo;
+    } else {
+      updated.note = draft;
+    }
+    if ((updated[field] ?? "") === (a[field] ?? "")) return;
+    const next = (lib[cur.rel] ?? []).map((x) => (String(x.id) === cur.id ? updated : x));
+    setLib({ ...lib, [cur.rel]: next });
+    // une relecture déjà partie ne doit pas réafficher l'ancienne note
+    seq.current++;
+    fetch(`${origin}/pdfannot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rel: cur.rel, annots: next }),
     }).catch(() => load());
   }
 
@@ -216,6 +256,8 @@ export default function AnnotationsPanel(p: {
               </RowButton>
               {open && art.rows.map((a) => {
                 const text = (a.text ?? "").replace(/\s+/g, " ").trim();
+                const isEditing = editing?.rel === art.rel && editing.id === String(a.id);
+                const hasMemo = Boolean(a[memoField(a)]);
                 return (
                   <div key={String(a.id)} className="annots-item">
                     <span className="annots-bar" style={{ background: SOLID(a.color) }} />
@@ -234,7 +276,7 @@ export default function AnnotationsPanel(p: {
                             {t("annots.zone")}{a.note ? ` · ${a.note}` : ""}
                           </span>
                         ) : a.kind === "note" ? (
-                          <span className="annots-quote is-note">{a.note || text || "…"}</span>
+                          !isEditing && <span className="annots-quote is-note">{a.note || text || "…"}</span>
                         ) : (
                           <span className="annots-quote">
                             <span className="annots-oq">«&thinsp;</span>{text}
@@ -244,7 +286,7 @@ export default function AnnotationsPanel(p: {
                         {a.note && a.kind !== "note" && a.kind !== "area" && (
                           <span className="annots-note">{a.note}</span>
                         )}
-                        {a.memo && a.kind !== "note" && (
+                        {a.memo && a.kind !== "note" && !isEditing && (
                           <span className="annots-memo">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                               strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -254,11 +296,44 @@ export default function AnnotationsPanel(p: {
                           </span>
                         )}
                       </RowButton>
+                      {isEditing && (
+                        <textarea
+                          className="annots-memo-edit"
+                          aria-label={t("annots.note")}
+                          placeholder={memoField(a) === "memo" ? t("annots.note-placeholder") : t("annots.note")}
+                          value={draft}
+                          rows={2}
+                          autoFocus
+                          onFocus={(e) => {
+                            const n = e.currentTarget.value.length;
+                            e.currentTarget.setSelectionRange(n, n);
+                          }}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={() => finishEdit(true)}
+                          onKeyDown={(e) => {
+                            // Entrée enregistre, Maj+Entrée va à la ligne, Échap annule.
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finishEdit(true); }
+                            else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finishEdit(false); }
+                          }}
+                        />
+                      )}
                       <div className="annots-foot">
                         <span className="annots-page">
                           p. {a.page}{a.kind === "note" ? ` · ${t("annots.kind-note")}` : ""}
                         </span>
                         <span className="annots-spacer" />
+                        <IconButton
+                          size="s"
+                          label={hasMemo ? t("annots.edit-note") : t("annots.add-note")}
+                          title={hasMemo ? t("annots.edit-note") : t("annots.add-note")}
+                          className="annots-act"
+                          onClick={() => startEdit(art.rel, a)}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 20h4L19 9l-4-4L4 16z" />
+                          </svg>
+                        </IconButton>
                         <IconButton
                           size="s"
                           label={t("annots.to-chat")}

@@ -102,6 +102,46 @@ describe("AnnotationsPanel", () => {
     expect(onQuote).toHaveBeenCalledWith(expect.stringContaining("Commentaire : figure du domaine"));
   });
 
+  it("modifie la note d'une annotation sur place et poste la liste à jour", async () => {
+    const calls = mockFetch({ annots: {
+      "zotero/CCCC3333/Warren - 2013 - Can black carbon.pdf": [
+        { id: "400", page: 2, kind: "hl", text: "grain size", memo: "Ancienne" },
+      ],
+    } });
+    renderUi(<AnnotationsPanel galleryOrigin="http://127.0.0.1:1" onOpenAnnot={vi.fn()} onQuote={vi.fn()} />);
+    await waitFor(() => screen.getByText("Ancienne"));
+    fireEvent.click(screen.getByLabelText("Modifier la note"));
+    const field = screen.getByLabelText("Note") as HTMLTextAreaElement;
+    expect(field.value).toBe("Ancienne");
+    fireEvent.change(field, { target: { value: "Pour la discussion" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => {
+      const post = calls.find((c) => c.url.endsWith("/pdfannot") && c.init?.method === "POST");
+      expect(post).toBeTruthy();
+      const body = JSON.parse(String(post!.init!.body));
+      expect(body.rel).toContain("Warren");
+      expect(body.annots[0].memo).toBe("Pour la discussion");
+    });
+    expect(screen.queryByLabelText("Note")).toBeNull();
+    expect(screen.getByText("Pour la discussion")).toBeTruthy();
+  });
+
+  it("Échap annule l'ajout d'une note, sans rien poster", async () => {
+    const calls = mockFetch({ annots: {
+      "zotero/CCCC3333/Warren - 2013 - Can black carbon.pdf": [
+        { id: "400", page: 2, kind: "hl", text: "grain size" },
+      ],
+    } });
+    renderUi(<AnnotationsPanel galleryOrigin="http://127.0.0.1:1" onOpenAnnot={vi.fn()} onQuote={vi.fn()} />);
+    await waitFor(() => screen.getByText(/grain size/));
+    fireEvent.click(screen.getByLabelText("Ajouter une note"));
+    const field = screen.getByLabelText("Note");
+    fireEvent.change(field, { target: { value: "brouillon" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.queryByLabelText("Note")).toBeNull();
+    expect(calls.some((c) => c.init?.method === "POST")).toBe(false);
+  });
+
   it("échec de chargement : message honnête, pas d'écran vide", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("down"))));
     renderUi(<AnnotationsPanel galleryOrigin="http://127.0.0.1:1" onOpenAnnot={vi.fn()} onQuote={vi.fn()} />);

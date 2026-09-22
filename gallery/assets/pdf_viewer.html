@@ -245,6 +245,11 @@
   #annPane .it .memo{display:flex;gap:4px;align-items:flex-start;color:var(--txt);font-size:var(--fs-body-s, 12px);line-height:1.5;margin-top:4px;white-space:pre-wrap}
   #annPane .it .memo svg{flex:none;width:12px;height:12px;margin-top:3px;color:var(--muted)}
   body.pane-narrow #annPane .memo{display:none}
+  #annPane .it .memo{cursor:text}
+  #annPane .it .memo-edit{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:4px 8px;
+    border:0;border-radius:6px;background:var(--card2);color:var(--txt);font:inherit;
+    font-size:var(--fs-body-s, 12px);line-height:1.5;resize:none;outline:0;box-shadow:0 0 0 1px var(--accent)}
+  #annPane .it .memo-edit::placeholder{color:var(--muted)}
   .pg .pdfmemo{position:absolute;z-index:8;width:16px;height:16px;padding:0;border:0;border-radius:999px;
     display:flex;align-items:center;justify-content:center;background:#8da9ff;color:#fff;cursor:pointer;
     transform:translate(4px,-50%);box-shadow:0 1px 4px rgba(0,0,0,.25)}
@@ -1469,10 +1474,12 @@ const annPane = (function(){
         body.appendChild(n);
       }
     } else if (a.kind === "note") {
-      const q = document.createElement("div");
-      q.className = "q is-note";
-      q.textContent = a.note || text || "\u2026";
-      body.appendChild(q);
+      if (!isEditing(a, relX)) {
+        const q = document.createElement("div");
+        q.className = "q is-note";
+        q.textContent = a.note || text || "\u2026";
+        body.appendChild(q);
+      }
     } else {
       const q = document.createElement("div");
       q.className = "q";
@@ -1486,11 +1493,15 @@ const annPane = (function(){
         body.appendChild(n);
       }
     }
-    if (a.memo && a.kind !== "note") {
+    if (isEditing(a, relX)) {
+      body.appendChild(memoEditor(a, relX));
+    } else if (a.memo && a.kind !== "note") {
       const m = document.createElement("div");
       m.className = "memo";
+      m.title = "Modifier la note";
       m.innerHTML = MEMO_ICON;
       m.appendChild(document.createTextNode(a.memo));
+      m.onclick = (e) => { e.stopPropagation(); startEdit(relX, a); };
       body.appendChild(m);
     }
     const foot = document.createElement("div");
@@ -1507,6 +1518,9 @@ const annPane = (function(){
       b.onclick = (e) => { e.stopPropagation(); fn(); };
       foot.appendChild(b);
     };
+    mkAct("", a[memoField(a)] ? "Modifier la note" : "Ajouter une note",
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+      () => startEdit(relX, a));
     if (!(a.kind === "area" && !here)) mkAct("", "Envoyer au chat",
       '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>',
       () => sendAnnot(a, null, relX));
@@ -1520,6 +1534,77 @@ const annPane = (function(){
     it.appendChild(bar); it.appendChild(body);
     it.onclick = () => gotoAnnot(relX, a);
     return it;
+  }
+  // ---- « Note » modifiable sur place ----
+  // Le champ édité est `memo` (la note personnelle de la bulle, jamais envoyée
+  // au chat) ; une note libre (kind "note") EST sa note : on édite `note`.
+  // Pendant l'édition, les rafraîchissements venus d'ailleurs (saveAnnots,
+  // chargement de la bibliothèque) sont différés : reconstruire la liste
+  // détruirait le champ et la saisie en cours.
+  let editing = null;          // {rel, id} de la rangée en édition
+  function memoField(a){ return a.kind === "note" ? "note" : "memo"; }
+  function isEditing(a, relX){
+    return !!editing && editing.rel === (relX || rel) && String(editing.id) === String(a.id);
+  }
+  function startEdit(relX, a){
+    editing = { rel: relX || rel, id: a.id };
+    render();
+  }
+  function memoEditor(a, relX){
+    const field = memoField(a);
+    const ta = document.createElement("textarea");
+    ta.className = "memo-edit";
+    ta.rows = 1;
+    ta.value = a[field] || "";
+    ta.placeholder = field === "memo" ? "Note (jamais envoyée au chat)" : "Note…";
+    ta.setAttribute("aria-label", "Note");
+    const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      editing = null;
+      if (save) commitMemo(relX, a, field, ta.value);
+      render();
+    };
+    ta.oninput = fit;
+    ta.onclick = (e) => e.stopPropagation();
+    ta.onmousedown = (e) => e.stopPropagation();
+    // Entrée enregistre, Maj+Entrée va à la ligne, Échap annule.
+    ta.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    };
+    ta.onblur = () => finish(true);
+    requestAnimationFrame(() => {
+      fit();
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
+    return ta;
+  }
+  function commitMemo(relX, a, field, value){
+    const before = a[field] || "";
+    if (field === "memo") {
+      if (value.trim()) a.memo = value; else delete a.memo;
+    } else {
+      a.note = value;
+    }
+    if ((a[field] || "") === before) return;
+    if (!relX || relX === rel) {
+      saveAnnots();
+      document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+      if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
+      return;
+    }
+    if (!LIB || !Array.isArray(LIB[relX])) return;
+    fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rel: relX, annots: LIB[relX]})})
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
+      .catch(() => {
+        document.getElementById("status").textContent = "Note non enregistrée — réessaie.";
+      });
   }
   function removeAnnotIn(relX, a){
     if (!relX || relX === rel) { removeAnnot(a); return; }
@@ -1592,6 +1677,10 @@ const annPane = (function(){
     }
   }
   function refresh(){
+    if (editing) return;   // le rendu suit la fin de l'édition
+    render();
+  }
+  function render(){
     if (pane.style.display !== "flex") return;
     filters.innerHTML = "";
     HL_COLORS.forEach(c => {

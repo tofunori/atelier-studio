@@ -5423,6 +5423,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .annots-note { font-size: var(--fs-m); color: var(--text-muted); font-style: italic; }
 .annots-memo { display: flex; gap: 4px; align-items: flex-start; font-size: var(--fs-m); color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; }
 .annots-memo svg { flex: none; margin-top: 3px; color: var(--text-muted); }
+.annots-memo-edit { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 4px 8px;
+  border: none; border-radius: var(--r-s); background: var(--bg-ctl); color: var(--text-primary);
+  font: inherit; font-size: var(--fs-m); line-height: 1.5; resize: vertical; outline: none; }
+.annots-memo-edit:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); }
+.annots-memo-edit::placeholder { color: var(--text-muted); }
 .annots-zone { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
   font-size: var(--fs-m); }
 .annots-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 22px; }

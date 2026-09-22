@@ -345,3 +345,81 @@ test('a highlight with a personal note draws a pencil badge that opens the bubbl
  pins[0].click();assert.equal(opened,'h1');
  win.drawAnnots(page,1);assert.equal(page.querySelectorAll('.pdfmemo').length,1);win.close();
 });
+
+function pane(annots) {
+  const markup = html.slice(html.indexOf('<div id="annPane">'), html.indexOf('<div id="findBar">'));
+  const dom = new JSDOM(`${markup}<div id="status"></div>`, {runScripts:'outside-only', url:'http://127.0.0.1/pdf_viewer.html?file=doc.pdf'});
+  const win = dom.window;
+  const saves = [], draws = [];
+  Object.assign(win, {
+    PDF_ANNOTS: annots, HL_COLORS: ['rgba(255,213,74,.40)'], normalizeHighlightColor: c => c,
+    MEMO_ICON: '<svg></svg>', areaDataUrl: () => null, citeRefFor: r => r, citeRef: () => 'doc',
+    sendAnnot: () => {}, copyWithCitation: () => {}, removeAnnot: () => {},
+    saveAnnots: () => { saves.push(JSON.parse(JSON.stringify(win.PDF_ANNOTS))); win.annPane.refresh(); },
+    drawAnnots: () => { draws.push(1); }, drawReadingAnnots: () => {},
+  });
+  win.requestAnimationFrame = fn => win.setTimeout(fn, 0);
+  const code = html.slice(html.indexOf('const PANE_KEY ='), html.indexOf('// ---- confort sombre'));
+  vm.runInContext(`var rel = "doc.pdf";\n${code}\nwindow.annPane = annPane;`, dom.getInternalVMContext());
+  win.annPane.toggle();
+  const list = win.document.querySelector('#annPane .list');
+  return {win, saves, draws, list, close: () => win.close()};
+}
+
+test('the annotation pane edits an existing personal note in place', async () => {
+  const p = pane([{id:'h1', page:1, kind:'hl', text:'Passage', memo:'Ancienne'}]);
+  const memo = p.list.querySelector('.memo');
+  assert.equal(memo.textContent, 'Ancienne');
+  memo.click();
+  const ta = p.list.querySelector('textarea.memo-edit');
+  assert.ok(ta, 'clicking the note opens an editor');
+  assert.equal(ta.value, 'Ancienne');
+  await tick();
+  assert.ok(p.win.document.activeElement === ta, 'the editor takes focus');
+  ta.value = 'Pour la discussion';
+  ta.dispatchEvent(new p.win.KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+  assert.equal(p.saves.length, 1);
+  assert.equal(p.saves[0][0].memo, 'Pour la discussion');
+  assert.equal(p.draws.length, 1, 'page badges are redrawn');
+  assert.equal(p.list.querySelector('textarea.memo-edit'), null);
+  assert.equal(p.list.querySelector('.memo').textContent, 'Pour la discussion');
+  p.close();
+});
+
+test('the annotation pane adds a note from the pencil action and Escape cancels', () => {
+  const p = pane([{id:'h1', page:1, kind:'hl', text:'Passage'}]);
+  const add = [...p.list.querySelectorAll('.foot .act')].find(b => b.title === 'Ajouter une note');
+  assert.ok(add, 'a highlight without a note offers « Ajouter une note »');
+  add.click();
+  let ta = p.list.querySelector('textarea.memo-edit');
+  ta.value = 'Abandon';
+  ta.dispatchEvent(new p.win.KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+  assert.equal(p.saves.length, 0);
+  assert.equal('memo' in p.win.PDF_ANNOTS[0], false);
+  [...p.list.querySelectorAll('.foot .act')].find(b => b.title === 'Ajouter une note').click();
+  ta = p.list.querySelector('textarea.memo-edit');
+  ta.value = 'Méthode';
+  ta.dispatchEvent(new p.win.Event('blur'));
+  assert.equal(p.saves.at(-1)[0].memo, 'Méthode');
+  p.close();
+});
+
+test('emptying a note from the pane removes it; a free note edits its own text', () => {
+  const p = pane([{id:'h1', page:1, kind:'hl', text:'Passage', memo:'X'},
+    {id:'n1', page:2, kind:'note', note:'Idée'}]);
+  p.list.querySelector('.memo').click();
+  let ta = p.list.querySelector('textarea.memo-edit');
+  ta.value = '   ';
+  ta.dispatchEvent(new p.win.KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+  assert.equal('memo' in p.saves.at(-1)[0], false);
+  const rows = p.list.querySelectorAll('.it');
+  [...rows[1].querySelectorAll('.foot .act')].find(b => b.title === 'Modifier la note').click();
+  ta = p.list.querySelector('textarea.memo-edit');
+  assert.equal(ta.value, 'Idée');
+  assert.equal(p.list.querySelectorAll('.it')[1].querySelector('.q.is-note'), null, 'no duplicate text while editing');
+  ta.value = 'Idée précisée';
+  ta.dispatchEvent(new p.win.KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+  assert.equal(p.saves.at(-1)[1].note, 'Idée précisée');
+  assert.equal('memo' in p.saves.at(-1)[1], false);
+  p.close();
+});
