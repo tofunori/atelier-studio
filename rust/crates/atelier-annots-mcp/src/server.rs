@@ -1,12 +1,12 @@
 //! Boucle MCP stdio (JSON-RPC, un message par ligne) et les trois outils.
 
-use crate::library::{Article, Config, Filter, Library, Source};
+use crate::library::{sort_by_reference, Article, Config, Filter, Hit, Library, Source};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 
-const DEFAULT_LIMIT: usize = 60;
-const MAX_LIMIT: usize = 400;
+const DEFAULT_LIMIT: usize = 200;
+const MAX_LIMIT: usize = 1000;
 
 pub fn run(config: &Config) -> Result<(), String> {
     let stdin = std::io::stdin();
@@ -67,26 +67,40 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
 const INSTRUCTIONS: &str =
     "Annotations de Thierry sur ses articles (lecteur PDF d'Atelier et Zotero), \
 en lecture seule. « Note » = ce que Thierry a écrit pour lui-même sur le passage : c'est là qu'il \
-indique à quoi le passage lui servira (discussion, introduction, méthode…). Pour « les passages \
-que j'ai notés pour X », appeler search_annotations avec only_with_note=true (sans query ou avec \
-des mots larges), puis lire les notes pour garder celles qui concernent X, même formulées \
-autrement. Citer chaque élément avec sa référence et sa page.";
+indique à quoi le passage lui servira (discussion, introduction, méthode…).\n\
+Faire le moins d'appels possible : search_annotations couvre TOUS les articles en un seul appel \
+et renvoie les passages groupés par article, avec référence et page. Ne jamais ouvrir les \
+articles un par un avec get_article_annotations.\n\
+- « Les passages que j'ai notés pour X » : search_annotations avec only_with_note=true et sans \
+query, puis garder les notes qui concernent X, même formulées autrement.\n\
+- « Des passages utiles pour ma discussion (sur tel sujet) » : UN search_annotations avec \
+match=\"any\" et une query de 8 à 15 mots-clés du sujet en anglais ET en français (les articles \
+sont en anglais, les notes en français), par exemple « albedo impurities soot black carbon \
+wildfire smoke deposition feux suie ». Les articles les plus pertinents viennent en premier. \
+Relancer au plus une fois avec d'autres mots si c'est trop maigre.\n\
+- Tout relire : search_annotations sans query (limit jusqu'à 1000).\n\
+- get_article_annotations : seulement quand Thierry nomme des articles précis ; les passer \
+tous dans un seul appel (articles: [...]).\n\
+Citer chaque élément avec sa référence et sa page.";
 
 fn tools() -> Value {
     json!([
         {
             "name": "search_annotations",
-            "description": "Cherche dans les passages surlignés et les notes personnelles de Thierry. \
-    Chaque résultat donne l'article (référence, titre), la page, le passage et la note. \
-    Tous les mots de `query` doivent apparaître (sans tenir compte des accents ni de la casse).",
+            "description": "Cherche en un seul appel dans les passages surlignés et les notes personnelles \
+    de Thierry, sur tous ses articles. Résultats groupés par article (référence, titre), avec la page, \
+    le passage et la note. Sans accents ni casse. match=\"all\" (défaut) : tous les mots de `query` \
+    doivent apparaître ; match=\"any\" : un mot suffit et les articles qui en portent le plus viennent \
+    en premier, pour une recherche thématique large.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Mots à trouver dans le passage, la note ou la référence. Vide = tout."},
+                    "match": {"type": "string", "enum": ["all", "any"], "description": "all : tous les mots requis (défaut). any : un mot suffit, classement par nombre de mots trouvés.", "default": "all"},
                     "only_with_note": {"type": "boolean", "description": "Ne garder que les passages qui ont une note personnelle.", "default": false},
-                    "article": {"type": "string", "description": "Limiter à un article : clé Zotero, nom d'auteur, année ou mot du titre."},
+                    "articles": {"type": "array", "items": {"type": "string"}, "description": "Limiter à ces articles : clé Zotero, nom d'auteur, année ou mot du titre."},
                     "color": {"type": "string", "description": "Couleur de surlignage : jaune, vert, bleu, rose."},
-                    "limit": {"type": "integer", "description": "Nombre maximal de résultats (60 par défaut).", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "description": "Nombre maximal de passages (200 par défaut).", "minimum": 1, "maximum": MAX_LIMIT}
                 }
             },
             "annotations": {"readOnlyHint": true}
@@ -99,13 +113,14 @@ fn tools() -> Value {
         },
         {
             "name": "get_article_annotations",
-            "description": "Toutes les annotations d'un article, dans l'ordre des pages.",
+            "description": "Toutes les annotations d'un ou de plusieurs articles nommés, dans l'ordre des pages. \
+    Passer tous les articles voulus dans un seul appel. Pour une recherche par thème, utiliser plutôt search_annotations.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "article": {"type": "string", "description": "Clé Zotero, nom d'auteur, année ou mot du titre."}
-                },
-                "required": ["article"]
+                    "articles": {"type": "array", "items": {"type": "string"}, "description": "Clés Zotero, noms d'auteur, années ou mots du titre."},
+                    "article": {"type": "string", "description": "Un seul article (ancienne forme de `articles`)."}
+                }
             },
             "annotations": {"readOnlyHint": true}
         }
@@ -119,6 +134,22 @@ fn arg_str(args: &Value, key: &str) -> String {
         .to_string()
 }
 
+/// `articles` (liste ou texte) et l'ancien `article`, réunis.
+fn arg_articles(args: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for key in ["articles", "article"] {
+        match args.get(key) {
+            Some(Value::String(s)) => out.push(s.clone()),
+            Some(Value::Array(list)) => {
+                out.extend(list.iter().filter_map(Value::as_str).map(str::to_string))
+            }
+            _ => {}
+        }
+    }
+    out.retain(|a| !a.trim().is_empty());
+    out
+}
+
 fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
     let lib = Library::load(config);
     match name {
@@ -128,27 +159,47 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
                 .and_then(Value::as_u64)
                 .map(|n| (n as usize).clamp(1, MAX_LIMIT))
                 .unwrap_or(DEFAULT_LIMIT);
+            let any = arg_str(args, "match").trim().eq_ignore_ascii_case("any");
             let filter = Filter {
                 query: arg_str(args, "query"),
-                article: arg_str(args, "article"),
+                any,
+                articles: arg_articles(args),
                 color: arg_str(args, "color"),
                 only_with_note: args
                     .get("only_with_note")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
             };
-            let hits = lib.search(&filter);
-            let mut out = format!("{} résultat(s)", hits.len());
-            if hits.len() > limit {
+            let mut hits = lib.search(&filter);
+            let total = hits.len();
+            if any {
+                // Les passages qui portent le plus de mots d'abord, puis les
+                // articles dans l'ordre de leur meilleur passage.
+                hits.sort_by(|x, y| y.score.cmp(&x.score));
+                hits.truncate(limit);
+                sort_by_reference(&mut hits);
+                let mut best: BTreeMap<String, usize> = BTreeMap::new();
+                for h in &hits {
+                    let b = best.entry(h.article.key.clone()).or_default();
+                    *b = (*b).max(h.score);
+                }
+                hits.sort_by(|x, y| best[&y.article.key].cmp(&best[&x.article.key]));
+            } else {
+                hits.truncate(limit);
+            }
+            let articles = hits
+                .iter()
+                .map(|h| h.article.key.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let mut out = format!("{total} passage(s)");
+            if total > limit {
                 out.push_str(&format!(
                     ", {limit} affichés (affiner la recherche ou augmenter limit)"
                 ));
             }
-            out.push_str(".\n");
-            for (a, art) in hits.iter().take(limit) {
-                out.push('\n');
-                out.push_str(&format_annotation(a, art, true));
-            }
+            out.push_str(&format!(" ; {articles} article(s).\n"));
+            out.push_str(&format_groups(&hits));
             Ok(with_warnings(out, &lib))
         }
         "list_annotated_articles" => {
@@ -176,60 +227,74 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
             Ok(with_warnings(out, &lib))
         }
         "get_article_annotations" => {
-            let wanted = arg_str(args, "article");
-            if wanted.trim().is_empty() {
-                return Err("Paramètre `article` requis.".into());
-            }
-            let filter = Filter {
-                query: String::new(),
-                article: wanted.clone(),
-                color: String::new(),
-                only_with_note: false,
-            };
-            let hits = lib.search(&filter);
-            let keys: std::collections::BTreeSet<&str> =
-                hits.iter().map(|(a, _)| a.article.as_str()).collect();
-            if hits.is_empty() {
-                return Ok(with_warnings(
-                    format!("Aucun article annoté ne correspond à « {wanted} »."),
-                    &lib,
-                ));
+            let wanted = arg_articles(args);
+            if wanted.is_empty() {
+                return Err("Paramètre `articles` requis.".into());
             }
             let mut out = String::new();
-            if keys.len() > 1 {
-                out.push_str(&format!("{} articles correspondent à « {wanted} » ; préciser avec la clé entre crochets.\n", keys.len()));
-            }
-            let mut current = "";
-            for (a, art) in &hits {
-                if a.article != current {
-                    current = &a.article;
-                    out.push_str(&format!("\n## {} [{}]\n", art.citation, art.key));
-                    if !art.title.is_empty() {
-                        out.push_str(&format!("{}\n", art.title));
+            let mut hits = Vec::new();
+            let mut missing = Vec::new();
+            for w in &wanted {
+                let found = lib.search(&Filter {
+                    query: String::new(),
+                    any: false,
+                    articles: vec![w.clone()],
+                    color: String::new(),
+                    only_with_note: false,
+                });
+                let keys: std::collections::BTreeSet<&str> =
+                    found.iter().map(|h| h.article.key.as_str()).collect();
+                match keys.len() {
+                    0 => missing.push(w.as_str()),
+                    1 => {}
+                    n => out.push_str(&format!(
+                        "{n} articles correspondent à « {w} » ; préciser avec la clé entre crochets.\n"
+                    )),
+                }
+                for h in found {
+                    if !hits
+                        .iter()
+                        .any(|seen: &Hit| std::ptr::eq(seen.annotation, h.annotation))
+                    {
+                        hits.push(h);
                     }
                 }
-                out.push('\n');
-                out.push_str(&format_annotation(a, art, false));
             }
-            Ok(with_warnings(out, &lib))
+            if !missing.is_empty() {
+                out.push_str(&format!(
+                    "Aucun article annoté ne correspond à « {} ».\n",
+                    missing.join(" », « ")
+                ));
+            }
+            sort_by_reference(&mut hits);
+            out.push_str(&format_groups(&hits));
+            Ok(with_warnings(out.trim_start().to_string(), &lib))
         }
         _ => Err(format!("Outil inconnu : {name}")),
     }
 }
 
-fn format_annotation(a: &crate::library::Annotation, art: &Article, with_article: bool) -> String {
-    let mut s = String::new();
-    if with_article {
-        s.push_str(&format!("- {} [{}]", art.citation, art.key));
-        if !a.page.is_empty() {
-            s.push_str(&format!(", p. {}", a.page));
+/// Passages groupés par article : l'en-tête (référence, clé, titre) une fois,
+/// puis une ligne par passage.
+fn format_groups(hits: &[Hit]) -> String {
+    let mut out = String::new();
+    let mut current = "";
+    for h in hits {
+        let art = &h.article;
+        if art.key != current {
+            current = &art.key;
+            out.push_str(&format!("\n## {} [{}]\n", art.citation, art.key));
+            if !art.title.is_empty() {
+                out.push_str(&format!("{}\n", art.title));
+            }
         }
-    } else {
-        s.push_str(&format!(
-            "- p. {}",
-            if a.page.is_empty() { "?" } else { &a.page }
-        ));
+        out.push_str(&format_annotation(h.annotation));
     }
+    out
+}
+
+fn format_annotation(a: &crate::library::Annotation) -> String {
+    let mut s = format!("- p. {}", if a.page.is_empty() { "?" } else { &a.page });
     let mut tags = Vec::new();
     if !a.color.is_empty() {
         tags.push(a.color.clone());
@@ -240,18 +305,12 @@ fn format_annotation(a: &crate::library::Annotation, art: &Article, with_article
     if !tags.is_empty() {
         s.push_str(&format!(" ({})", tags.join(", ")));
     }
-    s.push('\n');
-    if with_article && !art.title.is_empty() {
-        s.push_str(&format!("  Titre : {}\n", art.title));
-    }
     if !a.passage.is_empty() {
-        s.push_str(&format!("  Passage : « {} »\n", a.passage));
+        s.push_str(&format!(" « {} »", a.passage));
     }
+    s.push('\n');
     if !a.note.is_empty() {
-        s.push_str(&format!(
-            "  Note : {}\n",
-            a.note.replace('\n', "\n        ")
-        ));
+        s.push_str(&format!("  Note : {}\n", a.note.replace('\n', "\n    ")));
     }
     s
 }
@@ -354,9 +413,15 @@ mod tests {
             json!({"only_with_note": true}),
         );
         assert!(!is_error);
-        assert!(text.starts_with("2 résultat(s)"), "{text}");
+        assert!(text.starts_with("2 passage(s) ; 1 article(s)."), "{text}");
         assert!(
-            text.contains("Warren & Wiscombe 1980 [ABCD1234], p. 12 (jaune)"),
+            text.contains(
+                "## Warren & Wiscombe 1980 [ABCD1234]\nA model for the spectral albedo of snow\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("- p. 12 (jaune) « In a remote-sensing measurement"),
             "{text}"
         );
         assert!(text.contains("Note : Contredit notre hypothèse, à reprendre dans la discussion"));
@@ -417,6 +482,53 @@ mod tests {
     fn search_limit_is_reported() {
         let (_dir, config) = setup();
         let (text, _) = call_tool(&config, "search_annotations", json!({"limit": 1}));
-        assert!(text.starts_with("3 résultat(s), 1 affichés"), "{text}");
+        assert!(text.starts_with("3 passage(s), 1 affichés"), "{text}");
+    }
+
+    #[test]
+    fn thematic_search_takes_one_call_and_ranks_by_matched_words() {
+        let (_dir, config) = setup();
+        let (text, is_error) = call_tool(
+            &config,
+            "search_annotations",
+            json!({"query": "remote-sensing misinterpreted grain glaciers", "match": "any"}),
+        );
+        assert!(!is_error);
+        assert!(text.starts_with("3 passage(s) ; 1 article(s)."), "{text}");
+        let (all, _) = call_tool(
+            &config,
+            "search_annotations",
+            json!({"query": "remote-sensing misinterpreted grain glaciers"}),
+        );
+        assert!(all.starts_with("0 passage(s)"), "{all}");
+        let (top, _) = call_tool(
+            &config,
+            "search_annotations",
+            json!({"query": "remote-sensing misinterpreted grain", "match": "any", "limit": 1}),
+        );
+        assert!(
+            top.contains("p. 12") && !top.contains("p. 3 "),
+            "the passage with the most words wins: {top}"
+        );
+    }
+
+    #[test]
+    fn several_articles_in_one_call() {
+        let (_dir, config) = setup();
+        let (text, is_error) = call_tool(
+            &config,
+            "get_article_annotations",
+            json!({"articles": ["ABCD1234", "Nobody"]}),
+        );
+        assert!(!is_error);
+        assert!(
+            text.contains("Aucun article annoté ne correspond à « Nobody »"),
+            "{text}"
+        );
+        assert!(
+            text.contains("## Warren & Wiscombe 1980 [ABCD1234]"),
+            "{text}"
+        );
+        assert_eq!(text.matches("## ").count(), 1, "{text}");
     }
 }

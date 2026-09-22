@@ -26,9 +26,14 @@ qui n'ont pas encore été recopiés dans le store commun.
 
 | Outil | Usage |
 | --- | --- |
-| `search_annotations` | mots (`query`), `only_with_note`, `article`, `color`, `limit` |
+| `search_annotations` | tous les articles en un appel, résultats groupés par article : `query`, `match` (`all` par défaut, `any` pour une recherche thématique classée par nombre de mots trouvés), `only_with_note`, `articles`, `color`, `limit` (200 par défaut, 1000 au plus) |
 | `list_annotated_articles` | articles annotés, avec leurs nombres de passages et de notes |
-| `get_article_annotations` | toutes les annotations d'un article, par page |
+| `get_article_annotations` | toutes les annotations d'un ou de plusieurs articles nommés (`articles: [...]`, ou l'ancien `article`), par page |
+
+Les instructions du serveur demandent à Claude de ne jamais parcourir les
+articles un par un : « des passages pour ma discussion » se fait en un seul
+`search_annotations` avec `match: "any"` et des mots-clés en anglais et en
+français (les articles sont en anglais, les notes en français).
 
 ## Installation
 
