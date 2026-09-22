@@ -44,6 +44,8 @@ import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConn
 import { useDeliveryReceipts } from "./hooks/useDeliveryReceipts";
 import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
+import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
+import { useStoredJson } from "./hooks/useStoredJson";
 import { useRecoverableReads, type HistoryCursor, type RecoverableReadType } from "./hooks/useRecoverableReads";
 import type { AppBanner } from "./lib/appBanner";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -383,16 +385,7 @@ export default function App() {
   const paletteOpenRef = useRef(false);
   paletteOpenRef.current = paletteOpen;
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
-  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("atelier-studio.recentFiles") ?? "[]");
-    } catch {
-      return [];
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.recentFiles", JSON.stringify(recentFiles));
-  }, [recentFiles]);
+  const [recentFiles, setRecentFiles] = useStoredJson<string[]>("atelier-studio.recentFiles", []);
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState("general");
@@ -460,25 +453,12 @@ export default function App() {
   }, []);
   const [qaDraft, setQaDraft] = useState("");
   const [qaContext, setQaContext] = useState<QaContext | null>(null);
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("atelier-studio.favorites") ?? "[]"); }
-    catch { return []; }
-  });
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.favorites", JSON.stringify(favorites));
-  }, [favorites]);
+  const [favorites, setFavorites] = useStoredJson<string[]>("atelier-studio.favorites", []);
   const activeIdRef = useRef<string | null>(null);
   // chapitres épinglés par thread : {index, label} (persistés)
-  const [pins, setPins] = useState<Record<string, { index: number; label: string; anchor?: string; color?: string; style?: string }[]>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("atelier-studio.pins") ?? "{}");
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.pins", JSON.stringify(pins));
-  }, [pins]);
+  const [pins, setPins] = useStoredJson<Record<string, { index: number; label: string; anchor?: string; color?: string; style?: string }[]>>(
+    "atelier-studio.pins", {},
+  );
   const [compact, setCompact] = useState(() => localStorage.getItem("atelier-studio.compact") === "1");
   // vue active du panneau latéral (barre d'activité) — persistée dans settings
   const activeView = settings.activeView;
@@ -493,26 +473,8 @@ export default function App() {
   // Sans cette mémoire, un aller-retour entre deux projets ramenait sur
   // l'accueil et sur la galerie — la conversation en cours et le fichier
   // ouvert étaient perdus (vécu 2026-08-21).
-  const [lastThreadByProject, setLastThreadByProject] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("atelier-studio.lastThreadByProject") ?? "{}");
-    } catch {
-      return {};
-    }
-  });
-  const [lastTabByProject, setLastTabByProject] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("atelier-studio.lastTabByProject") ?? "{}");
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.lastThreadByProject", JSON.stringify(lastThreadByProject));
-  }, [lastThreadByProject]);
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.lastTabByProject", JSON.stringify(lastTabByProject));
-  }, [lastTabByProject]);
+  const [lastThreadByProject, setLastThreadByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastThreadByProject", {});
+  const [lastTabByProject, setLastTabByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastTabByProject", {});
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
@@ -564,20 +526,11 @@ export default function App() {
     setActiveView("chats");
   }, [activeView, activeProject, lastThreadByProject, setActiveView]);
   const [projectSettingsRoot, setProjectSettingsRoot] = useState<string | null>(null);
-  const [projMeta, setProjMeta] = useState<Record<string, ProjMeta>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("atelier-studio.projMeta") ?? "{}");
-    } catch {
-      return {};
-    }
-  });
+  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
 
   useEffect(() => {
     localStorage.setItem("atelier-studio.compact", compact ? "1" : "0");
   }, [compact]);
-  useEffect(() => {
-    localStorage.setItem("atelier-studio.projMeta", JSON.stringify(projMeta));
-  }, [projMeta]);
   const projMetaRef = useRef(projMeta);
   projMetaRef.current = projMeta;
   const projectsRef = useRef(projects);
@@ -791,106 +744,8 @@ export default function App() {
     } }));
   }, [gallerySend, activeId, attachments]);
 
-  const appSnapPreviewUrlsRef = useRef(new Set<string>());
-  const hydratingAppSnapsRef = useRef(new Set<string>());
-  const composerDraftsRef = useRef(composerDrafts);
-  composerDraftsRef.current = composerDrafts;
-
-  useEffect(() => () => {
-    for (const url of appSnapPreviewUrlsRef.current) URL.revokeObjectURL(url);
-    appSnapPreviewUrlsRef.current.clear();
-  }, []);
-
-  // Les blobs de capture n'étaient révoqués qu'au démontage de App : chaque
-  // capture retenait son PNG pour toute la session. Un blob est encore
-  // référencé s'il apparaît dans un brouillon (pièce jointe ou tour en file)
-  // ou dans un événement `user` déjà envoyé — tout le reste est orphelin
-  // (capture abandonnée, fil évincé) et peut être libéré. Appelé par le
-  // passage périodique d'éviction. Le référencement ne devient visible du
-  // sweep qu'au commit React suivant l'add : un blob fraîchement créé est
-  // donc protégé une passe (`fresh`), et seulement balayable à la suivante.
-  const freshAppSnapUrlsRef = useRef(new Set<string>());
-  const sweepAppSnapPreviewUrls = useCallback(() => {
-    const owned = appSnapPreviewUrlsRef.current;
-    if (owned.size === 0) return;
-    const referenced = new Set<string>();
-    const note = (attachment: { imageUrl?: string }) => {
-      if (attachment.imageUrl?.startsWith("blob:")) referenced.add(attachment.imageUrl);
-    };
-    for (const draft of Object.values(composerDraftsRef.current)) {
-      draft.attachments.forEach(note);
-      for (const turn of draft.queuedTurns) turn.attachments.forEach(note);
-    }
-    for (const list of Object.values(eventsRef.current)) {
-      for (const event of list) {
-        const url = (event as { imageUrl?: string }).imageUrl;
-        if (url?.startsWith("blob:")) referenced.add(url);
-      }
-    }
-    const fresh = freshAppSnapUrlsRef.current;
-    for (const url of [...owned]) {
-      if (fresh.has(url)) {
-        fresh.delete(url);
-        continue;
-      }
-      if (!referenced.has(url)) {
-        URL.revokeObjectURL(url);
-        owned.delete(url);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const needsPreview = (attachment: Attachment) =>
-      attachment.kind === "appsnap" && Boolean(attachment.path) &&
-      !attachment.imageUrl?.startsWith("blob:") && !attachment.imageUrl?.startsWith("data:");
-
-    for (const [key, draft] of Object.entries(composerDrafts)) {
-      const paths = new Set<string>();
-      for (const attachment of draft.attachments) {
-        if (needsPreview(attachment) && attachment.path) paths.add(attachment.path);
-      }
-      for (const turn of draft.queuedTurns) {
-        for (const attachment of turn.attachments) {
-          if (needsPreview(attachment) && attachment.path) paths.add(attachment.path);
-        }
-      }
-
-      for (const path of paths) {
-        const hydrationKey = `${key}\u0000${path}`;
-        if (hydratingAppSnapsRef.current.has(hydrationKey)) continue;
-        hydratingAppSnapsRef.current.add(hydrationKey);
-        void appSnapPreviewUrl(path).then((imageUrl) => {
-          appSnapPreviewUrlsRef.current.add(imageUrl);
-          freshAppSnapUrlsRef.current.add(imageUrl);
-          updateComposerDraft(key, (current) => {
-            let changed = false;
-            const hydrate = (attachment: Attachment) => {
-              if (attachment.kind !== "appsnap" || attachment.path !== path || !needsPreview(attachment)) {
-                return attachment;
-              }
-              changed = true;
-              return { ...attachment, imageUrl };
-            };
-            const nextAttachments = current.attachments.map(hydrate);
-            const nextQueuedTurns = current.queuedTurns.map((turn) => {
-              const next = turn.attachments.map(hydrate);
-              return next.some((attachment, index) => attachment !== turn.attachments[index])
-                ? { ...turn, attachments: next }
-                : turn;
-            });
-            return changed
-              ? { ...current, attachments: nextAttachments, queuedTurns: nextQueuedTurns }
-              : current;
-          });
-        }).catch((error) => {
-          console.warn("[appsnap] Could not restore capture preview", error);
-        }).finally(() => {
-          hydratingAppSnapsRef.current.delete(hydrationKey);
-        });
-      }
-    }
-  }, [composerDrafts, updateComposerDraft]);
+  const { sweepAppSnapPreviewUrls, adoptAppSnapPreviewUrl } =
+    useAppSnapPreviews(composerDrafts, updateComposerDraft, eventsRef);
 
   useEffect(() => {
     let disposed = false;
@@ -906,8 +761,7 @@ export default function App() {
             URL.revokeObjectURL(imageUrl);
             return;
           }
-          appSnapPreviewUrlsRef.current.add(imageUrl);
-          freshAppSnapUrlsRef.current.add(imageUrl);
+          adoptAppSnapPreviewUrl(imageUrl);
           const projectRoot = activeProjectRef.current ?? "";
           let threadId = activeIdRef.current;
           if (!threadId) {
