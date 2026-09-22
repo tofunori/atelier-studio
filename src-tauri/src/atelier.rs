@@ -164,6 +164,15 @@ fn file_fingerprint(path: &Path) -> Result<String, String> {
     Ok(hash)
 }
 
+/// `$ATELIER_APP_DIR` s'il est posé, sinon
+/// `~/Library/Application Support/atelier-studio` (même défaut que le runtime).
+fn shared_app_dir() -> Option<PathBuf> {
+    std::env::var_os("ATELIER_APP_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join("Library/Application Support/atelier-studio")))
+}
+
 fn resolve_assets_dir(gallery_dir: &Path) -> PathBuf {
     let assets = gallery_dir.join("assets");
     if assets.is_dir() {
@@ -256,7 +265,14 @@ pub fn start_atelier(
     }
 
     let assets = resolve_assets_dir(&dir);
-    let child = Command::new(&rust_bin)
+    let mut command = Command::new(&rust_bin);
+    // Dossier applicatif commun : les annotations PDF y vivent quel que soit
+    // le projet ouvert (`pdf_annots.json`, lu aussi par atelier-annots-mcp).
+    // Sans lui, le serveur galerie retombe sur le store du projet.
+    if let Some(app_dir) = shared_app_dir() {
+        command.env("ATELIER_APP_DIR", app_dir);
+    }
+    let child = command
         .env("ATELIER_STUDIO", "1")
         .env("GALLERY_ROOT", &root)
         .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
