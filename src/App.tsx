@@ -48,6 +48,15 @@ import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
 import { usageFromHistory } from "./lib/historyUsage";
+import {
+  archivedUserEvent,
+  parseGoalCommand,
+  promptWithAttachments,
+  providerTurnOptions,
+  structuredTurnInputs,
+  supportsStructuredInputs,
+  userBubbleAttachmentFields,
+} from "./lib/turnPayload";
 import { useRecoverableReads, type HistoryCursor, type RecoverableReadType } from "./hooks/useRecoverableReads";
 import type { AppBanner } from "./lib/appBanner";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -91,7 +100,7 @@ const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
-import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
+import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon, ProviderIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
@@ -3090,9 +3099,7 @@ export default function App() {
         return;
       }
       const requestId = crypto.randomUUID();
-      const linkedPrompt = attachments.length
-        ? `${attachments.map((attachment) => attachment.text).join("\n\n")}\n\n${targetText}`.trim()
-        : targetText;
+      const linkedPrompt = promptWithAttachments(targetText, attachments);
       pendingAgentMentions.current.set(requestId, { threadId: activeId, provider: targetProvider });
       setEvents((current) => ({
         ...current,
@@ -3183,10 +3190,9 @@ export default function App() {
     // /goal sur un thread CODEX : goal natif app-server (set/clear/status),
     // pas un message texte (codex exec n'interprète pas /goal). Côté Claude,
     // /goal passe tel quel : la CLI a son goal natif (v2.1.139+).
-    const goalMatch = /^\/goal(?:\s+([\s\S]*))?$/.exec(prompt.trim());
-    if (goalMatch && provider === "codex") {
-      const arg = (goalMatch[1] ?? "").trim();
-      const isClear = ["clear", "stop", "off", "reset", "none", "cancel"].includes(arg.toLowerCase());
+    const goalCommand = parseGoalCommand(prompt);
+    if (goalCommand && provider === "codex") {
+      const { arg, isClear } = goalCommand;
       // Une session d'un autre provider ne peut pas recevoir thread/goal/set.
       // Si l'utilisateur vient de passer Claude → Codex, on amorce d'abord la
       // session Codex puis pendingGoal pose l'objectif au threads-update.
@@ -3274,11 +3280,7 @@ export default function App() {
       activeIdRef.current = targetId;
       if (pendingGoal.current) pendingGoal.current.threadId = targetId;
     }
-    // pièce jointe (annotation/sélection atelier) : préfixée au prompt envoyé
-    const fullPrompt =
-      (attachments.length
-        ? `${attachments.map((a) => a.text).join("\n\n")}\n\n${prompt}`.trim()
-        : prompt);
+    const fullPrompt = promptWithAttachments(prompt, attachments);
     // identité du message : générée ici, dédupliquée à l'ack sidecar (plan 025)
     const clientMessageId = crypto.randomUUID();
     const userEvent = {
@@ -3286,29 +3288,7 @@ export default function App() {
       text: transcriptText,
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
-      ...(attachments.some((a) => a.imageUrl)
-        ? { imageUrl: attachments.find((a) => a.imageUrl)!.imageUrl }
-        : {}),
-      // Une figure annotée a une vignette ET un nom : sans cette exception, le
-      // nom de la figure source disparaissait dès qu'une vignette existait.
-      ...(attachments.some((a) => (!a.imageUrl || a.notes?.length) && a.kind !== "paste")
-        ? {
-            label: attachments
-              .filter((a) => (!a.imageUrl || a.notes?.length) && a.kind !== "paste")
-              .map((a) => `${a.name}${a.lines ? ` (lines ${a.lines})` : ""}`)
-              .join(" · "),
-          }
-        : {}),
-      ...(attachments.some((a) => a.notes?.length)
-        ? { notes: attachments.find((a) => a.notes?.length)!.notes }
-        : {}),
-      ...(attachments.some((a) => a.kind === "paste")
-        ? {
-            pastes: attachments
-              .filter((a) => a.kind === "paste")
-              .map((a) => ({ name: a.name, text: a.text })),
-          }
-        : {}),
+      ...userBubbleAttachmentFields(attachments),
       // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
       // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
       ...(() => {
@@ -3335,24 +3315,9 @@ export default function App() {
     const catalogSkill = selectedCapabilities?.skillsAttach === true
       ? catalogSkillForPrompt(displayPrompt, commands)
       : null;
-    // inputs structurés selon la capability (plan 046) — plus réservé à Codex ;
-    // skillsAttach implique le support des inputs structurés
-    const supportsStructuredInputs =
-      (selectedCapabilities?.imageInput ?? provider === "codex") ||
-      selectedCapabilities?.skillsAttach === true;
-    const codexInputs = supportsStructuredInputs && (imagePaths.length || pluginSkills.length || catalogSkill)
-      ? [
-          {
-            type: "text" as const,
-            text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
-          },
-          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
-          ...pluginSkills.map((skill) => ({ type: skill.type ?? "skill" as const, name: skill.name, path: skill.path })),
-          ...(catalogSkill
-            ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
-            : []),
-        ]
-      : undefined;
+    const codexInputs = structuredTurnInputs(
+      supportsStructuredInputs(selectedCapabilities, provider), fullPrompt, imagePaths, pluginSkills, catalogSkill,
+    );
     const additionalDirectories = projectWritableDirectories(activeProject, settingsRef.current);
     // pas de thread sélectionné → en créer un à la volée
     if (!id) {
@@ -3437,24 +3402,7 @@ export default function App() {
       return;
     }
     if (ws.current) {
-      // bulle user archivable : texte tapé + attachments structurés (chemins,
-      // lignes) — jamais le handoff, les textes injectés ni une data URL. Le
-      // collage garde son texte : c'est du contenu de l'utilisateur, et sans
-      // lui la chip d'une bulle restaurée n'ouvrait rien (2026-09-14).
-      const displayEvent = {
-        kind: "user" as const,
-        text: transcriptText,
-        ts: userEvent.ts,
-        ...("label" in userEvent && userEvent.label ? { label: userEvent.label as string } : {}),
-        ...(attachments.some((a) => a.kind === "paste")
-          ? {
-              pastes: attachments
-                .filter((a) => a.kind === "paste")
-                .map((a) => ({ name: a.name, lines: a.text.split("\n").length, text: a.text })),
-            }
-          : {}),
-        ...(imagePaths.length ? { imagePaths } : {}),
-      };
+      const displayEvent = archivedUserEvent(userEvent, attachments, imagePaths);
       // Consigne (plan 2026-09-01) : rafraîchir la copie AVANT le tour, sur le
       // MÊME fil (pas un handoff ni un fil neuf, qui n'ont encore aucune
       // consigne enregistrée côté store) — c'est ce patch qui fait qu'une
@@ -3480,14 +3428,10 @@ export default function App() {
         displayEvent,
         ...(codexInputs ? { inputs: codexInputs } : {}),
         ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
-        ...(permissionMode ? { permissionMode } : {}),
-        // Niveau de service Codex : `priority` seulement quand Fast est actif ;
-        // Standard n'envoie RIEN et laisse le défaut Codex décider.
-        ...(provider === "codex" && fastMode ? { fastMode: true } : {}),
-        ...(provider === "codex" && settingsRef.current.webSearch ? { webSearch: true } : {}),
-        ...(provider === "codex" && additionalDirectories.length ? { additionalDirectories } : {}),
+        ...providerTurnOptions({
+          provider, model, effort, permissionMode, fastMode,
+          webSearch: settingsRef.current.webSearch, additionalDirectories,
+        }),
         mode,
         ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
       });
@@ -3539,58 +3483,26 @@ export default function App() {
       setActiveId(targetId);
       activeIdRef.current = targetId;
     }
-    const fullPrompt = queuedAttachments.length
-      ? `${queuedAttachments.map((attachment) => attachment.text).join("\n\n")}\n\n${queued.prompt}`.trim()
-      : queued.prompt;
+    const fullPrompt = promptWithAttachments(queued.prompt, queuedAttachments);
     const clientMessageId = crypto.randomUUID();
     const imagePaths = localImagePathsForAttachments(queuedAttachments, thread.projectRoot ?? "");
     const pluginSkills = revalidateQueuedPluginSkills(queued.pluginSkills,
       pluginCatalogFor(thread.projectRoot ?? ""));
     const queuedCapabilities = providerList.find((entry) => entry.id === queued.provider)?.capabilities;
-    const queuedSupportsInputs =
-      (queuedCapabilities?.imageInput ?? queued.provider === "codex") ||
-      queuedCapabilities?.skillsAttach === true;
     // skillsAttach recalculé au flush (le catalogue est stable, pas besoin de
     // le persister dans la file comme pluginSkills)
     const catalogSkill = queuedCapabilities?.skillsAttach === true
       ? catalogSkillForPrompt(queued.prompt, commands)
       : null;
-    const codexInputs = queuedSupportsInputs && (imagePaths.length || pluginSkills.length || catalogSkill)
-      ? [
-          {
-            type: "text" as const,
-            text: catalogSkill ? `${fullPrompt}\n\n${skillAttachInstruction(catalogSkill)}` : fullPrompt,
-          },
-          ...imagePaths.map((path) => ({ type: "local_image" as const, path })),
-          ...pluginSkills.map((skill) => ({ type: skill.type ?? "skill" as const, name: skill.name, path: skill.path })),
-          ...(catalogSkill
-            ? [{ type: "skill" as const, name: catalogSkill.name, path: catalogSkill.path }]
-            : []),
-        ]
-      : undefined;
-    const userEvent: AgentEvent = {
-      kind: "user",
+    const codexInputs = structuredTurnInputs(
+      supportsStructuredInputs(queuedCapabilities, queued.provider), fullPrompt, imagePaths, pluginSkills, catalogSkill,
+    );
+    const userEvent = {
+      kind: "user" as const,
       text: annotationDisplayText(queued.prompt, queuedAttachments),
       ts: Date.now(),
-      meta: { provisional: true, messageId: clientMessageId },
-      ...(queuedAttachments.some((attachment) => attachment.imageUrl)
-        ? { imageUrl: queuedAttachments.find((attachment) => attachment.imageUrl)!.imageUrl }
-        : {}),
-      ...(queuedAttachments.some((attachment) => !attachment.imageUrl && attachment.kind !== "paste")
-        ? {
-            label: queuedAttachments
-              .filter((attachment) => !attachment.imageUrl && attachment.kind !== "paste")
-              .map((attachment) => `${attachment.name}${attachment.lines ? ` (lines ${attachment.lines})` : ""}`)
-              .join(" · "),
-          }
-        : {}),
-      ...(queuedAttachments.some((attachment) => attachment.kind === "paste")
-        ? {
-            pastes: queuedAttachments
-              .filter((attachment) => attachment.kind === "paste")
-              .map((attachment) => ({ name: attachment.name, text: attachment.text })),
-          }
-        : {}),
+      meta: { provisional: true as const, messageId: clientMessageId },
+      ...userBubbleAttachmentFields(queuedAttachments),
     };
     setEvents((current) => ({
       ...current,
@@ -3611,29 +3523,10 @@ export default function App() {
       provider: queued.provider,
       prompt: fullPrompt,
       clientMessageId,
-      displayEvent: {
-        kind: "user",
-        text: userEvent.text,
-        ts: userEvent.ts,
-        ...(imagePaths.length ? { imagePaths } : {}),
-        ...(queuedAttachments.some((attachment) => attachment.kind === "paste")
-          ? {
-              pastes: queuedAttachments
-                .filter((attachment) => attachment.kind === "paste")
-                .map((attachment) => ({ name: attachment.name, lines: attachment.text.split("\n").length, text: attachment.text })),
-            }
-          : {}),
-      },
+      displayEvent: archivedUserEvent(userEvent, queuedAttachments, imagePaths),
       ...(codexInputs ? { inputs: codexInputs } : {}),
       ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
-      ...(queued.model ? { model: queued.model } : {}),
-      ...(queued.effort ? { effort: queued.effort } : {}),
-      ...(queued.permissionMode ? { permissionMode: queued.permissionMode } : {}),
-      ...(queued.provider === "codex" && queued.fastMode ? { fastMode: true } : {}),
-      ...(queued.provider === "codex" && queued.webSearch ? { webSearch: true } : {}),
-      ...(queued.provider === "codex" && queued.additionalDirectories.length
-        ? { additionalDirectories: queued.additionalDirectories }
-        : {}),
+      ...providerTurnOptions(queued),
       mode,
       ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
     });
