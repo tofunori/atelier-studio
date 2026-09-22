@@ -10,7 +10,6 @@ import {
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { ReadingChatOverlay } from "./components/ReadingChatOverlay";
-import { interfaceTypography, interfaceGeometry } from "./lib/interfaceTheme";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
@@ -20,7 +19,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
   sendPrompt,
-  requestReceiptStatus,
   getClientInstanceId,
   Thread,
   AgentEvent,
@@ -30,7 +28,7 @@ import { materializeHarnessHistory, mergeHarnessHistory, replaceHarnessHistory, 
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
 import { createPin } from "./lib/pins";
-import { stableTabId } from "./lib/workspaceLayout";
+import { atelierTabIdentity, stableTabId } from "./lib/workspaceLayout";
 import type { QaContext } from "./lib/quickAskContext";
 import { qaPromotePayload } from "./lib/quickAskModel";
 import {
@@ -43,10 +41,14 @@ import {
 import { buildForkThreadPayload } from "./lib/forkThread";
 import { articleImportSnapshot, subscribeArticleImport } from "./lib/articleImports";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
+import { useDeliveryReceipts } from "./hooks/useDeliveryReceipts";
+import { usePluginCatalog } from "./hooks/usePluginCatalog";
+import { useContextInspector } from "./hooks/useContextInspector";
+import { useRecoverableReads, type HistoryCursor, type RecoverableReadType } from "./hooks/useRecoverableReads";
+import type { AppBanner } from "./lib/appBanner";
 import { useAtelierServer } from "./hooks/useAtelierServer";
-import { artefactKind, deriveResearchHomeModel } from "./lib/researchHome";
+import { deriveResearchHomeModel } from "./lib/researchHome";
 import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHome";
-import type { InspectedFile } from "./components/ContextInspector";
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
@@ -82,16 +84,16 @@ import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { RowButton } from "./components/ui";
 import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
 const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
-import { pluginSkillsForPrompt, revalidateQueuedPluginSkills, type PluginCatalogEntry } from "./lib/plugins";
+import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
 import { catalogSkillForPrompt, skillAttachInstruction } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { CloseIcon, DownloadIcon, HighlighterIcon, ProviderIcon, SidebarIcon } from "./components/icons";
+import { CloseIcon, ProviderIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
-import { THEME_PRESETS, galleryLegacyThemeVars, resolveAppearanceTheme, themeContractVars } from "./lib/themes";
+import { THEME_PRESETS } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
 import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
@@ -102,12 +104,10 @@ import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
 import {
-  atelierTargetOrigin,
   isTrustedAtelierMessage,
   withAtelierNonce,
   withAtelierToken,
   type AtelierGalleryResultMessage,
-  type AtelierOutboundMessage,
 } from "./lib/ipc";
 import {
   createGalleryCommandBridge,
@@ -125,7 +125,6 @@ import {
 import { localImagePathsForAttachments } from "./lib/chatAttachments";
 import { PdfAnnotationDelivery, removeDeliveredAnnotation } from "./lib/pdfAnnotationDelivery";
 import { createStreamCoalescer, STREAM_COALESCE_KINDS } from "./lib/streamCoalesce";
-import { parseAnnotationNotes } from "./lib/annotationNotes";
 import {
   appSnapPreviewUrl,
   appSnapContextText,
@@ -134,6 +133,21 @@ import {
   setAppSnapEnabled,
   type AppSnapCapture,
 } from "./lib/appSnap";
+import { type ZoteroPaletteItem, buildZoteroReferenceText } from "./lib/zoteroReference";
+import { addAttachment, parseAttachment } from "./lib/composerAttachments";
+import { playAppSnapSound } from "./lib/appSnapSound";
+import { checkpointAfterUser } from "./lib/turnCheckpoint";
+import { whenGalleryFrameReady } from "./lib/galleryFrameReady";
+import {
+  DISCUSSION_WORKSPACE_IDS_KEY,
+  PROJECTS_KEY,
+  isUuid,
+  loadDiscussionWorkspaceIds,
+  loadProjects,
+} from "./lib/projectStorage";
+import { buildHighlightsMarkdown, migrateLocalMarks } from "./lib/highlightsStore";
+import { applyAppearance, themeMessage } from "./lib/appTheme";
+import { HighlightsPanel } from "./components/HighlightsPanel";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -151,8 +165,6 @@ import "./App.css";
 const TopBarMemo = memo(TopBar);
 const RailMemo = memo(Rail);
 
-const PROJECTS_KEY = "atelier-studio.projects";
-const DISCUSSION_WORKSPACE_IDS_KEY = "atelier-studio.discussion-workspace-ids";
 // Le localStorage WKWebView peut perdre ses toutes dernières écritures si le
 // process est tué (kill -9, protocole de relance) — c'est pour ça que
 // projets/réglages/favoris/etc. sont aussi miroités sur disque (settings.json
@@ -160,428 +172,7 @@ const DISCUSSION_WORKSPACE_IDS_KEY = "atelier-studio.discussion-workspace-ids";
 // après chaque mutation plutôt que d'attendre une pause longue.
 const MIRROR_WRITE_DEBOUNCE_MS = 200;
 
-/** L'identité durable d'un onglet est le document, jamais sa position ni son
- * mode de consultation. Un nouveau clic met ainsi à jour l'onglet existant. */
-function atelierTabIdentity(raw: string): string {
-  const parsed = new URL(raw);
-  for (const key of ["line", "diff", "base", "page", "annot"]) parsed.searchParams.delete(key);
-  const fragment = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash);
-  for (const key of ["atelier_nonce", "atelier_token"]) fragment.delete(key);
-  parsed.hash = fragment.toString();
-  return parsed.toString();
-}
-
 export type Attachment = DraftAttachment;
-type ZoteroPaletteItem = {
-  key: string;
-  title: string;
-  creators?: string;
-  year?: string;
-  citeKey?: string;
-  publication?: string;
-  doi?: string;
-  abstract?: string;
-  hasPdf?: boolean;
-  pdfKey?: string | null;
-  pdfFile?: string | null;
-};
-
-/** Bloc structuré envoyé à l'agent pour une référence Zotero citée (@citekey). */
-function buildZoteroReferenceText(
-  item: ZoteroPaletteItem,
-  extra?: { pdfPath?: string | null; digest?: string | null; digestPath?: string | null },
-): string {
-  const citekey = item.citeKey || item.key;
-  const head = [
-    `<zotero-reference citekey="${citekey}" zotero-key="${item.key}"${item.pdfKey ? ` pdf-key="${item.pdfKey}"` : ""}${item.pdfFile ? ` pdf-file="${item.pdfFile.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"` : ""}>`,
-    `titre : ${item.title}`,
-    item.creators ? `auteurs : ${item.creators}` : null,
-    item.year ? `année : ${item.year}` : null,
-    item.publication ? `publication : ${item.publication}` : null,
-    item.doi ? `doi : ${item.doi}` : null,
-    extra?.pdfPath ? `pdf : ${extra.pdfPath}` : item.pdfFile ? `pdf-zotero : ${item.pdfFile}` : null,
-    item.abstract ? `abstract : ${item.abstract}` : null,
-    `</zotero-reference>`,
-  ].filter(Boolean).join("\n");
-  if (extra?.digest) {
-    return `${head}\n<digest citekey="${citekey}" source="${extra.digestPath ?? ""}">\n${extra.digest}\n</digest>`;
-  }
-  if (extra?.digestPath) {
-    return `${head}\n<digest citekey="${citekey}" state="absent">Aucun digest en cache pour ce papier. Si son contenu compte pour la tâche : lis le PDF, rédige un digest en markdown français (sections « Résumé vulgarisé » — 2-3 phrases accessibles, « Méthode » — données/approche/période, « Résultats clés » — avec les chiffres, « Limites »), sauvegarde-le tel quel dans ${extra.digestPath} (crée le dossier au besoin), puis appuie-toi dessus.</digest>`;
-  }
-  return head;
-}
-
-// « /chemin/avec espaces/CLAUDE.md (p.L11-224) : « … » » → {name: CLAUDE.md, lines: 11-224}
-function parseAttachment(text: string): Attachment {
-  const first = text.split("\n")[0].trim();
-  // Figure annotée : les badges numérotés deviennent des notes affichables.
-  const notes = parseAnnotationNotes(text);
-  // format viewer : <chemin> (p.LX-Y|p.N) : « … »   — chemin peut contenir des espaces
-  let m = /^(.+?)\s*\((?:p\.)?(L?[\d:.,\-–]+)\)\s*:?/.exec(first);
-  if (m) {
-    return {
-      name: m[1].split("/").pop() || m[1],
-      lines: m[2].replace(/^L/, ""),
-      text,
-    };
-  }
-  // format annotation image : <chemin.png> …
-  if (first.includes("/")) {
-    const tok = first.split(/\s+/).find((t) => t.includes("/")) ?? first;
-    return { name: tok.split("/").pop() || tok, lines: null, text, ...(notes ? { notes } : {}) };
-  }
-  return { name: first.slice(0, 60) || "citation", lines: null, text };
-}
-
-function addAttachment(list: Attachment[], a: Attachment): Attachment[] {
-  if (a.pdfAnnotation) {
-    const source = a.pdfAnnotation;
-    const existing = list.findIndex(item => item.pdfAnnotation?.id === source.id &&
-      item.pdfAnnotation.rel === source.rel && item.pdfAnnotation.origin === source.origin);
-    return existing < 0 ? [...list, a] : list.map((item, index) => index === existing ? a : item);
-  }
-  return list.some((x) => x.text === a.text) ? list : [...list, a];
-}
-
-function playAppSnapSound() {
-  try {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = new AudioContextClass();
-    const gain = context.createGain();
-    const oscillator = context.createOscillator();
-    const now = context.currentTime;
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(760, now);
-    oscillator.frequency.exponentialRampToValueAtTime(440, now + 0.08);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.055, now + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.1);
-    oscillator.addEventListener("ended", () => { void context.close(); }, { once: true });
-  } catch {
-    // Le son est un feedback facultatif; la capture reste utilisable sans lui.
-  }
-}
-
-function checkpointAfterUser(events: AgentEvent[], index: number) {
-  const userMeta = events[index]?.meta;
-  const turnId = userMeta && "turnId" in userMeta ? userMeta.turnId : undefined;
-  const done = events.slice(index + 1).find((event): event is Extract<AgentEvent, { kind: "done" }> => {
-    if (event.kind !== "done" || !event.checkpoint) return false;
-    const meta = event.meta;
-    return !turnId || Boolean(meta && "turnId" in meta && meta.turnId === turnId);
-  });
-  return done?.checkpoint ? { turnId, snapshotSha: done.checkpoint.snapshotSha } : { turnId };
-}
-
-const GALLERY_FRAME_READY_SELECTOR = 'iframe[data-atelier-role="gallery"][data-atelier-ready="true"]';
-
-/** Attend que l'iframe galerie soit montée ET chargée (`data-atelier-ready`).
- *  Résout tout de suite si elle l'est déjà ; sinon sonde le DOM (mutations +
- *  filet périodique) jusqu'à `timeoutMs`, puis résout quand même — le bridge
- *  produira alors son erreur habituelle. */
-function whenGalleryFrameReady(timeoutMs: number): Promise<void> {
-  if (document.querySelector(GALLERY_FRAME_READY_SELECTOR)) return Promise.resolve();
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      observer.disconnect();
-      window.clearInterval(tick);
-      window.clearTimeout(deadline);
-      resolve();
-    };
-    const check = () => { if (document.querySelector(GALLERY_FRAME_READY_SELECTOR)) finish(); };
-    const observer = new MutationObserver(check);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-atelier-ready"] });
-    const tick = window.setInterval(check, 100);
-    const deadline = window.setTimeout(finish, timeoutMs);
-  });
-}
-
-function loadProjects(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(PROJECTS_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-function loadDiscussionWorkspaceIds(): Record<string, string> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DISCUSSION_WORKSPACE_IDS_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function isUuid(value: string | null | undefined): value is string {
-  return typeof value === "string"
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-}
-
-// nom court d'un projet à partir de son chemin absolu — même convention que
-// projInitial (Rail.tsx) : dernier segment du chemin
-function projectDisplayName(root: string): string {
-  return root.split("/").filter(Boolean).pop() ?? "";
-}
-
-const MARKS_MIGRATED_KEY = "atelier-studio.marksMigrated";
-const MARKS_PREFIX = "atelier-studio.marks.";
-
-// migration one-shot (lot 2) : les marks locaux posés avant la fiche durable
-// (localStorage, rendu in-chat §3) deviennent des fiches sidecar. Les clés
-// locales restent intactes — le rendu in-chat en dépend toujours — seul un
-// flag localStorage borne la migration à une fois par machine.
-function migrateLocalMarks(threadList: Thread[], send: (msg: unknown) => void) {
-  if (localStorage.getItem(MARKS_MIGRATED_KEY)) return;
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key?.startsWith(MARKS_PREFIX)) continue;
-    const threadId = key.slice(MARKS_PREFIX.length);
-    let marks: { text?: string; kind?: string }[] = [];
-    try {
-      marks = JSON.parse(localStorage.getItem(key) ?? "[]");
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(marks)) continue;
-    const th = threadList.find((t) => t.id === threadId);
-    for (const m of marks) {
-      if (!m?.text?.trim() || (m.kind !== "hl" && m.kind !== "ul")) continue;
-      send({
-        type: "addHighlight",
-        highlight: {
-          text: m.text,
-          context: "", // contexte introuvable pour les marks migrés (spec §1)
-          kind: m.kind,
-          projectRoot: th?.projectRoot ?? "",
-          projectName: th?.projectRoot ? projectDisplayName(th.projectRoot) : "",
-          threadId,
-          threadTitle: th?.title ?? "",
-          provider: th?.provider ?? "",
-        },
-      });
-    }
-  }
-  localStorage.setItem(MARKS_MIGRATED_KEY, "1");
-}
-
-// date relative sobre pour le pied des fiches Surlignés (mêmes clés i18n que
-// le "il y a …" des threads dans Sidebar.tsx — dupliqué ici pour rester dans
-// le scope App.tsx sans créer de dépendance croisée nouvelle)
-function hlRelativeDate(value: string): string {
-  const ts = new Date(value).getTime();
-  if (!Number.isFinite(ts)) return "";
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return t("time.just-now");
-  const min = Math.floor(diff / 60_000);
-  if (min < 60) return t("time.minutes-ago", { count: min });
-  const hours = Math.floor(min / 60);
-  if (hours < 24) return t("time.hours-ago", { count: hours });
-  const days = Math.floor(hours / 24);
-  if (days === 1) return t("time.yesterday");
-  if (days < 7) return `${days} j`;
-  return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
-}
-
-// export .md groupé par projet puis chat (spec §6) — passage en citation,
-// contexte en italique s'il a été photographié
-function buildHighlightsMarkdown(list: HighlightEntry[]): string {
-  const byProject = new Map<string, Map<string, HighlightEntry[]>>();
-  for (const h of list) {
-    const projKey = h.projectName || h.projectRoot || t("highlights.no-project");
-    const chatKey = h.threadTitle || h.threadId || "";
-    if (!byProject.has(projKey)) byProject.set(projKey, new Map());
-    const chats = byProject.get(projKey)!;
-    if (!chats.has(chatKey)) chats.set(chatKey, []);
-    chats.get(chatKey)!.push(h);
-  }
-  const lines: string[] = [];
-  for (const [proj, chats] of byProject) {
-    lines.push(`## ${proj}`, "");
-    for (const [chatTitle, items] of chats) {
-      const date = items[0]?.createdAt ? new Date(items[0].createdAt).toLocaleDateString() : "";
-      lines.push(`### ${chatTitle || "—"}${date ? ` — ${date}` : ""}`, "");
-      for (const h of items) {
-        lines.push(`> ${h.text.split("\n").join("\n> ")}`);
-        if (h.context) lines.push("", `*${h.context}*`);
-        lines.push("");
-      }
-    }
-  }
-  return lines.join("\n").trim() + "\n";
-}
-
-// piles de police canoniques (mêmes valeurs que src/App.css et les :root des iframes)
-const CANON_UI_FONT = "-apple-system, 'SF Pro Text', 'Inter Variable', sans-serif";
-const CANON_CODE_FONT = "ui-monospace, 'SF Mono', Menlo, monospace";
-
-const THEME_GEOMETRY_VARS = new Set([
-  "--radius-control", "--radius-surface", "--radius-pill", "--radius-composer",
-  "--control-height", "--control-height-compact", "--surface-header-height",
-  "--motion-fast", "--motion-standard", "--motion-panel", "--ease-out",
-  "--elevation-overlay", "--elev", "--elev-soft", "--focus-ring-color",
-  "--focus-ring-width", "--focus-ring-offset",
-]);
-
-function effectiveTheme(settings: Settings, systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches) {
-  const preset = resolveAppearanceTheme(settings, systemDark);
-  const base = { ...preset.vars };
-  if (settings.accentColor) base["--accent"] = settings.accentColor;
-  if (settings.bgColor) base["--bg"] = settings.bgColor;
-  if (settings.fgColor) base["--fg"] = settings.fgColor;
-  return { ...preset, vars: base };
-}
-
-// vars de thème poussées aux iframes : couleurs du preset + police effective
-// (police custom de l'utilisateur si définie, sinon la pile canonique) — garantit
-// une police uniforme dans la galerie et les visionneuses comme dans l'app.
-// Le shell ne reçoit pas la géométrie inline : data-density et les tokens CSS
-// restent la source canonique pour ses dimensions, tandis que les iframes
-// reçoivent le style calculé à la frontière du message.
-function themeVars(
-  settings: Settings,
-  includeRuntimeGeometry = true,
-  preset = effectiveTheme(settings),
-): Record<string, string> {
-  const contract = themeContractVars({ dark: preset.dark, vars: preset.vars });
-  const vars: Record<string, string> = {
-    ...contract,
-    ...interfaceTypography(settings.baseFontSize),
-    "--ui-font": settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : CANON_UI_FONT,
-    "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
-  };
-  if (includeRuntimeGeometry) {
-    Object.assign(vars, interfaceGeometry(getComputedStyle(document.documentElement)));
-  } else {
-    THEME_GEOMETRY_VARS.forEach((name) => delete vars[name]);
-  }
-  return vars;
-}
-
-function themeMessage(settings: Settings, nonce: string): AtelierOutboundMessage {
-  const preset = effectiveTheme(settings);
-  return {
-    type: "atelier-theme",
-    version: 2,
-    colorScheme: preset.dark ? "dark" : "light",
-    nonce,
-    vars: {
-      ...themeVars(settings, true, preset),
-      ...galleryLegacyThemeVars(preset),
-    },
-  };
-}
-
-// panneau de la vue « Surlignés » (lot 2) : carnet de cartes autonomes — cf.
-// docs/superpowers/specs/2026-07-08-surlignes-lot2.md §4. Chaque fiche est
-// déjà une photographie complète (texte, contexte, projet, chat, provider,
-// date) : ce panneau ne fait QUE filtrer/trier/afficher, jamais de lookup
-// live dans un chat pour reconstituer une donnée manquante.
-function HighlightsPanel(p: {
-  highlights: HighlightEntry[];
-  threads: Thread[];
-  projMeta: Record<string, ProjMeta>;
-  filterProject: string | null;
-  onSetFilterProject: (root: string | null) => void;
-  onRemove: (id: string) => void;
-  onOpenChat: (threadId: string, projectRoot: string) => void;
-  onExport: () => void;
-  onCompact: () => void;
-}) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  const groups = useMemo(() => {
-    const map = new Map<string, { key: string; projectRoot: string; projectName: string; count: number }>();
-    for (const h of p.highlights) {
-      const key = h.projectRoot || h.projectName || "";
-      const existing = map.get(key);
-      if (existing) existing.count += 1;
-      else map.set(key, { key, projectRoot: h.projectRoot, projectName: h.projectName, count: 1 });
-    }
-    return [...map.values()];
-  }, [p.highlights]);
-  const filtered = p.filterProject != null
-    ? p.highlights.filter((h) => (h.projectRoot || h.projectName || "") === p.filterProject)
-    : p.highlights;
-
-  return (
-    <div className="sidebar hl-panel">
-      <div className="side-top" data-tauri-drag-region>
-        <span className="flex" />
-        <IconButton className="mini compact-btn" label={t("action.collapse-sidebar")} title={t("action.collapse-sidebar")} onClick={p.onCompact}>
-          <SidebarIcon size={17} />
-        </IconButton>
-      </div>
-      <div className="hl-head">
-        <span className="hl-head-title">{t("view.highlights")}</span>
-        <span className="hl-count">{p.highlights.length}</span>
-        <IconButton className="mini hl-export-btn" label={t("highlights.export")} title={t("highlights.export")}
-          disabled={!p.highlights.length} onClick={p.onExport}>
-          <DownloadIcon size={15} />
-        </IconButton>
-      </div>
-      {!!groups.length && (
-        <div className="hl-chips">
-          <RowButton className={`chip ${p.filterProject == null ? "on" : ""}`}
-            onClick={() => p.onSetFilterProject(null)}>
-            {t("highlights.all-count", { n: p.highlights.length })}
-          </RowButton>
-          {groups.map((g) => (
-            <RowButton key={g.key} className={`chip ${p.filterProject === g.key ? "on" : ""}`}
-              onClick={() => p.onSetFilterProject(p.filterProject === g.key ? null : g.key)}>
-              <span className="hl-dot" style={{ background: p.projMeta[g.projectRoot]?.color || "var(--mark-neutral)" }} />
-              {g.projectName || t("highlights.no-project")} · {g.count}
-            </RowButton>
-          ))}
-        </div>
-      )}
-      {filtered.length ? (
-        <div className="hl-list side-scroll">
-          {filtered.map((h) => {
-            const open = openId === h.id;
-            const threadAlive = !!h.threadId && p.threads.some((th) => th.id === h.threadId);
-            return (
-              <div key={h.id} className={`hl-card ${h.kind} ${open ? "open" : ""}`}
-                onClick={() => setOpenId(open ? null : h.id)}>
-                <div className="hl-text">{h.text}</div>
-                {open && h.context && <div className="hl-context">{h.context}</div>}
-                {open && threadAlive && (
-                  <Button variant="ghost" className="hl-open-chat"
-                    onClick={(e) => { e.stopPropagation(); p.onOpenChat(h.threadId, h.projectRoot); }}>
-                    {t("highlights.open-chat")}
-                  </Button>
-                )}
-                <div className="hl-foot">
-                  <span className="hl-dot" style={{ background: p.projMeta[h.projectRoot]?.color || "var(--mark-neutral)" }} />
-                  <span className="hl-proj">{h.projectName || t("highlights.no-project")}</span>
-                  <span className="hl-time">{hlRelativeDate(h.createdAt)}</span>
-                  <IconButton size="s" className="hl-remove" label={t("highlights.remove")} title={t("highlights.remove")}
-                    onClick={(e) => { e.stopPropagation(); p.onRemove(h.id); }}>
-                    <CloseIcon size={11} />
-                  </IconButton>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="view-placeholder">
-          <HighlighterIcon size={22} />
-          <p>{t("highlights.empty")}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function App() {
   const atelierNonceRef = useRef<string | null>(null);
   if (atelierNonceRef.current === null) atelierNonceRef.current = crypto.randomUUID();
@@ -630,36 +221,7 @@ export default function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const threadsRef = useRef<Thread[]>([]);
   const historySnapshotRefs = useRef(new Map<string, { epoch: string; revision: number }>());
-  type HistoryCursor = { epoch: string; sequence: number; eventId?: string };
   const historyCursorsRef = useRef(new Map<string, HistoryCursor>());
-  type HistoryRequestBoundary = { threadId: string; keys: Set<string> };
-  const historyRequestBoundariesRef = useRef(new Map<string, HistoryRequestBoundary>());
-  const historyRequestOrderRef = useRef(new Map<string, string[]>());
-  type RecoverableReadType =
-    | "getHistory"
-    | "listCommands"
-    | "listFiles"
-    | "listPins"
-    | "getUsage"
-    | "getSettings"
-    | "listHighlights"
-    | "listAutomations";
-  type RecoverableRead = {
-    key: string;
-    requestType: RecoverableReadType;
-    requestId: string;
-    threadId?: string;
-    projectRoot?: string;
-    provider?: string | null;
-    cursor?: HistoryCursor;
-    attempt: number;
-    timer?: ReturnType<typeof setTimeout>;
-  };
-  // Reads are retried independently of the chat send path. A busy/slow
-  // catalogue must never reconnect the socket or replay a provider turn.
-  const recoverableReadsRef = useRef(new Map<string, RecoverableRead>());
-  const recoverableReadsByRequestIdRef = useRef(new Map<string, string>());
-  const READ_RETRY_DELAYS_MS = [250, 750, 1500] as const;
   const threadsSnapshotRef = useRef<{ epoch: string; revision: number } | null>(null);
   const allThreadsRef = useRef<Thread[]>([]);
   // threads locaux (pas encore connus du sidecar) — nouveaux chats vides
@@ -753,158 +315,12 @@ export default function App() {
   const [filesTruncated, setFilesTruncated] = useState(false);
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
-  const [appBanner, setAppBanner] = useState<{
-    kind?: "connection";
-    requestType?: string;
-    clientMessageId?: string;
-    threadId?: string;
-    projectRoot?: string;
-    text: string;
-    actionLabel?: string;
-    onAction?: () => void;
-    closable?: boolean;
-  } | null>(null);
+  const [appBanner, setAppBanner] = useState<AppBanner | null>(null);
   const chatNotice = useMemo(() => appBanner ? {
     ...appBanner,
     onDismiss: appBanner.closable ? () => setAppBanner(current => current === appBanner ? null : current) : undefined,
   } : null, [appBanner]);
-  type DeliveryStatus = "unconfirmed" | "received" | "started" | "completed" | "failed" | "cancelled" | "uncertain" | "unknown";
-  type DeliveryState = {
-    status: DeliveryStatus;
-    threadId?: string;
-    provider?: string;
-    issue?: string;
-    updatedAt?: string;
-  };
-  function loadPendingReceiptIds() {
-    if (typeof localStorage === "undefined") return new Set<string>();
-    try {
-      const raw = JSON.parse(localStorage.getItem("atelier-studio.pending-receipts") ?? "[]");
-      return new Set<string>(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string" && id.length > 0) : []);
-    } catch {
-      return new Set<string>();
-    }
-  }
-  const [deliveryStates, setDeliveryStates] = useState<Record<string, DeliveryState>>({});
-  const deliveryStatesRef = useRef(new Map<string, DeliveryState>());
-  const pendingReceiptIdsRef = useRef(loadPendingReceiptIds());
-  const receiptRetryAttemptsRef = useRef(new Map<string, number>());
-  const receiptRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const receiptRetrySocketRef = useRef<WebSocket | null>(null);
-  const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled", "uncertain", "unknown"]);
-
-  function persistPendingReceiptIds() {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem("atelier-studio.pending-receipts", JSON.stringify([...pendingReceiptIdsRef.current]));
-    } catch { /* a full/private storage must not block the send path */ }
-  }
-
-  function clearReceiptRetry(clientMessageId: string) {
-    const timer = receiptRetryTimersRef.current.get(clientMessageId);
-    if (timer != null) clearTimeout(timer);
-    receiptRetryTimersRef.current.delete(clientMessageId);
-    receiptRetryAttemptsRef.current.delete(clientMessageId);
-  }
-
-  function rememberDeliveryState(clientMessageId: string, state: DeliveryState) {
-    deliveryStatesRef.current.set(clientMessageId, state);
-    // Keep a bounded client-side view. Pending ids are retained until their
-    // terminal/uncertain answer; old terminal rows are presentation history.
-    if (deliveryStatesRef.current.size > 512) {
-      for (const [id, old] of deliveryStatesRef.current) {
-        if (terminalDeliveryStatuses.has(old.status)) {
-          deliveryStatesRef.current.delete(id);
-          if (deliveryStatesRef.current.size <= 384) break;
-        }
-      }
-    }
-    setDeliveryStates(Object.fromEntries(deliveryStatesRef.current));
-  }
-
-  function scheduleReceiptStatus(clientMessageId: string, sock: WebSocket, immediate = false) {
-    if (!pendingReceiptIdsRef.current.has(clientMessageId)) return;
-    if (receiptRetryTimersRef.current.has(clientMessageId)) return;
-    const attempt = receiptRetryAttemptsRef.current.get(clientMessageId) ?? 0;
-    if (attempt >= 3) return;
-    const delay = immediate ? 0 : [1000, 2000, 4000][attempt] ?? 4000;
-    const timer = setTimeout(() => {
-      receiptRetryTimersRef.current.delete(clientMessageId);
-      if (!pendingReceiptIdsRef.current.has(clientMessageId)) return;
-      if (ws.current !== sock || sock.readyState !== 1) {
-        if (ws.current?.readyState === 1) scheduleReceiptStatus(clientMessageId, ws.current, true);
-        return;
-      }
-      receiptRetryAttemptsRef.current.set(clientMessageId, attempt + 1);
-      if (!requestReceiptStatus(sock, clientMessageId)) return;
-      // A response may arrive before this timer is installed; coalescing by id
-      // makes the following bounded probe harmless and avoids a resend.
-      if (attempt + 1 < 3) scheduleReceiptStatus(clientMessageId, sock);
-    }, delay);
-    receiptRetryTimersRef.current.set(clientMessageId, timer);
-  }
-
-  function reconcilePendingReceipts(sock: WebSocket) {
-    if (receiptRetrySocketRef.current !== sock) {
-      for (const clientMessageId of pendingReceiptIdsRef.current) clearReceiptRetry(clientMessageId);
-      receiptRetrySocketRef.current = sock;
-    }
-    for (const clientMessageId of pendingReceiptIdsRef.current) {
-      scheduleReceiptStatus(clientMessageId, sock, true);
-    }
-  }
-
-  function trackReceipt(clientMessageId: string, threadId: string, provider: string) {
-    pendingReceiptIdsRef.current.add(clientMessageId);
-    persistPendingReceiptIds();
-    rememberDeliveryState(clientMessageId, { status: "unconfirmed", threadId, provider });
-    if (ws.current?.readyState === 1) scheduleReceiptStatus(clientMessageId, ws.current);
-  }
-
-  function handleSendReceipt(msg: any) {
-    const clientMessageId = typeof msg.clientMessageId === "string" ? msg.clientMessageId : "";
-    if (!clientMessageId) return;
-    const status = (typeof msg.status === "string" ? msg.status : "unknown") as DeliveryStatus;
-    const state: DeliveryState = {
-      status,
-      ...(typeof msg.threadId === "string" ? { threadId: msg.threadId } : {}),
-      ...(typeof msg.provider === "string" ? { provider: msg.provider } : {}),
-      ...(typeof msg.issue === "string" ? { issue: msg.issue } : {}),
-      ...(typeof msg.updatedAt === "string" ? { updatedAt: msg.updatedAt } : {}),
-    };
-    rememberDeliveryState(clientMessageId, state);
-    if (terminalDeliveryStatuses.has(status)) {
-      pendingReceiptIdsRef.current.delete(clientMessageId);
-      persistPendingReceiptIds();
-      clearReceiptRetry(clientMessageId);
-    } else if ((receiptRetryAttemptsRef.current.get(clientMessageId) ?? 0) > 0 && ws.current?.readyState === 1) {
-      scheduleReceiptStatus(clientMessageId, ws.current);
-    }
-    const shortId = clientMessageId.slice(0, 8);
-    if (status === "uncertain") {
-      setAppBanner({
-        requestType: "sendReceipt",
-        clientMessageId,
-        threadId: state.threadId,
-        text: `Envoi ${shortId} : effet fournisseur incertain après redémarrage. Vérifier avant de renvoyer.`,
-        actionLabel: "Vérifier l’état",
-        onAction: () => { if (ws.current?.readyState === 1) requestReceiptStatus(ws.current, clientMessageId); },
-        closable: true,
-      });
-    } else if (status === "failed" || status === "unknown") {
-      setAppBanner({
-        requestType: "sendReceipt",
-        clientMessageId,
-        threadId: state.threadId,
-        text: status === "unknown"
-          ? `Envoi ${shortId} : état introuvable après reconnexion ; le renvoi reste manuel.`
-          : `Envoi ${shortId} : ${state.issue || "échec confirmé"}.`,
-        closable: true,
-      });
-    } else if (status === "completed" || status === "cancelled" || status === "received" || status === "started") {
-      setAppBanner((banner) => banner?.requestType === "sendReceipt" && banner.clientMessageId === clientMessageId ? null : banner);
-    }
-  }
+  const { deliveryStates, trackReceipt, handleSendReceipt, reconcilePendingReceipts } = useDeliveryReceipts(ws, setAppBanner);
   const lastInjected = useRef<string | null>(null);
   const pdfAnnotationDelivery = useRef(new PdfAnnotationDelivery());
   const cliBannerText = useRef<string | null>(null); // bandeau « CLI manquant » actif
@@ -997,51 +413,7 @@ export default function App() {
     settingsRef.current = settings;
     saveSettings(settings);
     setLanguage(settings.language);
-    const root = document.documentElement;
-    const r = root.style;
-    r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
-    r.setProperty("--chat-w", `${settings.chatWidth}px`);
-    r.setProperty("--chat-lh", String(settings.chatLineHeight));
-    // One resolver serves the shell and its embedded views.
-    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyPalette = () => {
-      const preset = effectiveTheme(settings, systemTheme.matches);
-      root.setAttribute("data-theme", preset.dark ? "dark" : "light");
-      for (const [key, value] of Object.entries(themeVars(settings, false, preset))) r.setProperty(key, value);
-      window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: settings.themePreset }));
-    };
-    // propager aux iframes atelier (galerie, viewers)
-    const pushThemeToAtelierFrames = () => {
-      document.querySelectorAll("iframe.atelier").forEach((f) => {
-        const iframe = f as HTMLIFrameElement;
-        const targetOrigin = atelierTargetOrigin(iframe.src);
-        if (!targetOrigin) return;
-        const message = themeMessage(settings, atelierNonce);
-        iframe.contentWindow?.postMessage(message, targetOrigin);
-      });
-    };
-    const broadcastTheme = setTimeout(pushThemeToAtelierFrames, 50);
-    // ré-essaimage périodique : le message de thème porte le nonce IPC — une
-    // page dont WKWebView a purgé le sessionStorage (clics « Add to chat »
-    // muets jusqu'au reload) le réadopte et redevient fonctionnelle seule
-    const reseedNonce = setInterval(pushThemeToAtelierFrames, 30_000);
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotion.addEventListener?.("change", pushThemeToAtelierFrames);
-    const onSystemThemeChange = () => { applyPalette(); pushThemeToAtelierFrames(); };
-    systemTheme.addEventListener?.("change", onSystemThemeChange);
-    root.setAttribute("data-density", settings.density);
-    root.style.fontSize = `${settings.baseFontSize}px`;
-    for (const [name, value] of Object.entries(interfaceTypography(settings.baseFontSize))) {
-      r.setProperty(name, value);
-    }
-    root.classList.toggle("no-smoothing", !settings.fontSmoothing);
-    root.classList.toggle("no-stream-fade", !settings.streamFade);
-    const setOrClear = (name: string, val: string) =>
-      val ? r.setProperty(name, val) : r.removeProperty(name);
-    setOrClear("--ui-font", settings.uiFont ? `'${settings.uiFont}', ${CANON_UI_FONT}` : "");
-    setOrClear("--code-font", settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : "");
-    // Notify widgets only after fonts and type scales are effective.
-    applyPalette();
+    const disposeAppearance = applyAppearance(settings, atelierNonce);
     // miroir disque via sidecar : les réglages survivent au redémarrage/mise à jour
     const mirror = setTimeout(() => {
       if (ws.current?.readyState === 1) {
@@ -1052,10 +424,7 @@ export default function App() {
       }
     }, MIRROR_WRITE_DEBOUNCE_MS);
     return () => {
-      clearTimeout(broadcastTheme);
-      clearInterval(reseedNonce);
-      reducedMotion.removeEventListener?.("change", pushThemeToAtelierFrames);
-      systemTheme.removeEventListener?.("change", onSystemThemeChange);
+      disposeAppearance();
       clearTimeout(mirror);
     };
   }, [settings]);
@@ -1069,23 +438,6 @@ export default function App() {
   const usageOpenRef = useRef(false);
   usageOpenRef.current = usageOpen;
   const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [plugins, setPlugins] = useState<PluginCatalogEntry[]>([]);
-  const [pluginsLoading, setPluginsLoading] = useState(false);
-  const [pluginsError, setPluginsError] = useState<string | null>(null);
-  const pluginRequestId = useRef(0);
-  const pluginCatalogsByProject = useRef(new Map<string, PluginCatalogEntry[]>());
-  const requestPlugins = useCallback((projectRoot: string) => {
-    const requestId = ++pluginRequestId.current;
-    setPlugins([]);
-    setPluginsError(null);
-    if (ws.current?.readyState !== 1) {
-      setPluginsLoading(false);
-      setPluginsError(t("plugins.disconnected"));
-      return;
-    }
-    setPluginsLoading(true);
-    ws.current.send(JSON.stringify({ type: "listPlugins", projectRoot, requestId }));
-  }, [ws]);
   const [dragging, setDragging] = useState(false);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
@@ -2046,329 +1398,17 @@ export default function App() {
     streamCoalescer.flush(threadId);
   }
 
-  function historyEventKey(event: AgentEvent): string | null {
-    const meta = event.meta as any;
-    if (meta && typeof meta.eventId === "string") return `event:${meta.eventId}`;
-    if (meta && typeof meta.messageId === "string") return `message:${meta.messageId}`;
-    return null;
-  }
-
-  function recoverableReadKey(
-    requestType: RecoverableReadType,
-    scope: { threadId?: string; projectRoot?: string; provider?: string | null; cursor?: HistoryCursor } = {},
-  ): string {
-    if (requestType === "getHistory") {
-      const cursor = scope.cursor
-        ? `${scope.cursor.epoch}:${scope.cursor.sequence}:${scope.cursor.eventId ?? ""}`
-        : "full";
-      return `${requestType}:${scope.threadId ?? ""}:${cursor}`;
-    }
-    return `${requestType}:${scope.projectRoot ?? ""}:${scope.provider ?? ""}`;
-  }
-
-  function forgetHistoryRequestBoundary(requestId: string) {
-    if (!requestId) return;
-    const boundary = historyRequestBoundariesRef.current.get(requestId);
-    if (!boundary) return;
-    historyRequestBoundariesRef.current.delete(requestId);
-    const order = historyRequestOrderRef.current.get(boundary.threadId);
-    if (!order) return;
-    const next = order.filter((id) => id !== requestId);
-    if (next.length) historyRequestOrderRef.current.set(boundary.threadId, next);
-    else historyRequestOrderRef.current.delete(boundary.threadId);
-  }
-
-  function forgetRecoverableRead(key: string, dropHistoryBoundary = false) {
-    const current = recoverableReadsRef.current.get(key);
-    if (!current) return;
-    if (current.timer != null) clearTimeout(current.timer);
-    if (dropHistoryBoundary && current.requestType === "getHistory") {
-      forgetHistoryRequestBoundary(current.requestId);
-    }
-    recoverableReadsRef.current.delete(key);
-    if (recoverableReadsByRequestIdRef.current.get(current.requestId) === key) {
-      recoverableReadsByRequestIdRef.current.delete(current.requestId);
-    }
-  }
-
-  function findRecoverableRead(msg: any): RecoverableRead | undefined {
-    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
-    if (requestId) {
-      const key = recoverableReadsByRequestIdRef.current.get(requestId);
-      if (key) return recoverableReadsRef.current.get(key);
-      // An explicit id is a promise about one read. Never attach a late or
-      // unknown response/error to another in-flight chat/project request.
-      return undefined;
-    }
-    const requestType = msg.requestType as RecoverableReadType | undefined;
-    if (!requestType) return undefined;
-    const candidates = [...recoverableReadsRef.current.values()]
-      .filter((entry) => entry.requestType === requestType)
-      .filter((entry) => !msg.threadId || entry.threadId === msg.threadId)
-      .filter((entry) => !msg.projectRoot || entry.projectRoot === msg.projectRoot)
-      .filter((entry) => !msg.provider || entry.provider === msg.provider);
-    return candidates[candidates.length - 1];
-  }
-
-  function recoverableReadScopeIsActive(entry: RecoverableRead): boolean {
-    if (entry.threadId && activeIdRef.current !== entry.threadId) return false;
-    if (entry.projectRoot && activeProjectRef.current !== entry.projectRoot) return false;
-    return ws.current?.readyState === 1;
-  }
-
-  function issueRecoverableRead(
-    requestType: Exclude<RecoverableReadType, "getHistory">,
-    scope: { projectRoot?: string; provider?: string | null; threadId?: string },
-    attempt = 0,
-    force = false,
-  ): boolean {
-    const sock = ws.current;
-    if (!sock || sock.readyState !== 1) return false;
-    const key = recoverableReadKey(requestType, scope);
-    const existing = recoverableReadsRef.current.get(key);
-    if (existing && !force) return true;
-    if (existing) forgetRecoverableRead(key);
-    const requestId = crypto.randomUUID();
-    const message: Record<string, unknown> = {
-      type: requestType,
-      ...(scope.projectRoot ? { projectRoot: scope.projectRoot } : {}),
-      ...(scope.provider ? { provider: scope.provider } : {}),
-      requestId,
-    };
-    try {
-      sock.send(JSON.stringify(message));
-    } catch {
-      return false;
-    }
-    const entry: RecoverableRead = {
-      key,
-      requestType,
-      requestId,
-      ...(scope.threadId ? { threadId: scope.threadId } : {}),
-      ...(scope.projectRoot ? { projectRoot: scope.projectRoot } : {}),
-      ...(scope.provider !== undefined ? { provider: scope.provider } : {}),
-      attempt,
-    };
-    recoverableReadsRef.current.set(key, entry);
-    recoverableReadsByRequestIdRef.current.set(requestId, key);
-    return true;
-  }
-
-  function requestCatalogRead(
-    requestType: "listCommands" | "listFiles",
-    projectRoot: string,
-    provider?: string | null,
-    attempt = 0,
-    force = false,
-  ): boolean {
-    return issueRecoverableRead(requestType, { projectRoot, provider }, attempt, force);
-  }
-
-  function requestCatalogWithRecovery(projectRoot: string, provider?: string | null) {
-    requestCatalogRead("listCommands", projectRoot, provider);
-    requestCatalogRead("listFiles", projectRoot);
-  }
-
-  function requestFileCatalogWithRecovery(projectRoot: string) {
-    requestCatalogRead("listFiles", projectRoot);
-  }
-
-  function requestGlobalRead(
-    requestType: "getUsage" | "getSettings" | "listHighlights" | "listAutomations",
-    attempt = 0,
-    force = false,
-  ): boolean {
-    return issueRecoverableRead(requestType, {}, attempt, force);
-  }
-
-  type HistoryRequestOptions = {
-    force?: boolean;
-    retryAttempt?: number;
-    recoveryKey?: string;
-  };
-
-  function requestHistory(threadId: string, cursor?: HistoryCursor, options: HistoryRequestOptions = {}) {
-    if (ws.current?.readyState !== 1) return false;
-    const key = options.recoveryKey ?? recoverableReadKey("getHistory", { threadId, cursor });
-    const existing = recoverableReadsRef.current.get(key);
-    if (existing && !options.force) return true;
-    if (existing) {
-      // The old request has either timed out or is being replaced by a bounded
-      // retry. Its snapshot boundary must not be reused by a later legacy
-      // response after the new request has been issued.
-      forgetHistoryRequestBoundary(existing.requestId);
-      forgetRecoverableRead(key);
-    }
-    const keys = new Set(
-      (eventsRef.current[threadId] ?? [])
-        .map(historyEventKey)
-        .filter((key): key is string => key !== null),
-    );
-    const requestId = crypto.randomUUID();
-    historyRequestBoundariesRef.current.set(requestId, { threadId, keys });
-    const order = historyRequestOrderRef.current.get(threadId) ?? [];
-    order.push(requestId);
-    // A disconnected socket can leave a request without a response. Keep a
-    // small ordered fallback queue for legacy servers that do not echo
-    // requestId, while bounding the per-thread refs across a long session.
-    while (order.length > 16) {
-      const expired = order.shift();
-      if (expired) historyRequestBoundariesRef.current.delete(expired);
-    }
-    historyRequestOrderRef.current.set(threadId, order);
-    try {
-      ws.current.send(JSON.stringify({
-        type: "getHistory",
-        threadId,
-        requestId,
-        ...(cursor ? { historyCursor: cursor } : {}),
-      }));
-      ws.current.send(JSON.stringify({
-        type: "getReviews",
-        requestId: crypto.randomUUID(),
-        threadId,
-      }));
-    } catch {
-      forgetHistoryRequestBoundary(requestId);
-      return false;
-    }
-    const entry: RecoverableRead = {
-      key,
-      requestType: "getHistory",
-      requestId,
-      threadId,
-      ...(cursor ? { cursor } : {}),
-      attempt: options.retryAttempt ?? 0,
-    };
-    recoverableReadsRef.current.set(key, entry);
-    recoverableReadsByRequestIdRef.current.set(requestId, key);
-    return true;
-  }
-
-  function takeHistoryRequestBoundary(threadId: string, requestId?: string): Set<string> | undefined {
-    let selectedId = requestId;
-    let boundary = selectedId ? historyRequestBoundariesRef.current.get(selectedId) : undefined;
-    // An explicit id belongs to one precise read. If an old socket response
-    // arrives after its boundary was evicted, dropping it is safer than
-    // borrowing the next request for this thread and applying the wrong live
-    // preservation policy.
-    if (selectedId && (!boundary || boundary.threadId !== threadId)) return undefined;
-    if (!boundary) {
-      selectedId = undefined;
-      boundary = undefined;
-      const order = historyRequestOrderRef.current.get(threadId) ?? [];
-      while (order.length && !boundary) {
-        const candidateId = order.shift()!;
-        const candidate = historyRequestBoundariesRef.current.get(candidateId);
-        historyRequestBoundariesRef.current.delete(candidateId);
-        if (candidate?.threadId === threadId) {
-          selectedId = candidateId;
-          boundary = candidate;
-        }
-      }
-      if (order.length) historyRequestOrderRef.current.set(threadId, order);
-      else historyRequestOrderRef.current.delete(threadId);
-    } else if (selectedId) {
-      historyRequestBoundariesRef.current.delete(selectedId);
-      const order = historyRequestOrderRef.current.get(threadId);
-      if (order) {
-        const index = order.indexOf(selectedId);
-        if (index >= 0) order.splice(index, 1);
-        if (order.length) historyRequestOrderRef.current.set(threadId, order);
-        else historyRequestOrderRef.current.delete(threadId);
-      }
-    }
-    return boundary?.keys;
-  }
-
-  function settleRecoverableRead(msg: any, requestType?: RecoverableReadType): boolean {
-    const entry = findRecoverableRead({ ...msg, ...(requestType ? { requestType } : {}) });
-    if (!entry || (requestType && entry.requestType !== requestType)) return false;
-    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
-    if (requestId && requestId !== entry.requestId) return false;
-    // History still needs its request boundary while the response is applied;
-    // the handler consumes it immediately below. Other reads have no such
-    // merge boundary and can be released at once.
-    forgetRecoverableRead(entry.key, entry.requestType !== "getHistory");
-    return true;
-  }
-
-  function scheduleRecoverableReadRetry(msg: any): boolean {
-    const requestType = msg.requestType as RecoverableReadType | undefined;
-    const recoverableTypes: RecoverableReadType[] = ["getHistory", "listCommands", "listFiles", "getUsage", "getSettings", "listHighlights", "listAutomations"];
-    if (!requestType || !recoverableTypes.includes(requestType)) {
-      return false;
-    }
-    const entry = findRecoverableRead(msg);
-    if (!entry) return false;
-    const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
-    if (requestId && requestId !== entry.requestId) return false;
-    if (!recoverableReadScopeIsActive(entry)) {
-      forgetRecoverableRead(entry.key, true);
-      return false;
-    }
-    // A read error that is not explicitly retryable must release its in-flight
-    // slot. Otherwise a later periodic/global read is coalesced forever with
-    // the failed request.
-    if (msg.code !== "REQUEST_BUSY" && msg.code !== "REQUEST_TIMEOUT") {
-      forgetRecoverableRead(entry.key, true);
-      return false;
-    }
-    if (entry.timer != null) return true;
-    if (entry.attempt >= READ_RETRY_DELAYS_MS.length) {
-      forgetRecoverableRead(entry.key, true);
-      return false;
-    }
-    const delay = READ_RETRY_DELAYS_MS[entry.attempt];
-    entry.timer = setTimeout(() => {
-      const current = recoverableReadsRef.current.get(entry.key);
-      if (current !== entry) return;
-      entry.timer = undefined;
-      if (!recoverableReadScopeIsActive(entry)) {
-        if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
-        forgetRecoverableRead(entry.key);
-        return;
-      }
-      if (entry.requestType === "getHistory") {
-        requestHistory(entry.threadId!, entry.cursor, {
-          force: true,
-          retryAttempt: entry.attempt + 1,
-          recoveryKey: entry.key,
-        });
-      } else if (entry.requestType === "listCommands" || entry.requestType === "listFiles") {
-        requestCatalogRead(entry.requestType, entry.projectRoot ?? "", entry.provider, entry.attempt + 1, true);
-      } else {
-        switch (entry.requestType) {
-          case "getUsage":
-          case "getSettings":
-          case "listHighlights":
-          case "listAutomations":
-            requestGlobalRead(entry.requestType, entry.attempt + 1, true);
-            break;
-          default:
-            forgetRecoverableRead(entry.key, true);
-        }
-      }
-    }, delay);
-    return true;
-  }
-
-  function cancelRecoverableReadsOutsideScope(threadId: string | null, projectRoot: string | null) {
-    for (const entry of [...recoverableReadsRef.current.values()]) {
-      const threadOutside = entry.threadId != null && entry.threadId !== threadId;
-      const projectOutside = entry.projectRoot != null && entry.projectRoot !== projectRoot;
-      if (!threadOutside && !projectOutside) continue;
-      if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
-      forgetRecoverableRead(entry.key);
-    }
-  }
-
-  function cancelRecoverableReadsForSocket() {
-    for (const entry of [...recoverableReadsRef.current.values()]) {
-      if (entry.requestType === "getHistory") forgetHistoryRequestBoundary(entry.requestId);
-      forgetRecoverableRead(entry.key);
-    }
-  }
+  const {
+    requestCatalogWithRecovery,
+    requestFileCatalogWithRecovery,
+    requestGlobalRead,
+    requestHistory,
+    takeHistoryRequestBoundary,
+    settleRecoverableRead,
+    scheduleRecoverableReadRetry,
+    cancelRecoverableReadsOutsideScope,
+    cancelRecoverableReadsForSocket,
+  } = useRecoverableReads(ws, eventsRef, activeIdRef, activeProjectRef);
 
   // Dispatcher des messages sidecar — corps inchangé (slice 2.1), branché via
   // useSidecarConnection. Function hissée : le hook est appelé plus haut.
@@ -3143,15 +2183,7 @@ export default function App() {
       if (msg.type === "commands" && (msg.projectRoot == null || msg.projectRoot === activeProjectRef.current)) {
         setCommandCatalog({ root: msg.projectRoot ?? activeProjectRef.current, commands: msg.commands });
       }
-      if (msg.type === "plugins" && msg.requestId === pluginRequestId.current) {
-        const catalog = Array.isArray(msg.plugins) ? msg.plugins : [];
-        setPlugins(catalog);
-        if (!msg.error && typeof msg.projectRoot === "string") {
-          pluginCatalogsByProject.current.set(msg.projectRoot, catalog);
-        }
-        setPluginsError(typeof msg.error === "string" ? msg.error : null);
-        setPluginsLoading(false);
-      }
+      if (msg.type === "plugins") handlePluginsMessage(msg);
       if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
         setFileCatalog({ root: msg.projectRoot, files: Array.isArray(msg.files) ? msg.files : [] });
         setFilesTruncated(msg.truncated === true);
@@ -3440,16 +2472,9 @@ export default function App() {
     }
   }, [activeProject, wsReady, activeProviderId]);
 
-  useEffect(() => {
-    if (activeProviderId === "codex" && activeProject && wsReady) {
-      requestPlugins(activeProject);
-    } else {
-      ++pluginRequestId.current;
-      setPlugins([]);
-      setPluginsLoading(false);
-      setPluginsError(wsReady ? null : t("plugins.disconnected"));
-    }
-  }, [activeProject, activeProviderId, wsReady, requestPlugins]);
+  const {
+    plugins, pluginsLoading, pluginsError, requestPlugins, handlePluginsMessage, pluginCatalogFor,
+  } = usePluginCatalog(ws, activeProject, activeProviderId, wsReady);
 
   // Rattrapage après désynchronisation (2026-08-25). Les cinq autres appels à
   // getHistory sont gardés par `!events[threadId]?.length` : un fil coupé en
@@ -4855,7 +3880,7 @@ export default function App() {
     const clientMessageId = crypto.randomUUID();
     const imagePaths = localImagePathsForAttachments(queuedAttachments, thread.projectRoot ?? "");
     const pluginSkills = revalidateQueuedPluginSkills(queued.pluginSkills,
-      pluginCatalogsByProject.current.get(thread.projectRoot ?? ""));
+      pluginCatalogFor(thread.projectRoot ?? ""));
     const queuedCapabilities = providerList.find((entry) => entry.id === queued.provider)?.capabilities;
     const queuedSupportsInputs =
       (queuedCapabilities?.imageInput ?? queued.provider === "codex") ||
@@ -5185,56 +4210,6 @@ export default function App() {
     [allThreads],
   );
 
-  // ContextInspector (plan 018, étapes 4–5) : sélection explicite depuis le
-  // menu d'onglet Atelier ; le transfert au chat suit le contrat pending →
-  // added (accusé) → idle, et la suppression du chip ne touche jamais la source.
-  const [inspected, setInspected] = useState<InspectedFile | null>(null);
-  const [inspectorAdd, setInspectorAdd] = useState<"idle" | "pending" | "added">("idle");
-  const inspectorAddTimer = useRef<number | null>(null);
-  // l'inspecteur ne survit ni au layout chat (panneau démonté) ni à un
-  // changement de projet (l'item pointerait l'ancien projet) — panel 018
-  useEffect(() => {
-    if (!inspected) return;
-    if (layout === "chat" || !activeProject || inspected.projectRoot !== activeProject) {
-      setInspected(null);
-    }
-  }, [layout, activeProject, inspected]);
-  useEffect(() => () => {
-    if (inspectorAddTimer.current != null) window.clearTimeout(inspectorAddTimer.current);
-  }, []);
-  function openInspector(rel: string) {
-    if (!activeProject) return;
-    const segs = rel.split("/");
-    setInspectorAdd("idle");
-    setInspected({
-      rel,
-      name: segs[segs.length - 1] || rel,
-      dir: segs.slice(0, -1).join("/"),
-      kind: artefactKind(rel),
-      projectRoot: activeProject,
-      projectName: displayProjectName,
-    });
-  }
-  function closeInspector() {
-    setInspected(null);
-    // retour focus à l'élément source : l'onglet actif de la barre Atelier
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLButtonElement>(".atelier-bar .atab.on")?.focus());
-  }
-  function addInspectedToChat(item: InspectedFile) {
-    if (inspectorAdd !== "idle") return; // pending/added : pas de double ajout
-    setInspectorAdd("pending");
-    setAttachments((l) => addAttachment(l, {
-      name: item.name,
-      lines: null,
-      kind: "file",
-      text: `Fichier du projet ajouté au contexte : ${item.projectRoot}/${item.rel}`,
-    }));
-    setInspectorAdd("added");
-    if (inspectorAddTimer.current != null) window.clearTimeout(inspectorAddTimer.current);
-    inspectorAddTimer.current = window.setTimeout(() => setInspectorAdd("idle"), 1800);
-  }
-
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
   // la place de l'ancienne empty-card ; le composer reste en dessous).
@@ -5244,6 +4219,8 @@ export default function App() {
   const displayProjectName = isDiscussionRoot(activeProject) ? t("discussions.title") : projLabelRaw && !projLabelRaw.startsWith("icon:")
     ? projLabelRaw
     : (activeProject?.split("/").filter(Boolean).pop() ?? null);
+  const { inspected, inspectorAdd, openInspector, closeInspector, addInspectedToChat } =
+    useContextInspector(layout, activeProject, displayProjectName, setAttachments);
   // « connecting » = démarrage à froid (jamais connecté) → état de chargement ;
   // « disconnected » = connexion perdue → vraie condition À traiter
   if (wsReady) sidecarEverConnected.current = true;
