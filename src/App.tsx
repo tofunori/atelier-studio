@@ -27,10 +27,9 @@ import {
 import { materializeHarnessHistory, mergeHarnessHistory, replaceHarnessHistory, reduceHarnessEvent, reduceHarnessEvents, reconcileWorkingSince, thinkingProgressIsStale } from "./lib/harnessEvents";
 import { rebuildReplayQuotePastes } from "./lib/replayQuotes";
 import { pickActiveProjectFromDisk } from "./lib/projectHydration";
-import { createPin } from "./lib/pins";
+import { stylePin, togglePin } from "./lib/pins";
 import { atelierTabIdentity, stableTabId } from "./lib/workspaceLayout";
 import type { QaContext } from "./lib/quickAskContext";
-import { qaPromotePayload } from "./lib/quickAskModel";
 import {
   mergeReorderedTabs,
   pickActiveTabForProject,
@@ -38,7 +37,6 @@ import {
   rememberForProject,
   visibleTabsForProject,
 } from "./lib/projectSession";
-import { buildForkThreadPayload } from "./lib/forkThread";
 import { articleImportSnapshot, subscribeArticleImport } from "./lib/articleImports";
 import { useSidecarConnection, type SidecarStatus } from "./hooks/useSidecarConnection";
 import { useDeliveryReceipts } from "./hooks/useDeliveryReceipts";
@@ -90,21 +88,19 @@ type SettingsSheetProps = Parameters<
 const SettingsSheet = lazyWithRetry<SettingsSheetProps>(() =>
   import("./components/settings/SettingsSheet").then((m) => ({ default: m.SettingsSheet })),
 );
-import { LazyDialog } from "./components/ui/LazyDialog";
 import { Button } from "./components/ui/Button";
 import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
-import { RowButton } from "./components/ui";
 import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
 const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
-import { linkedConversationForProvider, linkedConversations } from "./lib/threadLinks";
+import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { CloseIcon, ProviderIcon } from "./components/icons";
+import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
-import { ProviderInfo } from "./lib/providers";
+import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
 import { THEME_PRESETS } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
@@ -147,9 +143,12 @@ import {
   type AppSnapCapture,
 } from "./lib/appSnap";
 import { type ZoteroPaletteItem, buildZoteroReferenceText } from "./lib/zoteroReference";
-import { addAttachment, parseAttachment } from "./lib/composerAttachments";
+import {
+  addAttachment, fileAttachment, folderAttachment, galleryFileContext, parseAttachment, pastedTextAttachment,
+  quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel,
+} from "./lib/composerAttachments";
 import { playAppSnapSound } from "./lib/appSnapSound";
-import { checkpointAfterUser } from "./lib/turnCheckpoint";
+import { type PendingGoal, type PendingResend, type PendingRevert, createThreadActions } from "./lib/threadActions";
 import { whenGalleryFrameReady } from "./lib/galleryFrameReady";
 import {
   DISCUSSION_WORKSPACE_IDS_KEY,
@@ -161,6 +160,8 @@ import {
 import { buildHighlightsMarkdown, migrateLocalMarks } from "./lib/highlightsStore";
 import { applyAppearance, themeMessage } from "./lib/appTheme";
 import { HighlightsPanel } from "./components/HighlightsPanel";
+import { DeliveryStatusAnnouncer } from "./components/DeliveryStatusAnnouncer";
+import { NewChatProviderDialog } from "./components/NewChatProviderDialog";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -349,19 +350,8 @@ export default function App() {
     projectRoot: string;
   }>());
   const pendingLinkedSelection = useRef<{ threadId: string; projectRoot: string } | null>(null);
-  const pendingResend = useRef<{
-    threadId: string;
-    prompt: string;
-    snapshot: AgentEvent[];
-    clientMessageId: string;
-    ts: number;
-    index: number;
-  } | null>(null);
-  const pendingRevert = useRef<{
-    threadId: string;
-    snapshot: AgentEvent[];
-    index: number;
-  } | null>(null);
+  const pendingResend = useRef<PendingResend | null>(null);
+  const pendingRevert = useRef<PendingRevert | null>(null);
   const [atelierTabs, setAtelierTabs] = useState<
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string; projectRoot?: string }[]
   >([]);
@@ -384,6 +374,14 @@ export default function App() {
         settings: buildMirrorSettings(settingsRef.current),
       }));
     }
+  }
+  /** Modifie les onglets de l'atelier et persiste aussitôt les épinglés. */
+  function updatePinnedTabs(update: (tabs: typeof atelierTabs) => typeof atelierTabs) {
+    setAtelierTabs((tabs) => {
+      const next = update(tabs);
+      savePinned(next);
+      return next;
+    });
   }
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
@@ -976,7 +974,7 @@ export default function App() {
   // goal en attente : /goal (ou Goal…) tapé AVANT que la session Codex existe
   // (chat neuf) — l'objectif part comme premier message, et le goal est posé
   // automatiquement au premier threads-update qui apporte le sessionId
-  const pendingGoal = useRef<{ threadId: string | null; objective: string } | null>(null);
+  const pendingGoal = useRef<PendingGoal | null>(null);
   useEffect(() => {
     if (!activeId || goalFetched.current.has(activeId)) return;
     const t = threads.find((th) => th.id === activeId);
@@ -1779,23 +1777,10 @@ export default function App() {
         const item = pendingZoteroDigest.current.get(msg.key);
         if (item) {
           pendingZoteroDigest.current.delete(msg.key);
-          const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
           const text = buildZoteroReferenceText(item, {
             pdfPath: msg.pdfPath ?? null, digest: msg.digest ?? null, digestPath: msg.path ?? null,
           });
-          setAttachments((l) => l.map((a) =>
-            a.kind === "zotero" && a.name === label
-              ? {
-                  ...a, text,
-                  preview: a.preview && {
-                    ...a.preview,
-                    rows: a.preview.rows.map((r) =>
-                      r.label === "Digest"
-                        ? { label: "Digest", value: msg.digest ? "en cache" : "à générer par l'agent" }
-                        : r),
-                  },
-                }
-              : a));
+          setAttachments((l) => withZoteroDigest(l, zoteroLabel(item), text, Boolean(msg.digest)));
         }
       }
       if (msg.type === "exported") {
@@ -1981,10 +1966,9 @@ export default function App() {
         citeKey?: string;
         title?: string;
       };
-      const label = detail.citeKey ? `@${detail.citeKey}` : `@${detail.key}`;
       setAttachments((l) =>
         addAttachment(l, {
-          name: label,
+          name: zoteroLabel(detail),
           lines: null,
           text: detail.text,
         }),
@@ -2279,18 +2263,7 @@ export default function App() {
         url?: string;
         mode?: "selection" | "page";
       };
-      let name = "extrait web";
-      try { name = url ? new URL(url).hostname : name; } catch {}
-      const body = mode === "page"
-        ? `Source web ajoutée au contexte :\n${text}`
-        : `Extrait copié depuis ${url || "une page web"} :\n> ${text.split("\n").join("\n> ")}`;
-      setAttachments((l) =>
-        addAttachment(l, {
-          name,
-          lines: null,
-          text: body,
-        }),
-      );
+      setAttachments((l) => addAttachment(l, webExcerptAttachment(text, url, mode)));
     };
     window.addEventListener("browser-add-to-chat", onBrowserAdd);
     return () => window.removeEventListener("browser-add-to-chat", onBrowserAdd);
@@ -2400,15 +2373,7 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("atelier-gallery-result", { detail: data }));
       }
       if (data.type === "browser-add-to-chat") {
-        let name = "extrait web";
-        try { name = data.url ? new URL(data.url).hostname : name; } catch {}
-        setAttachments((l) =>
-          addAttachment(l, {
-            name,
-            lines: null,
-            text: `Extrait copié depuis ${data.url || "une page web"} :\n> ${data.text.split("\n").join("\n> ")}`,
-          }),
-        );
+        setAttachments((l) => addAttachment(l, webExcerptAttachment(data.text, data.url)));
       }
     };
     window.addEventListener("message", onMsg);
@@ -3907,6 +3872,13 @@ export default function App() {
     setActiveTab((cur) => (cur === id ? "gallery" : cur));
   }, []);
 
+  const threadActions = createThreadActions({
+    ws, activeId, activeProject, allThreads,
+    activeIdRef, activeProjectRef, allThreadsRef, eventsRef,
+    pendingRevert, pendingResend, pendingGoal, pendingPaste,
+    setActiveId, setEvents, setDraftThreads, setInjectText, requestHistory,
+  });
+
   // Slots du WorkspaceShell (slice 3) — contenus et props inchangés, seule la
   // composition est déléguée au shell.
   // feux NATIFS (titleBarStyle Overlay + trafficLightPosition, cf.
@@ -4135,63 +4107,18 @@ export default function App() {
           onSelect={selectThread}
           onNew={newThread}
           onNewChat={newChat}
-          onImportSession={(provider, sessionId, title, sessionRoot) => {
-            const newId = crypto.randomUUID();
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({
-                type: "importSession",
-                newThreadId: newId,
-                provider,
-                sessionId,
-                title,
-                projectRoot: sessionRoot || activeProject || "",
-              }));
-              // charger l'historique (Claude) une fois le thread créé
-              setTimeout(() => {
-                setActiveId(newId);
-                activeIdRef.current = newId;
-                requestHistory(newId);
-              }, 250);
-            }
-          }}
+          onImportSession={threadActions.importSession}
           onRemoveProject={(root) => {
             setProjects((prev) => prev.filter((r) => r !== root));
             if (activeProject === root) setActiveProject(null);
           }}
-          onDelete={(threadId) => {
-            setDraftThreads((p) => p.filter((t) => t.id !== threadId));
-            setEvents((p) => {
-              const { [threadId]: _, ...rest } = p;
-              return rest;
-            });
-            if (activeId === threadId) setActiveId(null);
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "deleteThread", threadId }));
-            }
-          }}
-          onRename={(threadId, title) => {
-            setDraftThreads((p) =>
-              p.map((t) => (t.id === threadId ? { ...t, title } : t)),
-            );
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "renameThread", threadId, title }));
-            }
-          }}
+          onDelete={threadActions.deleteThread}
+          onRename={threadActions.renameThread}
           projMeta={projMeta}
           onSetMeta={(root, m) => setProjMeta((prev) => ({ ...prev, [root]: m }))}
-          linkProviders={providerList
-            .filter((entry) => entry.ok && entry.kind !== "api" && entry.capabilities?.atelierSessionsMcp === true)
-            .filter((entry) => ["claude", "codex", "kimi", "grok", "opencode"].includes(entry.id))
-            .map((entry) => ({
-              id: entry.id,
-              label: entry.id === "opencode" ? "OpenCode" : entry.label.replace(/ Code$/i, ""),
-            }))}
+          linkProviders={linkableAgentProviders(providerList)}
           onContinueWith={continueConversationWith}
-          onUnlinkConversation={(childThreadId) => {
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: childThreadId }));
-            }
-          }}
+          onUnlinkConversation={threadActions.unlinkConversation}
         />
   );
   // ArticleDialog (import d'article MinerU) est monté globalement dans
@@ -4274,20 +4201,7 @@ export default function App() {
             onInject={(text) => {
               setAttachments((l) => addAttachment(l, { name: "Quick Ask", lines: null, text }));
             }}
-            onPromote={(qaId, title) => {
-              const newId = crypto.randomUUID();
-              if (ws.current?.readyState === 1) {
-                ws.current.send(JSON.stringify(qaPromotePayload({
-                  qaId, newThreadId: newId, title,
-                  activeProject: activeProjectRef.current,
-                })));
-                setTimeout(() => {
-                  setActiveId(newId);
-                  activeIdRef.current = newId;
-                  requestHistory(newId);
-                }, 250);
-              }
-            }}
+            onPromote={threadActions.promoteQuickAsk}
           />
         </LazyBoundary>
       )}
@@ -4305,6 +4219,10 @@ export default function App() {
   const activeDeliveryState = activeId
     ? Object.values(deliveryStates).reverse().find((state) => state.threadId === activeId)
     : undefined;
+  const activeThreadEntry = activeId ? allThreads.find((th) => th.id === activeId) : undefined;
+  // Bandeau d'app visible dans le chat seulement s'il vise ce fil et ce projet.
+  const activeBanner = appBanner && (!appBanner.threadId || appBanner.threadId === activeId)
+    && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner : null;
 
   return (
     <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
@@ -4328,21 +4246,10 @@ export default function App() {
             </IconButton>
           </div>
         )}
-        {activeDeliveryState && (
-          <div className="sr-only" aria-live="polite" data-delivery-status={activeDeliveryState.status}>
-            {activeDeliveryState.status === "unconfirmed" && "Envoi en attente de réception"}
-            {activeDeliveryState.status === "received" && "Envoi reçu par Atelier"}
-            {activeDeliveryState.status === "started" && "Réponse en cours"}
-            {activeDeliveryState.status === "completed" && "Réponse terminée"}
-            {activeDeliveryState.status === "cancelled" && "Envoi annulé"}
-            {activeDeliveryState.status === "uncertain" && "Effet fournisseur incertain, vérification requise"}
-            {activeDeliveryState.status === "failed" && "Envoi échoué"}
-            {activeDeliveryState.status === "unknown" && "État de l’envoi introuvable"}
-          </div>
-        )}
+        {activeDeliveryState && <DeliveryStatusAnnouncer status={activeDeliveryState.status} />}
         <ThreadChat
           headerInTopBar
-          notice={appBanner && (!appBanner.threadId || appBanner.threadId === activeId) && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? chatNotice : null}
+          notice={activeBanner ? chatNotice : null}
           threadId={activeId}
           home={homeBundle}
           eventStore={eventStore}
@@ -4357,49 +4264,29 @@ export default function App() {
           zoteroItems={zoteroItems}
           plugins={plugins}
           projectRoot={activeProject}
-          imageProjectRoot={activeId ? allThreads.find((th) => th.id === activeId)?.projectRoot : undefined}
+          imageProjectRoot={activeThreadEntry?.projectRoot}
           projectName={displayProjectName}
-          threadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
-          threadProvider={activeId ? (allThreads.find((th) => th.id === activeId)?.provider ?? "") : ""}
-          kbSourceIds={activeId ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
-          kbFullContent={activeId ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? []) : pendingKb.kbFullContent}
+          threadTitle={activeThreadEntry?.title ?? ""}
+          threadProvider={activeThreadEntry?.provider ?? ""}
+          kbSourceIds={activeId ? (activeThreadEntry?.kbSourceIds ?? []) : pendingKb.kbSourceIds}
+          kbFullContent={activeId ? (activeThreadEntry?.kbFullContent ?? []) : pendingKb.kbFullContent}
           // Le picker peut recevoir `kb-source-added` après un changement de
           // conversation. La callback capture le fil qui a lancé l'ajout ;
           // elle ne doit pas relire activeIdRef au moment de la réponse.
           onKbChange={(next) => handleKbChangeForSource(activeId, next)}
-          consigneDuFil={activeId ? (allThreads.find((th) => th.id === activeId)?.consigne ?? null) : pendingConsigne}
+          consigneDuFil={activeId ? (activeThreadEntry?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
           onOuvrirReglagesConsignes={() => openSettings("consignes")}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
-          agentProviders={providerList
-            .filter((entry) => entry.ok && entry.kind !== "api" && entry.capabilities?.atelierSessionsMcp === true)
-            .filter((entry) => ["claude", "codex", "kimi", "grok", "opencode"].includes(entry.id))
-            .map((entry) => ({ id: entry.id, label: entry.id === "opencode" ? "OpenCode" : entry.label.replace(/ Code$/i, "") }))}
-          linkedAgents={activeId ? (() => {
-            return linkedConversations(allThreads, activeId).map((relation) => ({
-              id: relation.thread.id,
-              provider: relation.thread.provider === "opencode" ? "OpenCode" : relation.thread.provider.charAt(0).toUpperCase() + relation.thread.provider.slice(1),
-              title: relation.thread.title,
-              paused: relation.paused,
-              direction: relation.direction,
-            }));
-          })() : []}
+          agentProviders={linkableAgentProviders(providerList)}
+          linkedAgents={linkedAgentSummaries(allThreads, activeId)}
           onOpenLinkedAgent={(threadId) => {
             const thread = allThreads.find((entry) => entry.id === threadId);
             if (thread) selectThread(thread.id, thread.projectRoot);
           }}
-          onUnlinkLinkedAgent={(threadId) => {
-            const childId = activeId
-              ? linkedConversations(allThreads, activeId).find(
-                  (relation) => relation.thread.id === threadId,
-                )?.childThreadId
-              : null;
-            if (childId && ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "unlinkThread", threadId: childId }));
-            }
-          }}
+          onUnlinkLinkedAgent={threadActions.unlinkLinkedAgent}
           onFavoriteModelsChange={(favoriteModels) =>
             setSettings((current) => ({ ...current, favoriteModels }))}
           onTranscriptViewChange={(transcriptView) =>
@@ -4433,156 +4320,36 @@ export default function App() {
           onRemoveAttachment={(i) => updateComposerDraft(activeComposerKey, (draft) => ({
             ...draft, attachments: draft.attachments.filter((_, j) => j !== i),
           }))}
-          onRevert={(index, text, edit) => {
-            if (!activeId) return;
-            const id = activeId;
-            const snapshot = eventsRef.current[id] ?? [];
-            const eventId = (snapshot[index]?.meta as any)?.eventId;
-            const checkpoint = checkpointAfterUser(snapshot, index);
-            if (ws.current?.readyState === 1) {
-              pendingRevert.current = { threadId: id, snapshot, index };
-              ws.current.send(JSON.stringify({
-                type: "revert", scope: "thread", threadId: id, text, eventId, ...checkpoint,
-              }));
-            }
-            if (edit) setInjectText(text);
-          }}
+          onRevert={threadActions.revert}
           threadPins={activeId ? pins[activeId] : undefined}
           setPins={setPins}
           onStylePin={(index, patch) => {
             if (!activeId) return;
             const id = activeId;
-            setPins((p) => ({
-              ...p,
-              [id]: (p[id] ?? []).map((c) => (c.index === index ? { ...c, ...patch } : c)),
-            }));
+            setPins((p) => ({ ...p, [id]: stylePin(p[id] ?? [], index, patch) }));
           }}
           onTogglePin={(index, label) => {
             if (!activeId) return;
             const id = activeId;
-            setPins((p) => {
-              const cur = p[id] ?? [];
-              const exists = cur.find((c) => c.index === index);
-              return {
-                ...p,
-                [id]: exists
-                  ? cur.filter((c) => c.index !== index)
-                  : [...cur, createPin(eventsRef.current[id] ?? [], index, label)]
-                      .sort((a, b) => a.index - b.index),
-              };
-            });
+            setPins((p) => ({ ...p, [id]: togglePin(p[id] ?? [], eventsRef.current[id] ?? [], index, label) }));
           }}
-          onEditSend={(index, oldText, newText) => {
-            if (!activeId) return;
-            const id = activeId;
-            const snapshot = eventsRef.current[id] ?? [];
-            const eventId = (snapshot[index]?.meta as any)?.eventId;
-            pendingResend.current = {
-              threadId: id,
-              prompt: newText,
-              snapshot,
-              clientMessageId: crypto.randomUUID(),
-              ts: Date.now(),
-              index,
-            };
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({
-                type: "revert", scope: "thread", threadId: id, text: oldText, eventId,
-              }));
-            }
-          }}
-          onFork={(index) => {
-            if (!activeId) return;
-            const src = allThreadsRef.current.find((t) => t.id === activeId);
-            if (!src) return;
-            const newId = crypto.randomUUID();
-            const { forkEvents, payload } = buildForkThreadPayload(
-              activeId,
-              newId,
-              index,
-              eventsRef.current[activeId] ?? [],
-            );
-            // copie locale de l'historique jusqu'au point de fork
-            setEvents((p) => ({ ...p, [newId]: forkEvents }));
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify(payload));
-            }
-            setActiveId(newId);
-            activeIdRef.current = newId;
-          }}
+          onEditSend={threadActions.editSend}
+          onFork={threadActions.fork}
           onNewChat={newChat}
           onOpenProject={addProject}
           onOpenAgent={activeProject ? openAgentInAtelier : undefined}
           layout={layout}
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onAttachPath={(path) => {
-            const name = path.split("/").pop() ?? path;
             if (!path.startsWith("/")) rememberFile(path);
-            setAttachments((l) => addAttachment(l, {
-              name,
-              lines: null,
-              path,
-              kind: "file",
-              text: `Fichier joint (chemin local, lisible avec Read) : ${path}`,
-              preview: {
-                title: name,
-                rows: [
-                  { label: "Type", value: "File" },
-                  { label: "Path", value: path },
-                ],
-              },
-            }));
+            setAttachments((l) => addAttachment(l, fileAttachment(path)));
           }}
-          onAttachFolder={(folder) => {
-            const prefix = folder.endsWith("/") ? folder : `${folder}/`;
-            const excluded = /(^|\/)(node_modules|dist|build|target|\.git|\.next|\.vite|coverage)\//;
-            const included = files
-              .filter((file) => file.startsWith(prefix) && !excluded.test(file))
-              .slice(0, 60);
-            const omitted = Math.max(0, files.filter((file) => file.startsWith(prefix)).length - included.length);
-            const name = prefix.split("/").filter(Boolean).pop() ?? prefix;
-            setAttachments((l) => addAttachment(l, {
-              name: `${name}/`,
-              lines: included.length ? `${included.length} files${omitted ? `, +${omitted}` : ""}` : "empty",
-              path: prefix,
-              kind: "folder",
-              text: [
-                `Dossier joint comme contexte : ${prefix}`,
-                "Contenu non injecté automatiquement; lis les fichiers précis avec Read si nécessaire.",
-                included.length ? `Fichiers indexés${omitted ? ` (premiers ${included.length}, ${omitted} autres omis)` : ""} :` : "Aucun fichier indexé dans ce dossier.",
-                ...included.map((file) => `- ${file}`),
-              ].join("\n"),
-              preview: {
-                title: `${name}/`,
-                rows: [
-                  { label: "Type", value: "Folder context" },
-                  { label: "Files", value: `${included.length}${omitted ? ` shown, ${omitted} omitted` : ""}` },
-                  { label: "Path", value: prefix },
-                ],
-              },
-            }));
-          }}
+          onAttachFolder={(folder) => setAttachments((l) => addAttachment(l, folderAttachment(folder, files)))}
           onAttachZotero={(key) => {
             const item = zoteroItems.find((entry) => entry.key === key);
             if (!item) return;
-            const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
             pendingZoteroDigest.current.set(item.key, item);
-            setAttachments((l) => addAttachment(l, {
-              name: label,
-              lines: item.year || null,
-              kind: "zotero",
-              text: buildZoteroReferenceText(item),
-              preview: {
-                title: item.title || label,
-                rows: [
-                  { label: "Citation", value: label },
-                  ...(item.creators ? [{ label: "Authors", value: item.creators }] : []),
-                  ...(item.year ? [{ label: "Year", value: item.year }] : []),
-                  ...(item.doi ? [{ label: "DOI", value: item.doi }] : []),
-                  { label: "Digest", value: "…" },
-                ],
-              },
-            }));
+            setAttachments((l) => addAttachment(l, zoteroAttachment(item)));
             if (ws.current?.readyState === 1) {
               ws.current.send(JSON.stringify({
                 type: "zoteroDigest", key: item.key, citeKey: item.citeKey ?? "",
@@ -4590,58 +4357,12 @@ export default function App() {
               }));
             }
           }}
-          onStop={() => {
-            if (activeId && ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({ type: "interrupt", threadId: activeId }));
-              requestHistory(activeId, undefined, { force: true });
-            }
-          }}
-          onPasteImage={(dataURL) => {
-            if (ws.current?.readyState === 1) {
-              pendingPaste.current = dataURL;
-              ws.current.send(JSON.stringify({ type: "saveImage", dataURL }));
-            }
-          }}
-          onPasteText={(text) =>
-            setAttachments((l) =>
-              addAttachment(l, {
-                name: t("chat.pasted-text"),
-                lines: String(text.split("\n").length),
-                kind: "paste",
-                text,
-              }),
-            )
-          }
-          onQuote={(text) =>
-            setAttachments((l) =>
-              addAttachment(l, {
-                name: `« ${text.slice(0, 50)}${text.length > 50 ? "…" : ""} »`,
-                lines: null,
-                kind: "quote",
-                text: `Citation de la conversation :\n> ${text.split("\n").join("\n> ")}`,
-              }),
-            )
-          }
+          onStop={threadActions.stop}
+          onPasteImage={threadActions.pasteImage}
+          onPasteText={(text) => setAttachments((l) => addAttachment(l, pastedTextAttachment(t("chat.pasted-text"), text)))}
+          onQuote={(text) => setAttachments((l) => addAttachment(l, quoteAttachment(text)))}
           disabled={!activeProject && !activeId}
-          onGoal={(action, objective, status) => {
-            if (!activeId || ws.current?.readyState !== 1) return;
-            const th = allThreadsRef.current.find((t) => t.id === activeId);
-            if (!th?.sessionId) {
-              // pas encore de session : mémoriser (posé au premier message)
-              // ou oublier — goalSet/goalClear échoueraient côté sidecar
-              pendingGoal.current =
-                action === "set" && objective ? { threadId: activeId, objective } : null;
-              return;
-            }
-            if (action === "clear") pendingGoal.current = null;
-            // le router sidecar relaie déjà `status` à thread/goal/set (Codex
-            // app-server) — pause = status:"paused", reprise = "active"
-            ws.current.send(JSON.stringify(
-              action === "set"
-                ? { type: "goalSet", threadId: activeId, objective, ...(status ? { status } : {}) }
-                : { type: "goalClear", threadId: activeId },
-            ));
-          }}
+          onGoal={threadActions.goal}
           onSubmit={submit}
         />
       </Panel>
@@ -4663,43 +4384,21 @@ export default function App() {
               projectRoot={activeProject ?? ""}
               activeThreadId={activeId}
               kbBinding={{
-                attached: activeId
-                  ? (allThreads.find((th) => th.id === activeId)?.kbSourceIds ?? [])
-                  : pendingKb.kbSourceIds,
-                fullContent: activeId
-                  ? (allThreads.find((th) => th.id === activeId)?.kbFullContent ?? [])
-                  : pendingKb.kbFullContent,
+                attached: activeId ? (activeThreadEntry?.kbSourceIds ?? []) : pendingKb.kbSourceIds,
+                fullContent: activeId ? (activeThreadEntry?.kbFullContent ?? []) : pendingKb.kbFullContent,
                 // Même binding capturé pour les ajouts initiés depuis la
                 // surface Connaissances (réponse asynchrone possible).
                 onChange: (next) => handleKbChangeForSource(activeId, next),
               }}
-              kbThreadTitle={activeId ? (allThreads.find((th) => th.id === activeId)?.title ?? "") : ""}
+              kbThreadTitle={activeThreadEntry?.title ?? ""}
               files={files}
               filesTruncated={filesTruncated}
-              onReorderTabs={(ids) => {
-                setAtelierTabs((tabs) => {
-                  // `ids` ne décrit que les onglets VISIBLES : remapper la
-                  // liste entière dessus effacerait les autres projets.
-                  const next = mergeReorderedTabs(tabs, ids);
-                  savePinned(next);
-                  return next;
-                });
-              }}
+              // `ids` ne décrit que les onglets VISIBLES : remapper la liste
+              // entière dessus effacerait les autres projets.
+              onReorderTabs={(ids) => updatePinnedTabs((tabs) => mergeReorderedTabs(tabs, ids))}
               ws={ws.current}
-              onPinTab={(id) => {
-                setAtelierTabs((tabs) => {
-                  const next = tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t));
-                  savePinned(next);
-                  return next;
-                });
-              }}
-              onColorTab={(id, color) => {
-                setAtelierTabs((tabs) => {
-                  const next = tabs.map((t) => (t.id === id ? { ...t, color } : t));
-                  savePinned(next);
-                  return next;
-                });
-              }}
+              onPinTab={(id) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)))}
+              onColorTab={(id, color) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, color } : t)))}
               onOpenFile={(rel) => openFileTab(rel)}
               tabs={visibleAtelierTabs}
               activeTab={activeTab}
@@ -4717,23 +4416,8 @@ export default function App() {
               onGalleryReload={hardReloadAtelier}
               onInspectFile={openInspector}
               onAddFileToChat={(rel) => {
-                // Même contrat que le bouton chat des cartes galerie
-                // (chatAttachment) : chemin absolu + consigne de lecture,
-                // vignette pour les images.
-                const root = activeProject ?? "";
-                const path = `${root}/${rel}`;
-                const name = rel.split("/").pop() || rel;
-                const ext = (name.split(".").pop() || "").toLowerCase();
-                const origin = (() => {
-                  try { return atelierUrl ? new URL(atelierUrl).origin : null; } catch { return null; }
-                })();
-                const previewUrl = origin && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)
-                  ? new URL(rel, `${origin}/`).href
-                  : undefined;
-                attachContextToChat(
-                  `${path}\nFichier joint depuis la galerie atelier — lis-le (outil Read) avant de répondre.`,
-                  { path, name, previewUrl },
-                );
+                const { text, file } = galleryFileContext(activeProject ?? "", rel, atelierUrl ?? null);
+                attachContextToChat(text, file);
               }}
               agent={openedAgent}
               agentEventStore={eventStore}
@@ -4764,9 +4448,7 @@ export default function App() {
         prompt={activeComposerDraft.prompt} onPromptChange={setComposerPrompt}
         count={readingAnnotations.length} disabled={!wsReady || (!activeProject && !activeId)}
         working={activeId ? workingSince[activeId] != null : false}
-        feedback={!wsReady ? "Connexion au chat interrompue. Le brouillon est conservé."
-          : appBanner && (!appBanner.threadId || appBanner.threadId === activeId)
-            && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner.text : undefined}
+        feedback={!wsReady ? "Connexion au chat interrompue. Le brouillon est conservé." : activeBanner?.text}
         onSend={sendFromReading}
         files={attachments.filter(attachment => !attachment.pdfAnnotation).map(attachment => attachment.name)}
         onAttach={() => {
@@ -4774,8 +4456,7 @@ export default function App() {
           void open({multiple:true,directory:false}).then(paths => {
             if (!paths) return;
             updateComposerDraft(key, draft => ({...draft, attachments: (Array.isArray(paths) ? paths : [paths]).reduce((items,path) =>
-              addAttachment(items,{name:path.split("/").pop() || path,lines:null,path,kind:"file",
-                text:`Fichier joint (chemin local, lisible avec Read) : ${path}`}),draft.attachments)}));
+              addAttachment(items, fileAttachment(path, { preview: false })), draft.attachments)}));
           }).catch(error => void showError(String(error)));
         }}
         onClear={() => updateComposerDraft(activeComposerKey, draft => ({...draft,
@@ -4783,31 +4464,11 @@ export default function App() {
         }))}
       />}
       {newChatRequest && (
-        <LazyDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setNewChatRequest(null);
-          }}
-          title={t("app.new-chat-title")}
-          description={t("app.choose-provider")}
-          closeLabel={t("action.close")}
-          className="provider-new-dialog"
-        >
-            <div className="provider-new-grid">
-              {["claude", "codex", "grok", "kimi", "opencode"].map((provider) => {
-                const info = providerList.find((item) => item.id === provider);
-                const available = info?.ok !== false;
-                return (
-                  <RowButton key={provider} className="provider-new-card" disabled={!available}
-                    onClick={() => createChat(newChatRequest.projectRoot, provider)}>
-                    <ProviderIcon provider={provider} size={18} />
-                    <span>{info?.label ?? provider[0].toUpperCase() + provider.slice(1)}</span>
-                    <small>{available ? t("app.independent-chat") : t("app.provider-unavailable")}</small>
-                  </RowButton>
-                );
-              })}
-            </div>
-        </LazyDialog>
+        <NewChatProviderDialog
+          providers={providerList}
+          onCreate={(provider) => createChat(newChatRequest.projectRoot, provider)}
+          onClose={() => setNewChatRequest(null)}
+        />
       )}
     </WorkspaceShell>
   );

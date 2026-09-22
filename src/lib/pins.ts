@@ -85,3 +85,15 @@ export function resolvePins(events: PinEvent[], pins: Pin[]): Pin[] {
   });
   return changed ? next : pins;
 }
+
+/** Pose ou retire l'épingle `index` d'un fil ; la liste reste triée par position. */
+export function togglePin(pins: Pin[], events: PinEvent[], index: number, label: string): Pin[] {
+  return pins.find((c) => c.index === index)
+    ? pins.filter((c) => c.index !== index)
+    : [...pins, createPin(events, index, label)].sort((a, b) => a.index - b.index);
+}
+
+/** Couleur, style ou libellé d'une épingle existante. */
+export function stylePin(pins: Pin[], index: number, patch: Partial<Pick<Pin, "color" | "style" | "label">>): Pin[] {
+  return pins.map((c) => (c.index === index ? { ...c, ...patch } : c));
+}

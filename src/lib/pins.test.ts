@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPin, resolvePins, type Pin, type PinEvent } from "./pins";
+import { createPin, resolvePins, stylePin, togglePin, type Pin, type PinEvent } from "./pins";
 
 // Un fil rejoué n'a PAS la même longueur qu'en direct : le reducer réinsère
 // les tool_update et les thinking, et les index glissent. Mesuré sur le fil
@@ -107,5 +107,25 @@ describe("resolvePins", () => {
       { index: 1, label: "La découverte", anchor: "La découverte", eventId: "a1", color: "#7aa2f7" },
     ];
     expect(resolvePins(REPLAY, pins)[0]).toMatchObject({ index: 3, color: "#7aa2f7" });
+  });
+});
+
+describe("togglePin / stylePin", () => {
+  it("pose une épingle ancrée et garde la liste triée par position", () => {
+    const first: Pin[] = [{ index: 3, label: "Plus loin" }];
+    const next = togglePin(first, LIVE, 1, "La découverte");
+    expect(next.map((p) => p.index)).toEqual([1, 3]);
+    expect(next[0]).toMatchObject({ anchor: "La découverte", eventId: "a1" });
+  });
+
+  it("retire l'épingle déjà posée à cette position", () => {
+    expect(togglePin([{ index: 1, label: "x" }], LIVE, 1, "x")).toEqual([]);
+  });
+
+  it("ne restyle que l'épingle visée", () => {
+    const pins: Pin[] = [{ index: 0, label: "a" }, { index: 1, label: "b" }];
+    const next = stylePin(pins, 1, { color: "#7aa2f7" });
+    expect(next[0]).toBe(pins[0]);
+    expect(next[1]).toEqual({ index: 1, label: "b", color: "#7aa2f7" });
   });
 });

@@ -101,3 +101,17 @@ export function orderedVisibleProviders(
     .filter((p) => !hidden.has(p.id))
     .sort((a, b) => rank(a.id) - rank(b.id));
 }
+
+const LINKABLE_AGENT_IDS = ["claude", "codex", "kimi", "grok", "opencode"];
+
+/** Agents qu'on peut lier à une conversation (mention Atelier, « continuer
+ * avec ») : CLI détecté dont le harnais Rust confirme le MCP atelier-sessions. */
+export function linkableAgentProviders(providers: ProviderInfo[]): { id: string; label: string }[] {
+  return providers
+    .filter((entry) => entry.ok && entry.kind !== "api" && entry.capabilities?.atelierSessionsMcp === true)
+    .filter((entry) => LINKABLE_AGENT_IDS.includes(entry.id))
+    .map((entry) => ({
+      id: entry.id,
+      label: entry.id === "opencode" ? "OpenCode" : entry.label.replace(/ Code$/i, ""),
+    }));
+}
