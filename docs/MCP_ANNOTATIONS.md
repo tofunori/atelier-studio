@@ -26,7 +26,7 @@ qui n'ont pas encore été recopiés dans le store commun.
 
 | Outil | Usage |
 | --- | --- |
-| `search_annotations` | tous les articles en un appel, résultats groupés par article : `query`, `match` (`all` par défaut, `any` pour une recherche thématique classée par nombre de mots trouvés), `only_with_note`, `articles`, `color`, `limit` (200 par défaut, 1000 au plus) |
+| `search_annotations` | tous les articles en un appel, résultats groupés par article : `query`, `match` (`all` par défaut, `any` pour une recherche thématique classée par nombre de mots trouvés dans le passage et la note), `only_with_note`, `articles`, `color`, `limit` (100 par défaut, 1000 au plus), `per_article` (5 par défaut en mode `any`) |
 | `list_annotated_articles` | articles annotés, avec leurs nombres de passages et de notes |
 | `get_article_annotations` | toutes les annotations d'un ou de plusieurs articles nommés (`articles: [...]`, ou l'ancien `article`), par page |
 
