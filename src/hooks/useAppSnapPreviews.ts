@@ -60,7 +60,7 @@ export function useAppSnapPreviews(
         owned.delete(url);
       }
     }
-  }, []);
+  }, [eventsRef]);
 
   useEffect(() => {
     const needsPreview = (attachment: Attachment) =>

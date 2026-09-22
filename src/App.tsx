@@ -845,7 +845,7 @@ export default function App() {
       disposed = true;
       stops.forEach((stop) => stop());
     };
-  }, [updateComposerDraft]);
+  }, [updateComposerDraft, adoptAppSnapPreviewUrl]);
 
   useEffect(() => {
     void setAppSnapEnabled(settings.enableAppSnap).catch((error) => {
@@ -952,7 +952,7 @@ export default function App() {
   useEffect(() => {
     if (!activeProject || tabRestoredFor.current !== activeProject) return;
     setLastTabByProject((memory) => rememberForProject(memory, activeProject, activeTab));
-  }, [activeProject, activeTab]);
+  }, [activeProject, activeTab, setLastTabByProject]);
 
   // Mémorisation du fil actif : l'accueil du projet (activeId null) efface
   // l'entrée, il n'y a pas de conversation à retenir.
@@ -967,7 +967,7 @@ export default function App() {
     setLastThreadByProject((memory) =>
       rememberForProject(memory, activeProject, owned ? activeId : null),
     );
-  }, [activeProject, activeId]);
+  }, [activeProject, activeId, setLastThreadByProject]);
 
   // à l'ouverture d'un chat Codex avec session : recharge le goal actif (s'il existe)
   const goalFetched = useRef<Set<string>>(new Set());
@@ -3996,7 +3996,7 @@ export default function App() {
   const handleOpenSettings = useCallback(() => openSettings(), [openSettings]);
   const handleSetProjMeta = useCallback(
     (root: string, m: ProjMeta) => setProjMeta((p) => ({ ...p, [root]: m })),
-    [],
+    [setProjMeta],
   );
   const handleRemoveProject = useCallback((root: string) => {
     setProjects((prev) => prev.filter((r) => r !== root));
