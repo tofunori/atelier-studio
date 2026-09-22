@@ -356,8 +356,11 @@ export default function App() {
     { id: string; url: string; title: string; color?: string; pinned?: boolean; kind?: "term"; cwd?: string; projectRoot?: string }[]
   >([]);
 
-  // onglets épinglés persistés par projet
+  // onglets épinglés persistés par projet. Le projet vient du ref : les
+  // callbacks mémorisés (closeAtelierTab) gardent le savePinned du premier
+  // rendu, qui aurait sinon écrit dans le store du projet de démarrage.
   function savePinned(tabs: typeof atelierTabs) {
+    const activeProject = activeProjectRef.current;
     if (!activeProject) return;
     const store = JSON.parse(localStorage.getItem("atelier-studio.pinnedTabs") ?? "{}");
     // la liste porte maintenant les onglets de TOUS les projets visités :
