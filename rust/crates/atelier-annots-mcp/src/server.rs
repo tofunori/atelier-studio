@@ -5,7 +5,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 
-const DEFAULT_LIMIT: usize = 200;
+const DEFAULT_LIMIT: usize = 100;
+/// En recherche thématique, passages gardés par article, pour que quelques
+/// articles très annotés n'occupent pas toute la réponse.
+const DEFAULT_PER_ARTICLE: usize = 5;
 const MAX_LIMIT: usize = 1000;
 
 pub fn run(config: &Config) -> Result<(), String> {
@@ -76,9 +79,10 @@ query, puis garder les notes qui concernent X, même formulées autrement.\n\
 - « Des passages utiles pour ma discussion (sur tel sujet) » : UN search_annotations avec \
 match=\"any\" et une query de 8 à 15 mots-clés du sujet en anglais ET en français (les articles \
 sont en anglais, les notes en français), par exemple « albedo impurities soot black carbon \
-wildfire smoke deposition feux suie ». Les articles les plus pertinents viennent en premier. \
+wildfire smoke deposition feux suie ». Les passages les plus pertinents viennent en premier, 5 au plus \
+par article (per_article pour en voir plus). \
 Relancer au plus une fois avec d'autres mots si c'est trop maigre.\n\
-- Tout relire : search_annotations sans query (limit jusqu'à 1000).\n\
+- Tout relire : search_annotations sans query (limit jusqu'à 1000, par tranches si besoin).\n\
 - get_article_annotations : seulement quand Thierry nomme des articles précis ; les passer \
 tous dans un seul appel (articles: [...]).\n\
 Citer chaque élément avec sa référence et sa page.";
@@ -100,7 +104,8 @@ fn tools() -> Value {
                     "only_with_note": {"type": "boolean", "description": "Ne garder que les passages qui ont une note personnelle.", "default": false},
                     "articles": {"type": "array", "items": {"type": "string"}, "description": "Limiter à ces articles : clé Zotero, nom d'auteur, année ou mot du titre."},
                     "color": {"type": "string", "description": "Couleur de surlignage : jaune, vert, bleu, rose."},
-                    "limit": {"type": "integer", "description": "Nombre maximal de passages (200 par défaut).", "minimum": 1, "maximum": MAX_LIMIT}
+                    "limit": {"type": "integer", "description": "Nombre maximal de passages (100 par défaut).", "minimum": 1, "maximum": MAX_LIMIT},
+                    "per_article": {"type": "integer", "description": "Avec match=any : passages gardés par article (5 par défaut).", "minimum": 1}
                 }
             },
             "annotations": {"readOnlyHint": true}
@@ -172,10 +177,26 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
             };
             let mut hits = lib.search(&filter);
             let total = hits.len();
+            let total_articles = distinct_articles(&hits);
+            let mut capped = 0;
+            let per_article = args
+                .get("per_article")
+                .and_then(Value::as_u64)
+                .map(|n| (n as usize).max(1))
+                .unwrap_or(DEFAULT_PER_ARTICLE);
             if any {
-                // Les passages qui portent le plus de mots d'abord, puis les
-                // articles dans l'ordre de leur meilleur passage.
+                // Les passages qui portent le plus de mots d'abord (tri
+                // stable : à égalité, l'ordre des références), au plus
+                // `per_article` par article, puis les articles dans l'ordre de
+                // leur meilleur passage.
                 hits.sort_by(|x, y| y.score.cmp(&x.score));
+                let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+                hits.retain(|h| {
+                    let n = seen.entry(h.article.key.clone()).or_default();
+                    *n += 1;
+                    *n <= per_article
+                });
+                capped = total - hits.len();
                 hits.truncate(limit);
                 sort_by_reference(&mut hits);
                 let mut best: BTreeMap<String, usize> = BTreeMap::new();
@@ -187,18 +208,22 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
             } else {
                 hits.truncate(limit);
             }
-            let articles = hits
-                .iter()
-                .map(|h| h.article.key.as_str())
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            let mut out = format!("{total} passage(s)");
-            if total > limit {
+            let mut out = format!("{total} passage(s) dans {total_articles} article(s)");
+            if hits.len() < total {
                 out.push_str(&format!(
-                    ", {limit} affichés (affiner la recherche ou augmenter limit)"
+                    " ; {} affichés dans {} article(s)",
+                    hits.len(),
+                    distinct_articles(&hits)
                 ));
+                if capped > 0 {
+                    out.push_str(&format!(
+                        " (les plus pertinents, {per_article} au plus par article)"
+                    ));
+                } else {
+                    out.push_str(" (affiner la recherche ou augmenter limit)");
+                }
             }
-            out.push_str(&format!(" ; {articles} article(s).\n"));
+            out.push_str(".\n");
             out.push_str(&format_groups(&hits));
             Ok(with_warnings(out, &lib))
         }
@@ -272,6 +297,13 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
         }
         _ => Err(format!("Outil inconnu : {name}")),
     }
+}
+
+fn distinct_articles(hits: &[Hit]) -> usize {
+    hits.iter()
+        .map(|h| h.article.key.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
 }
 
 /// Passages groupés par article : l'en-tête (référence, clé, titre) une fois,
@@ -413,7 +445,10 @@ mod tests {
             json!({"only_with_note": true}),
         );
         assert!(!is_error);
-        assert!(text.starts_with("2 passage(s) ; 1 article(s)."), "{text}");
+        assert!(
+            text.starts_with("2 passage(s) dans 1 article(s)."),
+            "{text}"
+        );
         assert!(
             text.contains(
                 "## Warren & Wiscombe 1980 [ABCD1234]\nA model for the spectral albedo of snow\n"
@@ -482,7 +517,10 @@ mod tests {
     fn search_limit_is_reported() {
         let (_dir, config) = setup();
         let (text, _) = call_tool(&config, "search_annotations", json!({"limit": 1}));
-        assert!(text.starts_with("3 passage(s), 1 affichés"), "{text}");
+        assert!(
+            text.starts_with("3 passage(s) dans 1 article(s) ; 1 affichés"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -494,7 +532,10 @@ mod tests {
             json!({"query": "remote-sensing misinterpreted grain glaciers", "match": "any"}),
         );
         assert!(!is_error);
-        assert!(text.starts_with("3 passage(s) ; 1 article(s)."), "{text}");
+        assert!(
+            text.starts_with("3 passage(s) dans 1 article(s)."),
+            "{text}"
+        );
         let (all, _) = call_tool(
             &config,
             "search_annotations",
@@ -509,6 +550,20 @@ mod tests {
         assert!(
             top.contains("p. 12") && !top.contains("p. 3 "),
             "the passage with the most words wins: {top}"
+        );
+    }
+
+    #[test]
+    fn thematic_search_caps_passages_per_article() {
+        let (_dir, config) = setup();
+        let (text, _) = call_tool(
+            &config,
+            "search_annotations",
+            json!({"query": "remote-sensing grain glaciers", "match": "any", "per_article": 2}),
+        );
+        assert!(
+            text.starts_with("3 passage(s) dans 1 article(s) ; 2 affichés dans 1 article(s) (les plus pertinents, 2 au plus par article)"),
+            "{text}"
         );
     }
 

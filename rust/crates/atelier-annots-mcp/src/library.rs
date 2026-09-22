@@ -320,21 +320,28 @@ impl Library {
             .filter(|a| wanted_color.is_empty() || fold(&a.color) == wanted_color)
             .filter_map(|a| {
                 let art = self.article(&a.article);
+                // Une clé qui est un chemin de fichier (PDF hors Zotero) ne
+                // compte pas : ses dossiers (« neige/… ») prendraient tout.
+                let key = if art.key.contains('/') { "" } else { &art.key };
                 let ident = fold(&format!(
-                    "{} {} {} {} {}",
-                    art.key, art.citation, art.title, art.authors, art.year
+                    "{key} {} {} {} {}",
+                    art.citation, art.title, art.authors, art.year
                 ));
                 if !wanted_articles.is_empty()
                     && !wanted_articles.iter().any(|w| ident.contains(w.as_str()))
                 {
                     return None;
                 }
-                let hay = fold(&format!("{} {} {}", a.passage, a.note, ident));
-                let score = words.iter().filter(|w| hay.contains(w.as_str())).count();
+                // Le score ne compte que le passage et la note : un titre qui
+                // contient les mots ferait remonter tout l'article.
+                let text = fold(&format!("{} {}", a.passage, a.note));
+                let score = words.iter().filter(|w| text.contains(w.as_str())).count();
                 let keep = if filter.any {
                     words.is_empty() || score > 0
                 } else {
-                    score == words.len()
+                    words
+                        .iter()
+                        .all(|w| text.contains(w.as_str()) || ident.contains(w.as_str()))
                 };
                 keep.then_some(Hit {
                     annotation: a,
@@ -441,6 +448,11 @@ mod tests {
             lib.search(&any("soot, carbon grain")).len(),
             2,
             "one word is enough"
+        );
+        assert_eq!(
+            lib.search(&any("warren snow")).len(),
+            0,
+            "words of the reference or title do not rank passages"
         );
         assert_eq!(
             lib.search(&any("de la carbon")).len(),
