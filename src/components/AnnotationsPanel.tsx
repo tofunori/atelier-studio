@@ -13,6 +13,8 @@ export type PdfAnnot = {
   kind?: string;
   text?: string;
   note?: string;
+  /** Note personnelle : gardée avec le passage, jamais envoyée au chat. */
+  memo?: string;
   color?: string;
   rects?: number[][];
   pin?: number[];
@@ -37,7 +39,7 @@ export function annotQuoteText(rel: string, a: PdfAnnot): string {
 
 function matches(a: PdfAnnot, rel: string, needle: string): boolean {
   if (!needle) return true;
-  const hay = `${a.text ?? ""} ${a.note ?? ""} ${annotCiteRef(rel)}`.toLowerCase();
+  const hay = `${a.text ?? ""} ${a.note ?? ""} ${a.memo ?? ""} ${annotCiteRef(rel)}`.toLowerCase();
   return hay.includes(needle);
 }
 
@@ -241,6 +243,15 @@ export default function AnnotationsPanel(p: {
                         )}
                         {a.note && a.kind !== "note" && a.kind !== "area" && (
                           <span className="annots-note">{a.note}</span>
+                        )}
+                        {a.memo && a.kind !== "note" && (
+                          <span className="annots-memo">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                              strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 20h4L19 9l-4-4L4 16z" />
+                            </svg>
+                            {a.memo}
+                          </span>
                         )}
                       </RowButton>
                       <div className="annots-foot">

@@ -7,19 +7,32 @@ export const annotationColors = [
 ] as const;
 const selectionColors = new WeakMap<Document, string>();
 const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
+const pencil = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+/** `memo` ajoute, au-dessus du champ du chat, une note personnelle gardée avec
+ *  le passage et jamais envoyée au chat (lecteur PDF). Sans `memo`, la bulle
+ *  reste celle des éditeurs : un seul champ. */
 export function createNoteEditor(host: HTMLElement, options: {
   value?: string; onSubmit(value: string): void; onDelete(): void;
   onDismiss?(): void; onChange?(value: string): void; onSendDirect?(value: string): void;
+  placeholder?: string; memo?: {value?: string};
 }) {
   host.classList.add("atelier-note");
-  host.innerHTML = '<div class="atelier-note-row"><textarea aria-label="Commentaire sur le passage" placeholder="Ajouter une note…" rows="1"></textarea>'
+  const memo = options.memo
+    ? '<div class="atelier-memo"><div class="atelier-memo-head">'+pencil+'<span>Note</span></div>'
+      + '<textarea class="atelier-memo-input" aria-label="Note sur le passage" placeholder="Pour plus tard, jamais envoyée au chat" rows="1"></textarea></div>'
+      + '<div class="atelier-note-sep"></div>'
+    : '';
+  host.innerHTML = memo + '<div class="atelier-note-row"><textarea class="atelier-note-input" aria-label="Commentaire sur le passage" placeholder="'
+    + (options.placeholder || "Ajouter une note…") + '" rows="1"></textarea>'
     + '<button type="button" class="delete-note" title="Supprimer l’annotation" aria-label="Supprimer l’annotation">'+trash+'</button>'
     + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">↑</button>'
     + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg></button>' : '')
     + '</div><div class="annotation-status" role="status"></div>';
-  const input = host.querySelector("textarea")!;
+  const input = host.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input")!;
+  const memoInput = host.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
+  if(memoInput) memoInput.value = options.memo?.value || "";
   const fit = () => {input.style.height="24px";input.style.height=Math.min(88,input.scrollHeight)+"px";};
   input.oninput = () => {fit();options.onChange?.(input.value);};
   input.onkeydown = event => {
@@ -31,8 +44,8 @@ export function createNoteEditor(host: HTMLElement, options: {
   const directButton = host.querySelector<HTMLButtonElement>(".send-direct");
   if(directButton) directButton.onclick=()=>options.onSendDirect?.(input.value);
   host.querySelector<HTMLButtonElement>(".delete-note")!.onclick=options.onDelete;
-  return {input,status,fit,focus(){fit();input.focus({preventScroll:true});},busy(value:boolean){
-    input.disabled=value;host.querySelectorAll("button").forEach(button=>button.disabled=value);
+  return {input,memoInput,status,fit,focus(){fit();input.focus({preventScroll:true});},busy(value:boolean){
+    input.disabled=value;if(memoInput)memoInput.disabled=value;host.querySelectorAll("button").forEach(button=>button.disabled=value);
   }};
 }
 export function createSelectionActions(host: HTMLElement, options: {

@@ -242,6 +242,13 @@
   #annPane .it .q .oq{color:#7d838d}
   #annPane .it .q.is-note{color:#9aa2ad;font-style:italic}
   #annPane .it .note{color:#9aa2ad;font-size:var(--fs-body-s, 12px);margin-top:4px;font-style:italic}
+  #annPane .it .memo{display:flex;gap:4px;align-items:flex-start;color:var(--txt);font-size:var(--fs-body-s, 12px);line-height:1.5;margin-top:4px;white-space:pre-wrap}
+  #annPane .it .memo svg{flex:none;width:12px;height:12px;margin-top:3px;color:var(--muted)}
+  body.pane-narrow #annPane .memo{display:none}
+  .pg .pdfmemo{position:absolute;z-index:8;width:16px;height:16px;padding:0;border:0;border-radius:999px;
+    display:flex;align-items:center;justify-content:center;background:#8da9ff;color:#fff;cursor:pointer;
+    transform:translate(4px,-50%);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+  .pg .pdfmemo svg{width:10px;height:10px}
   #annPane .foot{display:flex;align-items:center;gap:8px;margin-top:6px;min-height:22px}
   #annPane .foot .pg{color:#7d838d;font-size:var(--fs-label, 11px);font-variant-numeric:tabular-nums}
   #annPane .foot .sp{flex:1}
@@ -1479,6 +1486,13 @@ const annPane = (function(){
         body.appendChild(n);
       }
     }
+    if (a.memo && a.kind !== "note") {
+      const m = document.createElement("div");
+      m.className = "memo";
+      m.innerHTML = MEMO_ICON;
+      m.appendChild(document.createTextNode(a.memo));
+      body.appendChild(m);
+    }
     const foot = document.createElement("div");
     foot.className = "foot";
     const pg = document.createElement("span");
@@ -1815,7 +1829,7 @@ function saveAnnots(){
   return ANNOT_SAVE;
 }
 function drawAnnots(pgDiv, n){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line").forEach(el => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo").forEach(el => el.remove());
   // Keep adjacent margin numbers separately clickable, without moving the
   // stored text anchor. Spread collisions down, then fit the group upward.
   const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
@@ -1848,7 +1862,7 @@ function drawAnnots(pgDiv, n){
       marker.dataset.aid = String(a.id);
       marker.textContent = String(a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1);
       marker.setAttribute("aria-label", "Annotation " + marker.textContent + (a.note ? " : " + a.note : ""));
-      marker.title = a.note || "Ajouter une note";
+      marker.title = a.memo || a.note || "Ajouter une note";
       // Position beside the text line, not at the edge of the PDF sheet.
       // Prefer the text span containing the selection's first fragment.
       const pageBox = pgDiv.getBoundingClientRect();
@@ -1889,6 +1903,21 @@ function drawAnnots(pgDiv, n){
       };
       pgDiv.appendChild(el);
     }
+    // pastille crayon au bout du passage : il porte une note personnelle
+    if(a.memo && (a.kind === "hl" || a.kind === "ul" || a.kind === "st" || !a.kind) && a.rects && a.rects.length){
+      const rc = a.rects[a.rects.length - 1];
+      const pin = document.createElement("button");
+      pin.type = "button";
+      pin.className = "pdfmemo";
+      pin.dataset.aid = String(a.id);
+      pin.title = a.memo;
+      pin.setAttribute("aria-label", "Note : " + a.memo);
+      pin.innerHTML = MEMO_ICON;
+      pin.style.left = ((rc[0] + rc[2]) * 100) + "%";
+      pin.style.top = ((rc[1] + rc[3] / 2) * 100) + "%";
+      pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pgDiv.appendChild(pin);
+    }
     if(a.kind === "area" && a.rects && a.rects[0]){
       const rc = a.rects[0];
       const box = document.createElement("div");
@@ -1913,6 +1942,8 @@ function drawAnnots(pgDiv, n){
     }
   }
 }
+// crayon de la note personnelle (pastille sur la page, rangée du panneau)
+const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
 /** Surlignages texte (comment/hl) reportés dans la colonne de lecture.
  *  Idempotent : les marques existantes sont retirées et l'hôte re-normalisé
@@ -2205,9 +2236,15 @@ window.addEventListener("message", e => {
 });
 async function annotMenu(a, x, y){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
+  // Une note libre (kind "note") EST déjà une note : pas de second champ.
+  // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
+  // au chat ; le champ du bas reste celui du chat.
+  const withMemo = a.kind !== "note";
   AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
-    onSendDirect(){void editor.commit(true, "force", true);}});
-  const inp = annotPop.querySelector("textarea");
+    onSendDirect(){void editor.commit(true, "force", true);},
+    ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {})});
+  const inp = annotPop.querySelector("textarea.atelier-note-input");
+  const memoInp = annotPop.querySelector("textarea.atelier-memo-input");
   inp.value = a.note || "";
   const status = annotPop.querySelector(".annotation-status");
   const editor = { a, commit: null };
@@ -2223,9 +2260,10 @@ async function annotMenu(a, x, y){
     // An explicit validation (Enter, ↑/send2 → send==="force") with an empty
     // note keeps it (deliberate blank marker). An EXISTING annotation that
     // the user empties keeps today's draft-save behavior — untouched here.
-    if(a.fresh && !inp.value.trim() && send !== "force"){
+    if(a.fresh && !inp.value.trim() && !(memoInp && memoInp.value.trim()) && send !== "force"){
       saving = true;
       inp.disabled = true;
+      if(memoInp) memoInp.disabled = true;
       annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
       status.textContent = "Suppression…";
       const removed = await removeAnnot(a);
@@ -2233,6 +2271,7 @@ async function annotMenu(a, x, y){
       if(removed) return true;
       if(annotationEditor === editor){
         inp.disabled = false;
+        if(memoInp) memoInp.disabled = false;
         annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
         status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
       }
@@ -2240,9 +2279,14 @@ async function annotMenu(a, x, y){
     }
     saving = true;
     inp.disabled = true;
+    if(memoInp) memoInp.disabled = true;
     annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
     delete a.fresh;
     a.note = inp.value;
+    if(memoInp){
+      if(memoInp.value.trim()) a.memo = memoInp.value;
+      else delete a.memo;
+    }
     status.textContent = "Enregistrement…";
     const saved = await saveAnnots();
     if(annotationEditor !== editor) { saving = false; return saved; }
@@ -2255,6 +2299,7 @@ async function annotMenu(a, x, y){
     saving = false;
     if(annotationEditor !== editor) return saved && attached;
     inp.disabled = false;
+    if(memoInp) memoInp.disabled = false;
     annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
     if(!attached) return false;
     status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
@@ -2264,8 +2309,20 @@ async function annotMenu(a, x, y){
     if(close) { annotPop.style.display = "none"; annotationEditor = null; }
     return true;
   };
-  function fitNote(){ inp.style.height = "24px"; inp.style.height = Math.min(88, inp.scrollHeight) + "px"; }
+  function fitNote(){
+    inp.style.height = "24px"; inp.style.height = Math.min(88, inp.scrollHeight) + "px";
+    if(memoInp){ memoInp.style.height = "24px"; memoInp.style.height = Math.min(132, memoInp.scrollHeight) + "px"; }
+  }
   inp.oninput = () => { status.textContent = ""; fitNote(); };
+  if(memoInp){
+    memoInp.oninput = () => { status.textContent = ""; fitNote(); };
+    // Entrée enregistre la note et ferme, sans rien envoyer au chat.
+    memoInp.onkeydown = e => {
+      e.stopPropagation();
+      if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, false); }
+      if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
+    };
+  }
   inp.onkeydown = e => {
     e.stopPropagation();
     if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, "force"); }
@@ -2276,12 +2333,14 @@ async function annotMenu(a, x, y){
     if(saving) return;
     saving = true;
     inp.disabled = true;
+    if(memoInp) memoInp.disabled = true;
     annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
     status.textContent = "Suppression…";
     const deleted = await removeAnnot(a);
     saving = false;
     if(!deleted && annotationEditor === editor) {
       inp.disabled = false;
+      if(memoInp) memoInp.disabled = false;
       annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
       status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
     }
@@ -2295,7 +2354,7 @@ async function annotMenu(a, x, y){
 // Leaving the note saves its draft instead of silently discarding it.
 // The menu stays open on failure, so the user can retry or copy their note.
 document.addEventListener("click", e => {
-  if(!annotPop.contains(e.target) && !e.target.closest(".pdfhl, .pdfnote, .pdfarea, .pdfcomment")) {
+  if(!annotPop.contains(e.target) && !e.target.closest(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo")) {
     if(annotationEditor) annotationEditor.commit(true, true);
     else annotPop.style.display = "none";
   }

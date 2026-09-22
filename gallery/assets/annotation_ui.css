@@ -20,6 +20,11 @@
 .atelier-note .atelier-note-row button{flex:none;width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:5px;border:0;border-radius:6px;background:transparent;color:#969ca5;cursor:pointer;font:20px/1 var(--ui-font,sans-serif)}
 .atelier-note .atelier-note-row button:hover{background:#ffffff0a;color:#dadee3}
 .atelier-note .atelier-note-row svg{width:16px;height:16px}
+.atelier-note .atelier-memo{display:flex;flex-direction:column;gap:4px;padding:4px 3px 8px}
+.atelier-note .atelier-memo-head{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;line-height:1.3;color:#969ca5}
+.atelier-note .atelier-memo-head svg{width:12px;height:12px}
+.atelier-note .atelier-memo-input{display:block;width:100%;box-sizing:border-box;min-height:24px;height:24px;max-height:132px;padding:2px 0;resize:none;background:transparent;border:0;outline:0;box-shadow:none;color:inherit;font:inherit;line-height:20px}
+.atelier-note .atelier-note-sep{height:1px;margin:0 -9px 4px;background:#ffffff14}
 .atelier-note .annotation-status{font-size:11px;color:#b8bec7;line-height:1.4}
 .atelier-note .annotation-status:empty{display:none}
 .atelier-annotation-number{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;box-sizing:border-box;padding:0;border:1px solid #8da9ff;border-radius:50%;background:#8da9ff;color:#fff;font:11px/1 var(--ui-font,sans-serif);cursor:pointer}

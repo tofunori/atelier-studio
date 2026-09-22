@@ -5421,6 +5421,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .annots-quote.is-note { color: var(--text-muted); font-style: italic; }
 .annots-oq { color: var(--text-muted); }
 .annots-note { font-size: var(--fs-m); color: var(--text-muted); font-style: italic; }
+.annots-memo { display: flex; gap: 4px; align-items: flex-start; font-size: var(--fs-m); color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; }
+.annots-memo svg { flex: none; margin-top: 3px; color: var(--text-muted); }
 .annots-zone { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
   font-size: var(--fs-m); }
 .annots-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 22px; }
