@@ -5,6 +5,18 @@ import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
 
+type ModuleInfoGetter = (id: string) => { importers: readonly string[] } | null;
+
+/** Vrai si le module highlight.js est importé, directement ou via d'autres
+ * modules highlight.js, par le rendu Markdown du chat (chemin critique). */
+function reachedFromChatMarkdown(id: string, getModuleInfo: ModuleInfoGetter, seen = new Set<string>()): boolean {
+  if (seen.has(id)) return false;
+  seen.add(id);
+  return (getModuleInfo(id)?.importers ?? []).some((importer) =>
+    importer.endsWith("/src/components/chat/md.tsx")
+    || (importer.includes("/node_modules/highlight.js/") && reachedFromChatMarkdown(importer, getModuleInfo, seen)));
+}
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
@@ -43,7 +55,7 @@ export default defineConfig(async () => ({
         // Base UI is shared by the migrated primitives. Keep it in its own
         // cacheable chunk so the application entry remains within Atelier's
         // 950 KB critical-path budget as the migration grows.
-        manualChunks(id: string) {
+        manualChunks(id: string, { getModuleInfo }: { getModuleInfo: ModuleInfoGetter }) {
           // Shared palette data is cacheable independently from application code.
           if (id.endsWith("/src/lib/themes.ts")) return "themes";
           if (id.includes("/node_modules/@base-ui/react/")) return "base-ui";
@@ -56,6 +68,13 @@ export default defineConfig(async () => ({
             || id.includes("/node_modules/scheduler/")
           ) return "react-vendor";
           if (id.includes("/node_modules/@legendapp/list/")) return "virtual-list";
+          // highlight.js du chat (noyau + 18 langages de chat/md.tsx) : même
+          // traitement que les autres vendors pour garder l'entrée sous son
+          // budget. Seulement ce que md.tsx atteint : les autres langages de
+          // `lib/common` (vue diff, chargée à la demande) restent paresseux.
+          if (id.includes("/node_modules/highlight.js/") && reachedFromChatMarkdown(id, getModuleInfo)) {
+            return "hljs-vendor";
+          }
         },
       },
     },
