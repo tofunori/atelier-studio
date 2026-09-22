@@ -16,6 +16,7 @@ import { parseWorkspaceTabId } from "../lib/workspaceLayout";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { IconButton, RowButton } from "./ui";
+import "../styles/document-tabs.css";
 
 /** Au-delà, les onglets passent dans le menu de débordement, qui affiche les
  *  noms complets. Huit tiennent sur 1440 px une fois la recherche réduite à
@@ -180,7 +181,7 @@ export default function TopBarTabs(p: {
         const label = tabLabel(tab.title);
         const on = tab.id === p.activeTab;
         return (
-          <span key={tab.id} className={`topbar-tab ${on ? "on" : ""}`}>
+          <span key={tab.id} className={`topbar-tab document-tab-shell ${on ? "on" : ""}`} data-active={on}>
             <RowButton
               className="topbar-tab-main"
               // le chemin complet, utile dès que l'ellipse mord. L'ancienne
@@ -220,7 +221,7 @@ export default function TopBarTabs(p: {
               </span>
             </RowButton>
             <IconButton
-              className="topbar-tab-close"
+              className="topbar-tab-close document-tab-close"
               label={`${t("action.close-tab")} — ${label}`}
               title={t("action.close-tab")}
               onClick={() => p.onCloseTab(tab.id)}

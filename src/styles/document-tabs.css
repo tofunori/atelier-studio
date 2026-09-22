@@ -1,0 +1,46 @@
+/* One visual contract for chat, workspace files and Zotero readers.
+ * Width follows content, never selection; full labels remain in the controls. */
+.document-tab-shell {
+  box-sizing: border-box;
+  height: var(--control-height);
+  max-width: min(168px, 100%);
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-surface);
+  background: transparent;
+  color: var(--text-muted);
+  font: 400 var(--fs-s)/1.3 var(--font-chrome);
+  transition: background-color var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out);
+}
+.document-tab-shell:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.document-tab-shell[data-active="true"],
+.document-tab-shell[aria-selected="true"] {
+  background: var(--surface-inset);
+  border-color: var(--border-interactive);
+  color: var(--text-primary);
+}
+.document-tab-shell .document-tab-close {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  color: var(--text-muted);
+  opacity: 0;
+}
+.document-tab-shell:hover .document-tab-close,
+.document-tab-shell:focus-within .document-tab-close,
+.document-tab-shell[data-active="true"] .document-tab-close {
+  opacity: 1;
+}
+/* Inset focus stays visible inside scrolling/clipped strips. */
+.document-tab-shell:focus-visible,
+.document-tab-shell :focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-tab-shell { transition: none; }
+}

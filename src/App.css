@@ -1230,29 +1230,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-surfaces { display: inline-flex; align-items: center; gap: 2px; }
 .topbar-target { display: inline-flex; flex: none; }
 .topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
-/* Onglets du pane dans la barre (lot 068) — la largeur que le rail n'avait
-   pas. Hauteur alignée sur le crumb (26 px), rayon de contrôle, nom tronqué
-   par ellipse et jamais par calcul.
-   L'onglet actif prend une PASTILLE PLEINE, pas le soulignement accent : ce
-   trait marque déjà la surface active à droite de la même barre, et deux
-   marques identiques pour deux notions différentes est exactement le défaut
-   qu'on vient de retirer du rail. */
+/* File-tab layout; shared shape/selection live in document-tabs.css. */
 .topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
   flex: 0 1 auto; padding-left: 4px; overflow: hidden; }
-/* Onglets « pilule active » (redesign 2026-08-16). Le liseré a été essayé et
-   abandonné : accroché au bouton, il ne pouvait pas s'aligner sur l'onglet, et
-   RowButton disloquait le nom. Ici, un seul onglet porte du chrome — celui
-   qu'on regarde ; les autres reculent au rang de texte. La barre reste calme
-   à huit fichiers et le repère est sans ambiguïté.
-   RÈGLE : le nom entier vit dans .topbar-tab-name — la gouttière de
-   .ui-btn-label ne doit JAMAIS passer entre le tronc et l'extension. */
+/* Keep the whole filename in one flex child so its extension never separates. */
 .topbar-tab { position: relative; display: inline-flex; align-items: center;
-  flex: 0 1 auto; max-width: 180px; min-width: 0; }
-/* l'onglet courant a droit à plus de largeur : c'est son nom qu'on lit */
-.topbar-tab.on { max-width: 250px; }
-.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 26px;
-  width: 100%; min-width: 0; padding: 0 22px 0 8px; border-radius: var(--r-s);
-  background: transparent; color: var(--text-muted); font-size: var(--fs-s);
+  flex: 0 1 auto; }
+.topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 100%;
+  width: 100%; min-width: 0; padding: 0 26px 0 8px; border-radius: inherit;
+  background: transparent; color: inherit; font: inherit;
   transition: background-color var(--ease), color var(--ease); }
 /* le tronc s'abrège, l'extension NON : elle sépare memoire.tex de memoire.pdf */
 .topbar-tab-name { display: inline-flex; align-items: center; min-width: 0; }
@@ -1262,21 +1248,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-tab-folder { flex: none; color: var(--text-disabled); }
 .topbar-tab-kind { flex: none; display: inline-flex; color: var(--text-disabled); }
 .topbar-tab-kind svg { width: 13px; height: 13px; }
-/* survol d'un onglet au repos : un voile, pas la pilule pleine du courant */
-.topbar-tab-main:hover { background: color-mix(in srgb, var(--bg-ctl) 50%, transparent);
-  color: var(--text-secondary); }
-.topbar-tab.on .topbar-tab-main { background: var(--bg-ctl); color: var(--text-primary);
-  font-weight: 500; }
-/* le glyphe de type prend l'accent sur l'onglet courant : on retrouve le
-   fichier ouvert d'un coup d'œil, sans lire */
-.topbar-tab.on .topbar-tab-kind { color: var(--accent); }
+.topbar-tab.on .topbar-tab-kind { color: var(--text-secondary); }
 /* croix : sa place est RÉSERVÉE en permanence (le padding-right ci-dessus),
    sinon le nom se retronquerait au survol */
-.topbar-tab .topbar-tab-close { position: absolute; right: 3px; top: 50%;
-  transform: translateY(-50%); width: 17px; height: 17px; min-width: 17px;
-  border-radius: var(--r-s); color: var(--text-disabled); opacity: 0;
+.topbar-tab .topbar-tab-close { position: absolute; right: 2px; top: 50%;
+  transform: translateY(-50%);
+  border-radius: var(--r-s);
   transition: opacity var(--ease), color var(--ease); }
-.topbar-tab:hover .topbar-tab-close, .topbar-tab.on .topbar-tab-close { opacity: 1; }
 .topbar-tab .topbar-tab-close:hover { color: var(--text-primary); background: var(--bg-ctl); }
 .topbar-tab .topbar-tab-close:focus-visible { opacity: 1; }
 .topbar-tab-more { flex: none; height: 26px; padding: 0 8px; border-radius: var(--r-s);
@@ -1285,8 +1263,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .topbar-tab-more:hover { color: var(--text-secondary); background: var(--bg-ctl); }
 /* fenêtre étroite : les onglets se resserrent avant que les surfaces ne se
    replient — replier, jamais comprimer, dans cet ordre */
-@media (max-width: 1400px) { .topbar-tab { flex-basis: 140px; } }
-@media (max-width: 1150px) { .topbar-tab { flex-basis: 116px; } }
+@media (max-width: 1150px) { .topbar-tab { max-width: 144px; } }
 .topbar-surface { position: relative; }
 .topbar-surface.on::after { content: ""; position: absolute; left: 5px; right: 5px; bottom: -8px;
   height: 2px; border-radius: var(--r-pill); background: var(--accent); }

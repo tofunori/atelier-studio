@@ -1,18 +1,19 @@
+@import "../../styles/document-tabs.css";
+
 /* Bibliothèque et lecteurs occupent la même surface ; les lecteurs masqués
    restent montés afin de conserver page, zoom et annotations en cours. */
 .biblio-surface.biblio-workspace { display: flex; flex-direction: column; min-width: 0; overflow: hidden; container-type: inline-size; }
 .biblio-workspace [hidden] { display: none !important; }
 .biblio-tabs-bar { display: flex; align-items: center; gap: 4px; min-height: 36px; height: 36px; flex: none; padding: 0 6px; background: var(--surface-header); border-bottom: 1px solid var(--border-subtle); }
-.biblio-tabs { display: flex; align-self: stretch; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-.biblio-tab { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 10px; font-size: var(--fs-s); color: var(--text-muted); white-space: nowrap; background: transparent; border: 0; border-radius: 0; }
+.biblio-tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.biblio-tab { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 8px; font-size: var(--fs-s); white-space: nowrap; }
+.biblio-document-tab > .biblio-tab { background: transparent; border: 0; border-radius: inherit; color: inherit; }
 .biblio-tab span { overflow: hidden; text-overflow: ellipsis; }
 .biblio-tab svg { width: 14px; height: 14px; flex: none; }
 .biblio-library-tab { flex: none; }
-.biblio-document-tab { display: flex; align-items: center; flex: 0 0 168px; width: 168px; max-width: 168px; min-width: 0; overflow: hidden; border-bottom: 2px solid transparent; }
-.biblio-document-tab > .biblio-tab { flex: 1 1 0; width: 0; height: 100%; }
-.biblio-document-tab[data-active="true"], .biblio-library-tab[aria-selected="true"] { background: var(--surface-canvas); border-bottom: 2px solid var(--accent); }
-.biblio-document-tab[data-active="true"] .biblio-tab, .biblio-tab[aria-selected="true"] { color: var(--text-primary); }
-.biblio-document-tab > .ui-iconbtn { flex: none; margin-right: 3px; }
+.biblio-document-tab { display: flex; align-items: center; flex: 0 0 auto; overflow: hidden; }
+.biblio-document-tab > .biblio-tab { flex: 1 1 auto; height: 100%; }
+.biblio-document-tab > .ui-iconbtn { flex: none; margin-right: 2px; }
 .biblio-workspace-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); position: relative; }
 .biblio-workspace-body.has-info { grid-template-columns: minmax(0, 1fr) 260px; }
 .biblio-library-panel { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 0; min-width: 0; }
@@ -58,7 +59,7 @@
  .biblio-library-panel { grid-template-columns: 170px minmax(0, 1fr); }
 }
 @container (max-width: 650px) {
- .biblio-document-tab { flex-basis: 144px; width: 144px; max-width: 144px; }
+ .biblio-document-tab { max-width: 144px; }
  .biblio-library-panel { grid-template-columns: 140px minmax(0, 1fr); }
  .biblio-table-author, .biblio-table-head > span:nth-child(2) { display: none; }
  .biblio-table-head { grid-template-columns: minmax(0, 1fr) 40px 62px; }

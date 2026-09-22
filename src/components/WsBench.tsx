@@ -7,6 +7,7 @@ import "../styles/tokens.css";
 import "../styles/primitives.css";
 import "../App.css";
 import { TopBarBench } from "./TopBarBench";
+import { CompactTabsBench } from "./CompactTabsBench";
 import { ChatHeader } from "./chat/ChatHeader";
 import { GalleryHeader, DocumentHeader } from "./AtelierHeaders";
 import { ContextInspector, type InspectedFile } from "./ContextInspector";
@@ -52,6 +53,7 @@ export function WsBench() {
   }, [light]);
 
   if (window.location.hash.includes("-topbar")) return <TopBarBench />;
+  if (window.location.hash.includes("-compact-tabs")) return <CompactTabsBench />;
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--surface-app)", padding: "var(--sp-6)",

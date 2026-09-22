@@ -321,14 +321,14 @@ export default function BiblioSurface({
         controls[next]?.click(); controls[next]?.focus();
       }}>
         <RowButton role="tab" tabIndex={tabs.isLibraryActive ? 0 : -1} id="biblio-library-tab" aria-selected={tabs.isLibraryActive}
-          aria-controls="biblio-library-panel" className="biblio-tab biblio-library-tab" onClick={tabs.activateLibrary}>
+          aria-controls="biblio-library-panel" className="biblio-tab biblio-library-tab document-tab-shell" onClick={tabs.activateLibrary}>
           <LibraryIcon /><span>{t("biblio.title")}</span>
         </RowButton>
-        {tabs.tabs.map(tab => <div className="biblio-document-tab" key={tab.item.key} data-active={tabs.activeTabKey === tab.item.key}>
+        {tabs.tabs.map(tab => <div className="biblio-document-tab document-tab-shell" key={tab.item.key} data-active={tabs.activeTabKey === tab.item.key}>
           <RowButton role="tab" tabIndex={tabs.activeTabKey === tab.item.key ? 0 : -1} id={`biblio-tab-${tab.item.key}`} aria-selected={tabs.activeTabKey === tab.item.key}
             aria-controls={`biblio-panel-${tab.item.key}`} className="biblio-tab" title={tab.item.title}
             onClick={() => tabs.activateArticle(tab.item.key)}><FileTextIcon /><span>{tab.item.title}</span></RowButton>
-          <IconButton size="s" label={`${t("action.close-reader")} — ${tab.item.title}`} onClick={() => tabs.closeArticle(tab.item.key)}><CloseIcon /></IconButton>
+          <IconButton size="s" className="document-tab-close" label={`${t("action.close-reader")} — ${tab.item.title}`} onClick={() => tabs.closeArticle(tab.item.key)}><CloseIcon /></IconButton>
         </div>)}
       </div>
       <IconButton size="s" label={t("biblio.information")} aria-pressed={infoOpen} disabled={!detailItem} onClick={() => setInfoOpen(!infoOpen)}><InfoIcon /></IconButton>

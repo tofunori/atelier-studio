@@ -4,6 +4,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuGroup, 
 import { Button, IconButton } from "../ui";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { t } from "../../lib/i18n";
+import "../../styles/document-tabs.css";
 
 export type ProjectChatTab = { id: string; title: string };
 
@@ -41,7 +42,7 @@ export function ProjectChatTabs(p: {
       {visible.map((chat, index) => {
         const pinned = p.controls?.pinnedIds.includes(chat.id) ?? false;
         return <ContextMenu key={chat.id}>
-        <ContextMenuTrigger render={<span className={`project-chat-tab-wrap${pinned ? " is-pinned" : ""}`} />}>
+        <ContextMenuTrigger render={<span className={`project-chat-tab-wrap document-tab-shell${pinned ? " is-pinned" : ""}`} data-active={chat.id === p.activeId} />}>
         <Button
         key={chat.id}
         variant="ghost"
@@ -58,7 +59,7 @@ export function ProjectChatTabs(p: {
           list.current?.querySelectorAll<HTMLButtonElement>(".project-chat-tab")[next]?.focus();
         }}
       >{pinned && <svg className="project-chat-pin tw:size-[10px]" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><g transform="rotate(35 8 8)"><path d="M5 2.5h6v1.2l-1 .6v3l1.5 1.5v1H8.6v3.4L8 14l-.6-.8V9.8H4.5v-1L6 7.3v-3l-1-.6z" /></g></svg>}<span className="project-chat-tab-label">{chat.title || t("app.new-chat-title")}</span></Button>
-      {p.controls && !pinned && <IconButton size="s" className="project-chat-tab-close"
+      {p.controls && !pinned && <IconButton size="s" className="project-chat-tab-close document-tab-close"
         label={`${t("action.close-tab")} — ${chat.title || t("app.new-chat-title")}`}
         onClick={() => p.controls!.onClose([chat.id])}><X size={12} aria-hidden="true" /></IconButton>}
       </ContextMenuTrigger>
