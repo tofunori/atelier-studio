@@ -279,23 +279,41 @@ pub fn fold(s: &str) -> String {
 
 pub struct Filter {
     pub query: String,
-    pub article: String,
+    /// Vrai : un seul mot de `query` suffit, les annotations qui en portent
+    /// le plus passent en premier. Faux : tous les mots sont requis.
+    pub any: bool,
+    /// Articles voulus (clé, auteur, année ou mot du titre) ; vide = tous.
+    pub articles: Vec<String>,
     pub color: String,
     pub only_with_note: bool,
 }
 
+pub struct Hit<'a> {
+    pub annotation: &'a Annotation,
+    pub article: Article,
+    /// Nombre de mots de la requête trouvés.
+    pub score: usize,
+}
+
 impl Library {
-    /// Tous les mots de `query` doivent apparaître dans le passage, la note,
-    /// la référence ou le titre ; `article` filtre sur la clé, la référence ou
-    /// le titre.
-    pub fn search(&self, filter: &Filter) -> Vec<(&Annotation, Article)> {
+    /// Cherche `query` dans le passage, la note, la référence et le titre ;
+    /// `articles` filtre sur la clé, la référence, les auteurs, l'année ou le
+    /// titre. Résultats dans l'ordre des références puis des pages.
+    pub fn search(&self, filter: &Filter) -> Vec<Hit<'_>> {
         let words: Vec<String> = fold(&filter.query)
-            .split_whitespace()
+            .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+            // En mode « un mot suffit », « de » ou « la » prendraient tout.
+            .filter(|w| !w.is_empty() && (!filter.any || w.chars().count() >= 3))
             .map(str::to_string)
             .collect();
-        let wanted_article = fold(filter.article.trim());
+        let wanted_articles: Vec<String> = filter
+            .articles
+            .iter()
+            .map(|a| fold(a.trim()))
+            .filter(|a| !a.is_empty())
+            .collect();
         let wanted_color = fold(filter.color.trim());
-        let mut hits: Vec<(&Annotation, Article)> = self
+        let mut hits: Vec<Hit> = self
             .annotations
             .iter()
             .filter(|a| !filter.only_with_note || !a.note.is_empty())
@@ -306,23 +324,38 @@ impl Library {
                     "{} {} {} {} {}",
                     art.key, art.citation, art.title, art.authors, art.year
                 ));
-                if !wanted_article.is_empty() && !ident.contains(&wanted_article) {
+                if !wanted_articles.is_empty()
+                    && !wanted_articles.iter().any(|w| ident.contains(w.as_str()))
+                {
                     return None;
                 }
                 let hay = fold(&format!("{} {} {}", a.passage, a.note, ident));
-                words
-                    .iter()
-                    .all(|w| hay.contains(w.as_str()))
-                    .then_some((a, art))
+                let score = words.iter().filter(|w| hay.contains(w.as_str())).count();
+                let keep = if filter.any {
+                    words.is_empty() || score > 0
+                } else {
+                    score == words.len()
+                };
+                keep.then_some(Hit {
+                    annotation: a,
+                    article: art,
+                    score,
+                })
             })
             .collect();
-        hits.sort_by(|(a, x), (b, y)| {
-            x.citation
-                .cmp(&y.citation)
-                .then(page_num(&a.page).cmp(&page_num(&b.page)))
-        });
+        sort_by_reference(&mut hits);
         hits
     }
+}
+
+pub fn sort_by_reference(hits: &mut [Hit]) {
+    hits.sort_by(|x, y| {
+        x.article
+            .citation
+            .cmp(&y.article.citation)
+            .then(x.article.key.cmp(&y.article.key))
+            .then(page_num(&x.annotation.page).cmp(&page_num(&y.annotation.page)))
+    });
 }
 
 fn page_num(page: &str) -> u32 {
@@ -381,13 +414,14 @@ mod tests {
         let lib = Library::load(&config);
         let filter = |query: &str, only_with_note| Filter {
             query: query.into(),
-            article: String::new(),
+            any: false,
+            articles: Vec::new(),
             color: String::new(),
             only_with_note,
         };
         let hits = lib.search(&filter("element DISCUSSION", false));
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].1.citation, "Warren 1982");
+        assert_eq!(hits[0].article.citation, "Warren 1982");
         assert_eq!(
             lib.search(&filter("discussion", false)).len(),
             1,
@@ -396,5 +430,22 @@ mod tests {
         assert_eq!(lib.search(&filter("", true)).len(), 1);
         assert_eq!(lib.search(&filter("", false)).len(), 2);
         assert!(lib.warnings.iter().any(|w| w.contains("Zotero non lu")));
+        let any = |query: &str| Filter {
+            query: query.into(),
+            any: true,
+            articles: Vec::new(),
+            color: String::new(),
+            only_with_note: false,
+        };
+        assert_eq!(
+            lib.search(&any("soot, carbon grain")).len(),
+            2,
+            "one word is enough"
+        );
+        assert_eq!(
+            lib.search(&any("de la carbon")).len(),
+            1,
+            "short words do not match everything"
+        );
     }
 }
