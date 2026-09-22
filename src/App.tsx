@@ -46,6 +46,8 @@ import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
+import { relaySidecarMessage } from "./lib/sidecarRelays";
+import { usageFromHistory } from "./lib/historyUsage";
 import { useRecoverableReads, type HistoryCursor, type RecoverableReadType } from "./hooks/useRecoverableReads";
 import type { AppBanner } from "./lib/appBanner";
 import { useAtelierServer } from "./hooks/useAtelierServer";
@@ -1293,6 +1295,7 @@ export default function App() {
       setAppBanner((banner) => banner?.requestType === requestType &&
         (!banner.projectRoot || banner.projectRoot === msg.projectRoot) ? null : banner);
     }
+    if (relaySidecarMessage(msg)) return;
       if (msg.type === "automations") {
         setAutomations(Array.isArray(msg.automations) ? msg.automations : []);
       }
@@ -1448,9 +1451,6 @@ export default function App() {
       }
       if (msg.type === "evidencePins") {
         pushEvidencePins(msg);
-      }
-      if (msg.type === "galleryCommand" && msg.command) {
-        window.dispatchEvent(new CustomEvent("atelier-gallery-command", { detail: msg.command }));
       }
       if (msg.type === "event") {
         const receivedAt = Date.now();
@@ -1650,54 +1650,9 @@ export default function App() {
             : mergeHarnessHistory(cur, replayed);
           return next === cur ? prev : { ...prev, [msg.threadId]: next };
         });
-        // replay de l'usage (plan 025) : l'anneau se vidait au reload.  Les
-        // providers récents journalisent la fenêtre réelle dans un événement
-        // `usage` séparé (le `done` historique ne porte que context/output),
-        // donc conserver le dernier signal de chaque forme, dans l'ordre du
-        // snapshot, sans jamais inventer une fenêtre quand elle est absente.
         const histEvents = (msg.events ?? []) as AgentEvent[];
-        let lastUsageIndex = -1;
-        let lastUsage: Extract<AgentEvent, { kind: "usage" }> | null = null;
-        let lastDoneIndex = -1;
-        let lastDone: Extract<AgentEvent, { kind: "done" }> | null = null;
-        for (let index = histEvents.length - 1; index >= 0; index -= 1) {
-          const event = histEvents[index];
-          if (lastUsageIndex < 0 && event?.kind === "usage" && event.usage) {
-            lastUsageIndex = index;
-            lastUsage = event;
-          }
-          if (lastDoneIndex < 0 && event?.kind === "done" && event.usage) {
-            lastDoneIndex = index;
-            lastDone = event;
-          }
-          if (lastUsageIndex >= 0 && lastDoneIndex >= 0) break;
-        }
-        const latestUsage = lastUsageIndex >= lastDoneIndex ? lastUsage?.usage : lastDone?.usage;
-        // A done with no window can follow a real usage snapshot. Keep the
-        // latest context/output while carrying that provider-reported window
-        // only when both observations belong to the same turn. A model switch
-        // can leave an older window in the journal; in that case the official
-        // ring stays hidden instead of assigning it to the newer done.
-        const contextUsage = latestUsage ?? lastDone?.usage ?? lastUsage?.usage;
-        const usageAndDoneShareTurn = (() => {
-          if (!lastUsage || !lastDone) return false;
-          const usageMeta = lastUsage.meta && "turnId" in lastUsage.meta ? lastUsage.meta.turnId : null;
-          const doneMeta = lastDone.meta && "turnId" in lastDone.meta ? lastDone.meta.turnId : null;
-          if (usageMeta || doneMeta) return Boolean(usageMeta && doneMeta && usageMeta === doneMeta);
-          const from = Math.min(lastUsageIndex, lastDoneIndex);
-          const to = Math.max(lastUsageIndex, lastDoneIndex);
-          return !histEvents.slice(from + 1, to).some((event) => (
-            event.kind === "user" || event.kind === "started" || event.kind === "done" || event.kind === "error"
-          ));
-        })();
-        const contextWindow = lastUsage?.usage.window != null
-          && (!lastDone || usageAndDoneShareTurn)
-          ? lastUsage.usage.window
-          : null;
-        if (contextUsage) {
-          const hydrated = contextWindow == null
-            ? contextUsage
-            : { ...contextUsage, window: contextWindow };
+        const hydrated = usageFromHistory(histEvents);
+        if (hydrated) {
           setUsageByThread((p) => (p[msg.threadId] ? p : { ...p, [msg.threadId]: hydrated }));
         }
         // Le serveur a terminé le tour, mais le done a pu être manqué en direct
@@ -1807,119 +1762,9 @@ export default function App() {
         );
         pendingPaste.current = null;
       }
-      if (msg.type === "frameChecked") {
-        window.dispatchEvent(new CustomEvent("frame-checked", { detail: msg }));
-      }
-      if (msg.type === "kbAdded" || msg.type === "kbError") {
-        // base de connaissances (plan 049) : retour d'épinglage relayé aux
-        // surfaces intéressées (bouton browser, picker du composer)
-        window.dispatchEvent(new CustomEvent("kb-source-added", {
-          detail: msg.type === "kbAdded"
-            ? { ok: true, source: msg.source, refreshed: msg.refreshed, warning: msg.warning }
-            : { ok: false, message: msg.message },
-        }));
-      }
-      if (msg.type === "kbSources") {
-        window.dispatchEvent(new CustomEvent("kb-sources", { detail: msg }));
-      }
-      if (msg.type === "turnContextPreview") {
-        window.dispatchEvent(new CustomEvent("turn-context-preview", { detail: msg }));
-      }
-      if (msg.type === "kbPromoted") {
-        window.dispatchEvent(new CustomEvent("kb-source-promoted", { detail: { id: msg.id } }));
-      }
-      if (msg.type === "kbPagePreview" || msg.type === "kbPageWritten") {
-        // page directe gbrain (plan 050 P4) : dialogue de la surface
-        window.dispatchEvent(new CustomEvent(
-          msg.type === "kbPagePreview" ? "kb-page-preview" : "kb-page-written",
-          { detail: msg },
-        ));
-      }
-      if (msg.type === "articleDraftText") {
-        window.dispatchEvent(new CustomEvent("article-draft-text", { detail: msg }));
-      }
-      if (msg.type === "articleImported" || msg.type === "articleWritten" || msg.type === "articleError") {
-        // import d'article (plan 053) : le dialogue corrèle par requestId
-        window.dispatchEvent(new CustomEvent(
-          msg.type === "articleImported" ? "article-imported"
-            : msg.type === "articleWritten" ? "article-written" : "article-error",
-          { detail: msg },
-        ));
-      }
-      if (msg.type === "articleProgress") {
-        // étape de conversion en direct (upload, conversion, métadonnées…)
-        window.dispatchEvent(new CustomEvent("article-progress", { detail: msg }));
-      }
-      if (msg.type === "articleListed") {
-        window.dispatchEvent(new CustomEvent("article-listed", { detail: msg }));
-      }
-      if (msg.type === "gbrainPage") {
-        // lecture seule d'une page du dépôt : le lecteur corrèle par slug
-        window.dispatchEvent(new CustomEvent("gbrain-page", { detail: msg }));
-      }
-      if (msg.type === "sourceText") {
-        // texte stocké d'une source de la base : le lecteur corrèle par id
-        window.dispatchEvent(new CustomEvent("source-text", { detail: msg }));
-      }
-      if (msg.type === "gbrainResults") {
-        // recherche du corpus NAS (plan 050 P3) — consommée par la surface
-        // Connaissances ; l'échec voyage dans detail.error, en place
-        window.dispatchEvent(new CustomEvent("kb-gbrain-results", {
-          detail: { query: msg.query, results: msg.results ?? [], error: msg.error ?? null },
-        }));
-      }
-      if (msg.type === "localServers") {
-        window.dispatchEvent(new CustomEvent("local-servers", { detail: msg.servers }));
-      }
-      if (msg.type === "termData") {
-        window.dispatchEvent(new CustomEvent(`term-data:${msg.termId}`, { detail: msg.data }));
-      }
-      if (msg.type === "termExit") {
-        window.dispatchEvent(new CustomEvent(`term-exit:${msg.termId}`));
-      }
-      if (msg.type === "gitStatus") {
-        window.dispatchEvent(new CustomEvent("git-status", { detail: msg }));
-      }
-      if (msg.type === "gitDiff") {
-        window.dispatchEvent(new CustomEvent("git-diff", { detail: msg }));
-      }
-      if (msg.type === "gitLog") {
-        window.dispatchEvent(new CustomEvent("git-log", { detail: msg }));
-      }
-      if (msg.type === "gitCommitDetails") {
-        window.dispatchEvent(new CustomEvent("git-commit-details", { detail: msg }));
-      }
-      if (msg.type === "gitCommitFileDiff") {
-        window.dispatchEvent(new CustomEvent("git-commit-file-diff", { detail: msg }));
-      }
-      if (msg.type === "gitHistoryActionDone") {
-        window.dispatchEvent(new CustomEvent("git-history-action", { detail: msg }));
-      }
-      if (msg.type === "gitCommitError") {
-        window.dispatchEvent(new CustomEvent("git-commit-error", { detail: msg }));
-      }
-      if (msg.type === "commitMsg") {
-        window.dispatchEvent(new CustomEvent("commit-msg", { detail: msg }));
-      }
-      if (msg.type === "consigneReformulee") {
-        // Forward the request id so the instruction editor ignores stale replies.
-        window.dispatchEvent(new CustomEvent("consigne-reformulee", { detail: msg }));
-      }
-      if (msg.type === "imageGenerated") {
-        window.dispatchEvent(new CustomEvent("image-generated", { detail: msg }));
-      }
-      if (msg.type === "ledger") {
-        window.dispatchEvent(new CustomEvent("ledger", { detail: msg }));
-      }
       if (msg.type === "zoteroItems") {
         setZoteroItems(msg.items ?? []);
         window.dispatchEvent(new CustomEvent("zotero-items", { detail: msg }));
-      }
-      if (msg.type === "zoteroCollections") {
-        window.dispatchEvent(new CustomEvent("zotero-collections", { detail: msg }));
-      }
-      if (msg.type === "zoteroFav") {
-        window.dispatchEvent(new CustomEvent("zotero-fav", { detail: msg }));
       }
       if (msg.type === "zoteroDigest") {
         const item = pendingZoteroDigest.current.get(msg.key);
@@ -1944,19 +1789,6 @@ export default function App() {
               : a));
         }
       }
-      if (msg.type === "zoteroAddResult") {
-        window.dispatchEvent(new CustomEvent("zotero-add-result", { detail: msg }));
-      }
-      if (msg.type === "gitChanged" || msg.type === "gitStageDone" || msg.type === "gitUnstageDone" ||
-          msg.type === "gitRevertFileDone" || msg.type === "gitCommitDone" || msg.type === "gitUndoLastTurnDone") {
-        window.dispatchEvent(new CustomEvent("git-changed", { detail: msg }));
-      }
-      if (msg.type === "gitUndoLastTurnError") {
-        window.dispatchEvent(new CustomEvent("git-undo-error", { detail: msg }));
-      }
-      if (msg.type === "gitSyncDone") {
-        window.dispatchEvent(new CustomEvent("git-sync-done", { detail: msg }));
-      }
       if (msg.type === "exported") {
         setEvents((p) => ({
           ...p,
@@ -1973,9 +1805,6 @@ export default function App() {
           dot.style.background = worst == null ? "transparent"
             : worst >= 85 ? "#e06c75" : worst >= 60 ? "#e0b74a" : "#98c379";
         }
-      }
-      if (msg.type === "qaPromoteError") {
-        window.dispatchEvent(new CustomEvent("qa-promote-error", { detail: msg }));
       }
       if (msg.type === "providerStatus") {
         setProviderList(msg.providers ?? []);
@@ -2022,18 +1851,6 @@ export default function App() {
           }
         }
       }
-      if (msg.type === "reviews") {
-        window.dispatchEvent(new CustomEvent("reviews-list", { detail: msg }));
-      }
-      if (msg.type === "qaEvent") {
-        window.dispatchEvent(new CustomEvent("qa-event", { detail: msg }));
-      }
-      if (msg.type === "zoteroChanged") {
-        window.dispatchEvent(new CustomEvent("zotero-changed"));
-      }
-      if (msg.type === "sessions") {
-        window.dispatchEvent(new CustomEvent("sessions-list", { detail: msg.sessions }));
-      }
       if (msg.type === "commands" && (msg.projectRoot == null || msg.projectRoot === activeProjectRef.current)) {
         setCommandCatalog({ root: msg.projectRoot ?? activeProjectRef.current, commands: msg.commands });
       }
@@ -2042,12 +1859,6 @@ export default function App() {
         setFileCatalog({ root: msg.projectRoot, files: Array.isArray(msg.files) ? msg.files : [] });
         setFilesTruncated(msg.truncated === true);
         setDiskRecents(Array.isArray(msg.recentFiles) ? msg.recentFiles : []);
-      }
-      if (["narvalStatus", "narvalSnapshot", "narvalDirectory", "narvalJobDetail", "narvalRunFiles", "narvalText"].includes(msg.type)) {
-        window.dispatchEvent(new CustomEvent("narval-message", { detail: msg }));
-      }
-      if (msg.type === "computeSnapshot" || msg.type === "computeLog" || msg.type === "computeForgotRun") {
-        window.dispatchEvent(new CustomEvent("compute-message", { detail: msg }));
       }
       if (msg.type === "agentMentionAccepted" && typeof msg.requestId === "string") {
         pendingAgentMentions.current.delete(msg.requestId);
