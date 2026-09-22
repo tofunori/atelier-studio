@@ -111,6 +111,20 @@ describe("replay fixtures — projection observable du tour", () => {
     },
   );
 
+  // Toutes les fixtures : le banc visuel (tests/visual/chat-stream-replay)
+  // rejoue aussi codex-observed-live et claude-observed-live, dont les
+  // checkpoints doivent suivre la même projection que le composite.
+  it.each(streamReplayFixtures.flatMap((fixture) =>
+    fixture.checkpoints.map((checkpoint) => [`${fixture.id}: ${checkpoint.label}`, fixture, checkpoint] as const),
+  ))("%s", (_label, fixture, checkpoint) => {
+    const { turn, events } = currentTurn(fixture, checkpoint.after);
+    expect(turn.phase).toBe(checkpoint.phase);
+    expect(turn.activeState?.kind ?? null).toBe(checkpoint.activeState);
+    if (checkpoint.statusKind) {
+      expect(activeTurnStatus(turn, events).kind).toBe(checkpoint.statusKind);
+    }
+  });
+
   it("rejoue le flux réel avec les deux cycles Bash observés", () => {
     const { events, turn } = currentTurn(codexObservedLive, codexObservedLive.events.length);
     expect(events.filter((event) => event.kind === "tool_update")).toHaveLength(2);
