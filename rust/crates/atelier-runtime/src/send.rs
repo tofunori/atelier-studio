@@ -172,8 +172,10 @@ fn with_zotero_passage_instruction(prompt: String, server_dir: &str) -> String {
         "{prompt}\n\n<atelier-zotero-passages>\nWhen the user asks for important or relevant passages from an attached Zotero article, use the exact PDF metadata inside <zotero-reference> and call the terminal tool exactly once:\n{} search --pdf <absolute-pdf-path> --zotero-key <zotero-key> --pdf-key <pdf-key> --pdf-file <pdf-file> --query <user-question> --limit 5\nRead its JSON stdout. For every passage you cite, reproduce its markdownLink exactly so the user can open the PDF at that page with automatic highlighting. The displayed verbatim excerpt immediately associated with that link MUST be exactly the result's quote field: do not shorten, translate, normalize, or replace it with another sentence from context. You may explain it separately. Never invent a passage or link. If the article has no attached local PDF metadata, ask the user to attach it from Zotero. Do not call this tool for ordinary bibliography or metadata questions.\n\nWhen the user asks for a reference or supporting evidence for a sentence they are writing and no PARTICULAR article is in play, call the tool once with `search --corpus --query <the-claim> --limit 5` instead — do not ask them to attach anything. Asking the user to attach a PDF from Zotero applies ONLY when they name a specific article whose local PDF metadata is missing. When you present a found passage as the answer, put its markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep your explanation in separate paragraphs.\n\nWhen you merely cite an attached Zotero article, or one of its numbered sections, without an exact passage, link it INTERNALLY instead of to the publisher: [Author et al. year, section 2.4](#atelier-zotero-passage?key=<zotero-key>&pdfKey=<pdf-key>&file=<pdf-file>&section=2.4), or `&page=N` for a page, or the key alone for the article itself — always with the exact values from <zotero-reference>, so the user opens the PDF in place. Never use the publisher or DOI URL as the link target for an attached article; mention the DOI as plain text if it is useful.\n</atelier-zotero-passages>",
         serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default(),
     );
+    let ragdoc = std::path::Path::new(server_dir).join("atelier-kb-rs");
+    let command = serde_json::to_string(&ragdoc.to_string_lossy()).unwrap_or_default();
     format!(
-        "{base}\n\n<atelier-gbrain-passages>\nA second, separate evidence source exists: the gbrain knowledge corpus (NAS-hosted notes and papers, reached through its own MCP tools — distinct from the Zotero PDFs above). When you consult it and a page contains a passage that directly supports what you are writing, cite it with a markdown link built from that exact page's slug and an exact verbatim excerpt: [« quoted excerpt »](#atelier-gbrain-passage?slug=<page-slug>&quote=<url-encoded-exact-quote>). The quote MUST be copied verbatim from the page — never paraphrase, translate, shorten, or invent it, and never invent a slug. The verbatim excerpt MUST be copied from literal page content returned by mcp__gbrain__get_page or mcp__gbrain__get_chunks — NEVER from mcp__gbrain__query answers, which are synthesized. If you only have a query answer, fetch the page first. Put this markdownLink ALONE in its own paragraph (blank line before and after) so the app renders it as a passage card; keep any explanation in a separate paragraph. Use atelier-gbrain-passage links only for gbrain corpus pages — Zotero PDF passages keep using atelier-zotero-passage links as described above.\n</atelier-gbrain-passages>"
+        "{base}\n\n<atelier-ragdoc-passages>\nThe research corpus is Ragdoc. Search with the terminal: {command} ragdoc-search --query \"<question>\" --limit 8. Retrieve each selected passage with {command} ragdoc-passage --chunk <chunkId> and --hash <provenance.content_sha256> when that hash is present. Copy the returned markdownLink exactly, alone in its own paragraph, to display a source card that opens the document in Atelier. NEVER quote search summaries or synthesize a quotation. Preserve the returned text verbatim. Report canonical_verified=false and warnings when present; a legacy reconstructed passage does not have verified page provenance. Do not invent pages, source names, or links. Zotero PDF citations keep their existing format.\n</atelier-ragdoc-passages>"
     )
 }
 
@@ -937,7 +939,7 @@ pub fn expand_ref_command(
         );
     };
     Ok(Some(format!(
-        "Trouve dans la littérature un passage EXACT qui appuie cette affirmation{origin} :\n\n« {claim} »\n\nMéthode : cherche d'abord avec l'outil terminal atelier-zotero-passages (`search --corpus --query <l'affirmation> --limit 5`). Si le MCP gbrain est disponible, cherche aussi via `query` puis récupère le texte littéral avec `get_page`/`get_chunks` pour tout passage retenu. Réponds avec au plus 3 passages, le meilleur d'abord : pour chacun, son markdownLink SEUL dans son propre paragraphe (ligne vide avant et après), suivi d'un paragraphe d'une seule ligne expliquant pourquoi il appuie l'affirmation. Cite uniquement des passages réellement retournés par les outils — jamais de citation inventée. Si rien de probant n'existe, dis-le clairement."
+        "Trouve dans la littérature un passage EXACT qui appuie cette affirmation{origin} :\n\n« {claim} »\n\nMéthode : cherche d'abord avec l'outil terminal atelier-zotero-passages (`search --corpus --query <l'affirmation> --limit 5`). Cherche aussi dans Ragdoc avec atelier-kb-rs ragdoc-search, puis récupère chaque passage exact avec atelier-kb-rs ragdoc-passage --chunk <chunkId> (et --hash <content_sha256> lorsque fourni). Réponds avec au plus 3 passages, le meilleur d'abord : pour chacun, son markdownLink SEUL dans son propre paragraphe (ligne vide avant et après), suivi d'un paragraphe d'une seule ligne expliquant pourquoi il appuie l'affirmation. Cite uniquement des passages réellement retournés par les outils — jamais de citation inventée. Si rien de probant n'existe, dis-le clairement."
     )))
 }
 
@@ -3276,7 +3278,7 @@ mod tests {
             .expect("expansion attendue");
         assert!(out.contains("« les aérosols abaissent l'albédo »"));
         assert!(out.contains("--corpus"));
-        assert!(out.contains("get_page"));
+        assert!(out.contains("ragdoc-passage --chunk"));
         assert!(out.contains("jamais de citation inventée"));
     }
 
@@ -3319,11 +3321,11 @@ mod tests {
         assert!(out.contains("&page=N"));
         assert!(out.contains("Never use the publisher or DOI URL"));
         // tâche 6 : second bloc pour le corpus gbrain (NAS), format de lien distinct
-        assert!(out.contains("atelier-gbrain-passage"));
+        assert!(out.contains("atelier-ragdoc-passages"));
         // arbitrage contrôleur (post-revue, finding 2) : ancre la source du
         // verbatim — mcp__gbrain__query SYNTHÉTISE, jamais du texte littéral.
-        assert!(out.contains("get_page"));
-        assert!(out.contains("NEVER from"));
+        assert!(out.contains("ragdoc-passage --chunk"));
+        assert!(out.contains("NEVER quote search summaries"));
     }
 
     #[test]

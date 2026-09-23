@@ -149,7 +149,28 @@ export type GbrainPassageRef = {
   quote: string;
 };
 
-export type PassageRef = ZoteroPassageRef | GbrainPassageRef;
+export type RagdocPassageRef = { kind: "ragdoc"; slug: string; quote: string; page?: number };
+export type PassageRef = ZoteroPassageRef | GbrainPassageRef | RagdocPassageRef;
+
+export function parseRagdocPassageRef(href: string): RagdocPassageRef | null {
+  const prefix = "#atelier-ragdoc-passage?";
+  if (!href.startsWith(prefix)) return null;
+  const params = new URLSearchParams(href.slice(prefix.length));
+  const slug = params.get("source") ?? "";
+  const quote = params.get("quote") ?? "";
+  if (!isValidGbrainSlug(slug) || slug.includes("/") || !quote.trim() || quote.length > 50000) return null;
+  const rawPage = params.get("page");
+  if (rawPage !== null && !/^[1-9][0-9]*$/.test(rawPage)) return null;
+  const page = rawPage ? Number(rawPage) : undefined;
+  if (page !== undefined && (!Number.isSafeInteger(page) || page > 4294967295)) return null;
+  return {kind:"ragdoc",slug,quote,...(page === undefined ? {} : {page})};
+}
+
+export function openRagdocPassage(ref: RagdocPassageRef) {
+  const detail = {slug:ref.slug,quote:ref.quote};
+  setPendingPassageOpen({kind:"ragdoc",detail,ts:Date.now()});
+  window.dispatchEvent(new CustomEvent("kb-open-ragdoc-passage",{detail}));
+}
 
 const GBRAIN_SLUG_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
@@ -239,7 +260,7 @@ export function lonePassageRef(children: any): PassageRef | null {
   if (typeof only !== "object" || !only.props) return null;
   const href = only.props.href;
   if (typeof href !== "string") return null;
-  return parseZoteroPassageRef(href) ?? parseGbrainPassageRef(href);
+  return parseZoteroPassageRef(href) ?? parseRagdocPassageRef(href) ?? parseGbrainPassageRef(href);
 }
 
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
@@ -562,6 +583,8 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
+    const ragdocPassage = parseRagdocPassageRef(href);
+    if (ragdocPassage) return <RowButton className="file-ref" onClick={() => openRagdocPassage(ragdocPassage)} title="Lire dans Ragdoc">{label}</RowButton>;
     const gbrainPassage = parseGbrainPassageRef(href);
     if (gbrainPassage)
       return (

@@ -66,8 +66,8 @@ describe("KbPickerPanel", () => {
     fireEvent.click(screen.getByText("Albedo feedbacks review"));
     expect(props.onToggle).toHaveBeenCalledWith("bbbb2222");
     // la source spéciale corpus est toujours proposée et bascule sur "gbrain"
-    fireEvent.click(screen.getByText("Corpus thèse (gbrain)"));
-    expect(props.onToggle).toHaveBeenCalledWith("gbrain");
+    fireEvent.click(screen.getByText("Bibliothèque Ragdoc"));
+    expect(props.onToggle).toHaveBeenCalledWith("ragdoc");
     fireEvent.change(screen.getByPlaceholderText("Rechercher…"), { target: { value: "décisions" } });
     expect(screen.queryByText("Albedo feedbacks review")).toBeNull();
     expect(screen.getByText("Décisions chap. 2")).toBeTruthy();
@@ -111,7 +111,7 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
       <KbPickerPanel {...panelProps({ layout: "surface", threadTitle: "" })} />,
     );
     expect(screen.getByText(/Rien d'attaché à cette conversation/)).toBeTruthy();
-    expect(screen.getAllByText("Corpus thèse (gbrain)")).toHaveLength(1);
+    expect(screen.getAllByText("Bibliothèque Ragdoc")).toHaveLength(1);
   });
 
   it("le layout popover reste inchangé (pas d'étage attachées)", () => {
@@ -123,7 +123,7 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
   it("section gbrain : résultats épinglables, page déjà épinglée = rangée complète", () => {
     const onPin = vi.fn();
     const pinnedGbrain: KbSource = {
-      id: "dddd4444", kind: "gbrain", title: "Fire and Ice", origin: "papers/aubry-wake-2022",
+      id: "dddd4444", kind: "ragdoc", title: "Fire and Ice", origin: "papers/aubry-wake-2022",
       chars: 3177, addedAt: "2026-07-17T10:03:00Z", updatedAt: "2026-07-17T10:03:00Z",
       meta: { slug: "papers/aubry-wake-2022", syncedAt: new Date().toISOString() },
     };
@@ -165,9 +165,9 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
     );
     // groupes repliés par défaut : ouvrir PDF pour exposer les actions de rangée
     fireEvent.click(screen.getByText("PDF"));
-    fireEvent.click(screen.getAllByLabelText("Créer une page gbrain (directe)")[0]);
+    fireEvent.click(screen.getAllByLabelText("Ajouter à Ragdoc…")[0]);
     expect(onPromotePage).toHaveBeenCalledWith(SOURCES[0].id);
-    fireEvent.click(screen.getByText("→ gbrain"));
+    fireEvent.click(screen.getByText("→ Ragdoc"));
     expect(onDestChange).toHaveBeenCalledWith("gbrain");
   });
 

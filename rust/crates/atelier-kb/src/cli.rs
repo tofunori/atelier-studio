@@ -17,6 +17,14 @@ const COMMANDS: &[&str] = &[
     "add", "list", "remove", "search", "gbrain-search", "gbrain-page", "kb-text", "promote-page",
     "collection", "tag", "archive", "article-import", "article-write", "article-draft",
     "article-list", "article-doi",
+    "ragdoc-search",
+    "ragdoc-page",
+    "ragdoc-list",
+    "ragdoc-passage",
+    "ragdoc-promote",
+    "ragdoc-import",
+    "ragdoc-doi",
+    "ragdoc-write",
 ];
 
 const BOOLEAN_FLAGS: &[&str] = &["write", "archived", "off", "ragdoc", "progress"];
@@ -161,7 +169,8 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
     }
     if kind == "pdf" || kind == "zotero" {
         obj.insert("location".into(), json!(format!("p.{}", passage.page)));
-        obj.insert("cite".into(), json!(format!("[kb:{id} · p.{}]", passage.page)));
+        obj.insert("cite".into(), json!(format!("[kb:{id} · p.{}]", passage.page)),
+        );
         if kind == "zotero" {
             let meta = source.get("meta").cloned().unwrap_or_else(|| json!({}));
             let zotero_key = meta.get("zoteroKey").and_then(Value::as_str);
@@ -177,6 +186,19 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
         }
         return out;
     }
+    if kind == "ragdoc" {
+        if source["meta"]["physicalPages"] != true {
+            obj.insert("page".into(), Value::Null);
+        }
+        let location = if source["meta"]["physicalPages"] == true {
+            format!("p.{}", passage.page)
+        } else {
+            origin.unwrap_or("Ragdoc").to_string()
+        };
+        obj.insert("location".into(), json!(location));
+        obj.insert("cite".into(), json!(format!("[kb:{id} · {location}]")));
+        return out;
+    }
     if kind == "gbrain" {
         if let Some(origin) = origin {
             obj.insert("location".into(), json!(origin));
@@ -188,11 +210,13 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
     obj.insert("cite".into(), json!(format!("[kb:{id}]")));
     if kind == "web" {
         if let Some(origin) = origin {
-            obj.insert("markdownLink".into(), json!(format!("[Ouvrir la page]({origin})")));
+            obj.insert("markdownLink".into(), json!(format!("[Ouvrir la page]({origin})")),
+            );
         }
     } else if kind == "file" {
         if let Some(origin) = origin {
-            obj.insert("markdownLink".into(), json!(format!("[{origin}]({origin})")));
+            obj.insert("markdownLink".into(), json!(format!("[{origin}]({origin})")),
+            );
         }
     }
     out
@@ -200,7 +224,10 @@ fn decorate_passage(source: &Value, passage: &Passage, file: Option<&str>) -> Va
 
 pub fn run(argv: &[String]) -> Result<Value, String> {
     let parsed = parse_args(argv)?;
-    let dir: PathBuf = opt_str(&parsed.options, "dir").filter(|s| !s.is_empty()).map(PathBuf::from).unwrap_or_else(default_knowledge_dir);
+    let dir: PathBuf = opt_str(&parsed.options, "dir")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_knowledge_dir);
     let mut store = KnowledgeStore::open(dir);
 
     match parsed.command.as_str() {
@@ -222,56 +249,102 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
         "collection" => {
             if let Some(title) = opt_str(&parsed.options, "add") {
                 let slug = store.collection_add(title)?;
-                Ok(flag(json!({"ok": true, "slug": slug, "collections": store.collections}), &store.warning))
+                Ok(flag(
+                    json!({"ok": true, "slug": slug, "collections": store.collections}),
+                    &store.warning,
+                ))
             } else if let Some(slug) = opt_str(&parsed.options, "rename") {
                 let title = opt_str(&parsed.options, "title").unwrap_or_default();
                 store.collection_rename(slug, title)?;
-                Ok(flag(json!({"ok": true, "slug": slug, "collections": store.collections}), &store.warning))
+                Ok(flag(
+                    json!({"ok": true, "slug": slug, "collections": store.collections}),
+                    &store.warning,
+                ))
             } else if let Some(slug) = opt_str(&parsed.options, "remove") {
                 store.collection_remove(slug)?;
-                Ok(flag(json!({"ok": true, "removed": slug, "collections": store.collections}), &store.warning))
+                Ok(flag(
+                    json!({"ok": true, "removed": slug, "collections": store.collections}),
+                    &store.warning,
+                ))
             } else {
-                Err(format!("collection: --add, --rename ou --remove requis\n{}", usage()))
+                Err(format!("collection: --add, --rename ou --remove requis\n{}",
+                    usage()
+                ))
             }
         }
         "tag" => {
-            let collection = opt_str(&parsed.options, "collection").ok_or("Argument requis: --collection".to_string())?;
+            let collection = opt_str(&parsed.options, "collection")
+                .ok_or("Argument requis: --collection".to_string())?;
             let off = opt_bool(&parsed.options, "off");
             if let Some(ids) = opt_str(&parsed.options, "ids") {
-                let ids: Vec<String> = ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let ids: Vec<String> = ids
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let applied = store.tag_many(&ids, collection, off)?;
-                return Ok(flag(json!({"ok": true, "applied": applied}), &store.warning));
+                return Ok(flag(
+                    json!({"ok": true, "applied": applied}),
+                    &store.warning,
+                ));
             }
-            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?;
+            let id = opt_str(&parsed.options, "id")
+                .ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?;
             store.tag_source(id, collection, off)?;
-            Ok(flag(json!({"ok": true, "source": store.get(id).cloned()}), &store.warning))
+            Ok(flag(
+                json!({"ok": true, "source": store.get(id).cloned()}),
+                &store.warning,
+            ))
         }
         "archive" => {
             let off = opt_bool(&parsed.options, "off");
             if let Some(ids) = opt_str(&parsed.options, "ids") {
-                let ids: Vec<String> = ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let ids: Vec<String> = ids
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let applied = store.archive_many(&ids, off)?;
-                return Ok(flag(json!({"ok": true, "applied": applied}), &store.warning));
+                return Ok(flag(
+                    json!({"ok": true, "applied": applied}),
+                    &store.warning,
+                ));
             }
-            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?;
+            let id = opt_str(&parsed.options, "id")
+                .ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?;
             store.archive_source(id, off)?;
-            Ok(flag(json!({"ok": true, "source": store.get(id).cloned()}), &store.warning))
+            Ok(flag(
+                json!({"ok": true, "source": store.get(id).cloned()}),
+                &store.warning,
+            ))
         }
         "remove" => {
             // --ids : suppression en lot (redesign de la base) — une seule
             // écriture du registre pour toute la sélection.
             if let Some(ids) = opt_str(&parsed.options, "ids") {
-                let ids: Vec<String> = ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let ids: Vec<String> = ids
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let removed = store.remove_many(&ids)?;
-                return Ok(flag(json!({"ok": true, "removed": removed}), &store.warning));
+                return Ok(flag(
+                    json!({"ok": true, "removed": removed}),
+                    &store.warning,
+                ));
             }
-            let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?.to_string();
+            let id = opt_str(&parsed.options, "id")
+                .ok_or("Argument requis: --id (ou --ids a,b,c)".to_string())?
+                .to_string();
             store.remove(&id)?;
             Ok(flag(json!({"ok": true, "removed": id}), &store.warning))
         }
         "kb-text" => {
             let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id".to_string())?;
-            let entry = store.get(id).cloned().ok_or_else(|| format!("Source inconnue: {id}"))?;
+            let entry = store
+                .get(id)
+                .cloned()
+                .ok_or_else(|| format!("Source inconnue: {id}"))?;
             let base = json!({
                 "ok": true,
                 "id": entry.get("id").cloned().unwrap_or(Value::Null),
@@ -285,7 +358,11 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
                 let files_json: Vec<Value> = files
                     .iter()
                     .map(|f| {
-                        let chars: usize = f.pages.iter().map(|p| crate::csv_digest::js_len(&p.text)).sum();
+                        let chars: usize = f
+                            .pages
+                            .iter()
+                            .map(|p| crate::csv_digest::js_len(&p.text))
+                            .sum();
                         json!({"rel": f.rel, "chars": chars})
                     })
                     .collect();
@@ -305,14 +382,19 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
             let limit_raw = opt_limit(&parsed.options, "limit", 5);
             let limit = limit_raw.clamp(1, 10) as usize;
             let (source, passages) = store.search(id, query, limit)?;
-            let decorated: Vec<Value> = passages.iter().map(|(p, file)| decorate_passage(&source, p, file.as_deref())).collect();
+            let decorated: Vec<Value> = passages
+                .iter()
+                .map(|(p, file)| decorate_passage(&source, p, file.as_deref()))
+                .collect();
             Ok(flag(
                 json!({"ok": true, "source": source, "query": query, "count": decorated.len(), "passages": decorated}),
                 &store.warning,
             ))
         }
         "add" => {
-            let kind = opt_str(&parsed.options, "kind").unwrap_or_default().to_string();
+            let kind = opt_str(&parsed.options, "kind")
+                .unwrap_or_default()
+                .to_string();
             let origin = opt_str(&parsed.options, "origin").map(|s| s.to_string());
             let title = opt_str(&parsed.options, "title").map(|s| s.to_string());
             let text = if opt_str(&parsed.options, "text") == Some("-") {
@@ -321,11 +403,51 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
                 opt_str(&parsed.options, "text").map(|s| s.to_string())
             };
             let (source, refreshed) = store.add(&kind, origin.as_deref(), title.as_deref(), text.as_deref())?;
-            Ok(flag(json!({"ok": true, "source": source, "refreshed": refreshed}), &store.warning))
+            Ok(flag(
+                json!({"ok": true, "source": source, "refreshed": refreshed}),
+                &store.warning,
+            ))
         }
         // --- gbrain (plan 065, vague 2, groupe b) — wrappers fins autour de
         // `runGbrain` ; jamais wrappés par `flag()` (Node ne le fait pas non
         // plus pour ces commandes).
+        "ragdoc-search" => crate::ragdoc::call(
+            json!({"operation":"search", "query":opt_str(&parsed.options,"query").ok_or("--query requis")?, "limit":opt_limit(&parsed.options,"limit",12).clamp(1,25)}),
+        ),
+        "ragdoc-list" => crate::ragdoc::call(
+            json!({"operation":"list", "query":opt_str(&parsed.options,"query").unwrap_or(""), "offset":opt_limit(&parsed.options,"offset",0).max(0), "limit":opt_limit(&parsed.options,"limit",100).clamp(1,100)}),
+        ),
+        "ragdoc-page" => {
+            crate::ragdoc::read(opt_str(&parsed.options, "slug").ok_or("--slug requis")?)
+        }
+        "ragdoc-passage" => crate::ragdoc::call(
+            json!({"operation":"passage","chunkId":opt_str(&parsed.options,"chunk").ok_or("--chunk requis")?,"contentSha256":opt_str(&parsed.options,"hash")}),
+        ),
+        "ragdoc-promote" => {
+            let id = opt_str(&parsed.options, "id").ok_or("--id requis")?;
+            let entry = store.get(id).cloned().ok_or("Source inconnue")?;
+            crate::ragdoc::promote(
+                &entry,
+                &store.full_text(id)?,
+                opt_bool(&parsed.options, "write"),
+            )
+        }
+        "ragdoc-import" => {
+            let mut step = |stage: Value| {
+                if opt_bool(&parsed.options, "progress") {
+                    println!("{}", json!({"progress":stage}));
+                }
+            };
+            crate::ragdoc::import_pdf(
+                opt_str(&parsed.options, "path").ok_or("--path requis")?,
+                &store.dir,
+                &mut step,
+            )
+        }
+        "ragdoc-doi" => crate::ragdoc::import_doi(
+            opt_str(&parsed.options, "doi").ok_or("--doi requis")?,
+            &store.dir,
+        ),
         "gbrain-search" => {
             let query = opt_str(&parsed.options, "query").ok_or("Argument requis: --query".to_string())?;
             let limit_raw = opt_limit(&parsed.options, "limit", 12);
@@ -340,15 +462,22 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
         }
         "gbrain-page" => {
             let slug = opt_str(&parsed.options, "slug").ok_or("Argument requis: --slug".to_string())?;
-            let markdown = crate::gbrain::run_gbrain(&["get", slug], None)?.trim().to_string();
+            let markdown = crate::gbrain::run_gbrain(&["get", slug], None)?
+                .trim()
+                .to_string();
             if markdown.is_empty() || crate::gbrain::gbrain_not_found(&markdown) {
                 return Err(format!("Page gbrain introuvable: {slug}"));
             }
-            Ok(json!({"ok": true, "slug": slug, "chars": markdown.chars().count(), "markdown": markdown}))
+            Ok(
+                json!({"ok": true, "slug": slug, "chars": markdown.chars().count(), "markdown": markdown}),
+            )
         }
         "promote-page" => {
             let id = opt_str(&parsed.options, "id").ok_or("Argument requis: --id".to_string())?;
-            let entry = store.get(id).cloned().ok_or_else(|| format!("Source inconnue: {id}"))?;
+            let entry = store
+                .get(id)
+                .cloned()
+                .ok_or_else(|| format!("Source inconnue: {id}"))?;
             let full_text = store.full_text(id)?;
             let slug = opt_str(&parsed.options, "slug");
             let write = opt_bool(&parsed.options, "write");
@@ -387,22 +516,34 @@ pub fn run(argv: &[String]) -> Result<Value, String> {
         "article-draft" => {
             let draft = opt_str(&parsed.options, "draft").ok_or("Argument requis: --draft".to_string())?;
             let markdown = crate::article::read_draft(&store.dir, draft)?;
-            Ok(json!({"ok": true, "draftId": draft, "chars": markdown.chars().count(), "markdown": markdown}))
+            Ok(
+                json!({"ok": true, "draftId": draft, "chars": markdown.chars().count(), "markdown": markdown}),
+            )
         }
-        "article-write" => {
+        "article-write" | "ragdoc-write" => {
             let draft = opt_str(&parsed.options, "draft").ok_or("Argument requis: --draft".to_string())?;
             let slug = opt_str(&parsed.options, "slug");
             let meta = crate::article::ArticleMeta {
                 title: opt_str(&parsed.options, "title").unwrap_or("").to_string(),
-                authors: opt_str(&parsed.options, "authors").unwrap_or("").to_string(),
-                journal: opt_str(&parsed.options, "journal").unwrap_or("").to_string(),
+                authors: opt_str(&parsed.options, "authors")
+                    .unwrap_or("")
+                    .to_string(),
+                journal: opt_str(&parsed.options, "journal")
+                    .unwrap_or("")
+                    .to_string(),
                 doi: opt_str(&parsed.options, "doi").unwrap_or("").to_string(),
                 year: opt_str(&parsed.options, "year").and_then(|s| s.parse::<i64>().ok()),
             };
             let origin = opt_str(&parsed.options, "origin").unwrap_or("");
             let converter = opt_str(&parsed.options, "converter").unwrap_or("");
             let ragdoc = opt_bool(&parsed.options, "ragdoc");
-            crate::article::write_article(&store.dir, draft, slug, &meta, origin, converter, ragdoc)
+            if parsed.command == "ragdoc-write" {
+                crate::ragdoc::write_draft(&store.dir, draft, slug.ok_or("--slug requis")?, &meta)
+            } else {
+                crate::article::write_article(
+                    &store.dir, draft, slug, &meta, origin, converter, ragdoc,
+                )
+            }
         }
         other => Err(format!("commande inconnue: {other}\n{}", usage())),
     }
@@ -442,6 +583,18 @@ mod tests {
 
     // B3 (plans/065-revue-findings.md) : décoration youtube/zotero perdue
     // dans le port — miroir de decoratePassage (sidecar/kb_cli.mjs:41-85).
+
+    #[test]
+    fn ragdoc_passage_never_exposes_a_synthetic_pdf_page() {
+        let mut source = json!({"id":"rag","kind":"ragdoc","origin":"article.md","meta":{"physicalPages":false}});
+        let out = decorate_passage(&source, &passage(3, "exact text"), None);
+        assert!(out["page"].is_null());
+        assert_eq!(out["location"], "article.md");
+        source["meta"]["physicalPages"] = json!(true);
+        let located = decorate_passage(&source, &passage(3, "exact text"), None);
+        assert_eq!(located["page"], 3);
+        assert_eq!(located["location"], "p.3");
+    }
 
     #[test]
     fn decorate_passage_youtube_calcule_mm_ss_et_le_lien_t() {

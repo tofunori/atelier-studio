@@ -10,7 +10,8 @@ vi.mock("./wsBus", () => ({ wsSend: vi.fn(() => true) }));
 
 import {
   articleImportSnapshot, closeArticleDialog, resetArticleImportForTests,
-  stageLabel, startArticleImport,
+  stageLabel, startArticleImport, setAutoWrite, restoreArticleJobs,
+  enqueueArticlePaths, runArticleQueue, pauseArticleQueue, approveArticleJob, rejectArticleJob,
 } from "./articleImports";
 import { wsSend } from "./wsBus";
 import { setLanguage } from "./i18n";
@@ -37,7 +38,7 @@ describe("étapes de conversion", () => {
     emit("article-progress", { requestId: id, stage: "converting", seconds: 42 });
     expect(jobs()[0].stage).toBe("converting");
     expect(jobs()[0].stageSeconds).toBe(42);
-    expect(stageLabel(jobs()[0])).toBe("Conversion chez MinerU — 42 s");
+    expect(stageLabel(jobs()[0])).toBe("Conversion du PDF — 42 s");
   });
 
   it("dit chaque étape en clair, et l'attente est nommée avant la première", () => {
@@ -68,6 +69,7 @@ describe("trace après écriture automatique", () => {
   // seul et la notification système ne part que si l'app n'a PAS le focus —
   // donc, app à l'écran, l'import se terminait sans laisser aucune trace.
   function ecrireAutomatiquement() {
+    setAutoWrite(true);
     startArticleImport("/tmp/aoki.pdf");
     const id = jobs()[0].requestId;
     emit("article-imported", {
@@ -106,12 +108,60 @@ describe("trace après écriture automatique", () => {
     expect(jobs()[0].phase).toBe("done");
   });
 
-  it("une fiche seulement prête, elle, se range à la fermeture", () => {
+  it("une fiche prête reste disponible après fermeture", () => {
     startArticleImport("/tmp/muff.pdf");
     const id = jobs()[0].requestId;
     emit("article-imported", { requestId: id, draftId: "d2", path: "/tmp/muff.pdf", duplicates: [] });
     expect(jobs()[0].phase).toBe("ready");
     closeArticleDialog();
-    expect(jobs()).toHaveLength(0);
+    expect(jobs()).toHaveLength(1);
+    expect(jobs()[0].phase).toBe("ready");
+  });
+});
+
+
+describe("reprise Ragdoc", () => {
+  it("attend une approbation par défaut même si l’ancien réglage GBrain était actif", () => {
+    localStorage.setItem("atelier-studio.article-auto", "1");
+    startArticleImport("/tmp/new.pdf");
+    emit("article-imported", {requestId: jobs()[0].requestId, draftId:"abc", slug:"new.md"});
+    expect(jobs()[0].phase).toBe("ready");
+    expect(vi.mocked(wsSend).mock.calls.some(([m]) => (m as {type:string}).type === "articleWrite")).toBe(false);
+  });
+  it("ne transforme jamais une écriture interrompue en succès", () => {
+    const restored = restoreArticleJobs(JSON.stringify([{requestId:"job",path:"a.pdf",startedAt:1,phase:"writing",imported:{draftId:"abc"},message:null}]));
+    expect(restored[0].phase).toBe("ready");
+    expect(restored[0].message).toContain("interrompu");
+  });
+});
+
+describe("file intégrée Ragdoc", () => {
+  it("attend le lancement, déduplique les chemins et convertit un PDF à la fois", async () => {
+    enqueueArticlePaths(["/tmp/a.pdf","/tmp/a.pdf","/tmp/b.pdf"],"mineru");
+    expect(jobs()).toHaveLength(2);
+    expect(wsSend).not.toHaveBeenCalled();
+    runArticleQueue();
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    expect(wsSend).toHaveBeenCalledWith(expect.objectContaining({path:"/tmp/a.pdf",converter:"mineru"}));
+    expect(articleImportSnapshot().open).toBe(false);
+    const first=jobs().find(j=>j.phase==="converting")!;
+    emit("article-imported",{requestId:first.requestId,draftId:"d1",slug:"a.md",path:first.path});
+    await Promise.resolve();
+    expect(wsSend).toHaveBeenCalledTimes(2);
+    expect(jobs().find(j=>j.requestId===first.requestId)?.phase).toBe("ready");
+  });
+  it("pause sans abandonner la conversion ni le PDF suivant", async () => {
+    enqueueArticlePaths(["/tmp/a.pdf","/tmp/b.pdf"],"mistral");runArticleQueue();pauseArticleQueue();
+    const first=jobs().find(j=>j.phase==="converting")!;
+    emit("article-error",{requestId:first.requestId,message:"Conversion échouée"});await Promise.resolve();
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    expect(jobs().some(j=>j.phase==="queued")).toBe(true);
+    runArticleQueue();expect(wsSend).toHaveBeenCalledTimes(2);
+  });
+  it("n'approuve que les brouillons prêts et conserve les éléments écartés", () => {
+    enqueueArticlePaths(["/tmp/a.pdf"],"mistral");const id=jobs()[0].requestId;
+    expect(approveArticleJob(id)).toBe(false);rejectArticleJob(id);
+    expect(jobs()[0].phase).toBe("rejected");expect(wsSend).not.toHaveBeenCalled();
+    expect(restoreArticleJobs(JSON.stringify(jobs()))[0].phase).toBe("rejected");
   });
 });

@@ -168,9 +168,9 @@ pub fn add_pin(
         pin.ts = now_ms();
     }
     let mut pins = load(app_dir, project_root);
-    let is_gbrain = pin.source == "gbrain";
+    let is_gbrain = pin.source == "gbrain" || pin.source == "ragdoc";
     pins.retain(|p| {
-        if (p.source == "gbrain") != is_gbrain {
+        if p.source != pin.source {
             return true;
         }
         if is_gbrain {

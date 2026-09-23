@@ -1056,6 +1056,42 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector('.user-bubble .user-file-attachment')).toBeNull();
   });
 
+  it("distingue brouillon et envoi direct pour un surlignage sans supprimer le marquage", async () => {
+    const {sock} = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(10); });
+    const iframe = document.querySelector('iframe')!;
+    const nonce = new URLSearchParams(new URL(iframe.src).hash.slice(1)).get('atelier_nonce');
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const sends = () => sock.sent.map(value => JSON.parse(value)).filter(message => message.type === 'send');
+    const deliver = async (text: string, direct: boolean) => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent('message', {
+          origin: 'http://127.0.0.1:18790', source: iframe.contentWindow,
+          data: {type: 'atelier-add-to-chat', nonce, text, direct},
+        }));
+        await flushMicrotasks(8);
+      });
+    };
+    await deliver('paper.pdf (p.2) : « Autre passage gardé en brouillon »', false);
+    const text = 'paper.pdf (p.7) : « Passage surligné »\nCommentaire : Explique ce passage';
+    await deliver(text, false);
+    expect(sends()).toHaveLength(0);
+    const composer = document.querySelector('.composer textarea') as HTMLTextAreaElement;
+    fireEvent.change(composer, {target: {value: 'Mon brouillon non envoyé'}});
+    await deliver(text, true);
+    expect(sends()).toHaveLength(1);
+    const sent = sends()[0];
+    expect(sent.prompt).toContain('Passage surligné');
+    expect(sent.prompt).not.toContain('Autre passage');
+    expect(sent.prompt).not.toContain('Mon brouillon non envoyé');
+    expect(composer.value).toBe('Mon brouillon non envoyé');
+    expect(screen.getByTitle('paper.pdf (p.2) : « Autre passage gardé en brouillon »')).toBeTruthy();
+    await push(sock, {type:'event', threadId:'thread-A', event:{kind:'user', text, meta:{messageId:sent.clientMessageId}}});
+    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith('/pdfannot') && init?.method === 'POST')).toHaveLength(0);
+  });
+
   it("garde le texte de lecture si la mention d'agent est refusée", async () => {
     const {sock}=await mountApp();
     await pushThreads(sock);

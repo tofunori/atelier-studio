@@ -12,7 +12,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { evidencePinsSnapshot, subscribeEvidencePins, type EvidencePin } from "../lib/evidencePins";
-import { openGbrainPassage, openZoteroPassage } from "./chat/md";
+import { openGbrainPassage, openRagdocPassage, openZoteroPassage } from "./chat/md";
 import { CopyIcon } from "./icons";
 import { EmptyState, IconButton, RowButton, SurfaceHeader } from "./ui";
 import { showSuccess } from "./ui/toast";
@@ -54,6 +54,10 @@ function PinIcon() {
 }
 
 function openPin(pin: EvidencePin) {
+  if (pin.source === "ragdoc") {
+    if (pin.gbrainSlug) openRagdocPassage({kind:"ragdoc",slug:pin.gbrainSlug,quote:pin.quote,...(pin.page > 0 ? {page:pin.page} : {})});
+    return;
+  }
   if (pin.source === "gbrain") {
     if (!pin.gbrainSlug) return;
     openGbrainPassage({ kind: "gbrain", slug: pin.gbrainSlug, quote: pin.quote });
@@ -78,7 +82,7 @@ function copyCitation(pin: EvidencePin) {
 }
 
 function EvidenceRow({ pin, onUnpin }: { pin: EvidencePin; onUnpin: (pin: EvidencePin) => void }) {
-  const isGbrain = pin.source === "gbrain";
+  const isGbrain = pin.source !== "zotero";
   const hasQuote = Boolean(pin.quote.trim());
   return (
     <div className="evidence-row">
@@ -92,7 +96,7 @@ function EvidenceRow({ pin, onUnpin }: { pin: EvidencePin; onUnpin: (pin: Eviden
             aria-hidden="true"
           />
           <span className="evidence-meta-src">{pin.citeLabel}</span>
-          {!isGbrain && <span className="evidence-meta-page">p. {pin.page}</span>}
+          {pin.source !== "gbrain" && pin.page > 0 && <span className="evidence-meta-page">p. {pin.page}</span>}
         </span>
       </RowButton>
       <span className="evidence-actions">

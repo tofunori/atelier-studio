@@ -1,4 +1,5 @@
 import { useOpenChatTabs } from "./hooks/useOpenChatTabs";
+import { startRagdocWatcher } from "./lib/ragdocWorkspace";
 import {
   discussionMarkdownFile,
   discussionWorkspaceId,
@@ -583,6 +584,7 @@ function HighlightsPanel(p: {
 }
 
 export default function App() {
+  useEffect(() => startRagdocWatcher(), []);
   const atelierNonceRef = useRef<string | null>(null);
   if (atelierNonceRef.current === null) atelierNonceRef.current = crypto.randomUUID();
   const atelierNonce = atelierNonceRef.current;
@@ -1424,15 +1426,19 @@ export default function App() {
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
   // Transient intent: never persist an automatic send in a restored draft.
-  const [gallerySend, setGallerySend] = useState<{ threadId: string; annotationId: string } | null>(null);
+  const [gallerySend, setGallerySend] = useState<{ threadId: string; attachment: Attachment } | null>(null);
   const galleryRequests = useRef(new Set<string>());
   useEffect(() => {
     if (!gallerySend || gallerySend.threadId !== activeId) return;
-    if (!attachments.some(a => a.pdfAnnotation?.id === gallerySend.annotationId)) return;
+    const target = gallerySend.attachment;
+    const selected = attachments.filter(a => target.pdfAnnotation
+      ? a.pdfAnnotation?.id === target.pdfAnnotation.id &&
+        a.pdfAnnotation.rel === target.pdfAnnotation.rel && a.pdfAnnotation.origin === target.pdfAnnotation.origin
+      : !a.pdfAnnotation && a.text === target.text);
+    if (!selected.length) return;
     const form = document.querySelector<HTMLFormElement>("form.composer");
     if (!form) return;
     setGallerySend(null);
-    const selected = attachments.filter(a => a.pdfAnnotation?.id === gallerySend.annotationId);
     form.dispatchEvent(new CustomEvent("atelier-submit-context", { detail: {
       send: (provider: ProviderId, model: string, effort: string, permission: string, mode: "steer" | "queue", fast: boolean) =>
         submit("", provider, model, effort, permission, mode, fast, selected),
@@ -1820,7 +1826,13 @@ export default function App() {
   useEffect(() => {
     const openGbrainPassage = () => switchToSurface("connaissances");
     window.addEventListener("kb-open-gbrain-passage", openGbrainPassage);
-    return () => window.removeEventListener("kb-open-gbrain-passage", openGbrainPassage);
+    window.addEventListener("kb-open-ragdoc-passage", openGbrainPassage);
+    window.addEventListener("kb-request-ragdoc-promotion", openGbrainPassage);
+    return () => {
+      window.removeEventListener("kb-open-gbrain-passage", openGbrainPassage);
+      window.removeEventListener("kb-open-ragdoc-passage", openGbrainPassage);
+      window.removeEventListener("kb-request-ragdoc-promotion", openGbrainPassage);
+    };
   }, []);
 
   // Chips Sources cliquées (2026-08-27) : navigateur d'ATELIER, même canal
@@ -2005,7 +2017,7 @@ export default function App() {
 
   function attachContextToChat(
     text: string,
-    file?: { path?: string; name?: string; previewUrl?: string; pdfAnnotation?: Attachment["pdfAnnotation"] },
+    file?: { path?: string; name?: string; previewUrl?: string; pdfAnnotation?: Attachment["pdfAnnotation"]; direct?: boolean },
   ) {
     const parsed = parseAttachment(text);
     const attachment: Attachment = file?.path
@@ -2024,6 +2036,9 @@ export default function App() {
       ...draft,
       attachments: addAttachment(draft.attachments, attachment),
     }));
+    // Direct delivery also applies to persistent highlights, notes and areas;
+    // pdfAnnotation is reserved for comments consumed after acknowledgement.
+    if (file?.direct === true) setGallerySend({ threadId, attachment });
     setAnnotation(null);
     if (!file?.pdfAnnotation) setLayout((l) => (l === "atelier" ? "split" : l));
     return threadId;
@@ -2941,6 +2956,9 @@ export default function App() {
           { detail: msg },
         ));
       }
+      if (["articleReview", "ragdocStatus", "ragdocZotero"].includes(msg.type)) {
+        window.dispatchEvent(new CustomEvent("ragdoc-workspace-response", { detail: msg }));
+      }
       if (msg.type === "articleDraftText") {
         window.dispatchEvent(new CustomEvent("article-draft-text", { detail: msg }));
       }
@@ -2962,6 +2980,12 @@ export default function App() {
       if (msg.type === "gbrainPage") {
         // lecture seule d'une page du dépôt : le lecteur corrèle par slug
         window.dispatchEvent(new CustomEvent("gbrain-page", { detail: msg }));
+      }
+      if (msg.type === "ragdocPage") {
+        window.dispatchEvent(new CustomEvent("ragdoc-page", { detail: msg }));
+      }
+      if (msg.type === "ragdocResults") {
+        window.dispatchEvent(new CustomEvent("kb-ragdoc-results", { detail: msg }));
       }
       if (msg.type === "sourceText") {
         // texte stocké d'une source de la base : le lecteur corrèle par id
@@ -3678,13 +3702,10 @@ export default function App() {
       }
       if (data.type === "atelier-add-to-chat") {
         if (!data.requestId || !galleryRequests.current.has(data.requestId)) {
-          const threadId = attachContextToChat(data.text, { ...data,
+          attachContextToChat(data.text, { ...data,
             pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
           });
           if (data.requestId) galleryRequests.current.add(data.requestId);
-          if (data.direct === true && data.pdfAnnotation?.id) {
-            setGallerySend({ threadId, annotationId: data.pdfAnnotation.id });
-          }
         }
         if (data.requestId && e.source) {
           (e.source as Window).postMessage({
@@ -4633,7 +4654,7 @@ export default function App() {
           kb: {
             count: kbIds.length,
             titles: kbIds.slice(0, 6).map((id) =>
-              id === "gbrain" ? t("kb.gbrain-title") : known.find((s) => s.id === id)?.title ?? id,
+              (id === "gbrain" || id === "ragdoc") ? t("kb.gbrain-title") : known.find((s) => s.id === id)?.title ?? id,
             ),
           },
         };
@@ -5427,6 +5448,7 @@ export default function App() {
     <TopBarMemo
       dividerVisible={layout === "split" && showAtelier && !!activeProject}
       chats={projectChats}
+      unreadChatIds={unread}
       chatTabControls={{
         openChats: chatTabs.openChats,
         pinnedIds: chatTabs.pinnedIds,

@@ -225,7 +225,7 @@
     {
       "id": "error-unknown-kind",
       "args": ["add", "--kind", "bogus", "--origin", "x"],
-      "expect": { "exitCode": 1, "stderr": "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero) : bogus" }
+      "expect": { "exitCode": 1, "stderr": "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero, ragdoc) : bogus" }
     },
     {
       "id": "error-search-missing-query",

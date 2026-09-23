@@ -51,8 +51,14 @@ pub fn prepare_knowledge(
     let mut sources = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut gbrain = false;
+    let mut ragdoc = false;
     for id in list("kbSourceIds") {
         if !seen.insert(id.clone()) {
+            continue;
+        }
+        if id == "ragdoc" {
+            ragdoc = true;
+            sources.push(serde_json::json!({"id":id,"title":"Bibliothèque Ragdoc","kind":"ragdoc","mode":"corpus","chars":0,"providedChars":0,"truncated":false}));
             continue;
         }
         if id == "gbrain" {
@@ -107,7 +113,13 @@ pub fn prepare_knowledge(
         &entries,
         gbrain,
     );
+    let block = if ragdoc { with_ragdoc_block(block, &Path::new(server_dir).join("atelier-kb-rs")) } else { block };
     PreparedKnowledge { block, sources }
+}
+
+fn with_ragdoc_block(prompt: String, tool: &Path) -> String {
+    let command = serde_json::to_string(&tool.to_string_lossy()).unwrap_or_default();
+    format!("{prompt}\n\n<atelier-ragdoc>\n[kb:ragdoc] Bibliothèque Ragdoc sélectionnée par l’utilisateur. Recherche : {command} ragdoc-search --query \"<question>\" --limit 10. Chaque résultat fournit source, chunkId et provenance. Avant de citer un extrait, lire le passage exact : {command} ragdoc-passage --chunk <chunkId> --hash <content_sha256>. Reproduire le markdownLink retourné seul dans son paragraphe pour ouvrir la carte de source dans Atelier. Ne citer comme page que les pages explicites de provenance.location, jamais un numéro de fragment. Pour lire un document : {command} ragdoc-page --slug <source>. Signaler les sources indisponibles ; ne pas inventer de texte.\n</atelier-ragdoc>")
 }
 
 fn fmt_chars(chars: u64) -> String {
@@ -365,12 +377,13 @@ pub fn with_kb_block_for_thread(
     let knowledge_dir = app_dir.join("knowledge");
     let gbrain = ids.iter().any(|x| x == "gbrain");
     let entries = kb_block_entries(&knowledge_dir, &ids, &full);
-    with_kb_block(
+    let block = with_kb_block(
         prompt,
         &Path::new(server_dir).join("atelier-kb-rs"), // bascule soak 065 (2026-08-16)
         &entries,
         gbrain,
-    )
+    );
+    if ids.iter().any(|id| id == "ragdoc") { with_ragdoc_block(block, &Path::new(server_dir).join("atelier-kb-rs")) } else { block }
 }
 
 /// Recherche ASCII-insensible à la casse (miroir du /gi du mjs). Un needle
@@ -594,6 +607,17 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn ragdoc_corpus_uses_verified_passages_without_gbrain_instructions() {
+        let dir = tempfile::tempdir().unwrap();
+        let extra = HashMap::from([("kbSourceIds".to_string(), serde_json::json!(["ragdoc"]))]);
+        let prepared = prepare_knowledge(dir.path(), "/tools", Some(&extra));
+        assert_eq!(prepared.sources[0]["kind"], "ragdoc");
+        assert!(prepared.block.contains("ragdoc-search --query"));
+        assert!(prepared.block.contains("ragdoc-passage --chunk"));
+        assert!(!prepared.block.contains("gbrain query"));
     }
 
     #[test]

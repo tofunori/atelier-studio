@@ -6,6 +6,7 @@
 // thread ; on capture le binding au moment de l'envoi).
 import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { requestRagdocPromotion } from "../../lib/ragdocPromotion";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import type { KbBinding, KbSource } from "../../lib/kbSources";
@@ -210,7 +211,7 @@ export function useKbActions(
 
   function promote(id: string) {
     setError(null);
-    wsSend({ type: "kbPromote", id });
+    requestRagdocPromotion(id);
   }
 
   async function addFiles() {
@@ -261,6 +262,11 @@ export function useKbActions(
   function addGbrain(slug: string) {
     trackPendingAdds(1, [slug]);
     wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
+  }
+
+  function addRagdoc(source: string) {
+    trackPendingAdds(1, [source]);
+    wsSend({ type: "kbAdd", kind: "ragdoc", origin: source });
   }
 
   // Organisation (plan 051) : collections et archivage.
@@ -321,7 +327,7 @@ export function useKbActions(
   return {
     error, setError, promoted,
     toggle, toggleFull, removeSource, removeMany, promote,
-    addFiles, addFolder, addPdf, addUrl, addNote, addGbrain,
+    addFiles, addFolder, addPdf, addUrl, addNote, addGbrain, addRagdoc,
     createCollection, tagSource, archiveSource,
     tagMany, archiveMany, attachMany, toggleCollection,
   };

@@ -37,9 +37,10 @@ const GROUP_LABELS: Record<string, Parameters<typeof t>[0]> = {
   youtube: "kb.group-youtube",
   note: "kb.group-notes",
   gbrain: "kb.group-gbrain",
+  ragdoc: "kb.group-ragdoc",
   zotero: "kb.group-zotero",
 };
-const GROUP_ORDER = ["file", "folder", "pdf", "zotero", "web", "youtube", "note", "gbrain"];
+const GROUP_ORDER = ["file", "folder", "pdf", "zotero", "web", "youtube", "note", "gbrain", "ragdoc"];
 
 // Âge de la dernière synchro NAS d'une page gbrain épinglée.
 function fmtSyncAge(syncedAt: unknown): string {
@@ -52,7 +53,7 @@ function fmtSyncAge(syncedAt: unknown): string {
 }
 
 /** Résultat de recherche du corpus gbrain (plan 050 P3). */
-export type GbrainResult = { slug: string; snippet?: string };
+export type GbrainResult = { slug: string; snippet?: string; title?: string; page?: number | null; chunkId?: string };
 export type ArticleRow = { slug: string; title?: string; date?: string };
 export type GbrainSectionProps = {
   query: string;
@@ -62,7 +63,7 @@ export type GbrainSectionProps = {
   /** au moins une recherche a répondu (affiche « aucune page » à bon escient) */
   searched: boolean;
   onQueryChange: (query: string) => void;
-  onSearch: () => void;
+  onSearch: (query?: string) => void;
   onPin: (slug: string) => void;
 };
 
@@ -115,7 +116,7 @@ export function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
       </svg>
     );
   }
-  if (kind === "gbrain") {
+  if (kind === "gbrain" || kind === "ragdoc") {
     return (
       <svg {...common}>
         <circle cx="3.5" cy="8" r="1.7" />
@@ -274,7 +275,7 @@ export function KbPickerPanel(p: {
   const filtered = base.filter(matches).sort(sortFn);
   const attachedSources = surface && !archivedView
     ? p.attached
-        .filter((id) => id !== "gbrain")
+        .filter((id) => id !== "gbrain" && id !== "ragdoc")
         .map((id) => filtered.find((source) => source.id === id))
         .filter((source): source is KbSource => Boolean(source))
     : [];
@@ -373,11 +374,11 @@ export function KbPickerPanel(p: {
           <span className="kb-kind"><KindIcon kind={source.kind} /></span>
           <span className="kb-name">{source.title}</span>
           <span className="kb-meta">
-            {source.kind === "gbrain" ? fmtSyncAge(source.meta?.syncedAt) : fmtChars(source.chars)}
+            {(source.kind === "gbrain" || source.kind === "ragdoc") ? fmtSyncAge(source.meta?.syncedAt) : fmtChars(source.chars)}
           </span>
         </RowButton>
         <span className="kb-row-actions" style={selectMode ? { display: "none" } : undefined}>
-          {source.kind === "gbrain" && p.onResync && typeof source.meta?.slug === "string" && (
+          {source.kind === "ragdoc" && p.onResync && typeof source.meta?.slug === "string" && (
             <IconButton
               size="s"
               className="ghost"
@@ -697,7 +698,7 @@ export function KbPickerPanel(p: {
               })}
             </div>
             {attachedSources.map(renderRow)}
-            {attachedSources.length === 0 && !p.attached.includes("gbrain") && (
+            {attachedSources.length === 0 && !p.attached.includes("ragdoc") && (
               <div className="kb-empty">{t("kb.panel-attached-empty")}</div>
             )}
           </div>
@@ -759,13 +760,13 @@ export function KbPickerPanel(p: {
           {!archivedView && (
             <>
               <div className="kb-group">{t("kb.group-corpus")}</div>
-              <div className={`kb-row ${p.attached.includes("gbrain") ? "on" : ""}`}>
+              <div className={`kb-row ${p.attached.includes("ragdoc") ? "on" : ""}`}>
                 <RowButton
                   className="kb-row-main"
                   title={t("kb.gbrain-title")}
-                  onClick={() => p.onToggle("gbrain")}
+                  onClick={() => p.onToggle("ragdoc")}
                 >
-                  <span className={`kb-check ${p.attached.includes("gbrain") ? "on" : ""}`} aria-hidden />
+                  <span className={`kb-check ${p.attached.includes("ragdoc") ? "on" : ""}`} aria-hidden />
                   <span className="kb-kind"><KindIcon kind="gbrain" /></span>
                   <span className="kb-name">{t("kb.gbrain-title")}</span>
                   <span className="kb-meta">{t("kb.gbrain-meta")}</span>
@@ -781,7 +782,7 @@ export function KbPickerPanel(p: {
             <div className="kb-group kb-group-section">{t("article.recent")}</div>
             {p.articles?.map((article) => {
               const pinned = p.sources.find(
-                (source) => source.kind === "gbrain" && source.meta?.slug === article.slug,
+                (source) => source.kind === "ragdoc" && source.meta?.slug === article.slug,
               );
               if (pinned) return renderRow(pinned);
               return (
@@ -824,7 +825,7 @@ export function KbPickerPanel(p: {
             )}
             {p.gbrain.results.map((result) => {
               const pinned = p.sources.find(
-                (source) => source.kind === "gbrain" && source.meta?.slug === result.slug,
+                (source) => source.kind === "ragdoc" && source.meta?.slug === result.slug,
               );
               if (pinned) return renderRow(pinned);
               return (
@@ -940,7 +941,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             // pilules KB du composer ont été retirées — plan 050)
             title={binding.attached.length
               ? `${t("kb.open")} — ${binding.attached
-                  .map((id) => (id === "gbrain" ? t("kb.gbrain-title") : sources.find((s) => s.id === id)?.title ?? id))
+                  .map((id) => ((id === "gbrain" || id === "ragdoc") ? t("kb.gbrain-title") : sources.find((s) => s.id === id)?.title ?? id))
                   .slice(0, 3)
                   .join(", ")}${binding.attached.length > 3 ? ` +${binding.attached.length - 3}` : ""}`
               : t("kb.open")}

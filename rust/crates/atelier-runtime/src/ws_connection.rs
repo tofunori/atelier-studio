@@ -45,6 +45,7 @@ where
     let controls = Arc::new(Semaphore::new(8));
     let terminals = Arc::new(Semaphore::new(8));
     let ordered = Arc::new(Semaphore::new(32));
+    let corpus = Arc::new(Semaphore::new(8));
     let mut shutdown = disconnected.clone();
     loop {
         let frame = tokio::select! { _ = &mut writer => break, _ = shutdown.wait_for(|v| *v) => break, frame = source.next() => frame };
@@ -96,6 +97,7 @@ where
             Class::Control => &controls,
             Class::Terminal => &terminals,
             Class::Ordered => &ordered,
+            Class::Corpus => &corpus,
         };
         let admission = slots.clone().try_acquire_owned().ok().and_then(|local| {
             state
@@ -127,6 +129,7 @@ where
             // Remote connector discovery can exceed the ordinary 15s read budget.
             // It still uses bounded read slots and never blocks sends or controls.
             "listPlugins" | "listCodexApps" => deadline.saturating_mul(3),
+            "ragdocSearch" | "kbRagdocPage" | "articleList" | "ragdocStatus" | "ragdocZotero" | "articleReview" => Duration::from_secs(135),
             "getHistory" | "getAgentHistory" | "narvalSnapshot" | "narvalReadText"
             | "computeSnapshot" | "computeReadLog" => deadline.saturating_mul(2),
             _ => deadline,
@@ -154,7 +157,10 @@ where
             let _local = local;
             let task = ws_dispatch::execute(work, state, route, disconnected, deadline);
             tokio::pin!(task);
-            let replies = if matches!(class, Class::Ordered | Class::Control | Class::Terminal) {
+            let replies = if matches!(
+                class,
+                Class::Ordered | Class::Control | Class::Terminal | Class::Corpus
+            ) {
                 tokio::select! {
                     replies = &mut task => replies,
                     _ = tokio::time::sleep(deadline) => {

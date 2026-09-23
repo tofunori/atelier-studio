@@ -115,7 +115,7 @@ describe("classement", () => {
 
   it("le dépôt montre tous ses articles, et signale ceux déjà dans la base", () => {
     const pinned = {
-      id: "dddd4444", kind: "gbrain", title: "Physically based snow albedo model",
+      id: "dddd4444", kind: "ragdoc", title: "Physically based snow albedo model",
       origin: "articles/aoki-2011-snow-albedo", chars: 3000,
       addedAt: "2026-08-12T12:00:00Z", updatedAt: "2026-08-12T12:00:00Z",
       meta: { slug: "articles/aoki-2011-snow-albedo" },
@@ -155,7 +155,7 @@ describe("KbSurface", () => {
     })} />);
     // onglet Base par défaut : que les sources choisies
     expect(screen.queryByText("Physically based snow albedo model")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Ragdoc/ }));
     // onglet gbrain : le dépôt, et rien de la base
     expect(screen.getByText("Physically based snow albedo model")).toBeTruthy();
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
@@ -212,7 +212,7 @@ describe("KbSurface", () => {
     fireEvent.change(screen.getByPlaceholderText(/Chercher, ou coller une URL/), {
       target: { value: "albédo" },
     });
-    fireEvent.click(screen.getByText(/Chercher « albédo » dans gbrain/));
+    fireEvent.click(screen.getByText(/Chercher « albédo » dans Ragdoc/));
     expect(onQueryChange).toHaveBeenCalledWith("albédo");
     expect(onSearch).toHaveBeenCalled();
   });
@@ -227,7 +227,7 @@ describe("KbSurface", () => {
       },
     })} />);
     // depuis le lecteur, « Épingler » fait entrer la page dans la base
-    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Ragdoc/ }));
     fireEvent.click(screen.getByText("Physically based snow albedo model"));
     fireEvent.click(screen.getByText("Épingler"));
     expect(onPin).toHaveBeenCalledWith("articles/aoki-2011-snow-albedo");
@@ -310,7 +310,7 @@ describe("KbSurface", () => {
     renderUi(<KbSurface {...props()} />);
     // une conversion ne concerne pas la base : elle vit dans l'onglet gbrain
     expect(screen.queryByText("conversion chez MinerU — 42 s")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: /gbrain/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Ragdoc/ }));
     // l'étape réelle remplace le compteur muet
     expect(screen.getByText("conversion chez MinerU — 42 s")).toBeTruthy();
     expect(screen.getByText("rounce-2023.pdf")).toBeTruthy();

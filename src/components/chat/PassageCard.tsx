@@ -12,7 +12,7 @@ import { wsSend } from "../../lib/wsBus";
 import { evidencePinsSnapshot, isPinned, subscribeEvidencePins } from "../../lib/evidencePins";
 import { citeLabel } from "./turnParts";
 import { IconButton, RowButton, Tooltip } from "../ui";
-import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, useMdPlugins, type PassageRef } from "./md";
+import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openRagdocPassage, openZoteroPassage, useMdPlugins, type PassageRef } from "./md";
 
 function DocIcon({ size = 15 }: { size?: number }) {
   return (
@@ -41,13 +41,13 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const hasQuote = Boolean(refData.quote.trim());
   const isLong = refData.quote.length > 420;
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
-  const isGbrain = refData.kind === "gbrain";
+  const isGbrain = refData.kind !== "zotero";
   // Deux libellés : le COURT tient dans la ligne méta (« Stroeve 2006 »), le
   // long reste au survol — la carte cite, elle ne catalogue pas.
   const label = isGbrain ? gbrainCiteLabel(refData.slug) : citeLabel(refData.pdfFile);
   const fullLabel = isGbrain ? humanizeGbrainSlug(refData.slug) : refData.pdfFile;
   const pin = isGbrain
-    ? isPinned({ gbrainSlug: refData.slug, quote: refData.quote })
+    ? isPinned({ source:refData.kind, gbrainSlug: refData.slug, quote: refData.quote })
     : isPinned({ pdfKey: refData.pdfKey, page: refData.page ?? undefined, quote: refData.quote });
 
   const togglePin = () => {
@@ -60,7 +60,8 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
         type: "pinPassage",
         projectRoot,
         pin: {
-          source: "gbrain",
+          source: refData.kind,
+          ...(refData.kind === "ragdoc" ? {page:refData.page ?? 0} : {}),
           quote: refData.quote,
           gbrainSlug: refData.slug,
           citeLabel: label,
@@ -82,7 +83,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
     }
   };
 
-  const openPassage = () => (isGbrain ? openGbrainPassage(refData) : openZoteroPassage(refData));
+  const openPassage = () => (refData.kind === "ragdoc" ? openRagdocPassage(refData) : refData.kind === "gbrain" ? openGbrainPassage(refData) : openZoteroPassage(refData));
   const openLabel = isGbrain ? t("passage.open-gbrain") : t("passage.open-pdf", { page: refData.page });
 
   return (
@@ -92,7 +93,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
           <DocIcon />
           <span className="evidence-meta-src" title={fullLabel}>{label}</span>
         </RowButton>
-        {!isGbrain && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}
+        {refData.kind !== "gbrain" && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}
         <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
           <IconButton
             className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}

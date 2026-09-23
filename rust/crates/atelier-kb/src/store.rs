@@ -8,7 +8,9 @@ use crate::csv_digest::{csv_digest, js_len, CSV_FULL_MAX};
 use crate::folder::{folder_fingerprint, scan_folder, FolderFile};
 use crate::pdf::extract_pdf_pages;
 use crate::search::{search_passages, Page};
-use crate::youtube::{fetch_youtube, parse_youtube_url, vtt_to_pages, FetchedVideo, YT_BUCKET_SECONDS};
+use crate::youtube::{
+    fetch_youtube, parse_youtube_url, vtt_to_pages, FetchedVideo, YT_BUCKET_SECONDS,
+};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -21,7 +23,8 @@ const PAGES_CACHE_VERSION: u64 = 1;
 const LOCK_TIMEOUT: Duration = Duration::from_millis(3000);
 const LOCK_STALE: Duration = Duration::from_millis(10_000);
 
-pub const KB_KINDS: &[&str] = &["file", "pdf", "web", "note", "folder", "youtube", "gbrain", "zotero"];
+pub const KB_KINDS: &[&str] = &["file", "pdf", "web", "note", "folder", "youtube", "gbrain", "zotero", "ragdoc",
+];
 const TEXT_EXTS: &[&str] = &[".md", ".tex", ".txt"];
 const TABLE_EXTS: &[&str] = &[".csv", ".tsv"];
 
@@ -702,6 +705,7 @@ impl KnowledgeStore {
             "pdf" => self.add_pdf(origin, title),
             "web" => self.add_web(origin, title, text),
             "gbrain" => self.add_gbrain(origin, title),
+            "ragdoc" => self.add_ragdoc(origin, title),
             "youtube" => self.add_youtube(origin, title),
             "zotero" => self.add_zotero(origin, title),
             other => Err(format!(
@@ -710,15 +714,53 @@ impl KnowledgeStore {
         }
     }
 
-    /// `add --kind gbrain` — miroir de la branche `gbrain` de
-    /// `KnowledgeStore.add` (`knowledge.mjs`) : lecture seule (`gbrain get`),
-    /// jamais d'écriture au passage.
-    fn add_gbrain(&mut self, origin: Option<&str>, title: Option<&str>) -> Result<(Value, bool), String> {
+    /// Cache the complete Ragdoc text; use physical pages only if exhaustive.
+    fn add_ragdoc(
+        &mut self, origin: Option<&str>, title: Option<&str>,
+    ) -> Result<(Value, bool), String> {
+        let source = origin.ok_or("Document Ragdoc requis")?;
+        let document = crate::ragdoc::read(source)?;
+        let markdown = document["markdown"]
+            .as_str()
+            .ok_or("Texte Ragdoc manquant")?;
+        let final_title = title.or(document["title"].as_str()).unwrap_or(source);
+        let id = source_id("ragdoc", source);
+        let physical: Vec<Page> = document["pages"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|p| {
+                        Some(Page {
+                            page: u32::try_from(p["page"].as_u64()?).ok()?,
+                            text: p["text"].as_str()?.to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let located = document["pagesComplete"] == true && !physical.is_empty();
+        let pages = if located {
+            physical
+        } else {
+            pages_from_text(markdown)
+        };
+        let meta = json!({"slug":source,"syncedAt":now_iso(),"contentSha256":document["contentSha256"],"sourcePdf":document["sourcePdf"],"physicalPages":located});
+        self.upsert_entry(&id, "ragdoc", Some(final_title), Some(source), pages, meta)
+    }
+
+    fn add_gbrain(
+        &mut self,
+        origin: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<(Value, bool), String> {
         let slug = origin.unwrap_or("").trim().to_string();
         if slug.is_empty() || slug.chars().any(char::is_whitespace) {
             return Err("Slug gbrain requis (--origin <slug>, sans espace)".to_string());
         }
-        let markdown = crate::gbrain::run_gbrain(&["get", &slug], None)?.trim().to_string();
+        let markdown = crate::gbrain::run_gbrain(&["get", &slug], None)?
+            .trim()
+            .to_string();
         if markdown.is_empty() || crate::gbrain::gbrain_not_found(&markdown) {
             return Err(format!("Page gbrain introuvable: {slug}"));
         }
@@ -1305,7 +1347,7 @@ mod tests {
         let err = store.add("bogus", Some("x"), None, None).unwrap_err();
         assert_eq!(
             err,
-            "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero) : bogus"
+            "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero, ragdoc) : bogus"
         );
     }
 

@@ -10,7 +10,7 @@ import { wsSend } from "../../lib/wsBus";
 import {
   articleImportSnapshot, backgroundArticleDialog, closeArticleDialog,
   dismissArticleImport, fileName, focusedJob, isAutoWrite, openArticleDialog,
-  openGbrainPage, setAutoWrite, stageLabel, startArticleImport, subscribeArticleImport,
+  openGbrainPage, setAutoWrite, trackArticleWrite, stageLabel, startArticleImport, startDoiImport, subscribeArticleImport,
   type ArticleDuplicate, type ArticleJob,
 } from "../../lib/articleImports";
 import { showError, showSuccess } from "../ui/toast";
@@ -78,7 +78,7 @@ export default function ArticleDialog() {
   const [meta, setMeta] = useState<ArticleMeta>(EMPTY_META);
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
-  const [ragdoc, setRagdoc] = useState(false);
+  const ragdoc = true;
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -118,7 +118,7 @@ export default function ArticleDialog() {
     });
     setSlug(String(imported.slug ?? ""));
     setSlugTouched(false);
-    setRagdoc(false);
+
     setWriting(false);
     setError(null);
     setExpanded(false);
@@ -171,7 +171,7 @@ export default function ArticleDialog() {
         t(detail.updated ? "kb.page-updated" : "kb.page-written", { slug: detail.slug ?? "" })
         + (rag ? (rag.ok ? t("article.ragdoc-ok") : t("article.ragdoc-failed", { message: rag.message ?? "" })) : ""),
       );
-      if (writtenJobRef.current) dismissArticleImport(writtenJobRef.current);
+
       writtenJobRef.current = "";
     };
     const onError = (e: Event) => {
@@ -215,6 +215,7 @@ export default function ArticleDialog() {
       ragdoc,
       meta: { ...meta, year: meta.year.trim() ? Number(meta.year) : null },
     });
+    if (sent) trackArticleWrite(requestId, job.requestId);
     if (!sent) {
       writeRef.current = "";
       writtenJobRef.current = "";
@@ -236,7 +237,8 @@ export default function ArticleDialog() {
     if (!job) return;
     const { path } = job;
     dismissArticleImport(job.requestId);
-    startArticleImport(path);
+    if (path.startsWith("doi:")) startDoiImport(path.slice(4));
+    else startArticleImport(path, {converter:job.converter, zotero:job.zotero});
   }
 
   const elapsed = (entry: ArticleJob) => Math.max(0, Math.round((now - entry.startedAt) / 1000));
@@ -323,6 +325,11 @@ export default function ArticleDialog() {
           </>
         )}
 
+        {job && ["queued","duplicate","rejected"].includes(job.phase) && <>
+          <div className="kb-page-source">{fileName(job.path)}</div>
+          <p className="kb-article-hint">{job.phase === "queued" ? "En attente. Lancez les conversions depuis le volet Ragdoc." : job.phase === "duplicate" ? "Ce PDF est déjà indexé dans Ragdoc." : "Document écarté de ce lot."}</p>
+          <Button variant="ghost" onClick={backgroundArticleDialog}>Fermer</Button>
+        </>}
         {job?.phase === "writing" && (
           <>
             <div className="kb-page-source">{fileName(job.path)}</div>
@@ -421,6 +428,7 @@ export default function ArticleDialog() {
                 <Input
                   id="kb-article-slug"
                   className="kb-article-slug"
+                  readOnly
                   value={slug}
                   onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
                 />
@@ -437,7 +445,7 @@ export default function ArticleDialog() {
                     <RowButton
                       className="kb-article-dup-use"
                       title={t("article.dup-use-title", { slug: dup.slug })}
-                      onClick={() => { setSlug(dup.slug); setSlugTouched(true); }}
+                      onClick={() => { void openGbrainPage(dup.slug); }}
                     >
                       {t("article.dup-use")}
                     </RowButton>
@@ -469,16 +477,7 @@ export default function ArticleDialog() {
               {expanded && fullText && fullText.draftId === imported?.draftId ? fullText.markdown : body}
             </pre>
 
-            <RowButton
-              className={`kb-article-check${ragdoc ? " on" : ""}`}
-              role="checkbox"
-              aria-checked={ragdoc}
-              onClick={() => setRagdoc((v) => !v)}
-            >
-              <span className="kb-article-box" aria-hidden="true" />
-              {t("article.ragdoc")}
-              <span className="kb-article-hint">{t("article.ragdoc-hint")}</span>
-            </RowButton>
+            <div className="kb-article-hint">L’ajout est confirmé après l’indexation et la vérification dans Ragdoc.</div>
 
             <div className="kb-note-actions">
               <Button

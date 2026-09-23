@@ -30,6 +30,7 @@ import { wsSend } from "../../lib/wsBus";
 /** Page du dépôt, ou source de la base. */
 export type ReaderTarget =
   | { kind: "gbrain"; slug: string }
+  | { kind: "ragdoc"; slug: string }
   | { kind: "source"; id: string };
 
 export type FolderFile = { rel: string; chars: number };
@@ -75,18 +76,18 @@ export default function SourceReader(p: SourceReaderProps) {
   const [vue, setVue] = useState<"rendu" | "source">("rendu");
   const plugins = useMdPlugins();
   const cible = p.target;
-  const clef = cible.kind === "gbrain" ? cible.slug : cible.id;
+  const clef = cible.kind !== "source" ? cible.slug : cible.id;
 
   useEffect(() => {
     setEtat({ phase: "chargement" });
     setVue("rendu");
     setQuery(""); setMatchIndex(0);
-    const attendu = cible.kind === "gbrain" ? "gbrain-page" : "source-text";
+    const attendu = cible.kind === "ragdoc" ? "ragdoc-page" : cible.kind === "gbrain" ? "gbrain-page" : "source-text";
     let timeout: ReturnType<typeof setTimeout>;
     const onReponse = (event: Event) => {
       const d = (event as CustomEvent).detail as Record<string, unknown> | undefined;
       if (!d) return;
-      const recu = String(cible.kind === "gbrain" ? d.slug ?? "" : d.id ?? "");
+      const recu = String(cible.kind !== "source" ? d.slug ?? "" : d.id ?? "");
       if (recu !== clef) return;
       clearTimeout(timeout);
       if (d.error) { setEtat({ phase: "erreur", message: String(d.error) }); return; }
@@ -101,11 +102,13 @@ export default function SourceReader(p: SourceReaderProps) {
       });
     };
     window.addEventListener(attendu, onReponse);
-    const sent = wsSend(cible.kind === "gbrain"
+    const sent = wsSend(cible.kind === "ragdoc"
+      ? { type: "kbRagdocPage", slug: cible.slug }
+      : cible.kind === "gbrain"
       ? { type: "kbGbrainPage", slug: cible.slug }
       : { type: "kbSourceText", id: cible.id });
     if (!sent) setEtat({phase: "erreur", message: "Connexion indisponible. Réessaie après la reconnexion."});
-    else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 15000);
+    else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 135000);
     return () => { clearTimeout(timeout); window.removeEventListener(attendu, onReponse); };
   }, [cible.kind, clef, reload]);
 
@@ -175,7 +178,7 @@ export default function SourceReader(p: SourceReaderProps) {
             strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 5l-7 7 7 7" />
           </svg>
-          {t(cible.kind === "gbrain" ? "gbr.back" : "gbr.back-base")}
+          {t(cible.kind !== "source" ? "gbr.back" : "gbr.back-base")}
         </RowButton>
         <span className="gbr-slug" title={clef}>{clef}</span>
         <span className="gbr-spacer" />
@@ -199,7 +202,7 @@ export default function SourceReader(p: SourceReaderProps) {
             ))}
           </span>
         )}
-        {cible.kind === "gbrain" && p.onPin && (
+        {cible.kind !== "source" && p.onPin && (
           <Button type="button" variant="ghost" className="ghost"
             onClick={() => p.onPin?.(cible.slug)}>
             {t("gbr.pin")}

@@ -67,6 +67,14 @@ describe("PassageCard", () => {
     resetEvidencePinsForTests();
   });
 
+  it("Ragdoc conserve l’identité du corpus et la page à l’épinglage", () => {
+    pushEvidencePins({type:"evidencePins",projectRoot:"/proj/a",pins:[]});
+    render(<PassageCard refData={{kind:"ragdoc",slug:"article.md",quote:"Texte exact",page:12}} />);
+    expect(screen.getByText("p. 12")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:/épingler|pin/i}));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({type:"pinPassage",pin:expect.objectContaining({source:"ragdoc",gbrainSlug:"article.md",page:12,quote:"Texte exact"})}));
+  });
+
   it("repliée : une ligne, citation tronquée, cite + page", () => {
     render(<PassageCard refData={REF} />);
     expect(screen.getByText(/Williamson/)).toBeTruthy();

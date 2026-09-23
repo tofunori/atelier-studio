@@ -49,7 +49,7 @@ export function filterOf(kind: string): KbFilter {
   if (kind === "pdf" || kind === "zotero") return "pdf";
   if (kind === "web" || kind === "youtube") return "web";
   if (kind === "note") return "note";
-  if (kind === "gbrain") return "corpus";
+  if (kind === "gbrain" || kind === "ragdoc") return "corpus";
   return "file";
 }
 
@@ -94,7 +94,7 @@ type Row = {
 /** Slugs des pages gbrain que l'utilisateur a épinglées dans sa base. */
 function pinnedSlugs(sources: KbSource[]) {
   return new Set(
-    sources.filter((s) => s.kind === "gbrain").map((s) => String(s.meta?.slug ?? s.origin ?? "")),
+    sources.filter((s) => s.kind === "ragdoc").map((s) => String(s.meta?.slug ?? s.origin ?? "")),
   );
 }
 
@@ -118,7 +118,7 @@ export function buildRows(sources: KbSource[], { now = Date.now() }: { now?: num
       at: source.updatedAt || source.addedAt || "",
       meta: fmtAge(source.updatedAt || source.addedAt, now),
       source,
-      slug: source.kind === "gbrain" ? String(source.meta?.slug ?? source.origin ?? "") : null,
+      slug: (source.kind === "gbrain" || source.kind === "ragdoc") ? String(source.meta?.slug ?? source.origin ?? "") : null,
     }))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
@@ -138,7 +138,7 @@ export function buildCorpusRows(
     .map((article) => ({
       key: `corpus:${article.slug}`,
       filter: "corpus" as KbFilter,
-      kind: "gbrain",
+      kind: "ragdoc",
       title: article.title || String(article.slug),
       at: article.date ? `${article.date}T12:00:00Z` : "",
       meta: article.date ?? "",
@@ -155,6 +155,7 @@ export default function KbSurface(p: {
   fullContent: string[];
   articles?: ArticleRow[];
   corpusStatus?: string | null;
+  ragdocWorkspace?: React.ReactNode;
   sourcesStatus?: string | null;
   threadTitle?: string;
   error: string | null;
@@ -239,12 +240,21 @@ export default function KbSurface(p: {
       clearPendingPassageOpen();
       handleGbrainPassage((e as CustomEvent).detail);
     };
+    const handleRagdocPassage = (detail: {slug?: string;quote?: string} | undefined) => {
+      if (detail?.slug) openLecture({kind:"ragdoc",slug:detail.slug},detail.quote || null);
+    };
+    const onOpenRagdocPassage = (event: Event) => {clearPendingPassageOpen(); handleRagdocPassage((event as CustomEvent).detail);};
+    window.addEventListener("kb-open-ragdoc-passage", onOpenRagdocPassage);
     window.addEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
     const pending = consumePendingPassageOpen();
     if (pending?.kind === "gbrain") {
       handleGbrainPassage(pending.detail as { slug?: string; quote?: string } | undefined);
     }
-    return () => window.removeEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
+    if (pending?.kind === "ragdoc") handleRagdocPassage(pending.detail as {slug?: string;quote?: string});
+    return () => {
+      window.removeEventListener("kb-open-gbrain-passage", onOpenGbrainPassage);
+      window.removeEventListener("kb-open-ragdoc-passage", onOpenRagdocPassage);
+    };
   }, []);
   // imports en vol : rangées vivantes en tête de liste (plan 054)
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
@@ -324,7 +334,7 @@ export default function KbSurface(p: {
       return;
     }
     p.gbrain?.onQueryChange(value);
-    p.gbrain?.onSearch();
+    p.gbrain?.onSearch(value);
   }
 
   useEffect(() => {
@@ -514,7 +524,7 @@ export default function KbSurface(p: {
         items.push({ key: "page", separatorBefore: true, label: t("kb.promote-page"), onSelect: () => p.onPromotePage?.(source.id) });
       }
       items.push({ key: "promote", label: t("kb.promote"), onSelect: () => p.onPromote(source.id) });
-      if (row.slug && p.onResync) {
+      if (source.kind === "ragdoc" && row.slug && p.onResync) {
         items.push({ key: "resync", label: t("kb.gbrain-resync"), onSelect: () => p.onResync?.(row.slug as string) });
       }
       if (p.onArchive) {
@@ -535,7 +545,7 @@ export default function KbSurface(p: {
     }
     // page du dépôt : la lire, ou la faire entrer dans la base
     return [
-      { key: "read", label: t("kbs.menu-read"), onSelect: () => openLecture({ kind: "gbrain", slug: row.slug ?? "" }) },
+      { key: "read", label: t("kbs.menu-read"), onSelect: () => openLecture({ kind: "ragdoc", slug: row.slug ?? "" }) },
       {
         key: "pin",
         separatorBefore: true,
@@ -590,7 +600,7 @@ export default function KbSurface(p: {
             if (source && (e.shiftKey || e.metaKey || e.ctrlKey)) pick(source.id, e.shiftKey);
             else if (source && selected.length) pick(source.id, false);
             else if (source) openLecture({ kind: "source", id: source.id });
-            else openLecture({ kind: "gbrain", slug: row.slug ?? "" });
+            else openLecture({ kind: "ragdoc", slug: row.slug ?? "" });
           }}
         >
           <span className="kb-name">{row.title}</span>
@@ -743,7 +753,7 @@ export default function KbSurface(p: {
         <SourceReader
           target={lecture}
           onClose={() => { setLecture(null); setLectureHighlight(null); }}
-          onPin={(slug) => p.gbrain?.onPin(slug)}
+          onPin={lecture.kind === "gbrain" ? undefined : (slug) => p.gbrain?.onPin(slug)}
           onToggleFull={p.onToggleFull}
           full={lecture.kind === "source" && p.fullContent.includes(lecture.id)}
           highlightQuote={lectureHighlight ?? undefined}
@@ -811,7 +821,7 @@ export default function KbSurface(p: {
             type="button"
             variant="ghost"
             className="ghost kbs-add"
-            onClick={() => p.onAddArticle?.()}
+            onClick={() => p.ragdocWorkspace ? window.dispatchEvent(new CustomEvent("ragdoc-show-import")) : p.onAddArticle?.()}
           >
             {t("kbs.import-pdf")}
           </Button>
@@ -871,7 +881,7 @@ export default function KbSurface(p: {
         {p.headerEnd && <div className="workspace-pane-controls-slot">{p.headerEnd}</div>}
       </div>
 
-      <div className="kbs-body">
+      {tab === "brain" && p.ragdocWorkspace ? p.ragdocWorkspace : <div className="kbs-body">
         {renderRail()}
         <div className="kbs-main">
           <Input
@@ -1002,9 +1012,9 @@ export default function KbSurface(p: {
                       title={result.snippet ?? result.slug}
                       onClick={() => p.gbrain?.onPin(result.slug)}
                     >
-                      <span className="kb-kind"><KindIcon kind="gbrain" /></span>
-                      <span className="kb-name">{result.slug}</span>
-                      <span className="kb-meta">{t("kb.gbrain-meta-nas")}</span>
+                      <span className="kb-kind"><KindIcon kind="ragdoc" /></span>
+                      <span className="kb-name">{result.title || result.slug}</span>
+                      <span className="kb-meta">{result.page ? `p. ${result.page}` : "Ragdoc"}</span>
                     </RowButton>
                   </div>
                 ))}
@@ -1012,7 +1022,7 @@ export default function KbSurface(p: {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {selected.length > 0 && (
         <div className="kb-batchbar">

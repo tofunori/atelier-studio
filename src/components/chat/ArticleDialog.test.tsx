@@ -80,6 +80,7 @@ async function toReview(over: Record<string, unknown> = {}) {
     ...over,
   });
   await screen.findByText("Article converti");
+  await screen.findByDisplayValue(String(over.slug ?? "articles/aoki-2011-snow-albedo-model"));
   sent.mockClear();
 }
 
@@ -132,12 +133,12 @@ describe("ArticleDialog", () => {
     expect(screen.getByText(/A physically based snow albedo model/)).toBeTruthy();
     expect(sent).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText("Écrire la page"));
+    fireEvent.click(screen.getByText("Ajouter à Ragdoc"));
     const msg = lastSent();
     expect(msg.type).toBe("articleWrite");
     expect(msg.draftId).toBe("a8023bcc8c7f");
     expect(msg.slug).toBe("articles/aoki-2011-snow-albedo-model");
-    expect(msg.ragdoc).toBe(false);
+    expect(msg.ragdoc).toBe(true);
     expect((msg.meta as { year: number }).year).toBe(2011);
   });
 
@@ -160,7 +161,7 @@ describe("ArticleDialog", () => {
     expect(await screen.findByText("Article converti")).toBeTruthy();
   });
 
-  it("liste les doublons du corpus et adopte le slug existant au clic", async () => {
+  it("consulte un doublon sans remplacer la cible d’import", async () => {
     await toReview({
       duplicates: [
         { slug: "papers/aoki-2011", snippet: "Physically based snow albedo", why: "doi" },
@@ -172,21 +173,17 @@ describe("ArticleDialog", () => {
     expect(screen.getByText("DOI identique")).toBeTruthy();
     expect(screen.getByText("titre très proche")).toBeTruthy();
 
-    fireEvent.click(screen.getAllByText("Utiliser ce slug")[0]);
-    expect(screen.getByDisplayValue("papers/aoki-2011")).toBeTruthy();
-    fireEvent.click(screen.getByText("Écrire la page"));
-    expect(lastSent().slug).toBe("papers/aoki-2011");
+    fireEvent.click(screen.getAllByText("Consulter le document")[0]);
+    expect(lastSent()).toMatchObject({type:"kbAdd",kind:"ragdoc",origin:"papers/aoki-2011"});
+    expect(screen.getByDisplayValue("articles/aoki-2011-snow-albedo-model")).toHaveAttribute("readonly");
+    fireEvent.click(screen.getByText("Ajouter à Ragdoc"));
+    expect(lastSent().slug).toBe("articles/aoki-2011-snow-albedo-model");
   });
 
-  it("annonce un remplacement quand le slug existe, jusqu'à ce qu'on le change", async () => {
+  it("conserve le nom du document pendant la révision", async () => {
     await toReview({ exists: true });
     expect(screen.getByText(/existe déjà/)).toBeTruthy();
-    expect(screen.getByText("Remplacer la page")).toBeTruthy();
-    fireEvent.change(screen.getByDisplayValue("articles/aoki-2011-snow-albedo-model"), {
-      target: { value: "articles/autre-slug" },
-    });
-    expect(screen.queryByText(/existe déjà/)).toBeNull();
-    expect(screen.getByText("Écrire la page")).toBeTruthy();
+    expect(screen.getByDisplayValue("articles/aoki-2011-snow-albedo-model")).toHaveAttribute("readonly");
   });
 
   it("transmet les métadonnées corrigées et l'option ragdoc", async () => {
@@ -194,8 +191,7 @@ describe("ArticleDialog", () => {
     fireEvent.change(screen.getByDisplayValue("Physically based snow albedo model"), {
       target: { value: "Titre corrigé" },
     });
-    fireEvent.click(screen.getByText("Copier aussi vers ragdoc"));
-    fireEvent.click(screen.getByText("Écrire la page"));
+    fireEvent.click(screen.getByText("Ajouter à Ragdoc"));
     const msg = lastSent();
     expect((msg.meta as { title: string }).title).toBe("Titre corrigé");
     expect(msg.ragdoc).toBe(true);
@@ -214,16 +210,16 @@ describe("ArticleDialog", () => {
   it("signale MinerU indisponible, et un échec d'écriture ne perd pas la fiche", async () => {
     await toReview({ converter: "local" });
     expect(screen.getByText(/MinerU indisponible/)).toBeTruthy();
-    fireEvent.click(screen.getByText("Écrire la page"));
+    fireEvent.click(screen.getByText("Ajouter à Ragdoc"));
     emit("article-error", { requestId: lastRequestId(), message: "gbrain: disque plein" });
     await screen.findByText("gbrain: disque plein");
     expect(screen.getByDisplayValue("articles/aoki-2011-snow-albedo-model")).toBeTruthy();
-    expect(screen.getByText("Écrire la page")).toBeTruthy();
+    expect(screen.getByText("Ajouter à Ragdoc")).toBeTruthy();
   });
 
   it("ferme la fiche après écriture", async () => {
     await toReview();
-    fireEvent.click(screen.getByText("Écrire la page"));
+    fireEvent.click(screen.getByText("Ajouter à Ragdoc"));
     emit("article-written", {
       requestId: lastRequestId(), slug: "articles/x", updated: true, ragdoc: { ok: true },
     });
@@ -232,7 +228,7 @@ describe("ArticleDialog", () => {
     await waitFor(() => {
       expect(screen.queryByDisplayValue("articles/aoki-2011-snow-albedo-model")).toBeNull();
     });
-    expect(screen.queryByText("Écrire la page")).toBeNull();
+    expect(screen.queryByText("Ajouter à Ragdoc")).toBeNull();
   });
 
   it("un import abandonné ne réveille plus le dialogue", async () => {
@@ -247,7 +243,7 @@ describe("ArticleDialog", () => {
 });
 
 describe("mode automatique", () => {
-  it("écrit la page sans confirmation, et vise le doublon par DOI", async () => {
+  it("écrit automatiquement sous sa propre identité sans écraser le doublon DOI", async () => {
     setAutoWrite(true);
     await toConverting();
     emit("article-imported", {
@@ -262,12 +258,12 @@ describe("mode automatique", () => {
     const msg = lastSent();
     expect(msg.type).toBe("articleWrite");
     // le DOI identique désigne LA page à mettre à jour ; le titre proche, non
-    expect(msg.slug).toBe("papers/aoki-2011");
+    expect(msg.slug).toBe("articles/aoki-2011-snow-albedo-model");
     expect(msg.draftId).toBe("a8023bcc8c7f");
-    expect(await screen.findByText(/Écriture dans gbrain/)).toBeTruthy();
+    expect(await screen.findByText(/Indexation et vérification dans Ragdoc/)).toBeTruthy();
 
     emit("article-written", { requestId: msg.requestId, slug: "papers/aoki-2011", updated: true });
-    await waitFor(() => expect(screen.queryByText(/Écriture dans gbrain/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/Indexation et vérification dans Ragdoc/)).toBeNull());
     expect(undo).toHaveBeenCalled();
     expect((undo.mock.calls[0] as [string])[0]).toContain("papers/aoki-2011");
   });
@@ -318,7 +314,7 @@ describe("mode automatique", () => {
     setAutoWrite(false);
     await toReview();
     expect(sent).not.toHaveBeenCalled();
-    expect(screen.getByText("Écrire la page")).toBeTruthy();
+    expect(screen.getByText("Ajouter à Ragdoc")).toBeTruthy();
   });
 });
 

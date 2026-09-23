@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  parseRagdocPassageRef,
   gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openZoteroPassage, parseGbrainPassageRef, parseZoteroPassageRef,
 } from "./md";
 
@@ -170,5 +171,21 @@ describe("gbrainCiteLabel — libellé court de la ligne méta", () => {
   it("sans année : repli sur le titre humanisé, tronqué comme citeLabel", () => {
     expect(gbrainCiteLabel("notes/albedo")).toBe("Albedo");
     expect(gbrainCiteLabel("notes/" + "tres-long-".repeat(6))).toHaveLength(34);
+  });
+});
+
+
+describe("passages Ragdoc", () => {
+  it("préserve un extrait exact long et une page réelle", () => {
+    const quote = "Un passage avec albédo. ".repeat(80);
+    const params = new URLSearchParams({source:"article.md",quote,page:"12"});
+    expect(parseRagdocPassageRef(`#atelier-ragdoc-passage?${params}`)).toEqual({kind:"ragdoc",slug:"article.md",quote,page:12});
+  });
+  it("ne fabrique pas de page pour les anciens documents", () => {
+    expect(parseRagdocPassageRef("#atelier-ragdoc-passage?source=legacy.md&quote=texte")).toEqual({kind:"ragdoc",slug:"legacy.md",quote:"texte"});
+  });
+  it("rejette les chemins et pages ambigus", () => {
+    expect(parseRagdocPassageRef("#atelier-ragdoc-passage?source=..%2Fa.md&quote=q")).toBeNull();
+    expect(parseRagdocPassageRef("#atelier-ragdoc-passage?source=a.md&quote=q&page=2abc")).toBeNull();
   });
 });

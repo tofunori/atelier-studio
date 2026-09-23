@@ -85,8 +85,12 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "articleImportDoi",
     "articleWrite",
     "articleDraft",
+    "articleReview",
+    "ragdocStatus",
+    "ragdocZotero",
     "articleList",
     "gbrainSearch",
+    "ragdocSearch", "kbRagdocPage", "kbRagdocPromote",
     "generateImage",
     "apiProviders",
     "saveApiProvider",
@@ -934,7 +938,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             }
         }
         "kbAdd" => handle_kb_add(state, &msg).await,
-        "kbGbrainPage" => handle_kb_gbrain_page(state, &msg).await,
+        "kbGbrainPage" | "kbRagdocPage" => handle_kb_gbrain_page(state, &msg).await,
         "kbSourceText" => handle_kb_source_text(state, &msg).await,
         "kbList" => handle_kb_list(state),
         "getTurnContextPreview" => {
@@ -962,12 +966,13 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kbCollection" | "kbTag" | "kbArchive" => handle_kb_organize(state, msg_type, &msg).await,
         "kbRemove" => handle_kb_remove(state, &msg).await,
         "kbPromote" => handle_kb_promote(state, &msg).await,
-        "gbrainSearch" => handle_gbrain_search(state, &msg).await,
-        "kbPromotePage" => handle_kb_promote_page(state, &msg).await,
+        "gbrainSearch" | "ragdocSearch" => handle_gbrain_search(state, &msg).await,
+        "kbPromotePage" | "kbRagdocPromote" => handle_kb_promote_page(state, &msg).await,
         "articleImport" => handle_article_import(state, &msg).await,
         "articleImportDoi" => handle_article_doi(state, &msg).await,
         "articleWrite" => handle_article_write(state, &msg).await,
         "articleDraft" => handle_article_draft(state, &msg).await,
+        "articleReview" | "ragdocStatus" | "ragdocZotero" => handle_ragdoc_workspace(state, &msg).await,
         "articleList" => handle_article_list(state, &msg).await,
         "generateImage" => handle_generate_image(state, &msg).await,
         "apiProviders" => {
@@ -2187,12 +2192,15 @@ fn kb_cli_stream_rust(
         .ok_or("article-import: --path requis")?;
     let dir = app_dir.join("knowledge");
     let store = atelier_kb::store::KnowledgeStore::open(dir);
-    let pdf_cache_dir = store.pdf_cache_dir().to_path_buf();
     // B4 (plans/065-revue-findings.md) : convert_pdf émet désormais les
     // étapes MinerU (upload/converting/download/figures/ocr) en plus des
     // étapes meta/duplicates d'import_article — même callback JSON riche
     // qu'onProgress côté Node, plus besoin d'un wrapper stage: &str ici.
-    atelier_kb::article::import_article(path, &store.dir, &pdf_cache_dir, Some(&mut on_progress))
+    let mut result = atelier_kb::ragdoc::import_pdf_with_converter(path, &store.dir, args.windows(2).find(|w| w[0] == "--converter").map(|w|w[1]), &mut on_progress)?;
+    if let Some(zotero) = args.windows(2).find(|w|w[0]=="--zotero").and_then(|w|serde_json::from_str::<Value>(w[1]).ok()).filter(|v|v.is_object() && result["duplicate"] != true) {
+        atelier_kb::ragdoc::apply_zotero_metadata(&store.dir, &mut result, &zotero)?;
+    }
+    Ok(result)
 }
 
 fn kb_error(message: String) -> Vec<String> {
@@ -2303,6 +2311,8 @@ async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<String> {
 /// `error`, jamais un kbError générique : la section du panneau l'affiche en
 /// place sans polluer le flux d'épinglage.
 async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
+    let ragdoc = msg["type"] == "ragdocSearch";
+    let response = if ragdoc { "ragdocResults" } else { "gbrainResults" };
     let query = msg
         .get("query")
         .and_then(|v| v.as_str())
@@ -2311,7 +2321,7 @@ async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
         .to_string();
     if query.is_empty() {
         return vec![json_msg(
-            json!({"type": "gbrainResults", "query": "", "results": [], "error": "requête vide"}),
+            json!({"type": response, "query": "", "results": [], "error": "requête vide"}),
         )];
     }
     let limit = msg
@@ -2321,7 +2331,7 @@ async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
         .clamp(1, 25)
         .to_string();
     let args = vec![
-        "gbrain-search".to_string(),
+        if ragdoc { "ragdoc-search" } else { "gbrain-search" }.to_string(),
         "--query".to_string(),
         query.clone(),
         "--limit".to_string(),
@@ -2336,12 +2346,12 @@ async fn handle_gbrain_search(state: &AppState, msg: &Value) -> Vec<String> {
     .await
     {
         Ok(v) => vec![json_msg(json!({
-            "type": "gbrainResults",
+            "type": response,
             "query": v.get("query").cloned().unwrap_or_else(|| json!(query)),
             "results": v.get("results").cloned().unwrap_or_else(|| json!([])),
         }))],
         Err(e) => vec![json_msg(
-            json!({"type": "gbrainResults", "query": query, "results": [], "error": e}),
+            json!({"type": response, "query": query, "results": [], "error": e}),
         )],
     }
 }
@@ -2356,7 +2366,7 @@ async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
     let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
     let write = msg.get("write").and_then(Value::as_bool).unwrap_or(false);
     let mut args = vec![
-        "promote-page".to_string(),
+        if msg["type"] == "kbRagdocPromote" { "ragdoc-promote" } else { "promote-page" }.to_string(),
         "--id".to_string(),
         id.to_string(),
     ];
@@ -2388,6 +2398,7 @@ async fn handle_kb_promote_page(state: &AppState, msg: &Value) -> Vec<String> {
             "id": v.get("id").cloned().unwrap_or(json!(id)),
             "slug": v.get("slug").cloned().unwrap_or(json!(null)),
             "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+        "duplicate": v.get("duplicate").cloned().unwrap_or(json!(false)),
             "title": v.get("title").cloned().unwrap_or(json!(null)),
             "chars": v.get("chars").cloned().unwrap_or(json!(null)),
             "preview": v.get("preview").cloned().unwrap_or(json!("")),
@@ -2435,7 +2446,7 @@ async fn handle_article_doi(state: &AppState, msg: &Value) -> Vec<String> {
         return article_error(&request_id, "articleImportDoi: doi requis".into());
     }
     let args = vec![
-        "article-doi".to_string(),
+        "ragdoc-doi".to_string(),
         "--doi".to_string(),
         doi.to_string(),
     ];
@@ -2455,6 +2466,7 @@ fn article_imported_msg(request_id: &Value, path: &str, v: &Value) -> String {
         "meta": v.get("meta").cloned().unwrap_or(json!({})),
         "slug": v.get("slug").cloned().unwrap_or(Value::Null),
         "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+        "duplicate": v.get("duplicate").cloned().unwrap_or(json!(false)),
         "chars": v.get("chars").cloned().unwrap_or(Value::Null),
         "preview": v.get("preview").cloned().unwrap_or(json!("")),
         "converter": v.get("converter").cloned().unwrap_or(Value::Null),
@@ -2478,11 +2490,16 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
     let server_dir = state.server_dir().to_string();
     let app_dir = state.app_dir().to_path_buf();
     let path_owned = path.to_string();
+    let converter = msg["converter"].as_str().unwrap_or("mistral").to_string();
+    let zotero = msg["zotero"].to_string();
     let streamed = crate::ws_dispatch::blocking(move || {
         let refs = vec![
             "article-import",
             "--path",
             path_owned.as_str(),
+            "--converter",
+            converter.as_str(),
+            "--zotero", zotero.as_str(),
             "--progress",
         ];
         kb_cli_stream(&server_dir, &app_dir, &refs, |step| {
@@ -2506,6 +2523,7 @@ async fn handle_article_import(state: &AppState, msg: &Value) -> Vec<String> {
             "meta": v.get("meta").cloned().unwrap_or(json!({})),
             "slug": v.get("slug").cloned().unwrap_or(Value::Null),
             "exists": v.get("exists").cloned().unwrap_or(json!(false)),
+        "duplicate": v.get("duplicate").cloned().unwrap_or(json!(false)),
             "chars": v.get("chars").cloned().unwrap_or(Value::Null),
             "preview": v.get("preview").cloned().unwrap_or(json!("")),
             "converter": v.get("converter").cloned().unwrap_or(Value::Null),
@@ -2527,10 +2545,10 @@ async fn handle_article_list(state: &AppState, msg: &Value) -> Vec<String> {
         .unwrap_or(20)
         .clamp(1, 100)
         .to_string();
-    let args = vec!["article-list".to_string(), "--limit".to_string(), limit];
+    let args = vec!["ragdoc-list".to_string(), "--limit".to_string(), limit, "--offset".into(), msg["offset"].as_u64().unwrap_or(0).to_string(), "--query".into(), msg["query"].as_str().unwrap_or("").to_string()];
     match article_cli(state, args).await {
         Ok(v) => vec![json_msg(json!({
-            "type": "articleListed",
+            "type": "articleListed", "offset": msg["offset"], "query": msg["query"], "total":v["total"], "nextOffset":v["nextOffset"],
             "articles": v.get("articles").cloned().unwrap_or(json!([])),
         }))],
         Err(e) => vec![json_msg(json!({
@@ -2576,7 +2594,7 @@ async fn handle_article_write(state: &AppState, msg: &Value) -> Vec<String> {
         return article_error(&request_id, "articleWrite: slug requis".into());
     }
     let mut args = vec![
-        "article-write".to_string(),
+        "ragdoc-write".to_string(),
         "--draft".to_string(),
         draft.to_string(),
         "--slug".to_string(),
@@ -2649,15 +2667,17 @@ async fn handle_kb_source_text(state: &AppState, msg: &Value) -> Vec<String> {
 /// Lecture seule d'une page du dépôt gbrain. Rien n'entre dans la base au
 /// passage : épingler reste un geste distinct, côté interface.
 async fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
+    let ragdoc = msg["type"] == "kbRagdocPage";
+    let response = if ragdoc { "ragdocPage" } else { "gbrainPage" };
     let slug = msg.get("slug").and_then(|v| v.as_str()).unwrap_or("");
     if slug.is_empty() {
         return vec![json_msg(json!({
-            "type": "gbrainPage", "slug": "", "markdown": "",
+            "type": response, "slug": "", "markdown": "",
             "error": "kbGbrainPage: slug requis",
         }))];
     }
     let args = vec![
-        "gbrain-page".to_string(),
+        if ragdoc { "ragdoc-page" } else { "gbrain-page" }.to_string(),
         "--slug".to_string(),
         slug.to_string(),
     ];
@@ -2670,13 +2690,13 @@ async fn handle_kb_gbrain_page(state: &AppState, msg: &Value) -> Vec<String> {
     .await
     {
         Ok(v) => vec![json_msg(json!({
-            "type": "gbrainPage",
+            "type": response,
             "slug": v.get("slug").cloned().unwrap_or(json!(slug)),
             "chars": v.get("chars").cloned().unwrap_or(Value::Null),
             "markdown": v.get("markdown").cloned().unwrap_or(json!("")),
         }))],
         Err(e) => vec![json_msg(json!({
-            "type": "gbrainPage", "slug": slug, "markdown": "", "error": e,
+            "type": response, "slug": slug, "markdown": "", "error": e,
         }))],
     }
 }
@@ -2742,7 +2762,7 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
     // cette métadonnée est inutilisable pour rouvrir le PDF à la bonne page.
     // gbrain n'a ni PDF ni page : seuls gbrainSlug/quote/citeLabel comptent,
     // les champs zotero absents sont tolérés (défaut vide côté struct).
-    let is_gbrain = input.source == "gbrain";
+    let is_gbrain = input.source == "gbrain" || input.source == "ragdoc";
     if is_gbrain {
         // Même règle que parseGbrainPassageRef côté TypeScript (md.tsx) : le
         // backend n'accepte jamais un slug que le frontend refuserait — pas
@@ -2777,7 +2797,7 @@ fn handle_pin_passage(state: &AppState, msg: &Value) -> Vec<String> {
         ts: 0,
         quote: input.quote,
         source: if is_gbrain {
-            "gbrain".to_string()
+            input.source.clone()
         } else {
             "zotero".to_string()
         },
@@ -5316,6 +5336,22 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn ragdoc_pins_keep_their_corpus_and_do_not_deduplicate_gbrain() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        for source in ["gbrain", "ragdoc", "ragdoc"] {
+            let request = json!({"type":"pinPassage","projectRoot":"/proj","pin":{"source":source,"gbrainSlug":"paper.md","quote":"exact","citeLabel":"Paper","page":12}}).to_string();
+            let out = route_ws(&s, &request).await;
+            let response: Value = serde_json::from_str(&out[0]).unwrap();
+            assert!(response["error"].is_null(), "{response}");
+        }
+        let out = route_ws(&s, r#"{"type":"listPins","projectRoot":"/proj"}"#).await;
+        let response: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(response["pins"].as_array().unwrap().len(), 2);
+        assert!(response["pins"].as_array().unwrap().iter().any(|p|p["source"] == "ragdoc" && p["page"] == 12));
+    }
+
     // Arbitrage contrôleur (post-revue tâche 6) : le backend ne doit pas
     // accepter un gbrainSlug que le frontend refuse (parseGbrainPassageRef,
     // md.tsx) — même validation : segments [A-Za-z0-9._-]+ séparés par "/",
@@ -5755,4 +5791,22 @@ mod tests {
         assert_eq!(std::fs::read_to_string(file).unwrap(), "avant\n");
         assert_eq!(s.journal().materialize("revert-thread"), before);
     }
+}
+
+async fn handle_ragdoc_workspace(state: &AppState, msg: &Value) -> Vec<String> {
+    let kind = msg["type"].as_str().unwrap_or("").to_string();
+    let response = match kind.as_str() { "articleReview" => "articleReview", "ragdocZotero" => "ragdocZotero", _ => "ragdocStatus" };
+    let request_id = msg["requestId"].clone();
+    let draft = msg["draftId"].as_str().unwrap_or("").to_string();
+    let dir = state.app_dir().join("knowledge");
+    let check_indexed = msg["checkIndexed"].as_bool().unwrap_or(false);
+    let result = crate::ws_dispatch::blocking(move || match kind.as_str() {
+        "articleReview" => atelier_kb::ragdoc_review::review(&dir, &draft),
+        "ragdocZotero" => if check_indexed { atelier_kb::ragdoc_review::zotero_with_status() } else { atelier_kb::ragdoc_review::zotero() },
+        _ => atelier_kb::ragdoc::call(json!({"operation":"status"})),
+    }).await.unwrap_or_else(|e|Err(e.to_string()));
+    let mut value = match result { Ok(v) => v, Err(e) => json!({"error":e}) };
+    value["type"] = json!(response);
+    value["requestId"] = request_id;
+    vec![json_msg(value)]
 }

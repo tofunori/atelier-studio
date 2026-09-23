@@ -1,3 +1,4 @@
+import type { ZoteroPDF } from "./ragdocWorkspace";
 // Import d'article (plan 053) — l'état VIT HORS DU DIALOGUE, et il est PLURIEL.
 // Une conversion MinerU dure des minutes : fermer la fiche doit rendre
 // l'atelier (chat, LaTeX, galerie) sans rien interrompre, et rien ne doit
@@ -25,6 +26,7 @@ export type ArticleImported = {
   meta?: ArticleMetaPayload;
   slug?: string;
   exists?: boolean;
+  duplicate?: boolean;
   chars?: number;
   preview?: string;
   converter?: string;
@@ -42,7 +44,9 @@ export type ArticleJob = {
   requestId: string;
   path: string;
   startedAt: number;
-  phase: "converting" | "ready" | "writing" | "done" | "error";
+  phase: "queued" | "converting" | "ready" | "writing" | "done" | "error" | "rejected" | "duplicate";
+  converter?: "mistral" | "mineru";
+  zotero?: ZoteroPDF;
   imported: ArticleImported | null;
   message: string | null;
   /** Page écrite (phase "done") — la trace qui reste une fois le travail fait. */
@@ -57,14 +61,14 @@ export type ArticleJob = {
   stageCount?: number | null;
 };
 
-const AUTO_KEY = "atelier-studio.article-auto";
+const AUTO_KEY = "atelier-studio.ragdoc-auto";
 
 /** Mode automatique : convertir ET écrire sans confirmation. */
 export function isAutoWrite() {
   try {
-    return localStorage.getItem(AUTO_KEY) !== "0";
+    return localStorage.getItem(AUTO_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -84,11 +88,25 @@ export type ArticleImportState = {
 
 const EMPTY: ArticleImportState = { jobs: [], focused: null, open: false };
 
-let current: ArticleImportState = EMPTY;
+const JOBS_KEY = "atelier-studio.ragdoc-jobs-v1";
+export function restoreArticleJobs(raw: string | null): ArticleJob[] {
+  try {
+    const value: unknown = JSON.parse(raw || "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter((job): job is ArticleJob => job && typeof job.requestId === "string" && typeof job.path === "string" && typeof job.startedAt === "number" && ["queued","ready","writing","converting","done","error","rejected","duplicate"].includes(job.phase)).map(job => {
+      if (job.phase === "writing" || job.phase === "converting") return { ...job, phase: job.imported?.draftId ? "ready" : "error", message: "Traitement interrompu. Vérifiez la bibliothèque avant de réessayer." };
+      return job;
+    });
+  } catch { return []; }
+}
+let savedJobs: ArticleJob[] = [];
+try { savedJobs = restoreArticleJobs(localStorage.getItem(JOBS_KEY)); } catch { /* storage unavailable */ }
+let current: ArticleImportState = { ...EMPTY, jobs: savedJobs };
 const listeners = new Set<() => void>();
 
 function emit(next: ArticleImportState) {
   current = next;
+  try { localStorage.setItem(JOBS_KEY, JSON.stringify(next.jobs)); } catch { /* durable backend drafts remain available */ }
   for (const listener of listeners) listener();
 }
 
@@ -162,29 +180,29 @@ export function dismissArticleImport(requestId: string) {
 /** Ferme le dialogue et oublie tout ce qui est terminé (garde les conversions). */
 export function closeArticleDialog() {
   emit({
-    jobs: current.jobs.filter((job) => job.phase === "converting" || job.phase === "done"),
+    jobs: current.jobs,
     focused: null,
     open: false,
   });
 }
 
 /** Fiche de référence par DOI — même cycle de vie qu'un import de PDF. */
-export function startDoiImport(doi: string) {
-  return startArticleImport(`doi:${doi.trim()}`, { doi: doi.trim() });
+export function startDoiImport(doi: string, opts: {background?: boolean} = {}) {
+  return startArticleImport(`doi:${doi.trim()}`, { doi: doi.trim(), ...opts });
 }
 
-export function startArticleImport(path: string, opts: { doi?: string } = {}) {
+export function startArticleImport(path: string, opts: { doi?: string; converter?: "mistral" | "mineru"; background?: boolean; zotero?: ZoteroPDF } = {}) {
   const requestId = `art-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const message = opts.doi
     ? { type: "articleImportDoi", doi: opts.doi, requestId }
-    : { type: "articleImport", path, requestId };
+    : { type: "articleImport", path, requestId, ...(opts.converter ? {converter:opts.converter} : {}), ...(opts.zotero?{zotero:opts.zotero}:{}) };
   if (!wsSend(message)) {
     emit({
       ...current,
-      open: true,
+      open: opts.background ? current.open : true,
       focused: requestId,
       jobs: [...current.jobs, {
-        requestId, path, startedAt: Date.now(), phase: "error",
+        requestId, path, converter:opts.converter, zotero:opts.zotero, startedAt: Date.now(), phase: "error",
         imported: null, message: t("kb.error-generic"),
       }],
     });
@@ -192,11 +210,11 @@ export function startArticleImport(path: string, opts: { doi?: string } = {}) {
   }
   emit({
     ...current,
-    open: true,
+    open: opts.background ? current.open : true,
     // le nouveau dépôt prend la vue : c'est le geste qu'on vient de faire
     focused: requestId,
     jobs: [...current.jobs, {
-      requestId, path, startedAt: Date.now(), phase: "converting",
+      requestId, path, converter:opts.converter, zotero:opts.zotero, startedAt: Date.now(), phase: "converting",
       imported: null, message: null,
     }],
   });
@@ -213,13 +231,9 @@ function patch(requestId: string, change: Partial<ArticleJob>) {
   return job;
 }
 
-// Mode automatique : la cible d'écriture se choisit sans nous. Un doublon par
-// DOI, c'est le MÊME article — on écrit par-dessus la page existante plutôt
-// que d'en semer une deuxième. Un « titre très proche » ne suffit pas : trop
-// de faux positifs pour remplacer une page sans regarder.
+// Un import garde son identité PDF. Un DOI commun ne permet pas d’écraser une autre version.
 export function autoTargetSlug(imported: ArticleImported) {
-  const byDoi = (imported.duplicates ?? []).find((dup) => dup.why === "doi");
-  return String(byDoi?.slug || imported.slug || "").trim();
+  return String(imported.slug || "").trim();
 }
 
 /** writeRequestId → requestId du job, pour les écritures lancées seules. */
@@ -240,16 +254,20 @@ function autoWrite(job: ArticleJob, imported: ArticleImported) {
     slug,
     path: job.path,
     converter: imported.converter ?? "",
-    ragdoc: false,
+    ragdoc: true,
     meta: { ...meta, year: meta.year ? Number(meta.year) : null },
   });
   if (!sent) {
     patch(job.requestId, { phase: "ready" });
     return false;
   }
-  autoWrites.set(writeId, job.requestId);
-  patch(job.requestId, { phase: "writing" });
+  trackArticleWrite(writeId, job.requestId);
   return true;
+}
+
+export function trackArticleWrite(writeId: string, jobId: string) {
+  autoWrites.set(writeId, jobId);
+  patch(jobId, { phase: "writing", message: null });
 }
 
 function onAutoWritten(event: Event) {
@@ -301,23 +319,24 @@ function onAutoWriteError(event: Event) {
   );
 }
 
-/** Ouvre la page écrite dans la surface Connaissances (épinglage gbrain). */
+/** Épingle le document Ragdoc dans les sources de la conversation. */
 export async function openGbrainPage(slug: string) {
   if (!slug) return;
-  wsSend({ type: "kbAdd", kind: "gbrain", origin: slug });
+  wsSend({ type: "kbAdd", kind: "ragdoc", origin: slug });
 }
 
 function onImported(event: Event) {
   const detail = (event as CustomEvent).detail as ArticleImported | undefined;
   const requestId = String(detail?.requestId ?? "");
   if (!detail || !requestId) return;
+  if(detail.duplicate) {patch(requestId,{phase:"duplicate",imported:detail,writtenSlug:detail.slug,message:"PDF déjà présent dans Ragdoc."});return;}
   const wasOpen = current.open;
   const focusedBefore = focusedJob();
   const job = patch(requestId, { phase: "ready", imported: detail, message: null });
   if (!job) return;
   const file = fileName(String(detail.path ?? job.path));
   // Mode automatique : la page part sans confirmation. Les toasts et la
-  // notification disent ce qui a été écrit, et gbrain garde l'historique.
+  // notification annoncent uniquement une indexation vérifiée.
   if (isAutoWrite() && autoWrite({ ...job, phase: "ready", imported: detail }, detail)) return;
   // notification système : elle ne part QUE si l'app n'a pas le focus (garde de
   // notify.ts) — c'est le seul rappel qui rattrape Thierry parti ailleurs
@@ -382,5 +401,41 @@ if (typeof window !== "undefined") {
 
 /** Tests : réinitialise l'état partagé entre deux cas (abonnés conservés). */
 export function resetArticleImportForTests() {
+  autoWrites.clear();
+  queueRunning = false;
   emit(EMPTY);
+}
+
+let queueRunning = false;
+export function enqueueArticlePaths(paths: string[], converter: "mistral"|"mineru", zotero: ZoteroPDF[] = []) {
+  const known = new Set(current.jobs.filter(j=>["queued","converting","ready","writing"].includes(j.phase)).map(j=>j.path));
+  const jobs = [...new Set(paths)].filter(path=>!known.has(path)&&/\.pdf$/i.test(path)).map(path=>({
+    requestId: `queued-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    path, startedAt:Date.now(),phase:"queued" as const, imported:null,message:null,converter,zotero:zotero.find(item=>item.path===path),
+  }));
+  emit({...current,jobs:[...current.jobs,...jobs]});
+}
+export function runArticleQueue() { queueRunning=true; pumpQueue(); }
+export function pauseArticleQueue() { queueRunning=false; }
+function pumpQueue() {
+  if(!queueRunning || current.jobs.some(j=>j.phase==="converting"))return;
+  const job=current.jobs.find(j=>j.phase==="queued");if(!job){queueRunning=false;return;}
+  dismissArticleImport(job.requestId);
+  startArticleImport(job.path,{converter:job.converter,zotero:job.zotero,background:true});
+}
+export function rejectArticleJob(id:string) {patch(id,{phase:"rejected",message:"Écarté de ce lot. Le fichier original est conservé."});}
+export function updateArticleMetadata(id:string, meta:ArticleMetaPayload) {
+  const job=current.jobs.find(j=>j.requestId===id);if(job?.imported)patch(id,{imported:{...job.imported,meta}});
+}
+export function approveArticleJob(id:string) {
+  const job=current.jobs.find(j=>j.requestId===id);
+  if(!job?.imported || job.phase!=="ready")return false;
+  return autoWrite(job,job.imported);
+}
+if(typeof window!=="undefined") {
+  for(const event of ["article-imported","article-error"])window.addEventListener(event,()=>queueMicrotask(pumpQueue));
+}
+
+export function markArticleRecovered(id:string,slug:string) {
+  patch(id,{phase:"done",writtenSlug:slug,doneAt:Date.now(),message:null});
 }

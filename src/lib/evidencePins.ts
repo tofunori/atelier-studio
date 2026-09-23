@@ -17,7 +17,7 @@ export type EvidencePin = {
   /** Deuxième source de passages (tâche 6) : gbrain (dépôt NAS) à côté de
    * Zotero. Absent des épingles v1 sur le fil (le Rust défaut à "zotero" à
    * la désérialisation), toujours présent ici une fois reçu du store. */
-  source: "zotero" | "gbrain";
+  source: "zotero" | "gbrain" | "ragdoc";
   zoteroKey: string;
   pdfKey: string;
   pdfFile: string;
@@ -89,7 +89,7 @@ export function pushEvidencePins(msg: EvidencePinsMsg): void {
 
 /** Identité d'un passage cité, PAR SOURCE : Zotero (`pdfKey`+`page`) ou
  * gbrain (`gbrainSlug`) — jamais les deux à la fois (cf. PassageCard). */
-export type PassageIdentity = { pdfKey?: string; page?: number; gbrainSlug?: string; quote: string };
+export type PassageIdentity = { source?: "gbrain" | "ragdoc"; pdfKey?: string; page?: number; gbrainSlug?: string; quote: string };
 
 /** L'épingle correspondante si ce passage exact est déjà épinglé, sinon
  * `null`. gbrainSlug présent → recherche côté gbrain ; sinon Zotero
@@ -97,9 +97,9 @@ export type PassageIdentity = { pdfKey?: string; page?: number; gbrainSlug?: str
 export function isPinned(identity: PassageIdentity): EvidencePin | null {
   const { pdfKey, page, gbrainSlug, quote } = identity;
   if (gbrainSlug) {
-    return state.pins.find((p) => p.source === "gbrain" && p.gbrainSlug === gbrainSlug && p.quote === quote) ?? null;
+    return state.pins.find((p) => p.source === (identity.source ?? "gbrain") && p.gbrainSlug === gbrainSlug && p.quote === quote) ?? null;
   }
-  return state.pins.find((p) => p.source !== "gbrain" && p.pdfKey === pdfKey && p.page === page && p.quote === quote) ?? null;
+  return state.pins.find((p) => p.source === "zotero" && p.pdfKey === pdfKey && p.page === page && p.quote === quote) ?? null;
 }
 
 // test seulement : remet le cache à zéro entre deux cas

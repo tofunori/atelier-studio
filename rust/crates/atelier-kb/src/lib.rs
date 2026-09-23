@@ -19,3 +19,6 @@ pub mod web;
 pub mod youtube;
 pub mod zotero;
 pub mod zotero_cli;
+
+pub mod ragdoc;
+pub mod ragdoc_review;

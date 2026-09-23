@@ -14,7 +14,7 @@
 // entrée fraîche (`consumePendingPassageOpen`) et la traite comme s'il venait
 // de recevoir l'événement lui-même.
 export type PendingPassageOpen = {
-  kind: "zotero" | "gbrain";
+  kind: "zotero" | "gbrain" | "ragdoc";
   detail: unknown;
   ts: number;
 };

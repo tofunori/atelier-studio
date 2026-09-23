@@ -20,15 +20,17 @@ pub(crate) enum Class {
     FastRead,
     History,
     Ordered,
+    Corpus,
 }
 
 pub(crate) fn classify(kind: &str) -> Class {
     match kind {
         "interrupt" | "permissionResponse" | "interactionResponse" => Class::Control,
         "termOpen" | "termInput" | "termResize" | "termClose" => Class::Terminal,
-        "providerStatus" | "status" | "receiptStatus" | "setupStatus" | "listThreads" | "getSettings"
-        | "listHighlights" | "listAutomations" => Class::FastRead,
+        "providerStatus" | "status" | "receiptStatus" | "setupStatus" | "listThreads"
+        | "getSettings" | "listHighlights" | "listAutomations" => Class::FastRead,
         "getHistory" | "getAgentHistory" => Class::History,
+        "articleImport" | "articleImportDoi" | "articleWrite" | "kbRagdocPromote" => Class::Corpus,
         "clientLog"
         | "getLedger"
         | "listFiles"
@@ -49,8 +51,12 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "kbGbrainPage"
         | "kbSourceText"
         | "getTurnContextPreview"
+        | "articleReview" | "ragdocStatus" | "ragdocZotero"
+        | "articleDraft"
         | "articleList"
         | "gbrainSearch"
+        | "ragdocSearch"
+        | "kbRagdocPage"
         | "apiProviders"
         | "listApiModels"
         | "scanLocal"
@@ -82,8 +88,7 @@ pub(crate) fn lane(request: &Value) -> Option<String> {
     let id = match kind {
         "upsertThread" => request.pointer("/thread/id").or_else(|| request.get("id")),
         "send" | "renameThread" | "moveThread" | "deleteThread" | "prepareMessageEdit"
-        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear"
-        | "requestReview" => {
+        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview" => {
             request.get("threadId")
         }
         _ => None,
@@ -108,6 +113,9 @@ pub(crate) struct Budget {
     read_bytes: Arc<Semaphore>,
     fast_bytes: Arc<Semaphore>,
     terminal_bytes: Arc<Semaphore>,
+    corpus: Arc<Semaphore>,
+    corpus_bytes: Arc<Semaphore>,
+    corpus_order: Mutex<Order>,
     order: Mutex<Order>,
     admission: Mutex<()>,
     history_revision: AtomicU64,
@@ -131,6 +139,9 @@ impl Default for Budget {
             read_bytes: Arc::new(Semaphore::new(16 * 1024)),
             fast_bytes: Arc::new(Semaphore::new(1024)),
             terminal_bytes: Arc::new(Semaphore::new(1024)),
+            corpus: Arc::new(Semaphore::new(16)),
+            corpus_bytes: Arc::new(Semaphore::new(16 * 1024)),
+            corpus_order: Mutex::new(Order::default()),
             order: Mutex::new(Order::default()),
             admission: Mutex::new(()),
             history_revision: AtomicU64::new(0),
@@ -152,6 +163,7 @@ impl Budget {
             Class::Control => &self.controls,
             Class::Terminal => &self.terminals,
             Class::Ordered => &self.ordered,
+            Class::Corpus => &self.corpus,
         };
         let slot = semaphore.clone().try_acquire_owned().ok()?;
         let memory_budget = match class {
@@ -161,6 +173,7 @@ impl Budget {
             Class::FastRead => &self.fast_bytes,
             Class::History => &self.history_bytes,
             Class::Ordered => &self.bytes,
+            Class::Corpus => &self.corpus_bytes,
         };
         let units = u32::try_from(bytes.div_ceil(1024).max(1)).ok()?;
         let memory = memory_budget.clone().try_acquire_many_owned(units).ok()?;
@@ -179,6 +192,9 @@ impl Budget {
             let id = request["threadId"].as_str().unwrap_or("");
             self.cancel_sends(id);
             Some(self.reserve_interrupt(id))
+        } else if class == Class::Corpus {
+            // Independent of chat barriers; accepted imports remain durable.
+            Some(Self::reserve(&self.corpus_order, None))
         } else if class == Class::Terminal {
             Some(self.reserve_control(request["termId"].as_str().unwrap_or("")))
         } else {
@@ -330,6 +346,9 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
             request["type"].as_str()
         }
         "kbGbrainPage" => Some("gbrainPage"),
+        "kbRagdocPage" => Some("ragdocPage"),
+        "ragdocSearch" => Some("ragdocResults"),
+        "articleReview" | "ragdocStatus" | "ragdocZotero" => request["type"].as_str(),
         "gbrainSearch" => Some("gbrainResults"),
         "generateCommitMsg" => Some("commitMsg"),
         "reformulerConsigne" => Some("consigneReformulee"),
@@ -359,10 +378,10 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
             error["commits"] = json!([]);
             error["hasMore"] = json!(false);
         }
-        if kind == "gbrainPage" {
+        if kind == "gbrainPage" || kind == "ragdocPage" {
             error["markdown"] = json!("");
         }
-        if kind == "gbrainResults" {
+        if kind == "gbrainResults" || kind == "ragdocResults" {
             error["results"] = json!([]);
         }
     }
@@ -469,7 +488,10 @@ where
             }
         })
     });
-    if matches!(class, Class::Ordered | Class::Control | Class::Terminal) {
+    if matches!(
+        class,
+        Class::Ordered | Class::Control | Class::Terminal | Class::Corpus
+    ) {
         let _keep_cancel_sender = cancel;
         // Accepted mutations keep their ownership across disconnects. Never
         // drop half of an edit or silently replay an accepted send.
@@ -552,10 +574,6 @@ mod tests {
             "kbRemove",
             "kbPromote",
             "kbPromotePage",
-            "articleImport",
-            "articleImportDoi",
-            "articleWrite",
-            "articleDraft",
             "generateImage",
             "saveApiProvider",
             "deleteApiProvider",
@@ -615,6 +633,48 @@ mod tests {
         }
         assert_eq!(classify("futureUnknownMutation"), Class::Ordered);
     }
+    #[tokio::test]
+    async fn ragdoc_ingestion_does_not_block_chat_through_global_barriers() {
+        let budget = Arc::new(Budget::default());
+        for kind in [
+            "articleImport",
+            "articleImportDoi",
+            "articleWrite",
+            "kbRagdocPromote",
+        ] {
+            assert_eq!(classify(kind), Class::Corpus);
+        }
+        assert_eq!(classify("articleDraft"), Class::Read);
+        let (import, _) = budget.prepare(&json!({"type":"articleImport"}), Class::Corpus);
+        let (mut next_import, _) = budget.prepare(&json!({"type":"articleWrite"}), Class::Corpus);
+        let (mut pin, _) = budget.prepare(&json!({"type":"pinPassage"}), Class::Ordered);
+        let (mut send, _) =
+            budget.prepare(&json!({"type":"send","threadId":"chat"}), Class::Ordered);
+        tokio::time::timeout(Duration::from_millis(100), pin.as_mut().unwrap().wait())
+            .await
+            .unwrap();
+        drop(pin);
+        tokio::time::timeout(Duration::from_millis(100), send.as_mut().unwrap().wait())
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(10),
+            next_import.as_mut().unwrap().wait()
+        )
+        .await
+        .is_err());
+        drop(import);
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            next_import.as_mut().unwrap().wait(),
+        )
+        .await
+        .unwrap();
+        let _full = budget.admit(Class::Corpus, 16 * 1024 * 1024).unwrap();
+        assert!(budget.admit(Class::Corpus, 1).is_none());
+        assert!(budget.admit(Class::Ordered, 1024).is_some());
+    }
+
     #[test]
     fn read_memory_saturation_cannot_consume_control_or_send_capacity() {
         let budget = Budget::default();

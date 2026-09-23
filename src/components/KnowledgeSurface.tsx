@@ -1,9 +1,11 @@
+import RagdocWorkspace from "./RagdocWorkspace";
 // Surface « Connaissances » (plan 050 P1/P3) : la table de travail de la
 // base — même panneau que le popover du composer (KbPickerPanel) en layout
 // large, mêmes actions (hook partagé), synchrone par construction via
-// lib/kbSources — plus la section « Pages gbrain » (recherche du corpus NAS,
+// lib/kbSources — plus la section « Documents Ragdoc » (recherche du corpus NAS,
 // épinglage à la carte, re-sync).
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { consumeRagdocPromotion } from "../lib/ragdocPromotion";
 import { openArticleDialog } from "../lib/articleImports";
 import { t } from "../lib/i18n";
 import { wsSend, wsReady } from "../lib/wsBus";
@@ -38,6 +40,7 @@ export default function KnowledgeSurface(p: {
   threadTitle: string;
   visible: boolean;
   paneControls?: ReactNode;
+  galleryUrl?: string;
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const sourcesLoaded = useSyncExternalStore(subscribeKbSources, kbSourcesLoaded);
@@ -63,6 +66,7 @@ export default function KnowledgeSurface(p: {
   // Articles du corpus (plan 053) : rafraîchis à l'ouverture de la surface et
   // après chaque écriture — en mode automatique, rien d'autre ne les annonce.
   const [articles, setArticles] = useState<ArticleRow[]>([]);
+  const searchQueryRef = useRef("");
   const [gbrainQuery, setGbrainQuery] = useState("");
   const [gbrainResults, setGbrainResults] = useState<GbrainResult[]>([]);
   const [gbrainError, setGbrainError] = useState<string | null>(null);
@@ -84,7 +88,7 @@ export default function KnowledgeSurface(p: {
       if (!wsReady()) {setCorpusStatus("Articles indisponibles — reconnexion en cours."); setSourcesStatus("Sources indisponibles — reconnexion en cours."); return;}
       setSourcesStatus("Chargement des sources…");
       requestKbSources();
-      sent = wsSend({type: "articleList", limit: 20});
+      sent = wsSend({type: "articleList", limit: 100, offset: 0});
       setCorpusStatus(sent ? "Chargement des articles…" : "Connexion indisponible.");
     };
     request();
@@ -95,12 +99,14 @@ export default function KnowledgeSurface(p: {
 
   useEffect(() => {
     const onListed = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { articles?: ArticleRow[]; error?: string } | undefined;
-      setCorpusStatus(detail?.error || null);
-      setArticles(Array.isArray(detail?.articles) ? detail.articles : []);
+      const detail = (e as CustomEvent).detail as { articles?: ArticleRow[]; error?: string; offset?: number; nextOffset?: number | null; total?: number } | undefined;
+      setCorpusStatus(detail?.error || (detail?.nextOffset != null ? `Chargement de la bibliothèque… ${detail.nextOffset}/${detail.total ?? "…"}` : null));
+      const incoming = Array.isArray(detail?.articles) ? detail.articles : [];
+      setArticles(previous => detail?.offset ? [...previous, ...incoming.filter(item => !previous.some(old => old.slug === item.slug))] : incoming);
+      if (!detail?.error && detail?.nextOffset != null) wsSend({type:"articleList", limit:100, offset:detail.nextOffset});
     };
     const onWritten = () => {
-      if (visibleRef.current) wsSend({ type: "articleList", limit: 20 });
+      if (visibleRef.current) wsSend({ type: "articleList", limit: 100 });
     };
     window.addEventListener("article-listed", onListed);
     window.addEventListener("article-written", onWritten);
@@ -144,7 +150,7 @@ export default function KnowledgeSurface(p: {
     return () => clearTimeout(timer);
   }, [pageWritten]);
 
-  // destination « → gbrain » : après un épinglage réussi initié ici,
+  // destination « → Ragdoc » : après un épinglage réussi initié ici,
   // enchaîner l'aperçu de page directe
   useEffect(() => {
     const onAdded = (e: Event) => {
@@ -154,21 +160,36 @@ export default function KnowledgeSurface(p: {
       if (!detail?.ok || !detail.source?.id) return;
       if (promoteNextRef.current <= 0) return;
       promoteNextRef.current -= 1;
-      wsSend({ type: "kbPromotePage", id: detail.source.id });
+      wsSend({ type: "kbRagdocPromote", id: detail.source.id });
     };
     window.addEventListener("kb-source-added", onAdded);
     return () => window.removeEventListener("kb-source-added", onAdded);
   }, []);
 
+  useEffect(() => {
+    if (actions.error) setPageDraft(draft => draft ? {...draft, writing:false} : null);
+  }, [actions.error]);
+
+  useEffect(() => {
+    const showPending = () => {
+      if (!visibleRef.current) return;
+      const id = consumeRagdocPromotion();
+      if (id) wsSend({type:"kbRagdocPromote",id});
+    };
+    if (p.visible) showPending();
+    window.addEventListener("kb-request-ragdoc-promotion", showPending);
+    return () => window.removeEventListener("kb-request-ragdoc-promotion", showPending);
+  }, [p.visible]);
+
   function requestPage(id: string) {
     actions.setError(null);
-    wsSend({ type: "kbPromotePage", id });
+    wsSend({ type: "kbRagdocPromote", id });
   }
 
   function confirmPageWrite() {
     if (!pageDraft || pageDraft.writing) return;
     setPageDraft({ ...pageDraft, writing: true });
-    wsSend({ type: "kbPromotePage", id: pageDraft.id, slug: pageDraft.slug.trim(), write: true });
+    wsSend({ type: "kbRagdocPromote", id: pageDraft.id, slug: pageDraft.slug.trim(), write: true });
   }
 
   useEffect(() => {
@@ -176,21 +197,23 @@ export default function KnowledgeSurface(p: {
       const detail = (e as CustomEvent).detail as
         | { query?: string; results?: GbrainResult[]; error?: string | null }
         | undefined;
+      if (detail?.query !== searchQueryRef.current) return;
       setGbrainSearching(false);
       setGbrainSearched(true);
       setGbrainResults(Array.isArray(detail?.results) ? detail.results : []);
       setGbrainError(detail?.error ?? null);
     };
-    window.addEventListener("kb-gbrain-results", onResults);
-    return () => window.removeEventListener("kb-gbrain-results", onResults);
+    window.addEventListener("kb-ragdoc-results", onResults);
+    return () => window.removeEventListener("kb-ragdoc-results", onResults);
   }, []);
 
-  function searchGbrain() {
-    const query = gbrainQuery.trim();
+  function searchGbrain(submitted?: string) {
+    const query = (submitted ?? gbrainQuery).trim();
     if (!query) return;
+    searchQueryRef.current = query;
     setGbrainSearching(true);
     setGbrainError(null);
-    if (!wsSend({ type: "gbrainSearch", query, limit: 12 })) {
+    if (!wsSend({ type: "ragdocSearch", query, limit: 12 })) {
       setGbrainSearching(false);
       setGbrainError(t("kb.error-generic"));
     }
@@ -205,15 +228,19 @@ export default function KnowledgeSurface(p: {
         fullContent={binding.fullContent}
         articles={articles}
         corpusStatus={corpusStatus}
+        ragdocWorkspace={<RagdocWorkspace articles={articles} corpusStatus={corpusStatus} galleryUrl={p.galleryUrl}
+          onRead={slug=>window.dispatchEvent(new CustomEvent("kb-open-ragdoc-passage",{detail:{slug}}))}
+          search={{query:gbrainQuery,results:gbrainResults,error:gbrainError,searching:gbrainSearching,searched:gbrainSearched,onQueryChange:setGbrainQuery,onSearch:searchGbrain,onPin:actions.addRagdoc}} />}
+
         sourcesStatus={!sourcesLoaded ? sourcesStatus : null}
         error={actions.error}
         onDismissError={() => actions.setError(null)}
         onToggle={actions.toggle}
         onToggleFull={actions.toggleFull}
         onRemoveSources={actions.removeMany}
-        onPromote={actions.promote}
+        onPromote={requestPage}
         onPromotePage={requestPage}
-        onResync={actions.addGbrain}
+        onResync={actions.addRagdoc}
         onArchive={(ids, off) => (off
           ? ids.forEach((id) => actions.archiveSource(id, true))
           : actions.archiveMany(ids))}
@@ -237,7 +264,7 @@ export default function KnowledgeSurface(p: {
           searched: gbrainSearched,
           onQueryChange: setGbrainQuery,
           onSearch: searchGbrain,
-          onPin: actions.addGbrain,
+          onPin: actions.addRagdoc,
         }}
         headerEnd={p.paneControls}
       />
@@ -255,6 +282,7 @@ export default function KnowledgeSurface(p: {
             <label className="kb-page-slug-label" htmlFor="kb-page-slug">{t("kb.page-slug")}</label>
             <Input
               id="kb-page-slug"
+              readOnly
               value={pageDraft.slug}
               onChange={(e) => setPageDraft({ ...pageDraft, slug: e.target.value })}
             />
