@@ -47,6 +47,8 @@ pub struct Annotation {
     /// Surlignage posé par Claude (`highlight_passage`) : le seul genre que
     /// `update_highlights` / `remove_highlights` peuvent toucher.
     pub by_claude: bool,
+    /// Soulignement (`kind: "ul"`) plutôt que surlignage.
+    pub underline: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,6 +102,8 @@ pub fn color_name(color: &str) -> String {
         ("120,170,255", "bleu"),
         ("#2ea8e5", "bleu"),
         ("255,140,160", "rose"),
+        ("255,160,80", "orange"),
+        ("185,150,255", "violet"),
         ("#ff6666", "rouge"),
         ("#e56eee", "magenta"),
         ("#a28ae5", "violet"),
@@ -159,6 +163,7 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
                 note,
                 color: color_name(&text(a, "color")),
                 by_claude: text(a, "by") == "claude",
+                underline: kind == "ul",
             });
         }
     }

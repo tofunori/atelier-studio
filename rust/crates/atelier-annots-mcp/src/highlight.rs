@@ -28,13 +28,18 @@ const MIN_NEEDLE_CHARS: usize = 12;
 pub const MAX_PASSAGES: usize = 20;
 const PDFTOTEXT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Les teintes du lecteur (`HL_COLORS` de `pdf_viewer.html`).
-pub const COLORS: [(&str, &str); 4] = [
+/// Les teintes du lecteur (`HL_COLORS` de `pdf_viewer.html`, même ordre).
+pub const COLORS: [(&str, &str); 6] = [
     ("jaune", "rgba(255,213,74,.40)"),
     ("vert", "rgba(120,220,140,.40)"),
     ("bleu", "rgba(120,170,255,.40)"),
     ("rose", "rgba(255,140,160,.40)"),
+    ("orange", "rgba(255,160,80,.40)"),
+    ("violet", "rgba(185,150,255,.40)"),
 ];
+
+/// Style d'un marquage : `kind` du lecteur (`hl` surligné, `ul` souligné).
+pub const STYLES: [(&str, &str); 2] = [("surligner", "hl"), ("souligner", "ul")];
 
 #[derive(Debug, Clone)]
 pub struct Word {
@@ -579,10 +584,15 @@ pub fn add_to_store(app_dir: &Path, rel: &str, new: Vec<Value>) -> Result<Vec<us
         let Some(list) = list.as_array_mut() else {
             return Err(format!("annotations de {rel} illisibles"));
         };
+        // un soulignement du même texte qu'un surlignage n'est pas un doublon
         let key = |a: &Value| {
             (
                 a.get("page").and_then(Value::as_u64),
                 norm(a.get("text").and_then(Value::as_str).unwrap_or("")),
+                a.get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("hl")
+                    .to_string(),
             )
         };
         let mut duplicates = Vec::new();
@@ -604,6 +614,8 @@ pub enum Edit {
     Update {
         color: Option<&'static str>,
         memo: Option<String>,
+        /// `kind` du lecteur : `hl` ou `ul`.
+        style: Option<&'static str>,
     },
 }
 
@@ -730,7 +742,7 @@ pub fn edit_highlights(
         };
         match edit {
             Edit::Remove => list.retain(|a| !in_chosen(a)),
-            Edit::Update { color, memo } => {
+            Edit::Update { color, memo, style } => {
                 let mut first_seen: Vec<String> = Vec::new();
                 for a in list.iter_mut().filter(|a| in_chosen(a)) {
                     let key = highlight_group(a["id"].as_str().unwrap_or("")).to_string();
@@ -743,6 +755,9 @@ pub fn edit_highlights(
                     };
                     if let Some(color) = color {
                         obj.insert("color".into(), json!(color));
+                    }
+                    if let Some(style) = style {
+                        obj.insert("kind".into(), json!(style));
                     }
                     if let Some(memo) = memo {
                         // la note vit sur la première annotation du passage
@@ -771,6 +786,8 @@ pub struct Request {
     pub memo: String,
     /// Couleur propre à ce passage (`None` = celle de l'appel).
     pub color: Option<&'static str>,
+    /// Style propre à ce passage, `hl` ou `ul` (`None` = celui de l'appel).
+    pub style: Option<&'static str>,
 }
 
 /// Surligne chaque passage de `requests` dans `target` ; renvoie le compte
@@ -781,6 +798,7 @@ pub fn highlight(
     pages: &[Page],
     requests: &[Request],
     color: &str,
+    style: &str,
 ) -> Result<String, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -805,7 +823,13 @@ pub fn highlight(
             .map(|p| p.page.to_string())
             .collect::<Vec<_>>()
             .join("-");
-        let mut line = format!("- « {label} » : surligné p. {where_}");
+        let kind = req.style.unwrap_or(style);
+        let done = if kind == "ul" {
+            "souligné"
+        } else {
+            "surligné"
+        };
+        let mut line = format!("- « {label} » : {done} p. {where_}");
         if !found.exact {
             line.push_str(" (début et fin retrouvés, milieu différent de la citation : vérifier)");
         }
@@ -827,7 +851,7 @@ pub fn highlight(
                 "page": part.page,
                 "rects": part.rects,
                 "text": part.text,
-                "kind": "hl",
+                "kind": kind,
                 "color": req.color.unwrap_or(color),
                 "note": "",
                 "by": "claude",
@@ -880,7 +904,19 @@ pub fn color_value(name: &str) -> Result<&'static str, String> {
         .iter()
         .find(|(n, _)| *n == name)
         .map(|(_, v)| *v)
-        .ok_or_else(|| format!("couleur inconnue « {name} » : jaune, vert, bleu ou rose"))
+        .ok_or_else(|| {
+            format!("couleur inconnue « {name} » : jaune, vert, bleu, rose, orange ou violet")
+        })
+}
+
+/// « surligner » / « souligner » (ou leurs noms, ou `hl` / `ul`) → `kind`.
+pub fn style_value(name: &str) -> Result<&'static str, String> {
+    let name = fold(name.trim());
+    match name.as_str() {
+        "" | "surligner" | "surlignage" | "surligne" | "hl" => Ok(STYLES[0].1),
+        "souligner" | "soulignement" | "souligne" | "ul" => Ok(STYLES[1].1),
+        _ => Err(format!("style inconnu « {name} » : surligner ou souligner")),
+    }
 }
 
 #[cfg(test)]
