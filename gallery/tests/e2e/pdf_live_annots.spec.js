@@ -86,3 +86,41 @@ test('un surlignage écrit dans le store apparaît en direct et survit à la sau
 
   expect(errors).toEqual([]);
 });
+
+test('la bulle d’un surlignage change son style (souligner) et sa teinte (orange, violet)', async ({page}) => {
+  const errors = [];
+  page.on('pageerror', e => errors.push(String(e)));
+  writeStore([claudeHl('claude-style', 0.4)]);
+  await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(REL)}`);
+  await expect.poll(() => page.locator('.pg[data-page="1"] canvas').evaluate(c => c.width).catch(() => 0),
+    {timeout: 15_000}).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => ANNOTS_LOADED)).toBe(true);
+
+  // six teintes dans la barre du lecteur
+  await expect(page.locator('.pdf-mark-tools .pdf-mark-color')).toHaveCount(6);
+
+  await page.locator('.pg[data-page="1"] .pdfhl[data-aid="claude-style"]').first().click();
+  const bubble = page.locator('#annotPop .atelier-mark-style');
+  await expect(bubble).toBeVisible();
+  await expect(bubble.locator('.atelier-mark-swatch')).toHaveCount(6);
+  await expect(bubble.locator('[data-kind="hl"]')).toHaveAttribute('aria-pressed', 'true');
+
+  await bubble.locator('[data-kind="ul"]').click();
+  await bubble.getByRole('button', {name: 'Orange'}).click();
+  await expect(bubble.getByRole('button', {name: 'Orange'})).toHaveAttribute('aria-pressed', 'true');
+  const stored = async () => page.evaluate(async rel =>
+    (await fetch('/pdfannot?rel=' + encodeURIComponent(rel)).then(r => r.json())).annots
+      .find(a => a.id === 'claude-style'), REL);
+  await expect.poll(async () => { const a = await stored(); return a && [a.kind, a.color, a.by]; })
+    .toEqual(['ul', 'rgba(255,160,80,.40)', 'claude']);
+  const mark = page.locator('.pg[data-page="1"] .pdfhl[data-aid="claude-style"]').first();
+  await expect(mark).toHaveCSS('border-bottom-style', 'solid');
+  await expect(mark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+  await bubble.getByRole('button', {name: 'Violet'}).click();
+  await bubble.locator('[data-kind="hl"]').click();
+  await expect.poll(async () => { const a = await stored(); return a && [a.kind, a.color]; })
+    .toEqual(['hl', 'rgba(185,150,255,.40)']);
+
+  expect(errors).toEqual([]);
+});
