@@ -357,7 +357,7 @@ pub fn focus_passage_quote(text: &str, query: &str) -> String {
         }
         ranked.push((index, score, matched));
     }
-    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
     // Garde (B6, plans/065-revue-findings.md ; miroir de
     // sidecar/zotero_passages.mjs:113-122) : une phrase qui ne contient
     // AUCUN token de la requête ne doit jamais l'emporter sur une phrase
@@ -402,7 +402,7 @@ pub fn search_passages(pages: &[Page], query: &str, limit: usize) -> Vec<Passage
     ranked.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
-            .unwrap()
+            .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.page.cmp(&b.page))
             .then(a.index.cmp(&b.index))
     });
