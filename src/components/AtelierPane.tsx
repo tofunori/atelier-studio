@@ -24,6 +24,7 @@ import type { ThreadEventStore } from "../lib/threadEventStore";
 import type { AgentEvent } from "../lib/ws";
 import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { SURFACES, type Surface } from "./surfaces";
+import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
 import {
   activateWorkspaceTab,
   closeWorkspaceTab,
@@ -324,6 +325,24 @@ export default function AtelierPane({
       frame?.contentWindow?.postMessage({ type: "atelier-tab-activated" }, "*");
     }
   }, [workspace]);
+
+  // Onglets masqués : leurs iframes restent montées mais doivent cesser de
+  // sonder le serveur (PDF, éditeurs, galerie). Resynchronisé à chaque
+  // changement d'onglet et à chaque (re)chargement d'une iframe.
+  useEffect(() => {
+    syncFrameVisibility(workspaceRootRef.current);
+  }, [workspace, galleryLoaded, url, reloadKey]);
+  useEffect(() => {
+    const root = workspaceRootRef.current;
+    if (!root) return;
+    const onLoad = (event: Event) => {
+      if (!(event.target instanceof HTMLIFrameElement)) return;
+      resetFrameVisibility(event.target);
+      syncFrameVisibility(root);
+    };
+    root.addEventListener("load", onLoad, true);
+    return () => root.removeEventListener("load", onLoad, true);
+  }, []);
 
   const captureFlipRects = useCallback(() => {
     const snapshot = new Map<string, DOMRect>();

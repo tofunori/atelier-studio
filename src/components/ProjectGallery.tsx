@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeProjectFolders, type ProjectFolders } from "../lib/projectFolders";
 import { t } from "../lib/i18n";
+import { syncFrameVisibility } from "../lib/frameVisibility";
 import { ProjectFolderMenu, type FolderMenuState } from "./ProjectFolderMenu";
 import "./ProjectGallery.css";
 
@@ -60,6 +61,9 @@ export default function ProjectGallery({ root, config, mainGallery, onManage, re
     window.addEventListener("atelier-gallery-reveal-folder", reveal);
     return () => window.removeEventListener("atelier-gallery-reveal-folder", reveal);
   }, [folders]);
+
+  // Filtre de dossier : les galeries masquées cessent de sonder le serveur.
+  useEffect(() => { syncFrameVisibility(containerRef.current); }, [all, filter, urls, reloadKey]);
 
   const choices = [...(folders.length > 1 ? [{ path: "all", name: t("project.folders-all") }] : []), ...folders];
   const menuState: FolderMenuState = { folders: choices, selected: filter, label: t("project.folders"), manageLabel: t("project.folders-manage") };

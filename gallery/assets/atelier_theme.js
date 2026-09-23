@@ -31,6 +31,39 @@
     }
   });
 
+  // Onglet interne masqué (display:none) : ni visibilitychange ni
+  // document.hidden ne bougent (PIEGES_CONNUS §4), donc les sondes qui
+  // testent document.hidden (mtime PDF, /statfile, /rev) tournaient même
+  // cachées. L'app poste atelier-tab-visibility ; document.hidden reflète
+  // alors aussi l'onglet, et visibilitychange relance la sonde au retour.
+  var tabHidden = false;
+  try {
+    var hiddenDesc = Object.getOwnPropertyDescriptor(Document.prototype, "hidden");
+    var stateDesc = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
+    if (hiddenDesc && hiddenDesc.get && stateDesc && stateDesc.get) {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: function () { return tabHidden || hiddenDesc.get.call(document); }
+      });
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: function () { return tabHidden ? "hidden" : stateDesc.get.call(document); }
+      });
+    }
+  } catch (_) {}
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (event.source !== window.parent || !data || data.type !== "atelier-tab-visibility") return;
+    var next = data.visible === false;
+    // un PDF imbriqué (studio LaTeX) suit l'état de son document hôte
+    for (var i = 0; i < window.frames.length; i++) {
+      try { window.frames[i].postMessage({ type: "atelier-tab-visibility", visible: !next }, location.origin); } catch (_) {}
+    }
+    if (next === tabHidden) return;
+    tabHidden = next;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
   // The message carries the canonical roles. These assignments are only the
   // compatibility bridge for legacy viewers; they are deliberately one-way so
   // an old `--card` declaration cannot become a second theme source of truth.
