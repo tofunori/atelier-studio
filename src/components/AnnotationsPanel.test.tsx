@@ -78,7 +78,7 @@ describe("AnnotationsPanel", () => {
     expect(screen.queryByText("Moran et al. 2026")).toBeNull();
   });
 
-  it("supprimer poste la liste réduite au bon rel", async () => {
+  it("supprimer retire l'annotation par id au bon rel", async () => {
     const calls = mockFetch();
     renderUi(<AnnotationsPanel galleryOrigin="http://127.0.0.1:1" onOpenAnnot={vi.fn()} onQuote={vi.fn()} />);
     await waitFor(() => screen.getByText(/zone · figure du domaine/));
@@ -88,7 +88,8 @@ describe("AnnotationsPanel", () => {
       expect(post).toBeTruthy();
       const body = JSON.parse(String(post!.init!.body));
       expect(body.rel).toContain("Moran");
-      expect(body.annots).toEqual([]);
+      expect(body.annots).toBeUndefined();
+      expect(body.removeIds).toHaveLength(1);
     });
   });
 
@@ -121,6 +122,7 @@ describe("AnnotationsPanel", () => {
       const body = JSON.parse(String(post!.init!.body));
       expect(body.rel).toContain("Warren");
       expect(body.annots[0].memo).toBe("Pour la discussion");
+      expect(body.known).toEqual(body.annots.map((a: { id: unknown }) => String(a.id)));
     });
     expect(screen.queryByLabelText("Note")).toBeNull();
     expect(screen.getByText("Pour la discussion")).toBeTruthy();

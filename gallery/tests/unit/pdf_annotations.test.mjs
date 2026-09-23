@@ -70,7 +70,8 @@ test('clicking away attaches the note; Shift+Enter is available for multiline in
 test('annotation writes are serialized snapshots, HTTP errors are not success', async () => {
   const calls=[];let release;
   const context=vm.createContext({
-    ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{note:'first'}],rel:'paper.pdf',
+    ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a',note:'first'}],rel:'paper.pdf',
+    KNOWN_IDS:new Set(['seen']),SAVE_SEQ:0,
     annPane:{refresh(){}},document:{getElementById:()=>({textContent:''})},
     fetch:async (_url,init)=>{calls.push(JSON.parse(init.body));if(calls.length===1)await new Promise(r=>{release=r;});return {ok:calls.length===1,status:500,json:async()=>({ok:true})};},
   });
@@ -79,6 +80,33 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   const second=context.saveAnnots();assert.equal(calls.length,1);release();
   assert.equal(await first,true);assert.equal(await second,false);
   assert.equal(calls[0].annots[0].note,'first');assert.equal(calls[1].annots[0].note,'second');
+  // `known` : ce que le lecteur a vu ; un envoi réussi y ajoute ses ids
+  assert.deepEqual(calls[0].known,['seen']);assert.deepEqual(calls[1].known,['seen']);
+  assert.ok(context.KNOWN_IDS.has('a'));
+  assert.equal(context.SAVE_SEQ,2);
+});
+
+test('a store change is merged without losing local work', () => {
+  const code=html.slice(html.indexOf('function canonAnnot('),html.indexOf('async function syncAnnotsFromStore('));
+  const edited={id:'known-edited',page:1,memo:'old',text:'x'};
+  const context=vm.createContext({
+    KNOWN_IDS:new Set(['known-edited','known-kept','deleted-elsewhere','deleted-here']),
+    PDF_ANNOTS:[edited,{id:'known-kept',page:1,rects:[[0.1,0.2,0.3,0.01]]},{id:'deleted-elsewhere'},
+      {id:'local-unsaved'},{id:'fresh',fresh:true}],
+  });
+  vm.runInContext(code,context);
+  const changed=context.applyStoreAnnots([
+    {text:'x',page:1,id:'known-edited'},                  // mémo retiré dans le panneau de l'app
+    {rects:[[0.1,0.2,0.3,0.01]],id:'known-kept',page:1},  // mêmes valeurs, clés dans un autre ordre
+    {id:'deleted-here'},                                  // supprimée ici, écriture ratée
+    {id:'claude-1',by:'claude'},                          // posée par le MCP
+  ]);
+  assert.equal(changed,true);
+  assert.deepEqual(Array.from(context.PDF_ANNOTS,a=>a.id),['known-edited','known-kept','local-unsaved','fresh','claude-1']);
+  assert.equal(context.PDF_ANNOTS[0],edited,'updated in place for an open bubble');
+  assert.equal('memo' in edited,false);
+  assert.ok(context.KNOWN_IDS.has('claude-1'));
+  assert.equal(context.applyStoreAnnots(context.PDF_ANNOTS.filter(a=>!a.fresh && a.id!=='local-unsaved')),false,'a second pass changes nothing');
 });
 
  test('an existing saved note can be explicitly added again, including after a prior failure', async () => {

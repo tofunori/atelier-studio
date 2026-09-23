@@ -14,6 +14,8 @@ pub struct ArticleMeta {
     /// Noms de famille, dans l'ordre, séparés par « , ».
     pub authors: String,
     pub year: String,
+    /// Nom du PDF dans `storage/<clé>/` (vide s'il n'est pas stocké par Zotero).
+    pub file: String,
 }
 
 const META_SQL: &str = r#"
@@ -28,7 +30,8 @@ SELECT ai.key,
    WHERE d.itemID = ia.parentItemID) AS date,
   (SELECT GROUP_CONCAT(lastName, ', ') FROM (
      SELECT c.lastName FROM itemCreators ic JOIN creators c ON c.creatorID = ic.creatorID
-     WHERE ic.itemID = ia.parentItemID ORDER BY ic.orderIndex)) AS creators
+     WHERE ic.itemID = ia.parentItemID ORDER BY ic.orderIndex)) AS creators,
+  ia.path
 FROM itemAttachments ia
 JOIN items ai ON ai.itemID = ia.itemID
 WHERE ia.parentItemID IS NOT NULL AND ia.contentType = 'application/pdf'
@@ -79,10 +82,11 @@ pub fn read(
                 r.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                r.get::<_, Option<String>>(4)?.unwrap_or_default(),
             ))
         })
         .map_err(|e| e.to_string())?;
-    for (key, title, date, authors) in rows.flatten() {
+    for (key, title, date, authors, path) in rows.flatten() {
         // Zotero stocke « 1982-00-00 1982 » : l'année est en tête.
         let year: String = date.chars().take(4).filter(char::is_ascii_digit).collect();
         let year = if year.len() == 4 { year } else { String::new() };
@@ -92,6 +96,11 @@ pub fn read(
                 title,
                 authors,
                 year,
+                file: path
+                    .strip_prefix("storage:")
+                    .filter(|f| !f.contains('/') && !f.contains('\\'))
+                    .unwrap_or("")
+                    .to_string(),
             },
         );
     }
@@ -173,6 +182,7 @@ pub mod tests {
         assert_eq!(m.title, "A model for the spectral albedo of snow");
         assert_eq!(m.authors, "Warren, Wiscombe");
         assert_eq!(m.year, "1980");
+        assert_eq!(m.file, "paper.pdf");
         assert_eq!(annots.len(), 1, "deleted annotations are skipped");
         assert_eq!(annots[0].note, "Comparer avec nos glaciers");
         assert_eq!(annots[0].page, "7");

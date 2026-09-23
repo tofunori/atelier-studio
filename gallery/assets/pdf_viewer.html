@@ -1614,8 +1614,9 @@ const annPane = (function(){
       return;
     }
     if (!LIB || !Array.isArray(LIB[relX])) return;
+    // `known` : ce qui n'est pas dans notre copie (posé ailleurs depuis) reste.
     fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, annots: LIB[relX]})})
+      body: JSON.stringify({rel: relX, annots: LIB[relX], known: LIB[relX].map(x => String(x.id))})})
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
       .catch(() => {
         document.getElementById("status").textContent = "Note non enregistrée — réessaie.";
@@ -1626,7 +1627,7 @@ const annPane = (function(){
     if (!LIB || !Array.isArray(LIB[relX])) return;
     LIB[relX] = LIB[relX].filter(x => x.id !== a.id);
     fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, annots: LIB[relX]})}).catch(()=>{});
+      body: JSON.stringify({rel: relX, removeIds: [String(a.id)]})}).catch(()=>{});
     refresh();
   }
   function renderDoc(){
@@ -1881,16 +1882,108 @@ if(rel) main();
 let PDF_ANNOTS = [];
 let ANNOT_SAVE = Promise.resolve(true);
 let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un GET réussi
+// Ids vus dans le store (chargés, ou enregistrés avec succès). Envoyés avec
+// chaque sauvegarde (`known`) : le serveur garde alors ce que ce lecteur n'a
+// jamais vu — un surlignage posé par Claude Desktop (MCP) ou une autre
+// fenêtre pendant la lecture — au lieu de l'écraser avec notre liste.
+const KNOWN_IDS = new Set();
+let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
+function redrawAllAnnots(){
+  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
+  annPane.refresh();
+}
 function loadAnnots(attempt){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
-      document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
-      if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
-      annPane.refresh();
+      PDF_ANNOTS.forEach(a => KNOWN_IDS.add(String(a.id)));
+      redrawAllAnnots();
       revealTargetAnnot(); })
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
 }
 loadAnnots(0);
+// ---- rechargement en direct ------------------------------------------------
+// Un autre écrivain (outil highlight_passage du MCP, autre fenêtre, panneau
+// d'annotations de l'app) change le store : on le voit à sa date, relue toutes
+// les 2,5 s (un stat, pas une relecture du store), puis on fusionne sans
+// perdre l'état local — ce qui est créé ou supprimé ici et pas encore écrit
+// garde la priorité.
+function canonAnnot(value){
+  if (Array.isArray(value)) return "[" + value.map(canonAnnot).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value).filter(k => k !== "fresh").sort()
+      .map(k => JSON.stringify(k) + ":" + canonAnnot(value[k])).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+function applyStoreAnnots(server){
+  const byId = new Map();
+  for (const s of server) if (s && s.id != null) byId.set(String(s.id), s);
+  let changed = false;
+  const next = [];
+  for (const a of PDF_ANNOTS) {
+    const id = String(a.id), s = byId.get(id);
+    if (s) {
+      byId.delete(id);
+      // mise à jour EN PLACE : une bulle ouverte garde sa référence
+      if (!a.fresh && canonAnnot(a) !== canonAnnot(s)) {
+        for (const k of Object.keys(a)) if (!(k in s)) delete a[k];
+        Object.assign(a, s);
+        changed = true;
+      }
+      next.push(a);
+    } else if (KNOWN_IDS.has(id) && !a.fresh) {
+      changed = true;               // retirée ailleurs (chat, panneau de l'app)
+    } else {
+      next.push(a);                 // créée ici, écriture pas encore faite
+    }
+  }
+  for (const [id, s] of byId) {
+    if (KNOWN_IDS.has(id)) continue; // supprimée ici, écriture en échec
+    next.push(s);
+    changed = true;
+  }
+  byId.clear();
+  for (const s of server) if (s && s.id != null) KNOWN_IDS.add(String(s.id));
+  PDF_ANNOTS = next;
+  return changed;
+}
+async function syncAnnotsFromStore(){
+  await ANNOT_SAVE;
+  const seq = SAVE_SEQ;
+  let server;
+  try {
+    const r = await fetch("/pdfannot?rel=" + encodeURIComponent(rel));
+    if (!r.ok) return false;
+    server = (await r.json()).annots;
+  } catch(e) { return false; }
+  // une sauvegarde partie pendant la lecture la rend périmée : sa propre
+  // écriture change la date, le tick suivant relira
+  if (seq !== SAVE_SEQ || !Array.isArray(server)) return false;
+  return applyStoreAnnots(server);
+}
+async function annotStoreStamp(){
+  try {
+    const r = await fetch("/pdfannot-stamp?rel=" + encodeURIComponent(rel));
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j.stamp === "number" ? j.stamp : null;
+  } catch(e) { return null; }
+}
+if (rel) (async function(){
+  let stamp = await annotStoreStamp();
+  let busy = false;
+  setInterval(async function(){
+    if (busy || document.hidden || !ANNOTS_LOADED) return;
+    busy = true;
+    try {
+      const next = await annotStoreStamp();
+      if (next === null || next === stamp) return;
+      stamp = next;
+      if (await syncAnnotsFromStore()) redrawAllAnnots();
+    } finally { busy = false; }
+  }, 2500);
+})();
 // Arrivée d'une navigation croisée (portée Bibliothèque) : ?annot=<id> —
 // défiler jusqu'à l'annotation et la faire clignoter brièvement. Une seule
 // fois : le paramètre est consommé pour survivre aux rechargements en place.
@@ -1917,13 +2010,16 @@ function saveAnnots(){
   // newer note, even when the user saves and immediately adds it to chat.
   // `fresh` (commentaire créé mais jamais validé) vit en mémoire seulement :
   // il ne doit pas survivre à un rechargement dans le fichier d'annotations.
-  const body = JSON.stringify({rel, annots: PDF_ANNOTS.map(({fresh, ...a}) => a)});
+  const sent = PDF_ANNOTS.map(({fresh, ...a}) => a);
+  const body = JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]});
+  SAVE_SEQ++;
   ANNOT_SAVE = ANNOT_SAVE.then(async () => {
     try {
       const response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
       if(!response.ok) throw new Error("HTTP " + response.status);
       const result = await response.json();
       if(result.error) throw new Error(result.error);
+      sent.forEach(a => KNOWN_IDS.add(String(a.id)));
       return true;
     } catch(error) {
       document.getElementById("status").textContent = "Annotation non enregistrée — réessaie depuis la note.";
