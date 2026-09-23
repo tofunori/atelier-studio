@@ -88,7 +88,12 @@ Citer chaque élément avec sa référence et sa page.\n\
 - highlight_passage : SEULEMENT quand Thierry demande de surligner. Il voit le surlignage apparaître \
 dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
 phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
-article dans un seul appel (passages: [...]). Ne jamais surligner un passage paraphrasé.";
+article dans un seul appel (passages: [...]). Ne jamais surligner un passage paraphrasé. Donner à \
+chaque passage un memo : une note courte en français disant pourquoi il est surligné (« pour la \
+discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
+- update_highlights / remove_highlights : SEULEMENT sur demande de Thierry, et seulement pour les \
+surlignages faits par Claude ; ceux de Thierry sont intouchables. Désigner chaque surlignage par un \
+extrait de son texte (et sa page), ou all=true pour tous ceux de Claude dans l'article.";
 
 fn tools() -> Value {
     json!([
@@ -151,19 +156,79 @@ fn tools() -> Value {
                             "properties": {
                                 "quote": {"type": "string", "description": "Texte exact du passage, recopié de l'article."},
                                 "page": {"type": "integer", "minimum": 1, "description": "Page du PDF (1 = première), si connue."},
-                                "memo": {"type": "string", "description": "Note personnelle facultative, affichée dans la bulle (par exemple « pour la discussion »)."}
+                                "memo": {"type": "string", "description": "Note affichée dans la bulle : une phrase courte en français disant pourquoi ce passage compte (par exemple « pour la discussion : limite de la quantification »), sans paraphraser le passage. Ne pas y écrire « Claude » : l'origine est déjà enregistrée."}
                             },
                             "required": ["quote"]
                         }
                     },
                     "quote": {"type": "string", "description": "Un seul passage (forme courte de `passages`)."},
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
-                    "memo": {"type": "string", "description": "Avec `quote` : sa note."},
+                    "memo": {"type": "string", "description": "Avec `quote` : sa note (pourquoi ce passage compte)."},
                     "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur (jaune par défaut)."}
                 },
                 "required": ["article"]
             },
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}
+        },
+        {
+            "name": "update_highlights",
+            "description": "Change la couleur et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
+    (jamais ceux de Thierry). Le changement apparaît dans le lecteur d'Atelier. À n'utiliser que sur demande explicite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "article": {"type": "string", "description": "Clé Zotero de l'article, ou nom d'auteur et année, ou mots du titre."},
+                    "passages": {
+                        "type": "array",
+                        "maxItems": crate::highlight::MAX_PASSAGES,
+                        "description": "Surlignages visés, chacun désigné par un extrait de son texte (12 caractères au moins).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "quote": {"type": "string", "description": "Extrait du texte surligné."},
+                                "page": {"type": "integer", "minimum": 1, "description": "Sa page, pour lever une ambiguïté."}
+                            },
+                            "required": ["quote"]
+                        }
+                    },
+                    "quote": {"type": "string", "description": "Un seul surlignage (forme courte de `passages`)."},
+                    "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
+                    "all": {"type": "boolean", "description": "Tous les surlignages de Claude dans cet article.", "default": false},
+                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Nouvelle couleur (absente = inchangée)."},
+                    "memo": {"type": "string", "description": "Nouvelle note personnelle (absente = inchangée, vide = retirée)."}
+                },
+                "required": ["article"]
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}
+        },
+        {
+            "name": "remove_highlights",
+            "description": "Supprime des surlignages FAITS PAR CLAUDE dans un article (jamais ceux de Thierry). \
+    Ils disparaissent du lecteur d'Atelier. À n'utiliser que sur demande explicite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "article": {"type": "string", "description": "Clé Zotero de l'article, ou nom d'auteur et année, ou mots du titre."},
+                    "passages": {
+                        "type": "array",
+                        "maxItems": crate::highlight::MAX_PASSAGES,
+                        "description": "Surlignages visés, chacun désigné par un extrait de son texte (12 caractères au moins).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "quote": {"type": "string", "description": "Extrait du texte surligné."},
+                                "page": {"type": "integer", "minimum": 1, "description": "Sa page, pour lever une ambiguïté."}
+                            },
+                            "required": ["quote"]
+                        }
+                    },
+                    "quote": {"type": "string", "description": "Un seul surlignage (forme courte de `passages`)."},
+                    "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
+                    "all": {"type": "boolean", "description": "Tous les surlignages de Claude dans cet article.", "default": false}
+                },
+                "required": ["article"]
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}
         }
     ])
 }
@@ -212,6 +277,38 @@ fn highlight_passage(config: &Config, args: &Value) -> Result<String, String> {
     crate::highlight::highlight(config, &target, &pages, &passages, color)
 }
 
+fn edit_highlights(config: &Config, name: &str, args: &Value) -> Result<String, String> {
+    let passages = arg_passages(args);
+    let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
+    if passages.is_empty() && !all {
+        return Err(
+            "Désigner les surlignages : `passages` (ou `quote`) avec un extrait de leur texte, ou all=true."
+                .into(),
+        );
+    }
+    if passages.len() > crate::highlight::MAX_PASSAGES {
+        return Err(format!(
+            "{} passages au plus par appel.",
+            crate::highlight::MAX_PASSAGES
+        ));
+    }
+    let edit = if name == "remove_highlights" {
+        crate::highlight::Edit::Remove
+    } else {
+        let color = match args.get("color").and_then(Value::as_str) {
+            Some(c) if !c.trim().is_empty() => Some(crate::highlight::color_value(c)?),
+            _ => None,
+        };
+        let memo = args.get("memo").and_then(Value::as_str).map(str::to_string);
+        if color.is_none() && memo.is_none() {
+            return Err("Rien à changer : donner `color` et/ou `memo`.".into());
+        }
+        crate::highlight::Edit::Update { color, memo }
+    };
+    let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
+    crate::highlight::edit_highlights(config, &target, &passages, all, &edit)
+}
+
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key)
         .and_then(Value::as_str)
@@ -238,6 +335,9 @@ fn arg_articles(args: &Value) -> Vec<String> {
 fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
     if name == "highlight_passage" {
         return highlight_passage(config, args);
+    }
+    if name == "update_highlights" || name == "remove_highlights" {
+        return edit_highlights(config, name, args);
     }
     let lib = Library::load(config);
     match name {
@@ -417,6 +517,9 @@ fn format_annotation(a: &crate::library::Annotation) -> String {
     if a.source == Source::Zotero {
         tags.push("annoté dans Zotero".into());
     }
+    if a.by_claude {
+        tags.push("surligné par Claude".into());
+    }
     if !tags.is_empty() {
         s.push_str(&format!(" ({})", tags.join(", ")));
     }
@@ -509,7 +612,9 @@ mod tests {
                 "search_annotations",
                 "list_annotated_articles",
                 "get_article_annotations",
-                "highlight_passage"
+                "highlight_passage",
+                "update_highlights",
+                "remove_highlights"
             ]
         );
         let unknown = handle(
@@ -746,5 +851,82 @@ mod tests {
             json!({"article": "Nobody 2099", "quote": "anything at all long enough"}),
         );
         assert!(is_error && text.contains("Aucun PDF"), "{text}");
+    }
+
+    #[test]
+    fn only_claude_highlights_can_be_updated_or_removed() {
+        let (dir, config) = setup();
+        let rel = crate::highlight::resolve(&config, "ABCD1234").unwrap().rel;
+        let store_path = dir.path().join("pdf_annots.json");
+        let mut store: Value =
+            serde_json::from_str(&std::fs::read_to_string(&store_path).unwrap()).unwrap();
+        store[&rel] = json!([
+            {"id": "t1", "page": 2, "kind": "hl", "text": "Snow albedo decreases with grain size", "color": "y"},
+            {"id": "9-c0p4", "page": 4, "kind": "hl", "by": "claude", "text": "Black carbon lowers the albedo", "color": "y", "memo": "intro"},
+            {"id": "9-c0p5", "page": 5, "kind": "hl", "by": "claude", "text": "of fresh snow in visible light", "color": "y"},
+            {"id": "9-c1p6", "page": 6, "kind": "hl", "by": "claude", "text": "Dust matters less than soot here", "color": "y"}
+        ]);
+        std::fs::write(&store_path, store.to_string()).unwrap();
+        let read = || -> Vec<Value> {
+            let s: Value =
+                serde_json::from_str(&std::fs::read_to_string(&store_path).unwrap()).unwrap();
+            s[&rel].as_array().unwrap().clone()
+        };
+
+        let (text, is_error) = call_tool(
+            &config,
+            "update_highlights",
+            json!({
+                "article": "ABCD1234", "color": "bleu", "memo": "pour la discussion",
+                "passages": [{"quote": "lowers the albedo of fresh snow"}, {"quote": "albedo decreases with grain size"}]
+            }),
+        );
+        assert!(!is_error, "{text}");
+        assert!(text.contains("modifié p. 4-5"), "{text}");
+        assert!(text.contains("surlignage de Thierry"), "{text}");
+        let annots = read();
+        assert_eq!(annots[0]["color"], "y", "Thierry's highlight is untouched");
+        assert_eq!(annots[1]["color"], "rgba(120,170,255,.40)");
+        assert_eq!(annots[2]["color"], "rgba(120,170,255,.40)");
+        assert_eq!(annots[1]["memo"], "pour la discussion");
+        assert!(annots[2].get("memo").is_none());
+        assert_eq!(annots[3]["color"], "y");
+
+        let (text, _) = call_tool(
+            &config,
+            "remove_highlights",
+            json!({
+                "article": "ABCD1234", "quote": "Black carbon lowers the albedo", "page": 4
+            }),
+        );
+        assert!(text.contains("supprimé p. 4-5"), "{text}");
+        let ids: Vec<String> = read()
+            .iter()
+            .map(|a| a["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, ["t1", "9-c1p6"], "both pages of the passage go");
+
+        let (text, _) = call_tool(&config, "search_annotations", json!({"query": "soot"}));
+        assert!(text.contains("surligné par Claude"), "{text}");
+        let (text, _) = call_tool(
+            &config,
+            "remove_highlights",
+            json!({"article": "ABCD1234", "all": true}),
+        );
+        assert!(text.contains("1 surlignage(s) de Claude"), "{text}");
+        let ids: Vec<String> = read()
+            .iter()
+            .map(|a| a["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, ["t1"]);
+        let (text, is_error) =
+            call_tool(&config, "remove_highlights", json!({"article": "ABCD1234"}));
+        assert!(is_error && text.contains("all=true"), "{text}");
+        let (text, is_error) = call_tool(
+            &config,
+            "update_highlights",
+            json!({"article": "ABCD1234", "all": true}),
+        );
+        assert!(is_error && text.contains("Rien à changer"), "{text}");
     }
 }
