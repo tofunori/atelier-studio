@@ -116,6 +116,32 @@ fn start_server() -> Server {
     start_server_with(&[])
 }
 
+#[test]
+fn zotero_reading_survives_project_and_server_changes() {
+    let shared = tempfile::tempdir().unwrap();
+    let env = [("ATELIER_APP_DIR", shared.path().display().to_string())];
+    {
+        let server = start_server_with(&env);
+        let (status, body) = http(server.port, "GET", "/zotero-reading", None);
+        assert_eq!(status, 200);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["readKeys"], serde_json::json!([]));
+        let payload = r#"{"key":"ARTICLE1","read":true}"#;
+        assert_eq!(http_with_origin(server.port, "POST", "/zotero-reading", Some(payload), Some("https://evil.example")).0, 403);
+        assert_eq!(http_with_origin(server.port, "POST", "/zotero-reading", Some(payload), Some("tauri://localhost")).0, 200);
+        assert!(!server.root.join("zotero-read.json").exists());
+    }
+    {
+        let server = start_server_with(&env);
+        let (status, body) = http(server.port, "GET", "/zotero-reading", None);
+        assert_eq!(status, 200);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["readKeys"], serde_json::json!(["ARTICLE1"]));
+        assert_eq!(http(server.port, "POST", "/zotero-reading", Some(r#"{"key":"ARTICLE1","read":false}"#)).0, 200);
+        assert_eq!(http(server.port, "POST", "/zotero-reading", Some(r#"{"key":"../wrong","read":true}"#)).0, 400);
+        let (_, body) = http(server.port, "GET", "/zotero-reading", None);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["readKeys"], serde_json::json!([]));
+    }
+}
+
 fn start_server_with(extra_env: &[(&str, String)]) -> Server {
     // Each smoke test launches a real gallery server. Running all of those
     // subprocesses concurrently makes the rescan/build test vulnerable to
@@ -241,6 +267,74 @@ fn notes_roundtrip() {
     let (st, body) = http(srv.port, "GET", "/notes/load", None);
     assert_eq!(st, 200);
     assert!(body.contains("hello smoke"));
+}
+
+#[test]
+fn zotero_annotations_migrate_to_shared_store_without_reappearing_after_delete() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let shared_env = || {
+        [(
+            "ATELIER_APP_DIR",
+            app_dir.path().to_string_lossy().to_string(),
+        )]
+    };
+    let zotero_query = "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf";
+    {
+        let first_project = start_server_with(&shared_env());
+        let thumbs = first_project.root.join(".fig_thumbs");
+        fs::create_dir_all(&thumbs).unwrap();
+        fs::write(
+            thumbs.join("pdf_annots.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "zotero/ABCD1234/article.pdf": [{"id": "z1", "note": "premier projet"}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let (status, body) = http(first_project.port, "GET", zotero_query, None);
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("premier projet"), "{body}");
+    }
+
+    let srv = start_server_with(&shared_env());
+    let thumbs = srv.root.join(".fig_thumbs");
+    fs::create_dir_all(&thumbs).unwrap();
+    fs::write(
+        thumbs.join("pdf_annots.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "zotero/ABCD1234/article.pdf": [{"id": "z2", "note": "second projet"}],
+            "article.pdf": [{"id": "p1", "note": "locale"}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let (status, body) = http(srv.port, "GET", zotero_query, None);
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("premier projet"), "{body}");
+    assert!(body.contains("second projet"), "{body}");
+
+    let shared: serde_json::Value =
+        serde_json::from_slice(&fs::read(app_dir.path().join("pdf_annots.json")).unwrap()).unwrap();
+    assert!(shared.get("zotero/ABCD1234/article.pdf").is_some());
+    assert!(shared.get("article.pdf").is_none());
+
+    let (status, body) = http(
+        srv.port,
+        "POST",
+        "/pdfannot",
+        Some(r#"{"rel":"zotero/ABCD1234/article.pdf","annots":[]}"#),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = http(srv.port, "GET", zotero_query, None);
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        !body.contains("premier projet") && !body.contains("second projet"),
+        "une suppression ne doit pas etre remigree: {body}"
+    );
+
+    let (status, body) = http(srv.port, "GET", "/pdfannot?rel=article.pdf", None);
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("locale"), "{body}");
 }
 
 #[test]

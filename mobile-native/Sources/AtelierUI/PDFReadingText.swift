@@ -1,11 +1,59 @@
 import Foundation
 import PDFKit
 import Vision
+import UIKit
+
+struct PDFReadingAnchor: Sendable {
+    let offset: Int
+    let bounds: CGRect
+    let line: Int
+}
+
+struct PDFReadingVisual: Sendable {
+    let bounds: CGRect
+    let image: Data
+    let label: String
+}
 
 struct PDFReadingBlock: Identifiable, Sendable {
     let id: Int
     let text: String
     let heading: Bool
+    var anchors: [PDFReadingAnchor?] = []
+    var visual: PDFReadingVisual? = nil
+
+    /// Offsets come from extraction, not a search for a potentially repeated quote.
+    func regions(for range: NSRange) -> [CGRect]? {
+        guard range.location != NSNotFound, range.location >= 0, range.length > 0,
+              range.location <= anchors.count, range.length <= anchors.count - range.location,
+              anchors.count == text.utf16.count else { return nil }
+        let units = Array(text.utf16)
+        var result: [CGRect] = [], previousLine: Int?
+        for index in range.location..<NSMaxRange(range) {
+            if let scalar = UnicodeScalar(units[index]), CharacterSet.whitespacesAndNewlines.contains(scalar) { continue }
+            guard let anchor = anchors[index] else {
+                return nil
+            }
+            guard !anchor.bounds.isEmpty, !anchor.bounds.isInfinite, !anchor.bounds.isNull else { return nil }
+            if previousLine == anchor.line, let last = result.indices.last {
+                result[last] = result[last].union(anchor.bounds)
+            } else { result.append(anchor.bounds) }
+            previousLine = anchor.line
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    func ranges(inside regions: [CGRect]) -> [NSRange] {
+        var result: [NSRange] = []
+        for (index, anchor) in anchors.enumerated() {
+            guard let anchor, regions.contains(where: {
+                $0.contains(CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY))
+            }) else { continue }
+            if let last = result.indices.last, NSMaxRange(result[last]) == index { result[last].length += 1 }
+            else { result.append(NSRange(location: index, length: 1)) }
+        }
+        return result
+    }
 }
 
 struct PDFReadingPage: Sendable {
@@ -54,6 +102,7 @@ actor PDFReadingExtractor {
     struct Line {
         var text: String
         let bounds: CGRect
+        var anchors: [PDFReadingAnchor?] = []
     }
 
     func page(_ index: Int) throws -> PDFReadingPage {
@@ -63,9 +112,29 @@ actor PDFReadingExtractor {
             if document == nil { document = PDFDocument(data: bytes) }
             guard let page = document?.page(at: index), !document!.isLocked else { throw CocoaError(.fileReadCorruptFile) }
             let selections = page.selection(for: NSRange(location: 0, length: page.numberOfCharacters))?.selectionsByLine() ?? []
-            var lines = selections.compactMap { selection -> Line? in
-                guard let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-                return Line(text: text, bounds: selection.bounds(for: page))
+            let source = (page.string ?? "") as NSString
+            var lines = selections.enumerated().compactMap { lineIndex, selection -> Line? in
+                var text = "", anchors: [PDFReadingAnchor?] = []
+                for index in 0..<selection.numberOfTextRanges(on: page) {
+                    let range = selection.range(at: index, on: page)
+                    guard range.location != NSNotFound, range.location >= 0, range.length > 0,
+                          range.location <= source.length, range.length <= source.length - range.location else { continue }
+                    if !text.isEmpty { text += " "; anchors.append(nil) }
+                    text += source.substring(with: range)
+                    anchors += (range.location..<NSMaxRange(range)).map {
+                        // characterBounds uses glyph indices on some PDFs, while selections use
+                        // string offsets including inserted line breaks. Stay in one index space.
+                        guard let glyph = page.selection(for: NSRange(location: $0, length: 1)),
+                              glyph.string == source.substring(with: NSRange(location: $0, length: 1)) else { return nil }
+                        return PDFReadingAnchor(offset: $0, bounds: glyph.bounds(for: page), line: lineIndex)
+                    }
+                }
+                // A mismatched text layer can still be read, but never annotated by guessing.
+                if text.isEmpty { text = selection.string ?? ""; anchors = Array(repeating: nil, count: text.utf16.count) }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                let range = (text as NSString).range(of: trimmed)
+                return Line(text: trimmed, bounds: selection.bounds(for: page), anchors: Array(anchors[range.location..<NSMaxRange(range)]))
             }
             // Some publishers omit spaces from their text layer. Vision supplies only word boundaries,
             // and only when the complete line matches the original PDF characters.
@@ -78,7 +147,7 @@ actor PDFReadingExtractor {
             let repeatedHeaders = neighboringHeaders(index)
             let marginLines = lines.filter { Self.isMargin($0, pageBounds: bounds, firstPage: index == 0, repeatedHeaders: repeatedHeaders) }
             let bodyLines = lines.filter { !Self.isMargin($0, pageBounds: bounds, firstPage: index == 0, repeatedHeaders: repeatedHeaders) }
-            return PDFReadingPage(index: index, blocks: Self.blocks(bodyLines, pageBounds: bounds, firstPage: index == 0),
+            return PDFReadingPage(index: index, blocks: try visualBlocks(bodyLines, page: page, firstPage: index == 0),
                                   margins: Self.blocks(marginLines, pageBounds: bounds, firstPage: false))
         }
         pages[index] = result
@@ -105,9 +174,25 @@ actor PDFReadingExtractor {
                 abs($0.0.midY - normalized.midY) < max($0.0.height, normalized.height) * 0.7 &&
                 $0.0.intersection(normalized).width > min($0.0.width, normalized.width) * 0.6
             }).max(by: { $0.0.intersection(normalized).width < $1.0.intersection(normalized).width }) {
-                lines[index].text = PDFReadingSpacing.repair(lines[index].text, recognized: candidate.1)
+                let repaired = PDFReadingSpacing.repair(lines[index].text, recognized: candidate.1)
+                lines[index].anchors = Self.remapWhitespace(source: lines[index].text, anchors: lines[index].anchors, display: repaired)
+                lines[index].text = repaired
             }
         }
+    }
+
+    static func remapWhitespace(source: String, anchors: [PDFReadingAnchor?], display: String) -> [PDFReadingAnchor?] {
+        let original = Array(source.utf16), output = Array(display.utf16)
+        guard original.count == anchors.count else { return Array(repeating: nil, count: output.count) }
+        func whitespace(_ unit: UInt16) -> Bool { UnicodeScalar(unit).map(CharacterSet.whitespacesAndNewlines.contains) ?? false }
+        var cursor = 0, result: [PDFReadingAnchor?] = []
+        for unit in output {
+            if whitespace(unit) { result.append(nil); continue }
+            while cursor < original.count && whitespace(original[cursor]) { cursor += 1 }
+            guard cursor < original.count, original[cursor] == unit else { return Array(repeating: nil, count: output.count) }
+            result.append(anchors[cursor]); cursor += 1
+        }
+        return result
     }
 
     static func rasterForSpacing(of page: PDFPage) -> CGImage? {
@@ -137,10 +222,11 @@ actor PDFReadingExtractor {
         let heights = lines.map(\.bounds.height).filter { $0 > 0 && $0.isFinite }.sorted()
         let bodyHeight = heights.isEmpty ? 10 : heights[heights.count / 2]
         var result: [PDFReadingBlock] = [], text = "", heading = false
+        var anchors: [PDFReadingAnchor?] = []
         var previous: Line?
         func flush() {
             guard !text.isEmpty else { return }
-            result.append(PDFReadingBlock(id: result.count, text: text, heading: heading)); text = ""
+            result.append(PDFReadingBlock(id: result.count, text: text, heading: heading, anchors: anchors)); text = ""; anchors = []
         }
         for line in lines {
             let isHeading = line.bounds.height > bodyHeight * 1.35 && line.text.count < 180
@@ -151,8 +237,9 @@ actor PDFReadingExtractor {
                     flush()
                 }
             }
-            if !text.isEmpty { text += " " }
+            if !text.isEmpty { text += " "; anchors.append(nil) }
             text += line.text
+            anchors += line.anchors.count == line.text.utf16.count ? line.anchors : Array(repeating: nil, count: line.text.utf16.count)
             heading = isHeading; previous = line
         }
         flush()

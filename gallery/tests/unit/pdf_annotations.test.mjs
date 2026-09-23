@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 
 const html = fs.readFileSync(new URL('../../assets/pdf_viewer.html', import.meta.url), 'utf8');
 const sharedUI = fs.readFileSync(new URL('../../assets/annotation_ui.bundle.js', import.meta.url), 'utf8');
+const pdfSelection = fs.readFileSync(new URL('../../assets/pdf_selection.js', import.meta.url), 'utf8');
 const menuCode = html.slice(html.indexOf('let annotationEditor = null;'), html.indexOf('// mode Studio :'));
 const saveCode = html.slice(html.indexOf('function saveAnnots(){'), html.indexOf('function drawAnnots'));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -91,6 +92,7 @@ test('a comment draws a number and a full-height comment highlight', () => {
  const win=dom.window;
  win.PDF_ANNOTS=[{id:'n1',page:1,kind:'comment',number:7,rects:[[.2,.3,.4,.02]],note:'A question'}];
  let opened=null;win.annotMenu=a=>{opened=a.id;};
+ vm.runInContext(pdfSelection,dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
@@ -195,9 +197,12 @@ test('color selection marks text directly; only Annoter opens the editor', () =>
    selectionModel:()=>({spans:[span],segments:[{index:0,text:'Passage'}]}),
    selectionClientRects:()=>[{span,rect:{left:100,top:200,width:150,height:20}}],
    drawAnnots(){},saveAnnots(){},clearHl(){},selHide(){},annotMenu:a=>opened.push(a.kind)});
+ vm.runInContext(pdfSelection,dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('function normalizeHighlightColor('),html.indexOf('// PDF marks live')),dom.getInternalVMContext());
  win.addHighlightFromSel('hl','blue');
  assert.equal(win.PDF_ANNOTS.length,1);assert.deepEqual(opened,[]);
+ // rect normalisé (page 600×1000) : 100/600, 200/1000, 150/600, 20/1000
+ assert.equal(JSON.stringify(win.PDF_ANNOTS[0].rects.map(r=>r.map(v=>+v.toFixed(4)))),"[[0.1667,0.2,0.25,0.02]]");
  assert.equal(win.PDF_ANNOTS[0].color,'rgba(120,170,255,.40)');
  win.addHighlightFromSel('comment','yellow');
  assert.deepEqual(opened,['comment']);win.close();
@@ -337,6 +342,7 @@ test('a highlight with a personal note draws a pencil badge that opens the bubbl
    {id:'h2',page:1,kind:'hl',rects:[[.1,.5,.3,.02]]}];
  win.normalizeHighlightColor=c=>c;
  let opened=null;win.annotMenu=a=>{opened=a.id;};
+ vm.runInContext(pdfSelection,dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);

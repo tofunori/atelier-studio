@@ -78,7 +78,26 @@ struct PDFAnnotationsList: View {
         NavigationStack {
             List {
                 if let error = error ?? workspace.pdfAnnotations.loadError { Text(error).foregroundStyle(.red) }
-                if workspace.documentPDFMarks.isEmpty {
+                if let error = workspace.sharedPDFAnnotationsError {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button("Actualiser les annotations du Mac") { Task { await workspace.refreshSharedPDFAnnotations() } }
+                }
+                if !workspace.documentSharedPDFMarks.isEmpty {
+                    Section("Sur le Mac · lecture seule") {
+                        ForEach(workspace.documentSharedPDFMarks.filter { query.isEmpty || "\($0.text) \($0.note)".localizedStandardContains(query) }) { mark in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Text("Page \(mark.page)").font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("Voir") { workspace.pdfPage = max(0, mark.page - 1); workspace.pdfNavigationRequest = UUID(); workspace.documentMode = .pdf; dismiss() }
+                                }
+                                if !mark.text.isEmpty { Text(mark.text).font(.subheadline).textSelection(.enabled) }
+                                if !mark.note.isEmpty { Text(mark.note).font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled) }
+                            }.padding(.vertical, 5)
+                        }
+                    }
+                }
+                if workspace.documentPDFMarks.isEmpty && workspace.documentSharedPDFMarks.isEmpty {
                     ContentUnavailableView("Aucune annotation", systemImage: "highlighter", description: Text("Dans le PDF, sélectionnez du texte puis touchez Annoter. Vous pouvez surligner ou souligner sans ajouter de commentaire."))
                 }
                 ForEach(marks) { mark in

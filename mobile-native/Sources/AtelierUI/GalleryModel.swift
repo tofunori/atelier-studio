@@ -57,6 +57,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     @ObservationIgnored private var projectsRequestID = UUID()
     var error: String?
     var hasAddress: Bool { baseURL != nil }
+    var annotationServerID: String? { baseURL?.absoluteString }
     private var baseURL: URL?
     private var token = ""
     private var identities: [String: UUID] = [:]

@@ -234,7 +234,7 @@ private final class AuditOfflineProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-private final class AuditDelayedProtocol: URLProtocol, @unchecked Sendable {
+final class AuditDelayedProtocol: URLProtocol, @unchecked Sendable {
     final class State: @unchecked Sendable {
         private let lock = NSLock()
         private var requests: [AuditDelayedProtocol] = []

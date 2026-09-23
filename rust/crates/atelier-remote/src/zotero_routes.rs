@@ -1,5 +1,36 @@
 use super::*;
 static LIBRARY_READ: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[derive(Deserialize)]
+pub(super) struct AnnotationsQuery { file: String }
+
+/// Read the exact attachment's shared Atelier marks, never the whole library.
+pub(super) async fn annotations(State(state): State<GatewayState>, headers: HeaderMap, Path(key): Path<String>, Query(query): Query<AnnotationsQuery>) -> ApiResult<Response> {
+    guard_headers(&state, &headers).await?;
+    require_device(&state, &headers, Scope::FilesRead).await?;
+    if key.len() != 8 || !key.bytes().all(|c| c.is_ascii_alphanumeric())
+        || query.file.is_empty() || query.file.contains(['/', '\\', '\0'])
+        || !query.file.to_ascii_lowercase().ends_with(".pdf") {
+        return Err(ApiError::bad_request("invalid_attachment", "Pièce jointe Zotero invalide"));
+    }
+    let path = state.inner.lock().await.config.atelier_dir.join("pdf_annots.json");
+    let payload = tokio::task::spawn_blocking(move || -> ApiResult<Value> {
+        let failed = || ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "annotations_unavailable", "Annotations du Mac indisponibles");
+        let store: Value = match std::fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| failed())?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+            Err(_) => return Err(failed()),
+        };
+        let object = store.as_object().ok_or_else(failed)?;
+        let rel = format!("zotero/{key}/{}", query.file);
+        let annots = object.get(&rel).cloned().unwrap_or_else(|| json!([]));
+        if !annots.is_array() { return Err(failed()); }
+        Ok(json!({"attachmentKey":key, "fileName":query.file, "annots":annots}))
+    }).await.map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "annotations_failed", "Lecture interrompue"))??;
+    Ok(Response::builder().header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .body(axum::body::Body::from(payload.to_string())).unwrap())
+}
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct LibraryQuery { collection_id: Option<i64> }

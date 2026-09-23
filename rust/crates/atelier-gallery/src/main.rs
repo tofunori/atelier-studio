@@ -10,6 +10,7 @@ mod ranged;
 mod suggest;
 mod workspace;
 mod zotero;
+mod zotero_reading;
 mod reflow;
 
 use agent::AgentStore;
@@ -2447,9 +2448,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/zotero-items", get(zotero::zotero_items))
         .route("/zotero-collections", get(zotero::zotero_collections))
         .route("/zotero-fav", post(zotero::zotero_fav))
+        .route("/zotero-reading", get(zotero_reading::get).post(zotero_reading::post))
         .route("/zotero-add", post(zotero::zotero_add))
         .route("/zotero/{key}/{fname}", get(zotero::zotero_pdf))
         .route("/kb-pdf/{id}", get(zotero::kb_pdf))
+        .route("/ragdoc-draft/{id}/{*asset}", get(zotero::ragdoc_draft_asset))
         .route("/reflow", get(reflow::reflow).head(reflow::reflow))
         // Phase 7 — hôte macOS
         .route("/orca-fullscreen-exit", post(host::orca_fullscreen_exit))

@@ -114,6 +114,36 @@ async fn health_public_no_token() {
 }
 
 #[tokio::test]
+async fn shared_zotero_annotations_are_scoped_authenticated_and_read_only() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "annotations-test").await;
+    let store = h.state.inner.lock().await.config.atelier_dir.join("pdf_annots.json");
+    let raw = json!({
+        "zotero/PDF00001/paper space.pdf": [{"id":"a", "page":1, "rects":[[0.1,0.2,0.3,0.04]], "kind":"hl"}],
+        "zotero/PDF00002/private.pdf": [{"id":"other"}],
+        "project.pdf": [{"id":"project"}]
+    }).to_string();
+    std::fs::write(&store, &raw).unwrap();
+    let url = format!("{base}/remote/v1/zotero/annotations/PDF00001?file=paper%20space.pdf");
+    assert_eq!(client().get(&url).header("host", &host).send().await.unwrap().status(), 401);
+    let response = client().get(&url).header("host", &host).bearer_auth(&token).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let data: Value = response.json().await.unwrap();
+    assert_eq!(data["attachmentKey"], "PDF00001");
+    assert_eq!(data["annots"].as_array().unwrap().len(), 1);
+    assert_eq!(data["annots"][0]["id"], "a");
+    assert_eq!(std::fs::read_to_string(&store).unwrap(), raw);
+    let invalid = format!("{base}/remote/v1/zotero/annotations/PDF00001?file=..%2Fsecret.pdf");
+    assert_eq!(client().get(invalid).header("host", &host).bearer_auth(&token).send().await.unwrap().status(), 400);
+    std::fs::write(&store, "broken").unwrap();
+    assert_eq!(client().get(&url).header("host", &host).bearer_auth(&token).send().await.unwrap().status(), 503);
+    assert_eq!(std::fs::read_to_string(&store).unwrap(), "broken");
+    h.shutdown().await;
+}
+
+#[tokio::test]
 async fn catalog_discovers_mac_projects_after_gateway_start() {
     let (h, admin, host) = boot().await;
     let base = h.base_url();

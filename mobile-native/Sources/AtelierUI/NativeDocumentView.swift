@@ -48,7 +48,7 @@ struct NativeDocumentView: View {
         workspace.pdfDocument != nil && (workspace.documentMode == .pdf || !workspace.sourceAvailable)
     }
     private var visibleAnnotationCount: Int {
-        viewingPDFMarks ? workspace.documentPDFMarks.count : workspace.documentReadingNotes.count
+        viewingPDFMarks ? workspace.documentPDFMarks.count + workspace.documentSharedPDFMarks.count : workspace.documentReadingNotes.count
     }
     private var annotationButton: some View {
         Button {
@@ -113,6 +113,10 @@ struct NativeDocumentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if workspace.currentArticle != nil, let error = workspace.sharedPDFAnnotationsError {
+                Text(error).font(.caption).foregroundStyle(.secondary).padding(8)
+                    .accessibilityIdentifier("sharedPDFAnnotationsError")
+            }
             if workspace.image == nil && !workspace.availableDocumentModes.isEmpty {
                 documentModes
             }
@@ -291,6 +295,9 @@ struct NativeDocumentView: View {
             }
         }
         .sheet(isPresented: $showingPDFAnnotations) { PDFAnnotationsList(workspace: workspace) }
+        .task(id: "\(workspace.documentID)|\(workspace.sharedPDFAnnotationKey ?? "")|\(workspace.surface == .document && scenePhase == .active)|\(workspace.gallery.connectionRevision)") {
+            if workspace.surface == .document && scenePhase == .active { await workspace.refreshSharedPDFAnnotations() }
+        }
     }
 }
 

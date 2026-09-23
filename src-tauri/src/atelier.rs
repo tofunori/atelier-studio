@@ -28,6 +28,15 @@ fn gallery_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/figures_index.html")
 }
 
+/// Les serveurs Galerie sont propres a chaque projet, mais certaines donnees
+/// (notamment les annotations Zotero) appartiennent a l'application. Tous les
+/// serveurs doivent donc recevoir exactement le meme Application Support.
+fn atelier_app_dir() -> Result<PathBuf, String> {
+    dirs::home_dir()
+        .map(|home| home.join("Library/Application Support/atelier-studio"))
+        .ok_or_else(|| "dossier utilisateur introuvable".to_string())
+}
+
 fn gallery_health(port: u16) -> Result<ProcessHealth, String> {
     let value = identity::http_json(port, "/health", &[], Duration::from_millis(900))?;
     identity::parse_health(value)
@@ -256,8 +265,10 @@ pub fn start_atelier(
     }
 
     let assets = resolve_assets_dir(&dir);
+    let app_dir = atelier_app_dir()?;
     let child = Command::new(&rust_bin)
         .env("ATELIER_STUDIO", "1")
+        .env("ATELIER_APP_DIR", &app_dir)
         .env("GALLERY_ROOT", &root)
         .env("GALLERY_EXTS", gallery_exts.as_deref().unwrap_or(""))
         .env("FIG_PORT", port.to_string())
@@ -309,6 +320,12 @@ mod tests {
         let p = project_port(Path::new("/tmp"));
         assert_eq!(p, project_port(Path::new("/tmp")));
         assert!((18790..=19789).contains(&p));
+    }
+
+    #[test]
+    fn app_dir_is_shared_across_project_servers() {
+        let app_dir = atelier_app_dir().unwrap();
+        assert!(app_dir.ends_with("Library/Application Support/atelier-studio"));
     }
 
     #[test]

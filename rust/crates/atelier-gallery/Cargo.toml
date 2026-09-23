@@ -33,6 +33,7 @@ hex = "0.4"
 rand = "0.8"
 zip = { version = "2", features = ["deflate"] }
 flate2 = "1"
+fs2 = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 roxmltree = "0.20"

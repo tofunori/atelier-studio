@@ -714,3 +714,51 @@ mod tests {
         assert!(zotero_pdf_path("zotero/ABCD1234/../../secret.pdf").is_none());
     }
 }
+
+/// Files selected for a durable review, resolved by opaque draft ID only.
+pub async fn ragdoc_draft_asset(
+    method: Method, headers: HeaderMap,
+    axum::extract::Path((id, asset)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    let app_dir = std::env::var("ATELIER_APP_DIR").map(PathBuf::from)
+        .unwrap_or_else(|_|home().join("Library/Application Support/atelier-studio"));
+    let Some((path, mime)) = ragdoc_asset_path(&app_dir.join("knowledge/article-drafts"), &id, &asset) else {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    };
+    crate::ranged::serve_file_ranged(&path, mime, &method, &headers).await
+}
+
+fn ragdoc_asset_path(folder: &Path, id: &str, asset: &str) -> Option<(PathBuf, &'static str)> {
+    if id.len()!=12 || !id.bytes().all(|c|c.is_ascii_hexdigit()) {return None;}
+    if asset=="original.pdf" {
+        let path = folder.join(format!("{id}.pdf")).canonicalize().ok()?;
+        if path.parent()? != folder.canonicalize().ok()? || !path.is_file() {return None;}
+        return Some((path, "application/pdf"));
+    }
+    if Path::new(asset).is_absolute() || asset.split('/').any(|s|s==".." || s.is_empty()) || asset.contains('\\') {return None;}
+    let root = folder.join(format!("{id}.artifacts")).canonicalize().ok()?;
+    let path = root.join(asset).canonicalize().ok()?;
+    if !path.starts_with(&root) || !path.is_file() {return None;}
+    let mime = match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png"=>"image/png", "jpg"|"jpeg"=>"image/jpeg", "webp"=>"image/webp", _=>return None,
+    };
+    Some((path,mime))
+}
+
+#[cfg(test)]
+mod ragdoc_preview_tests {
+    use super::*;
+    #[test]
+    fn preview_paths_are_confined_and_types_are_allowlisted() {
+        let dir=tempfile::tempdir().unwrap();let id="aabbccddeeff";
+        let bundle=dir.path().join(format!("{id}.artifacts"));fs::create_dir_all(&bundle).unwrap();
+        fs::write(bundle.join("figure.png"),b"png").unwrap();fs::write(bundle.join("evil.svg"),b"svg").unwrap();
+        assert!(ragdoc_asset_path(dir.path(),id,"figure.png").is_some());
+        for asset in ["../outside.png","/tmp/a.png","evil.svg"] {assert!(ragdoc_asset_path(dir.path(),id,asset).is_none());}
+        assert!(ragdoc_asset_path(dir.path(),"../bad","figure.png").is_none());
+        #[cfg(unix)] {
+            let outside=tempfile::NamedTempFile::new().unwrap();std::os::unix::fs::symlink(outside.path(),bundle.join("escape.png")).unwrap();
+            assert!(ragdoc_asset_path(dir.path(),id,"escape.png").is_none());
+        }
+    }
+}

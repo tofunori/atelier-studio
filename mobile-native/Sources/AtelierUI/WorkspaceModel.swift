@@ -106,6 +106,9 @@ final class WorkspaceModel {
     }
     var readingNotes = DocumentReadingNotes()
     var pdfAnnotations = PDFAnnotations()
+    var sharedPDFAnnotations = SharedPDFAnnotations()
+    var sharedPDFAnnotationsError: String?
+    @ObservationIgnored var sharedPDFAnnotationsRequest = UUID()
     var pdfFingerprint = ""
     var pdfNavigationRequest = UUID()
     var pendingDocumentPrompt: String?

@@ -32,6 +32,17 @@ import Foundation
     static func install(in workspace: WorkspaceModel) {
         #if targetEnvironment(simulator)
         guard ProcessInfo.processInfo.arguments.contains("--chat-render-fixture") else { return }
+        if ProcessInfo.processInfo.arguments.contains("--pdf-reading-fixture"),
+           let data = try? Data(contentsOf: URL(fileURLWithPath: "/private/tmp/atelier-reading-qa.pdf")) {
+            workspace.chat.isPreview = true
+            workspace.pdfAnnotations = PDFAnnotations(directory: nil)
+            workspace.sharedPDFAnnotations = SharedPDFAnnotations(directory: nil)
+            try? workspace.openArtifact(GalleryArtifact(name: "Warren · lecture.pdf"), data: data)
+            workspace.pdfPage = 1
+            workspace.documentMode = .reading
+            workspace.surface = .document
+            return
+        }
         workspace.chat.isPreview = true
         workspace.chat.select(.init(id: "preview-render", title: "Aperçu du rendu", provider: "codex", model: nil, projectId: nil, status: "idle"), workspace: workspace)
         let file = GalleryArtifact(name: "notes.pdf", data: Bundle.module.url(forResource: "notes", withExtension: "pdf").flatMap { try? Data(contentsOf: $0) })

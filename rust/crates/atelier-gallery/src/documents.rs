@@ -10,10 +10,12 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
 };
+use fs2::FileExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     fs,
+    fs::OpenOptions,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -385,14 +387,9 @@ pub struct PdfAnnotQuery {
     rel: Option<String>,
 }
 
-/// Emplacement du store d'annotations PDF.
-///
-/// Les annotations appartiennent au DOCUMENT, pas au projet : un PDF Zotero
-/// (`rel` = `zotero/<clé>/<fichier>`, identité déjà stable) doit garder ses
-/// surlignages quel que soit le projet ouvert. On écrit donc dans le dossier
-/// applicatif quand il est connu (`ATELIER_APP_DIR`, déjà utilisé par
-/// zotero.rs) ; sinon on retombe sur le projet — mode autonome sans app.
-fn pdf_annots_path(root: &Path) -> PathBuf {
+/// Store commun aux serveurs de projets. Seules les cles Zotero y sont
+/// ecrites : les chemins relatifs ordinaires ne sont pas globalement uniques.
+fn shared_pdf_annots_path(root: &Path) -> PathBuf {
     if let Some(dir) = std::env::var_os("ATELIER_APP_DIR") {
         let dir = PathBuf::from(dir);
         if !dir.as_os_str().is_empty() {
@@ -409,6 +406,20 @@ fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
 
+fn is_zotero_pdf_rel(rel: &str) -> bool {
+    let Some(rest) = rel.strip_prefix("zotero/") else {
+        return false;
+    };
+    let Some((key, file)) = rest.split_once('/') else {
+        return false;
+    };
+    key.len() == 8
+        && key.chars().all(|c| c.is_ascii_alphanumeric())
+        && !file.contains('/')
+        && !file.contains('\\')
+        && file.to_ascii_lowercase().ends_with(".pdf")
+}
+
 fn read_pdf_store(path: &Path) -> Value {
     match fs::read_to_string(path) {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| json!({})),
@@ -416,45 +427,232 @@ fn read_pdf_store(path: &Path) -> Value {
     }
 }
 
+fn write_pdf_store(path: &Path, store: &Value) -> Result<(), String> {
+    let payload = format!(
+        "{}\n",
+        serde_json::to_string_pretty(store).unwrap_or_else(|_| "{}".into())
+    );
+    atomic_write_text(path, &payload).map_err(|error| error.to_string())
+}
+
+fn annotation_id(value: &Value) -> Option<String> {
+    value.get("id").and_then(|id| match id {
+        Value::String(id) => Some(id.clone()),
+        Value::Number(id) => Some(id.to_string()),
+        _ => None,
+    })
+}
+
+/// Fusion additive d'un ancien store de projet vers le store Zotero commun.
+/// Le commun gagne en cas de meme id : il contient l'etat le plus recent
+/// (par exemple une note modifiee apres migration).
+fn merge_legacy_zotero_entries(shared: &mut Value, legacy: &Value) -> bool {
+    if !shared.is_object() {
+        *shared = json!({});
+    }
+    let Some(shared) = shared.as_object_mut() else {
+        return false;
+    };
+    let Some(legacy) = legacy.as_object() else {
+        return false;
+    };
+    let mut changed = false;
+    for (rel, old_value) in legacy {
+        if !is_zotero_pdf_rel(rel) {
+            continue;
+        }
+        let Some(old_annots) = old_value.as_array() else {
+            continue;
+        };
+        let current = shared.entry(rel.clone()).or_insert_with(|| json!([]));
+        let Some(current_annots) = current.as_array_mut() else {
+            *current = json!([]);
+            let Some(current_annots) = current.as_array_mut() else {
+                continue;
+            };
+            for annot in old_annots {
+                current_annots.push(annot.clone());
+            }
+            changed |= !old_annots.is_empty();
+            continue;
+        };
+        for annot in old_annots {
+            let duplicate = annotation_id(annot)
+                .map(|id| {
+                    current_annots
+                        .iter()
+                        .any(|item| annotation_id(item).as_deref() == Some(&id))
+                })
+                .unwrap_or_else(|| current_annots.contains(annot));
+            if !duplicate {
+                current_annots.push(annot.clone());
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+fn migration_key(root: &Path) -> String {
+    fs::canonicalize(root)
+        .unwrap_or_else(|_| root.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Ouvre le store Zotero sous verrou inter-processus, puis importe une seule
+/// fois l'ancien store du projet courant. Plusieurs serveurs Galerie peuvent
+/// ainsi partager le fichier sans perdre la derniere ecriture.
+fn with_shared_pdf_store<T>(
+    root: &Path,
+    operation: impl FnOnce(&mut Value) -> Result<(T, bool), String>,
+) -> Result<T, String> {
+    let shared_path = shared_pdf_annots_path(root);
+    let legacy_path = legacy_pdf_annots_path(root);
+    if let Some(parent) = shared_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let lock_path = shared_path.with_file_name("pdf_annots.lock");
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| error.to_string())?;
+    lock.lock_exclusive().map_err(|error| error.to_string())?;
+
+    let result = (|| {
+        let mut store = read_pdf_store(&shared_path);
+        let ledger_path = shared_path.with_file_name("pdf_annots_migrations.json");
+        let mut ledger = read_pdf_store(&ledger_path);
+        if !ledger.is_object() {
+            ledger = json!({});
+        }
+        let key = migration_key(root);
+        let should_migrate =
+            shared_path != legacy_path && ledger.get(&key).and_then(Value::as_bool) != Some(true);
+        let migrated = should_migrate
+            && merge_legacy_zotero_entries(&mut store, &read_pdf_store(&legacy_path));
+        let (value, changed) = operation(&mut store)?;
+        if migrated || changed {
+            write_pdf_store(&shared_path, &store)?;
+        }
+        if should_migrate {
+            if let Some(entries) = ledger.as_object_mut() {
+                entries.insert(key, Value::Bool(true));
+            }
+            write_pdf_store(&ledger_path, &ledger)?;
+        }
+        Ok(value)
+    })();
+
+    let _ = FileExt::unlock(&lock);
+    result
+}
+
+fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, String> {
+    if let Some(ids) = body.get("removeIds") {
+        let Some(ids) = ids
+            .as_array()
+            .filter(|ids| ids.iter().all(Value::is_string))
+        else {
+            return Err("removeIds must be an array of strings".into());
+        };
+        let existing = store.get(rel).cloned().unwrap_or_else(|| json!([]));
+        return Ok(json!(
+            existing
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|annot| {
+                    let Some(id) = annotation_id(annot) else {
+                        return true;
+                    };
+                    !ids.iter()
+                        .any(|remove| remove.as_str() == Some(id.as_str()))
+                })
+                .collect::<Vec<_>>()
+        ));
+    }
+    Ok(body.get("annots").cloned().unwrap_or_else(|| json!([])))
+}
+
+fn apply_pdf_store_update(
+    path: &Path,
+    store: &mut Value,
+    rel: &str,
+    body: &Value,
+) -> Result<(), String> {
+    let new_annots = updated_annotations(store, rel, body)?;
+    if !new_annots.is_array() {
+        return Err("annots must be an array".into());
+    }
+    let clearing = new_annots
+        .as_array()
+        .is_some_and(|annots| annots.is_empty())
+        && store
+            .get(rel)
+            .and_then(Value::as_array)
+            .is_some_and(|annots| !annots.is_empty());
+    if clearing {
+        let backup = PathBuf::from(format!("{}.bak", path.display()));
+        atomic_write(
+            &backup,
+            serde_json::to_vec(store).unwrap_or_default().as_slice(),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    if !store.is_object() {
+        *store = json!({});
+    }
+    store
+        .as_object_mut()
+        .ok_or_else(|| "invalid annotation store".to_string())?
+        .insert(rel.to_string(), new_annots);
+    Ok(())
+}
+
 pub async fn get_pdfannot(
     State(state): State<AppState>,
     Query(query): Query<PdfAnnotQuery>,
 ) -> impl IntoResponse {
     let rel = query.rel.unwrap_or_default();
-    let shared = pdf_annots_path(&state.root);
-    let store = read_pdf_store(&shared);
-    let mut annots = store.get(&rel).cloned().unwrap_or_else(|| json!([]));
-    // rien dans le store partagé : reprendre l'ancien store du projet
-    if store.get(&rel).is_none() {
-        let legacy = legacy_pdf_annots_path(&state.root);
-        if legacy != shared
-            && let Some(old) = read_pdf_store(&legacy).get(&rel).cloned()
-            && old.as_array().map(|a| !a.is_empty()).unwrap_or(false)
-        {
-            annots = old;
+    let annots = if is_zotero_pdf_rel(&rel) {
+        match with_shared_pdf_store(&state.root, |store| {
+            Ok((store.get(&rel).cloned().unwrap_or_else(|| json!([])), false))
+        }) {
+            Ok(annots) => annots,
+            Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
         }
-    }
+    } else {
+        read_pdf_store(&legacy_pdf_annots_path(&state.root))
+            .get(&rel)
+            .cloned()
+            .unwrap_or_else(|| json!([]))
+    };
     (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
 }
 
-/// GET /pdfannot-all — le store COMMUN entier (+ les rels de l'ancien store
-/// du projet courant qui n'y sont pas encore), pour la portée « Bibliothèque »
-/// du panneau : toutes les annotations de tous les PDF, quelques Ko de JSON.
+/// GET /pdfannot-all — les annotations Zotero communes, superposees aux
+/// annotations des PDF du projet courant pour la portee « Bibliotheque ».
 pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoResponse {
-    let mut store = read_pdf_store(&pdf_annots_path(&state.root));
-    let legacy_path = legacy_pdf_annots_path(&state.root);
-    if legacy_path != pdf_annots_path(&state.root)
-        && let Value::Object(ref mut shared) = store
-        && let Value::Object(legacy) = read_pdf_store(&legacy_path)
-    {
-        for (rel, annots) in legacy {
-            let missing = !shared.contains_key(&rel);
-            if missing && annots.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
-                shared.insert(rel, annots);
+    let shared = match with_shared_pdf_store(&state.root, |store| Ok((store.clone(), false))) {
+        Ok(store) => store,
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+    let mut combined = read_pdf_store(&legacy_pdf_annots_path(&state.root));
+    if !combined.is_object() {
+        combined = json!({});
+    }
+    if let (Some(combined), Some(shared)) = (combined.as_object_mut(), shared.as_object()) {
+        for (rel, annots) in shared {
+            if is_zotero_pdf_rel(rel) {
+                combined.insert(rel.clone(), annots.clone());
             }
         }
     }
-    (StatusCode::OK, Json(json!({"annots": store}))).into_response()
+    (StatusCode::OK, Json(json!({"annots": combined}))).into_response()
 }
 
 pub async fn post_pdfannot(
@@ -483,47 +681,30 @@ pub async fn post_pdfannot(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let store_path = pdf_annots_path(&state.root);
-    let mut store = read_pdf_store(&store_path);
-    let new_annots = if let Some(ids) = body.get("removeIds") {
-        if rel_key.is_empty() { return json_error(StatusCode::BAD_REQUEST, "rel required"); }
-        let Some(ids) = ids.as_array().filter(|ids| ids.iter().all(Value::is_string)) else {
-            return json_error(StatusCode::BAD_REQUEST, "removeIds must be an array of strings");
-        };
-        let existing = store.get(&rel_key).cloned().unwrap_or_else(|| {
-            read_pdf_store(&legacy_pdf_annots_path(&state.root)).get(&rel_key).cloned().unwrap_or_else(|| json!([]))
-        });
-        json!(existing.as_array().into_iter().flatten().filter(|a| {
-            if a.get("id").is_none_or(Value::is_null) { return true; }
-            let id = a.get("id").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
-            !ids.iter().any(|remove| remove.as_str() == Some(id.as_str()))
-        }).collect::<Vec<_>>())
+    if rel_key.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "rel required");
+    }
+    let result = if is_zotero_pdf_rel(&rel_key) {
+        let shared_path = shared_pdf_annots_path(&state.root);
+        with_shared_pdf_store(&state.root, |store| {
+            apply_pdf_store_update(&shared_path, store, &rel_key, &body)?;
+            Ok(((), true))
+        })
     } else {
-        body.get("annots").cloned().unwrap_or_else(|| json!([]))
+        let store_path = legacy_pdf_annots_path(&state.root);
+        let mut store = read_pdf_store(&store_path);
+        apply_pdf_store_update(&store_path, &mut store, &rel_key, &body)
+            .and_then(|()| write_pdf_store(&store_path, &store))
     };
-    if new_annots.as_array().is_some_and(|a| a.is_empty())
-        && store
-            .get(&rel_key)
-            .and_then(Value::as_array)
-            .is_some_and(|a| !a.is_empty())
-    {
-        // Backup before clearing a non-empty entry.
-        let bak = PathBuf::from(format!("{}.bak", store_path.display()));
-        let _ = atomic_write(
-            &bak,
-            serde_json::to_vec(&store).unwrap_or_default().as_slice(),
-        );
-    }
-    if let Some(obj) = store.as_object_mut() {
-        obj.insert(rel_key, new_annots);
-    }
-    let payload = format!(
-        "{}\n",
-        serde_json::to_string_pretty(&store).unwrap_or_else(|_| "{}".into())
-    );
-    match atomic_write_text(&store_path, &payload) {
+    match result {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
-        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Err(error)
+            if error == "removeIds must be an array of strings"
+                || error == "annots must be an array" =>
+        {
+            json_error(StatusCode::BAD_REQUEST, error)
+        }
+        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
     }
 }
 
@@ -784,5 +965,38 @@ mod tests {
         // même si `./` seul lèverait déjà l'ambiguïté.
         let err = safe_argv_basename("-evil.tex").unwrap_err();
         assert!(err.contains("-evil.tex"));
+    }
+
+    #[test]
+    fn zotero_identity_is_global_but_project_paths_are_not() {
+        assert!(is_zotero_pdf_rel("zotero/ABCD1234/article.pdf"));
+        assert!(!is_zotero_pdf_rel("article.pdf"));
+        assert!(!is_zotero_pdf_rel("zotero/SHORT/article.pdf"));
+        assert!(!is_zotero_pdf_rel("zotero/ABCD1234/folder/article.pdf"));
+    }
+
+    #[test]
+    fn legacy_zotero_merge_is_additive_and_idempotent() {
+        let mut shared = json!({
+            "zotero/ABCD1234/article.pdf": [
+                {"id": "a1", "note": "version commune"}
+            ]
+        });
+        let legacy = json!({
+            "zotero/ABCD1234/article.pdf": [
+                {"id": "a1", "note": "ancienne version"},
+                {"id": "a2", "note": "annotation d'un autre projet"}
+            ],
+            "article.pdf": [
+                {"id": "local", "note": "reste dans le projet"}
+            ]
+        });
+
+        assert!(merge_legacy_zotero_entries(&mut shared, &legacy));
+        let annots = shared["zotero/ABCD1234/article.pdf"].as_array().unwrap();
+        assert_eq!(annots.len(), 2);
+        assert_eq!(annots[0]["note"], "version commune");
+        assert!(shared.get("article.pdf").is_none());
+        assert!(!merge_legacy_zotero_entries(&mut shared, &legacy));
     }
 }

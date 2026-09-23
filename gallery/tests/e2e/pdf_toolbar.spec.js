@@ -53,6 +53,12 @@ test.afterAll(async () => {
   await removeTempRoot(root);
 });
 
+test.beforeEach(async ({ page }) => {
+  // Give the host a real origin: an opaque about:blank parent can deny the
+  // reader's localStorage in browsers that block third-party storage.
+  await page.goto(`http://127.0.0.1:${port}/figures_index.html`);
+});
+
 test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
@@ -73,6 +79,32 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect(header).toBeVisible();
   expect(await header.evaluate(element => element.getBoundingClientRect().height)).toBe(36);
   expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+  // navigation de page : ‹ 1 / N › suit le défilement, saut par champ
+  const pageNav = reader.locator('.pdf-page-nav');
+  await expect(pageNav).toBeVisible();
+  const total = await reader.locator('.pg').count();
+  expect(total).toBeGreaterThan(1);
+  await expect(reader.locator('#pgTotalN')).toHaveText(String(total));
+  await expect(reader.locator('#pgCurN')).toHaveText('1');
+  await reader.locator('#pgNext').click();
+  await expect(reader.locator('#pgCurN')).toHaveText('2');
+  await reader.locator('#pgPrev').click();
+  await expect(reader.locator('#pgCurN')).toHaveText('1');
+  await reader.locator('#pgCur').click();
+  const pgInput = reader.locator('#pgInput');
+  await expect(pgInput).toBeVisible();
+  await pgInput.fill(String(total));
+  await pgInput.press('Enter');
+  await expect(pgInput).toBeHidden();
+  await expect(reader.locator('#pgCurN')).toHaveText(String(total));
+  await reader.locator('#pgCur').click();
+  await pgInput.fill('1');
+  await pgInput.press('Enter');
+  await expect(reader.locator('#pgCurN')).toHaveText('1');
+  // les flèches d'annotations vivent désormais dans le menu ⋯
+  expect(await reader.locator('.pdf-toolbar-nav #annPrev').count()).toBe(0);
+  expect(await reader.locator('.pdf-toolbar-menu #annPrev').count()).toBe(1);
 
   const colorToggle = reader.getByRole('button', { name: 'Couleur du surlignage' });
   const palette = reader.locator('#pdf-color-palette');
@@ -112,6 +144,36 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   expect(errors).toEqual([]);
 });
 
+test('zoom PDF : les deux bords restent accessibles et la barre reste visible', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 650 });
+  await page.setContent(`<style>html,body{margin:0;width:100%;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>
+    <iframe title="PDF zoom" src="http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf"></iframe>`);
+  const reader = page.frameLocator('iframe');
+  const pg = reader.locator('.pg').first();
+  await expect.poll(() => reader.locator('.pg canvas').first().evaluate(canvas => canvas.width).catch(() => 0)).toBeGreaterThan(0);
+  await reader.locator('#zIn').click();
+  await reader.locator('#zIn').click();
+  await expect(reader.locator('#zPct')).toHaveText('144%');
+  await expect.poll(() => pg.evaluate(el => el.offsetWidth)).toBeGreaterThan(1000);
+  await expect.poll(() => reader.locator('#pages').evaluate(el => el.style.transform)).toBe('');
+  expect(await pg.evaluate(el => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
+  // A horizontal trackpad gesture must reach the right column without
+  // moving the toolbar off screen; vertical reading still works afterwards.
+  await page.mouse.move(400, 400);
+  await page.mouse.wheel(1400, 0);
+  await expect.poll(() => pg.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(800);
+  const header = reader.locator('header');
+  expect(await header.evaluate(el => Math.abs(el.getBoundingClientRect().left))).toBeLessThan(1);
+  await expect(reader.locator('#zIn')).toBeInViewport();
+  await page.mouse.wheel(0, 300);
+  await expect.poll(() => pg.evaluate(el => el.getBoundingClientRect().top)).toBeLessThan(0);
+  await page.mouse.wheel(-1400, 0);
+  await expect.poll(() => pg.evaluate(el => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
+  await reader.locator('#zPct').click();
+  await expect(reader.locator('#zPct')).toHaveText('100%');
+  await expect.poll(() => pg.evaluate(el => el.offsetWidth)).toBeLessThan(800);
+});
+
 test('sélection PDF : le surlignage partagé conserve le texte et persiste après rechargement', async ({ page }) => {
   await page.request.post(`http://127.0.0.1:${port}/pdfannot`, { data: { rel: 'twocol.pdf', annots: [] } });
   await page.setViewportSize({ width: 1000, height: 760 });
@@ -142,8 +204,8 @@ test('sélection PDF : le surlignage partagé conserve le texte et persiste apr�
   await expect.poll(() => reader.locator('.pdfhl').first().evaluate(element => getComputedStyle(element).backgroundColor).catch(() => ''),
     { timeout: 5_000 }).toMatch(/rgba\(120,\s*170,\s*255,\s*0\.4\)/);
 
-  // The outer page is `about:blank` after setContent; reload the iframe with a
-  // cache-busting query so the viewer runs its annotation GET again.
+  // Reload the iframe with a cache-busting query so the viewer runs its
+  // annotation GET again.
   await page.locator('iframe[title="Lecteur PDF sélection"]').evaluate(frame => {
     const url = new URL(frame.src);
     url.searchParams.set('v', String(Date.now()));

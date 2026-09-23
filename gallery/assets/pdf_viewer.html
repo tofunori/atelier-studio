@@ -40,7 +40,9 @@
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font)}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font);
+    width:max-content;min-width:100%}
+  body.read-mode{width:auto}
   .zoomctl{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:8px;flex:none}
   .zoomctl button{background:transparent;border:none;color:var(--muted,#868d9a);font-size:var(--fs-body-s, 12px);padding:3px 8px;cursor:pointer;font-variant-numeric:tabular-nums;line-height:1.4}
   .zoomctl button:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
@@ -86,9 +88,13 @@
   body.pdf-invert .pg{background:#141414}
   body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
-  header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
+  header{position:sticky;top:0;left:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
+         width:100vw;box-sizing:border-box;
          padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:var(--fs-body, 13px)}
-  #pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}
+  /* Grow with zoomed pages: centering inside a narrower column puts the
+     left edge at a negative, unreachable scroll position. */
+  #pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;
+    width:max-content;min-width:100%;box-sizing:border-box}
   .pg{position:relative;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.5)}
   .pg canvas{display:block}
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
@@ -776,6 +782,7 @@ async function main(){
       slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false, rendering: false, visible: false, want: false, task: null });
     }
     _slots = slots;
+    try { document.dispatchEvent(new CustomEvent("pdf-pages-laid")); } catch(e){}
     // 2) peinture d'une page : canvas + couche texte + annotations
     const paint = async function(slot, wantCanvas = true){
       if (slot.rendering || gen !== _renderGen) return;
@@ -1154,17 +1161,25 @@ function renderSelection(){
   clearSelectionRects();
   const model = selectionModel();
   const entries = selectionClientRects(model);
+  // même fusion par ligne que le surlignage final : la sélection montre
+  // déjà ce qu'on obtiendra (pas de trous entre les mots)
+  const byPage = new Map();
   for(const entry of entries){
     const pg = entry.span.closest(".pg");
     if(!pg) continue;
+    if(!byPage.has(pg)) byPage.set(pg, []);
     const pr = pg.getBoundingClientRect(), r = entry.rect;
-    const el = document.createElement("div");
-    el.className = "pdfsel";
-    el.style.left = ((r.left-pr.left)/pr.width*100) + "%";
-    el.style.top = ((r.top-pr.top)/pr.height*100) + "%";
-    el.style.width = (r.width/pr.width*100) + "%";
-    el.style.height = (r.height/pr.height*100) + "%";
-    pg.appendChild(el);
+    byPage.get(pg).push([(r.left-pr.left)/pr.width, (r.top-pr.top)/pr.height, r.width/pr.width, r.height/pr.height]);
+  }
+  for(const [pg, rects] of byPage){
+    const pr = pg.getBoundingClientRect();
+    for(const rc of window.AtelierPdfSelection.mergeLineRects(rects, {aspect: pr.height / pr.width})){
+      const el = document.createElement("div");
+      el.className = "pdfsel";
+      el.style.left = (rc[0]*100) + "%"; el.style.top = (rc[1]*100) + "%";
+      el.style.width = (rc[2]*100) + "%"; el.style.height = (rc[3]*100) + "%";
+      pg.appendChild(el);
+    }
   }
   return entries;
 }
@@ -1969,8 +1984,12 @@ function drawAnnots(pgDiv, n){
       pgDiv.appendChild(marker);
       continue;
     }
-    // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage
-    for(const rc of (a.kind === "area" ? [] : a.rects)){
+    // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage.
+    // Les annotations enregistrées mot par mot (avant 2026-09-19) se fondent
+    // au rendu : `aspect` = hauteur/largeur de la page, connue par le slot.
+    const pageAspect = pgDiv.offsetWidth > 0 ? pgDiv.offsetHeight / pgDiv.offsetWidth : 1;
+    const drawRects = a.kind === "area" ? [] : window.AtelierPdfSelection.mergeLineRects(a.rects, {aspect: pageAspect});
+    for(const rc of drawRects){
       const el = document.createElement("div");
       el.className = "pdfhl";
       el.dataset.aid = String(a.id);
@@ -2100,6 +2119,11 @@ function addHighlightFromSel(kind, color){
     const pr = pg.getBoundingClientRect(), r = entry.rect;
     byPage.get(key).rects.push([(r.left-pr.left)/pr.width, (r.top-pr.top)/pr.height,
       r.width/pr.width, r.height/pr.height]);
+  }
+  // un rectangle par mot (spans pdf.js) → un rectangle continu par ligne
+  for(const g of byPage.values()){
+    const pr = g.pg.getBoundingClientRect();
+    g.rects = window.AtelierPdfSelection.mergeLineRects(g.rects, {aspect: pr.height / pr.width});
   }
   let lastA = null, lastRect = null;
   for(const [pgNum, g] of byPage){
@@ -2623,11 +2647,74 @@ if (window.self !== window.top) {
   more.appendChild(menu);
   const move = (id, host) => { const el = document.getElementById(id); if(el) host.appendChild(el); };
   move("paneBtn", nav);
+  // Navigation de page façon Zotero : ‹ 12 / 34 › — le compteur suit la page
+  // la plus visible ; cliquer le numéro ouvre un champ pour sauter à une page.
+  // Les flèches d'annotations descendent dans le menu ⋯ (le panneau les liste).
+  const pageNav = document.createElement("span"); pageNav.className = "pdf-page-nav";
+  pageNav.innerHTML =
+    '<button id="pgPrev" title="Page précédente" aria-label="Page précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
+    + '<button id="pgCur" title="Aller à la page…" aria-label="Aller à la page"><span id="pgCurN">–</span><span class="pdf-page-sep">/</span><span id="pgTotalN">–</span></button>'
+    + '<input id="pgInput" type="text" inputmode="numeric" aria-label="Numéro de page" hidden>'
+    + '<button id="pgNext" title="Page suivante" aria-label="Page suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
+  nav.appendChild(pageNav);
+  const pgCurN = pageNav.querySelector("#pgCurN"), pgTotalN = pageNav.querySelector("#pgTotalN");
+  const pgCur = pageNav.querySelector("#pgCur"), pgInput = pageNav.querySelector("#pgInput");
+  const pageEls = () => [...document.querySelectorAll("#pages .pg")];
+  const headerHeight = () => header.offsetHeight || 36;
+  // page courante = celle qui couvre le plus le viewport (sous le header)
+  function currentPage(){
+    const sc = document.scrollingElement || document.documentElement;
+    const top = sc.scrollTop + headerHeight(), bottom = sc.scrollTop + window.innerHeight;
+    let best = 1, bestCover = -1;
+    for (const pg of pageEls()) {
+      const a = pg.offsetTop, b = a + pg.offsetHeight;
+      const cover = Math.min(b, bottom) - Math.max(a, top);
+      if (cover > bestCover) { bestCover = cover; best = +pg.dataset.page; }
+      if (a > bottom) break;
+    }
+    return best;
+  }
+  let pageRaf = 0;
+  function updatePageNav(){
+    pageRaf = 0;
+    const total = pageEls().length;
+    pgTotalN.textContent = total || "–";
+    pgCurN.textContent = total ? currentPage() : "–";
+  }
+  function schedulePageNav(){ if (!pageRaf) pageRaf = requestAnimationFrame(updatePageNav); }
+  function gotoPage(n){
+    const total = pageEls().length; if (!total) return;
+    n = Math.min(total, Math.max(1, n | 0));
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
+    const pg = document.querySelector('#pages .pg[data-page="' + n + '"]'); if (!pg) return;
+    (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop - headerHeight() + 12;
+    schedulePageNav();
+  }
+  pageNav.querySelector("#pgPrev").onclick = (e) => { e.stopPropagation(); gotoPage(currentPage() - 1); };
+  pageNav.querySelector("#pgNext").onclick = (e) => { e.stopPropagation(); gotoPage(currentPage() + 1); };
+  function openPageInput(){
+    pgCur.hidden = true; pgInput.hidden = false;
+    pgInput.value = String(currentPage()); pgInput.focus(); pgInput.select();
+  }
+  function closePageInput(){ pgInput.hidden = true; pgCur.hidden = false; }
+  pgCur.onclick = (e) => { e.stopPropagation(); openPageInput(); };
+  pgInput.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { const n = parseInt(pgInput.value, 10); closePageInput(); if (n > 0) gotoPage(n); }
+    else if (e.key === "Escape") closePageInput();
+  });
+  pgInput.addEventListener("blur", closePageInput);
+  window.addEventListener("scroll", schedulePageNav, {passive: true});
+  window.addEventListener("resize", schedulePageNav);
+  document.addEventListener("pdf-pages-laid", schedulePageNav);
+  window.addEventListener("pdf-rendered", schedulePageNav);
+  document.addEventListener("atelier-reading-left", schedulePageNav);
+  schedulePageNav();
   const prev = document.getElementById("annPrev"), next = document.getElementById("annNext");
-  [prev, next].forEach(el => { if(el) nav.appendChild(el); });
   const note = document.querySelector('#pdftools [data-t="note"]');
   if(note) { note.setAttribute("aria-pressed", "false"); note.setAttribute("aria-label", "Ajouter une note sur la page"); marks.appendChild(note); }
   ["areaBtn", "invBtn", "readBtn", "compileBtn"].forEach(id => move(id, menu));
+  [prev, next].forEach(el => { if(el) menu.appendChild(el); });
   const eraser = marks.querySelector('[data-t="erase"]'); if(eraser) menu.appendChild(eraser);
   menu.querySelectorAll("button").forEach(button => {
     const label = document.createElement("span"); label.textContent = button.getAttribute("aria-label") || button.title;
@@ -2642,6 +2729,13 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar { height:36px!important; min-height:36px!important; padding:0 8px!important; gap:6px!important; background:var(--card)!important; border-color:var(--border)!important; }
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
     .pdf-toolbar-nav button { width:26px; height:26px; }
+    .pdf-page-nav { display:inline-flex; align-items:center; gap:2px; }
+    header.pdf-compact-toolbar #pgCur { width:auto; min-width:0; padding:0 4px!important; gap:4px; font-size:12px; font-variant-numeric:tabular-nums; }
+    .pdf-page-sep { color:var(--muted); }
+    header.pdf-compact-toolbar #pgInput { width:44px; height:24px; box-sizing:border-box; padding:0 6px; font:inherit; font-size:12px; font-variant-numeric:tabular-nums; text-align:center;
+      color:var(--txt); background:var(--card2); border:0; border-radius:6px; outline:none; }
+    header.pdf-compact-toolbar #pgInput:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
+    body.read-mode .pdf-page-nav { display:none; }
     header.pdf-compact-toolbar .pdf-mark-tools { margin:0; padding:0; border:0; }
     header.pdf-compact-toolbar .pdf-mark-colors { display:none; position:absolute; top:31px; left:0; z-index:30; padding:12px; gap:12px; border:1px solid var(--border); border-radius:8px; background:var(--card); box-shadow:0 6px 18px #0003; }
     header.pdf-compact-toolbar .palette-open .pdf-mark-colors { display:flex; }
@@ -2666,7 +2760,7 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
     header.pdf-compact-toolbar .pdf-mark-color:hover, header.pdf-compact-toolbar .pdf-mark-color[aria-pressed="true"] { background:var(--mark-color)!important; }
 
-    @media(max-width:360px) { .pdf-toolbar-nav #annPrev,.pdf-toolbar-nav #annNext { display:none; } header.pdf-compact-toolbar .zoomctl #zOut,header.pdf-compact-toolbar .zoomctl #zIn { display:none; } }
+    @media(max-width:360px) { .pdf-page-nav #pgPrev,.pdf-page-nav #pgNext { display:none; } header.pdf-compact-toolbar .zoomctl #zOut,header.pdf-compact-toolbar .zoomctl #zIn { display:none; } }
   `;
   document.head.appendChild(css);
 }

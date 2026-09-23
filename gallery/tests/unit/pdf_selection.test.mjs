@@ -73,3 +73,41 @@ test("the PDF viewer stores character-range rectangles instead of whole text spa
   assert.match(viewer, /r\.width\/pr\.width/);
   assert.doesNotMatch(viewer, /classList\.toggle\("hl"/);
 });
+
+// Un surlignage naît d'un rectangle par span pdf.js (souvent un par mot) :
+// les mots d'une même ligne se fondent en un seul rectangle continu, les
+// lignes restent séparées et une colonne voisine n'est jamais absorbée.
+test("merges word rectangles of one line into a continuous rectangle", () => {
+  const rects = [
+    [0.10, 0.200, 0.05, 0.015], // « For »
+    [0.16, 0.200, 0.12, 0.015], // « catchment-scale »
+    [0.29, 0.201, 0.08, 0.014], // « studies » (léger décalage vertical)
+  ];
+  const out = selection.mergeLineRects(rects, {aspect: 792 / 612});
+  assert.equal(out.length, 1);
+  const [x, y, w, h] = out[0];
+  assert.ok(Math.abs(x - 0.10) < 1e-9);
+  assert.ok(Math.abs(x + w - 0.37) < 1e-9);
+  assert.ok(Math.abs(y - 0.200) < 1e-9);
+  assert.ok(Math.abs(y + h - 0.215) < 1e-9);
+});
+
+test("keeps separate lines and a neighbouring column apart", () => {
+  const rects = [
+    [0.10, 0.200, 0.05, 0.015], [0.16, 0.200, 0.10, 0.015], // ligne 1, colonne gauche
+    [0.55, 0.200, 0.06, 0.015],                             // ligne 1, colonne droite (écart 0.29)
+    [0.10, 0.220, 0.08, 0.015], [0.19, 0.220, 0.04, 0.015], // ligne 2
+  ];
+  const out = selection.mergeLineRects(rects, {aspect: 792 / 612});
+  assert.deepEqual(out.map(r => r.map(v => +v.toFixed(3))), [
+    [0.10, 0.20, 0.16, 0.015],
+    [0.55, 0.20, 0.06, 0.015],
+    [0.10, 0.22, 0.13, 0.015],
+  ]);
+});
+
+test("merge is order-independent and tolerates empty input", () => {
+  assert.deepEqual(selection.mergeLineRects([]), []);
+  const a = [[0.3, 0.5, 0.1, 0.02], [0.1, 0.5, 0.1, 0.02], [0.2, 0.5, 0.1, 0.02]];
+  assert.deepEqual(selection.mergeLineRects(a).map(r => r.map(v => +v.toFixed(3))), [[0.1, 0.5, 0.3, 0.02]]);
+});
