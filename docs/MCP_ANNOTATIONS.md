@@ -32,8 +32,8 @@ qui n'ont pas encore été recopiés dans le store commun.
 | `search_annotations` | tous les articles en un appel, résultats groupés par article : `query`, `match` (`all` par défaut, `any` pour une recherche thématique classée par nombre de mots trouvés dans le passage et la note), `only_with_note`, `articles`, `color`, `limit` (100 par défaut, 1000 au plus), `per_article` (5 par défaut en mode `any`) |
 | `list_annotated_articles` | articles annotés, avec leurs nombres de passages et de notes |
 | `get_article_annotations` | toutes les annotations d'un ou de plusieurs articles nommés (`articles: [...]`, ou l'ancien `article`), par page |
-| `highlight_passage` | surligne dans le PDF Zotero d'un article (`article` : clé, auteur et année, ou mots du titre) les passages cités mot pour mot (`passages: [{quote, page?, memo?}]`, 20 au plus, ou `quote` seul), en `color` jaune (défaut), vert, bleu ou rose |
-| `update_highlights` | change la `color` et/ou la note (`memo`, vide = retirée) de surlignages faits par Claude, désignés par un extrait de leur texte (`passages: [{quote, page?}]` ou `quote`) ou `all: true` |
+| `highlight_passage` | surligne dans le PDF Zotero d'un article (`article` : clé, auteur et année, ou mots du titre) les passages cités mot pour mot (`passages: [{quote, page?, memo?, color?, style?}]`, 20 au plus, ou `quote` seul), en `color` jaune (défaut), vert, bleu, rose, orange ou violet, et en `style` surligner (défaut) ou souligner ; `color` et `style` de premier niveau valent pour les passages qui n'ont pas les leurs |
+| `update_highlights` | change la `color`, le `style` (surligner / souligner) et/ou la note (`memo`, vide = retirée) de surlignages faits par Claude, désignés par un extrait de leur texte (`passages: [{quote, page?}]` ou `quote`) ou `all: true` |
 | `remove_highlights` | supprime des surlignages faits par Claude, désignés de la même façon |
 
 Les instructions du serveur demandent à Claude de ne jamais parcourir les

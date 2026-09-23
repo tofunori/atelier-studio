@@ -90,7 +90,8 @@ de surligner si l'article n'est pas déjà dans la conversation.\n\
 - highlight_passage : SEULEMENT quand Thierry demande de surligner. Il voit le surlignage apparaître \
 dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
 phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
-article dans un seul appel (passages: [...]), chacun avec sa couleur (color) si elles diffèrent. \
+article dans un seul appel (passages: [...]), chacun avec sa couleur (color) et son style \
+(style : surligner par défaut, souligner pour une phrase à citer mot pour mot) s'ils diffèrent. \
 Ne jamais surligner un passage paraphrasé. Donner à \
 chaque passage un memo : une note courte en français disant pourquoi il est surligné (« pour la \
 discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
@@ -114,7 +115,7 @@ fn tools() -> Value {
                     "match": {"type": "string", "enum": ["all", "any"], "description": "all : tous les mots requis (défaut). any : un mot suffit, classement par nombre de mots trouvés.", "default": "all"},
                     "only_with_note": {"type": "boolean", "description": "Ne garder que les passages qui ont une note personnelle.", "default": false},
                     "articles": {"type": "array", "items": {"type": "string"}, "description": "Limiter à ces articles : clé Zotero, nom d'auteur, année ou mot du titre."},
-                    "color": {"type": "string", "description": "Couleur de surlignage : jaune, vert, bleu, rose."},
+                    "color": {"type": "string", "description": "Couleur de surlignage : jaune, vert, bleu, rose, orange, violet."},
                     "limit": {"type": "integer", "description": "Nombre maximal de passages (100 par défaut).", "minimum": 1, "maximum": MAX_LIMIT},
                     "per_article": {"type": "integer", "description": "Avec match=any : passages gardés par article (5 par défaut).", "minimum": 1}
                 }
@@ -157,7 +158,7 @@ fn tools() -> Value {
         },
         {
             "name": "highlight_passage",
-            "description": "Surligne un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
+            "description": "Surligne (ou souligne, style=\"souligner\") un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
     Thierry les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
     (accents, ligatures et césures tolérés) ; s'il est introuvable, rien n'est surligné et la réponse le dit. \
     Un passage déjà surligné n'est pas doublé. À n'utiliser que sur demande explicite.",
@@ -175,7 +176,8 @@ fn tools() -> Value {
                                 "quote": {"type": "string", "description": "Texte exact du passage, recopié de l'article."},
                                 "page": {"type": "integer", "minimum": 1, "description": "Page du PDF (1 = première), si connue."},
                                 "memo": {"type": "string", "description": "Note affichée dans la bulle : une phrase courte en français disant pourquoi ce passage compte (par exemple « pour la discussion : limite de la quantification »), sans paraphraser le passage. Ne pas y écrire « Claude » : l'origine est déjà enregistrée."},
-                                "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur de ce passage (absente = `color` de l'appel)."}
+                                "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Couleur de ce passage (absente = `color` de l'appel)."},
+                                "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Style de ce passage (absent = `style` de l'appel)."}
                             },
                             "required": ["quote"]
                         }
@@ -183,7 +185,8 @@ fn tools() -> Value {
                     "quote": {"type": "string", "description": "Un seul passage (forme courte de `passages`)."},
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
                     "memo": {"type": "string", "description": "Avec `quote` : sa note (pourquoi ce passage compte)."},
-                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur par défaut des passages (jaune si absente) ; chaque passage peut donner la sienne."}
+                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Couleur par défaut des passages (jaune si absente) ; chaque passage peut donner la sienne."},
+                    "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Style par défaut des passages : surligner (défaut) ou souligner, par exemple pour la phrase à citer mot pour mot ; chaque passage peut donner le sien."}
                 },
                 "required": ["article"]
             },
@@ -191,7 +194,7 @@ fn tools() -> Value {
         },
         {
             "name": "update_highlights",
-            "description": "Change la couleur et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
+            "description": "Change la couleur, le style (surligné ou souligné) et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
     (jamais ceux de Thierry). Le changement apparaît dans le lecteur d'Atelier. À n'utiliser que sur demande explicite.",
             "inputSchema": {
                 "type": "object",
@@ -213,7 +216,8 @@ fn tools() -> Value {
                     "quote": {"type": "string", "description": "Un seul surlignage (forme courte de `passages`)."},
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
                     "all": {"type": "boolean", "description": "Tous les surlignages de Claude dans cet article.", "default": false},
-                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Nouvelle couleur (absente = inchangée)."},
+                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Nouvelle couleur (absente = inchangée)."},
+                    "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Nouveau style (absent = inchangé)."},
                     "memo": {"type": "string", "description": "Nouvelle note personnelle (absente = inchangée, vide = retirée)."}
                 },
                 "required": ["article"]
@@ -253,7 +257,7 @@ fn tools() -> Value {
 }
 
 /// `passages` et la forme courte `quote` / `page` / `memo`, réunis. Chaque
-/// élément de `passages` peut porter sa propre `color`.
+/// élément de `passages` peut porter sa propre `color` et son propre `style`.
 fn arg_passages(args: &Value) -> Result<Vec<crate::highlight::Request>, String> {
     let one = |v: &Value, own_color: bool| -> Result<Option<crate::highlight::Request>, String> {
         let quote = arg_str(v, "quote");
@@ -262,6 +266,10 @@ fn arg_passages(args: &Value) -> Result<Vec<crate::highlight::Request>, String> 
         }
         let color = match v.get("color").and_then(Value::as_str) {
             Some(c) if own_color && !c.trim().is_empty() => Some(crate::highlight::color_value(c)?),
+            _ => None,
+        };
+        let style = match v.get("style").and_then(Value::as_str) {
+            Some(s) if own_color && !s.trim().is_empty() => Some(crate::highlight::style_value(s)?),
             _ => None,
         };
         Ok(Some(crate::highlight::Request {
@@ -273,6 +281,7 @@ fn arg_passages(args: &Value) -> Result<Vec<crate::highlight::Request>, String> 
                 .map(|p| p as u32),
             memo: arg_str(v, "memo"),
             color,
+            style,
         }))
     };
     let mut out = Vec::new();
@@ -284,7 +293,7 @@ fn arg_passages(args: &Value) -> Result<Vec<crate::highlight::Request>, String> 
     {
         out.extend(one(v, true)?);
     }
-    // la couleur de premier niveau est celle de l'appel, pas du passage court
+    // la couleur et le style de premier niveau sont ceux de l'appel, pas du passage court
     out.extend(one(args, false)?);
     Ok(out)
 }
@@ -364,9 +373,10 @@ fn highlight_passage(config: &Config, args: &Value) -> Result<String, String> {
         ));
     }
     let color = crate::highlight::color_value(&arg_str(args, "color"))?;
+    let style = crate::highlight::style_value(&arg_str(args, "style"))?;
     let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
     let pages = crate::highlight::read_pdf(&target.pdf)?;
-    crate::highlight::highlight(config, &target, &pages, &passages, color)
+    crate::highlight::highlight(config, &target, &pages, &passages, color, style)
 }
 
 fn edit_highlights(config: &Config, name: &str, args: &Value) -> Result<String, String> {
@@ -391,11 +401,15 @@ fn edit_highlights(config: &Config, name: &str, args: &Value) -> Result<String, 
             Some(c) if !c.trim().is_empty() => Some(crate::highlight::color_value(c)?),
             _ => None,
         };
+        let style = match args.get("style").and_then(Value::as_str) {
+            Some(s) if !s.trim().is_empty() => Some(crate::highlight::style_value(s)?),
+            _ => None,
+        };
         let memo = args.get("memo").and_then(Value::as_str).map(str::to_string);
-        if color.is_none() && memo.is_none() {
-            return Err("Rien à changer : donner `color` et/ou `memo`.".into());
+        if color.is_none() && memo.is_none() && style.is_none() {
+            return Err("Rien à changer : donner `color`, `style` et/ou `memo`.".into());
         }
-        crate::highlight::Edit::Update { color, memo }
+        crate::highlight::Edit::Update { color, memo, style }
     };
     let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
     crate::highlight::edit_highlights(config, &target, &passages, all, &edit)
@@ -612,8 +626,18 @@ fn format_annotation(a: &crate::library::Annotation) -> String {
     if a.source == Source::Zotero {
         tags.push("annoté dans Zotero".into());
     }
+    if a.underline {
+        tags.push("souligné".into());
+    }
     if a.by_claude {
-        tags.push("surligné par Claude".into());
+        tags.push(
+            if a.underline {
+                "par Claude"
+            } else {
+                "surligné par Claude"
+            }
+            .into(),
+        );
     }
     if !tags.is_empty() {
         s.push_str(&format!(" ({})", tags.join(", ")));
@@ -946,6 +970,45 @@ mod tests {
 
         let (text, _) = call_tool(&config, "highlight_passage", args);
         assert!(text.contains("déjà surligné"), "{text}");
+
+        // soulignement, orange : la phrase à citer, même déjà surlignée
+        let (text, is_error) = call_tool(
+            &config,
+            "highlight_passage",
+            json!({"article": "Warren 1980", "color": "orange", "passages": [
+                {"quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "page": 1, "style": "souligner", "memo": "à citer"},
+                {"quote": "Surface albedo controls the energy balance of glaciers", "style": "souligner", "color": "violet"}
+            ]}),
+        );
+        assert!(!is_error, "{text}");
+        assert!(text.contains("souligné p. 1"), "{text}");
+        assert!(
+            !text.contains("déjà surligné"),
+            "an underline is not a duplicate of a highlight: {text}"
+        );
+        let store: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
+        )
+        .unwrap();
+        let annots = store["zotero/ABCD1234/paper.pdf"].as_array().unwrap();
+        assert_eq!(annots.len(), 4);
+        assert_eq!(annots[2]["kind"], "ul");
+        assert_eq!(annots[2]["color"], "rgba(255,160,80,.40)");
+        assert_eq!(annots[3]["kind"], "ul");
+        assert_eq!(annots[3]["color"], "rgba(185,150,255,.40)");
+        let (text, _) = call_tool(
+            &config,
+            "search_annotations",
+            json!({"query": "iaculis", "color": "orange"}),
+        );
+        assert!(text.contains("(orange, souligné, par Claude)"), "{text}");
+        assert_eq!(text.matches("iaculis").count(), 1, "{text}");
+        let (text, is_error) = call_tool(
+            &config,
+            "highlight_passage",
+            json!({"article": "Warren 1980", "quote": "Surface albedo controls the energy", "style": "barrer"}),
+        );
+        assert!(is_error && text.contains("style inconnu"), "{text}");
         let (text, is_error) = call_tool(
             &config,
             "highlight_passage",
@@ -955,7 +1018,7 @@ mod tests {
         let (text, is_error) = call_tool(
             &config,
             "highlight_passage",
-            json!({"article": "Warren 1980", "passages": [{"quote": "Surface albedo controls the energy", "color": "violet"}]}),
+            json!({"article": "Warren 1980", "passages": [{"quote": "Surface albedo controls the energy", "color": "noir"}]}),
         );
         assert!(is_error && text.contains("couleur inconnue"), "{text}");
 
@@ -1060,6 +1123,24 @@ mod tests {
         assert_eq!(annots[1]["memo"], "pour la discussion");
         assert!(annots[2].get("memo").is_none());
         assert_eq!(annots[3]["color"], "y");
+
+        let (text, is_error) = call_tool(
+            &config,
+            "update_highlights",
+            json!({"article": "ABCD1234", "quote": "Dust matters less than soot", "style": "souligner", "color": "violet"}),
+        );
+        assert!(!is_error, "{text}");
+        let annots = read();
+        assert_eq!(annots[3]["kind"], "ul");
+        assert_eq!(annots[3]["color"], "rgba(185,150,255,.40)");
+        assert_eq!(annots[0]["kind"], "hl");
+        let (text, _) = call_tool(
+            &config,
+            "update_highlights",
+            json!({"article": "ABCD1234", "quote": "Dust matters less than soot", "style": "surligner"}),
+        );
+        assert!(text.contains("modifié p. 6"), "{text}");
+        assert_eq!(read()[3]["kind"], "hl");
 
         let (text, _) = call_tool(
             &config,

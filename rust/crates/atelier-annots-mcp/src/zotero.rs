@@ -132,6 +132,7 @@ pub fn read(
                 note,
                 color: color_name(&color),
                 by_claude: false,
+                underline: false,
             });
         }
     }
