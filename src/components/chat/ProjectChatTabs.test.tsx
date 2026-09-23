@@ -18,6 +18,27 @@ describe("project chat navigation", () => {
     expect(screen.getByRole("button", { name: "Albédo" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Copernicus" })).not.toHaveAttribute("aria-current");
   });
+  it("shows completed unread tabs, including pinned tabs, and clears their indicator on selection", () => {
+    const onSelect = vi.fn();
+    const controls = { openChats: chats, pinnedIds: ["b"], onClose: vi.fn(), onTogglePin: vi.fn() };
+    const props = { chats, controls, unread: new Set(["a", "b"]), onSelect, onNew: vi.fn() };
+    const { container, rerender } = render(<ProjectChatTabs {...props} activeId="a" />);
+    expect(container.querySelectorAll(".project-chat-tab-unread")).toHaveLength(1);
+    const unreadTab = screen.getByRole("button", { name: "Albédo — Tour terminé · non lu" });
+    expect(unreadTab).toHaveAttribute("title", "Tour terminé · non lu");
+    fireEvent.click(unreadTab);
+    expect(onSelect).toHaveBeenCalledWith("b");
+    rerender(<ProjectChatTabs {...props} activeId="b" unread={new Set()} />);
+    expect(container.querySelector(".project-chat-tab-unread")).toBeNull();
+    rerender(<ProjectChatTabs {...props} activeId="a" unread={new Set()} />);
+    expect(container.querySelector(".project-chat-tab-unread")).toBeNull();
+  });
+  it("does not show completion on a running or active tab", () => {
+    const { container } = render(<ProjectChatTabs
+      chats={[{ id: "a", title: "Active" }, { id: "b", title: "Running", status: "running" }]}
+      unread={new Set(["a", "b"])} activeId="a" onSelect={vi.fn()} onNew={vi.fn()} />);
+    expect(container.querySelector(".project-chat-tab-unread")).toBeNull();
+  });
   it("supports arrows, Home and End without navigating until activation", () => {
     const onSelect = vi.fn();
     render(<ProjectChatTabs chats={chats} activeId="a" onSelect={onSelect} onNew={() => {}} />);

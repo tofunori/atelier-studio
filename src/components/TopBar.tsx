@@ -4,13 +4,40 @@ import { ChatHeaderSlot } from "./ChatHeaderSlot";
 import { useToolbarDividerAlignment } from "./useToolbarDividerAlignment";
 import "../styles/local-headers.css";
 import { t } from "../lib/i18n";
-import { IconButton } from "./ui";
+import { IconButton, SegmentedControl } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import TopBarSurfaces, { buildTargets } from "./TopBarSurfaces";
 import TopBarTabs, { type PaneTab } from "./TopBarTabs";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import type { Surface } from "./surfaces";
 
+
+function LayoutChatIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <rect x="2.65" y="3.65" width="10.7" height="8.7" rx="1" fill="currentColor" opacity="0.32" stroke="none" />
+    </svg>
+  );
+}
+function LayoutSplitIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M8 3v10" />
+      <rect x="2.65" y="3.65" width="4.6" height="8.7" fill="currentColor" opacity="0.32" stroke="none" />
+    </svg>
+  );
+}
+function LayoutAtelierIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M8 3v10" />
+      <rect x="8.65" y="3.65" width="4.7" height="8.7" fill="currentColor" opacity="0.32" stroke="none" />
+    </svg>
+  );
+}
 
 type Layout = "chat" | "split" | "atelier";
 
@@ -19,6 +46,7 @@ export default function TopBar({
   chatTabControls,
   chats = [],
   activeChatId = null,
+  unreadChatIds,
   chatTitle,
   onSelectChat,
   onNewChat,
@@ -45,6 +73,7 @@ export default function TopBar({
   chatTabControls?: ChatTabControls;
   chats?: ProjectChatTab[];
   activeChatId?: string | null;
+  unreadChatIds?: ReadonlySet<string>;
   chatTitle?: string;
   onSelectChat?: (id: string) => void;
   onNewChat?: () => void;
@@ -76,7 +105,7 @@ export default function TopBar({
     <div ref={barRef} className="topbar" data-tauri-drag-region>
       <div className="topbar-start" data-tauri-drag-region>
       {onSelectChat && onNewChat && (chats.length > 0 || activeProject) ? (
-        <ProjectChatTabs controls={chatTabControls} chats={chats} activeId={activeChatId} onSelect={onSelectChat} onNew={onNewChat} />
+        <ProjectChatTabs unread={unreadChatIds} controls={chatTabControls} chats={chats} activeId={activeChatId} onSelect={onSelectChat} onNew={onNewChat} />
       ) : chatTitle ? <span className="topbar-chat-title">{chatTitle}</span> : null}
       <ChatHeaderSlot />
       </div>
@@ -102,6 +131,18 @@ export default function TopBar({
         <TopBarTabs allTabsMenu tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
         <WorkspacePaneMenuSlot />
         <span className="flex" />
+        <div className="topbar-layout-controls">
+        <SegmentedControl
+          label={t("layout.split")}
+          value={layout}
+          onChange={(v) => onSetLayout(v as Layout)}
+          options={[
+            { value: "chat", label: <LayoutChatIcon />, ariaLabel: t("layout.chat"), title: `${t("layout.chat")} (⌘1)` },
+            { value: "split", label: <LayoutSplitIcon />, ariaLabel: t("layout.split"), title: `${t("layout.split")} (⌘0)` },
+            { value: "atelier", label: <LayoutAtelierIcon />, ariaLabel: t("layout.atelier"), title: `${t("layout.atelier")} (⌘2)` },
+          ]}
+        />
+        </div>
         <div className="topbar-window-overflow">
           <LazyDropdownMenu open={windowMenu} onOpenChange={setWindowMenu} align="end"
             label={t("action.more")}

@@ -10,6 +10,8 @@ async function expectAligned(page: Page, split = true) {
     return Math.abs(tools.x + tools.width / 2 - axis);
   }, split)).toBeLessThan(1);
   await expect(page.locator('.topbar')).toHaveCSS('height', '38px');
+  await expect(page.locator('.topbar-layout-controls [role=radio]')).toHaveCount(3);
+  for (const control of await page.locator('.topbar-layout-controls [role=radio]').all()) await expect(control).toBeVisible();
   await expect(page.locator('.chat-header-in-topbar .titles')).toBeHidden();
 }
 

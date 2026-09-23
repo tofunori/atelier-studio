@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
@@ -138,6 +138,35 @@ function deliver(items: unknown[], requestId?: number, extra: Record<string, unk
 function rowTitles(): string[] {
   return [...document.querySelectorAll(".biblio-row .biblio-title")].map((el) => el.textContent ?? "");
 }
+
+describe("BiblioSurface — coche Lu", () => {
+  beforeEach(() => { setLanguage("fr"); localStorage.clear(); resetPendingPassageOpenForTests(); });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("manual toggle is accessible and does not open the reader", async () => {
+    const request = vi.fn(async (_url: unknown, options?: RequestInit) => ({
+      ok: true,
+      json: async () => options?.method === "POST" ? JSON.parse(options.body as string) : { readKeys: [] },
+    }));
+    vi.stubGlobal("fetch", request);
+    renderUi(<BiblioSurface ws={makeWs()} projectRoot="/project-a" galleryUrl="http://localhost:19000/" />);
+    deliver([{ ...fixture({ key: "ARTICLE1", title: "Mon article", hasPdf: true }), pdfKey: "PDF00001", pdfFile: "paper.pdf" }]);
+    const check = screen.getByRole("button", { name: "Marquer comme lu — Mon article" });
+    await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(false));
+    expect(check.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.keyDown(check, { key: "Enter" });
+    expect(document.querySelector(".biblio-frame")).toBeNull();
+    fireEvent.click(check);
+    await waitFor(() => expect(check.getAttribute("aria-pressed")).toBe("true"));
+    expect(check.getAttribute("aria-label")).toBe("Marquer comme non lu — Mon article");
+    expect(document.querySelector(".biblio-frame")).toBeNull();
+    fireEvent.click(check);
+    await waitFor(() => expect(check.getAttribute("aria-pressed")).toBe("false"));
+    fireEvent.doubleClick(screen.getByTitle("Mon article"));
+    expect(document.querySelector(".biblio-frame")).not.toBeNull();
+    expect(request.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(2);
+  });
+});
 
 describe("BiblioSurface — liste, course de requêtes et clavier", () => {
   beforeEach(() => {

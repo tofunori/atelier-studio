@@ -927,6 +927,7 @@ export default function AtelierPane({
         <div key="surface:connaissances" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <KnowledgeSurface
+              galleryUrl={url}
               binding={kbBinding ?? null}
               threadTitle={kbThreadTitle ?? ""}
               visible={active}

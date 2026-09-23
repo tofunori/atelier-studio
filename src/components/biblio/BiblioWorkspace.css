@@ -33,14 +33,20 @@
 .biblio-workspace .biblio-scope { justify-content: space-between; gap: 10px; min-height: 28px; padding: 0 12px; }
 .biblio-workspace .biblio-scope-count { white-space: nowrap; }
 .biblio-workspace .biblio-list { padding: 0; gap: 0; overflow: auto; }
-.biblio-table-head { display: grid; grid-template-columns: minmax(0, 1fr) 120px 50px 130px 62px; gap: 10px; padding: 7px 12px; font-size: var(--fs-xs); color: var(--text-muted); border-block: 1px solid var(--border-subtle); }
-.biblio-workspace .biblio-row { grid-template-columns: minmax(0, 1fr) 62px; gap: 10px; padding: 0 12px; border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent); }
+.biblio-table-head { display: grid; grid-template-columns: minmax(0, 1fr) 120px 50px 130px 90px; gap: 10px; padding: 7px 12px; font-size: var(--fs-xs); color: var(--text-muted); border-block: 1px solid var(--border-subtle); }
+.biblio-workspace .biblio-row { grid-template-columns: minmax(0, 1fr) 90px; gap: 10px; padding: 0 12px; border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent); }
 .biblio-workspace .biblio-main-button { display: grid; grid-template-columns: minmax(0, 1fr) 120px 50px 130px; align-items: center; gap: 10px; padding: 9px 0; }
 .biblio-workspace .biblio-title { font-weight: 400; font-size: var(--fs-s); line-height: 1.5; -webkit-line-clamp: 2; }
 .biblio-table-author, .biblio-table-publication { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: var(--fs-s); }
 .biblio-table-year { color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
-.biblio-workspace .biblio-row-side { gap: 3px; }
+.biblio-table-actions, .biblio-workspace .biblio-row-side { display: grid; grid-template-columns: repeat(3, 28px); gap: 3px; align-items: center; text-align: center; }
+.biblio-workspace .biblio-row-side > .ui-iconbtn { width: 28px; min-width: 28px; height: 28px; }
 .biblio-workspace .biblio-star { opacity: 1; }
+.biblio-workspace .biblio-read { color: var(--text-muted); opacity: .45; }
+.biblio-workspace .biblio-read:hover, .biblio-workspace .biblio-read:focus-visible { opacity: 1; }
+.biblio-workspace .biblio-read[aria-pressed="true"] { color: #86b99a; opacity: 1; }
+:root[data-theme="light"] .biblio-workspace .biblio-read[aria-pressed="true"] { color: #397454; }
+.biblio-workspace .biblio-read svg { width: 15px; height: 15px; }
 .biblio-information { min-width: 0; overflow: auto; border-left: 1px solid var(--border-subtle); padding: 10px 16px; background: var(--surface-panel); font-size: var(--fs-s); }
 .biblio-information-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); }
 .biblio-information h2 { font-size: var(--fs-l); font-weight: 500; line-height: 1.6; margin: 20px 0 10px; color: var(--text-primary); }
@@ -53,7 +59,7 @@
 .biblio-library-panel.collections-hidden { grid-template-columns: minmax(0, 1fr); }
 .collections-hidden > .biblio-collections { display: none; }
 @container (max-width: 950px) {
- .biblio-table-head { grid-template-columns: minmax(0, 1fr) 110px 45px 62px; }
+ .biblio-table-head { grid-template-columns: minmax(0, 1fr) 110px 45px 90px; }
  .biblio-workspace .biblio-main-button { grid-template-columns: minmax(0, 1fr) 110px 45px; }
  .biblio-table-publication, .biblio-table-head > span:nth-child(4) { display: none; }
  .biblio-library-panel { grid-template-columns: 170px minmax(0, 1fr); }
@@ -62,7 +68,7 @@
  .biblio-document-tab { max-width: 144px; }
  .biblio-library-panel { grid-template-columns: 140px minmax(0, 1fr); }
  .biblio-table-author, .biblio-table-head > span:nth-child(2) { display: none; }
- .biblio-table-head { grid-template-columns: minmax(0, 1fr) 40px 62px; }
+ .biblio-table-head { grid-template-columns: minmax(0, 1fr) 40px 90px; }
  .biblio-workspace .biblio-main-button { grid-template-columns: minmax(0, 1fr) 40px; }
  .biblio-workspace-body.has-info { grid-template-columns: minmax(0, 1fr); }
  .biblio-information { position: absolute; right: 0; top: 0; bottom: 0; width: min(290px, 90%); z-index: 3; box-shadow: -8px 0 24px #0002; }

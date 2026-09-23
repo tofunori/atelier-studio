@@ -11,6 +11,7 @@ import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu
 import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";
 import { useBiblioReader } from "./biblio/useBiblioReader";
 import { useBiblioTabs } from "./biblio/useBiblioTabs";
+import { useBiblioReadState } from "./biblio/useBiblioReadState";
 import { buildCollectionTree, type CollectionTreeNode } from "./biblio/collections";
 import "./biblio/BiblioWorkspace.css";
 import type { PassageTarget, SortBy, ZoteroItem } from "./biblio/types";
@@ -80,6 +81,10 @@ export default function BiblioSurface({
   const reader = useBiblioReader();
   const { openReader: markReaderOpen } = reader;
   const tabs = useBiblioTabs();
+  const reading = useBiblioReadState(galleryUrl);
+  useEffect(() => {
+    if (tabs.isLibraryActive) reading.refresh();
+  }, [tabs.isLibraryActive, reading.refresh]);
   const [readerRequested, setReaderRequested] = useState(false);
   const openReader = useCallback(() => {
     markReaderOpen();
@@ -303,6 +308,13 @@ export default function BiblioSurface({
             onClick={() => selectItem(item, { openPdf: true })}><FileTextIcon /></IconButton>
           <IconButton className={`biblio-star ${item.fav ? "on" : ""}`}
             label={item.fav ? t("action.remove-favorite") : t("action.add-favorite")} onClick={() => toggleFav(item)}><StarIcon /></IconButton>
+          <IconButton size="s" className="biblio-read"
+            label={`${t(reading.readKeys.has(item.key) ? "biblio.mark-unread" : "biblio.mark-read")} — ${item.title}`}
+            title={t(reading.readKeys.has(item.key) ? "biblio.mark-unread" : "biblio.mark-read")}
+            aria-pressed={reading.readKeys.has(item.key)} aria-busy={reading.pending.has(item.key)}
+            disabled={!reading.ready || reading.pending.has(item.key)}
+            onKeyDown={event => event.stopPropagation()}
+            onClick={() => void reading.setRead(item.key, !reading.readKeys.has(item.key))}><CheckIcon /></IconButton>
         </span>
       </ContextMenuTrigger>
     </BiblioRowMenu>;
@@ -321,7 +333,7 @@ export default function BiblioSurface({
         controls[next]?.click(); controls[next]?.focus();
       }}>
         <RowButton role="tab" tabIndex={tabs.isLibraryActive ? 0 : -1} id="biblio-library-tab" aria-selected={tabs.isLibraryActive}
-          aria-controls="biblio-library-panel" className="biblio-tab biblio-library-tab document-tab-shell" onClick={tabs.activateLibrary}>
+          aria-controls="biblio-library-panel" className="biblio-tab biblio-library-tab document-tab-shell" onClick={() => { tabs.activateLibrary(); reading.refresh(); }}>
           <LibraryIcon /><span>{t("biblio.title")}</span>
         </RowButton>
         {tabs.tabs.map(tab => <div className="biblio-document-tab document-tab-shell" key={tab.item.key} data-active={tabs.activeTabKey === tab.item.key}>
@@ -365,7 +377,8 @@ export default function BiblioSurface({
             <span className="biblio-scope-count">{t("biblio.scope-refs", { count: visibleItems.length })} · {t("biblio.scope-pdf", { count: pdfCount })}</span></div>
           {addNote && <div className="biblio-add-note" role="status">{addNote}</div>}
           {error && <div className="biblio-empty" role="status">{error}</div>}
-          <div className="biblio-table-head" aria-hidden="true"><span>{t("biblio.column-title")}</span><span>{t("biblio.column-author")}</span><span>{t("biblio.column-year")}</span><span>{t("biblio.column-publication")}</span><span>PDF</span></div>
+          {reading.error && <div className="biblio-add-note" role="alert">{reading.error}</div>}
+          <div className="biblio-table-head" aria-hidden="true"><span>{t("biblio.column-title")}</span><span>{t("biblio.column-author")}</span><span>{t("biblio.column-year")}</span><span>{t("biblio.column-publication")}</span><span className="biblio-table-actions"><span>PDF</span><span /><span>{t("biblio.column-read")}</span></span></div>
           <div className="biblio-list" role="listbox" tabIndex={0} ref={listRef} aria-label={t("biblio.title")}
             aria-activedescendant={selected ? `biblio-row-${selected.key}` : undefined}>
             {loading && <div className="biblio-skeletons" role="status" aria-label={t("biblio.loading")}>

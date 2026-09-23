@@ -6,7 +6,7 @@ import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { t } from "../../lib/i18n";
 import "../../styles/document-tabs.css";
 
-export type ProjectChatTab = { id: string; title: string };
+export type ProjectChatTab = { id: string; title: string; status?: string };
 
 export type ChatTabControls = {
   openChats: ProjectChatTab[];
@@ -19,6 +19,7 @@ export type ChatTabControls = {
 export function ProjectChatTabs(p: {
   chats: ProjectChatTab[];
   activeId: string | null;
+  unread?: ReadonlySet<string>;
   controls?: ChatTabControls;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -40,6 +41,8 @@ export function ProjectChatTabs(p: {
   return <span className="project-chat-tabs" role="group" aria-label={t("chat.project-chats")}>
     <span className="project-chat-tabs-list" ref={list}>
       {visible.map((chat, index) => {
+        const isUnread = p.unread?.has(chat.id) && chat.id !== p.activeId && chat.status !== "running";
+        const unreadLabel = `${t("chat.turn-done")} · ${t("sidebar.unread")}`;
         const pinned = p.controls?.pinnedIds.includes(chat.id) ?? false;
         return <ContextMenu key={chat.id}>
         <ContextMenuTrigger render={<span className={`project-chat-tab-wrap document-tab-shell${pinned ? " is-pinned" : ""}`} data-active={chat.id === p.activeId} />}>
@@ -48,7 +51,8 @@ export function ProjectChatTabs(p: {
         variant="ghost"
         className="project-chat-tab"
         aria-current={chat.id === p.activeId ? "page" : undefined}
-        aria-label={chat.title || t("app.new-chat-title")}
+        aria-label={`${chat.title || t("app.new-chat-title")}${isUnread ? ` — ${unreadLabel}` : ""}`}
+        title={isUnread ? unreadLabel : undefined}
         onClick={() => p.onSelect(chat.id)}
         onKeyDown={(event) => {
           const next = event.key === "ArrowRight" ? (index + 1) % visible.length
@@ -58,7 +62,7 @@ export function ProjectChatTabs(p: {
           event.preventDefault();
           list.current?.querySelectorAll<HTMLButtonElement>(".project-chat-tab")[next]?.focus();
         }}
-      >{pinned && <svg className="project-chat-pin tw:size-[10px]" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><g transform="rotate(35 8 8)"><path d="M5 2.5h6v1.2l-1 .6v3l1.5 1.5v1H8.6v3.4L8 14l-.6-.8V9.8H4.5v-1L6 7.3v-3l-1-.6z" /></g></svg>}<span className="project-chat-tab-label">{chat.title || t("app.new-chat-title")}</span></Button>
+      >{pinned && <svg className="project-chat-pin tw:size-[10px]" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><g transform="rotate(35 8 8)"><path d="M5 2.5h6v1.2l-1 .6v3l1.5 1.5v1H8.6v3.4L8 14l-.6-.8V9.8H4.5v-1L6 7.3v-3l-1-.6z" /></g></svg>}<span className="project-chat-tab-label">{chat.title || t("app.new-chat-title")}</span>{isUnread && <span className="project-chat-tab-unread" aria-hidden="true" />}</Button>
       {p.controls && !pinned && <IconButton size="s" className="project-chat-tab-close document-tab-close"
         label={`${t("action.close-tab")} — ${chat.title || t("app.new-chat-title")}`}
         onClick={() => p.controls!.onClose([chat.id])}><X size={12} aria-hidden="true" /></IconButton>}
