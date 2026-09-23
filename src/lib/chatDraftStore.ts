@@ -244,6 +244,17 @@ export function usePromptText(source: PromptSource | null | undefined): string {
   return useSyncExternalStore(source?.subscribe ?? NO_PROMPT_SUBSCRIBE, source?.get ?? NO_PROMPT);
 }
 
+/** Texte d'un champ branché sur une source, sinon sur ses props contrôlées. */
+export function usePromptBinding(
+  source: PromptSource | null | undefined,
+  value: string | undefined,
+  onChange: ((value: string) => void) | undefined,
+): [string, (value: string) => void] {
+  const sourced = usePromptText(source);
+  if (source) return [sourced, source.set];
+  return [value ?? "", (next) => onChange?.(next)];
+}
+
 export function useChatDraftStore(activeKey: string) {
   // `drafts` (état React) ne porte jamais le texte : il vit dans `prompts`.
   const [loaded] = useState(() => loadChatDrafts());

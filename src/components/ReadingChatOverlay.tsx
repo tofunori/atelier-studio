@@ -3,7 +3,7 @@ import { ArrowUp, ChevronRight, MessageCircle, Plus, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useThreadEvents } from "../hooks/useThreadEvents";
 import type { ThreadEventStore } from "../lib/threadEventStore";
-import { usePromptText, type PromptSource } from "../lib/chatDraftStore";
+import { usePromptBinding, type PromptSource } from "../lib/chatDraftStore";
 import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui/RowButton";
@@ -22,9 +22,7 @@ type Props = {
 export function ReadingChatOverlay(props: Props) {
   const {threadId, store, topLayer, count, disabled, working} = props;
   const events = useThreadEvents(store, threadId);
-  const sourcedPrompt = usePromptText(props.promptSource);
-  const prompt = props.promptSource ? sourcedPrompt : (props.prompt ?? "");
-  const setPrompt = (value: string) => (props.promptSource ? props.promptSource.set(value) : props.onPromptChange?.(value));
+  const [prompt, setPrompt] = usePromptBinding(props.promptSource, props.prompt, props.onPromptChange);
   const latest = [...events].reverse().find(event => event.kind === "text" || event.kind === "streaming");
   const [expanded, setExpanded] = useState(false);
   const composer = useRef<HTMLDivElement>(null), annotations = useRef<HTMLDivElement>(null);

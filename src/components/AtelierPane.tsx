@@ -327,11 +327,12 @@ export default function AtelierPane({
   }, [workspace]);
 
   // Onglets masqués : leurs iframes restent montées mais doivent cesser de
-  // sonder le serveur (PDF, éditeurs, galerie). Resynchronisé à chaque
-  // changement d'onglet et à chaque (re)chargement d'une iframe.
+  // sonder le serveur (PDF, éditeurs, galerie). Resynchronisé après chaque
+  // rendu (onglet actif, galerie chargée…) : seul un changement réel poste
+  // un message, et à chaque (re)chargement d'une iframe.
   useEffect(() => {
     syncFrameVisibility(workspaceRootRef.current);
-  }, [workspace, galleryLoaded, url, reloadKey]);
+  });
   useEffect(() => {
     const root = workspaceRootRef.current;
     if (!root) return;
