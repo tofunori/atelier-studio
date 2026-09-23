@@ -11,8 +11,8 @@
 // Résolution du binaire : `KB_PARITY_BIN=<chemin>`, sinon
 // `cargo build -p atelier-kb --bin atelier-kb-rs` (debug, incrémental : quasi
 // gratuit si déjà à jour) puis rust/target/debug/atelier-kb-rs. Le binaire
-// suivi par git dans src-tauri/rust-server-dist/ n'est JAMAIS pris : il date
-// du dernier stage-rust-server.sh et peut être périmé par rapport à la source
+// stagé dans src-tauri/rust-server-dist/ n'est JAMAIS pris : il date du
+// dernier stage-rust-server.sh et peut être périmé par rapport à la source
 // (2026-09-22 : binaire du 2026-09-11, 7 fixtures rouges en CI). Le harnais ne
 // saute jamais silencieusement faute de binaire.
 //
