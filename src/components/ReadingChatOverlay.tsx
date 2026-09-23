@@ -3,6 +3,7 @@ import { ArrowUp, ChevronRight, MessageCircle, Plus, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useThreadEvents } from "../hooks/useThreadEvents";
 import type { ThreadEventStore } from "../lib/threadEventStore";
+import { usePromptBinding, type PromptSource } from "../lib/chatDraftStore";
 import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui/RowButton";
@@ -10,7 +11,9 @@ import "./ReadingChatOverlay.css";
 
 type Props = {
   threadId: string | null; store: ThreadEventStore; topLayer: boolean;
-  prompt: string; onPromptChange(value: string): void;
+  prompt?: string; onPromptChange?(value: string): void;
+  /** Brouillon du composer lu dans le store (prioritaire) : pas de rendu d'App par frappe. */
+  promptSource?: PromptSource;
   count: number; disabled: boolean; working: boolean;
   onSend(annotationsOnly: boolean): void; onClear(): void;
   onAttach?(): void; files?: string[];
@@ -19,6 +22,7 @@ type Props = {
 export function ReadingChatOverlay(props: Props) {
   const {threadId, store, topLayer, count, disabled, working} = props;
   const events = useThreadEvents(store, threadId);
+  const [prompt, setPrompt] = usePromptBinding(props.promptSource, props.prompt, props.onPromptChange);
   const latest = [...events].reverse().find(event => event.kind === "text" || event.kind === "streaming");
   const [expanded, setExpanded] = useState(false);
   const composer = useRef<HTMLDivElement>(null), annotations = useRef<HTMLDivElement>(null);
@@ -46,10 +50,10 @@ export function ReadingChatOverlay(props: Props) {
       </section>}
       <form className="reading-chat-input" onSubmit={event => {event.preventDefault(); props.onSend(false);}}>
         {props.onAttach && <IconButton label="Joindre un fichier" onClick={props.onAttach}><Plus /></IconButton>}
-        <textarea aria-label="Écrire au chat depuis la lecture" placeholder="Écrire au chat…" rows={1} value={props.prompt} onChange={event => props.onPromptChange(event.target.value)} onKeyDown={event => {
-          if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing){event.preventDefault(); if(!disabled && (props.prompt.trim() || count || props.files?.length)) props.onSend(false);}
+        <textarea aria-label="Écrire au chat depuis la lecture" placeholder="Écrire au chat…" rows={1} value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => {
+          if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing){event.preventDefault(); if(!disabled && (prompt.trim() || count || props.files?.length)) props.onSend(false);}
         }} />
-        <Button className="reading-send" type="submit" variant="ghost" size="icon-sm" aria-label="Envoyer au chat" disabled={disabled || (!props.prompt.trim() && !count && !props.files?.length)}><ArrowUp /></Button>
+        <Button className="reading-send" type="submit" variant="ghost" size="icon-sm" aria-label="Envoyer au chat" disabled={disabled || (!prompt.trim() && !count && !props.files?.length)}><ArrowUp /></Button>
       </form>
       {!!props.files?.length && <div className="reading-chat-files">{props.files.join(" · ")}</div>}
       {props.feedback && <div className="reading-chat-files" role="status">{props.feedback}</div>}

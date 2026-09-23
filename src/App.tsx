@@ -69,6 +69,7 @@ import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
 import ThreadChat from "./components/ThreadChat";
 import { createThreadEventStore } from "./lib/threadEventStore";
+import { createLiveTokenStore } from "./lib/liveTokenStore";
 import { useHomeThreadEvents } from "./hooks/useThreadEvents";
 import { type AgentDisplay } from "./components/chat/AgentActivity";
 import AtelierPane from "./components/AtelierPane";
@@ -315,8 +316,9 @@ export default function App() {
   // révision serveur du dernier agentHistory appliqué par fil
   // d'agent — évite de rematérialiser un transcript inchangé (voir handler)
   const agentHistoryFps = useRef<Map<string, string>>(new Map());
-  // tokens de sortie du tour en cours (heartbeat provider) — ticker Working
-  const [liveTokens, setLiveTokens] = useState<Record<string, number | null>>({});
+  // tokens de sortie du tour en cours (heartbeat provider) — ticker Working.
+  // Store externe lu par ThreadChat : un heartbeat ne redessine plus App.
+  const [liveTokenStore] = useState(createLiveTokenStore);
   // note d'avancement du tour (démarrage MCP Grok) — affichée sous le spinner
   const [liveNotes, setLiveNotes] = useState<Record<string, string | null>>({});
   const [usageByThread, setUsageByThread] = useState<
@@ -733,6 +735,8 @@ export default function App() {
     draft: activeComposerDraft,
     drafts: composerDrafts,
     setPrompt: setComposerPrompt,
+    getPrompt: getComposerPrompt,
+    promptSource: composerPromptSource,
     setAttachments,
     setFollowUpMode,
     updateDraft: updateComposerDraft,
@@ -1497,7 +1501,7 @@ export default function App() {
         if (["started", "user", "heartbeat"].includes(msg.event.kind)) confirmedRunsRef.current.add(msg.threadId);
         if (["done", "error"].includes(msg.event.kind)) confirmedRunsRef.current.delete(msg.threadId);
         if (msg.event.kind === "started") {
-          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
           return;
         }
         if (msg.event.kind === "user") {
@@ -1532,11 +1536,10 @@ export default function App() {
         if (msg.event.kind === "heartbeat") {
           // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
           // cumulée du tour quand le provider la fournit (ticker Working)
-          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          // même objet si l'horloge est déjà posée : pas de rendu d'App
+          setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
           const tokens = msg.event.tokens;
-          if (typeof tokens === "number") {
-            setLiveTokens((p) => ({ ...p, [msg.threadId]: tokens }));
-          }
+          if (typeof tokens === "number") liveTokenStore.set(msg.threadId, tokens);
           // note d'avancement (démarrage MCP Grok) : occupe l'attente avant
           // le premier jeton, comme la TUI du provider
           if (typeof msg.event.note === "string") {
@@ -1553,7 +1556,7 @@ export default function App() {
           // retire au terminal : aucun compteur ni bloc vide ne s'accumule.
           const currentEvents = eventsRef.current[msg.threadId] ?? [];
           if (!thinkingProgressIsStale(currentEvents, msg.event)) {
-            setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+            setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
           }
         }
         if (msg.event.kind === "drafting") {
@@ -1561,7 +1564,7 @@ export default function App() {
           // « Édite… » pendant le stream des arguments. Passe par le canal
           // liveNotes (note d'avancement du tour actif) : révélé après 200 ms
           // côté UI, remplacé par le tool_update running, effacé au terminal.
-          setWorkingSince((p) => ({ ...p, [msg.threadId]: p[msg.threadId] ?? Date.now() }));
+          setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
           const note = t("chat.activity-drafting", { tool: msg.event.tool });
           setLiveNotes((p) => (p[msg.threadId] === note ? p : { ...p, [msg.threadId]: note }));
           return;
@@ -1590,7 +1593,7 @@ export default function App() {
         }
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           // le ticker du tour ne survit pas au tour
-          setLiveTokens((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
+          liveTokenStore.set(msg.threadId, null);
           setLiveNotes((p) => (p[msg.threadId] == null ? p : { ...p, [msg.threadId]: null }));
         }
         // tour AUTONOME (goal poursuivi par le serveur, aucun submit local) :
@@ -3906,7 +3909,7 @@ export default function App() {
   const readingAnnotations = attachments.filter(attachment => attachment.pdfAnnotation);
   const sendFromReading = (annotationsOnly: boolean) => {
     if (ws.current?.readyState !== 1) return;
-    const prompt = annotationsOnly ? "" : activeComposerDraft.prompt.trim();
+    const prompt = annotationsOnly ? "" : getComposerPrompt().trim();
     const selected = annotationsOnly ? readingAnnotations : attachments;
     if (!prompt && !selected.length) return;
     document.querySelector<HTMLFormElement>("form.composer")?.dispatchEvent(new CustomEvent("atelier-submit-context", {detail: {
@@ -4271,7 +4274,7 @@ export default function App() {
           eventStore={eventStore}
           ws={ws.current}
           workingSince={activeId ? (workingSince[activeId] ?? null) : null}
-          liveTokens={activeId ? (liveTokens[activeId] ?? null) : null}
+          liveTokenStore={liveTokenStore}
           liveNote={activeId ? (liveNotes[activeId] ?? null) : null}
           usage={activeId ? (usageByThread[activeId] ?? null) : null}
           commands={commands}
@@ -4311,8 +4314,7 @@ export default function App() {
           onOpenKnowledgeSurface={() => switchToSurface("connaissances")}
           injectText={injectText}
           onInjected={() => setInjectText(null)}
-          draftText={activeComposerDraft.prompt}
-          onDraftTextChange={setComposerPrompt}
+          draftSource={composerPromptSource}
           followUpMode={activeComposerDraft.followUpMode}
           onFollowUpModeChange={setFollowUpMode}
           queuedTurns={activeComposerDraft.queuedTurns}
@@ -4461,7 +4463,7 @@ export default function App() {
     </PanelGroup>
       {readingChatVisible && <ReadingChatOverlay
         threadId={activeId} store={eventStore} topLayer={galleryFullscreen}
-        prompt={activeComposerDraft.prompt} onPromptChange={setComposerPrompt}
+        promptSource={composerPromptSource}
         count={readingAnnotations.length} disabled={!wsReady || (!activeProject && !activeId)}
         working={activeId ? workingSince[activeId] != null : false}
         feedback={!wsReady ? "Connexion au chat interrompue. Le brouillon est conservé." : activeBanner?.text}

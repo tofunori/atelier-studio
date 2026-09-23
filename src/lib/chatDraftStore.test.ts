@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { composerDraftKey, loadChatDrafts, serializeChatDrafts, type ChatDraft } from "./chatDraftStore";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { composerDraftKey, loadChatDrafts, serializeChatDrafts, useChatDraftStore, type ChatDraft } from "./chatDraftStore";
 
 describe("chatDraftStore", () => {
   it("isole les brouillons par conversation et les nouveaux chats par projet", () => {
@@ -109,4 +110,49 @@ it("keeps a native app mention through queue persistence", () => {
   const loaded = loadChatDrafts({ getItem: () => raw });
   const restored = loadChatDrafts({ getItem: () => serializeChatDrafts(loaded) });
   expect(restored["thread:app"].queuedTurns[0].pluginSkills).toEqual([{ type: "mention", name: "Drive", path: "app://connector_drive" }]);
+});
+
+describe("useChatDraftStore — texte hors de l'état React", () => {
+  const STORAGE = "atelier-studio.chat-drafts:v1";
+  const queued = (id: string, prompt: string) => ({
+    id, prompt, provider: "codex", model: "gpt", effort: "high", permissionMode: "default", fastMode: false,
+    attachments: [{ name: "a.png", lines: null, text: "img" }], webSearch: false, additionalDirectories: [],
+    pluginSkills: [], autoReview: null, createdAt: 1,
+  });
+
+  beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("une frappe ne change ni drafts ni draft, mais notifie la source et persiste", () => {
+    const { result } = renderHook(() => useChatDraftStore("thread:t1"));
+    const before = result.current;
+    const listener = vi.fn();
+    const unsubscribe = result.current.promptSource.subscribe(listener);
+    act(() => { result.current.promptSource.set("bonjour"); });
+    expect(result.current.drafts).toBe(before.drafts);
+    expect(result.current.draft).toBe(before.draft);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(result.current.promptSource.get()).toBe("bonjour");
+    expect(result.current.getPrompt()).toBe("bonjour");
+    act(() => { result.current.setPrompt((prev) => `${prev} !`); });
+    expect(result.current.getPrompt("thread:t1")).toBe("bonjour !");
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(JSON.parse(localStorage.getItem(STORAGE) ?? "{}").drafts["thread:t1"].prompt).toBe("bonjour !");
+    unsubscribe();
+  });
+
+  it("recharge le texte persisté et le restaure depuis la file", () => {
+    localStorage.setItem(STORAGE, JSON.stringify({ version: 1, drafts: {
+      "thread:t1": { prompt: "gardé", attachments: [], queuedTurns: [queued("q1", "en file")], followUpMode: "queue", updatedAt: 1 },
+    } }));
+    const { result } = renderHook(() => useChatDraftStore("thread:t1"));
+    expect(result.current.getPrompt()).toBe("gardé");
+    expect(result.current.draft.prompt).toBe("");
+    let restored: ReturnType<typeof result.current.restoreQueuedTurn> = null;
+    act(() => { restored = result.current.restoreQueuedTurn("thread:t1", "q1"); });
+    expect(restored).toMatchObject({ id: "q1" });
+    expect(result.current.getPrompt()).toBe("en file");
+    expect(result.current.draft.queuedTurns).toHaveLength(0);
+    expect(result.current.draft.attachments).toHaveLength(1);
+  });
 });

@@ -35,7 +35,7 @@ import {
 import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
-import type { DraftAttachment, FollowUpMode, QueuedTurn } from "../lib/chatDraftStore";
+import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import {
   buildChatTurnViewModels,
@@ -112,6 +112,9 @@ export default function Chat(p: {
   onInjected: () => void;
   draftText?: string;
   onDraftTextChange?: React.Dispatch<React.SetStateAction<string>>;
+  /** Brouillon lu dans le store : une frappe ne redessine pas App. Prioritaire
+   * sur draftText/onDraftTextChange. */
+  draftSource?: PromptSource;
   followUpMode?: FollowUpMode;
   onFollowUpModeChange?: (mode: FollowUpMode) => void;
   queuedTurns?: QueuedTurn[];
@@ -214,8 +217,9 @@ export default function Chat(p: {
   ) : null;
   const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
   const [localText, setLocalText] = useState("");
-  const text = p.draftText ?? localText;
-  const setText = p.onDraftTextChange ?? setLocalText;
+  const sourcedText = usePromptText(p.draftSource);
+  const text = p.draftSource ? sourcedText : (p.draftText ?? localText);
+  const setText = p.draftSource?.set ?? p.onDraftTextChange ?? setLocalText;
   const taRef = useRef<HTMLTextAreaElement>(null);
   // resync la hauteur quand le texte change autrement que par frappe
   // (suggestion appliquée, envoi qui vide la boîte…)

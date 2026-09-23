@@ -926,6 +926,24 @@
     try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
+  /* onglet masqué (display:none) : document.hidden ne bouge pas (PIEGES_CONNUS §4) ;
+     l'app poste atelier-tab-visibility pour que les sondes /rev et /state se taisent
+     (même mécanisme que atelier_theme.js pour les éditeurs) */
+  var tabHidden=false;
+  try{
+    var hd=Object.getOwnPropertyDescriptor(Document.prototype,'hidden'), vd=Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState');
+    if(hd&&hd.get&&vd&&vd.get){
+      Object.defineProperty(document,'hidden',{configurable:true,get:function(){return tabHidden||hd.get.call(document);}});
+      Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return tabHidden?'hidden':vd.get.call(document);}});
+    }
+  }catch(e){}
+  window.addEventListener('message',function(e){
+    if(e.source!==window.parent||!e.data||e.data.type!=='atelier-tab-visibility') return;
+    var next=e.data.visible===false;
+    if(next===tabHidden) return;
+    tabHidden=next;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
   function notifyPaneFocus(){
     if(window.parent !== window) window.__atelierPost({type:'atelier-pane-focus'});
   }

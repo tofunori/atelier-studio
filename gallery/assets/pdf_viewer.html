@@ -695,7 +695,17 @@ async function main(){
     // SUIVI À LA FRAME (fix 2026-08-16) : le scale CSS suivait le drag via le
     // poll de 150 ms → ~6 mises à jour/s, saccade visible. La boucle rAF suit
     // à 60 fps ; l'interval ne garde que la détection de stabilité.
-    (function follow(){
+    // La boucle ne tourne que pendant un geste (300 ms après le dernier
+    // changement) : permanente, elle lisait la mise en page à chaque frame
+    // dans chaque onglet PDF, même immobile.
+    let followUntil = 0, followOn = false;
+    function kickFollow(){
+      followUntil = performance.now() + 300;
+      if (followOn) return;
+      followOn = true;
+      requestAnimationFrame(follow);
+    }
+    function follow(){
       if (!rendering) {
         const w = availW();
         const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
@@ -706,21 +716,25 @@ async function main(){
           wrap.style.transform = "scale(" + k + ")";
         }
       }
-      requestAnimationFrame(follow);
-    })();
+      if (performance.now() < followUntil) requestAnimationFrame(follow);
+      else followOn = false;
+    }
     // Fin de geste connue À L'INSTANT MÊME : ResizeObserver horodate chaque
     // changement de taille ; on rend net 160 ms après le DERNIER. L'ancien
     // comptage de ticks (3 × 150 ms) ajoutait jusqu'à 450 ms d'attente.
     let lastChangeAt = 0, lastZ = ZOOM;
     if (window.ResizeObserver) {
       try {
-        new ResizeObserver(function(){ lastChangeAt = performance.now(); })
+        new ResizeObserver(function(){ lastChangeAt = performance.now(); kickFollow(); })
           .observe(document.documentElement);
       } catch(e){}
     }
     setInterval(async function(){
+      // onglet masqué : ni lecture de mise en page ni rendu (atelier_theme.js
+      // fait refléter l'onglet à document.hidden) ; le retour est détecté ici
+      if (document.hidden) return;
       const w = availW();   // suit aussi l'ouverture/fermeture du panneau
-      if (w !== lastW || ZOOM !== lastZ) { lastW = w; lastZ = ZOOM; lastChangeAt = performance.now(); }
+      if (w !== lastW || ZOOM !== lastZ) { lastW = w; lastZ = ZOOM; lastChangeAt = performance.now(); kickFollow(); }
       if (rendering) return;
       if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) return;
       if (performance.now() - lastChangeAt < 160) return;   // le geste continue

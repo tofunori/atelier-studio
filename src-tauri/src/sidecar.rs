@@ -100,11 +100,6 @@ fn resolve_rust_server(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     )
 }
 
-fn file_fingerprint(path: &std::path::Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("hash {}: {e}", path.display()))?;
-    Ok(format!("{:x}", md5::compute(bytes)))
-}
-
 enum HealthError {
     /// Réseau/timeout — peut réussir au prochain essai (machine chargée).
     Transport(String),
@@ -330,10 +325,20 @@ fn parse_startup(line: &str) -> Result<ProcessHealth, String> {
     Ok(health)
 }
 
+// Hors du thread principal : sondes health et attente du démarrage (jusqu'à
+// 10 s) figeaient l'interface à chaque reconnexion. Le verrou SIDECAR
+// sérialise déjà les appels concurrents.
 #[tauri::command]
-pub fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
+pub async fn sidecar_port(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || sidecar_port_blocking(app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn sidecar_port_blocking(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     let bin = resolve_rust_server(&app)?;
-    let bundle_hash = file_fingerprint(&bin)?;
+    // empreinte en cache (chemin + mtime + taille) : appelée à chaque reconnexion
+    let bundle_hash = crate::atelier::file_fingerprint(&bin)?;
     let mut spawn_cmd = Command::new(&bin);
     // First post-build boot can be slow (TCC / cold caches).
     let startup_timeout = Duration::from_secs(10);

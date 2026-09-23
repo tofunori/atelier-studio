@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "atelier-studio.chat-drafts:v1";
 const SCHEMA_VERSION = 1;
@@ -191,8 +191,75 @@ export function serializeChatDrafts(drafts: Record<string, ChatDraft>): string {
   return JSON.stringify({ version: SCHEMA_VERSION, drafts: persisted } satisfies PersistedDrafts);
 }
 
+/** Texte du composer, hors de l'état React d'App : une frappe ne redessine
+ * que le champ abonné (Chat, lecture PDF), plus toute l'application. */
+export type PromptSource = {
+  get(): string;
+  set: React.Dispatch<React.SetStateAction<string>>;
+  subscribe(listener: () => void): () => void;
+};
+
+type PromptStore = {
+  get(key: string): string;
+  set(key: string, value: string): void;
+  entries(): [string, string][];
+  subscribe(listener: () => void): () => void;
+};
+
+function createPromptStore(initial: Record<string, ChatDraft>): PromptStore {
+  const prompts = new Map<string, string>();
+  for (const [key, draft] of Object.entries(initial)) if (draft.prompt) prompts.set(key, draft.prompt);
+  const listeners = new Set<() => void>();
+  return {
+    get: (key) => prompts.get(key) ?? "",
+    set(key, value) {
+      if ((prompts.get(key) ?? "") === value) return;
+      if (value) prompts.set(key, value);
+      else prompts.delete(key);
+      for (const listener of listeners) listener();
+    },
+    entries: () => [...prompts.entries()],
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+  };
+}
+
+function withoutPrompts(drafts: Record<string, ChatDraft>): Record<string, ChatDraft> {
+  return Object.fromEntries(Object.entries(drafts).map(([key, draft]) => [key, draft.prompt ? { ...draft, prompt: "" } : draft]));
+}
+
+function withPrompts(drafts: Record<string, ChatDraft>, prompts: PromptStore): Record<string, ChatDraft> {
+  const merged = { ...drafts };
+  for (const [key, prompt] of prompts.entries()) merged[key] = { ...(merged[key] ?? EMPTY_DRAFT), prompt };
+  return merged;
+}
+
+const NO_PROMPT_SUBSCRIBE = () => () => {};
+const NO_PROMPT = () => "";
+
+/** Lit le texte d'une source ; sans source, rend "" (composant non branché). */
+export function usePromptText(source: PromptSource | null | undefined): string {
+  return useSyncExternalStore(source?.subscribe ?? NO_PROMPT_SUBSCRIBE, source?.get ?? NO_PROMPT);
+}
+
+/** Texte d'un champ branché sur une source, sinon sur ses props contrôlées. */
+export function usePromptBinding(
+  source: PromptSource | null | undefined,
+  value: string | undefined,
+  onChange: ((value: string) => void) | undefined,
+): [string, (value: string) => void] {
+  const sourced = usePromptText(source);
+  if (source) return [sourced, source.set];
+  return [value ?? "", (next) => onChange?.(next)];
+}
+
 export function useChatDraftStore(activeKey: string) {
-  const [drafts, setDrafts] = useState<Record<string, ChatDraft>>(() => loadChatDrafts());
+  // `drafts` (état React) ne porte jamais le texte : il vit dans `prompts`.
+  const [loaded] = useState(() => loadChatDrafts());
+  const [prompts] = useState(() => createPromptStore(loaded));
+  const [drafts, setDrafts] = useState<Record<string, ChatDraft>>(() => withoutPrompts(loaded));
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const activeKeyRef = useRef(activeKey);
@@ -201,16 +268,22 @@ export function useChatDraftStore(activeKey: string) {
   const updateDraft = useCallback((key: string, update: (draft: ChatDraft) => ChatDraft) => {
     setDrafts((current) => {
       const next = update(current[key] ?? EMPTY_DRAFT);
-      return { ...current, [key]: { ...next, updatedAt: Date.now() } };
+      return { ...current, [key]: { ...next, prompt: "", updatedAt: Date.now() } };
     });
   }, []);
 
   const setPrompt = useCallback<React.Dispatch<React.SetStateAction<string>>>((action) => {
-    updateDraft(activeKeyRef.current, (draft) => ({
-      ...draft,
-      prompt: typeof action === "function" ? action(draft.prompt) : action,
-    }));
-  }, [updateDraft]);
+    const key = activeKeyRef.current;
+    prompts.set(key, typeof action === "function" ? action(prompts.get(key)) : action);
+  }, [prompts]);
+
+  const getPrompt = useCallback((key: string = activeKeyRef.current) => prompts.get(key), [prompts]);
+
+  const promptSource = useMemo<PromptSource>(() => ({
+    get: () => prompts.get(activeKey),
+    set: setPrompt,
+    subscribe: prompts.subscribe,
+  }), [activeKey, prompts, setPrompt]);
 
   const setAttachments = useCallback<React.Dispatch<React.SetStateAction<DraftAttachment[]>>>((action) => {
     updateDraft(activeKeyRef.current, (draft) => ({
@@ -248,41 +321,47 @@ export function useChatDraftStore(activeKey: string) {
   }, [updateDraft]);
 
   const restoreQueuedTurn = useCallback((key: string, id: string) => {
-    let restored: QueuedTurn | null = null;
-    updateDraft(key, (draft) => {
-      restored = draft.queuedTurns.find((turn) => turn.id === id) ?? null;
-      if (!restored) return draft;
-      return {
-        ...draft,
-        prompt: restored.prompt,
-        attachments: restored.attachments,
-        queuedTurns: draft.queuedTurns.filter((turn) => turn.id !== id),
-      };
-    });
+    // lu dans le ref, pas dans l'updater : React peut différer ce dernier
+    const restored = draftsRef.current[key]?.queuedTurns.find((turn) => turn.id === id) ?? null;
+    if (!restored) return null;
+    prompts.set(key, restored.prompt);
+    updateDraft(key, (draft) => ({
+      ...draft,
+      attachments: restored.attachments,
+      queuedTurns: draft.queuedTurns.filter((turn) => turn.id !== id),
+    }));
     return restored;
-  }, [updateDraft]);
+  }, [prompts, updateDraft]);
 
   const flush = useCallback(() => {
-    try { localStorage.setItem(STORAGE_KEY, serializeChatDrafts(draftsRef.current)); } catch { /* quota/webview restreinte */ }
-  }, []);
+    try { localStorage.setItem(STORAGE_KEY, serializeChatDrafts(withPrompts(draftsRef.current, prompts))); } catch { /* quota/webview restreinte */ }
+  }, [prompts]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(flush, WRITE_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [drafts, flush]);
+  const flushTimer = useRef<number | null>(null);
+  const scheduleFlush = useCallback(() => {
+    if (flushTimer.current != null) window.clearTimeout(flushTimer.current);
+    flushTimer.current = window.setTimeout(() => { flushTimer.current = null; flush(); }, WRITE_DELAY_MS);
+  }, [flush]);
+
+  useEffect(() => { scheduleFlush(); }, [drafts, scheduleFlush]);
+  useEffect(() => prompts.subscribe(scheduleFlush), [prompts, scheduleFlush]);
 
   useEffect(() => {
     window.addEventListener("beforeunload", flush);
     return () => {
       window.removeEventListener("beforeunload", flush);
+      if (flushTimer.current != null) window.clearTimeout(flushTimer.current);
       flush();
     };
   }, [flush]);
 
   const draft = useMemo(() => drafts[activeKey] ?? EMPTY_DRAFT, [activeKey, drafts]);
   return {
+    /** Pièces jointes, file et mode de relance ; `prompt` y reste vide. */
     draft,
     drafts,
+    promptSource,
+    getPrompt,
     setPrompt,
     setAttachments,
     setFollowUpMode,

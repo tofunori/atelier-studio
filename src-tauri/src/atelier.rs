@@ -148,7 +148,7 @@ fn resolve_gallery_rust_bin(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     )
 }
 
-fn file_fingerprint(path: &Path) -> Result<String, String> {
+pub(crate) fn file_fingerprint(path: &Path) -> Result<String, String> {
     use std::collections::HashMap;
     use std::sync::Mutex;
     // le binaire ne change qu'à un redéploiement : re-hasher plusieurs Mo à
@@ -197,8 +197,39 @@ pub fn gallery_token() -> Result<String, String> {
     Ok(tok)
 }
 
+/// Verrou par port : hors du thread principal, deux appels simultanés pour le
+/// même projet (App + useAtelierServer) ne doivent pas lancer deux serveurs.
+fn port_lock(port: u16) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    static LOCKS: Mutex<Option<HashMap<u16, Arc<Mutex<()>>>>> = Mutex::new(None);
+    let mut guard = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .get_or_insert_with(HashMap::new)
+        .entry(port)
+        .or_default()
+        .clone()
+}
+
+// Une commande synchrone s'exécute sur le thread principal et fige
+// l'interface pendant l'attente du serveur (jusqu'à 30 s au premier build) ;
+// spawn_blocking plutôt qu'un worker tokio : la vue « tous les dossiers »
+// lance un serveur par dossier en parallèle.
 #[tauri::command]
-pub fn start_atelier(
+pub async fn start_atelier(
+    app: tauri::AppHandle,
+    root: String,
+    gallery_dir: Option<String>,
+    gallery_exts: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        start_atelier_blocking(app, root, gallery_dir, gallery_exts)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn start_atelier_blocking(
     app: tauri::AppHandle,
     root: String,
     gallery_dir: Option<String>,
@@ -206,6 +237,8 @@ pub fn start_atelier(
 ) -> Result<String, String> {
     let root_path = Path::new(&root);
     let port = project_port(root_path);
+    let lock = port_lock(port);
+    let _serialized = lock.lock().unwrap_or_else(|e| e.into_inner());
 
     let home = dirs::home_dir().ok_or("no home")?;
     let dir = gallery_dir
