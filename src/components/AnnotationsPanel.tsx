@@ -49,6 +49,7 @@ const SOLID = (c?: string) => (c ?? "rgba(255,213,74,.40)").replace(",.40", ",.9
 const HL_COLORS = [
   "rgba(255,213,74,.40)", "rgba(120,220,140,.40)",
   "rgba(120,170,255,.40)", "rgba(255,140,160,.40)",
+  "rgba(255,160,80,.40)", "rgba(185,150,255,.40)",
 ];
 
 export default function AnnotationsPanel(p: {
