@@ -1342,6 +1342,7 @@ const selApi = SelPill.attach({
       onAdd: () => go.click(),
       onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
       onHighlight: (color) => addHighlightFromSel("hl", color),
+      colors: AtelierAnnotationUI.pdfAnnotationColors,
       onAsk: () => {
         const text = hlText(); if(!text) return;
         __atelierPost({type:"atelier-quick-ask",text,path:rel,page:String(selPage)});
@@ -2148,7 +2149,9 @@ function drawAnnots(pgDiv, n){
 }
 // crayon de la note personnelle (pastille sur la page, rangée du panneau)
 const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
-const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)"];
+// Même ordre et mêmes teintes que `pdfAnnotationColors` (annotation_ui.ts)
+// et que le MCP atelier-annotations (`COLORS` de highlight.rs).
+const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)","rgba(255,160,80,.40)","rgba(185,150,255,.40)"];
 /** Surlignages texte (comment/hl) reportés dans la colonne de lecture.
  *  Idempotent : les marques existantes sont retirées et l'hôte re-normalisé
  *  avant tout ré-ancrage, si bien qu'un second appel ne double rien. */
@@ -2192,6 +2195,8 @@ function normalizeHighlightColor(color){
     green: "rgba(120,220,140,.40)",
     blue: "rgba(120,170,255,.40)",
     red: "rgba(255,140,160,.40)",
+    orange: "rgba(255,160,80,.40)",
+    violet: "rgba(185,150,255,.40)",
   };
   return names[color] || color || names.amber;
 }
@@ -2309,7 +2314,7 @@ let eraseMark = false;
   const colors=[];
   HL_COLORS.forEach((color,i)=>{
     const button=document.createElement("button");button.type="button";button.className="pdf-mark-color";
-    button.title=["Jaune","Vert","Bleu","Rose"][i];button.setAttribute("aria-label",button.title);
+    button.title=["Jaune","Vert","Bleu","Rose","Orange","Violet"][i];button.setAttribute("aria-label",button.title);
     button.style.setProperty("--mark-color",color.replace(",.40)",",1)"));
     button.setAttribute("aria-pressed",String(i===0));
     button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));setPalette(false);eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
@@ -2449,9 +2454,18 @@ async function annotMenu(a, x, y){
   // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
   // au chat ; le champ du bas reste celui du chat.
   const withMemo = a.kind !== "note";
+  // Surlignage ou soulignement : la bulle permet d'en changer le style et la
+  // teinte, enregistrés tout de suite (comme dans Zotero).
+  const withMark = a.kind === "hl" || a.kind === "ul";
   AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
     onSendDirect(){void editor.commit(true, "force", true);},
-    ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {})});
+    ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
+    ...(withMark ? {mark:{kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),
+      colors:AtelierAnnotationUI.pdfAnnotationColors, onChange(kind, color){
+        a.kind = kind; a.color = color;
+        void saveAnnots();
+        redrawAllAnnots();
+      }}} : {})});
   const inp = annotPop.querySelector("textarea.atelier-note-input");
   const memoInp = annotPop.querySelector("textarea.atelier-memo-input");
   inp.value = a.note || "";
