@@ -396,6 +396,7 @@ impl Drop for ThreadConnection {
 impl CodexAppServer {
     /// Session readiness belongs to this process, not to a running turn. The
     /// set is cleared with the connection, so a replacement must resume again.
+    #[cfg(test)]
     pub(crate) fn has_open_thread(&self, id: &str) -> bool {
         self.current().is_some_and(|connection| !connection.is_closed()
             && connection.state.lock().unwrap().opened_threads.contains(id))

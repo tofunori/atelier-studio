@@ -568,12 +568,12 @@ fn steer_refus_definitif(err: &str) -> bool {
         || e.contains("not steerable")
 }
 
-/// Options d'ouverture d'une COMMANDE NATIVE (compact, goal, review…).
+/// Options d'ouverture d'une COMMANDE NATIVE (compact, goalSet, review…).
 /// Portent la config MCP quand l'appelant la fournit : l'app-server applique
 /// `config.mcp_servers` UNIQUEMENT à la PREMIÈRE ouverture d'une session —
 /// tout resume ultérieur avec config est accepté puis ignoré (sondes du
-/// 2026-08-31). Or ces commandes partent dès l'OUVERTURE d'un fil
-/// (pluginsInstalled, goalGet), donc avant le premier tour : sans config ici,
+/// 2026-08-31). Ces commandes peuvent ouvrir une session avant son premier
+/// tour : sans config ici,
 /// la session naît sans serveurs MCP et aucun tour ne peut plus les lui
 /// donner. `thread/settings/update` ne guérit pas non plus (sondé).
 fn native_open_opts(cwd: &str, sandbox: &str, params: &Value) -> Value {
@@ -608,14 +608,12 @@ async fn open_thread(server: &CodexAppServer, session_id: Option<&str>, opts: Va
 /// A new session id can reach the UI before Codex flushes session_meta.
 /// Retry only that transient store error; an absent/corrupt session must still
 /// surface, and no goal mutation is replayed here.
-async fn read_native_goal(server: &CodexAppServer, session_id: &str, opts: Value) -> Result<Value, String> {
+async fn read_native_goal(server: &CodexAppServer, session_id: &str) -> Result<Value, String> {
     for attempt in 0..=4 {
-        let result = async {
-            let id = if server.has_open_thread(session_id) { session_id.to_string() } else {
-                open_thread(server, Some(session_id), opts.clone()).await?
-            };
-            server.request("thread/goal/get", json!({"threadId": id})).await
-        }.await;
+        // Reading a persisted goal must not resume its session: resume starts
+        // the thread's MCP processes, even when the user only views its history.
+        // Keep the normal RPC event pump so the snapshot reaches the goal UI.
+        let result = server.request("thread/goal/get", json!({"threadId": session_id})).await;
         match result {
             Err(error) if attempt < 4 && error.contains("failed to read")
                 && error.contains("rollout") && error.contains(" is empty") => {
@@ -1489,7 +1487,7 @@ impl Provider for CodexProvider {
             if let Some(owner) = params.get("threadId").and_then(Value::as_str) {
                 self.goal_owners.lock().unwrap().insert(session_id.to_string(), owner.to_string());
             }
-            return read_native_goal(&self.server, session_id, native_open_opts(cwd, sandbox, &params)).await;
+            return read_native_goal(&self.server, session_id).await;
         }
         let codex_id = open_thread(
             &self.server,

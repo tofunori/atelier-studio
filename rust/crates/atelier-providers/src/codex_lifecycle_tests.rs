@@ -50,15 +50,32 @@ fn interrupts(fake: &FakeCodex) -> usize {
 }
 
 #[tokio::test]
-async fn goal_read_recovers_empty_new_session_without_replaying_mutations() {
-    for mode in ["resume-empty-once", "goal-empty-once"] {
-        let fake = FakeCodex::new(mode);
-        let provider = provider(&fake);
-        let result = provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native","projectRoot":"/tmp"})).await;
-        assert!(result.is_ok(), "{mode}: {result:?}");
-        assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), if mode == "resume-empty-once" { 2 } else { 1 });
-        assert!(!fake.requests().iter().any(|r| r["method"] == "turn/start" || r["method"] == "thread/goal/set"));
+async fn reading_three_goals_does_not_open_sessions_or_start_tools() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    for session in ["native-a", "native-b", "native-c"] {
+        let result = provider.native_command("goalGet", json!({
+            "threadId": format!("ui-{session}"), "sessionId": session,
+            "projectRoot": "/tmp",
+        })).await.unwrap();
+        assert_eq!(result["goal"]["objective"], "snapshot");
+        assert!(!provider.server.has_open_thread(session));
     }
+    let requests = fake.requests();
+    assert_eq!(requests.iter().filter(|r| r["method"] == "thread/goal/get").count(), 3);
+    assert!(!requests.iter().any(|r| matches!(r["method"].as_str(),
+        Some("thread/start" | "thread/resume" | "turn/start"))));
+}
+
+#[tokio::test]
+async fn goal_read_recovers_empty_new_session_without_replaying_mutations() {
+    let fake = FakeCodex::new("goal-empty-once");
+    let provider = provider(&fake);
+    let result = provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native","projectRoot":"/tmp"})).await;
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/goal/get").count(), 2);
+    assert!(!fake.requests().iter().any(|r| matches!(r["method"].as_str(),
+        Some("thread/start" | "thread/resume" | "turn/start" | "thread/goal/set"))));
 }
 
 #[tokio::test]
@@ -72,8 +89,8 @@ async fn goal_read_does_not_resume_an_open_session_before_turn_start() {
 }
 
 #[tokio::test]
-async fn goal_read_rechecks_session_readiness_between_retries() {
-    let fake = FakeCodex::new("resume-empty-once");
+async fn goal_read_retry_does_not_interfere_with_concurrent_session_opening() {
+    let fake = FakeCodex::new("goal-empty-once");
     let provider = Arc::new(provider(&fake));
     provider.server.request("test/ready", json!({})).await.unwrap();
     let p = provider.clone();
@@ -81,13 +98,35 @@ async fn goal_read_rechecks_session_readiness_between_retries() {
         p.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await
     });
     tokio::time::timeout(Duration::from_secs(1), async {
-        while !fake.requests().iter().any(|r| r["method"] == "thread/resume") {
+        while !fake.requests().iter().any(|r| r["method"] == "thread/goal/get") {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }).await.unwrap();
     provider.server.request("thread/start", json!({})).await.unwrap();
     assert!(read.await.unwrap().is_ok());
-    assert_eq!(fake.requests().iter().filter(|r| r["method"] == "thread/resume").count(), 1);
+    assert!(!fake.requests().iter().any(|r| r["method"] == "thread/resume"));
+}
+
+#[tokio::test]
+async fn first_message_after_goal_read_still_initializes_thread_mcp() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    provider.native_command("goalGet", json!({"threadId":"ui","sessionId":"native"})).await.unwrap();
+    assert!(!provider.server.has_open_thread("native"));
+    let mut req = request(Arc::default(), Arc::default(), Arc::default());
+    req.session_id = Some("native".into());
+    req.atelier_mcp = Some(crate::traits::AtelierMcpLaunch {
+        command: "/tmp/atelier-test-mcp".into(),
+        server_name: "atelier_test".into(),
+        env: Default::default(),
+        linked: false,
+    });
+    assert!(provider.send(req).await.ok);
+    let requests = fake.requests();
+    let resume = requests.iter().find(|r| r["method"] == "thread/resume").unwrap();
+    assert_eq!(resume["params"]["config"]["mcp_servers"]["atelier_test"]["command"], "/tmp/atelier-test-mcp");
+    assert_eq!(requests.iter().filter(|r| r["method"] == "thread/resume").count(), 1);
+    assert_eq!(requests.iter().filter(|r| r["method"] == "turn/start").count(), 1);
 }
 
 #[tokio::test]
