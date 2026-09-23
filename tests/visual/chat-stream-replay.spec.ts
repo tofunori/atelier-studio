@@ -4,7 +4,7 @@ import { codexComposite, codexObservedLive, claudeObservedLive } from '../../src
 test('terminal wins over a delayed running flag', async ({ page }) => {
   await page.goto('/#chatbench-replay-stale');
   await page.getByRole('combobox', { name: 'Étape du replay' }).selectOption(String(codexComposite.events.length));
-  await expect(page.locator('.chat-activity-dock [role="status"]')).toHaveCount(0);
+  await expect(page.locator('.active-turn-tail [role="status"]')).toHaveCount(0);
   await expect(page.locator('.assistant-message .msg-actions')).toHaveCount(1);
 });
 
@@ -15,7 +15,7 @@ for (const [route, fixture] of [
     await page.setViewportSize({ width: 700, height: 760 });
     await page.goto(`/#chatbench-${route}`);
     const step = page.getByRole('combobox', { name: 'Étape du replay' });
-    const status = page.locator('.chat-activity-dock [role="status"]');
+    const status = page.locator('.active-turn-tail [role="status"]');
     for (const point of fixture.checkpoints) {
       await step.selectOption(String(point.after));
       if (point.activeState === null) {

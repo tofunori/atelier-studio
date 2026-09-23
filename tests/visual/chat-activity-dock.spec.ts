@@ -1,17 +1,24 @@
 import { expect, test } from '@playwright/test';
 
-test('live activity follows short content and stays visible when the transcript fills the window', async ({ page }) => {
+// Chat v2 : la ligne d'activité vivante vit dans le fil (grappe active,
+// `.active-turn-tail`), plus dans un dock séparé au-dessus du composer
+// (turnAnatomy.test.tsx). Quand la réponse finale commence, le fil s'ancre sur
+// son début et cesse de suivre (scrollPolicy « anchor-final ») : la ligne peut
+// passer sous le pli pendant la rédaction, et reparaît au-dessus du composer
+// dès qu'on revient au bas du fil.
+test('live activity stays in the transcript tail and shows above the composer at the end', async ({ page }) => {
   test.setTimeout(45000);
   await page.setViewportSize({ width: 700, height: 560 });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('/#chatbench-livestream');
-  const status = page.locator('.chat-activity-dock [role=status]');
+  const status = page.locator('.messages .active-turn-tail [role=status]');
   await expect(status).toBeVisible();
-  await expect(page.locator('.chat-activity-dock .stop-hint')).toHaveCount(0);
+  await expect(page.locator('.chat-activity-dock')).toHaveCount(0);
+  await expect(page.locator('.active-turn-tail .stop-hint')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Interrompre', exact: true })).toHaveCount(1);
   await expect(page.locator('.turn-activity-glyph')).toBeVisible();
   await expect(page.locator('.messages .active-turn-header')).toHaveCount(0);
-  const elapsed = page.locator('.chat-activity-dock .turn-activity-elapsed');
+  const elapsed = page.locator('.active-turn-tail .turn-activity-elapsed');
   await expect(elapsed).toBeVisible();
   const initialTime = await elapsed.innerText();
   await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-duration', '3s');
@@ -19,47 +26,40 @@ test('live activity follows short content and stays visible when the transcript 
   await expect(status).toHaveCSS('font-size', '13px');
   await expect(status).toHaveCSS('font-weight', '400');
   await expect(status).toHaveCSS('animation-duration', '1.6s');
-  await expect(page.locator('.messages .active-turn-tail')).toHaveCount(0);
 
-  const checkPosition = async () => {
+  const messages = page.locator('.messages');
+  const distanceToEnd = () => messages.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
+  const checkAboveComposer = async () => {
     await expect(status).toBeVisible();
     const box = (await status.boundingBox())!;
     const composer = (await page.locator('.composer').boundingBox())!;
-    await expect.poll(() => page.evaluate(() => {
-      const dock = document.querySelector<HTMLElement>(".chat-activity-dock")!;
-      const anchor = document.querySelector(".activity-flow-anchor")!;
-      const status = dock.querySelector("[role=status]")!;
-      const messages = document.querySelector(".messages")!;
-      const transform = new DOMMatrixReadOnly(getComputedStyle(dock).transform);
-      const base = dock.getBoundingClientRect().top - transform.m42;
-      const expected = messages.scrollHeight <= messages.clientHeight + 1
-        ? Math.min(base, anchor.getBoundingClientRect().bottom + 8) + 6 : base + 6;
-      return Math.abs(status.getBoundingClientRect().top - expected);
-    })).toBeLessThanOrEqual(4);
     expect(box.y + box.height).toBeLessThanOrEqual(composer.y);
     expect(box.y).toBeGreaterThan(0);
     await expect(status).toHaveCSS('animation-name', 'turn-working-sweep');
     await expect(status).toHaveCSS('animation-play-state', 'running');
   };
   await expect(status).toContainText('Exécute', { timeout: 10000 });
-  await checkPosition();
+  await checkAboveComposer();
   await expect(status).toContainText('Rédaction', { timeout: 10000 });
-  await checkPosition();
+  await checkAboveComposer();
   await expect(elapsed).not.toHaveText(initialTime);
-  const before = await page.locator('.messages').innerText();
-  await expect(page.locator('.messages')).toContainText('Rien de structurel', { timeout: 15000 });
-  expect((await page.locator('.messages').innerText()).length).toBeGreaterThan(before.length);
-  await checkPosition();
-  const messages = page.locator('.messages');
+  const before = await messages.innerText();
+  await expect(messages).toContainText('Rien de structurel', { timeout: 15000 });
+  expect((await messages.innerText()).length).toBeGreaterThan(before.length);
+
   await messages.hover();
   await page.mouse.wheel(0, 1500);
   await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(distanceToEnd).toBeLessThanOrEqual(2);
+  await checkAboveComposer();
   const previousTop = await messages.evaluate(el => el.scrollTop);
   await page.mouse.wheel(0, -1500);
   await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeLessThan(previousTop);
-  await checkPosition();
   await page.setViewportSize({ width: 420, height: 560 });
-  await checkPosition();
+  await messages.hover();
+  await page.mouse.wheel(0, 3000);
+  await expect.poll(distanceToEnd).toBeLessThanOrEqual(2);
+  await checkAboveComposer();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
   await expect(status).toHaveCSS('animation-name', 'none');

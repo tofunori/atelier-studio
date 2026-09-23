@@ -395,10 +395,10 @@ export const codexObservedLive: StreamReplayFixture = {
   events: codexObservedLiveEvents,
   frames: frameAt(codexObservedLiveEvents, 2, 6, 9, 11, 15),
   checkpoints: [
-    { after: 2, label: "started is ephemeral", phase: "prework", activeState: "thinking", statusKind: "thinking" },
-    { after: 6, label: "first response text", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 2, label: "started is ephemeral", phase: "prework", activeState: "thinking", statusKind: "processing" },
+    { after: 6, label: "first response text", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 9, label: "second Bash starts", phase: "prework", activeState: "activity", statusKind: "action" },
-    { after: 11, label: "tools return to thinking marker", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 11, label: "tools return to thinking marker", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 15, label: "terminal done", phase: "completed", activeState: null },
   ],
 };
@@ -412,9 +412,9 @@ export const codexObservedRich: StreamReplayFixture = {
   events: codexObservedRichEvents,
   frames: frameAt(codexObservedRichEvents, 3, 6, 8, 10, 12),
   checkpoints: [
-    { after: 3, label: "reasoning marker and commentary", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 3, label: "reasoning marker and commentary", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 6, label: "agent child is running", phase: "prework", activeState: "activity", statusKind: "action" },
-    { after: 8, label: "agent child completed; failed command remains detail", phase: "prework", activeState: "thinking", statusKind: "thinking" },
+    { after: 8, label: "agent child completed; failed command remains detail", phase: "prework", activeState: "thinking", statusKind: "processing" },
     { after: 12, label: "history terminal", phase: "completed", activeState: null },
   ],
 };
@@ -447,7 +447,7 @@ export const codexFailure: StreamReplayFixture = {
   events: codexFailureEvents,
   frames: frameAt(codexFailureEvents, 1, 2, 3, 4),
   checkpoints: [
-    { after: 3, label: "partial answer before terminal error", phase: "prework", activeState: "answering", statusKind: "writing" },
+    { after: 3, label: "partial answer before terminal error", phase: "final_answer", activeState: "answering", statusKind: "writing" },
     { after: 4, label: "error freezes partial answer", phase: "failed", activeState: null, statusKind: "failed" },
   ],
 };

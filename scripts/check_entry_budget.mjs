@@ -13,6 +13,9 @@ const ASSETS = join(process.cwd(), "dist", "assets");
 // Plafond à 1 Mio pile, ~54 KB de marge. Prochain dépassement : découper
 // i18n.ts par locale (151 KB de source, fr+en chargés ensemble) avant de
 // toucher à cette valeur.
+// 2026-09-22 : dépassé à 1082 KB (CI rouge depuis la 1.9.2). highlight.js du
+// chat (noyau + 18 langages) sorti dans le chunk vendor `hljs-vendor`
+// (vite.config.ts) : 999 KB. Le découpage d'i18n reste le prochain levier.
 const BUDGET_KB = 1024;
 
 const assetFiles = readdirSync(ASSETS);

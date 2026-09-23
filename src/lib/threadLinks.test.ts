@@ -4,6 +4,7 @@ import {
   conversationContinuity,
   conversationFamilies,
   linkedConversationForProvider,
+  linkedAgentSummaries,
   linkedConversations,
 } from "./threadLinks";
 
@@ -32,6 +33,14 @@ describe("threadLinks", () => {
     expect(linkedConversations([parent, child], "codex")).toEqual([
       expect.objectContaining({ thread: parent, childThreadId: "codex", direction: "parent" }),
     ]);
+  });
+
+  it("résume les agents liés pour l'en-tête du chat", () => {
+    expect(linkedAgentSummaries([parent, child], "kimi")).toEqual([
+      { id: "codex", provider: "Codex", title: "Analyse", paused: false, direction: "child" },
+    ]);
+    expect(linkedAgentSummaries([parent, child], "codex")[0]).toMatchObject({ provider: "Kimi", direction: "parent" });
+    expect(linkedAgentSummaries([parent, child], null)).toEqual([]);
   });
 
   it("retrouve une continuité existante par provider", () => {

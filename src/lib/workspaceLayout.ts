@@ -145,6 +145,17 @@ export function stableTabId(identity: string): string {
   return `doc-${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
 }
 
+/** L'identité durable d'un onglet est le document, jamais sa position ni son
+ * mode de consultation. Un nouveau clic met ainsi à jour l'onglet existant. */
+export function atelierTabIdentity(raw: string): string {
+  const parsed = new URL(raw);
+  for (const key of ["line", "diff", "base", "page", "annot"]) parsed.searchParams.delete(key);
+  const fragment = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash);
+  for (const key of ["atelier_nonce", "atelier_token"]) fragment.delete(key);
+  parsed.hash = fragment.toString();
+  return parsed.toString();
+}
+
 export function externalTabRef(id: string): WorkspaceTabRef {
   if (id === "gallery") return { kind: "surface", surface: "atelier" };
   if (id === "ide") return { kind: "ide" };

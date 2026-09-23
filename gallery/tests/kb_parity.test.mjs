@@ -8,10 +8,13 @@
 //   node --test gallery/tests/kb_parity.test.mjs
 //   node gallery/tests/kb_parity.test.mjs        (équivalent)
 //
-// Résolution du binaire (dans l'ordre) : `KB_PARITY_BIN=<chemin>`,
-// src-tauri/rust-server-dist/atelier-kb-rs, rust/target/{release,debug}/
-// atelier-kb-rs, sinon `cargo build -p atelier-kb --bin atelier-kb-rs`
-// (debug) — le harnais ne saute jamais silencieusement faute de binaire.
+// Résolution du binaire : `KB_PARITY_BIN=<chemin>`, sinon
+// `cargo build -p atelier-kb --bin atelier-kb-rs` (debug, incrémental : quasi
+// gratuit si déjà à jour) puis rust/target/debug/atelier-kb-rs. Le binaire
+// suivi par git dans src-tauri/rust-server-dist/ n'est JAMAIS pris : il date
+// du dernier stage-rust-server.sh et peut être périmé par rapport à la source
+// (2026-09-22 : binaire du 2026-09-11, 7 fixtures rouges en CI). Le harnais ne
+// saute jamais silencieusement faute de binaire.
 //
 // Design (voir kb_parity/README.md pour le détail) :
 //  - gbrain est TOUJOURS simulé (fake-gbrain.mjs via ATELIER_TEST_GBRAIN) —
@@ -45,20 +48,15 @@ const KB_PARITY_BIN = resolveKbBin();
 function resolveKbBin() {
   const fromEnv = process.env.KB_PARITY_BIN || "";
   if (fromEnv) return fromEnv;
-  const candidates = [
-    path.join(REPO, "src-tauri", "rust-server-dist", "atelier-kb-rs"),
-    path.join(REPO, "rust", "target", "release", "atelier-kb-rs"),
-    path.join(REPO, "rust", "target", "debug", "atelier-kb-rs"),
-  ];
-  for (const c of candidates) if (fs.existsSync(c)) return c;
+  const debugBin = path.join(REPO, "rust", "target", "debug", "atelier-kb-rs");
   const build = spawnSync("cargo", [
     "build", "--manifest-path", path.join(REPO, "rust", "Cargo.toml"),
     "-p", "atelier-kb", "--bin", "atelier-kb-rs",
   ], { stdio: "inherit" });
-  if (build.status !== 0) {
-    throw new Error("kb_parity: atelier-kb-rs introuvable et `cargo build` a échoué");
+  if (build.status !== 0 || !fs.existsSync(debugBin)) {
+    throw new Error("kb_parity: `cargo build -p atelier-kb --bin atelier-kb-rs` a échoué (KB_PARITY_BIN=<chemin> pour forcer un binaire)");
   }
-  return candidates[2];
+  return debugBin;
 }
 
 const ISO_EXACT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

@@ -92,6 +92,24 @@ async function selectThread(sock: FakeWS, title: string) {
   return getHistory[getHistory.length - 1];
 }
 
+/** Disposition Chat / Partagé / Atelier choisie comme un utilisateur : les
+ *  boutons ⌘1/⌘0/⌘2 de la barre ont rejoint le menu « … » (ca7a99b,
+ *  2026-09-20). Le menu se charge en différé : laisser l'import se poser. */
+async function chooseLayout(layout: "chat" | "split" | "atelier") {
+  const more = document.querySelector<HTMLButtonElement>(".topbar-window-overflow button");
+  expect(more, "bouton « … » de la barre attendu").toBeTruthy();
+  await act(async () => {
+    fireEvent.click(more!);
+    await vi.dynamicImportSettled();
+    await flushMicrotasks(4);
+  });
+  const item = screen.getByRole("menuitem", { name: t(`layout.${layout}`) });
+  await act(async () => {
+    fireEvent.click(item);
+    await flushMicrotasks(2);
+  });
+}
+
 function eventWithMeta(event: ReturnType<typeof events.user> | ReturnType<typeof events.text>, eventId: string, sequence: number) {
   return {
     ...event,
@@ -1541,8 +1559,7 @@ describe("orchestration App — caractérisation", () => {
       ],
     });
 
-    const chatBtn = screen.getAllByTitle(/⌘1/)[0];
-    await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
+    await chooseLayout("chat");
     expect(document.querySelector('iframe[data-atelier-role="gallery"]')).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Figure PNG" }));
@@ -1642,14 +1659,12 @@ describe("orchestration App — caractérisation", () => {
     expect(chatPanel()).toBeTruthy();
     expect(chatPanel()!.style.display).not.toBe("none");
 
-    const atelierBtn = screen.getAllByTitle(/⌘2/)[0];
-    await act(async () => { atelierBtn.click(); await flushMicrotasks(2); });
+    await chooseLayout("atelier");
     // comportement actuel : display:none, le composer RESTE monté (état préservé)
     expect(chatPanel()!.style.display).toBe("none");
     expect(document.querySelector("textarea")).toBeTruthy();
 
-    const chatBtn = screen.getAllByTitle(/⌘1/)[0];
-    await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
+    await chooseLayout("chat");
     expect(chatPanel()!.style.display).not.toBe("none");
   });
 
@@ -1657,8 +1672,7 @@ describe("orchestration App — caractérisation", () => {
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["biblio"]));
     await mountApp();
 
-    const chatBtn = screen.getAllByTitle(/⌘1/)[0];
-    await act(async () => { chatBtn.click(); await flushMicrotasks(2); });
+    await chooseLayout("chat");
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeNull();
 
     const switches: unknown[] = [];

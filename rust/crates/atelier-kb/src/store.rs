@@ -793,14 +793,7 @@ impl KnowledgeStore {
             ));
         }
         let stat = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let body = if table {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            csv_digest(&raw, &name, CSV_FULL_MAX)?
-        } else {
-            raw
-        };
-        let pages = pages_from_text(&body);
+        let (pages, meta) = read_file_source(&path, &stat)?;
         if pages.is_empty() {
             return Err(format!("Fichier vide: {}", path.display()));
         }
@@ -808,10 +801,6 @@ impl KnowledgeStore {
             .filter(|t| !t.is_empty())
             .map(|s| s.to_string())
             .unwrap_or_else(|| basename(&path));
-        let mut meta = json!({ "mtimeMs": stat.modified_ms(), "size": stat.len() });
-        if table {
-            meta["table"] = json!(true);
-        }
         let id = source_id("file", &path.to_string_lossy());
         self.upsert_entry(&id, "file", Some(&file_title), Some(&path.to_string_lossy()), pages, meta)
     }
@@ -999,10 +988,8 @@ impl KnowledgeStore {
                     if let Ok(stat) = std::fs::metadata(path) {
                         let stale = Some(stat.modified_ms()) != meta_mtime || Some(stat.len()) != meta_size;
                         if stale {
-                            if let Ok(raw) = std::fs::read_to_string(path) {
-                                let pages = pages_from_text(&raw);
+                            if let Ok((pages, meta)) = read_file_source(path, &stat) {
                                 if !pages.is_empty() {
-                                    let meta = json!({"mtimeMs": stat.modified_ms(), "size": stat.len()});
                                     self.upsert_entry(id, "file", title.as_deref(), Some(origin), pages, meta)?;
                                 }
                             }
@@ -1067,11 +1054,9 @@ impl KnowledgeStore {
                 let path = Path::new(origin);
                 if path.exists() {
                     if let Ok(stat) = std::fs::metadata(path) {
-                        if let Ok(raw) = std::fs::read_to_string(path) {
-                            let pages = pages_from_text(&raw);
+                        if let Ok((pages, meta)) = read_file_source(path, &stat) {
                             if !pages.is_empty() {
                                 let title = entry.get("title").and_then(Value::as_str).map(str::to_string);
-                                let meta = json!({"mtimeMs": stat.modified_ms(), "size": stat.len()});
                                 self.upsert_entry(id, "file", title.as_deref(), Some(origin), pages.clone(), meta)?;
                                 return Ok(pages);
                             }
@@ -1171,6 +1156,26 @@ impl TapSort for Vec<Value> {
 
 fn updated_at(v: &Value) -> String {
     v.get("updatedAt").and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+/// Pages et méta d'un fichier texte ou tableau, identiques à l'ajout et au
+/// rafraîchissement : un CSV/TSV passe par `csv_digest` et garde
+/// `meta.table` (relu brut, il perdait l'un et l'autre dès que le fichier
+/// changeait sur disque).
+fn read_file_source(path: &Path, stat: &std::fs::Metadata) -> Result<(Vec<Page>, Value), String> {
+    let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let table = TABLE_EXTS.contains(&ext_lower(path).as_str());
+    let body = if table {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        csv_digest(&raw, &name, CSV_FULL_MAX)?
+    } else {
+        raw
+    };
+    let mut meta = json!({ "mtimeMs": stat.modified_ms(), "size": stat.len() });
+    if table {
+        meta["table"] = json!(true);
+    }
+    Ok((pages_from_text(&body), meta))
 }
 
 fn ext_lower(path: &Path) -> String {
@@ -1387,6 +1392,25 @@ mod tests {
         let text2 = store.full_text(&id).unwrap();
         assert!(text2.contains("mise a jour"), "ensureFresh doit relire le fichier périmé (B2)");
         assert!(!text2.contains("Version initiale"));
+    }
+
+    #[test]
+    fn ensure_fresh_garde_le_resume_d_un_csv_modifie() {
+        let dir = tempdir().unwrap();
+        let mut store = KnowledgeStore::open(dir.path().to_path_buf());
+        let file_path = dir.path().join("mesures.csv");
+        std::fs::write(&file_path, "annee,albedo\n2000,0.61\n2001,0.12\n").unwrap();
+        let (source, _) = store.add("file", Some(file_path.to_str().unwrap()), None, None).unwrap();
+        let id = source["id"].as_str().unwrap().to_string();
+        assert_eq!(source["meta"]["table"], json!(true));
+
+        // Taille changée : la source est périmée et relue au prochain accès.
+        std::fs::write(&file_path, "annee,albedo\n2000,0.61\n2001,0.12\n2002,0.45\n").unwrap();
+
+        let text = store.full_text(&id).unwrap();
+        assert!(text.starts_with("mesures.csv — 3 lignes × 2 colonnes"), "résumé CSV attendu, pas le texte brut : {text}");
+        assert!(text.contains("```csv\n") && text.contains("2002,0.45"), "{text}");
+        assert_eq!(store.sources.get(&id).unwrap()["meta"]["table"], json!(true));
     }
 
     #[test]
