@@ -131,6 +131,7 @@ pub fn read(
                 passage,
                 note,
                 color: color_name(&color),
+                by_claude: false,
             });
         }
     }

@@ -441,10 +441,13 @@ pub fn resolve(config: &Config, wanted: &str) -> Result<Target, String> {
     }
 }
 
-/// Ajoute `new` aux annotations de `rel`, sous le verrou du serveur galerie.
-/// Un passage déjà surligné sur la même page n'est pas doublé : son index est
-/// renvoyé dans la liste des doublons.
-pub fn add_to_store(app_dir: &Path, rel: &str, new: Vec<Value>) -> Result<Vec<usize>, String> {
+/// Ouvre le store sous le verrou du serveur galerie, laisse `op` changer les
+/// annotations, et ne réécrit le fichier (d'un bloc) que si `op` dit l'avoir
+/// changé.
+fn with_store<T>(
+    app_dir: &Path,
+    op: impl FnOnce(&mut serde_json::Map<String, Value>) -> Result<(T, bool), String>,
+) -> Result<T, String> {
     std::fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
     let path = app_dir.join("pdf_annots.json");
     let lock = OpenOptions::new()
@@ -466,6 +469,27 @@ pub fn add_to_store(app_dir: &Path, rel: &str, new: Vec<Value>) -> Result<Vec<us
         let Some(map) = store.as_object_mut() else {
             return Err(format!("{} n'est pas un objet JSON", path.display()));
         };
+        let (value, changed) = op(map)?;
+        if changed {
+            let payload = format!(
+                "{}\n",
+                serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?
+            );
+            let tmp = app_dir.join(format!(".pdf_annots.json.{}.mcp.tmp", std::process::id()));
+            std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
+            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        }
+        Ok(value)
+    })();
+    let _ = FileExt::unlock(&lock);
+    result
+}
+
+/// Ajoute `new` aux annotations de `rel`, sous le verrou du serveur galerie.
+/// Un passage déjà surligné sur la même page n'est pas doublé : son index est
+/// renvoyé dans la liste des doublons.
+pub fn add_to_store(app_dir: &Path, rel: &str, new: Vec<Value>) -> Result<Vec<usize>, String> {
+    with_store(app_dir, |map| {
         let list = map.entry(rel.to_string()).or_insert_with(|| json!([]));
         let Some(list) = list.as_array_mut() else {
             return Err(format!("annotations de {rel} illisibles"));
@@ -484,17 +508,176 @@ pub fn add_to_store(app_dir: &Path, rel: &str, new: Vec<Value>) -> Result<Vec<us
                 list.push(annot);
             }
         }
-        let payload = format!(
-            "{}\n",
-            serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?
-        );
-        let tmp = app_dir.join(format!(".pdf_annots.json.{}.mcp.tmp", std::process::id()));
-        std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-        Ok(duplicates)
-    })();
-    let _ = FileExt::unlock(&lock);
-    result
+        Ok((duplicates, true))
+    })
+}
+
+/// Ce que `edit_highlights` fait aux surlignages retrouvés.
+pub enum Edit {
+    Remove,
+    /// `None` = inchangé ; une note vide retire la note.
+    Update {
+        color: Option<&'static str>,
+        memo: Option<String>,
+    },
+}
+
+/// Un passage surligné par Claude peut couvrir plusieurs pages, donc plusieurs
+/// annotations (`{ms}-c{i}p{page}`, `…p{page}-{k}`) : elles partagent tout ce
+/// qui précède le dernier `p`.
+fn highlight_group(id: &str) -> &str {
+    id.rfind('p').map_or(id, |i| &id[..i])
+}
+
+fn by_claude(a: &Value) -> bool {
+    a.get("by").and_then(Value::as_str) == Some("claude")
+}
+
+/// Modifie ou supprime des surlignages POSÉS PAR CLAUDE (`by: "claude"`) :
+/// ceux que Thierry a faits lui-même ne sont jamais touchés. `requests` les
+/// désigne par leur texte (et leur page) ; `all` les prend tous dans l'article.
+pub fn edit_highlights(
+    config: &Config,
+    target: &Target,
+    requests: &[Request],
+    all: bool,
+    edit: &Edit,
+) -> Result<String, String> {
+    let rel = target.rel.clone();
+    let report = with_store(&config.app_dir, |map| {
+        let Some(list) = map.get_mut(&rel).and_then(Value::as_array_mut) else {
+            return Ok((
+                vec!["- aucun surlignage dans cet article.".to_string()],
+                false,
+            ));
+        };
+        // groupes de Claude, dans l'ordre du store : (clé, pages, texte normalisé)
+        let mut groups: Vec<(String, Vec<u64>, String)> = Vec::new();
+        for a in list.iter().filter(|a| by_claude(a)) {
+            let Some(id) = a.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let key = highlight_group(id).to_string();
+            let page = a.get("page").and_then(Value::as_u64).unwrap_or(0);
+            let text = norm(a.get("text").and_then(Value::as_str).unwrap_or(""));
+            match groups.iter_mut().find(|g| g.0 == key) {
+                Some(g) => {
+                    g.1.push(page);
+                    g.2.push_str(&text);
+                }
+                None => groups.push((key, vec![page], text)),
+            }
+        }
+        let mut chosen: Vec<String> = Vec::new();
+        let mut report = Vec::new();
+        let verb = match edit {
+            Edit::Remove => "supprimé",
+            Edit::Update { .. } => "modifié",
+        };
+        let pages_of = |g: &(String, Vec<u64>, String)| {
+            let mut pages = g.1.clone();
+            pages.sort_unstable();
+            pages.dedup();
+            pages
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join("-")
+        };
+        if all {
+            for g in &groups {
+                chosen.push(g.0.clone());
+            }
+            report.push(format!(
+                "- {} surlignage(s) de Claude {verb}(s).",
+                groups.len()
+            ));
+        }
+        for req in requests {
+            let label = short(&req.quote);
+            let needle = norm(&req.quote);
+            if needle.chars().count() < MIN_NEEDLE_CHARS {
+                report.push(format!(
+                    "- « {label} » : citation trop courte pour désigner un surlignage."
+                ));
+                continue;
+            }
+            let matches = |text: &str, pages: &[u64]| {
+                !text.is_empty()
+                    && (text.contains(&needle) || needle.contains(text))
+                    && req.page.is_none_or(|p| pages.contains(&(p as u64)))
+            };
+            let hits: Vec<&(String, Vec<u64>, String)> =
+                groups.iter().filter(|g| matches(&g.2, &g.1)).collect();
+            if hits.is_empty() {
+                let theirs = list.iter().any(|a| {
+                    !by_claude(a)
+                        && matches(
+                            &norm(a.get("text").and_then(Value::as_str).unwrap_or("")),
+                            &[a.get("page").and_then(Value::as_u64).unwrap_or(0)],
+                        )
+                });
+                report.push(if theirs {
+                    format!(
+                        "- « {label} » : c'est un surlignage de Thierry, Claude n'y touche pas."
+                    )
+                } else {
+                    format!("- « {label} » : aucun surlignage de Claude ne correspond.")
+                });
+                continue;
+            }
+            let pages: Vec<String> = hits.iter().map(|g| pages_of(g)).collect();
+            report.push(format!("- « {label} » : {verb} p. {}", pages.join(", p. ")));
+            for g in hits {
+                if !chosen.contains(&g.0) {
+                    chosen.push(g.0.clone());
+                }
+            }
+        }
+        if chosen.is_empty() {
+            return Ok((report, false));
+        }
+        let in_chosen = |a: &Value| {
+            by_claude(a)
+                && a.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| chosen.iter().any(|k| k == highlight_group(id)))
+        };
+        match edit {
+            Edit::Remove => list.retain(|a| !in_chosen(a)),
+            Edit::Update { color, memo } => {
+                let mut first_seen: Vec<String> = Vec::new();
+                for a in list.iter_mut().filter(|a| in_chosen(a)) {
+                    let key = highlight_group(a["id"].as_str().unwrap_or("")).to_string();
+                    let first = !first_seen.contains(&key);
+                    if first {
+                        first_seen.push(key);
+                    }
+                    let Some(obj) = a.as_object_mut() else {
+                        continue;
+                    };
+                    if let Some(color) = color {
+                        obj.insert("color".into(), json!(color));
+                    }
+                    if let Some(memo) = memo {
+                        // la note vit sur la première annotation du passage
+                        if first && is_real_memo(memo) {
+                            obj.insert("memo".into(), json!(memo.trim()));
+                        } else {
+                            obj.remove("memo");
+                        }
+                    }
+                }
+            }
+        }
+        Ok((report, true))
+    })?;
+    Ok(format!(
+        "{} [{}] :\n{}\nVisible dans le lecteur d'Atelier en quelques secondes si l'article y est ouvert.",
+        target.article.citation,
+        target.article.key,
+        report.join("\n")
+    ))
 }
 
 pub struct Request {
@@ -562,8 +745,9 @@ pub fn highlight(
                 "note": "",
                 "by": "claude",
             });
-            // la note va sur la première page du passage seulement
-            if k == 0 && !req.memo.trim().is_empty() {
+            // la note va sur la première page du passage seulement ; « Claude »
+            // n'en est pas une (l'origine est dans `by`)
+            if k == 0 && is_real_memo(&req.memo) {
                 annot["memo"] = json!(req.memo.trim());
             }
             new.push(annot);
@@ -584,6 +768,11 @@ pub fn highlight(
         target.article.key,
         report.join("\n")
     ))
+}
+
+fn is_real_memo(memo: &str) -> bool {
+    let memo = fold(memo.trim());
+    !memo.is_empty() && memo != "claude"
 }
 
 fn short(quote: &str) -> String {
@@ -736,5 +925,14 @@ mod tests {
             std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
             "{ cassé"
         );
+    }
+
+    #[test]
+    fn claude_is_not_a_note() {
+        assert!(!is_real_memo(" Claude "));
+        assert!(!is_real_memo(""));
+        assert!(is_real_memo(
+            "pour la discussion : limite de la quantification"
+        ));
     }
 }

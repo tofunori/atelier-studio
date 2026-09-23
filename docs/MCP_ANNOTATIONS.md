@@ -2,8 +2,10 @@
 
 `atelier-annots-mcp` (crate `rust/crates/atelier-annots-mcp`) est un serveur MCP
 stdio qui donne à Claude Desktop les passages surlignés dans le lecteur PDF
-d'Atelier et les notes personnelles qui les accompagnent. Un seul outil écrit :
-`highlight_passage`, qui surligne un passage cité dans un PDF Zotero.
+d'Atelier et les notes personnelles qui les accompagnent. Trois outils écrivent :
+`highlight_passage`, qui surligne un passage cité dans un PDF Zotero, et
+`update_highlights` / `remove_highlights`, qui changent ou retirent les
+surlignages **faits par Claude** (jamais ceux de Thierry).
 
 ## Ce qu'il lit
 
@@ -31,6 +33,8 @@ qui n'ont pas encore été recopiés dans le store commun.
 | `list_annotated_articles` | articles annotés, avec leurs nombres de passages et de notes |
 | `get_article_annotations` | toutes les annotations d'un ou de plusieurs articles nommés (`articles: [...]`, ou l'ancien `article`), par page |
 | `highlight_passage` | surligne dans le PDF Zotero d'un article (`article` : clé, auteur et année, ou mots du titre) les passages cités mot pour mot (`passages: [{quote, page?, memo?}]`, 20 au plus, ou `quote` seul), en `color` jaune (défaut), vert, bleu ou rose |
+| `update_highlights` | change la `color` et/ou la note (`memo`, vide = retirée) de surlignages faits par Claude, désignés par un extrait de leur texte (`passages: [{quote, page?}]` ou `quote`) ou `all: true` |
+| `remove_highlights` | supprime des surlignages faits par Claude, désignés de la même façon |
 
 Les instructions du serveur demandent à Claude de ne jamais parcourir les
 articles un par un : « des passages pour ma discussion » se fait en un seul
@@ -47,7 +51,16 @@ recollées) et écrit une annotation `hl` par page couverte, un rectangle par
 ligne, marquée `"by": "claude"`. La note facultative (`memo`) va sur la
 première page du passage. Une citation introuvable n'écrit rien ; si seuls
 son début et sa fin sont retrouvés, la réponse demande de vérifier. Un
-passage déjà surligné sur la même page n'est pas doublé.
+passage déjà surligné sur la même page n'est pas doublé. Le `memo` est une
+note courte disant pourquoi le passage compte ; « Claude » seul n'est pas
+gardé comme note (l'origine est dans `by`).
+
+`update_highlights` et `remove_highlights` ne touchent que les annotations
+`"by": "claude"` : une citation qui ne désigne qu'un surlignage de Thierry
+est refusée (la réponse le dit). Un passage surligné sur deux pages est
+modifié ou retiré en entier (ses annotations partagent le préfixe d'id
+`{ms}-c{i}`). Les outils de lecture marquent ces passages « surligné par
+Claude ».
 
 L'écriture prend le verrou du serveur galerie (`pdf_annots.lock`) et ne
 remplace jamais un store illisible. Le lecteur PDF ouvert veille la date du

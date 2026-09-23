@@ -44,6 +44,9 @@ pub struct Annotation {
     pub passage: String,
     pub note: String,
     pub color: String,
+    /// Surlignage posé par Claude (`highlight_passage`) : le seul genre que
+    /// `update_highlights` / `remove_highlights` peuvent toucher.
+    pub by_claude: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -151,6 +154,7 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
                 passage,
                 note,
                 color: color_name(&text(a, "color")),
+                by_claude: text(a, "by") == "claude",
             });
         }
     }
