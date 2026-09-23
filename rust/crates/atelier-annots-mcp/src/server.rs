@@ -68,8 +68,7 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
 }
 
 const INSTRUCTIONS: &str =
-    "Annotations de Thierry sur ses articles (lecteur PDF d'Atelier et Zotero), \
-en lecture seule. « Note » = ce que Thierry a écrit pour lui-même sur le passage : c'est là qu'il \
+    "Annotations de Thierry sur ses articles (lecteur PDF d'Atelier et Zotero). « Note » = ce que Thierry a écrit pour lui-même sur le passage : c'est là qu'il \
 indique à quoi le passage lui servira (discussion, introduction, méthode…).\n\
 Faire le moins d'appels possible : search_annotations couvre TOUS les articles en un seul appel \
 et renvoie les passages groupés par article, avec référence et page. Ne jamais ouvrir les \
@@ -85,7 +84,11 @@ Relancer au plus une fois avec d'autres mots si c'est trop maigre.\n\
 - Tout relire : search_annotations sans query (limit jusqu'à 1000, par tranches si besoin).\n\
 - get_article_annotations : seulement quand Thierry nomme des articles précis ; les passer \
 tous dans un seul appel (articles: [...]).\n\
-Citer chaque élément avec sa référence et sa page.";
+Citer chaque élément avec sa référence et sa page.\n\
+- highlight_passage : SEULEMENT quand Thierry demande de surligner. Il voit le surlignage apparaître \
+dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
+phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
+article dans un seul appel (passages: [...]). Ne jamais surligner un passage paraphrasé.";
 
 fn tools() -> Value {
     json!([
@@ -128,8 +131,85 @@ fn tools() -> Value {
                 }
             },
             "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "highlight_passage",
+            "description": "Surligne un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
+    Thierry les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
+    (accents, ligatures et césures tolérés) ; s'il est introuvable, rien n'est surligné et la réponse le dit. \
+    Un passage déjà surligné n'est pas doublé. À n'utiliser que sur demande explicite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "article": {"type": "string", "description": "Clé Zotero de l'article, ou nom d'auteur et année, ou mots du titre."},
+                    "passages": {
+                        "type": "array",
+                        "maxItems": crate::highlight::MAX_PASSAGES,
+                        "description": "Passages à surligner dans cet article.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "quote": {"type": "string", "description": "Texte exact du passage, recopié de l'article."},
+                                "page": {"type": "integer", "minimum": 1, "description": "Page du PDF (1 = première), si connue."},
+                                "memo": {"type": "string", "description": "Note personnelle facultative, affichée dans la bulle (par exemple « pour la discussion »)."}
+                            },
+                            "required": ["quote"]
+                        }
+                    },
+                    "quote": {"type": "string", "description": "Un seul passage (forme courte de `passages`)."},
+                    "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
+                    "memo": {"type": "string", "description": "Avec `quote` : sa note."},
+                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur (jaune par défaut)."}
+                },
+                "required": ["article"]
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}
         }
     ])
+}
+
+/// `passages` et la forme courte `quote` / `page` / `memo`, réunis.
+fn arg_passages(args: &Value) -> Vec<crate::highlight::Request> {
+    let one = |v: &Value| {
+        let quote = arg_str(v, "quote");
+        (!quote.trim().is_empty()).then(|| crate::highlight::Request {
+            quote,
+            page: v
+                .get("page")
+                .and_then(Value::as_u64)
+                .filter(|&p| p >= 1)
+                .map(|p| p as u32),
+            memo: arg_str(v, "memo"),
+        })
+    };
+    let mut out: Vec<_> = args
+        .get("passages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(one)
+        .collect();
+    out.extend(one(args));
+    out
+}
+
+fn highlight_passage(config: &Config, args: &Value) -> Result<String, String> {
+    let passages = arg_passages(args);
+    if passages.is_empty() {
+        return Err(
+            "Paramètre `passages` (ou `quote`) requis : le texte exact à surligner.".into(),
+        );
+    }
+    if passages.len() > crate::highlight::MAX_PASSAGES {
+        return Err(format!(
+            "{} passages au plus par appel.",
+            crate::highlight::MAX_PASSAGES
+        ));
+    }
+    let color = crate::highlight::color_value(&arg_str(args, "color"))?;
+    let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
+    let pages = crate::highlight::read_pdf(&target.pdf)?;
+    crate::highlight::highlight(config, &target, &pages, &passages, color)
 }
 
 fn arg_str(args: &Value, key: &str) -> String {
@@ -156,6 +236,9 @@ fn arg_articles(args: &Value) -> Vec<String> {
 }
 
 fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
+    if name == "highlight_passage" {
+        return highlight_passage(config, args);
+    }
     let lib = Library::load(config);
     match name {
         "search_annotations" => {
@@ -425,7 +508,8 @@ mod tests {
             [
                 "search_annotations",
                 "list_annotated_articles",
-                "get_article_annotations"
+                "get_article_annotations",
+                "highlight_passage"
             ]
         );
         let unknown = handle(
@@ -585,5 +669,82 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.matches("## ").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn highlight_passage_writes_line_rects_into_the_store_once() {
+        let pdftotext_ok = std::process::Command::new("pdftotext")
+            .arg("-v")
+            .output()
+            .is_ok();
+        if !pdftotext_ok && std::env::var_os("ATELIER_PDFTOTEXT").is_none() {
+            eprintln!("pdftotext absent : test sauté");
+            return;
+        }
+        let (dir, config) = setup();
+        let storage = dir.path().join("storage/ABCD1234");
+        std::fs::create_dir_all(&storage).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../atelier-gallery/tests/fixtures/reflow/twocol.pdf"
+            ),
+            storage.join("paper.pdf"),
+        )
+        .unwrap();
+        // « ia-culis » est coupé en fin de ligne dans le PDF.
+        let args = json!({"article": "Warren 1980", "color": "vert", "passages": [
+            {"quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "page": 1, "memo": "pour la discussion"},
+            {"quote": "a sentence that this article never contains anywhere"}
+        ]});
+        let (text, is_error) = call_tool(&config, "highlight_passage", args.clone());
+        assert!(!is_error, "{text}");
+        assert!(text.contains("surligné p. 1"), "{text}");
+        assert!(text.contains("introuvable"), "{text}");
+
+        let store: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
+        )
+        .unwrap();
+        let annots = store["zotero/ABCD1234/paper.pdf"].as_array().unwrap();
+        assert_eq!(annots.len(), 1);
+        let a = &annots[0];
+        assert_eq!(a["kind"], "hl");
+        assert_eq!(a["page"], 1);
+        assert_eq!(a["memo"], "pour la discussion");
+        assert_eq!(a["color"], "rgba(120,220,140,.40)");
+        assert_eq!(
+            a["text"],
+            "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc."
+        );
+        let rects = a["rects"].as_array().unwrap();
+        assert_eq!(rects.len(), 2, "one rect per line: {rects:?}");
+        for r in rects {
+            let r: Vec<f64> = r
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect();
+            assert!(r[0] > 0.0 && r[0] + r[2] < 0.55, "left column: {r:?}");
+            assert!(r[3] > 0.005 && r[3] < 0.03, "one text line high: {r:?}");
+        }
+        // L'autre article du store n'a pas bougé.
+        assert_eq!(
+            store["zotero/ABCD1234/Warren and Wiscombe - 1980 - A model.pdf"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let (text, _) = call_tool(&config, "highlight_passage", args);
+        assert!(text.contains("déjà surligné"), "{text}");
+        let (text, is_error) = call_tool(
+            &config,
+            "highlight_passage",
+            json!({"article": "Nobody 2099", "quote": "anything at all long enough"}),
+        );
+        assert!(is_error && text.contains("Aucun PDF"), "{text}");
     }
 }

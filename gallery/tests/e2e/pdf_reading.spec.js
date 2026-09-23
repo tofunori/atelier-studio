@@ -121,8 +121,8 @@ test('mode lecture : colonne, découpe, taille, recherche, annotation aller-reto
   // Une annotation `comment` toute fraîche ouvre l'éditeur de note et serait
   // ABANDONNÉE si elle se fermait sans note (annotMenu, branche `a.fresh`) :
   // on la valide comme le ferait l'utilisateur.
-  await expect(page.locator('#annotPop textarea')).toBeVisible();
-  await page.fill('#annotPop textarea', 'note e2e');
+  await expect(page.locator('#annotPop textarea.atelier-note-input')).toBeVisible();
+  await page.fill('#annotPop textarea.atelier-note-input', 'note e2e');
   await page.keyboard.press('Enter');
   // Hors de l'app, l'ajout au chat échoue toujours (window.self === window.top,
   // pas de parent Tauri) : la note est enregistrée mais le menu reste ouvert.

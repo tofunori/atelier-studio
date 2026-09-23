@@ -1275,3 +1275,60 @@ fn stale_gallery_state_preserves_favorites_changed_on_phone() {
     assert_eq!(value["favs"], serde_json::json!(["mac.py","phone.py"]));
     assert_eq!(value["ratings"]["figure.pdf"], 4);
 }
+
+#[test]
+fn pdf_save_with_known_keeps_a_highlight_added_meanwhile_and_moves_the_stamp() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let srv = start_server_with(&[(
+        "ATELIER_APP_DIR",
+        app_dir.path().to_string_lossy().to_string(),
+    )]);
+    let rel = "zotero/ABCD1234/article.pdf";
+    let stamp_query = "/pdfannot-stamp?rel=zotero%2FABCD1234%2Farticle.pdf";
+    let stamp = |body: &str| -> u64 {
+        serde_json::from_str::<serde_json::Value>(body).unwrap()["stamp"]
+            .as_u64()
+            .unwrap()
+    };
+    let (status, body) = http(srv.port, "GET", stamp_query, None);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(stamp(&body), 0, "no store yet");
+
+    // Le lecteur a vu « a » ; le MCP pose « c » directement dans le store.
+    let post = |annots: &str, known: &str| {
+        let payload = format!(r#"{{"rel":"{rel}","known":{known},"annots":{annots}}}"#);
+        http(srv.port, "POST", "/pdfannot", Some(&payload))
+    };
+    assert_eq!(post(r#"[{"id":"a"}]"#, "[]").0, 200);
+    let store_path = app_dir.path().join("pdf_annots.json");
+    let mut store: serde_json::Value =
+        serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+    store[rel]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"id": "c", "text": "posé par Claude"}));
+    fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+    let (_, body) = http(srv.port, "GET", stamp_query, None);
+    assert!(stamp(&body) > 0);
+
+    // Sa sauvegarde suivante (il ignore « c ») ne l'efface pas.
+    assert_eq!(post(r#"[{"id":"a","note":"x"},{"id":"b"}]"#, r#"["a"]"#).0, 200);
+    let (_, body) = http(
+        srv.port,
+        "GET",
+        "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf",
+        None,
+    );
+    assert!(body.contains("posé par Claude"), "{body}");
+    assert!(body.contains(r#""b""#), "{body}");
+
+    // Une suppression voulue (id vu, absent) passe toujours.
+    assert_eq!(post(r#"[{"id":"a"}]"#, r#"["a","b","c"]"#).0, 200);
+    let (_, body) = http(
+        srv.port,
+        "GET",
+        "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf",
+        None,
+    );
+    assert!(!body.contains("posé par Claude"), "{body}");
+}

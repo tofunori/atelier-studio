@@ -575,7 +575,34 @@ fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, 
                 .collect::<Vec<_>>()
         ));
     }
-    Ok(body.get("annots").cloned().unwrap_or_else(|| json!([])))
+    let annots = body.get("annots").cloned().unwrap_or_else(|| json!([]));
+    let Some(known) = body.get("known") else {
+        return Ok(annots);
+    };
+    let Some(known) = known.as_array().filter(|ids| ids.iter().all(Value::is_string)) else {
+        return Err("known must be an array of strings".into());
+    };
+    let Some(list) = annots.as_array() else {
+        return Ok(annots);
+    };
+    // `known` = ids que l'écrivain a vus dans le store. Une annotation du
+    // store qu'il n'a jamais vue a été posée ailleurs (MCP, autre fenêtre)
+    // pendant qu'il travaillait : on la garde au lieu de l'écraser. Une
+    // annotation vue puis absente de `annots` a été retirée exprès.
+    let mut merged = list.clone();
+    for annot in store.get(rel).and_then(Value::as_array).into_iter().flatten() {
+        let Some(id) = annotation_id(annot) else {
+            continue;
+        };
+        let seen = known.iter().any(|k| k.as_str() == Some(id.as_str()));
+        let sent = list
+            .iter()
+            .any(|item| annotation_id(item).as_deref() == Some(id.as_str()));
+        if !seen && !sent {
+            merged.push(annot.clone());
+        }
+    }
+    Ok(Value::Array(merged))
 }
 
 fn apply_pdf_store_update(
@@ -632,6 +659,29 @@ pub async fn get_pdfannot(
             .unwrap_or_else(|| json!([]))
     };
     (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
+}
+
+/// GET /pdfannot-stamp — date de dernière écriture du store qui porte `rel`
+/// (ms, 0 s'il n'existe pas). Le lecteur la veille pour recharger ses
+/// annotations quand un autre écrivain (MCP, autre fenêtre) les change,
+/// sans relire tout le store à chaque tick.
+pub async fn get_pdfannot_stamp(
+    State(state): State<AppState>,
+    Query(query): Query<PdfAnnotQuery>,
+) -> impl IntoResponse {
+    let rel = query.rel.unwrap_or_default();
+    let path = if is_zotero_pdf_rel(&rel) {
+        shared_pdf_annots_path(&state.root)
+    } else {
+        legacy_pdf_annots_path(&state.root)
+    };
+    let stamp = fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    (StatusCode::OK, Json(json!({"stamp": stamp}))).into_response()
 }
 
 /// GET /pdfannot-all — les annotations Zotero communes, superposees aux
@@ -700,6 +750,7 @@ pub async fn post_pdfannot(
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(error)
             if error == "removeIds must be an array of strings"
+                || error == "known must be an array of strings"
                 || error == "annots must be an array" =>
         {
             json_error(StatusCode::BAD_REQUEST, error)
@@ -998,5 +1049,42 @@ mod tests {
         assert_eq!(annots[0]["note"], "version commune");
         assert!(shared.get("article.pdf").is_none());
         assert!(!merge_legacy_zotero_entries(&mut shared, &legacy));
+    }
+
+    #[test]
+    fn a_save_keeps_annotations_its_writer_never_saw() {
+        let rel = "zotero/ABCD1234/article.pdf";
+        let store = json!({rel: [
+            {"id": "a", "note": "vue par le lecteur"},
+            {"id": "b", "note": "vue puis supprimée"},
+            {"id": "c", "note": "posée par le MCP pendant ce temps"},
+            {"note": "sans id"}
+        ]});
+        let body = json!({"rel": rel, "known": ["a", "b"], "annots": [
+            {"id": "a", "note": "modifiée"},
+            {"id": "d", "note": "nouvelle"}
+        ]});
+        let merged = updated_annotations(&store, rel, &body).unwrap();
+        let ids: Vec<_> = merged
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["id"].as_str().unwrap_or("?"))
+            .collect();
+        assert_eq!(ids, ["a", "d", "c"]);
+        assert_eq!(merged[0]["note"], "modifiée");
+    }
+
+    #[test]
+    fn a_save_without_known_still_replaces_the_list() {
+        let rel = "zotero/ABCD1234/article.pdf";
+        let store = json!({rel: [{"id": "c"}]});
+        let merged =
+            updated_annotations(&store, rel, &json!({"rel": rel, "annots": [{"id": "a"}]})).unwrap();
+        assert_eq!(merged, json!([{"id": "a"}]));
+        assert!(
+            updated_annotations(&store, rel, &json!({"rel": rel, "known": [1], "annots": []}))
+                .is_err()
+        );
     }
 }

@@ -222,7 +222,7 @@ impl Library {
     }
 }
 
-fn article(key: &str, meta: Option<&ArticleMeta>, rel: Option<&str>) -> Article {
+pub fn article(key: &str, meta: Option<&ArticleMeta>, rel: Option<&str>) -> Article {
     let from_file = citation_from_file(rel.unwrap_or(key));
     match meta {
         Some(m) => {

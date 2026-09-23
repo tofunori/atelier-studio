@@ -125,10 +125,11 @@ export default function AnnotationsPanel(p: {
     if (!origin || !lib) return;
     const next = (lib[rel] ?? []).filter((x) => String(x.id) !== String(a.id));
     setLib({ ...lib, [rel]: next });
+    // par id : un surlignage posé ailleurs entre deux relectures reste
     fetch(`${origin}/pdfannot`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rel, annots: next }),
+      body: JSON.stringify({ rel, removeIds: [String(a.id)] }),
     }).catch(() => load());
   }
 
@@ -165,7 +166,8 @@ export default function AnnotationsPanel(p: {
     fetch(`${origin}/pdfannot`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rel: cur.rel, annots: next }),
+      // `known` : ce qui manque à notre copie (posé ailleurs depuis) reste
+      body: JSON.stringify({ rel: cur.rel, annots: next, known: next.map((x) => String(x.id)) }),
     }).catch(() => load());
   }
 
