@@ -1,4 +1,4 @@
-//! Boucle MCP stdio (JSON-RPC, un message par ligne) et les trois outils.
+//! Boucle MCP stdio (JSON-RPC, un message par ligne) et les outils.
 
 use crate::library::{sort_by_reference, Article, Config, Filter, Hit, Library, Source};
 use serde_json::{json, Value};
@@ -85,10 +85,13 @@ Relancer au plus une fois avec d'autres mots si c'est trop maigre.\n\
 - get_article_annotations : seulement quand Thierry nomme des articles précis ; les passer \
 tous dans un seul appel (articles: [...]).\n\
 Citer chaque élément avec sa référence et sa page.\n\
+- read_article : le texte du PDF Zotero d'un article (annoté ou non), page par page ; le lire avant \
+de surligner si l'article n'est pas déjà dans la conversation.\n\
 - highlight_passage : SEULEMENT quand Thierry demande de surligner. Il voit le surlignage apparaître \
 dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
 phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
-article dans un seul appel (passages: [...]). Ne jamais surligner un passage paraphrasé. Donner à \
+article dans un seul appel (passages: [...]), chacun avec sa couleur (color) si elles diffèrent. \
+Ne jamais surligner un passage paraphrasé. Donner à \
 chaque passage un memo : une note courte en français disant pourquoi il est surligné (« pour la \
 discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
 - update_highlights / remove_highlights : SEULEMENT sur demande de Thierry, et seulement pour les \
@@ -138,6 +141,21 @@ fn tools() -> Value {
             "annotations": {"readOnlyHint": true}
         },
         {
+            "name": "read_article",
+            "description": "Texte intégral du PDF Zotero d'un article, page par page (un paragraphe par ligne), \
+    pour le lire et en recopier des passages mot pour mot avant highlight_passage. Marche pour tout article \
+    de Zotero qui a un PDF, annoté ou non : si plusieurs correspondent, la réponse les liste avec leur clé.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "article": {"type": "string", "description": "Clé Zotero de l'article, ou nom d'auteur et année, ou mots du titre."},
+                    "pages": {"type": "string", "description": "Pages voulues : « 3 », « 2-4 », « 1, 5-6 ». Absent = tout l'article."}
+                },
+                "required": ["article"]
+            },
+            "annotations": {"readOnlyHint": true}
+        },
+        {
             "name": "highlight_passage",
             "description": "Surligne un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
     Thierry les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
@@ -156,7 +174,8 @@ fn tools() -> Value {
                             "properties": {
                                 "quote": {"type": "string", "description": "Texte exact du passage, recopié de l'article."},
                                 "page": {"type": "integer", "minimum": 1, "description": "Page du PDF (1 = première), si connue."},
-                                "memo": {"type": "string", "description": "Note affichée dans la bulle : une phrase courte en français disant pourquoi ce passage compte (par exemple « pour la discussion : limite de la quantification »), sans paraphraser le passage. Ne pas y écrire « Claude » : l'origine est déjà enregistrée."}
+                                "memo": {"type": "string", "description": "Note affichée dans la bulle : une phrase courte en français disant pourquoi ce passage compte (par exemple « pour la discussion : limite de la quantification »), sans paraphraser le passage. Ne pas y écrire « Claude » : l'origine est déjà enregistrée."},
+                                "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur de ce passage (absente = `color` de l'appel)."}
                             },
                             "required": ["quote"]
                         }
@@ -164,7 +183,7 @@ fn tools() -> Value {
                     "quote": {"type": "string", "description": "Un seul passage (forme courte de `passages`)."},
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
                     "memo": {"type": "string", "description": "Avec `quote` : sa note (pourquoi ce passage compte)."},
-                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur (jaune par défaut)."}
+                    "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose"], "description": "Couleur par défaut des passages (jaune si absente) ; chaque passage peut donner la sienne."}
                 },
                 "required": ["article"]
             },
@@ -233,11 +252,19 @@ fn tools() -> Value {
     ])
 }
 
-/// `passages` et la forme courte `quote` / `page` / `memo`, réunis.
-fn arg_passages(args: &Value) -> Vec<crate::highlight::Request> {
-    let one = |v: &Value| {
+/// `passages` et la forme courte `quote` / `page` / `memo`, réunis. Chaque
+/// élément de `passages` peut porter sa propre `color`.
+fn arg_passages(args: &Value) -> Result<Vec<crate::highlight::Request>, String> {
+    let one = |v: &Value, own_color: bool| -> Result<Option<crate::highlight::Request>, String> {
         let quote = arg_str(v, "quote");
-        (!quote.trim().is_empty()).then(|| crate::highlight::Request {
+        if quote.trim().is_empty() {
+            return Ok(None);
+        }
+        let color = match v.get("color").and_then(Value::as_str) {
+            Some(c) if own_color && !c.trim().is_empty() => Some(crate::highlight::color_value(c)?),
+            _ => None,
+        };
+        Ok(Some(crate::highlight::Request {
             quote,
             page: v
                 .get("page")
@@ -245,21 +272,86 @@ fn arg_passages(args: &Value) -> Vec<crate::highlight::Request> {
                 .filter(|&p| p >= 1)
                 .map(|p| p as u32),
             memo: arg_str(v, "memo"),
-        })
+            color,
+        }))
     };
-    let mut out: Vec<_> = args
+    let mut out = Vec::new();
+    for v in args
         .get("passages")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(one)
-        .collect();
-    out.extend(one(args));
-    out
+    {
+        out.extend(one(v, true)?);
+    }
+    // la couleur de premier niveau est celle de l'appel, pas du passage court
+    out.extend(one(args, false)?);
+    Ok(out)
+}
+
+/// `pages` : « 3 », « 2-4 », « 1, 5-6 » ; vide = toutes.
+fn parse_pages(spec: &str, count: u32) -> Result<Vec<u32>, String> {
+    let bad = || format!("`pages` illisible « {spec} » : par exemple « 3 », « 2-4 » ou « 1, 5-6 »");
+    let mut out = Vec::new();
+    for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim(), b.trim()),
+            None => (part, part),
+        };
+        let a: u32 = a.parse().map_err(|_| bad())?;
+        let b: u32 = if b.is_empty() {
+            count
+        } else {
+            b.parse().map_err(|_| bad())?
+        };
+        if a == 0 || a > b {
+            return Err(bad());
+        }
+        for p in a..=b.min(count) {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    if out.is_empty() {
+        out = (1..=count).collect();
+    }
+    Ok(out)
+}
+
+/// Au-delà, le texte est coupé à une fin de page et la réponse dit où reprendre.
+const READ_MAX_CHARS: usize = 120_000;
+
+fn read_article(config: &Config, args: &Value) -> Result<String, String> {
+    let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
+    let pages = crate::highlight::read_pdf(&target.pdf)?;
+    let wanted = parse_pages(&arg_str(args, "pages"), pages.len() as u32)?;
+    let art = &target.article;
+    let mut out = format!("{} [{}]", art.citation, art.key);
+    if !art.title.is_empty() {
+        out.push_str(&format!(" : {}", art.title));
+    }
+    out.push_str(&format!(
+        "\n{} page(s). Texte extrait du PDF, un paragraphe par ligne : recopier les passages mot pour mot dans highlight_passage, avec leur page.\n",
+        pages.len()
+    ));
+    for (i, &p) in wanted.iter().enumerate() {
+        let text = crate::highlight::page_text(&pages[p as usize - 1]);
+        if i > 0 && out.len() + text.len() > READ_MAX_CHARS {
+            let rest: Vec<String> = wanted[i..].iter().map(u32::to_string).collect();
+            out.push_str(&format!(
+                "\n(Texte coupé ici : relancer avec pages=\"{}\" pour la suite.)",
+                rest.join(",")
+            ));
+            break;
+        }
+        out.push_str(&format!("\n--- p. {p} ---\n{text}\n"));
+    }
+    Ok(out)
 }
 
 fn highlight_passage(config: &Config, args: &Value) -> Result<String, String> {
-    let passages = arg_passages(args);
+    let passages = arg_passages(args)?;
     if passages.is_empty() {
         return Err(
             "Paramètre `passages` (ou `quote`) requis : le texte exact à surligner.".into(),
@@ -278,7 +370,7 @@ fn highlight_passage(config: &Config, args: &Value) -> Result<String, String> {
 }
 
 fn edit_highlights(config: &Config, name: &str, args: &Value) -> Result<String, String> {
-    let passages = arg_passages(args);
+    let passages = arg_passages(args)?;
     let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
     if passages.is_empty() && !all {
         return Err(
@@ -335,6 +427,9 @@ fn arg_articles(args: &Value) -> Vec<String> {
 fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
     if name == "highlight_passage" {
         return highlight_passage(config, args);
+    }
+    if name == "read_article" {
+        return read_article(config, args);
     }
     if name == "update_highlights" || name == "remove_highlights" {
         return edit_highlights(config, name, args);
@@ -612,6 +707,7 @@ mod tests {
                 "search_annotations",
                 "list_annotated_articles",
                 "get_article_annotations",
+                "read_article",
                 "highlight_passage",
                 "update_highlights",
                 "remove_highlights"
@@ -800,7 +896,8 @@ mod tests {
         // « ia-culis » est coupé en fin de ligne dans le PDF.
         let args = json!({"article": "Warren 1980", "color": "vert", "passages": [
             {"quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "page": 1, "memo": "pour la discussion"},
-            {"quote": "a sentence that this article never contains anywhere"}
+            {"quote": "a sentence that this article never contains anywhere"},
+            {"quote": "Surface albedo controls the energy balance of glaciers", "color": "rose"}
         ]});
         let (text, is_error) = call_tool(&config, "highlight_passage", args.clone());
         assert!(!is_error, "{text}");
@@ -812,7 +909,11 @@ mod tests {
         )
         .unwrap();
         let annots = store["zotero/ABCD1234/paper.pdf"].as_array().unwrap();
-        assert_eq!(annots.len(), 1);
+        assert_eq!(annots.len(), 2);
+        assert_eq!(
+            annots[1]["color"], "rgba(255,140,160,.40)",
+            "a passage's own color wins over the call's"
+        );
         let a = &annots[0];
         assert_eq!(a["kind"], "hl");
         assert_eq!(a["page"], 1);
@@ -851,6 +952,74 @@ mod tests {
             json!({"article": "Nobody 2099", "quote": "anything at all long enough"}),
         );
         assert!(is_error && text.contains("Aucun PDF"), "{text}");
+        let (text, is_error) = call_tool(
+            &config,
+            "highlight_passage",
+            json!({"article": "Warren 1980", "passages": [{"quote": "Surface albedo controls the energy", "color": "violet"}]}),
+        );
+        assert!(is_error && text.contains("couleur inconnue"), "{text}");
+
+        // read_article : n'importe quel PDF de Zotero, page par page
+        let (text, is_error) = call_tool(
+            &config,
+            "read_article",
+            json!({"article": "Wiscombe 1980", "pages": "1"}),
+        );
+        assert!(!is_error, "{text}");
+        assert!(
+            text.starts_with("Warren & Wiscombe 1980 [ABCD1234] : A model for the spectral albedo of snow\n2 page(s)."),
+            "{text}"
+        );
+        assert!(text.contains("--- p. 1 ---\n"), "{text}");
+        assert!(!text.contains("--- p. 2 ---"), "{text}");
+        assert!(
+            text.contains("Integer sapien est, iaculis in, pretium quis"),
+            "hyphenated words are rejoined: {text}"
+        );
+        let (all, _) = call_tool(&config, "read_article", json!({"article": "ABCD1234"}));
+        assert!(all.contains("--- p. 2 ---"), "{all}");
+        let (text, is_error) = call_tool(
+            &config,
+            "read_article",
+            json!({"article": "ABCD1234", "pages": "deux"}),
+        );
+        assert!(is_error && text.contains("`pages` illisible"), "{text}");
+    }
+
+    #[test]
+    fn a_title_phrase_picks_one_article_among_word_matches() {
+        let (dir, config) = setup();
+        let db = rusqlite::Connection::open(dir.path().join("zotero.sqlite")).unwrap();
+        db.execute_batch(
+            "INSERT INTO items VALUES (5, 'PARENT02'), (6, 'EFGH5678');
+             INSERT INTO itemAttachments VALUES (6, 5, 'application/pdf', 'storage:other.pdf');
+             INSERT INTO itemDataValues VALUES (3, 'Snow albedo and the model of it');
+             INSERT INTO itemData VALUES (5, 1, 3);",
+        )
+        .unwrap();
+        drop(db);
+        for (key, file) in [("ABCD1234", "paper.pdf"), ("EFGH5678", "other.pdf")] {
+            let d = dir.path().join("storage").join(key);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(file), b"%PDF").unwrap();
+        }
+        let err = crate::highlight::resolve(&config, "snow model")
+            .err()
+            .unwrap();
+        assert!(err.starts_with("2 articles correspondent"), "{err}");
+        let t = crate::highlight::resolve(&config, "albedo of snow")
+            .ok()
+            .unwrap();
+        assert_eq!(t.article.key, "ABCD1234");
+    }
+
+    #[test]
+    fn page_ranges() {
+        assert_eq!(parse_pages("", 3).unwrap(), [1, 2, 3]);
+        assert_eq!(parse_pages("2-", 4).unwrap(), [2, 3, 4]);
+        assert_eq!(parse_pages("1, 3-9", 4).unwrap(), [1, 3, 4]);
+        assert!(parse_pages("0", 4).is_err());
+        assert!(parse_pages("3-1", 4).is_err());
     }
 
     #[test]

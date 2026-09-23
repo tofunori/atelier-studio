@@ -140,7 +140,11 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
             } else {
                 text(a, "memo")
             };
+            // Un trait d'union conditionnel en fin de ligne (« al\u{ad} bedo »,
+            // surlignages plus anciens) disparaît avec l'espace qui le suit.
             let passage = text(a, "text")
+                .replace("\u{ad} ", "")
+                .replace('\u{ad}', "")
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -384,10 +388,15 @@ mod tests {
             {"id": 1, "page": 3, "kind": "hl", "text": "grain  size\nmatters", "note": "Explique ce passage", "memo": "Pour la discussion", "color": "rgba(255,213,74,.40)"},
             {"id": 2, "page": 4, "kind": "hl", "text": "chat only", "note": "Question au chat"},
             {"id": 3, "page": 5, "kind": "note", "text": "", "note": "Note libre posée sur la page"},
-            {"id": 4, "page": 6, "kind": "area", "text": "", "note": ""}
+            {"id": 4, "page": 6, "kind": "area", "text": "", "note": ""},
+            {"id": 5, "page": 7, "kind": "hl", "text": "low al\u{ad} bedo values", "memo": "césure"}
         ]});
         let annots = atelier_annotations(&store);
-        assert_eq!(annots.len(), 3, "an empty area has nothing to show");
+        assert_eq!(annots.len(), 4, "an empty area has nothing to show");
+        assert_eq!(
+            annots[3].passage, "low albedo values",
+            "soft hyphen rejoined"
+        );
         assert_eq!(annots[0].article, "ABCD1234");
         assert_eq!(annots[0].passage, "grain size matters");
         assert_eq!(annots[0].note, "Pour la discussion");

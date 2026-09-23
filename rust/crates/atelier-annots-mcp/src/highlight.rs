@@ -40,6 +40,11 @@ pub const COLORS: [(&str, &str); 4] = [
 pub struct Word {
     /// Ligne de poppler (numérotée sur tout le document).
     pub line: usize,
+    /// Bloc de poppler (paragraphe ; numéroté sur tout le document).
+    pub block: usize,
+    /// Exposant ou indice collé au mot précédent (« g−1 », « km2 », « 1◦ ») :
+    /// petit, décalé de la ligne de base et sans vraie espace avant.
+    pub attached: bool,
     /// [x0, y0, x1, y1] en points, origine haut-gauche.
     pub bbox: [f64; 4],
     pub text: String,
@@ -65,29 +70,61 @@ pub fn parse_bbox_layout(xhtml: &str) -> Result<Vec<Page>, String> {
         allow_dtd: true,
         ..Default::default()
     };
+    // poppler laisse passer des caractères de contrôle (« \u{7} » dans certains
+    // PDF Wiley) que XML interdit : ils deviennent des espaces.
+    let cleaned: String;
+    let xhtml = if xhtml
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+    {
+        cleaned = xhtml
+            .chars()
+            .map(|c| {
+                if c.is_control() && !matches!(c, '\t' | '\n' | '\r') {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect();
+        &cleaned
+    } else {
+        xhtml
+    };
     let doc = roxmltree::Document::parse_with_options(xhtml, options)
         .map_err(|e| format!("sortie de pdftotext illisible : {e}"))?;
     let mut pages = Vec::new();
     let mut line_no = 0;
+    let mut block_no = 0;
     for page in doc.descendants().filter(|n| n.tag_name().name() == "page") {
         let mut words = Vec::new();
-        for line in page.descendants().filter(|n| n.tag_name().name() == "line") {
-            line_no += 1;
-            for word in line.children().filter(|n| n.tag_name().name() == "word") {
-                let text = word.text().unwrap_or("").to_string();
-                if text.trim().is_empty() {
-                    continue;
+        for block in page
+            .descendants()
+            .filter(|n| n.tag_name().name() == "block")
+        {
+            block_no += 1;
+            for line in block.children().filter(|n| n.tag_name().name() == "line") {
+                line_no += 1;
+                let first = words.len();
+                for word in line.children().filter(|n| n.tag_name().name() == "word") {
+                    let text = word.text().unwrap_or("").to_string();
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    words.push(Word {
+                        line: line_no,
+                        block: block_no,
+                        attached: false,
+                        bbox: [
+                            attr(word, "xMin"),
+                            attr(word, "yMin"),
+                            attr(word, "xMax"),
+                            attr(word, "yMax"),
+                        ],
+                        text,
+                    });
                 }
-                words.push(Word {
-                    line: line_no,
-                    bbox: [
-                        attr(word, "xMin"),
-                        attr(word, "yMin"),
-                        attr(word, "xMax"),
-                        attr(word, "yMax"),
-                    ],
-                    text,
-                });
+                mark_scripts(&mut words[first..]);
             }
         }
         pages.push(Page {
@@ -98,6 +135,25 @@ pub fn parse_bbox_layout(xhtml: &str) -> Result<Vec<Page>, String> {
         });
     }
     Ok(pages)
+}
+
+/// Marque les exposants et indices d'une ligne : nettement plus petits que le
+/// plus grand mot de la ligne, décalés de sa ligne de base ou de son haut, et
+/// presque collés au mot précédent.
+fn mark_scripts(line: &mut [Word]) {
+    let height = |w: &Word| w.bbox[3] - w.bbox[1];
+    let Some(tall) = line.iter().map(height).reduce(f64::max) else {
+        return;
+    };
+    let bottom = line.iter().map(|w| w.bbox[3]).fold(f64::MIN, f64::max);
+    let top = line.iter().map(|w| w.bbox[1]).fold(f64::MAX, f64::min);
+    for i in 1..line.len() {
+        let w = &line[i];
+        let small = height(w) < 0.75 * tall;
+        let shifted = w.bbox[3] < bottom - 0.15 * tall || w.bbox[1] > top + 0.15 * tall;
+        let close = w.bbox[0] - line[i - 1].bbox[2] < 0.5 * tall;
+        line[i].attached = small && shifted && close;
+    }
 }
 
 /// Lettres et chiffres seulement, sans accents, en minuscules ; les ligatures
@@ -286,30 +342,45 @@ pub fn parts(pages: &[Page], found: &Found) -> Vec<PagePart> {
     out
 }
 
-/// Texte lisible d'une suite de mots : ligatures dépliées (NFKC) et césure
-/// de fin de ligne recollée (« glaci- » + « ers » → « glaciers ») quand la
-/// suite commence par une minuscule.
-fn join_words(words: &[Word]) -> String {
+/// Texte lisible d'une suite de mots : ligatures dépliées (NFKC), césure de
+/// fin de ligne recollée (« glaci- » + « ers » → « glaciers » quand la suite
+/// commence par une minuscule ; toujours pour un trait d'union conditionnel,
+/// « al\u{ad} » + « bedo » → « albedo ») et exposants collés (« g−1 »).
+pub fn join_words(words: &[Word]) -> String {
     let mut out = String::new();
     let mut glue = false;
     for (i, w) in words.iter().enumerate() {
         let text: String = w.text.nfkc().collect();
-        if i > 0 && !glue {
+        if i > 0 && !glue && !w.attached {
             out.push(' ');
         }
-        let next = words.get(i + 1);
-        let hyphen_break = text.ends_with('-')
-            && next.is_some_and(|n| {
-                n.line != w.line && n.text.chars().next().is_some_and(char::is_lowercase)
-            });
-        if hyphen_break {
-            out.push_str(&text[..text.len() - 1]);
+        let next_line = words.get(i + 1).filter(|n| n.line != w.line);
+        let soft = text.ends_with('\u{ad}') && next_line.is_some();
+        let hard = text.ends_with('-')
+            && next_line.is_some_and(|n| n.text.chars().next().is_some_and(char::is_lowercase));
+        let body = if soft || hard {
+            &text[..text.len() - text.chars().last().map_or(0, char::len_utf8)]
         } else {
-            out.push_str(&text);
-        }
-        glue = hyphen_break;
+            &text[..]
+        };
+        out.push_str(&body.replace('\u{ad}', ""));
+        glue = soft || hard;
     }
     out
+}
+
+/// Texte d'une page, un paragraphe (bloc de poppler) par ligne.
+pub fn page_text(page: &Page) -> String {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for i in 1..=page.words.len() {
+        if i == page.words.len() || page.words[i].block != page.words[start].block {
+            out.push(join_words(&page.words[start..i]));
+            start = i;
+        }
+    }
+    out.retain(|p| !p.trim().is_empty());
+    out.join("\n\n")
 }
 
 fn pdftotext_bin() -> String {
@@ -418,6 +489,20 @@ pub fn resolve(config: &Config, wanted: &str) -> Result<Target, String> {
         return Ok(found.swap_remove(i));
     }
     found.retain(|t| t.pdf.is_file());
+    // « Fire and Ice » : chaque mot se retrouve dans plusieurs articles, mais
+    // un seul titre (ou référence) contient l'expression entière.
+    if found.len() > 1 {
+        let phrase = fold(wanted.trim());
+        let whole: Vec<usize> = (0..found.len())
+            .filter(|&i| {
+                let a = &found[i].article;
+                fold(&a.title).contains(&phrase) || fold(&a.citation).contains(&phrase)
+            })
+            .collect();
+        if let [i] = whole[..] {
+            return Ok(found.swap_remove(i));
+        }
+    }
     match found.len() {
         0 => Err(format!("Aucun PDF de Zotero ne correspond à « {wanted} ».")),
         1 => Ok(found.remove(0)),
@@ -684,6 +769,8 @@ pub struct Request {
     pub quote: String,
     pub page: Option<u32>,
     pub memo: String,
+    /// Couleur propre à ce passage (`None` = celle de l'appel).
+    pub color: Option<&'static str>,
 }
 
 /// Surligne chaque passage de `requests` dans `target` ; renvoie le compte
@@ -741,7 +828,7 @@ pub fn highlight(
                 "rects": part.rects,
                 "text": part.text,
                 "kind": "hl",
-                "color": color,
+                "color": req.color.unwrap_or(color),
                 "note": "",
                 "by": "claude",
             });
@@ -882,6 +969,49 @@ mod tests {
         );
         assert!(find(&pages, "something that is not in the text at all", None).is_err());
         assert!(find(&pages, "Black", None).is_err(), "too short");
+    }
+
+    /// Deux paragraphes : un trait d'union conditionnel en fin de ligne, puis
+    /// des exposants (« g−1 », « km2 ») comme dans les articles Elsevier.
+    const SCRIPTS: &str = r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><doc>
+  <page width="600.000000" height="800.000000"><flow>
+    <block>
+      <line><word xMin="37" yMin="700" xMax="60" yMax="713">low</word><word xMin="64" yMin="700" xMax="80" yMax="713">al&#173;</word></line>
+      <line><word xMin="37" yMin="714" xMax="55" yMax="727">bedo</word><word xMin="58" yMin="714" xMax="80" yMax="727">values</word></line>
+    </block>
+    <block>
+      <line><word xMin="75" yMin="433.46" xMax="83.76" yMax="446.49">ng</word><word xMin="87.19" yMin="433.46" xMax="91.37" yMax="446.49">g</word><word xMin="91.33" yMin="435.17" xMax="92.82" yMax="440.56">&#8722;</word><word xMin="95.98" yMin="432.33" xMax="99.34" yMax="442.10">1</word><word xMin="103" yMin="433.46" xMax="120" yMax="446.49">over</word><word xMin="124" yMin="433.46" xMax="140" yMax="446.49">km</word><word xMin="140.5" yMin="432.33" xMax="143.5" yMax="440.1">2</word></line>
+    </block>
+  </flow></page>
+</doc></body></html>"#;
+
+    #[test]
+    fn control_characters_from_poppler_do_not_break_parsing() {
+        let xhtml = XHTML.replace(
+            ">Black</word><word xMin=\"145\"",
+            ">Bl\u{7}ack</word><word xMin=\"145\"",
+        );
+        let pages = parse_bbox_layout(&xhtml).unwrap();
+        assert_eq!(pages[0].words[0].text, "Bl ack");
+    }
+
+    #[test]
+    fn soft_hyphens_and_exponents_read_like_the_article() {
+        let pages = parse_bbox_layout(SCRIPTS).unwrap();
+        let words = &pages[0].words;
+        assert!(!words[1].attached && !words[5].attached);
+        assert!(
+            words[6].attached && words[7].attached,
+            "− and 1 are an exponent"
+        );
+        assert!(!words[8].attached, "the next word keeps its space");
+        assert_eq!(
+            page_text(&pages[0]),
+            "low albedo values\n\nng g\u{2212}1 over km2"
+        );
+        let found = find(&pages, "low albedo values", None).unwrap();
+        assert!(found.exact);
+        assert_eq!(parts(&pages, &found)[0].text, "low albedo values");
     }
 
     #[test]
