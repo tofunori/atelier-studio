@@ -716,7 +716,7 @@ impl Provider for ClaudeProvider {
         ]
     }
     fn default_model(&self) -> String {
-        "claude-opus-5[1m]".into()
+        "claude-opus-5-5[1m]".into()
     }
 
     /// Jeu intégré + droits du compte. Sans ce complément, un modèle ouvert

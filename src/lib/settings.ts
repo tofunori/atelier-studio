@@ -76,7 +76,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
-  defaultModel: { claude: "claude-opus-5[1m]", codex: "gpt-5.6-sol" },
+  defaultModel: { claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-sol" },
   defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
   defaultPermissionMode: "acceptEdits",
   threadOrder: "recent",
@@ -187,6 +187,19 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     id: "2026-08-21.thinking-collapsed-by-default-v3",
     promote: (stored) => (stored.thinkingCollapsed === false ? { thinkingCollapsed: true } : {}),
   },
+  {
+    // 2026-09-25 (demande de Thierry) : le défaut Claude passe d'Opus 5 · 1M à
+    // Opus 5.5 · 1M. Seuls les anciens défauts hérités suivent ; un autre
+    // modèle choisi explicitement (Opus 4.8, Fable…) reste en place.
+    id: "2026-09-25.claude-default-opus-5-5-1m",
+    promote: (stored) => {
+      const claude = stored.defaultModel?.claude;
+      const inherited = !claude || ["claude-opus-5[1m]", "claude-opus-5", "claude-sonnet-5", "claude-sonnet-5[1m]"].includes(claude);
+      return inherited
+        ? { defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel, claude: DEFAULT_SETTINGS.defaultModel.claude } }
+        : {};
+    },
+  },
 ];
 
 function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
@@ -257,7 +270,11 @@ export function loadSettings(): Settings {
       ...stored,
       // après `stored` : une promotion ne vaut que face à un ancien défaut hérité
       ...promoted,
-      defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...storedDefaultModel },
+      defaultModel: {
+        ...DEFAULT_SETTINGS.defaultModel,
+        ...storedDefaultModel,
+        ...(promoted.defaultModel?.claude ? { claude: promoted.defaultModel.claude } : {}),
+      },
       autoReview: { ...DEFAULT_SETTINGS.autoReview, ...(stored as any).autoReview },
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
       customModels: stored.customModels ?? [],
@@ -274,7 +291,9 @@ export function loadSettings(): Settings {
     // migration puisse se rejouer. Un échec d'écriture ne fait pas échouer le
     // chargement — au pire la valeur restera à promouvoir.
     if (Object.keys(promoted).length > 0) {
-      lastBootPromotions = promoted;
+      // defaultModel promu : l'objet complet fusionné, pour que le merge du
+      // boot (superficiel) ne perde pas les autres providers.
+      lastBootPromotions = promoted.defaultModel ? { ...promoted, defaultModel: settings.defaultModel } : promoted;
       try {
         localStorage.setItem(KEY, JSON.stringify(settings));
       } catch {}
