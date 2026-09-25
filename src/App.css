@@ -3970,6 +3970,17 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-size: var(--fs-m); color: var(--text-primary); background: var(--bg-side);
   border: 1px solid var(--border2); border-radius: var(--r-s); }
 .int-input:focus { outline: none; border-color: var(--accent); }
+/* raison de la demande, plan à valider, aperçu de modification, consigne
+   de refus (Claude Code : mêmes informations que la question du terminal) */
+.int-reason { margin-top: 4px; font-size: var(--fs-s); color: var(--text-disabled); white-space: pre-wrap; }
+.int-plan { margin-top: 8px; padding: 8px 12px; max-height: 360px; overflow-y: auto; border-radius: var(--r-s);
+  background: var(--bg-side); color: var(--text-secondary); font-size: var(--fs-m); line-height: 1.5;
+  overflow-wrap: anywhere; }
+.int-plan.is-final { max-height: 160px; }
+.int-plan > :first-child { margin-top: 0; }
+.int-plan > :last-child { margin-bottom: 0; }
+.int-preview { margin-top: 8px; max-height: 280px; overflow: auto; border-radius: var(--r-s); background: var(--bg-side); }
+.int-feedback { margin-top: 8px; }
 /* détail d'outil (Bash(git status)) */
 .tool-detail { color: var(--text-disabled); font-family: var(--code-font); font-size: var(--fs-s);
   margin-left: 6px; }

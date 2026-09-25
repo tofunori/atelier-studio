@@ -9,18 +9,26 @@
 //    réponse, jamais dans le DOM après envoi ni dans answerSummary ;
 //  - mode URL : on affiche seulement le domaine et on émet accept/decline —
 //    JAMAIS de window.open ici, le sidecar/l'OS gère l'ouverture.
-import { useEffect, useState } from "react";
-import type { AgentEvent, InteractionResponse } from "../../lib/ws";
+import { lazy, Suspense, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Check } from "lucide-react";
+import type { AgentEvent, InteractionChoice, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { Input } from "../shadcn/input";
 import { RadioGroup, RadioGroupItem } from "../shadcn/radio-group";
+import { Checkbox, CheckboxIndicator } from "../shadcn/checkbox";
 import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
 import { Button, RowButton } from "../ui";
+
+const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 
 export type InteractionEvent = Extract<AgentEvent, { kind: "interaction" }>;
 
 /** Sentinelle locale du choix « Autre » — jamais envoyée telle quelle. */
 const OTHER = "__other__";
+
+const isReject = (c: InteractionChoice) => c.kind === "reject_once" || c.kind === "reject_always";
 
 export function HarnessInteraction({ event: e, threadId }: {
   event: InteractionEvent;
@@ -33,6 +41,10 @@ export function HarnessInteraction({ event: e, threadId }: {
   const [values, setValues] = useState<Record<string, string>>({});
   // fieldId → texte libre du choix « Autre »
   const [others, setOthers] = useState<Record<string, string>>({});
+  // fieldId → options cochées (question à choix multiples)
+  const [checked, setChecked] = useState<Record<string, string[]>>({});
+  // consigne jointe à un refus (« dire à l'agent quoi faire à la place »)
+  const [feedback, setFeedback] = useState("");
 
   const final = sent || e.state !== "pending";
   const fields = e.fields ?? [];
@@ -43,6 +55,16 @@ export function HarnessInteraction({ event: e, threadId }: {
       detail: { threadId, requestId: e.requestId, response },
     }));
     setSent(true);
+  };
+  // Choix dynamique : optionId OPAQUE ; un refus emporte la consigne tapée,
+  // un choix d'arrêt le signale (App interrompt alors le tour).
+  const choose = (c: InteractionChoice) => {
+    const message = e.feedback && isReject(c) ? feedback.trim() : "";
+    answer({
+      optionId: c.optionId,
+      ...(c.cancelTurn ? { cancelTurn: true } : {}),
+      ...(message ? { message } : {}),
+    });
   };
   useEffect(() => {
     if (final || e.interactionType !== "approval") return;
@@ -59,7 +81,7 @@ export function HarnessInteraction({ event: e, threadId }: {
         const choice = Number.isInteger(index) ? e.choices[index] : undefined;
         if (!choice) return;
         event.preventDefault();
-        answer({ optionId: choice.optionId });
+        choose(choice);
         return;
       }
       const response =
@@ -74,15 +96,25 @@ export function HarnessInteraction({ event: e, threadId }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [e.interactionType, final]);
+  }, [e.interactionType, final, feedback]);
   const collect = (): Record<string, string> => {
     const out: Record<string, string> = {};
     for (const f of fields) {
+      if (f.multiSelect) {
+        const picked = (checked[f.id] ?? []).map((v) => v === OTHER ? (others[f.id] ?? "").trim() : v);
+        out[f.id] = picked.filter(Boolean).join(", ");
+        continue;
+      }
       const v = values[f.id] ?? "";
       out[f.id] = v === OTHER ? (others[f.id] ?? "") : v;
     }
     return out;
   };
+  const toggle = (fieldId: string, value: string) => setChecked((current) => {
+    const list = current[fieldId] ?? [];
+    return { ...current, [fieldId]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] };
+  });
+  const firstReject = e.choices?.find(isReject);
 
   const verdict =
     e.state === "declined" ? t("interaction.declined")
@@ -105,6 +137,19 @@ export function HarnessInteraction({ event: e, threadId }: {
         <span className="int-type">{t(`interaction.type-${e.interactionType}` as Parameters<typeof t>[0])}</span>
       </div>
       {e.detail ? <div className="int-detail">{e.detail}</div> : null}
+      {e.reason && !final ? <div className="int-reason">{e.reason}</div> : null}
+      {e.markdown ? (
+        <div className={`int-plan${final ? " is-final" : ""}`}>
+          <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>{e.markdown}</ReactMarkdown>
+        </div>
+      ) : null}
+      {e.preview && !final ? (
+        <div className="int-preview">
+          <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
+            <AtelierDiffView before={e.preview.oldText} after={e.preview.newText} path={e.preview.path} compact />
+          </Suspense>
+        </div>
+      ) : null}
       {urlMode ? <div className="int-domain">{t("interaction.url-ask", { domain: e.urlDomain })}</div> : null}
       {!final && fields.map((f) => {
         const qid = `int-q-${e.requestId}-${f.id}`;
@@ -112,7 +157,37 @@ export function HarnessInteraction({ event: e, threadId }: {
         return (
           <Field key={f.id} className="int-field">
             {f.header ? <FieldTitle className="int-field-header">{f.header}</FieldTitle> : null}
-            {f.options?.length ? (
+            {f.options?.length && f.multiSelect ? (
+              <>
+                <FieldTitle className="int-q" id={qid}>{f.question}</FieldTitle>
+                <div className="int-opts" role="group" aria-labelledby={qid}>
+                  {[...f.options.map((o) => ({ value: o.value ?? o.label, label: o.label, description: o.description })),
+                    ...(f.allowOther ? [{ value: OTHER, label: t("interaction.other"), description: undefined }] : [])]
+                    .map((o) => (
+                      <label key={o.value} className="int-opt">
+                        <Checkbox
+                          checked={(checked[f.id] ?? []).includes(o.value)}
+                          aria-label={o.label}
+                          onCheckedChange={() => toggle(f.id, o.value)}
+                        >
+                          <CheckboxIndicator><Check size={12} strokeWidth={1.5} /></CheckboxIndicator>
+                        </Checkbox>
+                        <span>{o.label}</span>
+                        {o.description ? <span className="int-opt-desc">{o.description}</span> : null}
+                      </label>
+                    ))}
+                  {(checked[f.id] ?? []).includes(OTHER) ? (
+                    <Input
+                      className="int-input"
+                      value={others[f.id] ?? ""}
+                      placeholder={t("interaction.other-placeholder")}
+                      aria-label={t("interaction.other-placeholder")}
+                      onChange={(ev) => setOthers((v) => ({ ...v, [f.id]: ev.target.value }))}
+                    />
+                  ) : null}
+                </div>
+              </>
+            ) : f.options?.length ? (
               <>
                 <FieldTitle className="int-q" id={qid}>{f.question}</FieldTitle>
                 <RadioGroup
@@ -176,12 +251,28 @@ export function HarnessInteraction({ event: e, threadId }: {
           </Field>
         );
       })}
+      {!final && e.feedback && e.choices?.length ? (
+        <Input
+          className="int-input int-feedback"
+          value={feedback}
+          placeholder={t("interaction.feedback-placeholder")}
+          aria-label={t("interaction.feedback-placeholder")}
+          onChange={(ev) => setFeedback(ev.target.value)}
+          onKeyDown={(ev) => {
+            // Entrée = refuser avec cette consigne, comme dans le terminal.
+            if (ev.key === "Enter" && feedback.trim() && firstReject) {
+              ev.preventDefault();
+              choose(firstReject);
+            }
+          }}
+        />
+      ) : null}
       {final ? (
         <div className="perm-verdict" role="status">{verdict}</div>
       ) : (
         <div className="perm-actions">
           {e.interactionType === "approval" && e.choices?.length ? (
-            // Choix dynamiques (Kimi) : ordre EXACT du provider, libellés tels
+            // Choix dynamiques (Kimi, Claude) : ordre EXACT du provider, libellés tels
             // quels, réponse = optionId opaque. Les kinds reject_* prennent le
             // style danger ; le premier allow_* est l'action primaire.
             <div className="approval-decisions">
@@ -193,7 +284,7 @@ export function HarnessInteraction({ event: e, threadId }: {
                     key={c.optionId}
                     className={`approval-decision${primary ? " primary" : ""}${reject ? " danger" : ""}`}
                     aria-label={c.label}
-                    onClick={() => answer({ optionId: c.optionId })}
+                    onClick={() => choose(c)}
                   >
                     <kbd>{index + 1}</kbd>
                     <span>

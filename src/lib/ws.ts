@@ -69,8 +69,18 @@ type AgentEventBody =
         // value : identifiant opaque renvoyé à la place du label (plan 046)
         options?: { label: string; description?: string; value?: string }[];
         allowOther?: boolean;
+        /** Plusieurs options cochables (AskUserQuestion) : réponse = libellés joints par « , ». */
+        multiSelect?: boolean;
         secret?: boolean;
       }[];
+      /** Plan à valider (ExitPlanMode de Claude), en markdown. */
+      markdown?: string;
+      /** Un refus peut porter une consigne libre, transmise à l'agent. */
+      feedback?: boolean;
+      /** Pourquoi l'agent demande (decision_reason du CLI, nettoyé). */
+      reason?: string;
+      /** Avant/après d'une modification de fichier, montré avant d'autoriser. */
+      preview?: { path: string; oldText: string; newText: string };
       state: "pending" | "answered" | "declined" | "expired";
       answerSummary?: string;
       ts?: number;
@@ -215,6 +225,8 @@ export type InteractionChoice = {
   label: string;
   description?: string;
   kind?: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+  /** Ce choix arrête aussi le tour en cours (« Refuser et arrêter »). */
+  cancelTurn?: boolean;
 };
 
 /** Réponse frontend à un événement interaction — envoyée UNIQUEMENT dans le
@@ -222,7 +234,7 @@ export type InteractionChoice = {
  * ailleurs : ni AgentEvent, ni journal, ni logs). */
 export type InteractionResponse =
   | { allow: boolean; scope?: "once" | "session"; cancelTurn?: boolean }
-  | { optionId: string; cancelTurn?: boolean }
+  | { optionId: string; cancelTurn?: boolean; message?: string }
   | { answers: Record<string, string> }
   | { action: "accept" | "decline"; content?: Record<string, string> };
 
