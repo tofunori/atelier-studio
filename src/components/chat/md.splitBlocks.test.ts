@@ -66,6 +66,16 @@ describe("splitMarkdownBlocks", () => {
     ]);
   });
 
+  it("item à plusieurs paragraphes et code indenté : la liste reste d'un bloc, la numérotation continue", () => {
+    const list = "1. **Relire** la section.\n\n   Le paragraphe cite l'ancienne valeur.\n\n2. Relancer :\n\n   ```bash\n   python fig4.py\n   ```\n\n3. Vérifier S2.";
+    expect(splitMarkdownBlocks(`Intro.\n\n${list}\n\nFin.`)).toEqual(["Intro.", list, "Fin."]);
+  });
+
+  it("notes de bas de page : un seul bloc, sinon l'appel et la note ne se trouvent plus", () => {
+    const text = "Valeur[^1].\n\nAutre paragraphe.\n\n[^1]: Source.";
+    expect(splitMarkdownBlocks(text)).toEqual([text]);
+  });
+
   it("recomposition : rejoindre les blocs avec \\n\\n redonne un texte markdown équivalent", () => {
     const text = "A.\n\nB.\n\nC.";
     expect(splitMarkdownBlocks(text).join("\n\n")).toBe(text);

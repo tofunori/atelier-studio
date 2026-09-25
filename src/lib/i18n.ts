@@ -810,6 +810,7 @@ const fr = {
   "event.steered": "steer transmis",
   "event.permission-fallback": "mode de permission non reconnu — repli lecture seule",
   "event.session-cleared": "session Codex réinitialisée",
+  "event.notice": "avis",
   "event.thinking": "réflexion…",
   "git.agent-turn": "Tour agent",
   "git.branch-fallback": "repo",
@@ -1611,6 +1612,8 @@ const fr = {
   "chat.subagent-mission": "Mission confiée",
   "chat.subagent-activity": "Voir l’activité",
   "chat.subagent-waiting": "En attente de la première mise à jour visible…",
+  "chat.footnotes": "Notes",
+  "chat.footnote-back": "Revenir à l'appel de note",
   "chat.activity-compaction": "Compacte le contexte",
   "chat.activity-compaction-target": "Compacte {target}",
   "chat.activity-planning": "Met le plan à jour",
@@ -2665,6 +2668,7 @@ const en: Record<keyof typeof fr, string> = {
   "event.steered": "steer sent",
   "event.permission-fallback": "unrecognized permission mode — read-only fallback",
   "event.session-cleared": "Codex session reset",
+  "event.notice": "notice",
   "event.thinking": "thinking…",
   "git.agent-turn": "Agent turn",
   "git.branch-fallback": "repo",
@@ -3454,6 +3458,8 @@ const en: Record<keyof typeof fr, string> = {
   "chat.subagent-mission": "Assigned task",
   "chat.subagent-activity": "View activity",
   "chat.subagent-waiting": "Waiting for the first visible update…",
+  "chat.footnotes": "Notes",
+  "chat.footnote-back": "Back to reference",
   "chat.activity-compaction": "Compacting context",
   "chat.activity-compaction-target": "Compacting {target}",
   "chat.activity-planning": "Updating the plan",
@@ -3762,6 +3768,7 @@ export function eventLabel(name: string): string {
   if (name === "__steered") return t("event.steered");
   if (name === "__permission-fallback") return t("event.permission-fallback");
   if (name === "__session-cleared") return t("event.session-cleared");
+  if (name === "__notice") return t("event.notice");
   if (name.startsWith("__edits:")) {
     const files = name.slice("__edits:".length).trim();
     return files ? t("event.edits", { files }) : t("event.edits-files");

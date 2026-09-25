@@ -428,14 +428,34 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .chat-md > * + h4, .chat-md > * + h5, .chat-md > * + h6 { margin-top: 16px; }
 .chat-md h1:first-child, .chat-md h2:first-child, .chat-md h3:first-child,
 .chat-md h4:first-child, .chat-md h5:first-child, .chat-md h6:first-child { margin-top: 0; }
-.chat-md h1, .chat-md h2 { font-size: var(--fs-xl); }
-.chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 { font-size: var(--fs-l); }
+/* Titres à la taille du texte (réglage du chat) : ils suivaient --fs-xl et
+   --fs-l fixes, si bien qu'un ### sortait PLUS PETIT que le corps. La
+   hiérarchie vient de la graisse, puis du gris pour les niveaux 4 à 6. */
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 { font-size: 1em; }
+.chat-md h4, .chat-md h5, .chat-md h6 { color: var(--text-secondary); }
 .chat-md img { max-width: 100%; height: auto; border-radius: var(--r-m); }
 .chat-md ul, .chat-md ol { padding-left: 1.4em; }
 .chat-md li { margin-top: 4px; }
 .chat-md li > p { margin-top: 4px; }
 .chat-md li::marker { color: var(--text-disabled); }
 .chat-md strong { font-weight: 600; }
+/* HTML en ligne accepté (src/lib/remarkInlineHtml.ts) et notes de bas de page. */
+.chat-md sup, .chat-md sub { font-size: 0.75em; line-height: 0; }
+.chat-md kbd { font-family: var(--code-font); font-size: 0.85em; padding: 0.1em 0.4em;
+  background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-s); }
+.chat-md mark { color: inherit; background: color-mix(in srgb, var(--hl-line) 30%, transparent); padding: 0 0.1em; }
+.chat-md .md-footnote-ref { color: var(--accent); text-decoration: none; padding: 0 0.1em;
+  font-variant-numeric: tabular-nums; }
+.chat-md .md-footnote-ref:hover { text-decoration: underline; }
+.chat-md .footnotes { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border);
+  color: var(--text-secondary); font-size: max(var(--fs-l), calc(var(--chat-fs, var(--fs-xl)) - 2px)); }
+.chat-md .footnotes ol { margin: 0; }
+.chat-md .footnotes li::marker { font-variant-numeric: tabular-nums; }
+.chat-md .md-footnote-back { display: inline-flex; vertical-align: middle; margin-left: 4px;
+  color: var(--text-muted); transition: color 120ms ease; }
+.chat-md .md-footnote-back:hover { color: var(--text-primary); }
+.chat-md .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .chat-md :not(pre) > code { background: var(--bg-ctl); border: 1px solid var(--border);
   border-radius: var(--r-s); padding: 0.1em 0.35em; font-family: var(--code-font); font-size: 0.92em; }
 .chat-md blockquote { border-left: 2px solid var(--border); padding-left: 12px; color: var(--text-secondary); }
@@ -486,6 +506,13 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .chat-md td code, .chat-md th code { white-space: normal; overflow-wrap: anywhere; }
 .tool, .done { color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
 .tool-output, .todos { color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
+/* Avis du CLI (hook en échec, message bloqué, modèle de repli) : une phrase
+   entière, icône seule teintée ; le texte garde le gris des lignes d'outil. */
+.chat-notice { display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.chat-notice-icon { flex: 0 0 12px; margin-top: calc((1.5em - 12px) / 2); color: var(--text-disabled); }
+.chat-notice[data-tone="warning"] .chat-notice-icon { color: var(--status-warning); }
+.chat-notice[data-tone="warning"] .chat-notice-text { color: var(--text-secondary); }
+.chat-notice-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tool-output-head { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   align-items: center; gap: 7px; background: transparent; border: none; color: inherit;
   cursor: pointer; font: inherit; padding: 1px 0; text-align: left; }

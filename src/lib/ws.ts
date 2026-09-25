@@ -107,7 +107,8 @@ type AgentEventBody =
       steps?: { title: string; detail?: string; status?: "running" | "completed" | "failed"; phase?: string; ts?: number }[];
       ts?: number;
     }
-  | { kind: "tool"; name: string; detail?: string }
+  /** `tone` : avis du CLI (`__notice`) — `warning` pour un échec ou un blocage. */
+  | { kind: "tool"; name: string; detail?: string; tone?: "info" | "warning" }
   | { kind: "widget"; id: string; title: string; height: number; ts?: number }
   | {
       kind: "edit";
