@@ -114,6 +114,16 @@ impl HarnessManager {
         self.runs.lock().await.remove(thread_id);
     }
 
+    /// Comme `clear_running`, mais seulement si le run en cours est encore
+    /// `turn_id` : la fin tardive d'un ancien tour ne doit pas effacer l'état
+    /// d'un tour plus récent du même fil.
+    pub async fn clear_running_turn(&self, thread_id: &str, turn_id: &str) {
+        let mut runs = self.runs.lock().await;
+        if runs.get(thread_id).is_some_and(|r| r.turn_id == turn_id) {
+            runs.remove(thread_id);
+        }
+    }
+
     pub async fn request_cancel(&self, thread_id: &str) {
         self.cancel.lock().await.insert(thread_id.to_string(), true);
     }
@@ -125,5 +135,21 @@ impl HarnessManager {
             .get(thread_id)
             .copied()
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn la_fin_d_un_ancien_tour_n_efface_pas_le_tour_suivant() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = HarnessManager::new(HarnessJournal::new(dir.path()));
+        manager.set_running("fil", "tour-2", "claude").await;
+        manager.clear_running_turn("fil", "tour-1").await;
+        assert!(manager.is_running("fil").await);
+        manager.clear_running_turn("fil", "tour-2").await;
+        assert!(!manager.is_running("fil").await);
     }
 }

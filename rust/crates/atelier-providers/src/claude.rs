@@ -31,9 +31,29 @@ pub const ULTRACODE: &str = "ultracode";
 
 /// Stdin du tour en cours, partagé entre la boucle de lecture (réponses de
 /// permission), le steer (message injecté dans le tour COURANT) et la clôture
-/// après `result`. `None` = déjà refermé : plus rien ne peut y entrer, et un
-/// steer retombe alors sur le chemin normal.
-type LiveStdin = Arc<Mutex<Option<ChildStdin>>>;
+/// après `result`. `pipe: None` = déjà refermé : plus rien ne peut y entrer,
+/// et un steer retombe alors sur le chemin normal.
+#[derive(Default)]
+struct StdinVivant {
+    pipe: Option<ChildStdin>,
+    /// `uuid` des messages utilisateur écrits que le CLI n'a pas encore pris
+    /// en compte (pas encore rejoués, cf. `--replay-user-messages`). Un
+    /// message écrit pendant la réponse finale devient un tour de plus APRÈS
+    /// le `result` (sonde 2026-09-25, `result_index: 1`) : tant qu'il en
+    /// reste, le tour Atelier n'est pas fini. Dans l'ordre d'écriture : le
+    /// CLI les prend dans cet ordre, l'accusé d'un message vaut pour ceux
+    /// d'avant.
+    en_attente: Vec<String>,
+}
+
+type LiveStdin = Arc<Mutex<StdinVivant>>;
+
+fn live_stdin(pipe: Option<ChildStdin>) -> LiveStdin {
+    Arc::new(Mutex::new(StdinVivant {
+        pipe,
+        en_attente: Default::default(),
+    }))
+}
 
 struct ActiveRun {
     child: Child,
@@ -60,23 +80,32 @@ impl ArretDoux {
 /// Délai laissé au CLI pour conclure un tour après une demande d'arrêt.
 const ARRET_DOUX: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Tour retenu dont plus rien n'est attendu : délai laissé au CLI pour
+/// repartir de lui-même (il enchaîne d'ordinaire dans la seconde qui suit la
+/// fin d'une tâche de fond) avant que le tour se conclue quand même.
+#[cfg(not(test))]
+const FIN_ATTENTE: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(test)]
+const FIN_ATTENTE: std::time::Duration = std::time::Duration::from_millis(300);
+/// Même filet quand un message écrit n'a pas encore d'accusé.
+#[cfg(not(test))]
+const FIN_ATTENTE_MESSAGE: std::time::Duration = std::time::Duration::from_secs(60);
+#[cfg(test)]
+const FIN_ATTENTE_MESSAGE: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Message utilisateur NDJSON attendu par `--input-format stream-json`
 /// (forme sondée sur le CLI 2.1.261, 2026-09-04).
-fn user_message(text: &str) -> Value {
+/// Le `uuid` revient tel quel dans l'accusé `isReplay` : c'est lui qui dit
+/// quand le CLI a pris le message en compte.
+fn user_message(text: &str, uuid: &str) -> Value {
     json!({
         "type": "user",
+        "uuid": uuid,
         "message": {"role": "user", "content": [{"type": "text", "text": text}]},
     })
 }
 
-/// Écrit une ligne NDJSON sur le stdin du tour. `false` si le stdin est déjà
-/// refermé (tour conclu) ou si le CLI est parti — jamais une panique : un
-/// EPIPE sur un process qui vient de sortir est banal.
-async fn write_line(stdin: &LiveStdin, value: &Value) -> bool {
-    let mut guard = stdin.lock().await;
-    let Some(pipe) = guard.as_mut() else {
-        return false;
-    };
+async fn write_to(pipe: &mut ChildStdin, value: &Value) -> bool {
     let mut ligne = match serde_json::to_vec(value) {
         Ok(v) => v,
         Err(_) => return false,
@@ -86,6 +115,33 @@ async fn write_line(stdin: &LiveStdin, value: &Value) -> bool {
         return false;
     }
     pipe.flush().await.is_ok()
+}
+
+/// Écrit une ligne NDJSON sur le stdin du tour. `false` si le stdin est déjà
+/// refermé (tour conclu) ou si le CLI est parti — jamais une panique : un
+/// EPIPE sur un process qui vient de sortir est banal.
+async fn write_line(stdin: &LiveStdin, value: &Value) -> bool {
+    let mut guard = stdin.lock().await;
+    let Some(pipe) = guard.pipe.as_mut() else {
+        return false;
+    };
+    write_to(pipe, value).await
+}
+
+/// Écrit un message utilisateur et le note en attente d'accusé, sous le même
+/// verrou que la décision de clôture : un message ne peut pas se glisser
+/// entre « plus rien en attente » et la fermeture du stdin.
+async fn write_user(stdin: &LiveStdin, text: &str) -> bool {
+    let uuid = Uuid::new_v4().to_string();
+    let mut guard = stdin.lock().await;
+    let Some(pipe) = guard.pipe.as_mut() else {
+        return false;
+    };
+    let ok = write_to(pipe, &user_message(text, &uuid)).await;
+    if ok {
+        guard.en_attente.push(uuid);
+    }
+    ok
 }
 
 /// Traite un `control_request` du CLI (demande de permission d'outil).
@@ -184,9 +240,26 @@ fn handle_control_request(
 /// ouvert : sans cette clôture après le `result`, le tour ne se terminerait
 /// qu'au filet d'inactivité (600 s de chrono à vide).
 async fn close_stdin(stdin: &LiveStdin) {
-    if let Some(mut pipe) = stdin.lock().await.take() {
+    if let Some(mut pipe) = stdin.lock().await.pipe.take() {
         let _ = pipe.shutdown().await;
     }
+}
+
+/// Après un `result` : ferme le stdin seulement si le CLI n'a plus rien à
+/// faire — aucune tâche de fond vivante, aucun message écrit et pas encore
+/// pris en compte. Sinon la session reste ouverte : le CLI reprendra seul la
+/// main (fin d'une tâche de fond, message en attente), comme dans le
+/// terminal. `accuses` = le CLI rejoue bien les messages ; sans accusé (CLI
+/// trop ancien), les envois en attente ne peuvent pas retenir le tour.
+async fn close_stdin_if_idle(stdin: &LiveStdin, background: usize, accuses: bool) -> bool {
+    let mut guard = stdin.lock().await;
+    if background > 0 || (accuses && !guard.en_attente.is_empty()) {
+        return false;
+    }
+    if let Some(mut pipe) = guard.pipe.take() {
+        let _ = pipe.shutdown().await;
+    }
+    true
 }
 
 pub struct ClaudeProvider {
@@ -436,6 +509,10 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
         // host` seul fait refuser les outils EN SILENCE (sonde 2026-09-04).
         "--input-format".into(),
         "stream-json".into(),
+        // Accusé de chaque message écrit sur stdin, au moment où le CLI le
+        // prend en compte : sans lui, impossible de savoir si un message
+        // envoyé pendant la réponse finale attend encore son tour.
+        "--replay-user-messages".into(),
         "--permission-prompt-tool".into(),
         "stdio".into(),
         "--permission-prompts".into(),
@@ -445,6 +522,19 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     ];
     if permission_mode == "bypassPermissions" {
         args.push("--dangerously-skip-permissions".into());
+    }
+    // Dossiers associés au projet en écriture : Codex les reçoit comme racines
+    // inscriptibles, Claude comme répertoires de travail (sans eux, chaque
+    // écriture y demandait une permission). Un drapeau par dossier : la forme
+    // variadique avalerait l'option suivante.
+    for dossier in req
+        .additional_directories
+        .iter()
+        .map(|d| d.trim())
+        .filter(|d| d.starts_with('/'))
+    {
+        args.push("--add-dir".into());
+        args.push(dossier.to_string());
     }
     // Prefer full settings (CLAUDE.md, skills) unless bare requested.
     if std::env::var("ATELIER_CLAUDE_BARE").is_ok() {
@@ -771,7 +861,7 @@ impl Provider for ClaudeProvider {
                 .get(&req.thread_id)
                 .map(|run| Arc::clone(&run.stdin));
             if let Some(stdin) = stdin {
-                if write_line(&stdin, &user_message(&req.prompt)).await {
+                if write_user(&stdin, &req.prompt).await {
                     (req.on_event)(json!({"kind":"tool","name":"__steered"}));
                     return SendResult {
                         session_id: req.session_id,
@@ -834,8 +924,8 @@ impl Provider for ClaudeProvider {
         // message `user` avant de dire quoi que ce soit. Un échec d'écriture
         // (process déjà sorti) n'est pas remonté ici — le tour se conclura
         // sur la sortie du CLI, avec son propre message.
-        let live_stdin: LiveStdin = Arc::new(Mutex::new(child.stdin.take()));
-        if !write_line(&live_stdin, &user_message(&req.prompt)).await {
+        let live_stdin: LiveStdin = live_stdin(child.stdin.take());
+        if !write_user(&live_stdin, &req.prompt).await {
             eprintln!("[claude] prompt non écrit sur stdin (process déjà sorti ?)");
         }
 
@@ -907,6 +997,19 @@ impl Provider for ClaudeProvider {
             // Échéance de l'arrêt doux, armée au réveil par interrupt().
             let mut echeance: Option<tokio::time::Instant> = None;
             let mut arret_dur = false;
+            // Le CLI rejoue les messages écrits (`--replay-user-messages`).
+            let mut accuses = false;
+            // `done` retenu : le CLI a rendu un `result` mais n'a pas fini
+            // (tâche de fond vivante, message en attente). Il reprendra seul
+            // la main ; le tour Atelier se conclut sur SON dernier `result`,
+            // qui remplace celui-ci.
+            let mut differe: Option<Value> = None;
+            // Filet du `done` retenu : plus rien n'est attendu et le CLI ne
+            // repart pas — le tour se conclut quand même.
+            let mut fin_attente: Option<tokio::time::Instant> = None;
+            // Attente d'une tâche de fond, CLI muet : légitime (le terminal
+            // attend aussi), donc hors du filet d'inactivité.
+            let mut attente_fond: Option<crate::turn_idle::HumanWait> = None;
             loop {
                 // Stop demandé au CLI : on le laisse conclure (son `result`
                 // arrive par stdout) au lieu de le tuer tout de suite.
@@ -954,6 +1057,21 @@ impl Provider for ClaudeProvider {
                         arret_dur = true;
                         continue;
                     }
+                    _ = async {
+                        match fin_attente {
+                            Some(t) => tokio::time::sleep_until(t).await,
+                            None => std::future::pending::<()>().await,
+                        }
+                    } => {
+                        fin_attente = None;
+                        attente_fond = None;
+                        if let Some(ev) = differe.take() {
+                            on_event(ev);
+                        }
+                        state.saw_terminal = true;
+                        close_stdin(&live_stdin).await;
+                        continue;
+                    }
                 };
                 match lu {
                     Ok(Some(line)) => {
@@ -979,6 +1097,15 @@ impl Provider for ClaudeProvider {
                             continue;
                         }
                         let mut events = parse_line(&mut state, &line);
+                        if !state.replayed.is_empty() {
+                            accuses = true;
+                            let mut guard = live_stdin.lock().await;
+                            for uuid in state.replayed.drain(..) {
+                                if let Some(i) = guard.en_attente.iter().position(|u| *u == uuid) {
+                                    guard.en_attente.drain(..=i);
+                                }
+                            }
+                        }
                         if arret.demande() {
                             // Le `result` qui suit un arrêt demandé est un
                             // Stop, pas une erreur : même terminal que l'arrêt
@@ -987,6 +1114,47 @@ impl Provider for ClaudeProvider {
                                 if matches!(ev.get("kind").and_then(Value::as_str), Some("error" | "done")) {
                                     *ev = json!({"kind": "error", "message": "interrupted"});
                                 }
+                            }
+                        }
+                        // Tour conclu côté CLI. Réussi, il ne ferme la
+                        // session que si plus rien n'est attendu ; sinon son
+                        // `done` est retenu et le CLI reprend la main plus tard
+                        // (fin d'une tâche de fond, message écrit pendant la
+                        // réponse finale), comme dans le terminal — fermer ici
+                        // tuait les commandes de fond et rattachait les tours
+                        // suivants à un tour déjà clos.
+                        if state.saw_terminal {
+                            let reussi = !arret.demande()
+                                && events.iter().any(|ev| {
+                                    ev.get("kind").and_then(Value::as_str) == Some("done")
+                                        && ev.get("ok").and_then(Value::as_bool) == Some(true)
+                                });
+                            if !reussi {
+                                differe = None;
+                                close_stdin(&live_stdin).await;
+                            } else if !close_stdin_if_idle(
+                                &live_stdin,
+                                state.background_tasks,
+                                accuses,
+                            )
+                            .await
+                            {
+                                if let Some(i) = events.iter().position(|ev| {
+                                    ev.get("kind").and_then(Value::as_str) == Some("done")
+                                }) {
+                                    differe = Some(events.remove(i));
+                                }
+                                state.saw_terminal = false;
+                                let note = match state.background_tasks {
+                                    0 => "Claude passe à ton message suivant…".to_string(),
+                                    1 => "Claude attend une tâche de fond — Stop pour l'arrêter".to_string(),
+                                    n => format!("Claude attend {n} tâches de fond — Stop pour les arrêter"),
+                                };
+                                events.push(json!({"kind": "heartbeat", "note": note}));
+                            } else {
+                                // Ce `result` conclut le tour : il remplace
+                                // celui qui était retenu.
+                                differe = None;
                             }
                         }
                         for ev in events {
@@ -1009,14 +1177,42 @@ impl Provider for ClaudeProvider {
                             }
                             on_event(ev);
                         }
-                        // Tour conclu : refermer stdin, sinon le CLI reste
-                        // vivant (il attend un message de plus) et la boucle
-                        // n'atteindrait l'EOF qu'au filet d'inactivité.
-                        if state.saw_terminal {
-                            close_stdin(&live_stdin).await;
+                        // Tour retenu : quand plus rien n'est attendu et que
+                        // le CLI ne repart pas, le filet `fin_attente` conclut.
+                        // Pendant l'attente d'une tâche de fond, le silence du
+                        // CLI est normal : hors filet d'inactivité.
+                        if differe.is_some() && !state.saw_terminal && !state.turn_active {
+                            if state.background_tasks == 0 {
+                                // Un message en attente fait repartir le CLI
+                                // aussitôt ; le délai long ne couvre qu'un
+                                // accusé qui ne viendrait jamais.
+                                let delai = if !accuses || live_stdin.lock().await.en_attente.is_empty() {
+                                    FIN_ATTENTE
+                                } else {
+                                    FIN_ATTENTE_MESSAGE
+                                };
+                                fin_attente.get_or_insert_with(|| tokio::time::Instant::now() + delai);
+                                attente_fond = None;
+                            } else {
+                                fin_attente = None;
+                                if attente_fond.is_none() {
+                                    attente_fond = Some(activity.wait_for_human());
+                                }
+                            }
+                        } else {
+                            fin_attente = None;
+                            attente_fond = None;
                         }
                     }
-                    Ok(None) => break,
+                    Ok(None) => {
+                        // Le CLI est sorti de lui-même avec un tour retenu :
+                        // la réponse était complète, elle conclut le tour.
+                        if let Some(ev) = differe.take() {
+                            on_event(ev);
+                            state.saw_terminal = true;
+                        }
+                        break;
+                    }
                     Err(e) => {
                         ok = false;
                         err_msg = Some(format!("read claude stdout: {e}"));
@@ -1403,6 +1599,26 @@ mod drapeaux_tests {
     }
 
     const SESSION: &str = "0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000";
+
+    #[test]
+    fn les_dossiers_inscriptibles_passent_en_add_dir() {
+        let mut r = req(None, false);
+        r.additional_directories = vec!["/data/a".into(), " /data/b ".into(), "relatif".into()];
+        let args = build_args(&r, None);
+        let dirs: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--add-dir")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(dirs, ["/data/a", "/data/b"], "{args:?}");
+        assert!(!build_args(&req(None, false), None).iter().any(|a| a == "--add-dir"));
+    }
+
+    #[test]
+    fn le_cli_accuse_chaque_message_ecrit() {
+        let args = build_args(&req(None, false), None);
+        assert!(args.iter().any(|a| a == "--replay-user-messages"), "{args:?}");
+    }
 
     fn req_mcp(linked: bool) -> SendRequest {
         let mut r = req(None, false);
@@ -2465,6 +2681,123 @@ mod session_vivante_tests {
         );
         let events = vus.lock().unwrap();
         assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
+    }
+
+    /// Tâche de fond vivante au `result` : le CLI reprendra la main à sa fin
+    /// (comme dans le terminal). Le stdin reste ouvert, le premier `done` est
+    /// retenu et le tour se conclut sur le `result` du tour suivant.
+    #[tokio::test]
+    async fn une_tache_de_fond_retient_le_tour_jusqua_sa_fin() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{{\"task_id\":\"b1\",\"task_type\":\"local_bash\"}}]}}'\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"lancé\",\"usage\":{{}}}}'\n\
+             sleep 1\n\
+             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[]}}'\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"fini après la tâche\",\"usage\":{{}}}}'\n\
+             cat > /dev/null\n"
+        ));
+        let provider = provider_pour(&cli);
+        let (on_event, vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req("t-fond", SendMode::Normal, "salut", on_event, None)),
+        )
+        .await
+        .expect("le tour doit se conclure après la tâche de fond");
+        assert!(res.ok, "{:?}", res.error);
+        let events = vus.lock().unwrap();
+        let dones: Vec<&Value> = events.iter().filter(|v| v["kind"] == "done").collect();
+        assert_eq!(dones.len(), 1, "{events:?}");
+        assert_eq!(dones[0]["result"], "fini après la tâche");
+        assert!(events.iter().any(|v| v["kind"] == "heartbeat"
+            && v["note"].as_str().is_some_and(|n| n.contains("tâche de fond"))));
+    }
+
+    /// Plus de tâche de fond et le CLI ne repart pas : le `done` retenu
+    /// conclut quand même le tour, sans attendre le filet d'inactivité.
+    #[tokio::test]
+    async fn un_tour_retenu_sans_suite_se_conclut_quand_meme() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{{\"task_id\":\"b1\"}}]}}'\n\
+             printf '%s\\n' '{RESULT}'\n\
+             sleep 0.2\n\
+             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[]}}'\n\
+             cat > /dev/null\n"
+        ));
+        let provider = provider_pour(&cli);
+        let (on_event, vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            provider.send(req("t-fond-seul", SendMode::Normal, "salut", on_event, None)),
+        )
+        .await
+        .expect("le filet du tour retenu doit conclure");
+        assert!(res.ok, "{:?}", res.error);
+        let events = vus.lock().unwrap();
+        assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
+    }
+
+    /// Message écrit pendant la réponse finale : le CLI le prend APRÈS son
+    /// `result` (accusé `isReplay` plus tard, puis un second `result`). Le
+    /// tour Atelier ne se conclut qu'après la réponse à ce message.
+    #[tokio::test]
+    async fn un_message_ecrit_pendant_la_reponse_finale_retient_le_tour() {
+        let replay = |var: &str| {
+            format!("printf '{{\"type\":\"user\",\"isReplay\":true,\"uuid\":\"%s\",\"message\":{{\"role\":\"user\",\"content\":[]}}}}\\n' \"$(printf '%s' \"${var}\" | sed 's/.*\"uuid\":\"\\([^\"]*\\)\".*/\\1/')\"\n")
+        };
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             {}\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"stream_event\",\"event\":{{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"Glaciers\"}}}}}}'\n\
+             IFS= read -r steer\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"glaciers\",\"usage\":{{}}}}'\n\
+             sleep 0.3\n\
+             {}\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"kiwi\",\"usage\":{{}}}}'\n\
+             cat > /dev/null\n",
+            replay("prompt"),
+            replay("steer"),
+        ));
+        let provider = Arc::new(provider_pour(&cli));
+        let (on_event, vus) = collecteur();
+        let principal = {
+            let provider = Arc::clone(&provider);
+            tokio::spawn(async move {
+                provider
+                    .send(req("t-tardif", SendMode::Normal, "écris", on_event, None))
+                    .await
+            })
+        };
+        // Le steer part pendant la « réponse finale » du faux CLI.
+        let debut = std::time::Instant::now();
+        while !vus.lock().unwrap().iter().any(|v| v["kind"] == "delta" || v["kind"] == "text") {
+            assert!(debut.elapsed() < std::time::Duration::from_secs(5), "pas de texte");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let (on_steer, _) = collecteur();
+        let steer = provider
+            .send(req("t-tardif", SendMode::Steer, "et kiwi", on_steer, None))
+            .await;
+        assert!(steer.ok, "{:?}", steer.error);
+        let res = tokio::time::timeout(std::time::Duration::from_secs(8), principal)
+            .await
+            .expect("le tour doit se conclure")
+            .unwrap();
+        assert!(res.ok, "{:?}", res.error);
+        let events = vus.lock().unwrap();
+        let dones: Vec<&Value> = events.iter().filter(|v| v["kind"] == "done").collect();
+        assert_eq!(dones.len(), 1, "{events:?}");
+        assert_eq!(dones[0]["result"], "kiwi");
     }
 
     /// Stop = demande d'arrêt sur stdin, comme Échap dans le terminal : le
