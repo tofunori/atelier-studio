@@ -31,6 +31,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import remarkGfm from "remark-gfm";
+import remarkInlineHtml from "../../lib/remarkInlineHtml";
 import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
 import { hardenPartialMarkdown } from "../../lib/markdown";
@@ -306,6 +307,13 @@ export function escapeHtml(text: string): string {
 // sert à repérer une liste "lâche" (items séparés par une ligne vide) pour
 // ne jamais la couper en deux <ul>/<ol> distincts (plan 066, L1).
 const LIST_MARKER_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
+const LIST_LINE_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/m;
+// ligne indentée : suite d'un item de liste (paragraphe, bloc de code, sous-
+// liste) après une ligne vide.
+const INDENTED_RE = /^[ \t]+\S/;
+// définition de note de bas de page (`[^1]: …`) : l'appel et la note doivent
+// être dans le MÊME parse, sinon l'appel reste « [^1] » et la note disparaît.
+const FOOTNOTE_DEF_RE = /^\[\^[^\]\s]+\]:/m;
 
 /**
  * Découpe un message markdown en blocs sur les frontières `\n\n+`, sans
@@ -314,7 +322,10 @@ const LIST_MARKER_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
  * fence n'est pas refermée ; si elle ne se referme jamais — streaming en
  * cours —, tout le reste du texte reste dans le dernier bloc). Une liste
  * lâche (items séparés par une ligne vide) n'est pas coupée non plus : la
- * numérotation/le regroupement `<ul>`/`<ol>` doit rester continu.
+ * numérotation/le regroupement `<ul>`/`<ol>` doit rester continu — ni un
+ * item à plusieurs paragraphes (suite indentée, bloc de code indenté), qui
+ * sinon sortait de la liste et relançait la numérotation. Un message qui
+ * porte des notes de bas de page reste d'un seul bloc.
  *
  * Sert de base au rendu par blocs mémoïsés (`MdBlock` ci-dessous) : seul le
  * DERNIER bloc change de contenu pendant le streaming, les précédents
@@ -322,6 +333,7 @@ const LIST_MARKER_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
  */
 export function splitMarkdownBlocks(markdown: string): string[] {
   if (!markdown) return [];
+  if (FOOTNOTE_DEF_RE.test(markdown)) return [markdown];
   const blocks: string[] = [];
   const n = markdown.length;
   let blockStart = 0;
@@ -342,6 +354,13 @@ export function splitMarkdownBlocks(markdown: string): string[] {
       const firstLineAfter = markdown.slice(j, nextNewline === -1 ? n : nextNewline);
       if (LIST_MARKER_RE.test(lastLineOfBefore) && LIST_MARKER_RE.test(firstLineAfter)) {
         // liste lâche : on continue d'accumuler dans le même bloc
+        i = j;
+        continue;
+      }
+      if ((INDENTED_RE.test(firstLineAfter) || LIST_MARKER_RE.test(firstLineAfter))
+        && LIST_LINE_RE.test(before)) {
+        // suite d'un item (paragraphe ou code indentés) ou item suivant
+        // après une telle suite : toujours la même liste
         i = j;
         continue;
       }
@@ -606,6 +625,32 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
+    // Notes de bas de page (remark-gfm) : appel ⇄ note DANS le message —
+    // les id se répètent d'un message à l'autre, la recherche reste locale.
+    if (href.startsWith("#user-content-")) {
+      const backref = props.node?.properties?.dataFootnoteBackref != null;
+      return (
+        <a
+          className={backref ? "md-footnote-back" : "md-footnote-ref"}
+          href={href}
+          aria-label={backref ? t("chat.footnote-back") : undefined}
+          aria-describedby={props["aria-describedby"]}
+          id={props.id}
+          onClick={(e) => {
+            e.preventDefault();
+            const scope = e.currentTarget.closest(".chat-md, .msg") ?? document;
+            scope.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: "nearest" });
+          }}
+        >
+          {backref ? (
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+              strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 13V3.5M4 7l4-4 4 4" />
+            </svg>
+          ) : props.children}
+        </a>
+      );
+    }
     return (
       <a
         className="md-link"
@@ -709,7 +754,8 @@ const MdBlock = memo(
     rehypePlugins: any[];
   }) {
     return (
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}
+        remarkRehypeOptions={{ footnoteLabel: t("chat.footnotes"), footnoteBackLabel: t("chat.footnote-back") }}>
         {normalizeMathFences(text)}
       </ReactMarkdown>
     );
@@ -805,7 +851,7 @@ function loadMath() {
     import("katex/dist/katex.min.css"),
   ]).then(([rm, rk]) => {
     mathPlugins = {
-      remark: [GFM_PLUGIN, rm.default],
+      remark: [GFM_PLUGIN, rm.default, remarkInlineHtml],
       rehype: [[rk.default, { throwOnError: false }]],
     };
     mathListeners.forEach((cb) => cb());
@@ -820,7 +866,7 @@ else setTimeout(loadMath, 400);
 // tout le texte entre deux tildes se faisait rayer (capture Thierry
 // 2026-08-22). Le barré volontaire reste disponible via `~~texte~~`.
 const GFM_PLUGIN = [remarkGfm, { singleTilde: false }] as const;
-const BASE_PLUGINS: MdPlugins = { remark: [GFM_PLUGIN], rehype: [] };
+const BASE_PLUGINS: MdPlugins = { remark: [GFM_PLUGIN, remarkInlineHtml], rehype: [] };
 
 /** Plugins markdown courants — se mettent à jour une fois KaTeX chargé. */
 export function useMdPlugins(): MdPlugins {

@@ -27,6 +27,43 @@ pub struct PendingTool {
     /// `system.permission_denied.message` reçu pendant que cet outil est en
     /// attente — sert d'`output` de repli si le `tool_result` arrive vide.
     pub denial_message: Option<String>,
+    /// Outil de la liste de tâches (TaskCreate/TaskUpdate…) : jamais de
+    /// ligne d'outil, la liste complète devient l'événement `todos`.
+    pub task_op: Option<TaskOp>,
+}
+
+/// Opération sur la liste de tâches du CLI (≥ 2.1.2xx : TaskCreate et
+/// TaskUpdate ont remplacé TodoWrite). Le terminal ne montre pas ces appels :
+/// il affiche la liste elle-même sous le spinner (◻ à faire, ◼ en cours,
+/// ✔ terminée).
+#[derive(Debug, Clone)]
+pub enum TaskOp {
+    Create {
+        subject: String,
+    },
+    Update {
+        id: String,
+        status: Option<String>,
+        subject: Option<String>,
+    },
+    /// TaskList / TaskGet : lecture, rien ne change.
+    Read,
+}
+
+/// Une tâche de la liste du CLI, telle qu'Atelier la montre.
+#[derive(Debug, Clone, Default)]
+pub struct SubagentMeta {
+    pub agent_path: Value,
+    pub prompt: Value,
+    /// Dernière activité connue (verbe d'outil, résumé ou description).
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskEntry {
+    pub id: String,
+    pub subject: String,
+    pub status: String,
 }
 
 /// State carried across a single Claude process stream.
@@ -64,6 +101,10 @@ pub struct ClaudeStreamState {
     /// alimentée par `system.task_started`. Sert à router les messages
     /// enfants (`parent_tool_use_id`) vers le bon fil d'agent.
     pub task_id_by_tool_use_id: std::collections::HashMap<String, String>,
+    /// Identité de chaque sous-agent (`task_started`) : le frontend remplace
+    /// l'item `subagent:<id>` à chaque mise à jour, qui doit donc la reporter
+    /// sans quoi l'agent perdait son nom et sa mission en fin de course.
+    pub subagents: std::collections::HashMap<String, SubagentMeta>,
     /// Tâches de fond vivantes (`system.background_tasks_changed`, liste
     /// complète à chaque changement) : Bash `run_in_background`, sous-agents,
     /// Monitor. Tant qu'il en reste, un `result` ne clôt pas la session — le
@@ -77,6 +118,16 @@ pub struct ClaudeStreamState {
     /// premier signe de tour jusqu'à son `result`.
     pub turn_active: bool,
     pub saw_terminal: bool,
+    /// Liste de tâches connue de ce processus (TaskCreate/TaskUpdate). Le
+    /// disque du CLI fait foi quand il est lisible (tâches des tours
+    /// précédents comprises) ; cette copie sert de repli.
+    pub tasks: Vec<TaskEntry>,
+    /// Racine des listes de tâches du CLI (`~/.claude/tasks`). `None` =
+    /// résolue depuis l'environnement ; les tests y mettent un dossier jetable.
+    pub tasks_root: Option<std::path::PathBuf>,
+    /// Hooks en cours (`hook_id`, nom) : la note du chrono nomme le dernier
+    /// lancé et s'efface quand il n'en reste plus.
+    pub running_hooks: Vec<(String, String)>,
 }
 
 impl ClaudeStreamState {
@@ -197,17 +248,124 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 .map_or(0, Vec::len);
         }
         // Les hooks tournent invisiblement — 69 chez Thierry. Comme le
-        // démarrage MCP de Grok, ils occupent l'attente au lieu de laisser
-        // croire que rien ne se passe.
+        // terminal (« running PreToolUse hook »), ils occupent l'attente au
+        // lieu de laisser croire que rien ne se passe ; la note s'efface
+        // quand le dernier hook lancé a répondu.
         if subtype == "hook_started" || subtype == "hook_response" {
-            if let Some(nom) = msg
+            let nom = msg
                 .get("hook_name")
                 .or_else(|| msg.get("hook_event_name"))
                 .or_else(|| msg.get("hook"))
                 .and_then(|v| v.as_str())
                 .filter(|nom| !nom.is_empty())
+                .map(str::to_string);
+            let id = msg
+                .get("hook_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            if subtype == "hook_started" {
+                if let Some(nom) = nom.clone() {
+                    if let Some(id) = id.clone() {
+                        state.running_hooks.push((id, nom.clone()));
+                    }
+                    out.push(json!({"kind":"heartbeat", "note": format!("hook {nom}")}));
+                }
+            } else {
+                let avant = state.running_hooks.len();
+                if let Some(id) = id.as_deref() {
+                    state.running_hooks.retain(|(h, _)| h != id);
+                }
+                if state.running_hooks.len() < avant {
+                    let note = state
+                        .running_hooks
+                        .last()
+                        .map(|(_, nom)| format!("hook {nom}"))
+                        .unwrap_or_default();
+                    out.push(json!({"kind":"heartbeat", "note": note}));
+                }
+                if let Some(avis) = hook_failure_notice(msg, nom.as_deref().unwrap_or("hook")) {
+                    out.push(avis);
+                }
+            }
+        }
+        // Bannières du CLI : raison d'un message bloqué par un hook
+        // UserPromptSubmit, retour de commande, suggestion… Le terminal les
+        // affiche (en gris ou en évidence) ; `info` ne se voit qu'en mode
+        // transcript, il reste donc muet ici aussi.
+        if subtype == "informational" {
+            let niveau = msg.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+            if niveau != "info" {
+                if let Some(texte) = msg
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                {
+                    out.push(notice(texte, niveau == "warning"));
+                }
+            }
+        }
+        // Notifications de la boucle (coin de l'écran dans le terminal) :
+        // les urgentes restent dans le fil, les autres passent par la note.
+        // « Stop hook error occurred » double l'avis du hook, déjà montré.
+        if subtype == "notification" {
+            let cle = msg.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            if let Some(texte) = msg
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
             {
-                out.push(json!({"kind":"heartbeat", "note": format!("hook {nom}")}));
+                if cle != "stop-hook-error" {
+                    let urgente = matches!(
+                        msg.get("priority").and_then(|v| v.as_str()),
+                        Some("high" | "immediate")
+                    );
+                    if urgente {
+                        let alerte = matches!(
+                            msg.get("color").and_then(|v| v.as_str()),
+                            Some("error" | "warning")
+                        );
+                        out.push(notice(texte, alerte));
+                    } else {
+                        out.push(json!({"kind":"heartbeat","note": texte}));
+                    }
+                }
+            }
+        }
+        // Bascule sur le modèle de repli (surcharge, modèle retiré…) : le
+        // terminal le dit, sinon la réponse change de qualité sans raison.
+        if subtype == "model_fallback" {
+            let repli = msg
+                .get("fallback_model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let origine = msg
+                .get("original_model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !repli.is_empty() {
+                let texte = if origine.is_empty() {
+                    format!("Ce tour passe sur le modèle de repli {repli}.")
+                } else {
+                    format!("Ce tour passe sur le modèle de repli {repli} au lieu de {origine}.")
+                };
+                out.push(notice(&texte, true));
+            }
+        }
+        // Mémoire automatique écrite (« Saved 2 memories » dans le terminal).
+        if subtype == "memory_saved" {
+            let n = msg
+                .get("written_paths")
+                .and_then(|v| v.as_array())
+                .map_or(0, Vec::len);
+            if n > 0 {
+                let texte = if n == 1 {
+                    "Mémoire enregistrée (1 fichier).".to_string()
+                } else {
+                    format!("Mémoire enregistrée ({n} fichiers).")
+                };
+                out.push(notice(&texte, false));
             }
         }
         // Claude classe lui-même son tour. Un tour « bloqué » qui attend une
@@ -293,6 +451,14 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         .insert(tool_use_id.to_string(), task_id.clone());
                 }
                 let description = msg.get("description").and_then(|v| v.as_str());
+                state.subagents.insert(
+                    task_id.clone(),
+                    SubagentMeta {
+                        agent_path: msg.get("subagent_type").cloned().unwrap_or(Value::Null),
+                        prompt: msg.get("prompt").cloned().unwrap_or(Value::Null),
+                        message: description.map(str::to_string),
+                    },
+                );
                 let mut agents_states = serde_json::Map::new();
                 agents_states.insert(
                     task_id.clone(),
@@ -321,6 +487,63 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 ));
             }
         }
+        // Avancement d'un sous-agent : ce qu'il fait (« Reading a.txt » ou
+        // le résumé du modèle) et ses compteurs — le terminal les montre sur
+        // la rangée de l'agent (« 4s · ↓ 17.1k tokens »). Éphémère : seul
+        // le dernier état compte.
+        if subtype == "task_progress" {
+            if let Some(task_id) = msg
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            {
+                if let Some(tool_use_id) = msg.get("tool_use_id").and_then(|v| v.as_str()) {
+                    state
+                        .task_id_by_tool_use_id
+                        .entry(tool_use_id.to_string())
+                        .or_insert_with(|| task_id.clone());
+                }
+                // Le résumé du modèle (option agentProgressSummaries) prime ;
+                // sinon le verbe d'outil déjà noté par le message enfant, en
+                // français, plutôt que la description anglaise du CLI.
+                let resume = msg
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| truncate_chars(s, 200));
+                let meta = state.subagents.entry(task_id.clone()).or_default();
+                if resume.is_some() {
+                    meta.message = resume;
+                } else if meta.message.is_none() {
+                    meta.message = msg
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| truncate_chars(s.trim(), 200));
+                }
+                let message = meta.message.clone();
+                let detail = msg.get("usage").and_then(task_notification_detail);
+                let mut agents_states = serde_json::Map::new();
+                agents_states.insert(
+                    task_id.clone(),
+                    json!({"status":"running","message": message}),
+                );
+                let mut activity = serde_json::Map::new();
+                activity.insert("tool".into(), json!("activity"));
+                activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
+                activity.insert("agentsStates".into(), Value::Object(agents_states));
+                activity.insert("agentThreadId".into(), json!(task_id.clone()));
+                activity.insert("activityKind".into(), json!("interacted"));
+                with_subagent_identity(state, &task_id, &mut activity);
+                out.push(subagent_event(
+                    &task_id,
+                    "inProgress",
+                    detail.map(|d| json!(d)),
+                    true,
+                    activity,
+                ));
+            }
+        }
         if subtype == "task_updated" {
             if let Some(task_id) = msg
                 .get("task_id")
@@ -332,14 +555,27 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("running")
                     .to_string();
+                // En cours de route, l'activité connue reste affichée.
+                let message = if is_subagent_terminal(&status) {
+                    None
+                } else {
+                    state
+                        .subagents
+                        .get(&task_id)
+                        .and_then(|m| m.message.clone())
+                };
                 let mut agents_states = serde_json::Map::new();
-                agents_states.insert(task_id.clone(), json!({"status": status, "message": null}));
+                agents_states.insert(
+                    task_id.clone(),
+                    json!({"status": status, "message": message}),
+                );
                 let mut activity = serde_json::Map::new();
                 activity.insert("tool".into(), json!("activity"));
                 activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
                 activity.insert("agentsStates".into(), Value::Object(agents_states));
                 activity.insert("agentThreadId".into(), json!(task_id.clone()));
                 activity.insert("activityKind".into(), json!("updated"));
+                with_subagent_identity(state, &task_id, &mut activity);
                 let tool_status = if is_subagent_terminal(
                     msg.pointer("/patch/status")
                         .and_then(|v| v.as_str())
@@ -363,10 +599,13 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("completed")
                     .to_string();
+                // Le rapport ENTIER du sous-agent : c'est ce que le panneau
+                // de l'agent affiche (en Markdown), comme ctrl+o dans le
+                // terminal. Coupé à 200 signes, il s'arrêtait en pleine phrase.
                 let summary = msg
                     .get("summary")
                     .and_then(|v| v.as_str())
-                    .map(|s| truncate_chars(s, 200));
+                    .map(|s| truncate_chars(s, SUBAGENT_REPORT_MAX));
                 let usage = msg.get("usage").cloned().unwrap_or(json!({}));
                 let detail = task_notification_detail(&usage);
                 let mut agents_states = serde_json::Map::new();
@@ -380,6 +619,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 activity.insert("agentsStates".into(), Value::Object(agents_states));
                 activity.insert("agentThreadId".into(), json!(task_id.clone()));
                 activity.insert("activityKind".into(), json!("notification"));
+                with_subagent_identity(state, &task_id, &mut activity);
                 let tool_status = if matches!(
                     status.replace(['_', '-'], "").to_ascii_lowercase().as_str(),
                     "failed" | "errored" | "error"
@@ -557,6 +797,8 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         } else {
                             verb
                         };
+                        state.subagents.entry(task_id.clone()).or_default().message =
+                            Some(message.clone());
                         let mut agents_states = serde_json::Map::new();
                         agents_states.insert(
                             task_id.clone(),
@@ -568,6 +810,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         activity.insert("agentsStates".into(), Value::Object(agents_states));
                         activity.insert("agentThreadId".into(), json!(task_id.clone()));
                         activity.insert("activityKind".into(), json!("interacted"));
+                        with_subagent_identity(state, &task_id, &mut activity);
                         out.push(subagent_event(&task_id, "inProgress", None, true, activity));
                     }
                 }
@@ -678,6 +921,55 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                                 },
                                 started_at_ms: now_ms(),
                                 denial_message: None,
+                                task_op: None,
+                            },
+                        );
+                        continue;
+                    }
+                    // Liste de tâches (TaskCreate/TaskUpdate, CLI ≥ 2.1.2xx) et
+                    // chargement de schémas d'outils (ToolSearch) : de la
+                    // plomberie que le terminal ne montre jamais comme ligne
+                    // d'outil. La liste, elle, devient l'événement `todos`.
+                    let task_op = match name.as_str() {
+                        "TaskCreate" => Some(TaskOp::Create {
+                            subject: input
+                                .get("subject")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .to_string(),
+                        }),
+                        "TaskUpdate" => Some(TaskOp::Update {
+                            id: json_id(input.get("taskId")),
+                            status: input
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string),
+                            subject: input
+                                .get("subject")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty()),
+                        }),
+                        "TaskList" | "TaskGet" => Some(TaskOp::Read),
+                        _ => None,
+                    };
+                    if task_op.is_some() || name == "ToolSearch" {
+                        state.pending_tools.insert(
+                            id.clone(),
+                            PendingTool {
+                                id,
+                                name,
+                                detail: String::new(),
+                                input: json!({}),
+                                source: None,
+                                edit_path: None,
+                                snippet: None,
+                                silent: true,
+                                todos_items: None,
+                                started_at_ms: now_ms(),
+                                denial_message: None,
+                                task_op,
                             },
                         );
                         continue;
@@ -749,6 +1041,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         todos_items: None,
                         started_at_ms: now_ms(),
                         denial_message: None,
+                        task_op: None,
                     };
                     state.pending_tools.insert(id.clone(), pt.clone());
                     // Le bloc complet (input intégral) remplace le verbe de
@@ -823,6 +1116,15 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         if !failed {
                             if let Some(items) = pt.todos_items {
                                 out.push(json!({"kind":"todos","items": items}));
+                            }
+                            // TaskCreate/TaskUpdate : la liste ENTIÈRE, à jour.
+                            if let Some(op) = pt.task_op {
+                                if !matches!(op, TaskOp::Read) {
+                                    apply_task_op(state, op, &output, msg.get("tool_use_result"));
+                                    if let Some(items) = task_list_items(state) {
+                                        out.push(json!({"kind":"todos","items": items}));
+                                    }
+                                }
                             }
                         }
                         continue;
@@ -1016,6 +1318,23 @@ fn build_result_usage(context: u64, u: &Value, msg: &Value) -> Value {
 /// éphémère portée par son `tool_use` (plan phase C) : même `id` stable
 /// (`subagent:<task_id>`) pour que le transcript groupe tout sous le même
 /// agent, seul le contenu d'`agentActivity` change.
+/// Reporte le type d'agent et sa mission sur une mise à jour (voir
+/// `ClaudeStreamState::subagents`).
+fn with_subagent_identity(
+    state: &ClaudeStreamState,
+    task_id: &str,
+    activity: &mut serde_json::Map<String, Value>,
+) {
+    if let Some(meta) = state.subagents.get(task_id) {
+        if !meta.agent_path.is_null() {
+            activity.insert("agentPath".into(), meta.agent_path.clone());
+        }
+        if !meta.prompt.is_null() {
+            activity.insert("prompt".into(), meta.prompt.clone());
+        }
+    }
+}
+
 fn subagent_event(
     task_id: &str,
     status: &str,
@@ -1049,6 +1368,228 @@ fn is_subagent_terminal(status: &str) -> bool {
         status.replace(['_', '-'], "").to_ascii_lowercase().as_str(),
         "running" | "pending" | "queued" | "started" | "inprogress" | ""
     )
+}
+
+/// Rapport final d'un sous-agent gardé pour son panneau (Markdown).
+const SUBAGENT_REPORT_MAX: usize = 8_000;
+/// Sortie d'un hook en échec montrée dans le fil.
+const HOOK_OUTPUT_MAX: usize = 600;
+/// Garde-fou : une liste de tâches de plus de fichiers n'est pas lue.
+const TASK_FILES_MAX: usize = 500;
+
+/// Avis du CLI dans le fil (pseudo-outil `__notice` : une annotation, pas du
+/// travail). `warning` = hook en échec, message bloqué, modèle de repli.
+fn notice(texte: &str, alerte: bool) -> Value {
+    json!({
+        "kind": "tool",
+        "name": "__notice",
+        "detail": truncate_chars(texte, 1_200),
+        "tone": if alerte { "warning" } else { "info" },
+    })
+}
+
+/// Échec d'un hook, comme le terminal le montre (« PostToolUse:Bash hook
+/// error — Failed with non-blocking status code: … », « Stop hook error: … »).
+/// Un blocage de PreToolUse est déjà dans la ligne de l'outil refusé, celui
+/// d'UserPromptSubmit dans la bannière `informational` : pas de doublon.
+fn hook_failure_notice(msg: &Value, nom: &str) -> Option<Value> {
+    if msg.get("outcome").and_then(|v| v.as_str()) != Some("error") {
+        return None;
+    }
+    let evenement = msg.get("hook_event").and_then(|v| v.as_str()).unwrap_or("");
+    let code = msg.get("exit_code").and_then(|v| v.as_i64());
+    let raison = ["stderr", "output", "stdout"]
+        .iter()
+        .filter_map(|cle| msg.get(*cle).and_then(|v| v.as_str()))
+        .map(str::trim)
+        .find(|s| !s.is_empty())
+        .map(|s| truncate_chars(s, HOOK_OUTPUT_MAX));
+    if code == Some(2) {
+        if matches!(
+            evenement,
+            "PreToolUse" | "UserPromptSubmit" | "PermissionRequest"
+        ) {
+            return None;
+        }
+        let texte = match raison {
+            Some(r) => format!("Hook {nom}, renvoyé à Claude : {r}"),
+            None => format!("Hook {nom} : blocage sans message."),
+        };
+        return Some(notice(&texte, true));
+    }
+    let texte = match (code, raison) {
+        (Some(c), Some(r)) => format!("Hook {nom} en erreur (code {c}) : {r}"),
+        (Some(c), None) => format!("Hook {nom} en erreur (code {c}), sans message."),
+        (None, Some(r)) => format!("Hook {nom} en erreur : {r}"),
+        (None, None) => format!("Hook {nom} en erreur."),
+    };
+    Some(notice(&texte, true))
+}
+
+/// Identifiant de tâche : le CLI l'écrit en chaîne (« "3" ») mais un modèle
+/// peut passer un nombre.
+fn json_id(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.trim().to_string(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// « Task #3 created successfully: … » → « 3 ».
+fn task_number(output: &str) -> Option<String> {
+    let reste = &output[output.find('#')? + 1..];
+    let chiffres: String = reste.chars().take_while(char::is_ascii_digit).collect();
+    (!chiffres.is_empty()).then_some(chiffres)
+}
+
+/// Dossier de la liste de tâches du CLI pour cette session :
+/// `$CLAUDE_CONFIG_DIR/tasks/<session>` ou `~/.claude/tasks/<session>`.
+fn tasks_dir(state: &ClaudeStreamState) -> Option<std::path::PathBuf> {
+    let sid = state.session_id.as_deref()?;
+    if sid.is_empty() || !sid.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        return None;
+    }
+    let root = match &state.tasks_root {
+        Some(root) => root.clone(),
+        None => std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".claude"))
+            })?
+            .join("tasks"),
+    };
+    Some(root.join(sid))
+}
+
+/// Relit la liste depuis le disque du CLI (tâches créées aux tours
+/// précédents comprises, suppressions appliquées). Faux si illisible.
+fn reload_tasks_from_disk(state: &mut ClaudeStreamState) -> bool {
+    let Some(dir) = tasks_dir(state) else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return false;
+    };
+    let mut tasks = Vec::new();
+    for entry in entries.flatten().take(TASK_FILES_MAX) {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(v) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        else {
+            continue;
+        };
+        let id = json_id(v.get("id"));
+        let status = v
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("pending")
+            .to_string();
+        let interne = v.pointer("/metadata/_internal").and_then(Value::as_bool) == Some(true);
+        if id.is_empty() || status == "deleted" || interne {
+            continue;
+        }
+        let subject = v
+            .get("subject")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        tasks.push(TaskEntry {
+            id,
+            subject,
+            status,
+        });
+    }
+    state.tasks = tasks;
+    true
+}
+
+/// Applique TaskCreate/TaskUpdate réussi à la liste connue.
+fn apply_task_op(state: &mut ClaudeStreamState, op: TaskOp, output: &str, result: Option<&Value>) {
+    if reload_tasks_from_disk(state) {
+        return;
+    }
+    match op {
+        TaskOp::Create { subject } => {
+            let id = result
+                .and_then(|r| r.pointer("/task/id"))
+                .map(|v| json_id(Some(v)))
+                .filter(|id| !id.is_empty())
+                .or_else(|| task_number(output));
+            let Some(id) = id else {
+                return;
+            };
+            let subject = if subject.is_empty() {
+                result
+                    .and_then(|r| r.pointer("/task/subject"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                subject
+            };
+            state.tasks.retain(|t| t.id != id);
+            state.tasks.push(TaskEntry {
+                id,
+                subject,
+                status: "pending".into(),
+            });
+        }
+        TaskOp::Update {
+            id,
+            status,
+            subject,
+        } => {
+            if status.as_deref() == Some("deleted") {
+                state.tasks.retain(|t| t.id != id);
+                return;
+            }
+            if let Some(tache) = state.tasks.iter_mut().find(|t| t.id == id) {
+                if let Some(s) = status {
+                    tache.status = s;
+                }
+                if let Some(s) = subject {
+                    tache.subject = s;
+                }
+            }
+        }
+        TaskOp::Read => {}
+    }
+}
+
+/// La liste au format `todos` (checklist du fil), dans l'ordre des numéros.
+fn task_list_items(state: &ClaudeStreamState) -> Option<Value> {
+    let mut tasks: Vec<&TaskEntry> = state
+        .tasks
+        .iter()
+        .filter(|t| !t.subject.is_empty())
+        .collect();
+    if tasks.is_empty() {
+        return None;
+    }
+    tasks.sort_by(|a, b| {
+        (a.id.parse::<u64>().unwrap_or(u64::MAX), &a.id)
+            .cmp(&(b.id.parse::<u64>().unwrap_or(u64::MAX), &b.id))
+    });
+    Some(Value::Array(
+        tasks
+            .into_iter()
+            .map(|t| {
+                let mut item = json!({"text": t.subject, "completed": t.status == "completed"});
+                if t.status == "in_progress" {
+                    item.as_object_mut()
+                        .expect("todo object")
+                        .insert("active".into(), json!(true));
+                }
+                item
+            })
+            .collect(),
+    ))
 }
 
 fn truncate_chars(s: &str, max: usize) -> String {
@@ -2175,5 +2716,348 @@ mod tests {
         );
         assert!(e.is_empty());
         assert_eq!(st.drafting_tool, None);
+    }
+
+    /// Hook en échec : le terminal l'écrit (« PostToolUse:Bash hook error »),
+    /// le fil aussi ; un hook réussi ne dit rien et sa note s'efface.
+    #[test]
+    fn hook_en_echec_devient_un_avis() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"hook_started","hook_id":"h1","hook_name":"PostToolUse:Bash","hook_event":"PostToolUse"}"#,
+        );
+        assert_eq!(e[0]["note"], "hook PostToolUse:Bash");
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"hook_response","hook_id":"h1","hook_name":"PostToolUse:Bash","hook_event":"PostToolUse","output":"ok\navertissement du post-hook\n","stdout":"ok\n","stderr":"avertissement du post-hook\n","exit_code":1,"outcome":"error"}"#,
+        );
+        assert_eq!(e[0]["kind"], "heartbeat");
+        assert_eq!(e[0]["note"], "");
+        assert_eq!(e[1]["name"], "__notice");
+        assert_eq!(e[1]["tone"], "warning");
+        assert_eq!(
+            e[1]["detail"],
+            "Hook PostToolUse:Bash en erreur (code 1) : avertissement du post-hook"
+        );
+
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"hook_response","hook_id":"h2","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","stderr":"","exit_code":0,"outcome":"success"}"#,
+        );
+        assert!(e.is_empty(), "hook réussi et inconnu : rien");
+    }
+
+    /// Code 2 : le retour est renvoyé à Claude. Pour Stop/PostToolUse le
+    /// terminal le montre ; pour PreToolUse il est déjà dans la ligne de
+    /// l'outil refusé, pour UserPromptSubmit dans la bannière.
+    #[test]
+    fn hook_bloquant_code_2() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"hook_response","hook_id":"h","hook_name":"Stop","hook_event":"Stop","stderr":"Lance les tests d'abord","exit_code":2,"outcome":"error"}"#,
+        );
+        assert_eq!(
+            e[0]["detail"],
+            "Hook Stop, renvoyé à Claude : Lance les tests d'abord"
+        );
+        for ev in ["PreToolUse", "UserPromptSubmit"] {
+            let ligne = format!(
+                r#"{{"type":"system","subtype":"hook_response","hook_id":"x","hook_name":"{ev}","hook_event":"{ev}","stderr":"non","exit_code":2,"outcome":"error"}}"#
+            );
+            assert!(parse_line(&mut st, &ligne).is_empty(), "{ev}");
+        }
+    }
+
+    /// Bannières et notifications du CLI (message bloqué par un hook,
+    /// modèle de repli, mémoire enregistrée).
+    #[test]
+    fn bannieres_du_cli() {
+        let mut st = ClaudeStreamState::default();
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"informational","content":"UserPromptSubmit operation blocked by hook:\nMot interdit","level":"warning","prevent_continuation":true}"#,
+        );
+        assert_eq!(e[0]["name"], "__notice");
+        assert_eq!(e[0]["tone"], "warning");
+        assert!(parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"informational","content":"détail","level":"info"}"#
+        )
+        .is_empty());
+
+        // « Stop hook error occurred » double l'avis du hook.
+        assert!(parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"notification","key":"stop-hook-error","text":"Stop hook error occurred · ctrl+o to see","priority":"immediate"}"#
+        )
+        .is_empty());
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"notification","key":"k","text":"Serveur MCP déconnecté","priority":"high","color":"error"}"#,
+        );
+        assert_eq!(e[0]["detail"], "Serveur MCP déconnecté");
+        assert_eq!(e[0]["tone"], "warning");
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"notification","key":"k2","text":"Astuce","priority":"low"}"#,
+        );
+        assert_eq!(e[0]["kind"], "heartbeat");
+        assert_eq!(e[0]["note"], "Astuce");
+
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"model_fallback","original_model":"claude-a","fallback_model":"claude-b"}"#,
+        );
+        assert_eq!(
+            e[0]["detail"],
+            "Ce tour passe sur le modèle de repli claude-b au lieu de claude-a."
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"memory_saved","written_paths":["a.md","b.md"]}"#,
+        );
+        assert_eq!(e[0]["detail"], "Mémoire enregistrée (2 fichiers).");
+        assert_eq!(e[0]["tone"], "info");
+    }
+
+    /// Avancement d'un sous-agent : ce qu'il fait et ses compteurs, sur sa
+    /// rangée, comme le terminal (« Reading b.txt · 2 tool uses »).
+    #[test]
+    fn avancement_dun_sous_agent() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"adae","tool_use_id":"toolu_A","description":"Lire a.txt et b.txt","subagent_type":"general-purpose","prompt":"Lis a.txt et b.txt"}"#,
+        );
+        // Ordre réel du CLI : task_progress PUIS le tool_use enfant.
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_progress","task_id":"adae","tool_use_id":"toolu_A","description":"Reading b.txt","subagent_type":"general-purpose","usage":{"total_tokens":12035,"tool_uses":2,"duration_ms":3763},"last_tool_name":"Read"}"#,
+        );
+        assert_eq!(e[0]["id"], "subagent:adae");
+        assert_eq!(e[0]["status"], "inProgress");
+        let act = &e[0]["agentActivity"];
+        assert_eq!(
+            act["agentsStates"]["adae"]["message"],
+            "Lire a.txt et b.txt"
+        );
+        assert_eq!(act["agentPath"], "general-purpose");
+        assert_eq!(act["prompt"], "Lis a.txt et b.txt");
+        assert!(e[0]["detail"].as_str().is_some_and(|d| !d.is_empty()));
+
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/w/b.txt"}}
+            ]},"parent_tool_use_id":"toolu_A"}"#,
+        );
+        let verbe = e[0]["agentActivity"]["agentsStates"]["adae"]["message"].clone();
+        assert!(
+            verbe.as_str().is_some_and(|m| m.contains("b.txt")),
+            "{verbe}"
+        );
+
+        // Le résumé du modèle prime ; une mise à jour garde nom et activité.
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_progress","task_id":"adae","description":"x","summary":"Compare les deux fichiers","usage":{}}"#,
+        );
+        assert_eq!(
+            e[0]["agentActivity"]["agentsStates"]["adae"]["message"],
+            "Compare les deux fichiers"
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_updated","task_id":"adae","patch":{"is_backgrounded":true}}"#,
+        );
+        assert_eq!(
+            e[0]["agentActivity"]["agentsStates"]["adae"]["message"],
+            "Compare les deux fichiers"
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_notification","task_id":"adae","status":"completed","summary":"Fini","usage":{}}"#,
+        );
+        assert_eq!(e[0]["agentActivity"]["agentPath"], "general-purpose");
+        assert_eq!(
+            st.task_id_by_tool_use_id.get("toolu_A").map(String::as_str),
+            Some("adae")
+        );
+    }
+
+    /// Le rapport final d'un sous-agent n'est plus coupé à 200 signes.
+    #[test]
+    fn rapport_de_sous_agent_entier() {
+        let mut st = ClaudeStreamState::default();
+        let rapport = "mot ".repeat(400);
+        let ligne = json!({"type":"system","subtype":"task_notification","task_id":"t",
+            "status":"completed","summary": rapport,"usage":{}})
+        .to_string();
+        let e = parse_line(&mut st, &ligne);
+        assert_eq!(
+            e[0]["agentActivity"]["agentsStates"]["t"]["message"],
+            rapport.as_str()
+        );
+    }
+
+    fn outil(id: &str, name: &str, input: Value) -> String {
+        json!({"type":"assistant","message":{"content":[
+            {"type":"tool_use","id": id,"name": name,"input": input}]}})
+        .to_string()
+    }
+
+    fn resultat(id: &str, texte: &str, extra: Value) -> String {
+        json!({"type":"user","message":{"content":[
+            {"type":"tool_result","tool_use_id": id,"content": texte}]},
+            "tool_use_result": extra})
+        .to_string()
+    }
+
+    /// TaskCreate/TaskUpdate (qui remplacent TodoWrite) : la checklist du
+    /// fil, jamais des lignes d'outil brutes. ToolSearch ne montre rien.
+    #[test]
+    fn liste_de_taches_en_checklist() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut st = ClaudeStreamState {
+            session_id: Some("0199aaaa-bbbb".into()),
+            tasks_root: Some(dir.path().join("absent")),
+            ..Default::default()
+        };
+        assert!(parse_line(
+            &mut st,
+            &outil("s", "ToolSearch", json!({"query":"select:TaskCreate"}))
+        )
+        .is_empty());
+        assert!(parse_line(&mut st, &resultat("s", "ok", json!({}))).is_empty());
+
+        assert!(parse_line(
+            &mut st,
+            &outil(
+                "c1",
+                "TaskCreate",
+                json!({"subject":"Lire","description":"d"})
+            )
+        )
+        .is_empty());
+        let e = parse_line(
+            &mut st,
+            &resultat(
+                "c1",
+                "Task #1 created successfully: Lire",
+                json!({"task":{"id":"1","subject":"Lire"}}),
+            ),
+        );
+        assert_eq!(
+            e,
+            vec![json!({"kind":"todos","items":[{"text":"Lire","completed":false}]})]
+        );
+
+        parse_line(
+            &mut st,
+            &outil("c2", "TaskCreate", json!({"subject":"Écrire"})),
+        );
+        // Sans tool_use_result : le numéro vient du texte.
+        parse_line(
+            &mut st,
+            &resultat("c2", "Task #2 created successfully: Écrire", Value::Null),
+        );
+        parse_line(
+            &mut st,
+            &outil(
+                "u1",
+                "TaskUpdate",
+                json!({"taskId":"1","status":"completed"}),
+            ),
+        );
+        parse_line(
+            &mut st,
+            &resultat("u1", "Updated task #1 status", json!({"success":true})),
+        );
+        parse_line(
+            &mut st,
+            &outil(
+                "u2",
+                "TaskUpdate",
+                json!({"taskId":2,"status":"in_progress"}),
+            ),
+        );
+        let e = parse_line(
+            &mut st,
+            &resultat("u2", "Updated task #2 status", json!({"success":true})),
+        );
+        assert_eq!(
+            e[0]["items"],
+            json!([{"text":"Lire","completed":true},{"text":"Écrire","completed":false,"active":true}])
+        );
+
+        // Suppression : la tâche quitte la liste ; liste vide → rien.
+        parse_line(
+            &mut st,
+            &outil("u3", "TaskUpdate", json!({"taskId":"1","status":"deleted"})),
+        );
+        let e = parse_line(
+            &mut st,
+            &resultat("u3", "Updated task #1 deleted", json!({})),
+        );
+        assert_eq!(e[0]["items"].as_array().unwrap().len(), 1);
+        assert!(parse_line(&mut st, &outil("l", "TaskList", json!({}))).is_empty());
+        assert!(parse_line(
+            &mut st,
+            &resultat("l", "#2 [in_progress] Écrire", json!({}))
+        )
+        .is_empty());
+    }
+
+    /// Quand le dossier du CLI est lisible, la liste vient de lui : tâches
+    /// des tours précédents comprises, internes et supprimées exclues.
+    #[test]
+    fn liste_de_taches_relue_sur_disque() {
+        let dir = tempfile::tempdir().unwrap();
+        let sid = "89a227ef-4474-4fe1-891f-15529090af24";
+        let taches = dir.path().join(sid);
+        std::fs::create_dir_all(&taches).unwrap();
+        let ecrire = |n: &str, v: Value| {
+            std::fs::write(taches.join(format!("{n}.json")), v.to_string()).unwrap()
+        };
+        ecrire(
+            "10",
+            json!({"id":"10","subject":"Dixième","status":"pending"}),
+        );
+        ecrire(
+            "2",
+            json!({"id":"2","subject":"Deuxième","status":"completed"}),
+        );
+        ecrire(
+            "3",
+            json!({"id":"3","subject":"Interne","status":"pending","metadata":{"_internal":true}}),
+        );
+        ecrire(
+            "4",
+            json!({"id":"4","subject":"Supprimée","status":"deleted"}),
+        );
+        std::fs::write(taches.join(".lock"), "").unwrap();
+        let mut st = ClaudeStreamState {
+            session_id: Some(sid.into()),
+            tasks_root: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        parse_line(
+            &mut st,
+            &outil("c", "TaskCreate", json!({"subject":"Dixième"})),
+        );
+        let e = parse_line(
+            &mut st,
+            &resultat("c", "Task #10 created successfully: Dixième", json!({})),
+        );
+        assert_eq!(
+            e[0]["items"],
+            json!([{"text":"Deuxième","completed":true},{"text":"Dixième","completed":false}])
+        );
+
+        // Un identifiant de session douteux ne sort jamais du dossier.
+        st.session_id = Some("../x".into());
+        assert!(tasks_dir(&st).is_none());
     }
 }

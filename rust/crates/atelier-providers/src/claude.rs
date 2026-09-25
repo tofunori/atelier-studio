@@ -629,7 +629,11 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
             }
         }
     }
-    if std::env::var("ATELIER_CLAUDE_HOOK_EVENTS").is_ok() {
+    // Événements de TOUS les hooks (sans ce drapeau, seul SessionStart sort) :
+    // le terminal montre un hook qui tourne (« running PreToolUse hook ») et
+    // chaque échec (« PostToolUse:Bash hook error »), le fil doit en faire
+    // autant. `ATELIER_CLAUDE_HOOK_EVENTS=0` les coupe.
+    if std::env::var("ATELIER_CLAUDE_HOOK_EVENTS").as_deref() != Ok("0") {
         args.push("--include-hook-events".into());
     }
     // Plan 057 : MCP scopé au fil. `--strict-mcp-config` fait ignorer au CLI
@@ -1789,10 +1793,12 @@ mod drapeaux_tests {
             "--fallback-model",
             "--agent",
             "--plugin-dir",
-            "--include-hook-events",
         ] {
             assert!(!args.contains(&drapeau.to_string()), "{drapeau} imposé : {args:?}");
         }
+        // Les hooks, eux, parlent par défaut : comme dans le terminal, un
+        // hook en cours ou en échec doit se voir dans le fil.
+        assert!(args.contains(&"--include-hook-events".to_string()));
 
         unsafe {
             std::env::set_var("ATELIER_CLAUDE_AUTOCOMPACT", "120000");
@@ -1800,7 +1806,7 @@ mod drapeaux_tests {
             // Plusieurs plugins : une occurrence du drapeau par valeur, comme
             // l'attend le CLI (`--plugin-dir A --plugin-dir B`).
             std::env::set_var("ATELIER_CLAUDE_PLUGIN_DIRS", "/tmp/a, /tmp/b ,");
-            std::env::set_var("ATELIER_CLAUDE_HOOK_EVENTS", "1");
+            std::env::set_var("ATELIER_CLAUDE_HOOK_EVENTS", "0");
         }
         let args = build_args(&req(None, false), None);
         for cle in CLES {
@@ -1811,7 +1817,7 @@ mod drapeaux_tests {
         assert!(args.windows(2).any(|w| w == ["--fallback-model", "claude-sonnet-5"]));
         assert_eq!(args.iter().filter(|a| *a == "--plugin-dir").count(), 2);
         assert!(args.contains(&"/tmp/b".to_string()));
-        assert!(args.contains(&"--include-hook-events".to_string()));
+        assert!(!args.contains(&"--include-hook-events".to_string()));
     }
 
     /// La consigne de fil part en prompt système : invisible dans le fil,

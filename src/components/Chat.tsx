@@ -1040,6 +1040,23 @@ export default function Chat(p: {
     // Claude est déjà la fin de la réponse visible au-dessus — afficher
     // « Attend votre réponse » en plus n'apporte rien (demande 2026-08-23).
     if (e.kind === "tool" && e.name === "__waiting") return null;
+    // Avis du CLI (hook en échec, message bloqué, modèle de repli, mémoire
+    // enregistrée) : une phrase entière, comme dans le terminal.
+    if (e.kind === "tool" && e.name === "__notice") {
+      if (!e.detail) return null;
+      const warning = e.tone === "warning";
+      return (
+        <div key={key} className="tool chat-notice" data-tone={warning ? "warning" : "info"}>
+          <svg className="chat-notice-icon" width="12" height="12" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {warning
+              ? <><path d="M8 2.2 14.5 13.5H1.5z" /><path d="M8 6.5v3.2M8 11.9v.1" /></>
+              : <><circle cx="8" cy="8" r="6.2" /><path d="M8 7.2v4M8 4.9v.1" /></>}
+          </svg>
+          <span className="chat-notice-text">{e.detail}</span>
+        </div>
+      );
+    }
     if (e.kind === "tool") {
       return (
         <div key={key} className="tool">

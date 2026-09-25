@@ -180,6 +180,27 @@ describe("Codex subagent activity", () => {
     expect(screen.queryByTestId("agent-transcript-empty")).not.toBeInTheDocument();
   });
 
+  it("sans transcript enfant (Claude), la rangée montre l'activité rapportée par le parent", () => {
+    const claude = (message: string | null, status = "running"): AgentToolAction => ({
+      kind: "tool_update", id: "subagent:t1", name: "agent:activity", output: "",
+      status: status === "running" ? "inProgress" : "completed", source: "claude",
+      agentActivity: {
+        tool: "activity", receiverThreadIds: ["t1"], agentThreadId: "t1",
+        agentsStates: { t1: { status, message } }, agentPath: "general-purpose",
+      },
+    });
+    const { rerender } = renderUi(<AgentActivityGroup actions={[claude("Lecture de b.txt")]} onOpenAgent={() => {}} />);
+    expect(screen.getByTestId("subagent-activity-inline-group")).toHaveTextContent("Lecture de b.txt");
+
+    rerender(<AgentActivityGroup actions={[claude("Rapport final", "completed")]} onOpenAgent={() => {}} />);
+    expect(screen.getByTestId("subagent-activity-inline-group")).not.toHaveTextContent("Rapport final");
+
+    // Panneau : l'activité est la ligne en direct, pas un faux rapport.
+    const [agent] = agentsFromActions([claude("Lecture de b.txt")]);
+    renderUi(<AgentDetailPanel agent={agent} onClose={() => {}} events={[]} />);
+    expect(screen.getAllByText("Lecture de b.txt")).toHaveLength(1);
+  });
+
   it("le panneau montre les outils de l'enfant, pas seulement sa prose", () => {
     renderUi(<AgentDetailPanel
       agent={{ threadId: "child-1", displayName: "Chercheur", status: "working",

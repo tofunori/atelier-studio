@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -244,6 +244,27 @@ const AGENTS: AgentEvent[] = [
   { kind: "tool", name: "__thinking" } as AgentEvent,
 ];
 
+// Événements du CLI claude rendus comme dans le terminal : avis de hook en
+// échec, liste de tâches (TaskCreate/TaskUpdate) en checklist, sous-agent
+// Claude dont la rangée montre ce qu'il fait, mémoire enregistrée.
+const CLI_EVENTS: AgentEvent[] = [
+  { kind: "user", text: "Mets à jour la figure 4 et vérifie les unités.", ts: ts(40) } as AgentEvent,
+  { kind: "todos", items: [
+    { text: "Régénérer la figure 4", completed: true },
+    { text: "Vérifier les unités de la table S2", completed: false, active: true },
+    { text: "Relire la légende", completed: false },
+  ], ts: ts(38) } as AgentEvent,
+  tool("c1", "Bash", "python analysis/fig4.py --regions west", "fig4.svg écrit", 2400, 36),
+  { kind: "tool", name: "__notice", detail: "Hook PostToolUse:Bash en erreur (code 1) : ruff a trouvé 2 avertissements dans analysis/fig4.py", tone: "warning", ts: ts(35) } as AgentEvent,
+  {
+    kind: "tool_update", id: "subagent:a1", name: "agent:activity", output: "", status: "inProgress", source: "claude",
+    detail: "3 outils · 12k jetons",
+    agentActivity: { tool: "activity", receiverThreadIds: ["a1"], agentsStates: { a1: { status: "running", message: "Lecture de tables/S2.csv" } }, agentThreadId: "a1", agentPath: "general-purpose", prompt: "Vérifie les unités de la table S2", activityKind: "interacted" },
+    ts: ts(30),
+  } as AgentEvent,
+  { kind: "tool", name: "__notice", detail: "Mémoire enregistrée (1 fichier).", tone: "info", ts: ts(28) } as AgentEvent,
+];
+
 const ERROR: AgentEvent[] = [
   { kind: "user", text: "Relance l'extraction GEE MOD10A1 pour 2024.", ts: ts(500) } as AgentEvent,
   tool("e1", "Bash", "python extraction_gee_albedo.py --year 2024", "…", 4000, 490),
@@ -257,6 +278,89 @@ const MARKDOWN: AgentEvent[] = [
   {
     kind: "text",
     text: "Voici le pipeline :\n\n```mermaid\nflowchart LR\n  GEE[GEE MOD10A1] --> CSV[Drive CSV]\n  CSV --> NAS[(NAS DuckDB)]\n  NAS --> FIG[fig3_spatial.svg]\n```\n\nEt l'extrait :\n\n```python\ndef trend(df, region):\n    slope = theilslopes(df.albedo, df.year)\n    return slope[0] * 100  # %/an\n```",
+    ts: ts(295),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
+];
+
+// Réponse type de Claude qui passe par TOUTE la grammaire Markdown qu'il
+// produit réellement (titres, listes imbriquées, tâches, citation, tableau
+// aligné, code, diff, maths, note de bas de page, barré, <br> de cellule) :
+// le banc de référence du rendu typographique du chat.
+const TYPESET: AgentEvent[] = [
+  { kind: "user", text: "Fais le point sur la validation et propose la suite.", ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "## Bilan de la validation",
+      "",
+      "La pente régionale reproduit **−0,35 %/an** (attendu *−0,33*), calculée dans `analysis/albedo_trends.py:42` avec l'estimateur de [Theil-Sen](https://en.wikipedia.org/wiki/Theil%E2%80%93Sen_estimator). L'ancienne valeur ~~−0,41 %/an~~ venait du masque de neige transitoire[^1].",
+      "",
+      "### Ce qui a changé",
+      "",
+      "- Le masque MOD10A1 exclut maintenant les pixels < 40 % de couverture",
+      "  - seuil testé à 30, 40 et 50 %",
+      "  - 40 % garde 92 % des glaciers",
+      "- Les régions sont pondérées par l'aire glacier :",
+      "  1. aire RGI 7.0",
+      "  2. pondération $w_i = A_i / \\sum_j A_j$",
+      "- Figure 3 régénérée : aires en km<sup>2</sup>, relance avec <kbd>Cmd</kbd>+<kbd>R</kbd>",
+      "",
+      "1. **Relire** la section 3.2 du manuscrit.",
+      "",
+      "   Le paragraphe sur les seuils cite encore l'ancienne valeur.",
+      "",
+      "2. **Relancer** la figure 4 :",
+      "",
+      "   ```bash",
+      "   python analysis/fig4.py --regions west --mask 0.4",
+      "   ```",
+      "",
+      "3. Vérifier les unités de la table S2.",
+      "",
+      "#### Tâches",
+      "",
+      "- [x] Reproduire W&M 2021",
+      "- [x] Régénérer la figure 3",
+      "- [ ] Mettre à jour la table S2",
+      "",
+      "> La tendance est robuste au choix du seuil : l'écart reste sous **0,02 %/an**",
+      "> pour tous les seuils testés.",
+      "",
+      "| Région | Pente (%/an) | IC 95 % | n | Remarque |",
+      "|:---|---:|:---:|---:|:---|",
+      "| Coast | −0,41 | ±0,06 | 214 | Plus forte baisse<br>depuis 2015 |",
+      "| Rockies | −0,29 | ±0,05 | 187 | Stable |",
+      "| Interior | −0,33 | ±0,08 | 96 | Peu de pixels |",
+      "",
+      "Le forçage radiatif s'écrit :",
+      "",
+      "$$",
+      "\\mathrm{RF} = -\\Delta\\alpha \\times SW_{\\downarrow} \\qquad [\\mathrm{W\\,m^{-2}}]",
+      "$$",
+      "",
+      "```diff",
+      "- MASK_THRESHOLD = 0.3",
+      "+ MASK_THRESHOLD = 0.4",
+      "```",
+      "",
+      "```python",
+      "def trend(df, region):",
+      "    \"\"\"Pente de Theil-Sen en %/an.\"\"\"",
+      "    slope, *_ = theilslopes(df.albedo, df.year)",
+      "    return slope * 100",
+      "```",
+      "",
+      "```",
+      "sortie brute sans langage",
+      "```",
+      "",
+      "---",
+      "",
+      "Prochaine étape : valider la table S2 puis relire la section 3.2.",
+      "",
+      "[^1]: Williamson & Menounos (2021), section 2.3.",
+    ].join("\n"),
     ts: ts(295),
   } as AgentEvent,
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
@@ -432,6 +536,8 @@ const STATES: Record<string, BenchState> = {
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
+  typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
+  cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   queue: {
     events: RUNNING, workingSince: ts(272), attachments: [],

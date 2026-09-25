@@ -274,7 +274,14 @@ function currentAgentActivity(agent: AgentDisplay, events: AgentEvent[], toolsOn
       return event.text.replace(/\s+/g, " ").trim().slice(0, 180);
     }
   }
-  return statusLabel(agent);
+  // Sans transcript enfant (sous-agents Claude), la dernière activité connue
+  // du parent : verbe d'outil ou résumé, comme la rangée du terminal.
+  return (agent.status === "working" ? liveStatusMessage(agent) : null) ?? statusLabel(agent);
+}
+
+function liveStatusMessage(agent: AgentDisplay): string | null {
+  const message = agent.statusMessage?.replace(/\s+/g, " ").trim();
+  return message && !opaqueAgentText(message) ? message.slice(0, 180) : null;
 }
 
 function statusLabel(agent: AgentDisplay) {
@@ -316,7 +323,11 @@ export function AgentDetailPanel({
   const plugins = useMdPlugins();
   const prose = transcript.filter(event => event.kind === "text" || event.kind === "streaming" || event.kind === "error");
   const activity = transcript.filter(event => event.kind === "tool" || event.kind === "tool_update" || event.kind === "thinking" || event.kind === "thinking_live");
-  const fallback = agent.statusMessage && !opaqueAgentText(agent.statusMessage)
+  // En cours, le message d'état est l'activité de la ligne « en direct »,
+  // pas un rapport à répéter en dessous.
+  const statusIsLive = agent.status === "working" && liveStatusMessage(agent) != null
+    && currentAgentActivity(agent, events, true) === liveStatusMessage(agent);
+  const fallback = agent.statusMessage && !opaqueAgentText(agent.statusMessage) && !statusIsLive
     && !prose.some(event => (event.kind === "error" ? event.message : "text" in event ? event.text : "").trim() === agent.statusMessage?.trim())
     ? agent.statusMessage : null;
   return (
