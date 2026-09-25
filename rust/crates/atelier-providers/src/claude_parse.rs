@@ -643,17 +643,23 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                             None
                         }
                     } else if name == "Write" {
+                        // Fichier existant : son contenu est lu MAINTENANT, avant
+                        // l'exécution de l'outil (le bloc `assistant` la précède
+                        // toujours) — l'avant/après s'affiche comme dans le
+                        // terminal, y compris hors dépôt git.
+                        let new_text =
+                            input.get("content").and_then(|v| v.as_str()).unwrap_or("");
                         match edit_path.as_deref() {
+                            _ if new_text.len() > SNIPPET_MAX => None,
                             Some(p) if !std::path::Path::new(p).exists() => {
-                                let new_text =
-                                    input.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                                if !new_text.is_empty() && new_text.len() <= SNIPPET_MAX {
-                                    Some(json!({"newText": new_text}))
-                                } else {
-                                    None
-                                }
+                                (!new_text.is_empty()).then(|| json!({"newText": new_text}))
                             }
-                            _ => None,
+                            Some(p) => std::fs::metadata(p)
+                                .ok()
+                                .filter(|m| m.is_file() && m.len() as usize <= SNIPPET_MAX)
+                                .and_then(|_| std::fs::read_to_string(p).ok())
+                                .map(|old_text| json!({"oldText": old_text, "newText": new_text})),
+                            None => None,
                         }
                     } else {
                         None
@@ -1463,7 +1469,7 @@ mod tests {
     }
 
     #[test]
-    fn write_snippet_only_for_new_files_and_bounded() {
+    fn write_snippet_shows_before_after_and_is_bounded() {
         // fichier NOUVEAU → snippet newText
         let mut st = ClaudeStreamState::default();
         parse_line(
@@ -1479,18 +1485,27 @@ mod tests {
             serde_json::json!({"newText":"print(1)\n"})
         );
 
-        // fichier EXISTANT → pas de snippet (le diff git dit vrai, pas l'input)
+        // fichier EXISTANT → avant/après, l'avant lu sur disque AVANT
+        // l'exécution (comme le terminal, et même hors dépôt git)
+        let dir = tempfile::tempdir().unwrap();
+        let existant = dir.path().join("a.py");
+        std::fs::write(&existant, "x = 1\n").unwrap();
+        let chemin = existant.to_str().unwrap();
         let mut st2 = ClaudeStreamState::default();
         parse_line(
             &mut st2,
-            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/etc/hosts","content":"x"}}]}}"#,
+            &serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path": chemin,"content":"x = 2\n"}}]}}).to_string(),
         );
+        std::fs::write(&existant, "x = 2\n").unwrap();
         let e2 = parse_line(
             &mut st2,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
         );
         assert_eq!(e2[1]["kind"], "edit");
-        assert!(e2[1].get("snippets").is_none());
+        assert_eq!(
+            e2[1]["snippets"][chemin],
+            serde_json::json!({"oldText":"x = 1\n","newText":"x = 2\n"})
+        );
 
         // Edit volumineux (> 24 KiB) → pas de snippet, l'edit reste émis
         let mut st3 = ClaudeStreamState::default();

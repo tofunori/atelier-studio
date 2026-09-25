@@ -399,3 +399,119 @@ describe("HarnessInteraction — choix dynamiques Kimi (plan 046)", () => {
     }
   });
 });
+
+describe("HarnessInteraction — Claude Code (choix du terminal, questions, plan)", () => {
+  const claudeChoices = [
+    { optionId: "allow_once", label: "Autoriser", kind: "allow_once" as const },
+    { optionId: "allow_always", label: "Oui, et ne plus demander pour « npm test:* »", kind: "allow_always" as const },
+    { optionId: "deny", label: "Refuser", kind: "reject_once" as const },
+    { optionId: "deny_stop", label: "Refuser et arrêter", kind: "reject_always" as const, cancelTurn: true },
+  ];
+  const claudeEvent = (over: Partial<InteractionEvent> = {}) => makeEvent({
+    requestId: "req-claude", title: "Exécution de commande", detail: "npm test",
+    reason: "Commande hors des règles du projet", feedback: true, choices: claudeChoices, ...over,
+  });
+
+  it("un refus emporte la consigne tapée ; une autorisation ne l'emporte pas", () => {
+    const cap = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeEvent()} threadId={THREAD} />);
+      expect(screen.getByText("Commande hors des règles du projet")).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), {
+        target: { value: "lance plutôt cargo test" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Refuser" }));
+      expect(cap.details).toEqual([{ threadId: THREAD, requestId: "req-claude",
+        response: { optionId: "deny", message: "lance plutôt cargo test" } }]);
+    } finally {
+      cap.dispose();
+    }
+    cleanup();
+    const cap2 = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeEvent({ requestId: "req-claude-2" })} threadId={THREAD} />);
+      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), { target: { value: "x" } });
+      fireEvent.click(screen.getByRole("button", { name: "Oui, et ne plus demander pour « npm test:* »" }));
+      expect(cap2.details[0].response).toEqual({ optionId: "allow_always" });
+    } finally {
+      cap2.dispose();
+    }
+  });
+
+  it("Entrée dans la consigne refuse avec elle ; « Refuser et arrêter » arrête le tour", () => {
+    const cap = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeEvent()} threadId={THREAD} />);
+      const input = screen.getByLabelText(t("interaction.feedback-placeholder"));
+      fireEvent.change(input, { target: { value: "non, lis d'abord le README" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(cap.details[0].response).toEqual({ optionId: "deny", message: "non, lis d'abord le README" });
+    } finally {
+      cap.dispose();
+    }
+    cleanup();
+    const cap2 = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeEvent({ requestId: "req-stop" })} threadId={THREAD} />);
+      fireEvent.keyDown(window, { key: "4" });
+      expect(cap2.details[0].response).toEqual({ optionId: "deny_stop", cancelTurn: true });
+    } finally {
+      cap2.dispose();
+    }
+  });
+
+  it("question à choix multiples : les options cochées partent jointes, « Autre » compris", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({
+            requestId: "req-multi",
+            interactionType: "user_input",
+            title: "Claude a une question",
+            fields: [{
+              id: "q0", question: "Quelles figures ?", header: "Figures", multiSelect: true, allowOther: true,
+              options: [{ label: "Carte" }, { label: "Série", description: "Albédo JJA" }, { label: "Histogramme" }],
+            }],
+          })}
+          threadId={THREAD}
+        />,
+      );
+      fireEvent.click(screen.getByRole("checkbox", { name: "Carte" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Série" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: t("interaction.other") }));
+      fireEvent.change(screen.getByLabelText(t("interaction.other-placeholder")), { target: { value: "Profil" } });
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.submit") }));
+      expect(cap.details[0].response).toEqual({ answers: { q0: "Carte, Série, Profil" } });
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("plan à valider : le markdown est rendu au-dessus des trois choix", () => {
+    const cap = captureAnswers();
+    try {
+      render(
+        <HarnessInteraction
+          event={makeEvent({
+            requestId: "req-exit-plan", title: "Plan prêt à exécuter", detail: undefined, feedback: true,
+            markdown: "## Étapes\n\n1. Lire le panel\n2. Refaire la figure",
+            choices: [
+              { optionId: "plan_auto", label: "Oui, et accepter les modifications", kind: "allow_always" },
+              { optionId: "plan_manual", label: "Oui, en validant chaque modification", kind: "allow_once" },
+              { optionId: "plan_keep", label: "Non, continuer à planifier", kind: "reject_once" },
+            ],
+          })}
+          threadId={THREAD}
+        />,
+      );
+      expect(screen.getByRole("heading", { name: "Étapes" })).toBeInTheDocument();
+      expect(screen.getByText("Refaire la figure")).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), { target: { value: "ajoute un test" } });
+      fireEvent.click(screen.getByRole("button", { name: "Non, continuer à planifier" }));
+      expect(cap.details[0].response).toEqual({ optionId: "plan_keep", message: "ajoute un test" });
+    } finally {
+      cap.dispose();
+    }
+  });
+});

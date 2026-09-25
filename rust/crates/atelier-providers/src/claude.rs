@@ -1,8 +1,9 @@
 //! Claude Code provider via system CLI stream-json (plan 033 Porte 6).
 //!
 //! Spawns `claude -p --verbose --output-format stream-json` (and optional
-//! `--resume`). Steering uses a new one-shot with resume when a session exists;
-//! interrupt kills the active child process group.
+//! `--resume`). Steering writes to the live turn's stdin; interrupt asks the
+//! CLI to stop the turn (`control_request` interrupt) and kills the process
+//! group only if it does not conclude in time.
 
 use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
 use crate::traits::{
@@ -37,7 +38,27 @@ type LiveStdin = Arc<Mutex<Option<ChildStdin>>>;
 struct ActiveRun {
     child: Child,
     stdin: LiveStdin,
+    arret: Arc<ArretDoux>,
 }
+
+/// Stop demandé au CLI lui-même (`control_request` `interrupt`, comme Échap
+/// dans le terminal) : il coupe le tour, garde dans sa session ce qui était
+/// déjà écrit et marque l'interruption, puis rend son `result`. Le processus
+/// n'est tué qu'en dernier recours, s'il ne conclut pas dans `ARRET_DOUX`.
+#[derive(Default)]
+struct ArretDoux {
+    demande: std::sync::atomic::AtomicBool,
+    reveil: tokio::sync::Notify,
+}
+
+impl ArretDoux {
+    fn demande(&self) -> bool {
+        self.demande.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Délai laissé au CLI pour conclure un tour après une demande d'arrêt.
+const ARRET_DOUX: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Message utilisateur NDJSON attendu par `--input-format stream-json`
 /// (forme sondée sur le CLI 2.1.261, 2026-09-04).
@@ -67,10 +88,6 @@ async fn write_line(stdin: &LiveStdin, value: &Value) -> bool {
     pipe.flush().await.is_ok()
 }
 
-/// Message rendu au CLI quand Atelier ne peut pas — ou ne veut pas —
-/// accorder la permission. Il apparaît tel quel dans le `tool_result`.
-const REFUS_ATELIER: &str = "Refusé dans Atelier";
-
 /// Traite un `control_request` du CLI (demande de permission d'outil).
 /// Retourne `true` si la ligne EST un `control_request` — elle ne doit alors
 /// pas repartir dans `parse_line` (ce n'est pas un événement de fil).
@@ -83,6 +100,8 @@ fn handle_control_request(
     stdin: &LiveStdin,
     on_event: &Arc<dyn Fn(Value) + Send + Sync>,
     on_interaction: Option<&crate::traits::InteractionFn>,
+    activity: &crate::turn_idle::TurnActivity,
+    en_attente: &std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
 ) -> bool {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
         return false;
@@ -127,25 +146,20 @@ fn handle_control_request(
     }));
 
     let relais = on_interaction.cloned();
-    tokio::spawn(async move {
+    // Attente humaine : le CLI se tait tant qu'on ne répond pas, et c'est
+    // normal — le filet anti-figé ne compte pas ce silence (comme Codex).
+    // Le terminal attend indéfiniment ; ici l'attente vit tant que le relais
+    // ne l'a pas close, ou jusqu'à la fin du tour (tâche annulée par send()).
+    let attente = activity.wait_for_human();
+    let tache = tokio::spawn(async move {
         let reponse = match relais {
             Some(relais) => relais("claude/can_use_tool".to_string(), request.clone()).await,
             // Pas d'interface interactive : refus sûr, jamais d'attente
             // indéfinie (contrat `on_interaction`, traits.rs).
             None => None,
         };
-        let autorise = reponse
-            .as_ref()
-            .and_then(|r| r.get("allow").and_then(Value::as_bool))
-            == Some(true);
-        let verdict = if autorise {
-            json!({
-                "behavior": "allow",
-                "updatedInput": request.get("input").cloned().unwrap_or_else(|| json!({})),
-            })
-        } else {
-            json!({"behavior": "deny", "message": REFUS_ATELIER})
-        };
+        drop(attente);
+        let verdict = crate::claude_permissions::verdict(&request, reponse.as_ref());
         let _ = write_line(
             &stdin,
             &json!({
@@ -159,6 +173,10 @@ fn handle_control_request(
         )
         .await;
     });
+    if let Ok(mut taches) = en_attente.lock() {
+        taches.retain(|t| !t.is_finished());
+        taches.push(tache.abort_handle());
+    }
     true
 }
 
@@ -862,11 +880,13 @@ impl Provider for ClaudeProvider {
         let on_event = Arc::clone(&req.on_event);
 
         let pid = child.id();
+        let arret = Arc::new(ArretDoux::default());
         self.runs.lock().await.insert(
             thread_id.clone(),
             ActiveRun {
                 child,
                 stdin: Arc::clone(&live_stdin),
+                arret: Arc::clone(&arret),
             },
         );
 
@@ -874,13 +894,23 @@ impl Provider for ClaudeProvider {
         let mut ok = true;
         let mut err_msg = None;
 
+        // Demandes de permission encore ouvertes : le tour fini, plus
+        // personne ne lira leur réponse — elles sont closes (carte expirée).
+        let permissions_en_attente: std::sync::Mutex<Vec<tokio::task::AbortHandle>> =
+            std::sync::Mutex::new(Vec::new());
+
         // La boucle de lecture devient un bloc async : `with_idle_timeout`
         // l'enveloppe pour couper sur un silence total (stdout ET stderr),
         // sans toucher au re-test d'is_cancelled en tête d'itération (Stop
         // utilisateur, cf. `interrupt_tests`).
         let read_loop = async {
+            // Échéance de l'arrêt doux, armée au réveil par interrupt().
+            let mut echeance: Option<tokio::time::Instant> = None;
+            let mut arret_dur = false;
             loop {
-                if is_cancelled() {
+                // Stop demandé au CLI : on le laisse conclure (son `result`
+                // arrive par stdout) au lieu de le tuer tout de suite.
+                if arret_dur || (is_cancelled() && !arret.demande()) {
                     // kill process group
                     if let Some(pid) = pid {
                         kill_process_group(pid);
@@ -908,7 +938,24 @@ impl Provider for ClaudeProvider {
                     return;
                 }
 
-                match reader.next_line().await {
+                let lu = tokio::select! {
+                    lu = reader.next_line() => lu,
+                    _ = arret.reveil.notified(), if echeance.is_none() => {
+                        echeance = Some(tokio::time::Instant::now() + ARRET_DOUX);
+                        continue;
+                    }
+                    _ = async {
+                        match echeance {
+                            Some(t) => tokio::time::sleep_until(t).await,
+                            None => std::future::pending::<()>().await,
+                        }
+                    } => {
+                        // Le CLI n'a pas conclu à temps : arrêt dur.
+                        arret_dur = true;
+                        continue;
+                    }
+                };
+                match lu {
                     Ok(Some(line)) => {
                         activity.bump();
                         // Les demandes de permission ne passent PAS par
@@ -916,20 +963,32 @@ impl Provider for ClaudeProvider {
                         // ne doivent JAMAIS bloquer cette boucle : le CLI est
                         // muet tant qu'il attend, mais il continue d'exister —
                         // la réponse part d'une tâche à part, sur le stdin
-                        // partagé. L'attente (≤ 120 s côté relais) reste sous
-                        // la fenêtre d'inactivité, et le `bump` ci-dessus a
-                        // déjà repoussé le filet.
+                        // partagé. L'attente est déclarée humaine
+                        // (`wait_for_human`) : le filet d'inactivité ne la
+                        // compte pas.
                         if line.contains("control_request")
                             && handle_control_request(
                                 &line,
                                 &live_stdin,
                                 &on_event,
                                 req.on_interaction.as_ref(),
+                                &activity,
+                                &permissions_en_attente,
                             )
                         {
                             continue;
                         }
-                        let events = parse_line(&mut state, &line);
+                        let mut events = parse_line(&mut state, &line);
+                        if arret.demande() {
+                            // Le `result` qui suit un arrêt demandé est un
+                            // Stop, pas une erreur : même terminal que l'arrêt
+                            // dur, que l'interface affiche « arrêté ».
+                            for ev in events.iter_mut() {
+                                if matches!(ev.get("kind").and_then(Value::as_str), Some("error" | "done")) {
+                                    *ev = json!({"kind": "error", "message": "interrupted"});
+                                }
+                            }
+                        }
                         for ev in events {
                             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                             if kind == "error" {
@@ -1003,6 +1062,11 @@ impl Provider for ClaudeProvider {
         // joignable par Stop, sans attendre sa sortie sous le verrou global.
         // Un ancien tour ne doit jamais récolter le processus de son remplaçant.
         self.reap_after_eof(&thread_id, pid).await;
+        if let Ok(taches) = permissions_en_attente.lock() {
+            for tache in taches.iter() {
+                tache.abort();
+            }
+        }
 
         if !state.saw_terminal {
             let mut flush = Vec::new();
@@ -1203,6 +1267,32 @@ impl Provider for ClaudeProvider {
     }
 
     async fn interrupt(&self, thread_id: &str) -> bool {
+        // Arrêt doux d'abord : le CLI reçoit la demande sur son stdin et
+        // conclut lui-même, sa session garde le texte déjà produit et la
+        // marque d'interruption (le modèle sait, au tour suivant, qu'il a été
+        // coupé). La boucle de lecture arme l'échéance et tue en dernier
+        // recours. Jamais d'attente ici : Stop doit rendre la main aussitôt.
+        let doux = {
+            let runs = self.runs.lock().await;
+            runs.get(thread_id).map(|run| {
+                (Arc::clone(&run.stdin), Arc::clone(&run.arret))
+            })
+        };
+        if let Some((stdin, arret)) = doux {
+            self.interrupted.lock().await.insert(thread_id.to_string());
+            let demande = json!({
+                "type": "control_request",
+                "request_id": format!("atelier-stop-{}", Uuid::new_v4()),
+                "request": {"subtype": "interrupt"},
+            });
+            if write_line(&stdin, &demande).await {
+                arret.demande.store(true, std::sync::atomic::Ordering::SeqCst);
+                arret.reveil.notify_one();
+                return true;
+            }
+        }
+        // Stdin déjà refermé (tour conclu, EOF en cours) ou CLI parti :
+        // arrêt dur, comme avant.
         let run = {
             let mut runs = self.runs.lock().await;
             if runs.contains_key(thread_id) {
@@ -2375,6 +2465,96 @@ mod session_vivante_tests {
         );
         let events = vus.lock().unwrap();
         assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
+    }
+
+    /// Stop = demande d'arrêt sur stdin, comme Échap dans le terminal : le
+    /// CLI conclut lui-même (sa session garde le texte déjà écrit) et le
+    /// tour finit « interrupted », sans attendre l'arrêt dur de secours.
+    #[tokio::test]
+    async fn stop_demande_l_arret_au_cli_au_lieu_de_le_tuer() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             IFS= read -r stop\n\
+             printf '%s\\n' \"$stop\" > \"$0.stop\"\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true,\"errors\":[\"[Request interrupted by user]\"],\"usage\":{{}}}}'\n\
+             cat > /dev/null\n"
+        ));
+        let provider = Arc::new(provider_pour(&cli));
+        let (on_event, vus) = collecteur();
+        let p2 = Arc::clone(&provider);
+        let tour = tokio::spawn(async move {
+            p2.send(req("t-stop-doux", SendMode::Normal, "salut", on_event, None)).await
+        });
+        // Laisse le faux CLI lire le prompt et émettre son init.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let debut = std::time::Instant::now();
+        assert!(provider.interrupt("t-stop-doux").await, "le run devait être enregistré");
+        let res = tokio::time::timeout(std::time::Duration::from_secs(5), tour)
+            .await
+            .expect("le tour doit conclure")
+            .unwrap();
+        assert!(
+            debut.elapsed() < ARRET_DOUX,
+            "le CLI a conclu seul, pas l'arrêt dur : {:?}",
+            debut.elapsed()
+        );
+        assert_eq!(res.error.as_deref(), Some("interrupted"));
+        let stop: Value = serde_json::from_str(cli.recu("stop").trim()).expect("ligne NDJSON");
+        assert_eq!(stop["type"], "control_request");
+        assert_eq!(stop["request"]["subtype"], "interrupt");
+        let events = vus.lock().unwrap();
+        let terminaux: Vec<&Value> = events
+            .iter()
+            .filter(|v| v["kind"] == "error" || v["kind"] == "done")
+            .collect();
+        assert_eq!(terminaux.len(), 1, "{terminaux:?}");
+        assert_eq!(terminaux[0]["message"], "interrupted");
+    }
+
+    /// Une question restée sans réponse ne survit pas au tour : la tâche qui
+    /// l'attend est annulée (le relais passe alors la carte « expirée »).
+    #[tokio::test]
+    async fn une_demande_sans_reponse_est_close_avec_le_tour() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"control_request\",\"request_id\":\"req-q\",\"request\":{{\"subtype\":\"can_use_tool\",\"tool_name\":\"AskUserQuestion\",\"input\":{{\"questions\":[]}},\"tool_use_id\":\"toolu_q\"}}}}'\n\
+             printf '%s\\n' '{RESULT}'\n"
+        ));
+        let provider = provider_pour(&cli);
+        let (on_event, _vus) = collecteur();
+        let (lache_tx, lache_rx) = tokio::sync::oneshot::channel::<()>();
+        let lache_tx = Arc::new(std::sync::Mutex::new(Some(lache_tx)));
+        let relais: crate::traits::InteractionFn = Arc::new(move |_, _| {
+            // Garde lâchée quand le relais est abandonné.
+            struct Garde(Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>);
+            impl Drop for Garde {
+                fn drop(&mut self) {
+                    if let Some(tx) = self.0.lock().unwrap().take() {
+                        let _ = tx.send(());
+                    }
+                }
+            }
+            let garde = Garde(Arc::clone(&lache_tx));
+            Box::pin(async move {
+                let _garde = garde;
+                std::future::pending::<Option<Value>>().await
+            })
+        });
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.send(req("t-q-close", SendMode::Normal, "salut", on_event, Some(relais))),
+        )
+        .await
+        .expect("le tour conclut malgré la question en suspens");
+        assert!(res.ok, "{:?}", res.error);
+        tokio::time::timeout(std::time::Duration::from_secs(2), lache_rx)
+            .await
+            .expect("le relais doit être abandonné à la fin du tour")
+            .unwrap();
     }
 }
 

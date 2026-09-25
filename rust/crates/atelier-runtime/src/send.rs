@@ -638,44 +638,13 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
     if method == "session/request_permission" {
         return describe_acp_permission(params);
     }
-    // Claude Code, `--permission-prompt-tool stdio` : le CLI envoie l'outil
-    // brut (`tool_name`, `input`, `tool_use_id`), sans liste de choix — la
-    // réponse `{allow, scope}` de l'UI suffit, et `scope:"session"` alimente
-    // `approval_sessions` (auto-allow des demandes suivantes, ws_router.rs).
+    // Claude Code, `--permission-prompt-tool stdio` : la carte (choix du
+    // terminal, questions, plan) et la réponse au CLI vivent ensemble dans
+    // `atelier_providers::claude_permissions`. Les choix dynamiques mettent
+    // la carte hors du cache « toujours autoriser » d'Atelier : c'est le CLI
+    // qui retient les règles qu'on lui rend.
     if method == "claude/can_use_tool" {
-        let tool = params
-            .get("tool_name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let affiche = params
-            .get("display_name")
-            .and_then(Value::as_str)
-            .filter(|nom| !nom.is_empty())
-            .unwrap_or(tool);
-        let title = match tool {
-            "Bash" => "Exécution de commande".to_string(),
-            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
-                "Modification de fichiers".to_string()
-            }
-            _ => format!("Outil {affiche}"),
-        };
-        let input = params.get("input");
-        let detail = input
-            .and_then(|i| i.get("command"))
-            .and_then(Value::as_str)
-            .or_else(|| {
-                input
-                    .and_then(|i| i.get("file_path"))
-                    .and_then(Value::as_str)
-            })
-            .or_else(|| params.get("description").and_then(Value::as_str))
-            .unwrap_or_default();
-        return Some(json!({
-            "interactionType": "approval",
-            "title": title,
-            "detail": detail.chars().take(400).collect::<String>(),
-            "itemId": params.get("tool_use_id").cloned().unwrap_or(Value::Null),
-        }));
+        return Some(atelier_providers::claude_interaction_spec(params));
     }
     let approval = matches!(
         method,
@@ -758,6 +727,15 @@ fn summarize_interaction(spec: &Value, response: &Value) -> String {
                     .and_then(|c| c.get("label").and_then(Value::as_str))
                     .unwrap_or(oid);
                 let mut out: String = label.chars().take(80).collect();
+                if let Some(consigne) = response
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                {
+                    let court: String = consigne.chars().take(80).collect();
+                    out.push_str(&format!(" · « {court} »"));
+                }
                 if response.get("cancelTurn").and_then(Value::as_bool) == Some(true) {
                     out.push_str(" · tour annulé");
                 }
@@ -861,8 +839,21 @@ fn make_interaction_relay(
                 obj.insert("state".into(), json!("pending"));
             }
             let _ = tx.send(pending);
-            match tokio::time::timeout(std::time::Duration::from_secs(120), answer_rx).await {
+            // Question restée sans réponse (délai, tour fini, relais annulé
+            // par le provider) : la carte passe « expirée », jamais en
+            // suspens pour toujours.
+            let mut garde = CarteOuverte {
+                state: state.clone(),
+                request_id: request_id.clone(),
+                spec: Some(spec.clone()),
+                tx: tx.clone(),
+            };
+            // Claude attend comme le terminal : sans limite pratique (la
+            // demande est close avec le tour). Les autres gardent 120 s.
+            let delai = if method == "claude/can_use_tool" { 3600 } else { 120 };
+            match tokio::time::timeout(std::time::Duration::from_secs(delai), answer_rx).await {
                 Ok(Ok(response)) => {
+                    garde.spec = None;
                     let answer_summary = summarize_interaction(&spec, &response);
                     let mut answered = spec;
                     if let Some(obj) = answered.as_object_mut() {
@@ -874,20 +865,39 @@ fn make_interaction_relay(
                     let _ = tx.send(answered);
                     Some(response)
                 }
-                _ => {
-                    state.interaction_waiters().lock().await.remove(&request_id);
-                    let mut expired = spec;
-                    if let Some(obj) = expired.as_object_mut() {
-                        obj.insert("kind".into(), json!("interaction"));
-                        obj.insert("requestId".into(), json!(request_id));
-                        obj.insert("state".into(), json!("expired"));
-                    }
-                    let _ = tx.send(expired);
-                    None
-                }
+                _ => None,
             }
         })
     })
+}
+
+/// Carte d'interaction en attente. À sa chute sans réponse, le waiter est
+/// retiré et la carte passe « expirée » — que ce soit au délai ou parce que
+/// le provider a abandonné la demande (tour conclu, Stop).
+struct CarteOuverte {
+    state: AppState,
+    request_id: String,
+    spec: Option<Value>,
+    tx: tokio::sync::mpsc::UnboundedSender<Value>,
+}
+
+impl Drop for CarteOuverte {
+    fn drop(&mut self) {
+        let Some(mut expired) = self.spec.take() else { return };
+        if let Some(obj) = expired.as_object_mut() {
+            obj.insert("kind".into(), json!("interaction"));
+            obj.insert("requestId".into(), json!(self.request_id));
+            obj.insert("state".into(), json!("expired"));
+        }
+        let _ = self.tx.send(expired);
+        let state = self.state.clone();
+        let request_id = std::mem::take(&mut self.request_id);
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                state.interaction_waiters().lock().await.remove(&request_id);
+            });
+        }
+    }
 }
 
 /// Handle `send` WS message. Returns immediate replies; streaming events go via bus.
@@ -3441,9 +3451,9 @@ mod tests {
         assert_eq!(opts[1]["value"], "q0_opt_1");
     }
 
-    /// Claude `can_use_tool` : pas de `choices` (le CLI n'en propose pas) —
-    /// c'est ce qui rend la carte compatible avec le cache « toujours
-    /// autoriser » de la session, et avec la réponse `{allow, scope}` de l'UI.
+    /// Claude `can_use_tool` : les choix du terminal, en choix dynamiques —
+    /// ce qui met la carte hors du cache « toujours autoriser » d'Atelier
+    /// (c'est le CLI qui retient les règles qu'on lui rend).
     #[test]
     fn claude_can_use_tool_devient_une_carte_dapprobation() {
         let bash = describe_server_request(
@@ -3462,7 +3472,14 @@ mod tests {
         assert_eq!(bash["title"], "Exécution de commande");
         assert_eq!(bash["detail"], "rm -rf /tmp/x");
         assert_eq!(bash["itemId"], "toolu_1");
-        assert!(bash.get("choices").is_none(), "pas de choix dynamiques");
+        let ids: Vec<&str> = bash["choices"]
+            .as_array()
+            .expect("choix du terminal")
+            .iter()
+            .filter_map(|c| c["optionId"].as_str())
+            .collect();
+        // Aucune règle proposée par le CLI : pas de « ne plus demander ».
+        assert_eq!(ids, ["allow_once", "deny", "deny_stop"]);
 
         let ecriture = describe_server_request(
             "claude/can_use_tool",
@@ -3510,6 +3527,21 @@ mod tests {
         .unwrap();
         assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 400);
         assert_eq!(spec["title"], "Exécution de commande");
+    }
+
+    /// La consigne jointe à un refus apparaît dans le verdict de la carte.
+    #[test]
+    fn summary_affiche_la_consigne_d_un_refus() {
+        let spec = describe_server_request(
+            "claude/can_use_tool",
+            &json!({"tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "t"}),
+        )
+        .unwrap();
+        let resume = summarize_interaction(
+            &spec,
+            &json!({"optionId": "deny", "message": "utilise plutôt fd"}),
+        );
+        assert_eq!(resume, "Refuser · « utilise plutôt fd »");
     }
 
     #[test]
