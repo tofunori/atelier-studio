@@ -138,6 +138,7 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
     for (open, close) in [
         ("<atelier-file-scope>", "</atelier-file-scope>"),
         ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
+        ("<atelier-consigne-du-fil>", "</atelier-consigne-du-fil>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(rel_end) = out[start + open.len()..].find(close) else {
@@ -968,6 +969,41 @@ fn consigne_du_fil(previous: Option<&atelier_store::Thread>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Bloc de message qui annonce une consigne de fil CHANGÉE en cours de
+/// session Claude. Le CLI fige son prompt système au premier tour, consigne
+/// (`--append-system-prompt`) comprise, jusqu'à la prochaine compaction
+/// (`--system-prompt-snapshot`, actif par défaut, CLI 2.1.282 — sonde
+/// 2026-09-25 : consigne changée ou retirée, le modèle suivait toujours
+/// l'ancienne). `consigneClaude` retient la consigne que la session connaît ;
+/// le bloc ne part qu'une fois par changement. Session neuve : rien, le
+/// prompt système la porte.
+fn consigne_a_annoncer(
+    previous: Option<&atelier_store::Thread>,
+    courante: Option<&str>,
+) -> Option<String> {
+    let thread = previous?;
+    let session = thread.session_id.as_deref().filter(|s| !s.is_empty())?;
+    let connue = thread
+        .extra
+        .get("consigneClaude")
+        .filter(|c| c.get("session").and_then(Value::as_str) == Some(session))
+        .and_then(|c| c.get("texte"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    match (courante, connue) {
+        (Some(c), Some(k)) if c == k => None,
+        (Some(c), _) => Some(format!(
+            "\n\n<atelier-consigne-du-fil>\nThe user changed the standing instruction for this conversation. From now on follow this one; it replaces any earlier standing instruction, including the one in your system prompt:\n{c}\n</atelier-consigne-du-fil>"
+        )),
+        (None, Some(_)) => Some(
+            "\n\n<atelier-consigne-du-fil>\nThe user removed the standing instruction for this conversation. Stop applying it, including the one in your system prompt.\n</atelier-consigne-du-fil>"
+                .to_string(),
+        ),
+        (None, None) => None,
+    }
+}
+
 fn native_session_binding(
     state: AppState,
     thread_id: String,
@@ -1178,6 +1214,18 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         crate::project_folders::context(&project_root, &folder_settings)
     );
     let provider_prompt = with_file_scope_instruction(provider_prompt);
+    // Consigne changée d'un fil Claude : le prompt système de la session est
+    // figé, elle part donc aussi dans le message. Pas pendant un tour : un
+    // steer ne la porte pas (reçu `consigneDeferred`).
+    let consigne_courante = consigne_du_fil(previous.as_ref());
+    let provider_prompt = match (provider == "claude"
+        && !state.harness().is_running(&thread_id).await)
+        .then(|| consigne_a_annoncer(previous.as_ref(), consigne_courante.as_deref()))
+        .flatten()
+    {
+        Some(bloc) => format!("{provider_prompt}{bloc}"),
+        None => provider_prompt,
+    };
     let discussion_document = msg
         .get("discussionDocument")
         .and_then(Value::as_str)
@@ -1808,6 +1856,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // Vrai dès que le provider émet lui-même `done`/`error` : la pompe a alors
     // seulement besoin de finir de le transférer, jamais d'être doublée.
     let provider_terminal = Arc::new(AtomicBool::new(false));
+    // Compaction pendant le tour : le résumé ne garantit pas les consignes
+    // Atelier semées au premier tour (galerie, Zotero, figures, widgets, KB).
+    // Le tour suivant les renverra.
+    let compacte = Arc::new(AtomicBool::new(false));
+    let compacte_vu = Arc::clone(&compacte);
     let provider_terminal_check = Arc::clone(&provider_terminal);
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
@@ -1853,6 +1906,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     Some("done" | "error")
                 ) {
                     provider_terminal.store(true, Ordering::SeqCst);
+                }
+                if ev.get("kind").and_then(Value::as_str) == Some("tool")
+                    && ev.get("name").and_then(Value::as_str) == Some("__compacted")
+                {
+                    compacte_vu.store(true, Ordering::SeqCst);
                 }
                 let _ = ev_tx.send(ev);
             }),
@@ -1949,6 +2007,14 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             if codex_binding_is_current {
                 let mut patch = json!({"id": tid, "status": "idle",
                     "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash});
+                if compacte.load(Ordering::SeqCst) {
+                    patch["blocksSeededFor"] = Value::Null;
+                    patch["kbBlockHash"] = Value::Null;
+                }
+                if succeeded && pimpl.id() == "claude" {
+                    patch["consigneClaude"] =
+                        json!({"session": sid.clone(), "texte": consigne_courante});
+                }
                 patch["sessionId"] = json!(sid.clone());
                 if succeeded {
                     patch["forkContext"] = Value::Null;
@@ -1969,7 +2035,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 let _ = store.upsert(patch, false);
             }
         }
-        state2.harness().clear_running(&tid).await;
+        // Seulement SON tour : un tour plus récent du même fil a pu démarrer
+        // pendant que celui-ci finissait (son `done` déjà émis).
+        state2.harness().clear_running_turn(&tid, &turn_id).await;
         // Plan 057: schedule mailbox drain on a detached task (handle_send is re-entrant).
         let drain_state = state2.clone();
         tokio::spawn(async move {
@@ -2333,6 +2401,44 @@ mod tests {
             consigne_du_fil(Some(&fil)).as_deref(),
             Some("Réponds directement."),
         );
+    }
+
+    #[test]
+    fn une_consigne_changee_en_cours_de_session_part_dans_le_message() {
+        let sid = "0199aaaa-bbbb-4ccc-8ddd-eeeeffff0000";
+        // Session neuve : le prompt système porte la consigne, rien à annoncer.
+        assert_eq!(consigne_a_annoncer(Some(&fil_avec(serde_json::json!({}))), Some("A")), None);
+        let connue = |texte: serde_json::Value| {
+            fil_avec(serde_json::json!({"sessionId": sid,
+                "consigneClaude": {"session": sid, "texte": texte}}))
+        };
+        // Inchangée : rien.
+        assert_eq!(consigne_a_annoncer(Some(&connue(serde_json::json!("A"))), Some("A")), None);
+        // Changée : annoncée, avec le nouveau texte.
+        let bloc = consigne_a_annoncer(Some(&connue(serde_json::json!("A"))), Some("B")).unwrap();
+        assert!(bloc.contains("<atelier-consigne-du-fil>") && bloc.contains("\nB\n"), "{bloc}");
+        // Retirée : annoncée comme retirée.
+        let bloc = consigne_a_annoncer(Some(&connue(serde_json::json!("A"))), None).unwrap();
+        assert!(bloc.contains("removed"), "{bloc}");
+        assert_eq!(consigne_a_annoncer(Some(&connue(serde_json::Value::Null)), None), None);
+        // Session inconnue du registre (fil d'avant ce correctif, autre
+        // session) : la consigne courante est rappelée une fois.
+        let ancien = fil_avec(serde_json::json!({"sessionId": sid}));
+        assert!(consigne_a_annoncer(Some(&ancien), Some("A")).is_some());
+        assert_eq!(consigne_a_annoncer(Some(&ancien), None), None);
+    }
+
+    #[test]
+    fn le_bloc_de_consigne_ne_s_affiche_pas_dans_l_historique() {
+        let texte = format!(
+            "question{}",
+            consigne_a_annoncer(
+                Some(&fil_avec(serde_json::json!({"sessionId": "s"}))),
+                Some("Réponds court."),
+            )
+            .unwrap()
+        );
+        assert_eq!(strip_file_scope_instruction(&texte), "question");
     }
 
     #[test]

@@ -64,6 +64,18 @@ pub struct ClaudeStreamState {
     /// alimentée par `system.task_started`. Sert à router les messages
     /// enfants (`parent_tool_use_id`) vers le bon fil d'agent.
     pub task_id_by_tool_use_id: std::collections::HashMap<String, String>,
+    /// Tâches de fond vivantes (`system.background_tasks_changed`, liste
+    /// complète à chaque changement) : Bash `run_in_background`, sous-agents,
+    /// Monitor. Tant qu'il en reste, un `result` ne clôt pas la session — le
+    /// CLI reprendra la main à leur fin, comme dans le terminal.
+    pub background_tasks: usize,
+    /// `uuid` des messages utilisateur que le CLI vient de prendre en compte
+    /// (`--replay-user-messages`, `isReplay: true`). `claude.rs` les retire de
+    /// ses envois en attente ; le parseur ne fait que les relever.
+    pub replayed: Vec<String>,
+    /// Un tour du CLI est en cours (requête partie, flux du modèle) : vrai du
+    /// premier signe de tour jusqu'à son `result`.
+    pub turn_active: bool,
     pub saw_terminal: bool,
 }
 
@@ -108,6 +120,28 @@ fn delai_jusqua(epoch: u64) -> Option<String> {
 pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    // Seul le fil principal compte : un sous-agent de fond parle aussi
+    // (`parent_tool_use_id` non nul) sans que Claude ait repris la main.
+    let fil_principal = msg
+        .get("parent_tool_use_id")
+        .and_then(|v| v.as_str())
+        .is_none();
+    if fil_principal && (ty == "assistant"
+        || ty == "stream_event"
+        || (ty == "system"
+            && matches!(
+                msg.get("subtype").and_then(|v| v.as_str()),
+                Some("init" | "compact_boundary")
+            ))
+        || (ty == "system"
+            && msg.get("subtype").and_then(|v| v.as_str()) == Some("status")
+            && matches!(
+                msg.get("status").and_then(|v| v.as_str()),
+                Some("requesting" | "compacting")
+            )))
+    {
+        state.turn_active = true;
+    }
 
     if ty == "system" {
         let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
@@ -127,6 +161,40 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
         }
         if subtype == "compact_boundary" {
             out.push(json!({"kind":"tool","name":"__compacted"}));
+        }
+        // Compaction en cours : le terminal affiche « Compacting… ». Sur un
+        // contexte de 1M elle dure, et le chrono nu passait pour un gel.
+        if subtype == "status" && msg.get("status").and_then(|v| v.as_str()) == Some("compacting") {
+            out.push(json!({"kind":"heartbeat","note":"compaction de la conversation…"}));
+        }
+        // Réessai de l'API (surcharge, limite de débit) : le terminal affiche
+        // « Retrying in Ns · attempt n/m », le fil restait muet.
+        if subtype == "api_retry" {
+            let tentative = msg.get("attempt").and_then(|v| v.as_u64());
+            let max = msg.get("max_retries").and_then(|v| v.as_u64());
+            let delai = msg
+                .get("retry_delay_ms")
+                .and_then(|v| v.as_u64())
+                .map(|ms| ms.div_ceil(1000));
+            let cause = match msg.get("error_status").and_then(|v| v.as_u64()) {
+                Some(429) => "limite de débit",
+                Some(529) => "API surchargée",
+                _ => "erreur de l'API",
+            };
+            let mut note = format!("{cause} — nouvel essai");
+            if let (Some(n), Some(m)) = (tentative, max) {
+                note.push_str(&format!(" {n}/{m}"));
+            }
+            if let Some(s) = delai {
+                note.push_str(&format!(" dans {s} s"));
+            }
+            out.push(json!({"kind":"heartbeat","note": note}));
+        }
+        if subtype == "background_tasks_changed" {
+            state.background_tasks = msg
+                .get("tasks")
+                .and_then(|v| v.as_array())
+                .map_or(0, Vec::len);
         }
         // Les hooks tournent invisiblement — 69 chez Thierry. Comme le
         // démarrage MCP de Grok, ils occupent l'attente au lieu de laisser
@@ -716,6 +784,15 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     }
 
     if ty == "user" {
+        // Accusé de prise en compte d'un message écrit sur stdin
+        // (`--replay-user-messages`) : ce n'est pas un nouvel événement de fil
+        // — le message utilisateur y est déjà.
+        if msg.get("isReplay").and_then(Value::as_bool) == Some(true) {
+            if let Some(uuid) = msg.get("uuid").and_then(Value::as_str) {
+                state.replayed.push(uuid.to_string());
+            }
+            return out;
+        }
         // tool_result d'un sous-agent (`parent_tool_use_id` non nul) : son
         // tool_use n'a jamais rejoint `pending_tools` (cf. bloc `assistant`
         // ci-dessus) — aucune ligne de fil principal à produire ici non plus.
@@ -808,6 +885,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
     }
 
     if ty == "result" {
+        state.turn_active = false;
         flush_pending(state, &mut out);
         // le ticker repart à zéro au prochain tour
         state.completed_output_tokens = 0;
@@ -1323,6 +1401,51 @@ mod tests {
             &json!({"type":"system","subtype":"hook_started"})
         )
         .is_empty());
+    }
+
+    #[test]
+    fn reessai_et_compaction_occupent_le_chrono() {
+        let mut st = ClaudeStreamState::default();
+        let ev = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":4200,"error_status":529,"error":"overloaded"}"#,
+        );
+        assert_eq!(ev[0]["note"], "API surchargée — nouvel essai 2/10 dans 5 s");
+        let ev = parse_line(&mut st, r#"{"type":"system","subtype":"status","status":"compacting"}"#);
+        assert_eq!(ev[0]["note"], "compaction de la conversation…");
+    }
+
+    #[test]
+    fn taches_de_fond_et_accuses_sont_releves_sans_evenement() {
+        let mut st = ClaudeStreamState::default();
+        let ev = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a"},{"task_id":"b"}]}"#,
+        );
+        assert!(ev.is_empty());
+        assert_eq!(st.background_tasks, 2);
+        parse_line(&mut st, r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#);
+        assert_eq!(st.background_tasks, 0);
+        let ev = parse_line(
+            &mut st,
+            r#"{"type":"user","isReplay":true,"uuid":"u-1","message":{"role":"user","content":[{"type":"text","text":"salut"}]}}"#,
+        );
+        assert!(ev.is_empty());
+        assert_eq!(st.replayed, ["u-1"]);
+    }
+
+    #[test]
+    fn un_sous_agent_ne_rouvre_pas_le_tour_principal() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(&mut st, r#"{"type":"result","subtype":"success","is_error":false,"result":"x","usage":{}}"#);
+        assert!(!st.turn_active);
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","parent_tool_use_id":"toolu_9","message":{"content":[]}}"#,
+        );
+        assert!(!st.turn_active);
+        parse_line(&mut st, r#"{"type":"system","subtype":"init","session_id":"s"}"#);
+        assert!(st.turn_active);
     }
 
     #[test]
