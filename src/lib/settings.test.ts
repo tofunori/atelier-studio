@@ -4,8 +4,8 @@ import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings } from "./
 beforeEach(() => localStorage.clear());
 
 describe("settings defaults", () => {
-  it("utilise Opus 5 en contexte 1M et xhigh par défaut pour Claude", () => {
-    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-opus-5[1m]");
+  it("utilise Opus 5.5 en contexte 1M et xhigh par défaut pour Claude", () => {
+    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-opus-5-5[1m]");
     expect(DEFAULT_SETTINGS.defaultEffort.claude).toBe("xhigh");
   });
 
@@ -32,7 +32,7 @@ describe("settings defaults", () => {
       defaultEffort: { claude: "high" },
     }));
     expect(loadSettings()).toMatchObject({
-      defaultModel: { claude: "claude-opus-5[1m]" },
+      defaultModel: { claude: "claude-opus-5-5[1m]" },
       defaultEffort: { claude: "high" },
     });
 
@@ -44,6 +44,32 @@ describe("settings defaults", () => {
       defaultModel: { claude: "claude-opus-4-8[1m]" },
       defaultEffort: { claude: "medium" },
     });
+  });
+
+  it("promeut l'ancien défaut Opus 5 · 1M vers Opus 5.5 · 1M, une seule fois, et l'écrit", () => {
+    localStorage.setItem("atelier-studio.defaults.claude-opus-5-1m", "1");
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      defaultModel: { claude: "claude-opus-5[1m]", codex: "gpt-5.6-terra" },
+    }));
+    const promu = loadSettings();
+    expect(promu.defaultModel).toMatchObject({ claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-terra" });
+    expect(bootPromotions().defaultModel?.claude).toBe("claude-opus-5-5[1m]");
+    // Écrit tout de suite : le démarrage suivant relit la nouvelle valeur.
+    expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").defaultModel.claude)
+      .toBe("claude-opus-5-5[1m]");
+    // Rejoué jamais : un retour explicite à Opus 5 · 1M est respecté.
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      defaultModel: { claude: "claude-opus-5[1m]" },
+    }));
+    expect(loadSettings().defaultModel.claude).toBe("claude-opus-5[1m]");
+  });
+
+  it("garde un autre modèle Claude choisi explicitement", () => {
+    localStorage.setItem("atelier-studio.defaults.claude-opus-5-1m", "1");
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      defaultModel: { claude: "claude-opus-4-8[1m]" },
+    }));
+    expect(loadSettings().defaultModel.claude).toBe("claude-opus-4-8[1m]");
   });
 
   it("revient au panneau Chat à chaque démarrage", () => {

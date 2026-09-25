@@ -273,6 +273,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             models: vec![
                 "claude-fable-5-1".into(),
                 "claude-fable-5".into(),
+                "claude-opus-5-5".into(),
                 "claude-opus-5".into(),
                 "claude-opus-4-8".into(),
                 "claude-sonnet-5".into(),
@@ -281,7 +282,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             model_reasoning: Value::Object(Default::default()),
             model_labels: Value::Object(Default::default()),
             routes: Value::Array(Default::default()),
-            default_model: "claude-opus-5[1m]".into(),
+            default_model: "claude-opus-5-5[1m]".into(),
             efforts: vec![
                 "low".into(),
                 "medium".into(),
