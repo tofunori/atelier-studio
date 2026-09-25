@@ -205,6 +205,20 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.queryByText(t("action.interrupt"))).toBeNull();
   });
 
+  it("Stop éteint un spinner rallumé après la fin du tour quand le serveur dit le fil au repos", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "done", ok: true, result: "" } });
+    // Serveur d'avant le correctif : note de vie tardive (hook asynchrone).
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "heartbeat", note: "" } });
+    expect(stopButton()).toBeTruthy();
+    fireEvent.click(stopButton()!);
+    await push(sock, { type: "threadIdle", threadId: "thread-A" });
+    expect(stopButton()).toBeNull();
+  });
+
   it("isole et restaure le brouillon du composer pour chaque conversation", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock);

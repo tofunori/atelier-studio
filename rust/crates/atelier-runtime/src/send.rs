@@ -2085,6 +2085,15 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     if let Some(p) = provider.as_deref().and_then(|id| state.provider(id)) {
         let _ = p.interrupt(thread_id).await;
     }
+    // Aucun tour vivant : aucun terminal ne viendra éteindre l'indicateur de
+    // travail du client. Sans cette réponse, Stop sur un spinner resté
+    // allumé après la fin du tour ne faisait rien (Thierry 2026-09-25).
+    if !state.harness().is_running(thread_id).await {
+        return vec![crate::ws_router::json_msg(json!({
+            "type": "threadIdle",
+            "threadId": thread_id,
+        }))];
+    }
     vec![]
 }
 
@@ -2674,6 +2683,27 @@ mod tests {
             !events.iter().any(|e| e["kind"] == "text"),
             "le tour a produit sa réponse complète malgré le stop: {events:?}"
         );
+    }
+
+    /// Stop sur un fil sans tour vivant (spinner resté allumé côté client) :
+    /// aucun terminal ne viendra, le serveur le dit pour que le client
+    /// éteigne son indicateur (Thierry 2026-09-25).
+    #[tokio::test]
+    async fn stop_sans_tour_vivant_repond_que_le_fil_est_au_repos() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let out = handle_interrupt(&state, &json!({"type":"interrupt","threadId":"t-fini"})).await;
+        assert_eq!(out.len(), 1, "{out:?}");
+        let msg: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(msg["type"], "threadIdle");
+        assert_eq!(msg["threadId"], "t-fini");
     }
 
     #[tokio::test]
