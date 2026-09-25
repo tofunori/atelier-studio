@@ -1,6 +1,6 @@
 //! Per-thread harness serializer.
 
-use crate::kinds::is_durable;
+use crate::kinds::{is_durable, is_ephemeral};
 use crate::EmitFn;
 use atelier_store::{HarnessJournal, JournalError};
 use serde_json::{json, Value};
@@ -271,6 +271,15 @@ impl HarnessThread {
     }
 
     pub fn emit(&mut self, turn_id: &str, event: Value, item_id: Option<&str>) -> Result<(), JournalError> {
+        // Un événement éphémère dit qu'un tour est EN COURS : après le
+        // terminal de ce tour, il ne décrit plus rien. Le laisser passer
+        // rallumait l'indicateur de travail et le bouton Stop d'un tour fini
+        // (réponse d'un hook asynchrone après le `result` de Claude, qui sort
+        // en note de vie, Thierry 2026-09-25).
+        let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
+        if is_ephemeral(kind) && self.turns.get(turn_id).is_some_and(|t| t.terminal) {
+            return Ok(());
+        }
         // The provider announces its native turn in the first `started` event.
         // Capture it before decorating that event so every following durable
         // item (especially image artifacts) carries the exact native turn
@@ -449,6 +458,38 @@ mod tests {
         let mat = journal.materialize("t1");
         assert!(!mat.iter().any(|e| e["kind"] == "thinking_progress"));
         assert!(mat.iter().any(|e| e["kind"] == "done"));
+    }
+
+    /// Régression (Thierry 2026-09-25) : un hook asynchrone répond APRÈS le
+    /// `result` de Claude, et sa note de vie rallumait le spinner et le
+    /// bouton Stop d'un tour déjà fini. Après le terminal, plus aucun
+    /// éphémère du tour ne sort ; le durable (avis tardif) passe toujours.
+    #[test]
+    fn un_ephemere_apres_le_terminal_ne_rallume_pas_le_tour() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        let captured = Arc::new(StdMutex::new(Vec::new()));
+        let cap = Arc::clone(&captured);
+        let emit: EmitFn = Arc::new(move |e| {
+            cap.lock().unwrap().push(e);
+        });
+        let mut h = HarnessThread::new("t1", "fake", emit, journal.clone());
+        let turn = h.start_turn(None, None, None).unwrap();
+        h.emit(&turn, json!({"kind":"heartbeat","note":"hook Stop"}), None).unwrap();
+        h.terminal(&turn, json!({"kind":"done"})).unwrap();
+        for kind in ["heartbeat", "thinking_progress", "drafting", "started", "delta"] {
+            h.emit(&turn, json!({"kind": kind, "note": ""}), None).unwrap();
+        }
+        h.emit(&turn, json!({"kind":"tool","name":"__notice","detail":"tardif"}), None).unwrap();
+        let ui = captured.lock().unwrap();
+        let apres: Vec<&str> = ui
+            .iter()
+            .skip_while(|e| e["kind"] != "done")
+            .skip(1)
+            .filter_map(|e| e["kind"].as_str())
+            .collect();
+        assert_eq!(apres, ["tool"], "{ui:?}");
+        assert!(ui.iter().any(|e| e["kind"] == "heartbeat"), "la note d'avant le terminal passe");
     }
 
     #[test]
