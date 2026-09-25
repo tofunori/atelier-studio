@@ -108,7 +108,8 @@ pub struct ClaudeStreamState {
     /// Tâches de fond vivantes (`system.background_tasks_changed`, liste
     /// complète à chaque changement) : Bash `run_in_background`, sous-agents,
     /// Monitor. Tant qu'il en reste, un `result` ne clôt pas la session — le
-    /// CLI reprendra la main à leur fin, comme dans le terminal.
+    /// CLI reprendra la main à leur fin, comme dans le terminal. Les tâches
+    /// `ambient` (mémoire automatique, rêve, veilleurs) n'y comptent pas.
     pub background_tasks: usize,
     /// `uuid` des messages utilisateur que le CLI vient de prendre en compte
     /// (`--replay-user-messages`, `isReplay: true`). `claude.rs` les retire de
@@ -241,11 +242,16 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             }
             out.push(json!({"kind":"heartbeat","note": note}));
         }
+        // Une tâche `ambient` n'est pas de l'activité selon le CLI lui-même
+        // (« hosts should exclude them from activity indicators », 2.1.283) :
+        // mémoire automatique, rêve, veilleurs. Le terminal ne l'attend pas,
+        // le tour d'Atelier non plus.
         if subtype == "background_tasks_changed" {
+            let activite = |t: &&Value| t.get("ambient").and_then(Value::as_bool) != Some(true);
             state.background_tasks = msg
                 .get("tasks")
                 .and_then(|v| v.as_array())
-                .map_or(0, Vec::len);
+                .map_or(0, |taches| taches.iter().filter(activite).count());
         }
         // Les hooks tournent invisiblement — 69 chez Thierry. Comme le
         // terminal (« running PreToolUse hook »), ils occupent l'attente au
@@ -1967,6 +1973,12 @@ mod tests {
         assert_eq!(st.background_tasks, 2);
         parse_line(&mut st, r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#);
         assert_eq!(st.background_tasks, 0);
+        // Rêve et mémoire automatique : ambiants, ils ne retiennent pas le tour.
+        parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"d","task_type":"dream","ambient":true},{"task_id":"b","task_type":"local_bash","ambient":false}]}"#,
+        );
+        assert_eq!(st.background_tasks, 1);
         let ev = parse_line(
             &mut st,
             r#"{"type":"user","isReplay":true,"uuid":"u-1","message":{"role":"user","content":[{"type":"text","text":"salut"}]}}"#,

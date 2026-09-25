@@ -2723,6 +2723,35 @@ mod session_vivante_tests {
             && v["note"].as_str().is_some_and(|n| n.contains("tâche de fond"))));
     }
 
+    /// Tâche ambiante (rêve, mémoire automatique) vivante au `result` : ce
+    /// n'est pas de l'activité, le terminal ne l'attend pas. Le `done` sort
+    /// tout de suite et le stdin se ferme (sinon `cat` bloquerait le tour).
+    #[tokio::test]
+    async fn une_tache_ambiante_ne_retient_pas_le_tour() {
+        let cli = FauxCli::nouveau(&format!(
+            "#!/bin/sh\n\
+             IFS= read -r prompt\n\
+             printf '%s\\n' '{INIT}'\n\
+             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{{\"task_id\":\"d1\",\"task_type\":\"dream\",\"ambient\":true}}]}}'\n\
+             printf '%s\\n' '{RESULT}'\n\
+             cat > /dev/null\n"
+        ));
+        let provider = provider_pour(&cli);
+        let (on_event, vus) = collecteur();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            provider.send(req("t-ambiante", SendMode::Normal, "salut", on_event, None)),
+        )
+        .await
+        .expect("une tâche ambiante ne doit pas retenir le tour");
+        assert!(res.ok, "{:?}", res.error);
+        let events = vus.lock().unwrap();
+        assert_eq!(events.iter().filter(|v| v["kind"] == "done").count(), 1);
+        assert!(!events.iter().any(|v| v["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("tâche de fond"))));
+    }
+
     /// Plus de tâche de fond et le CLI ne repart pas : le `done` retenu
     /// conclut quand même le tour, sans attendre le filet d'inactivité.
     #[tokio::test]
