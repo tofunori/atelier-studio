@@ -1481,6 +1481,16 @@ export default function App() {
       if (msg.type === "evidencePins") {
         pushEvidencePins(msg);
       }
+      // Réponse du serveur à un Stop quand aucun tour ne tourne : aucun
+      // terminal ne viendra, le spinner s'éteint ici (Stop inopérant sur un
+      // tour déjà fini, 2026-09-25). Un envoi qui démarre ensuite le rallume.
+      if (msg.type === "threadIdle" && typeof msg.threadId === "string") {
+        const idle = msg.threadId;
+        confirmedRunsRef.current.delete(idle);
+        liveTokenStore.set(idle, null);
+        setLiveNotes((p) => (p[idle] == null ? p : { ...p, [idle]: null }));
+        setWorkingSince((p) => (p[idle] == null ? p : { ...p, [idle]: null }));
+      }
       if (msg.type === "event") {
         const receivedAt = Date.now();
         if (!["heartbeat", "usage"].includes(msg.event.kind)) {
