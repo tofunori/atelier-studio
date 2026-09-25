@@ -1121,7 +1121,7 @@ impl KnowledgeStore {
                     merged.push((passage, Some(file.rel.clone())));
                 }
             }
-            merged.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
+            merged.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal));
             merged.truncate(capped);
             return Ok((summary, merged));
         }

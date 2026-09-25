@@ -5,8 +5,8 @@
 //
 // Résolution du binaire : `ATELIER_GALLERY_SERVER_BIN=<chemin>` (doit
 // exister), sinon le PLUS RÉCENT (mtime) parmi rust/target/debug/,
-// rust/target/release/ et src-tauri/rust-server-dist/ — le dist est suivi
-// par git et peut être périmé par rapport à la source, un `cargo build`
+// rust/target/release/ et src-tauri/rust-server-dist/ — le dist (stagé,
+// non suivi) peut être périmé par rapport à la source, un `cargo build`
 // frais doit gagner —, sinon `cargo build -p atelier-gallery --bin
 // atelier-gallery-server` (debug). Le harnais ne saute jamais silencieusement
 // faute de binaire.

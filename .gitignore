@@ -28,9 +28,11 @@ rust/target/
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/
 src-tauri/node-dist/
-# staged binary only (directory kept so tauri-build resource path exists)
-src-tauri/rust-server-dist/atelier-studio-server
-src-tauri/rust-server-dist/BUILD_STAMP.txt
+# binaires stagés par scripts/stage-rust-server.sh à chaque build (beforeBuildCommand,
+# release.yml) : jamais suivis. Seul le README reste, pour que le dossier existe
+# (chemin de ressource vérifié par tauri-build).
+src-tauri/rust-server-dist/*
+!src-tauri/rust-server-dist/README.md
 src-tauri/appsnap-dist/
 .cache/node-runtime/
 .opencode/
@@ -54,6 +56,5 @@ playwright-report/
 # restes d'ecritures atomiques du serveur galerie (tue avant le rename)
 .figures_index.html.*.tmp
 __pycache__/
-src-tauri/rust-server-dist/atelier_figure_qc.py
 # bancs de perf (scripts/bench) : builds jetables, jamais suivis
 dist-bench*

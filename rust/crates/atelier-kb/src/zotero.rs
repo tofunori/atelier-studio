@@ -230,7 +230,7 @@ pub fn search_corpus(cache_dir: &Path, query: &str, limit: usize) -> Vec<CorpusP
             });
         }
     }
-    merged.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    merged.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     merged.truncate(cap);
     merged
 }
