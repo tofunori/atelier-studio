@@ -122,11 +122,45 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   const more = reader.locator('.pdf-toolbar-more');
   await more.locator('summary').click();
   await expect(more).toHaveAttribute('open', '');
+  // Chaque rangée du menu tient sur une ligne, icône à gauche : #invBtn et
+  // #readBtn gardaient leur gabarit 26 px de la barre autonome (libellé coupé).
+  const menuRows = await reader.locator('.pdf-toolbar-menu button').evaluateAll(buttons => buttons
+    .filter(button => button.offsetParent)
+    .map(button => {
+      const rect = button.getBoundingClientRect();
+      const label = button.querySelector('span');
+      const icon = button.querySelector('svg');
+      return { id: button.id, width: rect.width, height: rect.height,
+        labelLines: label.getClientRects().length, labelHeight: label.getBoundingClientRect().height,
+        iconOffset: icon.getBoundingClientRect().left - rect.left };
+    }));
+  expect(menuRows.map(row => row.id)).toEqual(expect.arrayContaining(['invBtn', 'readBtn']));
+  const rowWidth = menuRows[0].width;
+  for (const row of menuRows) {
+    expect(row.width, row.id).toBe(rowWidth);
+    expect(row.height, row.id).toBe(32);
+    expect(row.labelLines, row.id).toBe(1);
+    expect(row.labelHeight, row.id).toBeLessThan(20);
+    expect(row.iconOffset, row.id).toBe(menuRows[0].iconOffset);
+  }
   await reader.locator('#readBtn').click();
   await expect(reader.locator('body')).toHaveClass(/read-mode/);
   await expect(reader.locator('#readBar')).toBeVisible();
   await reader.locator('#readBtn').click();
   await expect(reader.locator('body')).not.toHaveClass(/read-mode/);
+
+  // « Joindre le PDF au chat » : un seul message à l'hôte, avec le chemin du lecteur.
+  await page.evaluate(() => {
+    window.__attachMessages = [];
+    window.addEventListener('message', event => {
+      if (event.data?.type === 'atelier-attach-pdf') window.__attachMessages.push(event.data);
+    });
+  });
+  const chatButton = reader.getByRole('button', { name: 'Joindre le PDF au chat' });
+  await expect(chatButton).toBeVisible();
+  await chatButton.click();
+  await expect.poll(() => page.evaluate(() => window.__attachMessages.map(m => m.rel))).toEqual(['twocol.pdf']);
+  await expect(reader.locator('#status')).toHaveText('PDF joint au chat');
 
   const note = reader.getByRole('button', { name: 'Ajouter une note sur la page' });
   await note.click();

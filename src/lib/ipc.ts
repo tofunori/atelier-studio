@@ -39,6 +39,14 @@ export type AtelierAddToChatMessage = {
   pdfAnnotation?: { rel: string; id: string };
 };
 
+/** Bouton « Joindre le PDF au chat » du lecteur PDF : `rel` est le chemin du
+ *  lecteur (`zotero/<clé>/<fichier>` ou relatif au projet) ; l'app résout. */
+export type AtelierAttachPdfMessage = {
+  type: "atelier-attach-pdf";
+  nonce: string;
+  rel: string;
+};
+
 /** Sélection envoyée au Quick Ask depuis un éditeur galerie (studio
  *  LaTeX/code). `around` porte les lignes voisines : un mot seul arraché à un
  *  .tex ne dit rien de plus qu'un mot seul arraché à un fil. */
@@ -103,6 +111,7 @@ export type AtelierInboundMessage =
   | AtelierOpenTabMessage
   | AtelierOpenPdfMessage
   | AtelierAddToChatMessage
+  | AtelierAttachPdfMessage
   | AtelierQuickAskMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
@@ -209,6 +218,8 @@ export function isTrustedAtelierMessage(
         (data.direct === undefined || typeof data.direct === "boolean") &&
         isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
+    case "atelier-attach-pdf":
+      return hasOnlyKeys(data, ["type", "nonce", "rel"]) && isBoundedString(data.rel, MAX_URL_LENGTH);
     case "browser-add-to-chat":
       return (
         hasOnlyKeys(data, ["type", "nonce", "text", "url"]) &&

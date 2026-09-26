@@ -903,6 +903,7 @@ const fr = {
   // Étapes réelles annoncées par MinerU, plutôt qu'un compteur muet.
   "article.waiting": "En attente de la conversion — {s} s",
   "chat.open-file-no-project": "Impossible d'ouvrir {name} — aucun projet actif. Ouvre le projet dans le rail d'abord.",
+  "chat.attach-pdf-no-project": "Impossible de joindre ce PDF au chat : aucun projet actif.",
   "chat.open-file-server-starting": "Le serveur du projet démarre — re-clique sur {name} dans un instant.",
   "chat.open-file-outside": "{name} est hors du projet actif — ouvre son projet pour le consulter.",
   "chat.open-file-binary-outside": "{name} est un binaire hors projet — l'aperçu n'est possible que dans son projet.",
@@ -2760,6 +2761,7 @@ const en: Record<keyof typeof fr, string> = {
   "article.converting": "Converting — {s} s",
   "article.waiting": "Waiting for conversion — {s} s",
   "chat.open-file-no-project": "Cannot open {name} — no active project. Open the project in the rail first.",
+  "chat.attach-pdf-no-project": "Cannot attach this PDF to the chat: no active project.",
   "chat.open-file-server-starting": "The project server is starting — click {name} again in a moment.",
   "chat.open-file-outside": "{name} is outside the active project — open its project to view it.",
   "chat.open-file-binary-outside": "{name} is a binary outside the project — preview only works inside its project.",

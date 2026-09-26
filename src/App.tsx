@@ -147,7 +147,7 @@ import {
 import { type ZoteroPaletteItem, buildZoteroReferenceText } from "./lib/zoteroReference";
 import {
   addAttachment, fileAttachment, folderAttachment, galleryFileContext, parseAttachment, pastedTextAttachment,
-  quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel,
+  quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel, pdfChatTarget,
 } from "./lib/composerAttachments";
 import { playAppSnapSound } from "./lib/appSnapSound";
 import { type PendingGoal, type PendingResend, type PendingRevert, createThreadActions } from "./lib/threadActions";
@@ -401,6 +401,8 @@ export default function App() {
   const paletteOpenRef = useRef(false);
   paletteOpenRef.current = paletteOpen;
   const [zoteroItems, setZoteroItems] = useState<ZoteroPaletteItem[]>([]);
+  const zoteroItemsRef = useRef(zoteroItems);
+  zoteroItemsRef.current = zoteroItems;
   const [recentFiles, setRecentFiles] = useStoredJson<string[]>("atelier-studio.recentFiles", []);
   const [, setLanguageRev] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
@@ -1235,6 +1237,19 @@ export default function App() {
     activeIdRef.current = id;
     setEvents((p) => ({ ...p, [id]: p[id] ?? [] }));
     return id;
+  }
+
+  // Référence Zotero jointe au composer : métadonnées tout de suite, digest et
+  // chemin absolu du PDF à la réponse `zoteroDigest`.
+  function attachZoteroItem(item: ZoteroPaletteItem) {
+    pendingZoteroDigest.current.set(item.key, item);
+    setAttachments((l) => addAttachment(l, zoteroAttachment(item)));
+    if (ws.current?.readyState === 1) {
+      ws.current.send(JSON.stringify({
+        type: "zoteroDigest", key: item.key, citeKey: item.citeKey ?? "",
+        pdfKey: item.pdfKey ?? null, pdfFile: item.pdfFile ?? null,
+      }));
+    }
   }
 
   function attachContextToChat(
@@ -2378,6 +2393,17 @@ export default function App() {
             } satisfies QaContext,
           },
         }));
+      }
+      if (data.type === "atelier-attach-pdf") {
+        // « Joindre le PDF au chat » du lecteur : rejoint le message en cours
+        // du chat actif, rien n'est envoyé tout seul.
+        const target = pdfChatTarget(data.rel, zoteroItemsRef.current, activeProjectRef.current);
+        if (!target) void showError(t("chat.attach-pdf-no-project"));
+        else {
+          if ("item" in target) attachZoteroItem(target.item);
+          else setAttachments((l) => addAttachment(l, fileAttachment(target.path)));
+          setLayout((l) => (l === "atelier" ? "split" : l));
+        }
       }
       if (data.type === "atelier-add-to-chat") {
         if (!data.requestId || !galleryRequests.current.has(data.requestId)) {
@@ -4375,15 +4401,7 @@ export default function App() {
           onAttachFolder={(folder) => setAttachments((l) => addAttachment(l, folderAttachment(folder, files)))}
           onAttachZotero={(key) => {
             const item = zoteroItems.find((entry) => entry.key === key);
-            if (!item) return;
-            pendingZoteroDigest.current.set(item.key, item);
-            setAttachments((l) => addAttachment(l, zoteroAttachment(item)));
-            if (ws.current?.readyState === 1) {
-              ws.current.send(JSON.stringify({
-                type: "zoteroDigest", key: item.key, citeKey: item.citeKey ?? "",
-                pdfKey: item.pdfKey ?? null, pdfFile: item.pdfFile ?? null,
-              }));
-            }
+            if (item) attachZoteroItem(item);
           }}
           onStop={threadActions.stop}
           onPasteImage={threadActions.pasteImage}
