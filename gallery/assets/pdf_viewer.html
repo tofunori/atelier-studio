@@ -2844,8 +2844,30 @@ if (window.self !== window.top) {
     const label = document.createElement("span"); label.textContent = button.getAttribute("aria-label") || button.title;
     button.appendChild(label);
   });
+  // Rangées bascule : l'état actif se lit à un ✓ à droite (modèle de menu commun).
+  ["areaBtn", "invBtn", "readBtn"].forEach(id => {
+    const button = menu.querySelector("#" + id);
+    if(button) button.insertAdjacentHTML("beforeend", '<svg class="pdf-menu-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>');
+  });
+  // Joindre le PDF ouvert au message en cours du chat : l'hôte résout le
+  // chemin (article Zotero → référence @citekey avec son PDF, sinon fichier du
+  // projet). Rien ne part tout seul, l'utilisateur écrit puis envoie.
+  const chatBtn = document.createElement("button");
+  chatBtn.id = "chatPdfBtn"; chatBtn.type = "button";
+  chatBtn.title = "Joindre le PDF au chat"; chatBtn.setAttribute("aria-label", "Joindre le PDF au chat");
+  chatBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>';
+  let chatNote = 0;
+  chatBtn.onclick = (e) => {
+    e.stopPropagation();
+    if(!rel) return;
+    __atelierPost({type: "atelier-attach-pdf", rel});
+    const status = document.getElementById("status");
+    status.textContent = "PDF joint au chat";
+    clearTimeout(chatNote);
+    chatNote = setTimeout(() => { if(status.textContent === "PDF joint au chat") status.textContent = ""; }, 2500);
+  };
   document.getElementById("pdftools").remove();
-  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(more);
+  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(chatBtn); header.appendChild(more);
   document.addEventListener("pointerdown", e => { if(!more.contains(e.target)) more.open = false; });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && more.open) { more.open = false; summary.focus(); } });
   const css = document.createElement("style");
@@ -2871,13 +2893,26 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:11px; }
     header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
     .pdf-toolbar-more { position:relative; flex:none; }
-    .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:5px; font-size:20px; }
+    .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; font-size:20px; }
     .pdf-toolbar-more summary::-webkit-details-marker { display:none; }
     .pdf-toolbar-more summary:hover { background:var(--card2); }
-    .pdf-toolbar-menu { position:absolute; right:0; top:31px; width:260px; max-width:calc(100vw - 20px); display:flex; flex-direction:column; align-items:stretch; padding:6px; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 20px #0003; }
-    header.pdf-compact-toolbar .pdf-toolbar-menu button { width:100%; height:auto; min-height:32px; margin:0; display:flex; align-items:center; justify-content:flex-start; gap:10px; padding:7px 9px!important; text-align:left; white-space:normal; }
+    header.pdf-compact-toolbar #chatPdfBtn { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+    #chatPdfBtn svg { width:14px; height:14px; }
+    /* Menu ⋯ : modèle commun (sans bordure, ombre --elev, rayons 10/6, rangées 12 px).
+       #invBtn et #readBtn gardent leurs règles d'identifiant (26 px, centré,
+       marge 8) pour la barre autonome : ici les !important les battent, sinon
+       leur libellé se coupait sur deux lignes et l'icône se décalait. */
+    .pdf-toolbar-menu { position:absolute; right:0; top:32px; width:260px; max-width:calc(100vw - 20px); display:flex; flex-direction:column; align-items:stretch; padding:4px; background:var(--card); border-radius:10px; box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)); }
+    .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:pdfMenuIn 140ms ease-out; }
+    @keyframes pdfMenuIn { from { opacity:0; transform:translateY(-4px); } }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button { width:100%!important; height:auto!important; min-height:32px; margin:0!important; display:flex; align-items:center; justify-content:flex-start!important; gap:12px; padding:8px 12px!important; text-align:left; white-space:nowrap; font-size:12px!important; font-weight:400; }
     header.pdf-compact-toolbar .pdf-toolbar-menu #compileBtn { display:none; }
     .pdf-toolbar-menu svg { width:14px; height:14px; flex:none; }
+    .pdf-toolbar-menu .pdf-menu-check { margin-left:auto; visibility:hidden; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-toolbar-menu button.ton { background:transparent!important; color:var(--txt)!important; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button:hover { background:var(--card2)!important; }
+    .pdf-toolbar-menu button[aria-pressed="true"] .pdf-menu-check, .pdf-toolbar-menu button.ton .pdf-menu-check { visibility:visible; }
+    @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:none; } }
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
     header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--accent)!important; }

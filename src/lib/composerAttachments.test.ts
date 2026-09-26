@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addAttachment, fileAttachment, folderAttachment, galleryFileContext, pastedTextAttachment,
-  quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel,
+  pdfChatTarget, quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel,
 } from "./composerAttachments";
 
 describe("fileAttachment", () => {
@@ -118,5 +118,24 @@ describe("galleryFileContext", () => {
     expect(galleryFileContext("/p", "notes.md", "http://127.0.0.1:4100/").file.previewUrl).toBeUndefined();
     expect(galleryFileContext("/p", "a.png", null).file.previewUrl).toBeUndefined();
     expect(galleryFileContext("/p", "a.png", "::").file.previewUrl).toBeUndefined();
+  });
+});
+
+describe("pdfChatTarget", () => {
+  const warren = { key: "ITEM0001", title: "Optical properties of snow", pdfKey: "ABCD1234", pdfFile: "Warren 1982.pdf" };
+
+  it("un PDF Zotero connu part comme sa référence", () => {
+    expect(pdfChatTarget("zotero/ABCD1234/Warren 1982.pdf", [warren], "/p")).toEqual({ item: warren });
+  });
+
+  it("un PDF Zotero sans article chargé part par son chemin de stockage", () => {
+    expect(pdfChatTarget("zotero/ZZZZ9999/Autre.pdf", [warren], null))
+      .toEqual({ path: "~/Zotero/storage/ZZZZ9999/Autre.pdf" });
+  });
+
+  it("un PDF du projet part par son chemin absolu", () => {
+    expect(pdfChatTarget("manuscript/main.pdf", [], "/Users/t/these/")).toEqual({ path: "/Users/t/these/manuscript/main.pdf" });
+    expect(pdfChatTarget("/Users/t/a.pdf", [], null)).toEqual({ path: "/Users/t/a.pdf" });
+    expect(pdfChatTarget("main.pdf", [], null)).toBeNull();
   });
 });
