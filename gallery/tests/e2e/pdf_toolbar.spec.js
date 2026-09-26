@@ -137,11 +137,12 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   expect(menuRows.map(row => row.id)).toEqual(expect.arrayContaining(['invBtn', 'readBtn']));
   const rowWidth = menuRows[0].width;
   for (const row of menuRows) {
-    expect(row.width, row.id).toBe(rowWidth);
-    expect(row.height, row.id).toBe(32);
+    // toBeCloseTo : le zoom de la page donne des hauteurs à 31.999996 px.
+    expect(row.width, row.id).toBeCloseTo(rowWidth, 1);
+    expect(row.height, row.id).toBeCloseTo(32, 1);
     expect(row.labelLines, row.id).toBe(1);
     expect(row.labelHeight, row.id).toBeLessThan(20);
-    expect(row.iconOffset, row.id).toBe(menuRows[0].iconOffset);
+    expect(row.iconOffset, row.id).toBeCloseTo(menuRows[0].iconOffset, 1);
   }
   await reader.locator('#readBtn').click();
   await expect(reader.locator('body')).toHaveClass(/read-mode/);
@@ -160,7 +161,13 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect(chatButton).toBeVisible();
   await chatButton.click();
   await expect.poll(() => page.evaluate(() => window.__attachMessages.map(m => m.rel))).toEqual(['twocol.pdf']);
-  await expect(reader.locator('#status')).toHaveText('PDF joint au chat');
+  // Aucun texte : une coche remplace brièvement l'icône, puis tout revient.
+  await expect(chatButton).toHaveClass(/done/);
+  await expect(chatButton.locator('.ci-done')).toBeVisible();
+  await expect(chatButton).toHaveText('');
+  await expect(reader.locator('#status')).toHaveText('');
+  await expect(chatButton).not.toHaveClass(/done/, { timeout: 3_000 });
+  await expect(chatButton.locator('.ci-idle')).toBeVisible();
 
   const note = reader.getByRole('button', { name: 'Ajouter une note sur la page' });
   await note.click();
