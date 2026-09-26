@@ -2851,20 +2851,22 @@ if (window.self !== window.top) {
   });
   // Joindre le PDF ouvert au message en cours du chat : l'hôte résout le
   // chemin (article Zotero → référence @citekey avec son PDF, sinon fichier du
-  // projet). Rien ne part tout seul, l'utilisateur écrit puis envoie.
+  // projet). Rien ne part tout seul, l'utilisateur écrit puis envoie. Aucun
+  // texte : l'infobulle porte le nom, une coche brève confirme le clic.
   const chatBtn = document.createElement("button");
   chatBtn.id = "chatPdfBtn"; chatBtn.type = "button";
   chatBtn.title = "Joindre le PDF au chat"; chatBtn.setAttribute("aria-label", "Joindre le PDF au chat");
-  chatBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>';
-  let chatNote = 0;
+  chatBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>'
+    + '<svg class="ci-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>';
+  chatBtn.firstChild.classList.add("ci-idle");
+  let chatDone = 0;
   chatBtn.onclick = (e) => {
     e.stopPropagation();
     if(!rel) return;
     __atelierPost({type: "atelier-attach-pdf", rel});
-    const status = document.getElementById("status");
-    status.textContent = "PDF joint au chat";
-    clearTimeout(chatNote);
-    chatNote = setTimeout(() => { if(status.textContent === "PDF joint au chat") status.textContent = ""; }, 2500);
+    chatBtn.classList.add("done");
+    clearTimeout(chatDone);
+    chatDone = setTimeout(() => chatBtn.classList.remove("done"), 1200);
   };
   document.getElementById("pdftools").remove();
   header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(chatBtn); header.appendChild(more);
@@ -2898,6 +2900,11 @@ if (window.self !== window.top) {
     .pdf-toolbar-more summary:hover { background:var(--card2); }
     header.pdf-compact-toolbar #chatPdfBtn { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
     #chatPdfBtn svg { width:14px; height:14px; }
+    #chatPdfBtn .ci-done, #chatPdfBtn.done .ci-idle { display:none; }
+    #chatPdfBtn.done .ci-done { display:block; }
+    header.pdf-compact-toolbar #chatPdfBtn { transition:color 140ms ease, background 140ms ease; }
+    header.pdf-compact-toolbar #chatPdfBtn.done { color:var(--accent)!important; }
+    @media (prefers-reduced-motion: reduce) { header.pdf-compact-toolbar #chatPdfBtn { transition:none; } }
     /* Menu ⋯ : modèle commun (sans bordure, ombre --elev, rayons 10/6, rangées 12 px).
        #invBtn et #readBtn gardent leurs règles d'identifiant (26 px, centré,
        marge 8) pour la barre autonome : ici les !important les battent, sinon
