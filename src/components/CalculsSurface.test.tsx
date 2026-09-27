@@ -1,6 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import CalculsSurface, { calculsDebug, type ComputeRun } from "./CalculsSurface";
+import CalculsSurface, { availableHosts, calculsDebug, hostTerminalCommand, pollIntervalMs, type ComputeRun } from "./CalculsSurface";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../lib/integrations";
+
+// Hôtes distants configurés (Réglages → Intégrations) : les commandes de
+// terminal attendues ci-dessous en découlent directement.
+const CONFIGURED = {
+  nasHost: "nas",
+  clusters: { narval: { host: "narval-vpn", gateway: "nas" }, rorqual: null },
+};
 
 const sent: any[] = [];
 let online = true;
@@ -77,12 +85,14 @@ describe("CalculsSurface", () => {
     sent.splice(0);
     online = true;
     localStorage.clear();
+    setIntegrationsForTests(CONFIGURED);
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(NOW);
   });
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    resetIntegrationsForTests();
   });
 
   it("demande un snapshot 7 jours tous hôtes, rend les runs triés running d'abord", () => {
@@ -539,5 +549,91 @@ describe("CalculsSurface", () => {
       expect(calculsDebug.rowRenders).toBe(rows);
       expect(calculsDebug.listRenders).toBe(lists);
     });
+  });
+});
+
+describe("CalculsSurface — hôtes configurés", () => {
+  beforeAll(() => {
+    (Element.prototype as Element & { getAnimations: () => Animation[] }).getAnimations = () => [];
+  });
+  beforeEach(() => {
+    sent.splice(0);
+    online = true;
+    localStorage.clear();
+    resetIntegrationsForTests();
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    resetIntegrationsForTests();
+  });
+
+  it("les commandes de terminal viennent de la configuration, jamais d'un alias deviné", () => {
+    const none = { nasHost: null, clusters: { narval: null, rorqual: null } };
+    expect(hostTerminalCommand("nas", none)).toBeNull();
+    expect(hostTerminalCommand("narval", none)).toBeNull();
+    expect(hostTerminalCommand("mac", none)).toBeNull();
+    const direct = { nasHost: "stockage", clusters: { narval: { host: "grappe", gateway: null }, rorqual: null } };
+    expect(hostTerminalCommand("nas", direct)).toBe("ssh stockage");
+    expect(hostTerminalCommand("narval", direct)).toBe("ssh grappe");
+    const relayed = { nasHost: null, clusters: { narval: { host: "grappe", gateway: "relais" }, rorqual: null } };
+    expect(hostTerminalCommand("narval", relayed)).toBe("ssh relais -t ssh grappe");
+  });
+
+  it("le filtre ne propose que les hôtes configurés", () => {
+    expect(availableHosts({ nasHost: null, clusters: { narval: null, rorqual: null } })).toEqual(["all", "mac"]);
+    expect(availableHosts({ nasHost: "stockage", clusters: { narval: null, rorqual: { host: "r", gateway: null } } }))
+      .toEqual(["all", "mac", "nas"]);
+    expect(availableHosts(CONFIGURED)).toEqual(["all", "mac", "nas", "narval"]);
+    // « Tous » sans aucun hôte distant se sonde au rythme du Mac
+    expect(pollIntervalMs("all", false)).toBe(30_000);
+    expect(pollIntervalMs("all", true)).toBe(60_000);
+  });
+
+  it("rien de configuré : ni NAS ni Narval, pas de terminal, « Tous » sans hôte distant", () => {
+    render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "Mac" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "NAS" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Narval" })).toBeNull();
+    expect(lastRequest("computeSnapshot").hosts).toBeUndefined();
+    // les runs d'un hôte non configuré (réponse tardive, cache) ne s'affichent pas
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+    const rows = [...document.querySelectorAll(".calculs-run")];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("Ajustement M41");
+    expect(screen.queryByRole("button", { name: /^terminal$/i })).toBeNull();
+  });
+
+  it("un filtre mémorisé sur un hôte qui n'est plus configuré retombe sur « Tous »", () => {
+    localStorage.setItem("atelier.calculs.host", "nas");
+    render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    expect(lastRequest("computeSnapshot").hosts).toBeUndefined();
+    expect(screen.getByRole("radio", { name: /^(Tous|All)$/ }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("sans grappe configurée, un run Slurm n'ouvre aucune vue Slurm", () => {
+    setIntegrationsForTests({ nasHost: "nas" });
+    const { container } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    deliver(snapshotMessage(lastRequest("computeSnapshot").requestId, { runs: [RUNS[2]] }));
+    // le run narval n'est pas affiché sous « Tous » (hôte non configuré)…
+    expect(container.querySelectorAll(".calculs-run")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /vue slurm|slurm view/i })).toBeNull();
+  });
+
+  it("seule Rorqual configurée : la vue Slurm reste accessible depuis « Tous »", () => {
+    setIntegrationsForTests({ clusters: { narval: null, rorqual: { host: "rorqual", gateway: null } } });
+    render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /vue slurm|slurm view/i }));
+    expect(screen.getByTestId("narval-stub").getAttribute("data-visible")).toBe("true");
+  });
+
+  it("la configuration arrivée après le montage ajoute ses hôtes au filtre", () => {
+    render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+    expect(screen.queryByRole("radio", { name: "NAS" })).toBeNull();
+    act(() => setIntegrationsForTests(CONFIGURED));
+    expect(screen.getByRole("radio", { name: "NAS" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Narval" })).toBeTruthy();
   });
 });

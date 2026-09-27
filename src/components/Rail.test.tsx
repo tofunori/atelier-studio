@@ -9,6 +9,7 @@ import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
 import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../lib/integrations";
 
 const articleState: { jobs: unknown[]; focused: string | null; open: boolean } = {
   jobs: [], focused: null, open: false,
@@ -59,11 +60,14 @@ beforeEach(() => {
   resetTestState();
   setLanguage("fr");
   articleState.jobs = [];
+  // les conversions d'articles alimentent Ragdoc : configuré (Réglages → Intégrations)
+  setIntegrationsForTests({ ragdoc: true });
 });
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  resetIntegrationsForTests();
 });
 
 it("signale une réponse non lue, puis retire le point à l'ouverture", () => {
@@ -118,6 +122,20 @@ describe("Rail — zone d'activité", () => {
   it("reste absente quand rien ne tourne", () => {
     const { container } = renderUi(<Rail {...makeProps()} />);
     expect(container.querySelector(".rail-activity")).toBeNull();
+  });
+
+  it("sans Ragdoc configuré, aucune conversion d'article n'y figure", async () => {
+    setIntegrationsForTests({ ragdoc: false });
+    articleState.jobs = [
+      { requestId: "r1", path: "/tmp/rounce-2023.pdf", phase: "converting", message: null },
+    ];
+    const { container } = renderUi(
+      <Rail {...makeProps({ running: new Set(["/Users/t/thèse"]) })} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Activité en cours" }));
+    expect(container.querySelectorAll(".rail-act").length).toBe(1);
+    expect(screen.queryByTitle(/rounce-2023.pdf/)).toBeNull();
   });
 
   it("montre un agent au travail et une conversion en cours", async () => {

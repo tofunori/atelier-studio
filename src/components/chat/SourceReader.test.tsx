@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import SourceReader from "./SourceReader";
 import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage } from "../../lib/i18n";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../../lib/integrations";
 
 const envoyes: unknown[] = [];
 vi.mock("../../lib/wsBus", () => ({
@@ -40,8 +41,12 @@ function repond(slug: string, extra: Record<string, unknown> = {}) {
   });
 }
 
-beforeEach(() => { resetTestState(); setLanguage("fr"); envoyes.length = 0; });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+beforeEach(() => {
+  resetTestState(); setLanguage("fr"); envoyes.length = 0;
+  // pages du dépôt : Ragdoc et gbrain configurés (Réglages → Intégrations)
+  setIntegrationsForTests({ ragdoc: true, gbrain: "ssh" });
+});
+afterEach(() => { cleanup(); vi.clearAllMocks(); resetIntegrationsForTests(); });
 
 describe("SourceReader — page du dépôt", () => {
   const SLUG = "articles/greuell-2003-narrowband-broadband-albedo-conversion";
@@ -56,6 +61,20 @@ describe("SourceReader — page du dépôt", () => {
     expect(envoyes).toEqual([{ type: "kbGbrainPage", slug: SLUG }]);
     // aucun kbAdd : lire n'épingle pas
     expect(envoyes.some((m) => (m as { type: string }).type === "kbAdd")).toBe(false);
+  });
+
+  it("gbrain non configuré : rien n'est demandé, une ligne vers les réglages", () => {
+    setIntegrationsForTests({ ragdoc: true, gbrain: null });
+    renderUi(<SourceReader {...props()} />);
+    expect(envoyes).toEqual([]);
+    expect(screen.getByRole("status").textContent).toMatch(/gbrain n’est pas configuré/);
+  });
+
+  it("Ragdoc non configuré : une page Ragdoc n'est pas demandée non plus", () => {
+    setIntegrationsForTests({ ragdoc: false, gbrain: "ssh" });
+    renderUi(<SourceReader target={{ kind: "ragdoc", slug: "a" }} onClose={vi.fn()} />);
+    expect(envoyes).toEqual([]);
+    expect(screen.getByRole("status").textContent).toMatch(/Ragdoc n’est pas configuré/);
   });
 
   it("transforme le front matter en fiche au lieu de l'afficher en YAML", () => {

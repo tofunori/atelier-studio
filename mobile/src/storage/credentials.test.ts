@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetSecureStorageForTests } from "../native/secureStorage.ts";
 import {
   clearCredentials,
   loadCredentials,
+  loadLastGatewayUrl,
   saveCredentials,
+  saveLastGatewayUrl,
 } from "./credentials.ts";
 
 beforeEach(() => {
@@ -36,5 +38,22 @@ describe("credentials storage", () => {
     });
     await clearCredentials();
     expect(await loadCredentials()).toBeNull();
+  });
+});
+
+describe("dernière adresse du Mac", () => {
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+
+  it("app native jamais appairée : aucune adresse devinée", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    expect(await loadLastGatewayUrl()).toBe("");
+  });
+
+  it("l'adresse enregistrée l'emporte", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    await saveLastGatewayUrl("https://mon-mac.ts.net:8443");
+    expect(await loadLastGatewayUrl()).toBe("https://mon-mac.ts.net:8443");
   });
 });

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../../lib/i18n";
 import { wsSend } from "../../lib/wsBus";
+import { useIntegrations } from "../../lib/integrations";
 import {
   articleImportSnapshot, backgroundArticleDialog, closeArticleDialog,
   dismissArticleImport, fileName, focusedJob, isAutoWrite, openArticleDialog,
@@ -75,6 +76,8 @@ function JobIcon({ phase }: { phase: ArticleJob["phase"] }) {
 
 export default function ArticleDialog() {
   const shared = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
+  // Ragdoc non configuré : le dialogue d'import n'a nulle part où écrire.
+  const ragdocOn = useIntegrations().effective.ragdoc;
   const [meta, setMeta] = useState<ArticleMeta>(EMPTY_META);
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -264,7 +267,7 @@ export default function ArticleDialog() {
   );
 
   return (
-    <Dialog open={shared.open} onOpenChange={(open) => { if (!open) backgroundArticleDialog(); }}>
+    <Dialog open={shared.open && ragdocOn} onOpenChange={(open) => { if (!open) backgroundArticleDialog(); }}>
       <DialogContent className="kb-article-dialog" aria-label={t("article.title")}>
         <DialogTitle className="kb-page-title">
           {showReview ? t("article.converted") : t("article.title")}

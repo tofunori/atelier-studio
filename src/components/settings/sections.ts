@@ -3,13 +3,16 @@
 // = une ligne ici + un fichier dans sections/.
 import type { I18nKey } from "../../lib/i18n";
 
-export type SectionId = "general" | "modeles" | "apparence" | "atelier" | "consignes";
+export type SectionId = "general" | "modeles" | "apparence" | "atelier" | "integrations" | "consignes";
 
 export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "general", labelKey: "settings.general" },
   { id: "modeles", labelKey: "settings.models" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "atelier", labelKey: "settings.atelier" },
+  // Services distants (Ragdoc, gbrain, NAS, grappes) : désactivés tant que
+  // rien n'est rempli ici.
+  { id: "integrations", labelKey: "settings.integrations" },
   { id: "consignes", labelKey: "settings.consignes" },
 ];
 

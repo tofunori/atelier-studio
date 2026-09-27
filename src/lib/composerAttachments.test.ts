@@ -133,6 +133,14 @@ describe("pdfChatTarget", () => {
       .toEqual({ path: "~/Zotero/storage/ZZZZ9999/Autre.pdf" });
   });
 
+  it("le chemin de stockage suit le dossier de données Zotero résolu", () => {
+    expect(pdfChatTarget("zotero/ZZZZ9999/Autre.pdf", [warren], null, "/Volumes/Donnees/Zotero/"))
+      .toEqual({ path: "/Volumes/Donnees/Zotero/storage/ZZZZ9999/Autre.pdf" });
+    // un dossier vide retombe sur l'emplacement par défaut, jamais sur « /storage »
+    expect(pdfChatTarget("zotero/ZZZZ9999/Autre.pdf", [warren], null, ""))
+      .toEqual({ path: "~/Zotero/storage/ZZZZ9999/Autre.pdf" });
+  });
+
   it("un PDF du projet part par son chemin absolu", () => {
     expect(pdfChatTarget("manuscript/main.pdf", [], "/Users/t/these/")).toEqual({ path: "/Users/t/these/manuscript/main.pdf" });
     expect(pdfChatTarget("/Users/t/a.pdf", [], null)).toEqual({ path: "/Users/t/a.pdf" });

@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { draftAssetUrl, draftViewerUrl, requestRagdoc } from "./ragdocWorkspace";
 import { wsSend } from "./wsBus";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "./integrations";
 vi.mock("./wsBus",()=>({wsReady:()=>true,wsSend:vi.fn(()=>true)}));
-beforeEach(()=>vi.clearAllMocks());
+beforeEach(()=>{vi.clearAllMocks();setIntegrationsForTests({ragdoc:true});});
 it("confines preview URLs and preserves the gallery nonce",()=>{
   expect(draftAssetUrl("http://127.0.0.1:19000","aabbccddeeff","../secret.png")).toBeNull();
   expect(draftViewerUrl("https://example.com","aabbccddeeff")).toBeNull();
@@ -15,4 +16,9 @@ it("correlates a response and propagates read failures",async()=>{
   window.dispatchEvent(new CustomEvent("ragdoc-workspace-response",{detail:{requestId:"unrelated",markdown:"wrong"}}));
   window.dispatchEvent(new CustomEvent("ragdoc-workspace-response",{detail:{requestId:message.requestId,error:"PDF absent"}}));
   await expect(pending).rejects.toThrow("PDF absent");
+});
+it("refuses without sending anything when Ragdoc is not configured",async()=>{
+  resetIntegrationsForTests();
+  await expect(requestRagdoc("ragdocStatus")).rejects.toThrow(/Ragdoc/);
+  expect(wsSend).not.toHaveBeenCalled();
 });

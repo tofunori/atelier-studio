@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EvidenceSurface from "./EvidenceSurface";
 import { pushEvidencePins, resetEvidencePinsForTests, type EvidencePin } from "../lib/evidencePins";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../lib/integrations";
 
 const send = vi.fn((_message: unknown) => true);
 vi.mock("../lib/wsBus", () => ({ wsSend: (message: unknown) => send(message) }));
@@ -50,6 +51,8 @@ describe("EvidenceSurface", () => {
     send.mockClear();
     successToast.mockClear();
     resetEvidencePinsForTests();
+    // les épingles gbrain/Ragdoc ne s'ouvrent que si leur intégration existe
+    setIntegrationsForTests({ ragdoc: true, gbrain: "ssh" });
     Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => undefined) } });
   });
 
@@ -140,6 +143,21 @@ describe("EvidenceSurface", () => {
     expect(handler).toHaveBeenCalledOnce();
     const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
     expect(detail).toEqual({ slug: "s-1", quote: pin.quote });
+    window.removeEventListener("kb-open-gbrain-passage", handler);
+  });
+
+  it("gbrain non configuré : l'épingle se lit et se copie, mais ne s'ouvre plus", () => {
+    resetIntegrationsForTests();
+    const pin = pinSansSupports({ source: "gbrain", gbrainSlug: "s-1", citeLabel: "S 1", quote: "Une citation gbrain précise." });
+    seedEvidencePins([pin]);
+    render(<EvidenceSurface projectRoot="/proj" />);
+    const handler = vi.fn();
+    window.addEventListener("kb-open-gbrain-passage", handler);
+    const row = screen.getByText(pin.quote).closest("button")!;
+    expect(row).toBeDisabled();
+    expect(row.getAttribute("title")).toMatch(/gbrain/);
+    fireEvent.click(row);
+    expect(handler).not.toHaveBeenCalled();
     window.removeEventListener("kb-open-gbrain-passage", handler);
   });
 

@@ -8,8 +8,13 @@
 // défilé/surligné) ; icône → retire l'épingle (unpinPassage) ; bouton →
 // copie une citation prête à coller (\autocite{key} pour Zotero, citation
 // brute pour gbrain).
+//
+// Une épingle gbrain/Ragdoc dont l'intégration n'est pas configurée (Réglages →
+// Intégrations) reste lisible et copiable, mais ne s'ouvre plus : l'ouvrir
+// demanderait la page à un serveur qu'Atelier ne connaît pas.
 import { useMemo, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
+import { useIntegrations, type IntegrationsEffective } from "../lib/integrations";
 import { wsSend } from "../lib/wsBus";
 import { evidencePinsSnapshot, subscribeEvidencePins, type EvidencePin } from "../lib/evidencePins";
 import { openGbrainPassage, openRagdocPassage, openZoteroPassage } from "./chat/md";
@@ -81,12 +86,28 @@ function copyCitation(pin: EvidencePin) {
   });
 }
 
-function EvidenceRow({ pin, onUnpin }: { pin: EvidencePin; onUnpin: (pin: EvidencePin) => void }) {
+/** Raison pour laquelle une épingle ne peut pas s'ouvrir, sinon null. */
+function pinUnavailable(pin: EvidencePin, integrations: IntegrationsEffective): string | null {
+  if (pin.source === "ragdoc" && !integrations.ragdoc) return t("kb.ragdoc-off");
+  if (pin.source === "gbrain" && integrations.gbrain === null) return t("kb.gbrain-off");
+  return null;
+}
+
+function EvidenceRow({ pin, onUnpin, unavailable }: {
+  pin: EvidencePin;
+  onUnpin: (pin: EvidencePin) => void;
+  unavailable: string | null;
+}) {
   const isGbrain = pin.source !== "zotero";
   const hasQuote = Boolean(pin.quote.trim());
   return (
     <div className="evidence-row">
-      <RowButton className="evidence-row-main" onClick={() => openPin(pin)}>
+      <RowButton
+        className="evidence-row-main"
+        disabled={Boolean(unavailable)}
+        title={unavailable ?? undefined}
+        onClick={() => openPin(pin)}
+      >
         <span className={hasQuote ? "evidence-row-quote" : "evidence-row-quote is-absent"}>
           {hasQuote ? pin.quote : t("preuves.open-source", { source: pin.citeLabel })}
         </span>
@@ -121,6 +142,7 @@ function EvidenceRow({ pin, onUnpin }: { pin: EvidencePin; onUnpin: (pin: Eviden
 
 export default function EvidenceSurface({ projectRoot }: { projectRoot: string | null }) {
   const store = useSyncExternalStore(subscribeEvidencePins, evidencePinsSnapshot);
+  const integrations = useIntegrations().effective;
   const groups = useMemo(() => groupPins(store.pins), [store.pins]);
 
   // Pas de requestEvidencePins ici (fix revue T7) : AtelierPane est monté
@@ -152,7 +174,7 @@ export default function EvidenceSurface({ projectRoot }: { projectRoot: string |
               )}
             </div>
             {group.pins.map((pin) => (
-              <EvidenceRow key={pin.id} pin={pin} onUnpin={unpin} />
+              <EvidenceRow key={pin.id} pin={pin} onUnpin={unpin} unavailable={pinUnavailable(pin, integrations)} />
             ))}
           </div>
         ))}

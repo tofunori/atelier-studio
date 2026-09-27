@@ -1,5 +1,6 @@
 import { useOpenChatTabs } from "./hooks/useOpenChatTabs";
 import { startRagdocWatcher } from "./lib/ragdocWorkspace";
+import { zoteroDataDir } from "./lib/integrations";
 import {
   discussionMarkdownFile,
   discussionWorkspaceId,
@@ -2397,7 +2398,7 @@ export default function App() {
       if (data.type === "atelier-attach-pdf") {
         // « Joindre le PDF au chat » du lecteur : rejoint le message en cours
         // du chat actif, rien n'est envoyé tout seul.
-        const target = pdfChatTarget(data.rel, zoteroItemsRef.current, activeProjectRef.current);
+        const target = pdfChatTarget(data.rel, zoteroItemsRef.current, activeProjectRef.current, zoteroDataDir());
         if (!target) void showError(t("chat.attach-pdf-no-project"));
         else {
           if ("item" in target) attachZoteroItem(target.item);

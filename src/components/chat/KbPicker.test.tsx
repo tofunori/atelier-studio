@@ -73,6 +73,21 @@ describe("KbPickerPanel", () => {
     expect(screen.getByText("Décisions chap. 2")).toBeTruthy();
   });
 
+  // Ragdoc non configuré (Réglages → Intégrations) : la bibliothèque et la
+  // promotion disparaissent, les sources locales restent attachables.
+  it("sans Ragdoc : ni « Bibliothèque Ragdoc », ni promotion", () => {
+    // témoin : configuré, la promotion est proposée par rangée
+    renderUi(<KbPickerPanel {...panelProps()} />);
+    expect(screen.queryAllByLabelText("Envoyer à Ragdoc…").length).toBeGreaterThan(0);
+    cleanup();
+    const props = panelProps({ ragdoc: false, onPromote: undefined });
+    renderUi(<KbPickerPanel {...props} />);
+    expect(screen.queryByText("Bibliothèque Ragdoc")).toBeNull();
+    expect(screen.queryAllByLabelText("Envoyer à Ragdoc…")).toHaveLength(0);
+    fireEvent.click(screen.getByText("Albedo feedbacks review"));
+    expect(props.onToggle).toHaveBeenCalledWith("bbbb2222");
+  });
+
   it("épingler une URL et une note passe par les callbacks", () => {
     const props = panelProps();
     renderUi(<KbPickerPanel {...props} />);

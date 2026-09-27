@@ -5,6 +5,7 @@
 // pourcentage — son anneau tourne, il ne se remplit pas.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
+import { useIntegrations } from "../lib/integrations";
 import {
   articleImportSnapshot, fileName, openArticleDialog, stageLabel, subscribeArticleImport,
   type ArticleJob,
@@ -95,6 +96,9 @@ export default function RailActivity(p: {
   onSelectProject: (root: string) => void;
 }) {
   const imports = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot);
+  // Sans Ragdoc configuré, les imports d'article (restaurés du stockage) n'ont
+  // plus de destination : ils ne s'affichent pas.
+  const ragdocOn = useIntegrations().effective.ragdoc;
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setTick] = useState(0);
 
@@ -110,8 +114,8 @@ export default function RailActivity(p: {
   }));
   // Une réussite s'efface du rail après un court délai — la trace durable vit
   // dans la surface Connaissances, pas dans une pastille qui s'accumule.
-  const jobs = imports.jobs.filter((job) => job.phase !== "done"
-    || Date.now() - (job.doneAt ?? 0) < DONE_LINGER_MS);
+  const jobs = ragdocOn ? imports.jobs.filter((job) => job.phase !== "done"
+    || Date.now() - (job.doneAt ?? 0) < DONE_LINGER_MS) : [];
   const items = [...agents, ...articleItems(jobs)];
 
   // rafraîchit l'affichage pendant qu'un anneau tourne (le temps écoulé vit

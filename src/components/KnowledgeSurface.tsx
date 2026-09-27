@@ -4,10 +4,15 @@ import RagdocWorkspace from "./RagdocWorkspace";
 // large, mêmes actions (hook partagé), synchrone par construction via
 // lib/kbSources — plus la section « Documents Ragdoc » (recherche du corpus NAS,
 // épinglage à la carte, re-sync).
+//
+// Ragdoc non configuré (lib/integrations) : AUCUN message Ragdoc ne part
+// (articleList, ragdocSearch, kbRagdocPromote) et sa section disparaît ; la
+// base locale (fichiers, dossiers, notes, URL) fonctionne à l'identique.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { consumeRagdocPromotion } from "../lib/ragdocPromotion";
 import { openArticleDialog } from "../lib/articleImports";
 import { t } from "../lib/i18n";
+import { ragdocEnabled, useIntegrations } from "../lib/integrations";
 import { wsSend, wsReady } from "../lib/wsBus";
 import {
   kbArchivedSnapshot,
@@ -44,8 +49,9 @@ export default function KnowledgeSurface(p: {
 }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const sourcesLoaded = useSyncExternalStore(subscribeKbSources, kbSourcesLoaded);
-  const [sourcesStatus, setSourcesStatus] = useState<string | null>("Chargement des sources…");
-  const [corpusStatus, setCorpusStatus] = useState<string | null>("Chargement des articles…");
+  const ragdoc = useIntegrations().effective.ragdoc;
+  const [sourcesStatus, setSourcesStatus] = useState<string | null>(() => t("kbs.status-sources-loading"));
+  const [corpusStatus, setCorpusStatus] = useState<string | null>(() => (ragdoc ? t("kbs.status-articles-loading") : null));
   const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
   // Les dossiers existaient dans le registre depuis le plan 051 ; la surface
   // ne les recevait simplement pas — c'est ce qui les rendait invisibles.
@@ -83,30 +89,43 @@ export default function KnowledgeSurface(p: {
   useEffect(() => {
     if (!p.visible) return;
     let sent = false;
+    // Sans Ragdoc, seule la base locale se charge : l'état du corpus reste vide.
+    if (!ragdoc) { setArticles([]); setCorpusStatus(null); }
     const request = () => {
       if (sent) return;
-      if (!wsReady()) {setCorpusStatus("Articles indisponibles — reconnexion en cours."); setSourcesStatus("Sources indisponibles — reconnexion en cours."); return;}
-      setSourcesStatus("Chargement des sources…");
+      if (!wsReady()) {
+        if (ragdoc) setCorpusStatus(t("kbs.status-articles-reconnecting"));
+        setSourcesStatus(t("kbs.status-sources-reconnecting"));
+        return;
+      }
+      setSourcesStatus(t("kbs.status-sources-loading"));
       requestKbSources();
+      if (!ragdoc) { sent = true; return; }
       sent = wsSend({type: "articleList", limit: 100, offset: 0});
-      setCorpusStatus(sent ? "Chargement des articles…" : "Connexion indisponible.");
+      setCorpusStatus(sent ? t("kbs.status-articles-loading") : t("kbs.status-offline"));
     };
     request();
     const retry = setInterval(request, 2000);
-    const timeout = setTimeout(() => {clearInterval(retry); setSourcesStatus("Les sources ne répondent pas. Rouvre ce volet pour réessayer."); setCorpusStatus(value => value ? "Les articles ne répondent pas. Rouvre ce volet pour réessayer." : null);}, 15000);
+    const timeout = setTimeout(() => {
+      clearInterval(retry);
+      setSourcesStatus(t("kbs.status-sources-timeout"));
+      setCorpusStatus(value => value ? t("kbs.status-articles-timeout") : null);
+    }, 15000);
     return () => {clearInterval(retry); clearTimeout(timeout);};
-  }, [p.visible]);
+  }, [p.visible, ragdoc]);
 
   useEffect(() => {
     const onListed = (e: Event) => {
       const detail = (e as CustomEvent).detail as { articles?: ArticleRow[]; error?: string; offset?: number; nextOffset?: number | null; total?: number } | undefined;
-      setCorpusStatus(detail?.error || (detail?.nextOffset != null ? `Chargement de la bibliothèque… ${detail.nextOffset}/${detail.total ?? "…"}` : null));
+      // réponse tardive d'une liste lancée avant la désactivation : ignorée
+      if (!ragdocEnabled()) return;
+      setCorpusStatus(detail?.error || (detail?.nextOffset != null ? t("kbs.status-library-progress", { n: detail.nextOffset, total: detail.total ?? "…" }) : null));
       const incoming = Array.isArray(detail?.articles) ? detail.articles : [];
       setArticles(previous => detail?.offset ? [...previous, ...incoming.filter(item => !previous.some(old => old.slug === item.slug))] : incoming);
       if (!detail?.error && detail?.nextOffset != null) wsSend({type:"articleList", limit:100, offset:detail.nextOffset});
     };
     const onWritten = () => {
-      if (visibleRef.current) wsSend({ type: "articleList", limit: 100 });
+      if (visibleRef.current && ragdocEnabled()) wsSend({ type: "articleList", limit: 100 });
     };
     window.addEventListener("article-listed", onListed);
     window.addEventListener("article-written", onWritten);
@@ -160,7 +179,7 @@ export default function KnowledgeSurface(p: {
       if (!detail?.ok || !detail.source?.id) return;
       if (promoteNextRef.current <= 0) return;
       promoteNextRef.current -= 1;
-      wsSend({ type: "kbRagdocPromote", id: detail.source.id });
+      if (ragdocEnabled()) wsSend({ type: "kbRagdocPromote", id: detail.source.id });
     };
     window.addEventListener("kb-source-added", onAdded);
     return () => window.removeEventListener("kb-source-added", onAdded);
@@ -174,7 +193,7 @@ export default function KnowledgeSurface(p: {
     const showPending = () => {
       if (!visibleRef.current) return;
       const id = consumeRagdocPromotion();
-      if (id) wsSend({type:"kbRagdocPromote",id});
+      if (id && ragdocEnabled()) wsSend({type:"kbRagdocPromote",id});
     };
     if (p.visible) showPending();
     window.addEventListener("kb-request-ragdoc-promotion", showPending);
@@ -182,12 +201,13 @@ export default function KnowledgeSurface(p: {
   }, [p.visible]);
 
   function requestPage(id: string) {
+    if (!ragdocEnabled()) return;
     actions.setError(null);
     wsSend({ type: "kbRagdocPromote", id });
   }
 
   function confirmPageWrite() {
-    if (!pageDraft || pageDraft.writing) return;
+    if (!pageDraft || pageDraft.writing || !ragdocEnabled()) return;
     setPageDraft({ ...pageDraft, writing: true });
     wsSend({ type: "kbRagdocPromote", id: pageDraft.id, slug: pageDraft.slug.trim(), write: true });
   }
@@ -209,7 +229,7 @@ export default function KnowledgeSurface(p: {
 
   function searchGbrain(submitted?: string) {
     const query = (submitted ?? gbrainQuery).trim();
-    if (!query) return;
+    if (!query || !ragdocEnabled()) return;
     searchQueryRef.current = query;
     setGbrainSearching(true);
     setGbrainError(null);
@@ -226,9 +246,10 @@ export default function KnowledgeSurface(p: {
         sources={sources}
         attached={binding.attached}
         fullContent={binding.fullContent}
-        articles={articles}
-        corpusStatus={corpusStatus}
-        ragdocWorkspace={<RagdocWorkspace articles={articles} corpusStatus={corpusStatus} galleryUrl={p.galleryUrl}
+        ragdoc={ragdoc}
+        articles={ragdoc ? articles : []}
+        corpusStatus={ragdoc ? corpusStatus : null}
+        ragdocWorkspace={ragdoc && <RagdocWorkspace articles={articles} corpusStatus={corpusStatus} galleryUrl={p.galleryUrl}
           onRead={slug=>window.dispatchEvent(new CustomEvent("kb-open-ragdoc-passage",{detail:{slug}}))}
           search={{query:gbrainQuery,results:gbrainResults,error:gbrainError,searching:gbrainSearching,searched:gbrainSearched,onQueryChange:setGbrainQuery,onSearch:searchGbrain,onPin:actions.addRagdoc}} />}
 
@@ -238,9 +259,9 @@ export default function KnowledgeSurface(p: {
         onToggle={actions.toggle}
         onToggleFull={actions.toggleFull}
         onRemoveSources={actions.removeMany}
-        onPromote={requestPage}
-        onPromotePage={requestPage}
-        onResync={actions.addRagdoc}
+        onPromote={ragdoc ? requestPage : undefined}
+        onPromotePage={ragdoc ? requestPage : undefined}
+        onResync={ragdoc ? actions.addRagdoc : undefined}
         onArchive={(ids, off) => (off
           ? ids.forEach((id) => actions.archiveSource(id, true))
           : actions.archiveMany(ids))}
@@ -255,8 +276,8 @@ export default function KnowledgeSurface(p: {
         onAddNote={(title, text) => actions.addNote(title, text)}
         onAddUrl={(url) => actions.addUrl(url)}
         onBatchAttach={actions.attachMany}
-        onAddArticle={() => { actions.setError(null); openArticleDialog(); }}
-        gbrain={{
+        onAddArticle={ragdoc ? () => { actions.setError(null); openArticleDialog(); } : undefined}
+        gbrain={ragdoc ? {
           query: gbrainQuery,
           results: gbrainResults,
           error: gbrainError,
@@ -265,7 +286,7 @@ export default function KnowledgeSurface(p: {
           onQueryChange: setGbrainQuery,
           onSearch: searchGbrain,
           onPin: actions.addRagdoc,
-        }}
+        } : undefined}
         headerEnd={p.paneControls}
       />
       {pageWritten && (

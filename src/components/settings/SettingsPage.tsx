@@ -11,12 +11,12 @@ import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
 import { Input } from "../shadcn/input";
-import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, RotateCcw, ChevronRight } from "lucide-react";
+import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight } from "lucide-react";
 import { searchSettings } from "./search";
 import { SettingsSearchTarget, type SearchTarget } from "./searchTarget";
 import "../../styles/settings-refined.css";
 
-const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, atelier: Images, consignes: FileText };
+const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, atelier: Images, integrations: Plug, consignes: FileText };
 
 // lazyWithRetry (pas React.lazy nu) : React.lazy mémorise un import rejeté,
 // donc un chunk de section en échec resterait mort jusqu'au redémarrage de
@@ -26,12 +26,13 @@ const General = lazyWithRetry(() => import("./sections/General"));
 const Models = lazyWithRetry(() => import("./sections/Models"));
 const Appearance = lazyWithRetry(() => import("./sections/Appearance"));
 const Atelier = lazyWithRetry(() => import("./sections/Atelier"));
+const Integrations = lazyWithRetry(() => import("./sections/Integrations"));
 const Consignes = lazyWithRetry(() => import("./sections/Consignes"));
 
 type PanelComponent = React.ComponentType<SectionProps>;
 
 const PANELS: Record<SectionId, PanelComponent> = {
-  general: General, modeles: Models, apparence: Appearance, atelier: Atelier, consignes: Consignes,
+  general: General, modeles: Models, apparence: Appearance, atelier: Atelier, integrations: Integrations, consignes: Consignes,
 };
 
 export default function SettingsPage(p: {

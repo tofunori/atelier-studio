@@ -72,8 +72,11 @@ export function useNetworkSession(opts: {
       setNet((n) => reduceNetwork(n, { type: "GO_OFFLINE" }));
       return false;
     }
-    setNet((n) => reduceNetwork(n, { type: "START_CONNECT" }));
     const url = urlRef.current;
+    // Aucune adresse (app native jamais appairée) : rien à sonder, et pas de
+    // boucle de reconnexion — l'écran d'appairage demande l'adresse.
+    if (!url.trim()) return true;
+    setNet((n) => reduceNetwork(n, { type: "START_CONNECT" }));
     const probe = await probeGateway(url, signal);
     if (signal.aborted) return false;
     if (!probe.ok) {

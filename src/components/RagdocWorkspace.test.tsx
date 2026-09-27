@@ -5,13 +5,15 @@ import RagdocWorkspace from "./RagdocWorkspace";
 import { requestRagdoc, type RagdocReview } from "../lib/ragdocWorkspace";
 import { resetArticleImportForTests, startArticleImport, articleImportSnapshot, markArticleRecovered } from "../lib/articleImports";
 import { wsSend } from "../lib/wsBus";
+import { setIntegrationsForTests } from "../lib/integrations";
 vi.mock("../lib/wsBus",()=>({wsReady:()=>true,wsSend:vi.fn(()=>true)}));
 vi.mock("../lib/notify",()=>({notifyArticleReady:vi.fn()}));
 vi.mock("./ui/toast",()=>({showUndo:vi.fn()}));
 vi.mock("../lib/ragdocWorkspace",async importOriginal=>({...await importOriginal<typeof import("../lib/ragdocWorkspace")>(),requestRagdoc:vi.fn()}));
 const props={articles:[],galleryUrl:"http://127.0.0.1:19000/figures_index.html#atelier_nonce=test",onRead:vi.fn(),search:{query:"",results:[],error:null,searching:false,searched:false,onQueryChange:vi.fn(),onSearch:vi.fn(),onPin:vi.fn()}};
 const review:RagdocReview={draftId:"aabbccddeeff",markdown:"Texte complet",pages:[],artifacts:[{artifact_id:"chart",type:"chart",caption:"Courbe test"}],pdfAvailable:true,referenceOnly:false,pageLocationsVerified:false};
-beforeEach(()=>{localStorage.clear();sessionStorage.clear();resetArticleImportForTests();vi.clearAllMocks();});
+// l'espace n'est monté que si Ragdoc est configuré (Réglages → Intégrations)
+beforeEach(()=>{localStorage.clear();sessionStorage.clear();setIntegrationsForTests({ragdoc:true});resetArticleImportForTests();vi.clearAllMocks();});
 afterEach(cleanup);
 function readyJob(){
   startArticleImport("/tmp/paper.pdf",{background:true});const id=articleImportSnapshot().jobs[0].requestId;

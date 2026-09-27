@@ -8,6 +8,7 @@ import "../styles/primitives.css";
 import "../App.css";
 import NarvalSurface from "./NarvalSurface";
 import { setWs } from "../lib/wsBus";
+import { applyIntegrationsMessage } from "../lib/integrations";
 import { GripVerticalIcon, XIcon } from "lucide-react";
 import { IconButton, RowButton } from "./ui";
 
@@ -94,6 +95,13 @@ const FAKE_SOCKET = {
 // Le socket est injecté AVANT le premier rendu : la surface émet sa requête de
 // statut dans son propre effet de montage, avant l'effet du parent.
 setWs(FAKE_SOCKET);
+// La surface ne propose que les grappes configurées (Réglages → Intégrations) :
+// le banc simule la réponse `integrations` du serveur avec ses deux grappes.
+applyIntegrationsMessage({
+  type: "integrations",
+  config: {},
+  effective: { clusters: { narval: { host: "narval", gateway: null }, rorqual: { host: "rorqual", gateway: null } } },
+});
 
 const WIDTHS = [520, 720, 1040];
 

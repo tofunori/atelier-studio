@@ -42,7 +42,7 @@ describe("connectSidecar", () => {
     await p;
     expect(getSidecarInfo()).toEqual({ port: 1234, token: "tok" });
     const initial = sock.sent.map((s) => JSON.parse(s));
-    expect(initial.map((m) => m.type)).toEqual(["clientHello", "listThreads", "providerStatus"]);
+    expect(initial.map((m) => m.type)).toEqual(["clientHello", "listThreads", "providerStatus", "integrations"]);
     expect(initial[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
   });
 

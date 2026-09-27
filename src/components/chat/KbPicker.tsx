@@ -5,6 +5,7 @@
 // est par conversation — portée « ce message » et Zotero viendront ensuite.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { t } from "../../lib/i18n";
+import { useIntegrations } from "../../lib/integrations";
 import {
   onOpenKbPicker,
   kbArchivedSnapshot,
@@ -166,7 +167,8 @@ export function KbPickerPanel(p: {
   onToggle: (id: string) => void;
   onToggleFull: (id: string) => void;
   onRemoveSource: (id: string) => void;
-  onPromote: (id: string) => void;
+  /** « Envoyer à Ragdoc » — absent quand Ragdoc n'est pas configuré. */
+  onPromote?: (id: string) => void;
   promoted: string | null;
   onAddFiles: () => void;
   onAddFolder: () => void;
@@ -202,7 +204,11 @@ export function KbPickerPanel(p: {
   onCollectionToggle?: (ids: string[], attach: boolean) => void;
   onCollFilterChange?: (slug: string | null) => void;
   headerEnd?: ReactNode;
+  /** Ragdoc configuré ? Absent = oui (tests, anciens appelants). Faux : ni
+   *  corpus à joindre, ni envoi vers Ragdoc — la base locale seule. */
+  ragdoc?: boolean;
 }) {
+  const ragdocOn = p.ragdoc !== false;
   const [addOpen, setAddOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -391,18 +397,20 @@ export function KbPickerPanel(p: {
               </svg>
             </IconButton>
           )}
-          <IconButton
-            size="s"
-            className={`ghost ${p.promoted === source.id ? "on" : ""}`}
-            label={t("kb.promote")}
-            title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
-            onClick={() => p.onPromote(source.id)}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
-              <path d="M3 14h10" />
-            </svg>
-          </IconButton>
+          {p.onPromote && (
+            <IconButton
+              size="s"
+              className={`ghost ${p.promoted === source.id ? "on" : ""}`}
+              label={t("kb.promote")}
+              title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
+              onClick={() => p.onPromote?.(source.id)}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
+                <path d="M3 14h10" />
+              </svg>
+            </IconButton>
+          )}
           {p.onPromotePage && (
             <IconButton
               size="s"
@@ -757,7 +765,7 @@ export function KbPickerPanel(p: {
           );
         })}
         <div>
-          {!archivedView && (
+          {!archivedView && ragdocOn && (
             <>
               <div className="kb-group">{t("kb.group-corpus")}</div>
               <div className={`kb-row ${p.attached.includes("ragdoc") ? "on" : ""}`}>
@@ -905,6 +913,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
   const sources = useSyncExternalStore(subscribeKbSources, kbSourcesSnapshot);
   const collections = useSyncExternalStore(subscribeKbSources, kbCollectionsSnapshot);
   const archived = useSyncExternalStore(subscribeKbSources, kbArchivedSnapshot);
+  const ragdocOn = useIntegrations().effective.ragdoc;
   const openRef = useRef(pickerOpen);
   openRef.current = pickerOpen;
   // toute la logique d'actions vit dans le hook partagé avec la surface
@@ -964,7 +973,8 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
             onToggle={actions.toggle}
             onToggleFull={actions.toggleFull}
             onRemoveSource={actions.removeSource}
-            onPromote={actions.promote}
+            onPromote={ragdocOn ? actions.promote : undefined}
+            ragdoc={ragdocOn}
             promoted={actions.promoted}
             onDismissError={() => actions.setError(null)}
             collections={collections}

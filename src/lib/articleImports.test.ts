@@ -14,6 +14,7 @@ import {
   enqueueArticlePaths, runArticleQueue, pauseArticleQueue, approveArticleJob, rejectArticleJob,
 } from "./articleImports";
 import { wsSend } from "./wsBus";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "./integrations";
 import { setLanguage } from "./i18n";
 
 function jobs() {
@@ -25,11 +26,13 @@ function emit(type: string, detail: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  // l'import alimente Ragdoc : configuré pour ces cas (Réglages → Intégrations)
+  setIntegrationsForTests({ ragdoc: true });
   resetArticleImportForTests();
   setLanguage("fr");
   localStorage.clear();
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { vi.clearAllMocks(); resetIntegrationsForTests(); });
 
 describe("étapes de conversion", () => {
   it("porte l'étape reçue sur le job qui convertit", () => {

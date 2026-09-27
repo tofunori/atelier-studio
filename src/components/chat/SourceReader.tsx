@@ -18,6 +18,7 @@ import { normalizeMathDelimiters } from "../../lib/markdown";
 import { Input } from "../shadcn/input";
 import { findDocumentRanges, highlightDocumentRanges, clearDocumentHighlights } from "../../lib/documentSearch";
 import { wsSend } from "../../lib/wsBus";
+import { useIntegrations } from "../../lib/integrations";
 
 // ---- surlignage d'une citation (tâche 6) -----------------------------------
 // Custom Highlight API si `CSS.highlights` existe (mêmes classes que
@@ -51,6 +52,8 @@ export type SourceReaderProps = {
 type Etat =
   | { phase: "chargement" }
   | { phase: "erreur"; message: string }
+  /** Ragdoc / gbrain non configuré : rien n'est demandé, une ligne le dit. */
+  | { phase: "desactive"; message: string }
   | { phase: "prete"; markdown: string; chars: number; title?: string; kind?: string;
       origin?: string; files?: FolderFile[] };
 
@@ -77,8 +80,18 @@ export default function SourceReader(p: SourceReaderProps) {
   const plugins = useMdPlugins();
   const cible = p.target;
   const clef = cible.kind !== "source" ? cible.slug : cible.id;
+  // Une page du dépôt exige son intégration (Réglages → Intégrations) : sans
+  // elle, aucun kbRagdocPage / kbGbrainPage ne part — une source de la base
+  // locale, elle, se lit toujours.
+  const integrations = useIntegrations().effective;
+  const desactive = cible.kind === "ragdoc" ? !integrations.ragdoc
+    : cible.kind === "gbrain" ? integrations.gbrain === null : false;
 
   useEffect(() => {
+    if (desactive) {
+      setEtat({ phase: "desactive", message: t(cible.kind === "ragdoc" ? "kb.ragdoc-off" : "kb.gbrain-off") });
+      return;
+    }
     setEtat({ phase: "chargement" });
     setVue("rendu");
     setQuery(""); setMatchIndex(0);
@@ -110,7 +123,7 @@ export default function SourceReader(p: SourceReaderProps) {
     if (!sent) setEtat({phase: "erreur", message: "Connexion indisponible. Réessaie après la reconnexion."});
     else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 135000);
     return () => { clearTimeout(timeout); window.removeEventListener(attendu, onReponse); };
-  }, [cible.kind, clef, reload]);
+  }, [cible.kind, clef, reload, desactive]);
 
   const page = useMemo(() => {
     if (etat.phase !== "prete") return null;
@@ -237,6 +250,7 @@ export default function SourceReader(p: SourceReaderProps) {
       </div>}
       {outlineOpen && vue === "rendu" && <nav className="gbr-outline" aria-label="Plan de l’article">{headings.map(h => <RowButton key={h.id} onClick={() => {docRef.current?.querySelector(`#${h.id}`)?.scrollIntoView?.({block:"start"}); setOutlineOpen(false);}}>{h.title}</RowButton>)}</nav>}
       {etat.phase === "chargement" && <div className="gbr-empty">{t("gbr.loading")}</div>}
+      {etat.phase === "desactive" && <div className="gbr-empty" role="status">{etat.message}</div>}
       {etat.phase === "erreur" && (
         <div className="kb-error"><span className="kb-error-text">{etat.message}</span><Button variant="ghost" onClick={() => setReload(v => v + 1)}>Réessayer</Button></div>
       )}
