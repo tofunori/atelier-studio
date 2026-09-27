@@ -6,6 +6,7 @@ mod acp_map;
 mod acp_rpc;
 mod api;
 mod claude;
+mod cli_login;
 mod claude_parse;
 mod claude_permissions;
 mod codex;

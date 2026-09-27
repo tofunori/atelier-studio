@@ -76,6 +76,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "listPins"
         | "getReviews"
         | "integrations"
+        | "environmentStatus"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
         | "refreshProviders" => Class::Read,

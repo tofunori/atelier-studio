@@ -351,10 +351,11 @@ async fn setup_handler(
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string),
                 auth: state_str,
+                // Sonde sans découverte de modèles (Claude, Codex) : catalogue.
                 models: probe
                     .get("models")
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0) as usize,
+                    .map_or(p.models.len(), |n| n as usize),
                 default_model: p.default_model,
                 model_error: probe
                     .get("error")

@@ -5,6 +5,8 @@ export interface LatexCompileResponse {
   pdf?: string;
   log?: string;
   error?: string;
+  /** `toolchain-missing` : ni latexmk ni tectonic sur cette machine. */
+  reason?: string;
 }
 
 export interface LatexCompileLog {
@@ -211,9 +213,11 @@ export function createLatexCompileCoordinator(
           // précis (nombre d'erreurs et de warnings). Le répéter dans la barre
           // du haut ne disait rien de neuf et occupait la place réservée à
           // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
-          setChip("err", log.errors
-            ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
-            : "échec — voir la console");
+          setChip("err", response.reason === "toolchain-missing"
+            ? "LaTeX non installé — Réglages → Environnement"
+            : log.errors
+              ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
+              : "échec — voir la console");
           // Rendre la barre du haut à l'état du document : sans ça elle
           // resterait figée sur « compiling… ».
           options.setState("ok", "saved");

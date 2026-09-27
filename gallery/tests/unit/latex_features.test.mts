@@ -241,6 +241,28 @@ test("compile coordinator never starts compilation when a dirty document cannot 
   assert.deepEqual(states.at(-1), ["err", "sauvegarde refusée — compilation annulée"]);
 });
 
+test("compile coordinator says LaTeX is missing instead of the generic failure", async () => {
+  const chips: unknown[] = [];
+  const logs: any[] = [];
+  const coordinator = latex.createLatexCompileCoordinator({
+    isTex: true,
+    getText: () => "\\section{Ok}\n",
+    isDirty: () => false,
+    save: async () => true,
+    requestCompile: async () => ({ok: false, reason: "toolchain-missing", error: "LaTeX introuvable (ni latexmk ni tectonic)"}),
+    revealIssue: (..._args) => {},
+    setState: (..._args) => {},
+    setChip: (...args) => chips.push(args),
+    renderLog: (log) => logs.push(log),
+    onCompiled: (..._args) => {},
+    startInterval: () => 1,
+    stopInterval: (..._args) => {},
+  });
+  await coordinator.compile();
+  assert.deepEqual(chips.at(-1), ["err", "LaTeX non installé — Réglages → Environnement"]);
+  assert.match(logs.at(-1).log, /LaTeX introuvable/);
+});
+
 test("PDF zoom normalization rejects corrupt storage and clamps supported zoom", () => {
   assert.equal(latex.normalizePdfZoom(null), 1);
   assert.equal(latex.normalizePdfZoom("not-a-number"), 1);

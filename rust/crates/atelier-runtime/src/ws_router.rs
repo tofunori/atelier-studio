@@ -29,11 +29,13 @@ use serde_json::{json, Value};
 mod kb;
 mod threads;
 mod api_providers;
+mod environment;
 mod integrations;
 mod quick_ask;
 use kb::*;
 use threads::*;
 use api_providers::*;
+use environment::*;
 use integrations::*;
 use quick_ask::*;
 
@@ -48,6 +50,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "integrations",
     "saveIntegrations",
     "refreshProviders",
+    "environmentStatus",
     "listThreads",
     "renameThread",
     "moveThread",
@@ -1632,6 +1635,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "integrations" => handle_integrations(state).await,
         "saveIntegrations" => handle_save_integrations(state, &msg).await,
         "refreshProviders" => handle_refresh_providers(state).await,
+        "environmentStatus" => handle_environment_status(state).await,
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
         "savePlan" => handle_save_plan(state, &msg, false).await,
@@ -2126,9 +2130,11 @@ async fn handle_setup_status(state: &AppState) -> Vec<String> {
                 "version": probe.get("version").cloned().unwrap_or(Value::Null),
                 "binPath": probe.get("binPath").cloned().unwrap_or(Value::Null),
                 "auth": probe.get("state").cloned().unwrap_or(json!("unknown")),
-                "models": probe.get("models").cloned().unwrap_or(json!(0)),
+                // Sonde sans découverte de modèles (Claude, Codex) : catalogue.
+                "models": probe.get("models").cloned().unwrap_or(json!(p.models.len())),
                 "defaultModel": p.default_model,
                 "loginCommand": probe.get("loginCommand").cloned().unwrap_or(Value::Null),
+                "installCommand": agent_install_command(&p.id),
                 "modelError": match shadowed {
                     Some(official) => json!(format!(
                         "installation officielle masquée : {official} (binaire utilisé : {})",
@@ -2148,6 +2154,7 @@ async fn handle_setup_status(state: &AppState) -> Vec<String> {
             "version": if installed { json!("ok") } else { Value::Null },
             "binPath": Value::Null,
             "auth": if installed { "ready" } else { "not_installed" },
+            "installCommand": agent_install_command(&p.id),
             "models": p.models.len(),
             "defaultModel": p.default_model,
             "modelError": Value::Null,

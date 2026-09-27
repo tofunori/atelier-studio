@@ -786,6 +786,11 @@ impl Provider for ClaudeProvider {
     fn id(&self) -> &str {
         "claude"
     }
+
+    /// Connexion lue par `claude auth status` (aucune requête au modèle).
+    async fn setup_probe(&self) -> Option<Value> {
+        Some(crate::cli_login::claude_probe(&self.bin).await)
+    }
     fn label(&self) -> &str {
         "Claude Code"
     }

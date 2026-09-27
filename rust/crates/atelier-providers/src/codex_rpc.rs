@@ -428,7 +428,7 @@ impl CodexAppServer {
         self.current().unwrap().fail("simulated transport failure");
     }
 
-    fn resolve_bin() -> PathBuf {
+    pub(crate) fn resolve_bin() -> PathBuf {
         if let Ok(p) = std::env::var("ATELIER_CODEX_BIN") {
             let pb = PathBuf::from(&p);
             if pb.is_file() {

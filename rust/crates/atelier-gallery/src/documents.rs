@@ -236,11 +236,14 @@ pub async fn compile(
         };
     }
 
+    // `reason` : l'éditeur affiche une consigne d'installation au lieu du
+    // générique « échec — voir la console » (plan 060, étape 3).
     (
         StatusCode::OK,
         Json(json!({
             "ok": false,
-            "error": "latexmk not found at /Library/TeX/texbin/latexmk — install MacTeX or TeX Live"
+            "reason": "toolchain-missing",
+            "error": "LaTeX introuvable (ni latexmk ni tectonic) : installez tectonic (brew install tectonic) ou MacTeX, voir Réglages → Environnement"
         })),
     )
         .into_response()
