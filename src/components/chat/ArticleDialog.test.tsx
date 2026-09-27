@@ -17,6 +17,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { wsSend } from "../../lib/wsBus";
 import { showUndo } from "../ui/toast";
 import { openArticleDialog, resetArticleImportForTests, setAutoWrite } from "../../lib/articleImports";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../../lib/integrations";
 import ArticleDialog, { duplicateReason, stripFrontMatter } from "./ArticleDialog";
 
 const sent = wsSend as unknown as ReturnType<typeof vi.fn>;
@@ -86,6 +87,8 @@ async function toReview(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   setLanguage("fr");
+  // l'import d'article écrit dans Ragdoc : configuré pour ces cas
+  setIntegrationsForTests({ ragdoc: true });
   resetArticleImportForTests();
   // les cas manuels vérifient la fiche : le mode auto est éteint par défaut ici
   setAutoWrite(false);
@@ -396,5 +399,16 @@ describe("duplicateReason", () => {
     expect(duplicateReason("doi")).toBe("DOI identique");
     expect(duplicateReason("titre")).toBe("titre très proche");
     expect(duplicateReason(undefined)).toBe("titre très proche");
+  });
+});
+
+describe("Ragdoc non configuré", () => {
+  it("le dialogue ne s'ouvre pas et rien ne part", async () => {
+    resetIntegrationsForTests();
+    renderUi(<ArticleDialog />);
+    openArticleDialog();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(wsSend).not.toHaveBeenCalled();
   });
 });

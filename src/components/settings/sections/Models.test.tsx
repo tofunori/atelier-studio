@@ -281,6 +281,40 @@ describe("Section Modèles", () => {
     );
   });
 
+  it("« Revérifier » (Non disponibles) redemande la détection des CLI et reste en attente jusqu'au providerStatus suivant", () => {
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    const absent = { type: "providerStatus", providers: [{ id: "grok", label: "Grok", version: null, ok: false, kind: "cli", models: [], efforts: [] }] };
+    emit(ws, absent);
+    const avant = ws.sent.length;
+    const bouton = screen.getByRole("button", { name: t("settings.providers-recheck") });
+    fireEvent.click(bouton);
+    expect(ws.sentTypes().slice(avant)).toEqual(["refreshProviders"]);
+    // en attente : désactivé, libellé d'attente, pas de second envoi
+    const attente = screen.getByRole("button", { name: t("settings.checking") });
+    expect(attente).toBeDisabled();
+    fireEvent.click(attente);
+    expect(ws.sentTypes().slice(avant)).toEqual(["refreshProviders"]);
+    // la réponse du serveur lève l'attente
+    emit(ws, absent);
+    expect(screen.getByRole("button", { name: t("settings.providers-recheck") })).not.toBeDisabled();
+  });
+
+  it("« Revérifier » lève l'attente au bout de 10 s sans réponse", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = fakeWsOuvert();
+      renderUi(<Models {...props({ ws })} />);
+      emit(ws, { type: "providerStatus", providers: [{ id: "grok", label: "Grok", version: null, ok: false, kind: "cli", models: [], efforts: [] }] });
+      fireEvent.click(screen.getByRole("button", { name: t("settings.providers-recheck") }));
+      expect(screen.getByRole("button", { name: t("settings.checking") })).toBeDisabled();
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(screen.getByRole("button", { name: t("settings.providers-recheck") })).not.toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ne montre jamais « Vérification… » en même temps que le vide du tableau", () => {
     const ws = fakeWsOuvert();
     renderUi(<Models {...props({ ws })} />);

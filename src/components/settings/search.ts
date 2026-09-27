@@ -74,11 +74,25 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
     "appsnap.accessibility",
     "appsnap.status",
   ],
+  integrations: [
+    "settings.integrations-status",
+    "settings.integrations-ssh-host",
+    "settings.integrations-ragdoc-root",
+    "settings.integrations-gbrain-mode",
+    "settings.integrations-compute",
+    "settings.integrations-nas",
+    "settings.integrations-gateway",
+    "settings.integrations-narval",
+    "settings.integrations-rorqual",
+    "settings.integrations-references",
+    "settings.integrations-crossref",
+    "settings.integrations-zotero",
+  ],
   consignes: [
   ],
 };
 
-const GROUP_LABELS = new Set<I18nKey>(["settings.group.agents", "settings.group.tools", "settings.group.conversations", "settings.setup-runtime", "settings.remote-devices", "settings.interface", "settings.reading", "settings.group.theme", "settings.group.colors", "settings.group.typography", "settings.models-picker-order", "settings.api-providers", "settings.models-slug-group", "settings.group.gallery-exts", "settings.review", "appsnap.group.capture", "appsnap.group.permissions"]);
+const GROUP_LABELS = new Set<I18nKey>(["settings.group.agents", "settings.group.tools", "settings.group.conversations", "settings.setup-runtime", "settings.remote-devices", "settings.interface", "settings.reading", "settings.group.theme", "settings.group.colors", "settings.group.typography", "settings.models-picker-order", "settings.api-providers", "settings.models-slug-group", "settings.group.gallery-exts", "settings.review", "appsnap.group.capture", "appsnap.group.permissions", "settings.integrations-status", "settings.integrations-compute", "settings.integrations-references"]);
 
 export function searchSettings(query: string) {
   const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();

@@ -45,7 +45,9 @@ pub use kimi::KimiProvider;
 pub use kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 pub use opencode::OpenCodeProvider;
 pub use opencode_parse::{normalize_opencode_message, parse_opencode_jsonl};
-pub use registry::{build_registry, builtin_catalog, provider_status_list, ProviderId};
+pub use registry::{
+    build_registry, build_registry_except, builtin_catalog, provider_status_list, ProviderId,
+};
 pub use traits::{
     AtelierMcpLaunch, CommitMessageDetails, InteractionFn, Provider, ProviderCaps, ReviewError,
     ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,

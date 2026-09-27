@@ -1,6 +1,7 @@
 import type { DraftAttachment } from "./chatDraftStore";
 import { parseAnnotationNotes } from "./annotationNotes";
 import { type ZoteroPaletteItem, buildZoteroReferenceText } from "./zoteroReference";
+import { DEFAULT_ZOTERO_DIR, zoteroStoragePath } from "./integrations";
 
 type Attachment = DraftAttachment;
 
@@ -65,17 +66,19 @@ export function fileAttachment(path: string, opts: { preview?: boolean } = {}): 
 
 /** « Joindre le PDF au chat » (lecteur PDF) : un PDF Zotero dont l'article est
  * connu part comme sa référence (`zoteroAttachment`, PDF et digest compris) ;
- * sinon comme fichier joint par son chemin local. `null` : aucun projet pour
- * résoudre un chemin relatif. */
+ * sinon comme fichier joint par son chemin local, sous `zoteroDir` (dossier
+ * de données résolu par le serveur, lib/integrations). `null` : aucun projet
+ * pour résoudre un chemin relatif. */
 export function pdfChatTarget(
   rel: string,
   items: ZoteroPaletteItem[],
   projectRoot: string | null,
+  zoteroDir: string = DEFAULT_ZOTERO_DIR,
 ): { item: ZoteroPaletteItem } | { path: string } | null {
   const zotero = /^zotero\/([A-Za-z0-9]{8})\/([^/]+)$/.exec(rel);
   if (zotero) {
     const item = items.find((entry) => entry.pdfKey === zotero[1] && entry.pdfFile === zotero[2]);
-    return item ? { item } : { path: `~/Zotero/storage/${zotero[1]}/${zotero[2]}` };
+    return item ? { item } : { path: zoteroStoragePath(zoteroDir, zotero[1], zotero[2]) };
   }
   if (rel.startsWith("/")) return { path: rel };
   if (!projectRoot) return null;

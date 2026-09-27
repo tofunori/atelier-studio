@@ -175,15 +175,15 @@ pub(super) async fn handle_kb_promote(state: &AppState, msg: &Value) -> Vec<Stri
             text.push_str(&excerpt);
         }
     }
-    // Aiguillage NAS (miroir de gbrainInvocation, sidecar/knowledge.mjs) : le
-    // brain canonique vit sur le NAS ; le binaire local pointe sur un brain
-    // PGLite local quasi vide — capturer dedans perdrait la page (vécu
-    // 2026-08-16). ATELIER_TEST_GBRAIN (tests) garde le binaire local ;
-    // ATELIER_GBRAIN_SSH_HOST="" aussi ; défaut : ssh nas.
-    let ssh_host = if std::env::var("ATELIER_TEST_GBRAIN").is_ok() {
-        String::new()
-    } else {
-        std::env::var("ATELIER_GBRAIN_SSH_HOST").unwrap_or_else(|_| "nas".into())
+    // Aiguillage (miroir de gbrainInvocation, sidecar/knowledge.mjs) : le
+    // brain canonique peut vivre sur une autre machine ; un binaire local
+    // pointant sur un brain quasi vide perdrait la page (vécu 2026-08-16).
+    // Le réglage gbrain décide (Réglages > Intégrations) ; ATELIER_TEST_GBRAIN
+    // (tests) garde le binaire local. Sans réglage : aucune tentative.
+    let ssh_host = match atelier_integrations::Integrations::load().gbrain() {
+        Some(atelier_integrations::GbrainTarget::Local) => String::new(),
+        Some(atelier_integrations::GbrainTarget::Ssh(host)) => host,
+        None => return kb_error(atelier_integrations::GBRAIN_NOT_CONFIGURED.into()),
     };
     let run = if ssh_host.is_empty() {
         let Some(gbrain) = gbrain_bin() else {

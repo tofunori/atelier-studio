@@ -6,6 +6,7 @@ import { setLanguage } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
 import { consumePendingPassageOpen, resetPendingPassageOpenForTests, setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 import { resetKbTrashForTests } from "../../lib/kbTrash";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../../lib/integrations";
 // L'état des imports vit dans un store module : on le pilote depuis les tests
 // plutôt que de simuler tout le cycle websocket.
 const articleState: { jobs: unknown[]; focused: string | null; open: boolean } = {
@@ -74,8 +75,11 @@ function props(over: Partial<Parameters<typeof KbSurface>[0]> = {}) {
 beforeEach(() => {
   setLanguage("fr");
   resetPendingPassageOpenForTests();
+  // le lecteur ne demande une page du dépôt que si son intégration existe
+  setIntegrationsForTests({ ragdoc: true, gbrain: "ssh" });
 });
 afterEach(() => {
+  resetIntegrationsForTests();
   articleState.jobs = [];
   resetKbTrashForTests();
   cleanup();
@@ -281,6 +285,38 @@ describe("KbSurface", () => {
     expect(await screen.findByText("Article (PDF)…")).toBeTruthy();
     fireEvent.click(screen.getByText("Article (PDF)…"));
     expect(onAddArticle).toHaveBeenCalled();
+  });
+
+  // Ragdoc non configuré (Réglages → Intégrations) : la base locale reste
+  // entière, tout ce qui touche au dépôt disparaît sans message d'erreur.
+  it("sans Ragdoc : ni onglet, ni article, ni promotion — une ligne vers les réglages", async () => {
+    const onAddArticle = vi.fn();
+    renderUi(<KbSurface {...props({ ragdoc: false, onPromote: undefined, onAddArticle })} />);
+    expect(screen.queryByRole("tab", { name: /Ragdoc/ })).toBeNull();
+    expect(screen.getByText("Ragdoc n’est pas configuré — Réglages → Intégrations.")).toBeTruthy();
+    // la base locale est intacte
+    expect(screen.getByText("Cuffey & Paterson ch. 5")).toBeTruthy();
+    fireEvent.click(screen.getByText("Ajouter"));
+    expect(await screen.findByText("Fichier / PDF…")).toBeTruthy();
+    expect(screen.queryByText("Article (PDF)…")).toBeNull();
+    // un DOI n'importe rien : il redevient un simple filtre
+    const bar = screen.getByPlaceholderText(/Chercher, ou coller une URL/);
+    fireEvent.change(bar, { target: { value: "10.1029/2010JD015507" } });
+    expect(screen.queryByText(/Entrée pour importer cette référence/)).toBeNull();
+    fireEvent.keyDown(bar, { key: "Enter" });
+    expect(startDoiImport).not.toHaveBeenCalled();
+  });
+
+  it("sans Ragdoc : le menu de rangée n'offre pas « vers Ragdoc »", async () => {
+    // témoin : configuré, le menu propose l'envoi
+    renderUi(<KbSurface {...props()} />);
+    fireEvent.click(screen.getAllByLabelText("Actions")[0]);
+    expect(await screen.findByText("Envoyer à Ragdoc…")).toBeTruthy();
+    cleanup();
+    renderUi(<KbSurface {...props({ ragdoc: false, onPromote: undefined })} />);
+    fireEvent.click(screen.getAllByLabelText("Actions")[0]);
+    expect(await screen.findByText("Joindre le texte intégral")).toBeTruthy();
+    expect(screen.queryByText("Envoyer à Ragdoc…")).toBeNull();
   });
 
   it("un DOI collé importe sa fiche de référence", () => {

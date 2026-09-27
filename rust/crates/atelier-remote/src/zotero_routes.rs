@@ -65,7 +65,7 @@ pub(super) async fn pdf(State(state): State<GatewayState>, headers: HeaderMap, P
         let path = atelier_workspace::pdf_absolute_path(pdf_key, filename).ok_or_else(|| ApiError::not_found("PDF absent du Mac"))?;
         // A symlinked storage item must never turn this bounded route into arbitrary file access.
         let canonical = path.canonicalize().map_err(|_| ApiError::not_found("PDF absent"))?;
-        let root = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Zotero/storage").canonicalize().map_err(|_| ApiError::not_found("Stockage Zotero absent"))?;
+        let root = atelier_workspace::zotero_dir().join("storage").canonicalize().map_err(|_| ApiError::not_found("Stockage Zotero absent"))?;
         if !canonical.starts_with(root) { return Err(ApiError::bad_request("invalid_pdf", "PDF hors du stockage Zotero")); }
         check_file_readable(&canonical)?;
         std::fs::read(canonical).map_err(|_| ApiError::not_found("PDF illisible"))

@@ -20,6 +20,10 @@
 //
 // Le dépôt gbrain garde sa nature : lecture et épinglage, ni dossiers ni
 // suppression — on ne cure pas un corpus depuis une liste de travail.
+//
+// Ragdoc non configuré (`ragdoc={false}`, Réglages → Intégrations) : ni onglet
+// du dépôt, ni import d'article, ni DOI, ni recherche du corpus, ni « Envoyer à
+// Ragdoc » — la base locale reste entière, une ligne discrète dit où l'activer.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../../lib/i18n";
 import SourceReader, { type ReaderTarget } from "./SourceReader";
@@ -164,7 +168,8 @@ export default function KbSurface(p: {
   onToggleFull: (id: string) => void;
   /** Suppression d'une source OU d'une sélection — passe par la corbeille. */
   onRemoveSources: (ids: string[]) => void;
-  onPromote: (id: string) => void;
+  /** « Envoyer à Ragdoc » — absent quand Ragdoc n'est pas configuré. */
+  onPromote?: (id: string) => void;
   onPromotePage?: (id: string) => void;
   onResync?: (slug: string) => void;
   /** Archivage d'une source ou d'un lot ; `off` désarchive. */
@@ -184,7 +189,10 @@ export default function KbSurface(p: {
   onBatchAttach?: (ids: string[]) => void;
   gbrain?: GbrainSectionProps;
   headerEnd?: React.ReactNode;
+  /** Ragdoc configuré ? Absent = oui (tests, anciens appelants). */
+  ragdoc?: boolean;
 }) {
+  const ragdocOn = p.ragdoc !== false;
   const [query, setQuery] = useState("");
   const [type, setType] = useState<KbFilter>("all");
   const [view, setView] = useState<KbView>("all");
@@ -206,7 +214,9 @@ export default function KbSurface(p: {
   // Deux territoires : « base » est ce que l'utilisateur a choisi et cure,
   // « gbrain » est le dépôt qui s'accumule et où les PDF entrent. Ils n'ont pas
   // la même vie ; les mélanger faisait grossir la base à chaque ingestion.
-  const [tab, setTab] = useState<"base" | "brain">("base");
+  const [tabState, setTab] = useState<"base" | "brain">("base");
+  // Le dépôt n'existe pas sans Ragdoc : l'onglet retombe sur la base.
+  const tab = ragdocOn ? tabState : "base";
   // Page du dépôt ouverte en lecture : le lecteur remplace la liste, avec un
   // retour. Pas de modale — une lecture d'article dure.
   const [lecture, setLecture] = useState<ReaderTarget | null>(null);
@@ -316,7 +326,8 @@ export default function KbSurface(p: {
   // filtre la liste. La barre dit ce qu'elle fera avant qu'on valide.
   const trimmed = query.trim();
   const looksLikeUrl = /^https?:\/\/\S+$/i.test(trimmed) && !/doi\.org\//i.test(trimmed);
-  const doi = /^(?:https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/\S+)$/i.exec(trimmed)?.[1] ?? null;
+  // Un DOI s'importe dans le dépôt Ragdoc : sans lui, c'est du texte à filtrer.
+  const doi = ragdocOn ? /^(?:https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/\S+)$/i.exec(trimmed)?.[1] ?? null : null;
 
   function submitBar() {
     const value = query.trim();
@@ -523,7 +534,9 @@ export default function KbSurface(p: {
       if (p.onPromotePage) {
         items.push({ key: "page", separatorBefore: true, label: t("kb.promote-page"), onSelect: () => p.onPromotePage?.(source.id) });
       }
-      items.push({ key: "promote", label: t("kb.promote"), onSelect: () => p.onPromote(source.id) });
+      if (p.onPromote) {
+        items.push({ key: "promote", label: t("kb.promote"), onSelect: () => p.onPromote?.(source.id) });
+      }
       if (source.kind === "ragdoc" && row.slug && p.onResync) {
         items.push({ key: "resync", label: t("kb.gbrain-resync"), onSelect: () => p.onResync?.(row.slug as string) });
       }
@@ -753,7 +766,7 @@ export default function KbSurface(p: {
         <SourceReader
           target={lecture}
           onClose={() => { setLecture(null); setLectureHighlight(null); }}
-          onPin={lecture.kind === "gbrain" ? undefined : (slug) => p.gbrain?.onPin(slug)}
+          onPin={lecture.kind === "gbrain" || !p.gbrain ? undefined : (slug) => p.gbrain?.onPin(slug)}
           onToggleFull={p.onToggleFull}
           full={lecture.kind === "source" && p.fullContent.includes(lecture.id)}
           highlightQuote={lectureHighlight ?? undefined}
@@ -771,7 +784,7 @@ export default function KbSurface(p: {
     >
       <div className="kb-head">
         <span className="kb-title">{t("kbs.title")}</span>
-        <span className="kbs-seg" role="tablist" aria-label={t("kbs.tabs-label")}>
+        {ragdocOn ? <span className="kbs-seg" role="tablist" aria-label={t("kbs.tabs-label")}>
           <RowButton
             role="tab"
             aria-selected={tab === "base"}
@@ -788,7 +801,7 @@ export default function KbSurface(p: {
           >
             {t("kbs.tab-brain")} <span className="kbs-seg-n">{corpusRows.length}</span>
           </RowButton>
-        </span>
+        </span> : <span className="kbs-hint kbs-off-hint" title={t("kb.ragdoc-off")}>{t("kb.ragdoc-off")}</span>}
         <span className="kbs-spacer" />
         {tab === "base" && (
           <LazyDropdownMenu
@@ -841,12 +854,12 @@ export default function KbSurface(p: {
             { key: "folder", label: t("kb.add-folder"), onSelect: () => p.onAddFolder() },
             { key: "note", label: t("kb.add-note"), onSelect: () => setNoteOpen(true) },
             // L'import d'article n'ajoute rien à la base : il alimente le dépôt.
-            {
+            ...(ragdocOn ? [{
               key: "article",
               separatorBefore: true,
               label: t("kbs.add-article"),
               onSelect: () => { setTab("brain"); p.onAddArticle?.(); },
-            },
+            }] : []),
           ]}
         />
         )}

@@ -10,12 +10,15 @@ pub(super) struct LogQuery { run_id: String }
 pub(super) async fn snapshot(State(state): State<GatewayState>, headers: HeaderMap, Query(query): Query<SnapshotQuery>) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let device = require_device(&state, &headers, Scope::FilesRead).await?;
-    let hosts = match query.host.as_deref().unwrap_or("all") {
-        "all" => vec!["mac", "nas", "narval"],
-        "mac" => vec!["mac"], "nas" => vec!["nas"], "narval" => vec!["narval"],
+    // « all » = hôtes configurés sur le Mac (Réglages > Intégrations) : sans
+    // liste explicite, le bureau ne contacte que ceux-là.
+    let mut query_msg = json!({"type":"computeSnapshot", "days":7});
+    match query.host.as_deref().unwrap_or("all") {
+        "all" => {}
+        host @ ("mac" | "nas" | "narval") => query_msg["hosts"] = json!([host]),
         _ => return Err(ApiError::bad_request("invalid_host", "Emplacement de calcul invalide")),
-    };
-    request(&state, &device.device_id, json!({"type":"computeSnapshot", "hosts":hosts, "days":7}), "computeSnapshot").await.map(Json)
+    }
+    request(&state, &device.device_id, query_msg, "computeSnapshot").await.map(Json)
 }
 
 pub(super) async fn log(State(state): State<GatewayState>, headers: HeaderMap, Query(query): Query<LogQuery>) -> ApiResult<Json<Value>> {

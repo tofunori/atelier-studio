@@ -22,17 +22,20 @@ use types::{format_rfc3339, window_start};
 pub const MAX_RUNS: usize = 200;
 pub const MAX_LOG_LINES: u32 = 400;
 
-/// Configuration des adaptateurs. `Default` lit l'environnement UNE fois
-/// (`ATELIER_RUNS_DIR`, `ATELIER_NAS_HOST`, `ATELIER_NAS_EXCLUDE`,
-/// `ATELIER_COMPUTE_SLURM_PROFILE`) : les tests construisent la struct à la
-/// main et n'appellent jamais `Default` — aucune mutation d'env (course
-/// entre tests, vécu 2026).
+/// Configuration des adaptateurs. `Default` lit l'environnement
+/// (`ATELIER_RUNS_DIR`, `ATELIER_NAS_EXCLUDE`, `ATELIER_COMPUTE_SLURM_PROFILE`)
+/// et le réglage des intégrations (hôte du NAS, grappes) : les tests
+/// construisent la struct à la main et n'appellent jamais `Default` — aucune
+/// mutation d'env (course entre tests, vécu 2026).
 #[derive(Debug, Clone)]
 pub struct ComputeConfig {
     pub runs_dir: PathBuf,
-    pub nas_alias: String,
+    /// Hôte SSH du NAS ; `None` = non configuré, jamais contacté.
+    pub nas_alias: Option<String>,
     pub nas_excluded: Vec<String>,
     pub slurm_profile: String,
+    /// La grappe `slurm_profile` est configurée (alias SSH connu).
+    pub slurm_enabled: bool,
 }
 
 impl Default for ComputeConfig {
@@ -46,11 +49,8 @@ impl Default for ComputeConfig {
                     .unwrap_or_else(|| PathBuf::from("/"));
                 home.join(".atelier").join("runs")
             });
-        let nas_alias = std::env::var("ATELIER_NAS_HOST")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| valid_ssh_alias(value))
-            .unwrap_or_else(|| "nas".into());
+        let integrations = atelier_integrations::Integrations::load();
+        let nas_alias = integrations.nas_host();
         let nas_excluded = std::env::var("ATELIER_NAS_EXCLUDE")
             .ok()
             .map(|value| {
@@ -73,11 +73,13 @@ impl Default for ComputeConfig {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "narval".into());
+        let slurm_enabled = integrations.cluster(&slurm_profile).is_some();
         Self {
             runs_dir,
             nas_alias,
             nas_excluded,
             slurm_profile,
+            slurm_enabled,
         }
     }
 }
@@ -89,11 +91,31 @@ impl ComputeConfig {
         }
     }
 
-    fn nas(&self) -> NasAdapter {
-        NasAdapter {
-            alias: self.nas_alias.clone(),
+    fn nas(&self) -> Result<NasAdapter, HostError> {
+        let alias = self.nas_alias.clone().ok_or_else(|| {
+            HostError::new(
+                Host::Nas.as_str(),
+                "not_configured",
+                "NAS non configuré (Réglages > Intégrations)",
+            )
+        })?;
+        Ok(NasAdapter {
+            alias,
             excluded: self.nas_excluded.clone(),
+        })
+    }
+
+    /// Hôtes interrogés quand la demande n'en nomme aucun : le Mac, plus
+    /// ceux que l'utilisateur a configurés — jamais un ssh non demandé.
+    pub fn configured_hosts(&self) -> Vec<Host> {
+        let mut hosts = vec![Host::Mac];
+        if self.nas_alias.is_some() {
+            hosts.push(Host::Nas);
         }
+        if self.slurm_enabled {
+            hosts.push(Host::Narval);
+        }
+        hosts
     }
 
     fn slurm(&self) -> SlurmAdapter {
@@ -101,13 +123,6 @@ impl ComputeConfig {
             profile: self.slurm_profile.clone(),
         }
     }
-}
-
-fn valid_ssh_alias(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'@'))
 }
 
 /// Identifiants de run acceptés : `[A-Za-z0-9_.:-]`, jamais vide, et chaque
@@ -149,11 +164,21 @@ fn snapshot_at(
         });
         let nas = wanted(Host::Nas).then(|| {
             let adapter = cfg.nas();
-            scope.spawn(move || adapter.collect(exec, window, observed))
+            scope.spawn(move || adapter?.collect(exec, window, observed))
         });
         let slurm = wanted(Host::Narval).then(|| {
             let adapter = cfg.slurm();
-            scope.spawn(move || adapter.collect(days, observed))
+            let enabled = cfg.slurm_enabled;
+            scope.spawn(move || {
+                if !enabled {
+                    return Err(HostError::new(
+                        Host::Narval.as_str(),
+                        "not_configured",
+                        "grappe Slurm non configurée (Réglages > Intégrations)",
+                    ));
+                }
+                adapter.collect(days, observed)
+            })
         });
         let join = |host: Host,
                     handle: Option<
@@ -235,7 +260,7 @@ pub fn read_log(
         return Ok(LogChunk { lines, truncated });
     }
     if run_id.starts_with("nas:") {
-        return cfg.nas().read_log(exec, run_id, tail_lines);
+        return cfg.nas()?.read_log(exec, run_id, tail_lines);
     }
     if run_id.starts_with("slurm:") {
         return Err(HostError::new(
@@ -271,7 +296,7 @@ pub fn forget_run(
         return Ok(outcome);
     }
     if run_id.starts_with("nas:") {
-        cfg.nas().forget(exec, run_id)?;
+        cfg.nas()?.forget(exec, run_id)?;
         return Ok(outcome);
     }
     if run_id.starts_with("slurm:") {
@@ -296,12 +321,13 @@ mod tests {
     fn cfg(runs_dir: &std::path::Path) -> ComputeConfig {
         ComputeConfig {
             runs_dir: runs_dir.to_path_buf(),
-            nas_alias: "nas".into(),
+            nas_alias: Some("nas".into()),
             nas_excluded: nas::DEFAULT_EXCLUDED
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
             slurm_profile: "narval".into(),
+            slurm_enabled: true,
         }
     }
 

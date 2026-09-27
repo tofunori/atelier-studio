@@ -5174,6 +5174,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kbs-foot { padding: 6px 2px 0; font-size: var(--fs-xs); color: var(--text-muted); }
 .kbs-search { width: 100%; height: 28px; font-size: var(--fs-m); margin: 2px 0 4px; }
 .kbs-hint { font-size: var(--fs-s); color: var(--text-muted); padding: 0 2px 2px; }
+/* Ragdoc non configuré : une ligne à la place des onglets, jamais plus. */
+.kbs-off-hint { min-width: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ── Redesign de la base (2026-08-22) ────────────────────────────────────
    Le rail range (vues + dossiers, dépôt par glisser), la case sélectionne
    sans mode, le trombone joint la conversation, le bandeau rattrape une

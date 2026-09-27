@@ -224,10 +224,12 @@ ps -o lstart= -p <pid>        # un lstart antérieur au build = zombie → kill 
 
 Sans identité de signature stable, l'app est signée **adhoc** : chaque
 rebuild = nouvelle identité pour macOS → les consultations TCC/Gatekeeper
-repartent de zéro au premier lancement. (Le plan 019 a ajouté
-`signingIdentity: "Atelier Dev Signing"` dans tauri.conf sur
-feat/generateur-images — les branches qui l'ont re-consultent beaucoup
-moins ; la règle « pas d'écriture dans le bundle » reste valable partout.)
+repartent de zéro au premier lancement. (tauri.conf.json signe en ad hoc
+pour que tout le monde puisse compiler ; `scripts/build-tauri-app.sh` et
+`build-tauri-dmg.sh` reprennent l'identité stable « Atelier Dev Signing »
+quand ce certificat est dans le trousseau — voir
+`scripts/tauri-signing-args.sh` — et re-consultent alors beaucoup moins ;
+la règle « pas d'écriture dans le bundle » reste valable partout.)
 Conséquences attendues (macOS 26) :
 
 - le premier boot du sidecar peut être lent ; son event loop peut geler

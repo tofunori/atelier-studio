@@ -15,6 +15,7 @@ members = [
   "crates/atelier-annots-mcp",
   "crates/atelier-kb",
   "crates/atelier-fdlimit",
+  "crates/atelier-integrations",
 ]
 
 [workspace.package]
@@ -33,6 +34,7 @@ atelier-harness = { path = "crates/atelier-harness" }
 atelier-providers = { path = "crates/atelier-providers" }
 atelier-kb = { path = "crates/atelier-kb" }
 atelier-fdlimit = { path = "crates/atelier-fdlimit" }
+atelier-integrations = { path = "crates/atelier-integrations" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

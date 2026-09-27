@@ -150,22 +150,45 @@ pub fn provider_status_list(app_dir: Option<&Path>) -> Vec<ProviderStatus> {
 /// CLI providers appear only when their binary is resolvable.
 /// API providers load from `app_dir/api_providers.json`.
 pub fn build_registry(app_dir: &Path) -> HashMap<String, Arc<dyn Provider>> {
+    build_registry_except(app_dir, &std::collections::HashSet::new())
+}
+
+/// Redétection (Réglages > Modèles, « Revérifier ») : ne construit QUE les
+/// providers absents de `present` — un CLI installé après le lancement
+/// apparaît, ceux déjà vivants gardent leurs sessions.
+pub fn build_registry_except(
+    app_dir: &Path,
+    present: &std::collections::HashSet<String>,
+) -> HashMap<String, Arc<dyn Provider>> {
+    let wanted = |id: &str| !present.contains(id);
     let mut m: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-    m.insert("fake".into(), Arc::new(FakeProvider::new("fake")));
-    if let Some(claude) = crate::claude::ClaudeProvider::new() {
-        m.insert("claude".into(), Arc::new(claude));
+    if wanted("fake") {
+        m.insert("fake".into(), Arc::new(FakeProvider::new("fake")));
     }
-    if let Some(codex) = crate::codex::CodexProvider::new() {
-        m.insert("codex".into(), Arc::new(codex));
+    if wanted("claude") {
+        if let Some(claude) = crate::claude::ClaudeProvider::new() {
+            m.insert("claude".into(), Arc::new(claude));
+        }
     }
-    if let Some(grok) = crate::grok::GrokProvider::new() {
-        m.insert("grok".into(), Arc::new(grok));
+    if wanted("codex") {
+        if let Some(codex) = crate::codex::CodexProvider::new() {
+            m.insert("codex".into(), Arc::new(codex));
+        }
     }
-    if let Some(kimi) = crate::kimi::KimiProvider::new() {
-        m.insert("kimi".into(), Arc::new(kimi));
+    if wanted("grok") {
+        if let Some(grok) = crate::grok::GrokProvider::new() {
+            m.insert("grok".into(), Arc::new(grok));
+        }
     }
-    if let Some(oc) = crate::opencode::OpenCodeProvider::new() {
-        m.insert("opencode".into(), Arc::new(oc));
+    if wanted("kimi") {
+        if let Some(kimi) = crate::kimi::KimiProvider::new() {
+            m.insert("kimi".into(), Arc::new(kimi));
+        }
+    }
+    if wanted("opencode") {
+        if let Some(oc) = crate::opencode::OpenCodeProvider::new() {
+            m.insert("opencode".into(), Arc::new(oc));
+        }
     }
     let builtin_ids: std::collections::HashSet<&str> = [
         "claude", "codex", "grok", "kimi", "opencode", "fake", "gemini",
@@ -173,7 +196,7 @@ pub fn build_registry(app_dir: &Path) -> HashMap<String, Arc<dyn Provider>> {
     .into_iter()
     .collect();
     for cfg in load_api_configs(app_dir) {
-        if builtin_ids.contains(cfg.id.as_str()) {
+        if builtin_ids.contains(cfg.id.as_str()) || !wanted(&cfg.id) {
             continue;
         }
         let id = cfg.id.clone();

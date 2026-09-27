@@ -43,7 +43,10 @@ externes afin de réutiliser leurs authentifications et permissions.
   considéré comme fiable sans la vérification SHA-256.
 - La signature/notarisation publique demeure un chantier séparé et aucun secret
   de signature n'est stocké dans le dépôt.
-- Les builds locaux gardent l'identité stable `Atelier Dev Signing` pour limiter
-  les consultations TCC. Le workflow de release applique
+- `tauri.conf.json` signe en ad hoc (`-`) pour que n'importe qui puisse
+  compiler depuis les sources. Les scripts `build-tauri-app.sh` et
+  `build-tauri-dmg.sh` reprennent l'identité stable `Atelier Dev Signing`
+  (ou `$ATELIER_SIGNING_IDENTITY`) quand elle est dans le trousseau, pour
+  limiter les consultations TCC. Le workflow de release applique
   `src-tauri/tauri.release.conf.json` et produit une RC non signée tant que les
   secrets de signature/notarisation ne sont pas configurés.

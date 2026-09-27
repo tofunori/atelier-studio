@@ -1,4 +1,6 @@
 import { wsReady, wsSend } from "./wsBus";
+import { t } from "./i18n";
+import { ragdocEnabled, subscribeIntegrations } from "./integrations";
 
 export type ZoteroPDF = { key: string; title: string; path: string; doi?: string; parentKey?:string; authors?:string; year?:string; journal?:string; identity: string; ragdocStatus?: "indexed"|"missing"|"unknown"; ragdocSource?:string; pdfSha256?:string };
 export type RagdocReview = {
@@ -8,6 +10,8 @@ export type RagdocReview = {
 };
 
 export function requestRagdoc<T>(type: string, extra: Record<string, unknown> = {}): Promise<T> {
+  // Ragdoc non configuré : rien ne part vers le serveur (Réglages → Intégrations).
+  if (!ragdocEnabled()) return Promise.reject(new Error(t("kb.ragdoc-off")));
   return new Promise((resolve, reject) => {
     const requestId = `rd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const cleanup = () => { clearTimeout(timer); window.removeEventListener("ragdoc-workspace-response", reply); };
@@ -43,7 +47,7 @@ export function setRagdocSettings(update: Partial<Pick<Settings,"converter"|"wat
 }
 export function acknowledgeZotero(keys:string[]) {state.pending=state.pending.filter(item=>!keys.includes(item.key));persist();emit();}
 export async function checkZoteroWatch() {
-  if(!settings.watch || state.checking || !wsReady())return;
+  if(!settings.watch || state.checking || !wsReady() || !ragdocEnabled())return;
   state.checking=true;state.error="";emit();
   try {
     const {items}=await requestRagdoc<{items:ZoteroPDF[]}>("ragdocZotero");
@@ -64,7 +68,11 @@ export async function checkZoteroWatch() {
 export function startRagdocWatcher() {
   void checkZoteroWatch();
   const timer=setInterval(()=>{void checkZoteroWatch();},5*60_000);
-  return ()=>clearInterval(timer);
+  // La configuration arrive après le démarrage : premier contrôle dès que
+  // Ragdoc devient disponible, plutôt qu'au tic suivant (5 min).
+  let enabled=ragdocEnabled();
+  const stop=subscribeIntegrations(()=>{const now=ragdocEnabled();if(now&&!enabled)void checkZoteroWatch();enabled=now;});
+  return ()=>{clearInterval(timer);stop();};
 }
 
 /** Keep the gallery origin and nonce; never put a local filesystem path in an URL. */

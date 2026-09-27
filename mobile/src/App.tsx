@@ -78,6 +78,9 @@ export default function App() {
       if (cancelled) return;
       setGatewayUrl(url);
       setCreds(c);
+      // Premier lancement sans adresse connue : droit à l'appairage (la saisie
+      // de l'adresse y est dépliée) plutôt qu'une erreur réseau.
+      if (!c && !url.trim()) setOverlay("pairing");
       setBooted(true);
     })();
     return () => {
@@ -133,6 +136,10 @@ export default function App() {
   }, [session.net.state, session.net.lastError]);
 
   const onPair = async (code: string, deviceName: string) => {
+    if (!gatewayUrl.trim()) {
+      setPairError("Indiquez l’adresse du Mac.");
+      return;
+    }
     setPairBusy(true);
     setPairError(null);
     try {

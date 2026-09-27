@@ -2,6 +2,10 @@
 // quel aux surfaces intéressées (Git, Zotero, KB, articles, terminal…) par un
 // CustomEvent sur `window`. Ajouter ici un type purement relayé plutôt que
 // d'allonger handleMessage.
+// Le store des intégrations écoute son événement dès l'import : l'importer ici
+// garantit qu'il est prêt avant le premier message, même si aucune surface qui
+// le lit (réglages, Connaissances, Calculs — chargées à la demande) n'est montée.
+import "./integrations";
 
 type Relay = (msg: any) => { event: string; detail?: unknown };
 
@@ -17,6 +21,8 @@ const RELAYS: Record<string, Relay> = {
   }),
   kbError: (msg) => ({ event: "kb-source-added", detail: { ok: false, message: msg.message } }),
   kbSources: forward("kb-sources"),
+  // intégrations distantes (Ragdoc, gbrain, NAS, grappes) : store lib/integrations
+  integrations: forward("integrations-state"),
   turnContextPreview: forward("turn-context-preview"),
   kbPromoted: (msg) => ({ event: "kb-source-promoted", detail: { id: msg.id } }),
   // page directe gbrain (plan 050 P4) : dialogue de la surface

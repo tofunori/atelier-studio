@@ -631,7 +631,7 @@ fn by_claude(a: &Value) -> bool {
 }
 
 /// Modifie ou supprime des surlignages POSÉS PAR CLAUDE (`by: "claude"`) :
-/// ceux que Thierry a faits lui-même ne sont jamais touchés. `requests` les
+/// ceux que l'utilisateur a faits lui-même ne sont jamais touchés. `requests` les
 /// désigne par leur texte (et leur page) ; `all` les prend tous dans l'article.
 pub fn edit_highlights(
     config: &Config,
@@ -716,7 +716,7 @@ pub fn edit_highlights(
                 });
                 report.push(if theirs {
                     format!(
-                        "- « {label} » : c'est un surlignage de Thierry, Claude n'y touche pas."
+                        "- « {label} » : c'est un surlignage de l'utilisateur, Claude n'y touche pas."
                     )
                 } else {
                     format!("- « {label} » : aucun surlignage de Claude ne correspond.")

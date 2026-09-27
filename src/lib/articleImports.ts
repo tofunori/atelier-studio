@@ -4,8 +4,13 @@ import type { ZoteroPDF } from "./ragdocWorkspace";
 // l'atelier (chat, LaTeX, galerie) sans rien interrompre, et rien ne doit
 // empêcher d'en déposer un deuxième pendant ce temps — ni une conversion en
 // cours, ni un échec qu'on n'a pas encore rangé.
+//
+// Ragdoc non configuré (lib/integrations) : le dialogue ne s'ouvre pas et
+// aucun articleImport* / articleWrite / kbAdd ragdoc ne part — le serveur les
+// refuserait de toute façon, sans connexion SSH.
 import { showUndo } from "../components/ui/toast";
 import { t } from "./i18n";
+import { ragdocEnabled } from "./integrations";
 import { notifyArticleReady } from "./notify";
 import { wsSend } from "./wsBus";
 
@@ -158,6 +163,7 @@ export function stageLabel(job: ArticleJob, now = Date.now()) {
 }
 
 export function openArticleDialog(requestId?: string) {
+  if (!ragdocEnabled()) return;
   emit({ ...current, open: true, focused: requestId ?? current.focused });
 }
 
@@ -192,6 +198,7 @@ export function startDoiImport(doi: string, opts: {background?: boolean} = {}) {
 }
 
 export function startArticleImport(path: string, opts: { doi?: string; converter?: "mistral" | "mineru"; background?: boolean; zotero?: ZoteroPDF } = {}) {
+  if (!ragdocEnabled()) return false;
   const requestId = `art-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const message = opts.doi
     ? { type: "articleImportDoi", doi: opts.doi, requestId }
@@ -241,7 +248,7 @@ const autoWrites = new Map<string, string>();
 
 function autoWrite(job: ArticleJob, imported: ArticleImported) {
   const slug = autoTargetSlug(imported);
-  if (!slug || !imported.draftId) {
+  if (!slug || !imported.draftId || !ragdocEnabled()) {
     patch(job.requestId, { phase: "ready" });
     return false;
   }
@@ -321,7 +328,7 @@ function onAutoWriteError(event: Event) {
 
 /** Épingle le document Ragdoc dans les sources de la conversation. */
 export async function openGbrainPage(slug: string) {
-  if (!slug) return;
+  if (!slug || !ragdocEnabled()) return;
   wsSend({ type: "kbAdd", kind: "ragdoc", origin: slug });
 }
 

@@ -6,6 +6,7 @@ license.workspace = true
 description = "Files, Git, terminal PTY, Zotero, local scan (plan 033 Porte 4)"
 
 [dependencies]
+atelier-integrations = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

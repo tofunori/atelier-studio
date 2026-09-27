@@ -10,10 +10,16 @@
 //     (error.code "unsupported" = l'hôte ne sait pas archiver ce genre → masqué
 //     localement ; "run_live" = encore en cours → message inline, pas masqué)
 // Les réponses arrivent par le pont `compute-message` d'App.tsx.
+//
+// Hôtes distants (Réglages → Intégrations) : le filtre ne propose le NAS et
+// Narval que s'ils sont configurés, les commandes de terminal viennent de la
+// configuration, et « Tous » ne couvre que les hôtes configurés (le serveur
+// l'impose aussi). Sans aucune grappe, la vue Slurm n'a pas d'entrée.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
+import { clusterSshCommand, useIntegrations, type IntegrationsEffective } from "../lib/integrations";
 import NarvalSurface from "./NarvalSurface";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
@@ -59,9 +65,10 @@ type SurfaceError = { code: string; message: string };
 const HOST_STORAGE_KEY = "atelier.calculs.host";
 const HIDDEN_STORAGE_KEY = "atelier.calculs.hidden";
 const HIDDEN_CAP = 500;
+/** Tous les filtres connus ; `availableHosts` retient ceux qui sont configurés. */
 const HOSTS: HostFilter[] = ["all", "mac", "nas", "narval"];
 /** Cadence de sondage (spec) : Mac local 30 s ; NAS et Slurm 60 s — donc 60 s
- *  dès que le filtre inclut un hôte distant (« Tous » compris). */
+ *  dès que le filtre inclut un hôte distant (« Tous » compris, s'il en couvre un). */
 const POLL_LOCAL_MS = 30_000;
 const POLL_REMOTE_MS = 60_000;
 const CLOCK_MS = 10_000;
@@ -73,8 +80,18 @@ const LOG_TAIL_LINES = 400;
  *  « snapshot identique → aucun re-rendu » (garde-fou de performance n° 4). */
 export const calculsDebug = { rowRenders: 0, listRenders: 0 };
 
-export function pollIntervalMs(host: HostFilter) {
-  return host === "mac" ? POLL_LOCAL_MS : POLL_REMOTE_MS;
+export function pollIntervalMs(host: HostFilter, remoteConfigured = true) {
+  return host === "mac" || (host === "all" && !remoteConfigured) ? POLL_LOCAL_MS : POLL_REMOTE_MS;
+}
+
+/** Ce que Calculs sait des hôtes distants (lib/integrations, champ `effective`). */
+export type ComputeTargets = Pick<IntegrationsEffective, "nasHost" | "clusters">;
+
+/** Filtres proposés : « Tous » et le Mac toujours, le NAS et Narval seulement
+ *  s'ils sont configurés. */
+export function availableHosts(targets: ComputeTargets): HostFilter[] {
+  return HOSTS.filter((host) => (host === "nas" ? Boolean(targets.nasHost)
+    : host === "narval" ? Boolean(targets.clusters.narval) : true));
 }
 
 function requestId() {
@@ -179,10 +196,11 @@ function hostLabel(host: HostFilter | string) {
   }
 }
 
-/** Commande terminal pour l'hôte filtré — même alias que la surface Narval. */
-export function hostTerminalCommand(host: HostFilter): string | null {
-  if (host === "nas") return "ssh nas";
-  if (host === "narval") return "ssh nas -t ssh narval-vpn";
+/** Commande terminal pour l'hôte filtré — tirée de la configuration (même
+ *  cible que la surface Narval) ; null pour le Mac ou un hôte non configuré. */
+export function hostTerminalCommand(host: HostFilter | string, targets: ComputeTargets): string | null {
+  if (host === "nas") return targets.nasHost ? `ssh ${targets.nasHost}` : null;
+  if (host === "narval") return targets.clusters.narval ? clusterSshCommand(targets.clusters.narval) : null;
   return null;
 }
 
@@ -219,7 +237,15 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   /** Contrôles du pane (grip + fermeture) intégrés à la barre, comme Narval. */
   paneControls?: React.ReactNode;
 }) {
-  const [hostFilter, setHostFilter] = useState<HostFilter>(readStoredHost);
+  const integrations = useIntegrations().effective;
+  const hosts = useMemo(() => availableHosts(integrations), [integrations]);
+  // Hôtes connus mais non configurés : leurs runs (cache, réponse tardive)
+  // n'apparaissent nulle part, « Tous » compris.
+  const unconfigured = useMemo(() => new Set<string>(HOSTS.filter((host) => !hosts.includes(host))), [hosts]);
+  const slurmAvailable = Boolean(integrations.clusters.narval || integrations.clusters.rorqual);
+  const [storedHost, setHostFilter] = useState<HostFilter>(readStoredHost);
+  // Un filtre mémorisé sur un hôte qui n'est plus configuré retombe sur « Tous ».
+  const hostFilter: HostFilter = hosts.includes(storedHost) ? storedHost : "all";
   const [snapshot, setSnapshot] = useState<ComputeSnapshot | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [error, setError] = useState<SurfaceError | null>(null);
@@ -248,9 +274,10 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const openSlurmView = useCallback(() => setSlurmView(true), []);
 
   const allRuns = useMemo(() => sortRuns((snapshot?.runs ?? []).filter(
-    (run) => hostFilter === "all" || run.host === hostFilter,
-  )), [snapshot, hostFilter]);
-  const hostErrors = (snapshot?.errors ?? []).filter((entry) => hostFilter === "all" || entry.host === hostFilter);
+    (run) => (hostFilter === "all" ? !unconfigured.has(run.host) : run.host === hostFilter),
+  )), [snapshot, hostFilter, unconfigured]);
+  const hostErrors = (snapshot?.errors ?? []).filter((entry) => (hostFilter === "all"
+    ? !unconfigured.has(entry.host) : entry.host === hostFilter));
   const transientErrors = hostErrors.filter((entry) => entry.code === "timeout" || entry.code === "unavailable");
   const blockingErrors = hostErrors.filter((entry) => entry.code !== "timeout" && entry.code !== "unavailable");
   // Filtre des runs retirés, mémoïsé : snapshot identique + masquage identique
@@ -360,7 +387,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
       if (!data || !Array.isArray(data.runs)) return;
       const errors = Array.isArray(data.errors) ? data.errors : [];
       const receivedAt = toMs(data.observedAt) ?? Date.now();
-      const requestedHosts = hostFilter === "all" ? HOSTS.slice(1) : [hostFilter];
+      const requestedHosts = hostFilter === "all" ? hosts.slice(1) : [hostFilter];
       const failedHosts = new Set(errors.map((entry) => entry.host));
       for (const host of requestedHosts) {
         if (!failedHosts.has(host)) {
@@ -393,16 +420,16 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     };
     window.addEventListener("compute-message", onMessage);
     return () => window.removeEventListener("compute-message", onMessage);
-  }, [hostFilter]);
+  }, [hostFilter, hosts]);
 
   // Sondage uniquement quand la surface est visible (même mécanisme que Narval) ;
   // cadence selon l'hôte filtré (30 s Mac, 60 s dès qu'un hôte distant est inclus).
   useEffect(() => {
     if (!visible || slurmView) return;
     requestSnapshot();
-    const timer = window.setInterval(() => requestSnapshot(), pollIntervalMs(hostFilter));
+    const timer = window.setInterval(() => requestSnapshot(), pollIntervalMs(hostFilter, hosts.length > 2));
     return () => window.clearInterval(timer);
-  }, [hostFilter, requestSnapshot, slurmView, visible]);
+  }, [hostFilter, hosts, requestSnapshot, slurmView, visible]);
 
   // Horloge grossière pour « observé il y a » / durées / péremption — SEUL
   // setState périodique au repos. Les rangées sont mémoïsées : le tic ne
@@ -428,7 +455,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     setHostFilter(next);
     storeHost(next);
     setOpenRunId(null);
-    const requestedHosts = next === "all" ? HOSTS.slice(1) : [next];
+    const requestedHosts = next === "all" ? hosts.slice(1) : [next];
     const cachedHosts = requestedHosts.flatMap((host) => {
       const cached = hostCache.current.get(host);
       return cached ? [cached] : [];
@@ -448,12 +475,16 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     setOpenRunId((current) => (current === id ? null : id));
   }, []);
 
-  const terminalCommand = hostTerminalCommand(hostFilter);
+  const terminalCommand = hostTerminalCommand(hostFilter, integrations);
+  // Vue Slurm : sous le filtre Narval, ou sous « Tous » quand seule Rorqual est
+  // configurée (elle n'a pas de filtre à elle) ; jamais sans grappe.
+  const slurmEntry = slurmAvailable && (hostFilter === "narval"
+    || (hostFilter === "all" && !integrations.clusters.narval));
   const observedMs = observedAt.current;
   const stale = Boolean(error) || hostErrors.length > 0 || (observedMs != null && now - observedMs > STALE_MS);
   const observedSeconds = observedMs == null ? null : Math.max(0, Math.round((now - observedMs) / 1_000));
 
-  if (slurmView) {
+  if (slurmView && slurmAvailable) {
     return (
       <div className="calculs-shell" data-visible={visible}>
         <div className="calculs-slurm-bar">
@@ -475,7 +506,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
             label={t("calculs.filter-host")}
             value={hostFilter}
             onChange={(value) => changeHost(value as HostFilter)}
-            options={HOSTS.map((host) => ({ value: host, label: hostLabel(host) }))}
+            options={hosts.map((host) => ({ value: host, label: hostLabel(host) }))}
           />
           {observedSeconds != null && (
             <span className="calculs-observed" title={new Date(observedMs!).toLocaleTimeString()}>
@@ -489,7 +520,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
             </StatusBadge>
           ))}
           <div className="calculs-toolbar-actions">
-            {hostFilter === "narval" && (
+            {slurmEntry && (
               <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
             )}
             <Button variant="ghost" disabled={finishedVisible.length === 0} onClick={forgetFinished}>
@@ -749,8 +780,11 @@ function RunBody({ id, run, forgetError, onForget, onOpenTerminal, onSlurmView }
     if (next === "log" && !log && !logLoading) requestLog();
   };
 
+  const integrations = useIntegrations().effective;
   const isSlurm = run.detail.kind === "slurm";
-  const terminalCommand = hostTerminalCommand(run.host as HostFilter);
+  // Sans grappe configurée, un run Slurm resté en cache n'ouvre pas la vue Slurm.
+  const slurmAvailable = Boolean(integrations.clusters.narval || integrations.clusters.rorqual);
+  const terminalCommand = hostTerminalCommand(run.host, integrations);
   const progress = run.progress && run.progress.total > 0 ? run.progress : null;
   const fact = detailFact(run.detail);
   const ended = toMs(run.endedAt) != null;
@@ -787,7 +821,7 @@ function RunBody({ id, run, forgetError, onForget, onOpenTerminal, onSlurmView }
           <pre className="calculs-run-tail">{run.logTail.length ? run.logTail.join("\n") : t("calculs.log-empty")}</pre>
           <div className="calculs-run-actions">
             <Button variant="secondary" onClick={() => changeTab("log")}>{t("calculs.log-full")}</Button>
-            {isSlurm && <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>}
+            {isSlurm && slurmAvailable && <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>}
             {terminalCommand && (
               <Button variant="secondary" onClick={() => onOpenTerminal(terminalCommand)}>
                 {t("calculs.terminal-on", { host: hostLabel(run.host) })}
@@ -816,9 +850,11 @@ function RunBody({ id, run, forgetError, onForget, onOpenTerminal, onSlurmView }
         {isSlurm && (
           <TabsContent value="files" className="calculs-run-files">
             <p className="calculs-run-hint">{t("calculs.files-hint")}</p>
-            <div className="calculs-run-actions">
-              <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>
-            </div>
+            {slurmAvailable && (
+              <div className="calculs-run-actions">
+                <Button variant="secondary" onClick={onSlurmView}>{t("calculs.slurm-view")}</Button>
+              </div>
+            )}
           </TabsContent>
         )}
       </Tabs>

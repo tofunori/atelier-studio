@@ -24,7 +24,7 @@ pub fn default_cache_dir() -> PathBuf {
 }
 
 pub fn default_storage_root() -> PathBuf {
-    home_dir().join("Zotero").join("storage")
+    atelier_integrations::Integrations::load().zotero_dir().join("storage")
 }
 
 /// Miroir de `resolveZoteroPdf` : le PDF doit exister et vivre SOUS

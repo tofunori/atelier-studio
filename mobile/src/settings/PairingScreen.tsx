@@ -31,6 +31,10 @@ type Props = {
 export function PairingScreen(p: Props) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("iPhone");
+  // Sans adresse connue, l'adresse du Mac est un champ requis : les options
+  // s'ouvrent d'emblée et la connexion attend qu'elle soit remplie.
+  const [needsUrl] = useState(() => !p.gatewayUrl.trim());
+  const missingUrl = !p.gatewayUrl.trim();
 
   return (
     <div className="screen">
@@ -63,7 +67,7 @@ export function PairingScreen(p: Props) {
                 className="font-mono uppercase tracking-widest"
               />
             </Field>
-            <Collapsible>
+            <Collapsible defaultOpen={needsUrl}>
               <CollapsibleTrigger
                 render={<Button type="button" variant="ghost" size="sm" className="w-full justify-between" />}
               >
@@ -103,7 +107,7 @@ export function PairingScreen(p: Props) {
           <Button
           type="button"
             className="w-full"
-          disabled={p.busy || code.trim().length < 4}
+          disabled={p.busy || missingUrl || code.trim().length < 4}
           onClick={() => void p.onPair(code, name)}
         >
             {p.busy ? <Spinner data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}

@@ -389,6 +389,10 @@ async function connectSidecarAttempt(
   ws.send(JSON.stringify({ type: "clientHello", clientInstanceId: getClientInstanceId() }));
   ws.send(JSON.stringify({ type: "listThreads" }));
   ws.send(JSON.stringify({ type: "providerStatus" }));
+  // Intégrations (Ragdoc, gbrain, NAS, grappes) : tant que la réponse n'est pas
+  // arrivée, lib/integrations les tient pour désactivées — rien de distant ne
+  // part avant de savoir ce qui est configuré. Redemandé à chaque reconnexion.
+  ws.send(JSON.stringify({ type: "integrations" }));
   markBootMetric("wsReady");
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.
   // Backoff exponentiel : marteler sidecar_port pendant qu'un spawn+health est

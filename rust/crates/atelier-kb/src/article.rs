@@ -31,8 +31,6 @@ pub const DUPLICATE_OVERLAP: f64 = 0.6;
 // (miroir de MINERU_TIMEOUT_MS, sidecar/article.mjs:18).
 const MINERU_TIMEOUT_MS: u64 = 900_000;
 const RAGDOC_TIMEOUT_MS: u64 = 120_000;
-const RAGDOC_DIR: &str = "/volume1/Services/mcp/ragdoc";
-const RAGDOC_PYTHON: &str = "/volume1/Services/mcp/ragdoc/ragdoc-env-new/bin/python";
 
 fn take_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
@@ -884,18 +882,28 @@ pub fn import_doi(doi: &str, dir: &Path) -> Result<Value, String> {
     }))
 }
 
-/// Copie vers le corpus ragdoc du NAS — transfert synchrone puis indexation
+/// Copie vers le corpus Ragdoc — transfert synchrone puis indexation
 /// détachée, miroir de `copyToRagdoc`. Échec non bloquant, toujours rapporté.
+/// Hôte et dossier viennent du réglage Ragdoc (aucune valeur par défaut).
 fn copy_to_ragdoc(name: &str, markdown: &str) -> Value {
     static SAFE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^A-Za-z0-9_.-]").unwrap());
+    let Some(target) = atelier_integrations::Integrations::load().ragdoc() else {
+        return json!({"ok": false, "message": atelier_integrations::RAGDOC_NOT_CONFIGURED});
+    };
+    let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
     let safe = SAFE_RE.replace_all(name, "_").to_string();
-    let remote_write = format!("cat > '{RAGDOC_DIR}/articles_markdown/{safe}.md'");
+    let dir = target.root.trim_end_matches('/');
+    let remote_write = format!("cat > {}", quote(&format!("{dir}/articles_markdown/{safe}.md")));
     let timeout = Duration::from_millis(RAGDOC_TIMEOUT_MS);
-    match gbrain::spawn_with_timeout("ssh", &["nas", &remote_write], Some(markdown), timeout) {
+    match gbrain::spawn_with_timeout("ssh", &[&target.host, &remote_write], Some(markdown), timeout) {
         SpawnOutcome::Finished { code: 0, stderr, .. } => {
-            let index_cmd = format!("cd '{RAGDOC_DIR}' && nohup '{RAGDOC_PYTHON}' scripts/index_incremental.py >/dev/null 2>&1 &");
+            let index_cmd = format!(
+                "cd {} && nohup {} scripts/index_incremental.py >/dev/null 2>&1 &",
+                quote(dir),
+                quote(&format!("{dir}/ragdoc-env-new/bin/python"))
+            );
             let indexing = matches!(
-                gbrain::spawn_with_timeout("ssh", &["nas", &index_cmd], None, Duration::from_millis(20_000)),
+                gbrain::spawn_with_timeout("ssh", &[&target.host, &index_cmd], None, Duration::from_millis(20_000)),
                 SpawnOutcome::Finished { code: 0, .. }
             );
             let _ = stderr;

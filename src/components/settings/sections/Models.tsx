@@ -154,6 +154,9 @@ export default function Models(p: SectionProps) {
   // navigation d'un outil de curation).
   const [routerGateway, setRouterGateway] = useState<string | null>(null);
   const [routerQuery, setRouterQuery] = useState("");
+  // « Revérifier » (Non disponibles) : redétection des CLI d'agents installés
+  // depuis le lancement. En attente jusqu'au prochain providerStatus, 10 s au plus.
+  const [rechecking, setRechecking] = useState(false);
 
   function authLabel(auth: string) {
     const labels: Record<string, string> = {
@@ -195,6 +198,7 @@ export default function Models(p: SectionProps) {
     const onMessage = (event: MessageEvent) => {
       const m = JSON.parse(event.data);
       if (m.type === "providerStatus") {
+        setRechecking(false);
         const providers = Array.isArray(m.providers) ? m.providers : [];
         setProvs(providers.map((provider: ProviderCatalogRow) => ({
           ...provider,
@@ -276,6 +280,20 @@ export default function Models(p: SectionProps) {
     p.ws.send(JSON.stringify({ type: "setupStatus" }));
     p.ws.send(JSON.stringify({ type: "apiProviders" }));
   }
+
+  // Le serveur rescanne le PATH puis répond providerStatus + setupStatus, que
+  // l'abonnement ci-dessus consomme déjà.
+  function recheckProviders() {
+    if (rechecking || p.ws?.readyState !== 1) return;
+    p.ws.send(JSON.stringify({ type: "refreshProviders" }));
+    setRechecking(true);
+  }
+
+  useEffect(() => {
+    if (!rechecking) return;
+    const timer = window.setTimeout(() => setRechecking(false), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [rechecking]);
 
   function handleSetDefault(row: ModelRow) {
     save({ defaultModel: { ...s.defaultModel, [row.provider]: row.modelId } });
@@ -463,7 +481,20 @@ export default function Models(p: SectionProps) {
           ici la pastille d'état et le bouton de la ligne. */}
       {nonDisponibles.length > 0 && (
         <>
-          <h2>{t("settings.models-unavailable")}</h2>
+          <div className="set-headline">
+            <h2>{t("settings.models-unavailable")}</h2>
+            <span className="set-headline-actions">
+              <Button
+                variant="ghost"
+                className="set-btn quiet"
+                title={t("settings.providers-recheck-title")}
+                disabled={rechecking || p.ws?.readyState !== 1}
+                onClick={recheckProviders}
+              >
+                {rechecking ? t("settings.checking") : t("settings.providers-recheck")}
+              </Button>
+            </span>
+          </div>
           <p className="set-sub">{t("settings.models-unavailable-sub")}</p>
           <Group>
             {nonDisponibles.map((row) => {

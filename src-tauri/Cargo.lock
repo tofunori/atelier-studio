@@ -198,6 +198,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-integrations"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "atelier-store"
 version = "0.1.0"
 dependencies = [
@@ -213,6 +220,7 @@ dependencies = [
 name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
+ "atelier-integrations",
  "base64 0.22.1",
  "chrono",
  "hex",

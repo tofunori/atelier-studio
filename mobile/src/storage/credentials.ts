@@ -25,11 +25,14 @@ export async function clearCredentials(): Promise<void> {
   await secureRemove(KEY);
 }
 
+/** Dernière adresse du Mac utilisée. Dans l'app native, aucune adresse par
+ *  défaut : "" veut dire « à saisir à l'appairage » — l'app ouvre alors
+ *  l'écran de connexion au lieu de sonder un hôte deviné. */
 export async function loadLastGatewayUrl(): Promise<string> {
   const stored = await secureGet(URL_KEY);
   if (stored) return stored;
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-    return "https://macbookpro-de-thierry.tail02163.ts.net:8443";
+    return "";
   }
   if (typeof window !== "undefined" && window.location.protocol === "https:") {
     return window.location.origin;

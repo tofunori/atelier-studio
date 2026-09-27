@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
+import { clusterSshCommand, useIntegrations, type ClusterTarget } from "../lib/integrations";
 import { SidebarIcon } from "./icons";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./shadcn/collapsible";
@@ -27,7 +28,9 @@ import { IconButton, RowButton, SegmentedControl, Select, Tabs, TabsContent, Tab
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
 // Grappes Alliance surveillées (même contrat côté Rust : atelier-workspace
-// narval.rs → PROFILES). L'alias SSH vit sur la passerelle, pas ici.
+// narval.rs → PROFILES). L'alias SSH et la passerelle viennent de Réglages →
+// Intégrations : seules les grappes configurées sont proposées, et aucune
+// requête ne part tant qu'aucune ne l'est.
 const CLUSTERS = [
   { id: "narval", label: "NARVAL" },
   { id: "rorqual", label: "RORQUAL" },
@@ -173,10 +176,11 @@ function formatRemoteTimestamp(seconds: number) {
     .format(new Date(seconds * 1_000));
 }
 
-function sshTerminalCommand(status: NarvalStatus | null) {
-  const host = status?.host ?? "narval-vpn";
-  const gateway = status ? status.gateway : "nas";
-  return gateway ? `ssh ${gateway} -t ssh ${host}` : `ssh ${host}`;
+/** Le statut du serveur fait foi (il reflète la configuration) ; avant sa
+ *  réponse, la cible configurée — jamais un alias deviné. */
+function sshTerminalCommand(status: NarvalStatus | null, target: ClusterTarget | null): string | null {
+  if (status?.host) return status.gateway ? `ssh ${status.gateway} -t ssh ${status.host}` : `ssh ${status.host}`;
+  return target ? clusterSshCommand(target) : null;
 }
 
 export default function NarvalSurface({ visible, onOpenTerminal, paneControls }: {
@@ -186,10 +190,20 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
       ils se posaient SUR les actions de la surface (chevauchement 2026-08-23). */
   paneControls?: React.ReactNode;
 }) {
-  const [profile, setProfile] = useState<ClusterId>(() => {
+  const integrations = useIntegrations().effective;
+  const configured = useMemo(
+    () => CLUSTERS.filter((cluster) => integrations.clusters[cluster.id]),
+    [integrations],
+  );
+  const [storedProfile, setProfile] = useState<ClusterId>(() => {
     const stored = localStorage.getItem(CLUSTER_STORAGE_KEY);
     return CLUSTERS.some((cluster) => cluster.id === stored) ? (stored as ClusterId) : DEFAULT_CLUSTER;
   });
+  // Grappe mémorisée mais plus configurée : la première configurée la remplace.
+  const profile: ClusterId | null = configured.some((cluster) => cluster.id === storedProfile)
+    ? storedProfile
+    : configured[0]?.id ?? null;
+  const target = profile ? integrations.clusters[profile] : null;
   const [clusterMenuOpen, setClusterMenuOpen] = useState(false);
   const [status, setStatus] = useState<NarvalStatus | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -231,7 +245,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   );
 
   const requestDirectory = useCallback((path: string) => {
-    if (!path || directoryRequests.current.has(path)) return;
+    if (!profile || !path || directoryRequests.current.has(path)) return;
     const id = requestId();
     directoryRequests.current.set(path, id);
     setLoadingDirectories((current) => new Set(current).add(path));
@@ -239,6 +253,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   }, [profile]);
 
   const requestStatus = useCallback(() => {
+    if (!profile) return;
     const id = requestId();
     statusRequest.current = id;
     setLoading(true);
@@ -250,6 +265,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   }, [profile]);
 
   const requestSnapshot = useCallback(() => {
+    if (!profile) return;
     const id = requestId();
     snapshotRequest.current = id;
     setLoading(true);
@@ -264,10 +280,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   // Changer de grappe repart de zéro : l'arbre, l'instantané et la sélection
   // appartiennent au cluster quitté ; les garder afficherait les jobs de
   // Narval sous l'en-tête de Rorqual le temps d'un aller-retour SSH.
-  const switchCluster = (next: ClusterId) => {
-    if (next === profile) return;
-    setProfile(next);
-    localStorage.setItem(CLUSTER_STORAGE_KEY, next);
+  const resetCluster = () => {
     setStatus(null);
     setSnapshot(null);
     setDirectories({});
@@ -286,8 +299,23 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
     setRunQuery("");
     setVisibleRunCount(RUN_PAGE_SIZE);
   };
+  const switchCluster = (next: ClusterId) => {
+    if (next === profile) return;
+    setProfile(next);
+    localStorage.setItem(CLUSTER_STORAGE_KEY, next);
+    resetCluster();
+  };
+  // La configuration peut aussi changer la grappe affichée (alias retiré dans
+  // les réglages) : même remise à zéro que pour un changement explicite.
+  const shownProfile = useRef(profile);
+  useEffect(() => {
+    if (shownProfile.current === profile) return;
+    shownProfile.current = profile;
+    resetCluster();
+  }, [profile]);
 
   const inspectJob = useCallback((job: SlurmJob, reveal = true) => {
+    if (!profile) return;
     setSelectedJobId(job.id);
     if (reveal) setInspectorOpen(true);
     setDetail(null);
@@ -311,7 +339,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   }, [profile]);
 
   const readText = useCallback((path: string) => {
-    if (!path) return;
+    if (!profile || !path) return;
     setSelectedPath(path);
     setPreview(null);
     setPreviewError(null);
@@ -383,12 +411,12 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   }, [inspectJob, readText, requestDirectory, selectedJob, selectedJobId]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !profile) return;
     requestStatus();
     requestSnapshot();
     const timer = window.setInterval(() => requestSnapshot(), POLL_MS);
     return () => window.clearInterval(timer);
-  }, [requestSnapshot, requestStatus, visible]);
+  }, [profile, requestSnapshot, requestStatus, visible]);
 
   useEffect(() => {
     setVisibleRunCount(RUN_PAGE_SIZE);
@@ -464,6 +492,23 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
       .filter((job) => !normalizedQuery || job.name.toLowerCase().includes(normalizedQuery) || job.id.toLowerCase().includes(normalizedQuery));
   }, [runQuery, runStateFilter, snapshot]);
   const visibleRecentRuns = filteredRecentRuns.slice(0, visibleRunCount);
+  const terminalCommand = sshTerminalCommand(status, target);
+  const shownHost = status?.host ?? target?.host ?? "";
+  const shownGateway = status ? status.gateway : target?.gateway;
+  const openTerminal = () => { if (terminalCommand) onOpenTerminal(terminalCommand); };
+
+  if (!profile) {
+    return (
+      <div className="narval-shell" data-visible={visible}>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia className="narval-empty-icon"><ServerIcon /></EmptyMedia>
+            <EmptyDescription>{t("narval.not-configured")}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    );
+  }
 
   return (
     // La coquille porte le conteneur de requêtes : `@container` interroge
@@ -538,7 +583,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
               onOpenChange={setClusterMenuOpen}
               align="start"
               label={t("narval.choose-cluster")}
-              items={CLUSTERS.map((cluster) => ({
+              items={configured.map((cluster) => ({
                 key: cluster.id,
                 label: cluster.label,
                 onSelect: () => switchCluster(cluster.id),
@@ -554,7 +599,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
               className={status?.connected ? "narval-connection connected" : "narval-connection"}
               title={status?.connected ? t("narval.connected-now") : t("narval.not-connected")}
             >
-              <i /> {status?.gateway ? `${status.gateway} → ` : ""}{status?.host ?? "narval-vpn"}
+              <i /> {shownGateway ? `${shownGateway} → ` : ""}{shownHost}
             </span>
             <div className="narval-toolbar-actions">
               <IconButton
@@ -572,7 +617,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
                 hit40
                 label={t("narval.terminal")}
                 title={t("narval.terminal")}
-                onClick={() => onOpenTerminal(sshTerminalCommand(status))}
+                onClick={openTerminal}
               >
                 <SquareTerminalIcon />
               </IconButton>
@@ -591,7 +636,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
               <ServerIcon aria-hidden="true" />
               <strong>{t("narval.error-title")}</strong>
               <p>{error.message}</p>
-              <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
+              <Button variant="secondary" onClick={openTerminal}>
                 <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
               </Button>
             </div>
@@ -808,7 +853,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
                 </TabsContent>
               </Tabs>
               <footer className="narval-inspector-foot">
-                <Button variant="secondary" onClick={() => onOpenTerminal(sshTerminalCommand(status))}>
+                <Button variant="secondary" onClick={openTerminal}>
                   <SquareTerminalIcon data-icon="inline-start" /> {t("narval.open-terminal")}
                 </Button>
                 <StatusBadge status="neutral">{t("narval.read-only")}</StatusBadge>

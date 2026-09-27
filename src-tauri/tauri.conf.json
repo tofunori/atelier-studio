@@ -46,7 +46,8 @@
       "appsnap-dist": "appsnap"
     },
     "macOS": {
-      "signingIdentity": "Atelier Dev Signing",
+      "signingIdentity": "-",
+      "minimumSystemVersion": "12.3",
       "entitlements": "Entitlements.plist"
     }
   }

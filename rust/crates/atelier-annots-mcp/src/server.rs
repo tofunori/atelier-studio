@@ -68,7 +68,7 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
 }
 
 const INSTRUCTIONS: &str =
-    "Annotations de Thierry sur ses articles (lecteur PDF d'Atelier et Zotero). « Note » = ce que Thierry a écrit pour lui-même sur le passage : c'est là qu'il \
+    "Annotations de l'utilisateur sur ses articles (lecteur PDF d'Atelier et Zotero). « Note » = ce que l'utilisateur a écrit pour lui-même sur le passage : c'est là qu'il \
 indique à quoi le passage lui servira (discussion, introduction, méthode…).\n\
 Faire le moins d'appels possible : search_annotations couvre TOUS les articles en un seul appel \
 et renvoie les passages groupés par article, avec référence et page. Ne jamais ouvrir les \
@@ -82,12 +82,12 @@ wildfire smoke deposition feux suie ». Les passages les plus pertinents viennen
 par article (per_article pour en voir plus). \
 Relancer au plus une fois avec d'autres mots si c'est trop maigre.\n\
 - Tout relire : search_annotations sans query (limit jusqu'à 1000, par tranches si besoin).\n\
-- get_article_annotations : seulement quand Thierry nomme des articles précis ; les passer \
+- get_article_annotations : seulement quand l'utilisateur nomme des articles précis ; les passer \
 tous dans un seul appel (articles: [...]).\n\
 Citer chaque élément avec sa référence et sa page.\n\
 - read_article : le texte du PDF Zotero d'un article (annoté ou non), page par page ; le lire avant \
 de surligner si l'article n'est pas déjà dans la conversation.\n\
-- highlight_passage : SEULEMENT quand Thierry demande de surligner. Il voit le surlignage apparaître \
+- highlight_passage : SEULEMENT quand l'utilisateur demande de surligner. Il voit le surlignage apparaître \
 dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
 phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
 article dans un seul appel (passages: [...]), chacun avec sa couleur (color) et son style \
@@ -95,8 +95,8 @@ article dans un seul appel (passages: [...]), chacun avec sa couleur (color) et 
 Ne jamais surligner un passage paraphrasé. Donner à \
 chaque passage un memo : une note courte en français disant pourquoi il est surligné (« pour la \
 discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
-- update_highlights / remove_highlights : SEULEMENT sur demande de Thierry, et seulement pour les \
-surlignages faits par Claude ; ceux de Thierry sont intouchables. Désigner chaque surlignage par un \
+- update_highlights / remove_highlights : SEULEMENT sur demande de l'utilisateur, et seulement pour les \
+surlignages faits par Claude ; ceux de l'utilisateur sont intouchables. Désigner chaque surlignage par un \
 extrait de son texte (et sa page), ou all=true pour tous ceux de Claude dans l'article.";
 
 fn tools() -> Value {
@@ -104,7 +104,7 @@ fn tools() -> Value {
         {
             "name": "search_annotations",
             "description": "Cherche en un seul appel dans les passages surlignés et les notes personnelles \
-    de Thierry, sur tous ses articles. Résultats groupés par article (référence, titre), avec la page, \
+    de l'utilisateur, sur tous ses articles. Résultats groupés par article (référence, titre), avec la page, \
     le passage et la note. Sans accents ni casse. match=\"all\" (défaut) : tous les mots de `query` \
     doivent apparaître ; match=\"any\" : un mot suffit et les articles qui en portent le plus viennent \
     en premier, pour une recherche thématique large.",
@@ -159,7 +159,7 @@ fn tools() -> Value {
         {
             "name": "highlight_passage",
             "description": "Surligne (ou souligne, style=\"souligner\") un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
-    Thierry les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
+    L'utilisateur les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
     (accents, ligatures et césures tolérés) ; s'il est introuvable, rien n'est surligné et la réponse le dit. \
     Un passage déjà surligné n'est pas doublé. À n'utiliser que sur demande explicite.",
             "inputSchema": {
@@ -195,7 +195,7 @@ fn tools() -> Value {
         {
             "name": "update_highlights",
             "description": "Change la couleur, le style (surligné ou souligné) et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
-    (jamais ceux de Thierry). Le changement apparaît dans le lecteur d'Atelier. À n'utiliser que sur demande explicite.",
+    (jamais ceux de l'utilisateur). Le changement apparaît dans le lecteur d'Atelier. À n'utiliser que sur demande explicite.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -226,7 +226,7 @@ fn tools() -> Value {
         },
         {
             "name": "remove_highlights",
-            "description": "Supprime des surlignages FAITS PAR CLAUDE dans un article (jamais ceux de Thierry). \
+            "description": "Supprime des surlignages FAITS PAR CLAUDE dans un article (jamais ceux de l'utilisateur). \
     Ils disparaissent du lecteur d'Atelier. À n'utiliser que sur demande explicite.",
             "inputSchema": {
                 "type": "object",
@@ -1115,9 +1115,9 @@ mod tests {
         );
         assert!(!is_error, "{text}");
         assert!(text.contains("modifié p. 4-5"), "{text}");
-        assert!(text.contains("surlignage de Thierry"), "{text}");
+        assert!(text.contains("surlignage de l'utilisateur"), "{text}");
         let annots = read();
-        assert_eq!(annots[0]["color"], "y", "Thierry's highlight is untouched");
+        assert_eq!(annots[0]["color"], "y", "the user's highlight is untouched");
         assert_eq!(annots[1]["color"], "rgba(120,170,255,.40)");
         assert_eq!(annots[2]["color"], "rgba(120,170,255,.40)");
         assert_eq!(annots[1]["memo"], "pour la discussion");

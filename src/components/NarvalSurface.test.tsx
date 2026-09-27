@@ -1,6 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import NarvalSurface from "./NarvalSurface";
+import { resetIntegrationsForTests, setIntegrationsForTests } from "../lib/integrations";
+
+// Grappes configurées (Réglages → Intégrations) : la commande de terminal
+// attendue avant la réponse du statut en découle.
+const CLUSTERS = {
+  narval: { host: "narval-vpn", gateway: "nas" },
+  rorqual: { host: "rorqual-vpn", gateway: "nas" },
+};
 
 const sent: any[] = [];
 
@@ -23,8 +31,15 @@ describe("NarvalSurface", () => {
   beforeAll(() => {
     (Element.prototype as Element & { getAnimations: () => Animation[] }).getAnimations = () => [];
   });
-  beforeEach(() => sent.splice(0));
-  afterEach(() => cleanup());
+  beforeEach(() => {
+    sent.splice(0);
+    localStorage.removeItem("atelier.narval.cluster");
+    setIntegrationsForTests({ clusters: CLUSTERS });
+  });
+  afterEach(() => {
+    cleanup();
+    resetIntegrationsForTests();
+  });
 
   it("loads status, jobs, and inspects the first active Slurm job", async () => {
     const openTerminal = vi.fn();
@@ -161,5 +176,29 @@ describe("NarvalSurface", () => {
 
     fireEvent.change(screen.getByRole("textbox", { name: /rechercher un nom|search by name/i }), { target: { value: "7028" } });
     expect(container.querySelector(".narval-run")?.textContent).toContain("7028");
+  });
+
+  it("n'offre que les grappes configurées", async () => {
+    setIntegrationsForTests({ clusters: { narval: null, rorqual: { host: "rorqual", gateway: null } } });
+    localStorage.setItem("atelier.narval.cluster", "narval");
+    const openTerminal = vi.fn();
+    render(<NarvalSurface visible onOpenTerminal={openTerminal} />);
+    // la grappe mémorisée n'est plus configurée : la première configurée la remplace
+    expect(lastRequest("narvalStatus").profile).toBe("rorqual");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("RORQUAL");
+    // avant le statut, le terminal vise la cible configurée — connexion directe
+    fireEvent.click(screen.getByRole("button", { name: /^terminal$/i }));
+    expect(openTerminal).toHaveBeenCalledWith("ssh rorqual");
+    fireEvent.click(screen.getByRole("button", { name: /^rorqual$/i }));
+    expect(await screen.findAllByText("RORQUAL")).not.toHaveLength(0);
+    expect(screen.queryByText("NARVAL")).toBeNull();
+  });
+
+  it("sans grappe configurée : aucune requête, une ligne vers les réglages", () => {
+    setIntegrationsForTests({});
+    render(<NarvalSurface visible onOpenTerminal={() => {}} />);
+    expect(sent.filter((message) => String(message.type).startsWith("narval"))).toEqual([]);
+    expect(screen.getByText(/aucune grappe configurée|no cluster configured/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^terminal$/i })).toBeNull();
   });
 });

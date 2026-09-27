@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ArrowUpDownIcon, CheckIcon, ChevronRightIcon, FilePlus2Icon, FileTextIcon, FolderIcon, FolderOpenIcon, InfoIcon, LibraryIcon, PinIcon, QuoteIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
+import { zoteroDataDir, zoteroStoragePath } from "../lib/integrations";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
@@ -161,7 +162,9 @@ export default function BiblioSurface({
     if (!item) return;
     void showSuccess(t("biblio.cited-toast"));
     const label = item.citeKey ? `@${item.citeKey}` : `@${item.key}`;
-    const pdfPath = item.pdfKey && item.pdfFile ? `~/Zotero/storage/${item.pdfKey}/${item.pdfFile}` : null;
+    // dossier de données résolu par le serveur (Réglages → Intégrations), lu
+    // au moment de citer : la configuration a pu changer depuis le montage
+    const pdfPath = item.pdfKey && item.pdfFile ? zoteroStoragePath(zoteroDataDir(), item.pdfKey, item.pdfFile) : null;
     const lines = [
       `Référence (bibliothèque Zotero locale — tout est déjà ici, n'ouvre PAS Zotero) :`,
       `- Titre : ${item.title}`,

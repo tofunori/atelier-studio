@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { requestRagdocPromotion } from "../../lib/ragdocPromotion";
+import { ragdocEnabled } from "../../lib/integrations";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import type { KbBinding, KbSource } from "../../lib/kbSources";
@@ -211,6 +212,8 @@ export function useKbActions(
 
   function promote(id: string) {
     setError(null);
+    // Ragdoc non configuré : pas de bascule vers une surface qui n'enverra rien.
+    if (!ragdocEnabled()) return;
     requestRagdocPromotion(id);
   }
 

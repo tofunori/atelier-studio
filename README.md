@@ -85,12 +85,14 @@ open /Applications/Atelier.app
 
 **Requirements**
 
-- macOS on Apple Silicon.
+- macOS 12.3 or later on Apple Silicon.
 - A supported agent CLI or configured API provider, with your own credentials. Claude Code and Codex sessions use their locally installed CLIs.
 - [Poppler](https://poppler.freedesktop.org/) for PDF text extraction.
 - A local TeX distribution, such as MacTeX or TeX Live, for LaTeX compilation.
 
 The packaged desktop app includes its Rust backend and gallery runtime. You do not need Node.js or Python just to run Atelier. External providers and optional document tools have their own requirements.
+
+**Optional integrations.** Zotero is found automatically (including a custom data directory). A Ragdoc server, gbrain, a Docker NAS, Slurm clusters and a Crossref contact email are off until you fill them in under **Settings → Integrations**; nothing contacts a remote host before that. If you installed an agent CLI while Atelier was open, use **Check again** under **Settings → Models**.
 
 ## Project context, under your control
 
