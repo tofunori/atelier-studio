@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
-import { setLanguage } from "../lib/i18n";
+import { setLanguage, t } from "../lib/i18n";
 import { renderUi } from "../test/render";
 import { resetPendingPassageOpenForTests, setPendingPassageOpen } from "../lib/pendingPassageOpen";
 import BiblioSurface, { pdfViewerUrl, summarizeZoteroAddResults } from "./BiblioSurface";
@@ -67,6 +67,15 @@ describe("BiblioSurface — passage zotero pending (finding 1, revue finale de b
     act(() => window.dispatchEvent(new CustomEvent("zotero-items", {detail: {items: []}})));
     expect(screen.queryByLabelText("Chargement des références…")).toBeNull();
     expect(screen.getByText("Aucune référence.")).toBeTruthy();
+  });
+
+  it("Zotero introuvable : message lisible qui renvoie aux réglages, jamais le code brut", () => {
+    const ws = {readyState: WebSocket.OPEN, send: vi.fn()} as unknown as WebSocket;
+    renderUi(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="" />);
+    act(() => window.dispatchEvent(new CustomEvent("zotero-items", {detail: {items: [], error: "zotero-introuvable"}})));
+    expect(screen.queryByText("zotero-introuvable")).toBeNull();
+    expect(screen.getByText(t("biblio.zotero-missing"))).toBeTruthy();
+    expect(t("biblio.zotero-missing")).toContain("Intégrations");
   });
 
   it("distingue une déconnexion d’une bibliothèque vide", () => {

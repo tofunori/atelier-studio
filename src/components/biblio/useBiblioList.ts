@@ -52,6 +52,15 @@ function saveState(state: { key: string | null; filter: FilterMode; collectionId
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+/** Codes d'erreur du serveur → message lisible ; le reste passe tel quel.
+ *  `zotero-introuvable` : aucun zotero.sqlite dans le dossier résolu (Zotero
+ *  absent, ou installé ailleurs que ~/Zotero). */
+export function zoteroErrorMessage(error: string | null | undefined): string | null {
+  if (!error) return null;
+  if (error === "zotero-introuvable") return t("biblio.zotero-missing");
+  return error;
+}
+
 export function summarizeZoteroAddResults(results: ZoteroAddResult[]): string | null {
   const ok = results.filter((result) => result.ok).length;
   const duplicates = results.filter((result) => result.error === "duplicate");
@@ -221,14 +230,14 @@ export function useBiblioList({ ws, openReader }: { ws: WebSocket | null; openRe
         && Number(msg.requestId) !== pendingRequest.current) return;
       if (requestTimer.current) clearTimeout(requestTimer.current);
       setLoading(false);
-      setError(msg.error ?? null);
+      setError(zoteroErrorMessage(msg.error));
       const next = msg.items ?? [];
       setItems(next);
       setServerFallback(next.length >= CATALOG_LIMIT);
     };
     const onCollections = (e: Event) => {
       const msg = (e as CustomEvent).detail as { collections: ZoteroCollection[]; error?: string };
-      if (msg.error) setError(msg.error);
+      if (msg.error) setError(zoteroErrorMessage(msg.error));
       setCollections(msg.collections ?? []);
     };
     // Favori : la bascule est optimiste ; si le backend répond ok:false on

@@ -15,6 +15,7 @@ import { pasteLineCountLabel } from "../../lib/pasteView";
 import { normalizeMathDelimiters } from "../../lib/markdown";
 import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
+import { openSetupWelcome, useSetupNeeded } from "../../lib/setupEnvironment";
 import { CopyIcon, ForkIcon, ResumeIcon } from "../icons";
 import { MD_COMPONENTS, MD_COMPONENTS_STREAMING, MdBody, useMdPlugins } from "./md";
 import { DoneDiffToggle, fmtTime, PencilIcon, PinBtn, Working } from "./turnParts";
@@ -101,6 +102,8 @@ export function ChatEmptyState(p: {
   onNewChat: () => void;
   onOpenProject: () => void;
 }) {
+  // Premier lancement : aucun agent prêt (faux tant que le serveur n'a rien dit).
+  const setupNeeded = useSetupNeeded();
   if (!p.threadId) {
     // pilote plan 016 : ex-.empty-card → EmptyState + Button (mêmes libellés,
     // mêmes handlers ; actions empilées alignées à gauche via .ui-empty)
@@ -109,6 +112,9 @@ export function ChatEmptyState(p: {
         title={t("chat.empty-ready")}
         actions={
           <>
+            {setupNeeded && (
+              <Button variant="primary" onClick={openSetupWelcome}>{t("setup.finish-setup")}</Button>
+            )}
             <Button onClick={p.onNewChat}>{t("action.new-chat")}</Button>
             <Button
               onClick={() => window.dispatchEvent(new CustomEvent("atelier-open-resume", { detail: { provider: "claude" } }))}

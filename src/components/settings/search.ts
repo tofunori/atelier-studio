@@ -21,6 +21,11 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
     "settings.pasted-images",
     "settings.remote-devices",
   ],
+  environnement: [
+    "settings.group.agents",
+    "settings.group.tools",
+    "setup.welcome-row",
+  ],
   apparence: [
     "settings.interface",
     "settings.theme",

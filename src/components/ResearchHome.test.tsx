@@ -8,6 +8,13 @@ import Banner from "./Banner";
 import { deriveResearchHomeModel, type ResearchHomeInputs } from "../lib/researchHome";
 import { setLanguage, t } from "../lib/i18n";
 import type { Thread } from "../lib/ws";
+import {
+  applySetupStatus,
+  closeSetupWelcome,
+  resetSetupEnvironmentForTests,
+  setupEnvironmentSnapshot,
+} from "../lib/setupEnvironment";
+import { CLAUDE_MISSING, CLAUDE_READY, CODEX_MISSING, CODEX_READY, setupStatus } from "../test/fixtures/setupEnvironment";
 
 afterEach(cleanup);
 beforeEach(() => setLanguage("fr"));
@@ -237,5 +244,42 @@ describe("ResearchHome", () => {
     const iArtefact = labels.findIndex((l) => l?.includes("notes.md"));
     expect(iResume).toBeGreaterThanOrEqual(0);
     expect(iResume).toBeLessThan(iArtefact);
+  });
+});
+
+describe("ResearchHome — premier lancement", () => {
+  beforeEach(() => { localStorage.clear(); resetSetupEnvironmentForTests(); });
+  afterEach(() => resetSetupEnvironmentForTests());
+
+  it("aucun agent prêt : « Terminer la configuration » ouvre la fenêtre de bienvenue", () => {
+    applySetupStatus(setupStatus([CLAUDE_MISSING, CODEX_MISSING]));
+    closeSetupWelcome(); // ouverte d'office par ce premier setupStatus
+    const a = actions();
+    render(<ResearchHome model={model({ activeProject: null })} actions={a} />);
+    expect(screen.getByText(t("setup.needed-home"))).toBeInTheDocument();
+    // une seule action primaire : la configuration passe avant le chat
+    expect(document.querySelectorAll(".ui-btn--primary")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: t("setup.finish-setup") }));
+    expect(setupEnvironmentSnapshot().welcomeOpen).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
+    expect(a.onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("dans un projet, l'avertissement vit dans « À traiter »", () => {
+    applySetupStatus(setupStatus([CLAUDE_MISSING, CODEX_MISSING]));
+    render(<ResearchHome model={model()} actions={actions()} />);
+    const attention = within(screen.getByRole("region", { name: "À traiter" }));
+    expect(attention.getByText(t("setup.needed-home"))).toBeInTheDocument();
+    expect(attention.getByRole("button", { name: t("setup.finish-setup") })).toBeInTheDocument();
+  });
+
+  it("cas de l'auteur (agents prêts) ou serveur muet : rien de plus", () => {
+    const { unmount } = render(<ResearchHome model={model({ activeProject: null })} actions={actions()} />);
+    expect(screen.queryByRole("button", { name: t("setup.finish-setup") })).toBeNull();
+    unmount();
+    applySetupStatus(setupStatus([CLAUDE_READY, CODEX_READY]));
+    render(<ResearchHome model={model()} actions={actions()} />);
+    expect(screen.queryByRole("button", { name: t("setup.finish-setup") })).toBeNull();
+    expect(screen.queryByText(t("setup.needed-home"))).toBeNull();
   });
 });

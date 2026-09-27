@@ -1631,7 +1631,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
 
         // --- Porte 9: remaining Node router cases ---
-        "setupStatus" => handle_setup_status(state).await,
+        "setupStatus" => {
+            // `probe` : ne sonder que ces fournisseurs (poignée de main de
+            // connexion : Claude et Codex) ; les autres gardent la ligne
+            // historique sans lancer leur CLI.
+            let only: Option<Vec<String>> = msg.get("probe").and_then(Value::as_array).map(|ids| {
+                ids.iter().filter_map(Value::as_str).map(str::to_string).collect()
+            });
+            handle_setup_status(state, only.as_deref()).await
+        }
         "integrations" => handle_integrations(state).await,
         "saveIntegrations" => handle_save_integrations(state, &msg).await,
         "refreshProviders" => handle_refresh_providers(state).await,
@@ -2110,16 +2118,17 @@ pub(crate) fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
 }
 
-async fn handle_setup_status(state: &AppState) -> Vec<String> {
+async fn handle_setup_status(state: &AppState, only: Option<&[String]>) -> Vec<String> {
     let mut providers: Vec<Value> = Vec::new();
     for p in atelier_providers::provider_status_list(Some(state.app_dir())) {
         let live = state.provider(&p.id);
+        let probed = only.is_none_or(|ids| ids.iter().any(|id| id == &p.id));
         // Sonde dédiée (kimi, plan 046 étape 10) : états
         // not_installed/version_unsupported/login_needed/model_config_needed/
         // ready/protocol_error, chemin réel du binaire et masquage signalé.
         if let Some(probe) = match &live {
-            Some(provider) => provider.setup_probe().await,
-            None => None,
+            Some(provider) if probed => provider.setup_probe().await,
+            _ => None,
         } {
             let shadowed = probe.get("shadowed").and_then(Value::as_str);
             providers.push(json!({

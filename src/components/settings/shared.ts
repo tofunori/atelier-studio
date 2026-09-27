@@ -84,8 +84,11 @@ export type SetupProvider = {
   models: number;
   defaultModel?: string | null;
   modelError?: string | null;
-  /** Commande de login annoncée par le harnais (Kimi, plan 046). */
+  /** Commande de login annoncée par le harnais (Kimi, plan 046 ; Claude et
+   *  Codex depuis le premier lancement). */
   loginCommand?: string | null;
+  /** Installation officielle (Claude, Codex), sinon null. */
+  installCommand?: string | null;
 };
 
 export type SetupStatus = {

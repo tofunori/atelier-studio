@@ -3,11 +3,14 @@
 // = une ligne ici + un fichier dans sections/.
 import type { I18nKey } from "../../lib/i18n";
 
-export type SectionId = "general" | "modeles" | "apparence" | "atelier" | "integrations" | "consignes";
+export type SectionId = "general" | "modeles" | "environnement" | "apparence" | "atelier" | "integrations" | "consignes";
 
 export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "general", labelKey: "settings.general" },
   { id: "modeles", labelKey: "settings.models" },
+  // Premier lancement : agents et outils externes présents ou non, et de quoi
+  // installer ce qui manque (les messages serveur y renvoient par son nom).
+  { id: "environnement", labelKey: "settings.environment" },
   { id: "apparence", labelKey: "settings.appearance" },
   { id: "atelier", labelKey: "settings.atelier" },
   // Services distants (Ragdoc, gbrain, NAS, grappes) : désactivés tant que
