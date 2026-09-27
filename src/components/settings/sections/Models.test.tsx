@@ -9,6 +9,7 @@ import { setLanguage, t } from "../../../lib/i18n";
 import { DEFAULT_SETTINGS } from "../../../lib/settings";
 import type { SectionProps } from "../shared";
 import { FakeWS } from "../../../test/fixtures/sidecar";
+import { registerSetupTerminal, resetSetupEnvironmentForTests } from "../../../lib/setupEnvironment";
 import Models from "./Models";
 
 // Base UI ScrollArea (favoris OpenCode) consultait l'API Web Animations,
@@ -23,7 +24,7 @@ afterAll(() => {
   else delete (Element.prototype as Partial<Element>).getAnimations;
 });
 
-beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); FakeWS.reset(); });
+beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); FakeWS.reset(); resetSetupEnvironmentForTests(); });
 afterEach(cleanup);
 
 /** FakeWS déjà connectée (readyState OPEN) — construite directement plutôt
@@ -196,6 +197,13 @@ describe("Section Modèles", () => {
     expect(screen.getByText("Grok CLI")).toBeInTheDocument();
     const bouton = screen.getByRole("button", { name: t("settings.setup-login-terminal") });
 
+    // Terminal intégré disponible (projet ouvert) : App enregistre ce lanceur
+    // (runSetupCommand), qui finit par l'événement `atelier-terminal-command`
+    // qu'AtelierPane écoute. Sans lui, la commande s'afficherait à copier.
+    registerSetupTerminal((command) => {
+      window.dispatchEvent(new CustomEvent("atelier-terminal-command", { detail: { command } }));
+      return true;
+    });
     let capture: CustomEvent | null = null;
     const onCommand = (e: Event) => { capture = e as CustomEvent; };
     window.addEventListener("atelier-terminal-command", onCommand);
@@ -204,6 +212,69 @@ describe("Section Modèles", () => {
 
     expect(capture).not.toBeNull();
     expect((capture as unknown as CustomEvent).detail).toEqual({ command: "grok login" });
+  });
+
+  // --- Premier lancement : Claude Code / Codex à connecter ---
+
+  it("Claude Code installé mais déconnecté : Se connecter lance la connexion sur le binaire détecté", () => {
+    const opener = vi.fn(() => true);
+    registerSetupTerminal(opener);
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [
+        { id: "claude", label: "Claude Code", ok: true, kind: "cli", models: ["claude-opus-5"], efforts: ["low"] },
+        { id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5.6-sol"], efforts: ["medium"] },
+      ],
+    });
+    emit(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "rust", version: "1.0.0", bundled: false },
+        sidecar: { pid: 1, startedAt: "", appVersion: "1.0.0", bundleHash: "x", dir: "/x" },
+        providers: [
+          { id: "claude", label: "Claude Code", kind: "cli", installed: true, version: "2.1.283",
+            binPath: "/Users/t/.local/bin/claude", auth: "login_needed", models: 4,
+            loginCommand: "claude auth login", installCommand: "curl -fsSL https://claude.ai/install.sh | bash" },
+          { id: "codex", label: "Codex", kind: "cli", installed: true, version: "0.155.1",
+            binPath: "/opt/homebrew/bin/codex", auth: "ready", models: 3,
+            loginCommand: "codex login", installCommand: "brew install --cask codex" },
+        ],
+      },
+    });
+    // Un seul bouton de connexion : Codex (prêt) n'en a pas.
+    const boutons = screen.getAllByRole("button", { name: t("settings.setup-login-terminal") });
+    expect(boutons).toHaveLength(1);
+    fireEvent.click(boutons[0]);
+    expect(opener).toHaveBeenCalledWith("/Users/t/.local/bin/claude auth login", { kind: "login", origin: "models" });
+    expect(screen.queryByRole("group", { name: t("setup.fallback-label") })).toBeNull();
+  });
+
+  it("sans terminal intégré (aucun projet), la commande de connexion s'affiche à copier", () => {
+    const ws = fakeWsOuvert();
+    renderUi(<Models {...props({ ws })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{ id: "codex", label: "Codex", ok: true, kind: "cli", models: ["gpt-5.6-sol"], efforts: ["medium"] }],
+    });
+    emit(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "rust", version: "1.0.0", bundled: false },
+        sidecar: { pid: 1, startedAt: "", appVersion: "1.0.0", bundleHash: "x", dir: "/x" },
+        providers: [{ id: "codex", label: "Codex", kind: "cli", installed: true, version: "0.155.1",
+          binPath: "/opt/homebrew/bin/codex", auth: "login_needed", models: 3, loginCommand: "codex login" }],
+      },
+    });
+    let dispatched = false;
+    const onCommand = () => { dispatched = true; };
+    window.addEventListener("atelier-terminal-command", onCommand);
+    fireEvent.click(screen.getByRole("button", { name: t("settings.setup-login-terminal") }));
+    window.removeEventListener("atelier-terminal-command", onCommand);
+    expect(dispatched).toBe(false);
+    const fallback = screen.getByRole("group", { name: t("setup.fallback-label") });
+    expect(within(fallback).getByText("/opt/homebrew/bin/codex login")).toBeInTheDocument();
   });
 
   // --- Correction de revue (2026-08-23) ---

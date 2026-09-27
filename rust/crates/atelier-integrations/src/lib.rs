@@ -466,10 +466,14 @@ pub enum Migration {
 /// porte la trace d'un usage RÉUSSI de Ragdoc ou de gbrain — un brouillon
 /// d'import seul ne compte pas, il se crée sans aucune connexion.
 pub fn migrate_legacy(app_dir: &Path) -> std::io::Result<Migration> {
+    migrate_legacy_in(app_dir, &home_dir())
+}
+
+fn migrate_legacy_in(app_dir: &Path, home: &Path) -> std::io::Result<Migration> {
     if file_path(app_dir).exists() {
         return Ok(Migration::AlreadyPresent);
     }
-    if has_legacy_usage(app_dir) {
+    if has_legacy_usage(app_dir, home) {
         write_atomic(app_dir, &legacy_config())?;
         Ok(Migration::Legacy)
     } else {
@@ -478,7 +482,13 @@ pub fn migrate_legacy(app_dir: &Path) -> std::io::Result<Migration> {
     }
 }
 
-fn has_legacy_usage(app_dir: &Path) -> bool {
+fn has_legacy_usage(app_dir: &Path, home: &Path) -> bool {
+    // Dépôt local de Ragdoc (convertisseur PDF, `ragdoc_local_root`) : propre
+    // à l'installation de l'auteur, il suffit même si la base de connaissances
+    // ne garde aucune trace d'un appel réussi.
+    if home.join("Documents/Ragdoc").is_dir() {
+        return true;
+    }
     let knowledge = app_dir.join("knowledge");
     let registry_used = std::fs::read(knowledge.join("knowledge.json"))
         .ok()
@@ -748,12 +758,30 @@ mod tests {
         );
     }
 
+    /// Dossier personnel vide : les tests ne dépendent pas du Mac qui les lance.
+    fn no_home() -> PathBuf {
+        std::env::temp_dir().join("atelier-integrations-no-home")
+    }
+
+    #[test]
+    fn a_local_ragdoc_checkout_restores_the_previous_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("Documents/Ragdoc/scripts")).unwrap();
+        assert_eq!(migrate_legacy_in(dir.path(), home.path()).unwrap(), Migration::Legacy);
+        let integrations =
+            Integrations::from_parts(read_config(dir.path()), BTreeMap::new(), home.path().into());
+        assert_eq!(integrations.ragdoc().map(|target| target.host).as_deref(), Some("rorqual"));
+        assert!(integrations.gbrain().is_some());
+        assert_eq!(integrations.cluster("narval").map(|c| c.host).as_deref(), Some("narval-vpn"));
+    }
+
     #[test]
     fn fresh_install_gets_an_empty_file() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(migrate_legacy(dir.path()).unwrap(), Migration::Empty);
+        assert_eq!(migrate_legacy_in(dir.path(), &no_home()).unwrap(), Migration::Empty);
         assert_eq!(read_config(dir.path()), json!({"version": 1}));
-        assert_eq!(migrate_legacy(dir.path()).unwrap(), Migration::AlreadyPresent);
+        assert_eq!(migrate_legacy_in(dir.path(), &no_home()).unwrap(), Migration::AlreadyPresent);
     }
 
     #[test]
@@ -762,7 +790,7 @@ mod tests {
         let drafts = dir.path().join("knowledge/article-drafts");
         std::fs::create_dir_all(&drafts).unwrap();
         std::fs::write(drafts.join("abc.ragdoc.json"), "{}").unwrap();
-        assert_eq!(migrate_legacy(dir.path()).unwrap(), Migration::Empty);
+        assert_eq!(migrate_legacy_in(dir.path(), &no_home()).unwrap(), Migration::Empty);
     }
 
     #[test]
@@ -774,7 +802,7 @@ mod tests {
             r#"{"sources":{"a":{"id":"a","kind":"pdf"},"b":{"id":"b","kind":"ragdoc"}}}"#,
         )
         .unwrap();
-        assert_eq!(migrate_legacy(dir.path()).unwrap(), Migration::Legacy);
+        assert_eq!(migrate_legacy_in(dir.path(), &no_home()).unwrap(), Migration::Legacy);
         let integrations =
             Integrations::from_parts(read_config(dir.path()), BTreeMap::new(), PathBuf::from("/h"));
         assert!(integrations.ragdoc().is_some());
@@ -787,7 +815,7 @@ mod tests {
         let drafts = receipts.path().join("knowledge/article-drafts");
         std::fs::create_dir_all(&drafts).unwrap();
         std::fs::write(drafts.join("abc.indexed.json"), "{}").unwrap();
-        assert_eq!(migrate_legacy(receipts.path()).unwrap(), Migration::Legacy);
+        assert_eq!(migrate_legacy_in(receipts.path(), &no_home()).unwrap(), Migration::Legacy);
 
         let pins = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(pins.path().join("evidence")).unwrap();
@@ -796,7 +824,7 @@ mod tests {
             r#"[{"source":"gbrain","quote":"q"}]"#,
         )
         .unwrap();
-        assert_eq!(migrate_legacy(pins.path()).unwrap(), Migration::Legacy);
+        assert_eq!(migrate_legacy_in(pins.path(), &no_home()).unwrap(), Migration::Legacy);
     }
 
     #[test]

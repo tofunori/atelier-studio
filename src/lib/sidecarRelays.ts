@@ -5,7 +5,10 @@
 // Le store des intégrations écoute son événement dès l'import : l'importer ici
 // garantit qu'il est prêt avant le premier message, même si aucune surface qui
 // le lit (réglages, Connaissances, Calculs — chargées à la demande) n'est montée.
+// Même raison pour le store du premier lancement (agents, outils manquants) :
+// la décision d'ouvrir l'accueil se prend au premier setupStatus.
 import "./integrations";
+import "./setupEnvironment";
 
 type Relay = (msg: any) => { event: string; detail?: unknown };
 
@@ -23,6 +26,11 @@ const RELAYS: Record<string, Relay> = {
   kbSources: forward("kb-sources"),
   // intégrations distantes (Ragdoc, gbrain, NAS, grappes) : store lib/integrations
   integrations: forward("integrations-state"),
+  // premier lancement / Réglages > Environnement : store lib/setupEnvironment.
+  // Les réglages Modèles et Général lisent aussi setupStatus, mais sur la
+  // socket brute : ce relais ne les prive de rien.
+  setupStatus: forward("setup-status"),
+  environmentStatus: forward("environment-status"),
   turnContextPreview: forward("turn-context-preview"),
   kbPromoted: (msg) => ({ event: "kb-source-promoted", detail: { id: msg.id } }),
   // page directe gbrain (plan 050 P4) : dialogue de la surface

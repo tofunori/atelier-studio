@@ -799,6 +799,11 @@ impl Provider for CodexProvider {
     fn id(&self) -> &str {
         "codex"
     }
+
+    /// Connexion lue par `codex login status` (aucune requête au modèle).
+    async fn setup_probe(&self) -> Option<Value> {
+        Some(crate::cli_login::codex_probe(&crate::codex_rpc::CodexAppServer::resolve_bin()).await)
+    }
     fn label(&self) -> &str {
         "Codex"
     }

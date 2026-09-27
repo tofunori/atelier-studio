@@ -13,6 +13,7 @@ import {
   type ResearchHomeModel,
 } from "../lib/researchHome";
 import { Button, EmptyState, InlineNotice, RowButton, StatusBadge } from "./ui";
+import { openSetupWelcome, useSetupNeeded } from "../lib/setupEnvironment";
 import "../styles/research-home.css";
 
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
@@ -151,12 +152,19 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
   );
 }
 
-function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeActions["onResume"] }) {
-  if (!p.items.length) return null;
+function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeActions["onResume"]; setupNeeded?: boolean }) {
+  if (!p.items.length && !p.setupNeeded) return null;
   return (
     <section className="rh-section rh-sec-attention" aria-label={t("home.attention")}>
       <h2>{t("home.attention")}</h2>
       <div className="rh-attention">
+        {/* Premier lancement : aucun agent prêt (lib/setupEnvironment). */}
+        {p.setupNeeded && (
+          <InlineNotice tone="warning">
+            <span className="body">{t("setup.needed-home")}</span>
+            <Button variant="ghost" onClick={openSetupWelcome}>{t("setup.finish-setup")}</Button>
+          </InlineNotice>
+        )}
         {p.items.map((it) => {
           if (it.kind === "sidecar") {
             return <InlineNotice key={it.key} tone="error">{t("home.sidecar-offline")}</InlineNotice>;
@@ -192,6 +200,9 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
 
 export function ResearchHome(p: ResearchHomeBundle) {
   const { model, actions } = p;
+  // Vrai seulement quand le serveur a répondu et qu'aucun agent n'est prêt :
+  // qui a déjà Claude Code ou Codex ne voit rien de plus.
+  const setupNeeded = useSetupNeeded();
 
   if (model.state === "no-project") {
     return (
@@ -199,11 +210,18 @@ export function ResearchHome(p: ResearchHomeBundle) {
         <div className="rh-noproject">
           <EmptyState
             title={t("discussions.home")}
-            description={t("discussions.description")}
+            description={setupNeeded ? t("setup.needed-home") : t("discussions.description")}
             actions={
-              <Button variant="primary" onClick={actions.onNewChat}>
-                {t("action.new-chat")}
-              </Button>
+              <>
+                {setupNeeded && (
+                  <Button variant="primary" onClick={openSetupWelcome}>
+                    {t("setup.finish-setup")}
+                  </Button>
+                )}
+                <Button variant={setupNeeded ? "secondary" : "primary"} onClick={actions.onNewChat}>
+                  {t("action.new-chat")}
+                </Button>
+              </>
             }
           />
         </div>
@@ -292,6 +310,7 @@ export function ResearchHome(p: ResearchHomeBundle) {
                 ? model.attention.filter((item) => item.kind !== "sidecar")
                 : model.attention}
               onResume={actions.onResume}
+              setupNeeded={setupNeeded}
             />
             {starters}
           </div>

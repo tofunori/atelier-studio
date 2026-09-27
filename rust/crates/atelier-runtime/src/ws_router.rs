@@ -29,11 +29,13 @@ use serde_json::{json, Value};
 mod kb;
 mod threads;
 mod api_providers;
+mod environment;
 mod integrations;
 mod quick_ask;
 use kb::*;
 use threads::*;
 use api_providers::*;
+use environment::*;
 use integrations::*;
 use quick_ask::*;
 
@@ -48,6 +50,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "integrations",
     "saveIntegrations",
     "refreshProviders",
+    "environmentStatus",
     "listThreads",
     "renameThread",
     "moveThread",
@@ -1628,10 +1631,19 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
 
         // --- Porte 9: remaining Node router cases ---
-        "setupStatus" => handle_setup_status(state).await,
+        "setupStatus" => {
+            // `probe` : ne sonder que ces fournisseurs (poignée de main de
+            // connexion : Claude et Codex) ; les autres gardent la ligne
+            // historique sans lancer leur CLI.
+            let only: Option<Vec<String>> = msg.get("probe").and_then(Value::as_array).map(|ids| {
+                ids.iter().filter_map(Value::as_str).map(str::to_string).collect()
+            });
+            handle_setup_status(state, only.as_deref()).await
+        }
         "integrations" => handle_integrations(state).await,
         "saveIntegrations" => handle_save_integrations(state, &msg).await,
         "refreshProviders" => handle_refresh_providers(state).await,
+        "environmentStatus" => handle_environment_status(state).await,
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
         "savePlan" => handle_save_plan(state, &msg, false).await,
@@ -2106,16 +2118,17 @@ pub(crate) fn err(message: impl Into<String>) -> String {
     ok(ErrorMessage::new(message))
 }
 
-async fn handle_setup_status(state: &AppState) -> Vec<String> {
+async fn handle_setup_status(state: &AppState, only: Option<&[String]>) -> Vec<String> {
     let mut providers: Vec<Value> = Vec::new();
     for p in atelier_providers::provider_status_list(Some(state.app_dir())) {
         let live = state.provider(&p.id);
+        let probed = only.is_none_or(|ids| ids.iter().any(|id| id == &p.id));
         // Sonde dédiée (kimi, plan 046 étape 10) : états
         // not_installed/version_unsupported/login_needed/model_config_needed/
         // ready/protocol_error, chemin réel du binaire et masquage signalé.
         if let Some(probe) = match &live {
-            Some(provider) => provider.setup_probe().await,
-            None => None,
+            Some(provider) if probed => provider.setup_probe().await,
+            _ => None,
         } {
             let shadowed = probe.get("shadowed").and_then(Value::as_str);
             providers.push(json!({
@@ -2126,9 +2139,11 @@ async fn handle_setup_status(state: &AppState) -> Vec<String> {
                 "version": probe.get("version").cloned().unwrap_or(Value::Null),
                 "binPath": probe.get("binPath").cloned().unwrap_or(Value::Null),
                 "auth": probe.get("state").cloned().unwrap_or(json!("unknown")),
-                "models": probe.get("models").cloned().unwrap_or(json!(0)),
+                // Sonde sans découverte de modèles (Claude, Codex) : catalogue.
+                "models": probe.get("models").cloned().unwrap_or(json!(p.models.len())),
                 "defaultModel": p.default_model,
                 "loginCommand": probe.get("loginCommand").cloned().unwrap_or(Value::Null),
+                "installCommand": agent_install_command(&p.id),
                 "modelError": match shadowed {
                     Some(official) => json!(format!(
                         "installation officielle masquée : {official} (binaire utilisé : {})",
@@ -2148,6 +2163,7 @@ async fn handle_setup_status(state: &AppState) -> Vec<String> {
             "version": if installed { json!("ok") } else { Value::Null },
             "binPath": Value::Null,
             "auth": if installed { "ready" } else { "not_installed" },
+            "installCommand": agent_install_command(&p.id),
             "models": p.models.len(),
             "defaultModel": p.default_model,
             "modelError": Value::Null,

@@ -42,7 +42,9 @@ describe("connectSidecar", () => {
     await p;
     expect(getSidecarInfo()).toEqual({ port: 1234, token: "tok" });
     const initial = sock.sent.map((s) => JSON.parse(s));
-    expect(initial.map((m) => m.type)).toEqual(["clientHello", "listThreads", "providerStatus", "integrations"]);
+    expect(initial.map((m) => m.type)).toEqual(["clientHello", "listThreads", "providerStatus", "integrations", "setupStatus", "environmentStatus"]);
+    // seuls Claude et Codex sont sondés à la connexion (Kimi/Grok : Réglages)
+    expect(initial[4]).toEqual({ type: "setupStatus", probe: ["claude", "codex"] });
     expect(initial[0].clientInstanceId).toMatch(/^[0-9a-f-]{20,}$/i);
   });
 

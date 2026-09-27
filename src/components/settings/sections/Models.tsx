@@ -32,7 +32,7 @@
 // action « Recharger » est restaurée en tête du bloc 2 ci-dessous (correction
 // de revue, importants), sans quoi rien ne pousse un nouveau providerStatus
 // après le montage (ex. après un `grok login` réussi).
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Advanced, Group, Row, Toggle } from "../primitives";
 import type { ApiProviderRow, ProviderCatalogRow, SectionProps, SetupStatus } from "../shared";
@@ -49,6 +49,8 @@ import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
 import { CheckIcon } from "lucide-react";
+import { runSetupCommand, withResolvedBinary } from "../../../lib/setupEnvironment";
+import { SetupCommandFallback } from "../../setup/SetupRows";
 
 // Copié tel quel de Settings.tsx:85-109 — seul consommateur restant.
 function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
@@ -157,6 +159,9 @@ export default function Models(p: SectionProps) {
   // « Revérifier » (Non disponibles) : redétection des CLI d'agents installés
   // depuis le lancement. En attente jusqu'au prochain providerStatus, 10 s au plus.
   const [rechecking, setRechecking] = useState(false);
+  // Connexion sans terminal intégré (aucun projet ouvert) : la commande
+  // s'affiche sous la ligne, à coller dans Terminal de macOS.
+  const [loginFallback, setLoginFallback] = useState<{ id: string; command: string } | null>(null);
 
   function authLabel(auth: string) {
     const labels: Record<string, string> = {
@@ -499,9 +504,10 @@ export default function Models(p: SectionProps) {
           <Group>
             {nonDisponibles.map((row) => {
               const su = setup?.providers.find((sp) => sp.id === row.id) ?? null;
+              const fallback = loginFallback?.id === row.id ? loginFallback.command : null;
               return (
+                <React.Fragment key={row.id}>
                 <Row
-                  key={row.id}
                   title={row.label}
                   desc={su
                     ? (su.kind === "api"
@@ -517,24 +523,29 @@ export default function Models(p: SectionProps) {
                   )}
                   {su?.auth === "login_needed" && su.loginCommand ? (
                     // ouvre le terminal Atelier avec la commande exacte
-                    // annoncée par le harnais ; après le login : la ligne se
-                    // rafraîchit au prochain providerStatus/setupStatus.
+                    // annoncée par le harnais (binaire résolu : juste après
+                    // une installation, son dossier n'est pas forcément dans
+                    // le PATH) ; sans projet, pas de terminal intégré : la
+                    // commande s'affiche à copier. Après le login : la ligne
+                    // se rafraîchit au prochain providerStatus/setupStatus.
                     <Button
                       variant="secondary"
                       className="set-btn"
-                      onClick={() =>
-                        window.dispatchEvent(
-                          new CustomEvent("atelier-terminal-command", {
-                            detail: { command: su.loginCommand },
-                          }),
-                        )
-                      }
+                      onClick={() => {
+                        const command = withResolvedBinary(su.loginCommand!, su.binPath);
+                        const ran = runSetupCommand(command, { kind: "login", origin: "models" });
+                        setLoginFallback(ran === "copy" ? { id: row.id, command } : null);
+                      }}
                     >
                       {t("settings.setup-login-terminal")}
                     </Button>
                   ) : null}
                   {row.version && <span className="setup-version">{row.version}</span>}
                 </Row>
+                {fallback && (
+                  <SetupCommandFallback key={fallback} command={fallback} onHide={() => setLoginFallback(null)} />
+                )}
+                </React.Fragment>
               );
             })}
           </Group>

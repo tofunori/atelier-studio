@@ -927,7 +927,13 @@ pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("pdftohtml introuvable ({bin}): {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "pdftohtml introuvable : installez poppler (brew install poppler), voir Réglages → Environnement".to_string()
+            } else {
+                format!("pdftohtml indisponible ({bin}): {e}")
+            }
+        })?;
     // Les deux tuyaux sont VIDÉS dans des threads : sans ça, un XML plus gros
     // que le tampon du noyau bloquerait l'enfant et l'échéance ci-dessous
     // tuerait un processus en bonne santé.

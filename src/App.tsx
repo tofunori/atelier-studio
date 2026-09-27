@@ -47,6 +47,14 @@ import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
+import {
+  closeSetupWelcome,
+  openSetupWelcome,
+  recheckAll,
+  registerSetupTerminal,
+  useSetupWelcomeOpen,
+} from "./lib/setupEnvironment";
+import { SetupWelcomeHost } from "./components/setup/SetupWelcomeHost";
 import { usageFromHistory } from "./lib/historyUsage";
 import {
   archivedUserEvent,
@@ -415,6 +423,13 @@ export default function App() {
     setSettingsInitialSection(section);
     setShowSettings(true);
   }, []);
+  // Fenêtre de bienvenue (premier lancement) : ouverte par le store, jamais
+  // par-dessus la feuille des réglages — deux modales empilées se disputeraient
+  // le focus. « Revoir l'accueil » (Réglages > Environnement) ferme donc la feuille.
+  const setupWelcomeOpen = useSetupWelcomeOpen();
+  useEffect(() => {
+    if (setupWelcomeOpen) setShowSettings(false);
+  }, [setupWelcomeOpen]);
   const settingsRef = useRef(settings);
   useEffect(() => {
     const onLanguage = () => setLanguageRev((n) => n + 1);
@@ -1020,6 +1035,46 @@ export default function App() {
     if (!showAtelier || !surfaceRequest) return;
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: surfaceRequest.surface } }));
   }, [showAtelier, surfaceRequest]);
+  // Commande d'installation ou de connexion (premier lancement, Réglages >
+  // Environnement / Modèles) : même principe que surfaceRequest — l'event ne
+  // part qu'une fois AtelierPane monté (ses effets passent avant ceux d'App),
+  // puis la demande est CONSOMMÉE : un retour ultérieur au layout « chat »
+  // ne doit jamais relancer une installation.
+  const [terminalRequest, setTerminalRequest] = useState<{ command: string } | null>(null);
+  useEffect(() => {
+    if (!terminalRequest) return;
+    if (!activeProject) { setTerminalRequest(null); return; }
+    if (!showAtelier) return;
+    window.dispatchEvent(new CustomEvent("atelier-terminal-command", { detail: { command: terminalRequest.command } }));
+    setTerminalRequest(null);
+  }, [showAtelier, activeProject, terminalRequest]);
+  // Le terminal intégré n'existe qu'avec un projet (AtelierPane). Sans projet
+  // — le tout premier lancement — runSetupCommand retombe sur la commande à
+  // copier dans Terminal de macOS. Avec projet : on ferme ce qui couvre le
+  // terminal (réglages, accueil), on l'affiche, et un bandeau rappelle de
+  // revérifier une fois l'installation finie.
+  useEffect(() => {
+    if (!activeProject) return;
+    return registerSetupTerminal((command, request) => {
+      setShowSettings(false);
+      closeSetupWelcome();
+      setLayout((l) => (l === "chat" ? "split" : l));
+      setTerminalRequest({ command });
+      const banner: AppBanner = {
+        text: t(request.kind === "login" ? "setup.banner-login" : "setup.banner-install"),
+        actionLabel: t("settings.providers-recheck"),
+        closable: true,
+        onAction: () => {
+          setAppBanner((current) => (current === banner ? null : current));
+          recheckAll();
+          if (request.origin === "welcome") openSetupWelcome();
+          else openSettings(request.origin === "models" ? "modeles" : "environnement");
+        },
+      };
+      setAppBanner(banner);
+      return true;
+    });
+  }, [activeProject, openSettings]);
   // Ouvrir un FICHIER, ce n'est pas « montrer la galerie ». switchToSurface
   // ("atelier") active l'onglet Galerie du workspace : appelé après avoir
   // ouvert un fichier, il écrasait ce qu'on venait d'ouvrir. Et compter sur
@@ -1853,19 +1908,29 @@ export default function App() {
         // le sidecar résout PATH+dossiers standards — s'il dit non, c'est réel
         // (les providers API sans clé ne sont pas des CLI manquants)
         const missing = (msg.providers ?? []).filter((p: any) => !p.ok && p.kind !== "api");
-        if (missing.length) {
-          const labels = missing.map((p: any) => p.label).join(", ");
-          cliBannerText.current = t("app.cli-missing", { list: labels });
+        // Ni Claude Code ni Codex : c'est un premier lancement. La fenêtre de
+        // bienvenue sait installer l'un ou l'autre ; les commandes npm
+        // ci-dessous supposeraient Node, absent d'un Mac neuf.
+        const missingDefault = missing.find((p: any) => p.id === settingsRef.current.defaultProvider);
+        const noPrimaryAgent = missing.length > 0 && !(msg.providers ?? [])
+          .some((p: any) => (p.id === "claude" || p.id === "codex") && p.ok);
+        if (noPrimaryAgent) {
+          cliBannerText.current = t("setup.needed-home");
           setAppBanner({
             text: cliBannerText.current,
-            actionLabel: t("app.cli-missing-copy"),
-            onAction: () => {
-              const cmds = missing.map((p: any) =>
-                p.id === "claude" ? "npm install -g @anthropic-ai/claude-code"
-                : p.id === "kimi" ? "npm install -g @moonshot-ai/kimi-code"
-                : "npm install -g @openai/codex");
-              navigator.clipboard?.writeText(cmds.join(" && "));
-            },
+            actionLabel: t("setup.finish-setup"),
+            onAction: openSetupWelcome,
+            closable: true,
+          });
+        } else if (missingDefault) {
+          // Un agent facultatif absent (Kimi, Grok, OpenCode…) ne mérite pas
+          // de bandeau : Réglages > Modèles le liste avec « Revérifier ». Seul
+          // le fournisseur par défaut, s'il manque, bloque vraiment.
+          cliBannerText.current = t("app.cli-missing", { list: missingDefault.label });
+          setAppBanner({
+            text: cliBannerText.current,
+            actionLabel: t("app.start-settings"),
+            onAction: () => openSettings("modeles"),
             closable: true,
           });
         } else {
@@ -4206,7 +4271,7 @@ export default function App() {
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
   const overlayOpen = galleryFullscreen || showSettings || paletteOpen || qaMode === "open" || pluginsOpen
-    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null;
+    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen;
   function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
     if (!projectSettingsRoot) return;
     const next = { ...settingsRef.current, projectFolders: { ...settingsRef.current.projectFolders, [projectSettingsRoot]: value } };
@@ -4233,6 +4298,7 @@ export default function App() {
           initialSection={settingsInitialSection}
         />
       </LazyBoundary>
+      <SetupWelcomeHost />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />

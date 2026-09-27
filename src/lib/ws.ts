@@ -393,6 +393,14 @@ async function connectSidecarAttempt(
   // arrivée, lib/integrations les tient pour désactivées — rien de distant ne
   // part avant de savoir ce qui est configuré. Redemandé à chaque reconnexion.
   ws.send(JSON.stringify({ type: "integrations" }));
+  // Premier lancement (lib/setupEnvironment) : agents prêts ou non, outils
+  // présents ou non. Seules demandes automatiques — ensuite, uniquement sur
+  // « Revérifier ». Redemandées à chaque reconnexion comme les autres.
+  // `probe` : seuls Claude et Codex sont sondés ici (deux sous-commandes
+  // locales rapides) ; Kimi et Grok ouvrent un serveur ACP pour leur sonde,
+  // réservée aux Réglages et à « Revérifier ».
+  ws.send(JSON.stringify({ type: "setupStatus", probe: ["claude", "codex"] }));
+  ws.send(JSON.stringify({ type: "environmentStatus" }));
   markBootMetric("wsReady");
   // reconnexion auto : sidecar tué/crashé → sidecar_port respawn + nouveau WS.
   // Backoff exponentiel : marteler sidecar_port pendant qu'un spawn+health est

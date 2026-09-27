@@ -50,7 +50,13 @@ fn run_pdftotext(pdftotext_bin: &str, args: &[&str], pdf_path: &Path) -> Result<
         .arg(pdf_path)
         .arg("-")
         .output()
-        .map_err(|e| format!("pdftotext indisponible: {e}"))?;
+.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "pdftotext introuvable : installez poppler (brew install poppler), voir Réglages → Environnement".to_string()
+            } else {
+                format!("pdftotext indisponible: {e}")
+            }
+        })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() { "Extraction PDF impossible".to_string() } else { stderr });
