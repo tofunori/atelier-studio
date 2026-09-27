@@ -58,6 +58,9 @@ export default defineConfig(async () => ({
         manualChunks(id: string, { getModuleInfo }: { getModuleInfo: ModuleInfoGetter }) {
           // Shared palette data is cacheable independently from application code.
           if (id.endsWith("/src/lib/themes.ts")) return "themes";
+          // Dictionnaires fr/en (~190 KB de source) : données, comme les
+          // thèmes — leur croissance ne doit pas se lire comme du code d'entrée.
+          if (id.endsWith("/src/lib/i18n.ts")) return "i18n";
           if (id.includes("/node_modules/@base-ui/react/")) return "base-ui";
           if (id.includes("/node_modules/@tauri-apps/")) return "tauri-vendor";
           if (id.includes("/node_modules/lucide-react/")) return "icons-vendor";

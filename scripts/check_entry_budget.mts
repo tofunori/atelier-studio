@@ -16,7 +16,12 @@ const ASSETS = join(process.cwd(), "dist", "assets");
 // 2026-09-22 : dépassé à 1082 KB (CI rouge depuis la 1.9.2). highlight.js du
 // chat (noyau + 18 langages) sorti dans le chunk vendor `hljs-vendor`
 // (vite.config.ts) : 999 KB. Le découpage d'i18n reste le prochain levier.
-const BUDGET_KB = 1024;
+// 2026-09-27 : 1033 KB (réglages Intégrations). Les dictionnaires fr/en
+// (src/lib/i18n.ts, ~176 KB minifiés, sans import) sortent dans leur chunk
+// `i18n` (vite.config.ts, comme `themes`) : entrée à 857 KB. Budget
+// re-calibré à la baisse pour garder ~55 KB de marge sur le code applicatif.
+// Le découpage par locale (ne charger que fr OU en) reste possible ensuite.
+const BUDGET_KB = 912;
 
 const assetFiles = readdirSync(ASSETS);
 const entries = assetFiles.filter((f) => /^index-.*\.js$/.test(f));
