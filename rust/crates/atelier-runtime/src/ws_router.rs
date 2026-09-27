@@ -355,19 +355,17 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let cursor_event_id = requested_cursor
                 .and_then(|cursor| cursor.get("eventId"))
                 .and_then(Value::as_str);
-            let (snapshot_events, snapshot_head, snapshot_epoch, snapshot_event_id) =
-                state.journal().durable_snapshot(id);
-            let journal_epoch = snapshot_epoch
-                .clone()
+            let history = state.journal().read_history(id);
+            let journal_epoch = history.epoch()
+                .map(str::to_string)
                 .unwrap_or_else(|| state.threads_epoch().to_string());
             let replay = match cursor_sequence {
                 Some(sequence)
                     if requested_cursor
                         .and_then(|cursor| cursor.get("epoch"))
                         .and_then(Value::as_str)
-                        == Some(journal_epoch.as_str()) => state
-                    .journal()
-                    .replay_after(id, sequence, cursor_event_id, REPLAY_LIMIT),
+                        == Some(journal_epoch.as_str()) => history
+                    .replay_after(sequence, cursor_event_id, REPLAY_LIMIT),
                 _ => None,
             };
             let (journal, history_mode, history_fallback, history_head, history_cursor_event_id) =
@@ -382,6 +380,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         (events, "replay", None, head, event_id)
                     }
                     None => {
+                        let (snapshot_events, snapshot_head, _, snapshot_event_id) = history.into_snapshot();
                         let fallback = cursor_sequence.map(|_| "cursor_invalid");
                         (
                             snapshot_events,

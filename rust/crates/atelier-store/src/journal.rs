@@ -63,6 +63,116 @@ pub struct HarnessJournal {
 // Clone is intentional: journal is path-based, safe to share across harnesses
 // (le compteur de séquences est lui-même partagé via Arc, voir ci-dessus).
 
+/// One captured journal read. Cursor validation and snapshot fallback share
+/// these events and this epoch, even if an append or deletion races the reply.
+/// Materialization is deferred until the caller actually needs a full snapshot.
+pub struct JournalHistory {
+    events: Vec<Value>,
+    epoch: Option<String>,
+    exists: bool,
+}
+
+impl JournalHistory {
+    pub fn epoch(&self) -> Option<&str> {
+        self.epoch.as_deref()
+    }
+
+    pub fn into_snapshot(self) -> (Vec<Value>, u64, Option<String>, Option<String>) {
+        let mut durable = self.events;
+        durable.sort_by_key(|event| {
+            event
+                .pointer("/meta/sequence")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        let head = durable
+            .iter()
+            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        let head_event_id = durable
+            .iter()
+            .rev()
+            .find(|event| {
+                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(head)
+            })
+            .and_then(|event| event.pointer("/meta/eventId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        (
+            HarnessJournal::materialize_events(durable),
+            head,
+            self.epoch,
+            head_event_id,
+        )
+    }
+
+    /// Return actual journaled events after a durable cursor.  Sequence
+    /// numbers are allocated for ephemeral stream events too, so a cursor is
+    /// valid only when its sequence/event identity exists in the durable file;
+    /// the returned list itself is selected by `sequence > cursor`, without
+    /// ever requiring contiguous sequence numbers.
+    pub fn replay_after(
+        &self,
+        cursor_sequence: u64,
+        cursor_event_id: Option<&str>,
+        limit: usize,
+    ) -> Option<(Vec<Value>, u64)> {
+        if !self.exists || limit == 0 {
+            return None;
+        }
+        let events = &self.events;
+        if events.windows(2).any(|pair| {
+            let left = pair[0].pointer("/meta/sequence").and_then(Value::as_u64).unwrap_or(0);
+            let right = pair[1].pointer("/meta/sequence").and_then(Value::as_u64).unwrap_or(0);
+            right < left
+        }) {
+            // Concurrent writers can reserve sequences before taking the file
+            // lock. A delta cursor over a physically out-of-order journal can
+            // omit a late lower sequence, so force the caller's snapshot path.
+            return None;
+        }
+        let head = events
+            .iter()
+            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        if cursor_sequence > head {
+            return None;
+        }
+        if cursor_sequence > 0 {
+            let cursor_found = events.iter().any(|event| {
+                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(cursor_sequence)
+                    && cursor_event_id.map_or(true, |expected| {
+                        event.pointer("/meta/eventId").and_then(Value::as_str) == Some(expected)
+                    })
+            });
+            if !cursor_found {
+                // The durable event may have been truncated/deleted.  A
+                // missing durable identity is a safe snapshot fallback; a
+                // numeric gap caused by ephemeral events is accepted only
+                // when the durable cursor itself is present.
+                return None;
+            }
+        }
+        let after = events
+            .iter()
+            .filter(|event| {
+                event
+                    .pointer("/meta/sequence")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|sequence| sequence > cursor_sequence)
+            })
+            .take(limit.saturating_add(1))
+            .cloned()
+            .collect::<Vec<_>>();
+        if after.len() > limit {
+            return None;
+        }
+        Some((after, head))
+    }
+}
+
 impl HarnessJournal {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
@@ -409,44 +519,27 @@ impl HarnessJournal {
             .unwrap_or(0)
     }
 
-    /// Materialized events, durable head and journal identity from one file
-    /// read.  Returning these together avoids announcing a cursor for an
-    /// append that raced between two independent reads.
+    /// Capture the durable events once, preserving physical order for cursor
+    /// validation. Full snapshot compaction remains lazy.
+    pub fn read_history(&self, thread_id: &str) -> JournalHistory {
+        let exists = self.has_journal(thread_id);
+        let (header, mut events) = self.read_thread(thread_id);
+        events.retain(|event| {
+            !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
+        });
+        let epoch = header.as_ref()
+            .and_then(|value| value.get("journalEpoch"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        JournalHistory { events, epoch, exists }
+    }
+
+    /// Materialized events and cursor from the same captured file read.
     pub fn durable_snapshot(
         &self,
         thread_id: &str,
     ) -> (Vec<Value>, u64, Option<String>, Option<String>) {
-        let (header, events) = self.read_thread(thread_id);
-        let mut durable = events;
-        durable.retain(|event| {
-            !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
-        });
-        durable.sort_by_key(|event| {
-            event
-                .pointer("/meta/sequence")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        });
-        let head = durable
-            .iter()
-            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0);
-        let head_event_id = durable
-            .iter()
-            .rev()
-            .find(|event| {
-                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(head)
-            })
-            .and_then(|event| event.pointer("/meta/eventId"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let epoch = header
-            .as_ref()
-            .and_then(|value| value.get("journalEpoch"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        (Self::materialize_events(durable), head, epoch, head_event_id)
+        self.read_history(thread_id).into_snapshot()
     }
 
     /// Stable identity of this journal file.  A cursor from a deleted and
@@ -462,11 +555,6 @@ impl HarnessJournal {
         })
     }
 
-    /// Return actual journaled events after a durable cursor.  Sequence
-    /// numbers are allocated for ephemeral stream events too, so a cursor is
-    /// valid only when its sequence/event identity exists in the durable file;
-    /// the returned list itself is selected by `sequence > cursor`, without
-    /// ever requiring contiguous sequence numbers.
     pub fn replay_after(
         &self,
         thread_id: &str,
@@ -474,65 +562,7 @@ impl HarnessJournal {
         cursor_event_id: Option<&str>,
         limit: usize,
     ) -> Option<(Vec<Value>, u64)> {
-        if !self.has_journal(thread_id) || limit == 0 {
-            return None;
-        }
-        let (_, mut events) = self.read_thread(thread_id);
-        events.retain(|event| {
-            !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
-        });
-        if events.windows(2).any(|pair| {
-            let left = pair[0].pointer("/meta/sequence").and_then(Value::as_u64).unwrap_or(0);
-            let right = pair[1].pointer("/meta/sequence").and_then(Value::as_u64).unwrap_or(0);
-            right < left
-        }) {
-            // Concurrent writers can reserve sequences before taking the file
-            // lock. A delta cursor over a physically out-of-order journal can
-            // omit a late lower sequence, so force the caller's snapshot path.
-            return None;
-        }
-        events.sort_by_key(|event| {
-            event
-                .pointer("/meta/sequence")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        });
-        let head = events
-            .iter()
-            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0);
-        if cursor_sequence > head {
-            return None;
-        }
-        if cursor_sequence > 0 {
-            let cursor_found = events.iter().any(|event| {
-                event.pointer("/meta/sequence").and_then(Value::as_u64) == Some(cursor_sequence)
-                    && cursor_event_id.map_or(true, |expected| {
-                        event.pointer("/meta/eventId").and_then(Value::as_str) == Some(expected)
-                    })
-            });
-            if !cursor_found {
-                // The durable event may have been truncated/deleted.  A
-                // missing durable identity is a safe snapshot fallback; a
-                // numeric gap caused by ephemeral events is accepted only
-                // when the durable cursor itself is present.
-                return None;
-            }
-        }
-        let after = events
-            .into_iter()
-            .filter(|event| {
-                event
-                    .pointer("/meta/sequence")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|sequence| sequence > cursor_sequence)
-            })
-            .collect::<Vec<_>>();
-        if after.len() > limit {
-            return None;
-        }
-        Some((after, head))
+        self.read_history(thread_id).replay_after(cursor_sequence, cursor_event_id, limit)
     }
 
     /// Prochaine séquence à écrire pour `thread_id`, allouée de façon
@@ -880,6 +910,51 @@ mod tests {
                 "durable": true,
             }
         })
+    }
+
+    #[test]
+    fn captured_history_does_not_reread_for_replay_or_snapshot_fallback() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        journal.append(&ev("user", 1, "e1"));
+        journal.append(&ev("text", 3, "e3"));
+        let expected = journal.durable_snapshot("t1");
+        let history = journal.read_history("t1");
+        assert_eq!(history.epoch(), expected.2.as_deref());
+
+        // A later append belongs to the next request. Deleting the file also
+        // proves both branches below use only the captured read.
+        journal.append(&ev("text", 4, "e4"));
+        journal.delete_thread("t1");
+        let (replay, head) = history.replay_after(1, Some("e1"), 4096).unwrap();
+        assert_eq!(head, 3);
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0]["meta"]["eventId"], "e3");
+        assert!(history.replay_after(1, Some("wrong-id"), 4096).is_none());
+        assert!(history.replay_after(0, None, 1).is_none());
+        assert_eq!(history.into_snapshot(), expected);
+    }
+
+    #[test]
+    fn captured_history_keeps_raw_lifecycle_updates_for_replay() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        journal.append(&ev("user", 1, "e1"));
+        for sequence in [2, 3] {
+            let mut event = ev("tool_update", sequence, &format!("e{sequence}"));
+            event["id"] = json!("same-tool");
+            event["meta"]["itemId"] = json!("same-tool");
+            journal.append(&event);
+        }
+        let history = journal.read_history("t1");
+        let (events, head) = history.replay_after(1, Some("e1"), 2).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(head, 3);
+        assert!(history.replay_after(1, Some("e1"), 1).is_none());
+        assert_eq!(history.replay_after(3, Some("e3"), 1), Some((vec![], 3)));
+        let (snapshot, _, _, _) = history.into_snapshot();
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[1]["meta"]["eventId"], "e3");
     }
 
     #[test]

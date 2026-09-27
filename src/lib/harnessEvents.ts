@@ -134,8 +134,12 @@ function findTextToJoinIdx(list: AgentEvent[], pose: number, ev: AgentEvent): nu
  * invisible — on en créera une nouvelle). Sans meta : dernière bulle du fil,
  * où qu'elle soit (les events outils/thinking s'intercalent entre les deltas
  * et le bloc final — comportement historique inchangé). */
-function findStreamingIdx(list: AgentEvent[], ev: AgentEvent): number {
+function findStreamingIdx(list: AgentEvent[], ev: AgentEvent, replay?: HistoryReplayIndex): number {
   const m = harnessMeta(ev);
+  if (replay) {
+    const indexes = replay.indexes("streaming", m?.turnId).reverse();
+    return indexes[0] ?? -1;
+  }
   for (let k = list.length - 1; k >= 0; k--) {
     const it = list[k];
     if (it.kind !== "streaming") continue;
@@ -191,9 +195,13 @@ function lastIsAttachableThinking(list: AgentEvent[], ev: AgentEvent): boolean {
  * actif dans un tour déjà terminé. Plusieurs blocs peuvent exister lorsqu'un
  * outil sépare deux segments de pensée. Les indices sont renvoyés du dernier
  * au premier pour permettre les suppressions sans décaler les suivants. */
-function findThinkingLiveIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
+function findThinkingLiveIndexes(list: AgentEvent[], ev: AgentEvent, replay?: HistoryReplayIndex): number[] {
   const indexes: number[] = [];
   const m = harnessMeta(ev);
+  if (replay) {
+    const positions = replay.indexes("thinking_live", m?.turnId).reverse();
+    return positions;
+  }
   for (let k = list.length - 1; k >= 0; k--) {
     const it = list[k];
     if (it.kind !== "thinking_live") continue;
@@ -203,9 +211,13 @@ function findThinkingLiveIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
 }
 
 /** Indices des marqueurs de progression éphémères rattachés au terminal. */
-function findThinkingProgressIndexes(list: AgentEvent[], ev: AgentEvent): number[] {
+function findThinkingProgressIndexes(list: AgentEvent[], ev: AgentEvent, replay?: HistoryReplayIndex): number[] {
   const indexes: number[] = [];
   const m = harnessMeta(ev);
+  if (replay) {
+    const positions = replay.indexes("thinking_progress", m?.turnId).reverse();
+    return positions;
+  }
   for (let k = list.length - 1; k >= 0; k -= 1) {
     const it = list[k];
     if (it.kind !== "thinking_progress") continue;
@@ -376,12 +388,96 @@ export function reduceHarnessEvents(list: AgentEvent[], events: readonly AgentEv
   return out;
 }
 
+/** Index local au rejeu : aucune donnée ne survit au chargement. Les clés
+ * suivent les rangées présentes, pas tous les événements déjà reçus : une
+ * bulle remplacée doit libérer son ancienne identité comme dans le live. */
+class HistoryReplayIndex {
+  private groups = new Map<string, Set<number>>();
+
+  private keys(event: AgentEvent): string[] {
+    const keys = [this.kindKey(event.kind), this.kindKey(event.kind, turnOf(event))];
+    const id = harnessMeta(event)?.eventId;
+    if (id != null) keys.push(JSON.stringify(["id", id]));
+    if (event.kind === "user" && event.meta?.messageId) keys.push(this.messageKey(event.meta.messageId));
+    if (event.kind === "agent_message" && event.messageId) keys.push(this.messageKey(event.messageId, "agent_message"));
+    return keys;
+  }
+
+  private kindKey(kind: AgentEvent["kind"], turn?: string): string {
+    return JSON.stringify(turn === undefined ? ["kind", kind] : ["turn", kind, turn]);
+  }
+
+  private messageKey(id: string, kind = "user"): string {
+    return JSON.stringify(["message", kind, id]);
+  }
+
+  add(event: AgentEvent, index: number): void {
+    for (const key of this.keys(event)) {
+      let positions = this.groups.get(key);
+      if (!positions) this.groups.set(key, positions = new Set());
+      positions.add(index);
+    }
+  }
+
+  delete(event: AgentEvent, index: number): void {
+    for (const key of this.keys(event)) {
+      const positions = this.groups.get(key);
+      positions?.delete(index);
+      if (!positions?.size) this.groups.delete(key);
+    }
+  }
+
+  hasId(id: string): boolean { return this.groups.has(JSON.stringify(["id", id])); }
+
+  indexes(kind: AgentEvent["kind"], turn?: string): number[] {
+    // Les remplacements peuvent réinsérer un ancien index : l'ordre du Set
+    // n'est donc pas nécessairement celui des rangées.
+    return [...(this.groups.get(this.kindKey(kind, turn)) ?? [])].sort((a, b) => a - b);
+  }
+
+  messageIndex(id: string, kind = "user"): number {
+    const positions = this.groups.get(this.messageKey(id, kind));
+    return positions?.size ? Math.min(...positions) : -1;
+  }
+}
+
+function findHistoryRow(list: AgentEvent[], kind: AgentEvent["kind"], turn: string, replay: HistoryReplayIndex | undefined, predicate: (event: AgentEvent) => boolean): number {
+  return replay
+    ? replay.indexes(kind, turn).find((index) => predicate(list[index])) ?? -1
+    : list.findIndex(predicate);
+}
+
+function putHistoryRow(list: AgentEvent[], index: number, event: AgentEvent, replay?: HistoryReplayIndex): void {
+  if (index < list.length) replay?.delete(list[index], index);
+  list[index] = event;
+  replay?.add(event, index);
+}
+
+function removeHistoryRow(list: AgentEvent[], index: number, replay?: HistoryReplayIndex): void {
+  // Seules les suppressions décalent les positions. Réindexer le suffixe
+  // conserve les autres index (cas courant : une bulle vide en queue).
+  if (replay) for (let i = index; i < list.length; i++) replay.delete(list[i], i);
+  list.splice(index, 1);
+  if (replay) for (let i = index; i < list.length; i++) replay.add(list[i], i);
+}
+
+function replayHarnessEvents(events: AgentEvent[]): AgentEvent[] {
+  const out: AgentEvent[] = [];
+  const replay = new HistoryReplayIndex();
+  for (const event of events) reduceHarnessEventInto(out, event, replay);
+  return out;
+}
+
 /**
  * Réduit UN événement dans la liste d'un thread. Pure : retourne une NOUVELLE
  * liste, ou la même référence si l'événement est un no-op (éphémère jamais
  * affiché, ou duplicate de reconnexion).
  */
 export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEvent[] {
+  return reduceHarnessEventInto(list, ev);
+}
+
+function reduceHarnessEventInto(list: AgentEvent[], ev: AgentEvent, replay?: HistoryReplayIndex): AgentEvent[] {
   ev = normalizeEditEvent(ev);
   // éphémères jamais matérialisés dans le fil (les side-effects — workingSince,
   // usage ring — restent dans App) : no-op strict
@@ -392,9 +488,9 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   // dédup reconnexion WS : un eventId déjà présent dans la liste (y compris
   // adopté par une bulle streaming/thinking_live au fil des deltas) est ignoré
   const meta = harnessMeta(ev);
-  if (meta && list.some((x) => harnessMeta(x)?.eventId === meta.eventId)) return list;
+  if (meta && (replay ? replay.hasId(meta.eventId) : list.some((x) => harnessMeta(x)?.eventId === meta.eventId))) return list;
 
-  const next = [...list];
+  const next = replay ? list : [...list];
   const last = next[next.length - 1];
 
   // ack sidecar d'un message user optimiste : adopter la metadata autoritaire
@@ -403,13 +499,13 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   if (ev.kind === "user") {
     const mid = ev.meta?.messageId;
     if (mid) {
-      const idx = next.findIndex((x) => x.kind === "user" && x.meta?.messageId === mid);
+      const idx = replay ? replay.messageIndex(mid) : next.findIndex((x) => x.kind === "user" && x.meta?.messageId === mid);
       if (idx >= 0) {
-        next[idx] = { ...next[idx], meta: ev.meta, ...(ev.context ? { context: ev.context } : {}) };
+        putHistoryRow(next, idx, { ...next[idx], meta: ev.meta, ...(ev.context ? { context: ev.context } : {}) }, replay);
         return next;
       }
     }
-    next.push({ ...ev, ts: stamp(ev) });
+    putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) }, replay);
     return next;
   }
 
@@ -419,9 +515,9 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
       const lv = last as Extract<AgentEvent, { kind: "thinking_live" }>;
       // le bloc adopte la meta du dernier delta : il porte ainsi le turnId et
       // le dernier eventId vu (dédup) sans état hors liste
-      next[next.length - 1] = { ...lv, text: lv.text + ev.text, meta: ev.meta ?? lv.meta };
+      putHistoryRow(next, next.length - 1, { ...lv, text: lv.text + ev.text, meta: ev.meta ?? lv.meta }, replay);
     } else {
-      next.push({ kind: "thinking_live", text: ev.text, ts: stamp(ev), meta: ev.meta });
+      putHistoryRow(next, next.length, { kind: "thinking_live", text: ev.text, ts: stamp(ev), meta: ev.meta }, replay);
     }
     return next;
   }
@@ -433,16 +529,16 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     if (thinkingProgressIsStale(list, ev)) return list;
     if (last?.kind === "thinking_progress" &&
         (!meta || turnOf(last) === turnOf(ev))) {
-      next[next.length - 1] = { ...last, ...ev, kind: "thinking_progress" };
+      putHistoryRow(next, next.length - 1, { ...last, ...ev, kind: "thinking_progress" }, replay);
     } else {
-      next.push({ ...ev, ts: stamp(ev) });
+      putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) }, replay);
     }
     return next;
   }
   if (ev.kind === "thinking") {
     // bloc final : remplace le live du même turn s'il termine le fil, sinon s'ajoute
     if (lastIsAttachableThinking(next, ev)) {
-      next[next.length - 1] = { kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta };
+      putHistoryRow(next, next.length - 1, { kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta }, replay);
       return next;
     }
     // Grok ne clôt pas une pensée : il découpe un flux continu tous les
@@ -465,36 +561,36 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
         continue;
       }
       if (evMeta && turnOf(item) !== evMeta.turnId) break;
-      next[idx] = { ...item, text: collerPensee(item.text, ev.text), meta: ev.meta ?? item.meta };
+      putHistoryRow(next, idx, { ...item, text: collerPensee(item.text, ev.text), meta: ev.meta ?? item.meta }, replay);
       return next;
     }
-    next.push({ kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta });
+    putHistoryRow(next, next.length, { kind: "thinking", text: ev.text, ts: stamp(ev), meta: ev.meta }, replay);
     return next;
   }
 
   // texte en cours de frappe : accumuler (delta) ou remplacer (stream_set),
   // puis le bloc final "text" remplace la bulle streaming
   if (ev.kind === "delta" || ev.kind === "stream_set") {
-    const sIdx = findStreamingIdx(next, ev);
+    const sIdx = findStreamingIdx(next, ev, replay);
     if (sIdx >= 0) {
       const sb = next[sIdx] as Extract<AgentEvent, { kind: "streaming" }>;
-      next[sIdx] = {
+      putHistoryRow(next, sIdx, {
         ...sb,
         text: ev.kind === "delta" ? sb.text + ev.text : ev.text,
         meta: ev.meta ?? sb.meta,
-      };
+      }, replay);
     } else {
-      next.push({ kind: "streaming", text: ev.text, ts: stamp(ev), meta: ev.meta });
+      putHistoryRow(next, next.length, { kind: "streaming", text: ev.text, ts: stamp(ev), meta: ev.meta }, replay);
     }
     return next;
   }
   if (ev.kind === "text") {
     // le bloc final remplace SA bulle streaming, même si des events outils se
     // sont intercalés depuis les derniers deltas
-    const sIdx = findStreamingIdx(next, ev);
+    const sIdx = findStreamingIdx(next, ev, replay);
     const pose = sIdx >= 0 ? sIdx : next.length;
-    if (sIdx >= 0) next[sIdx] = { ...ev, ts: stamp(ev) };
-    else next.push({ ...ev, ts: stamp(ev) });
+    if (sIdx >= 0) putHistoryRow(next, sIdx, { ...ev, ts: stamp(ev) }, replay);
+    else putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) }, replay);
     // Recollage d'un MOT coupé : les providers découpent le message assistant
     // en blocs de contenu (une recherche web insérée au milieu d'une phrase
     // coupe le texte à la citation, pas à la ponctuation). Deux bulles, deux
@@ -504,8 +600,8 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     const prev = findTextToJoinIdx(next, pose, ev);
     if (prev >= 0) {
       const bulle = next[prev] as Extract<AgentEvent, { kind: "text" }>;
-      next[prev] = { ...bulle, text: bulle.text + ev.text, meta: ev.meta ?? bulle.meta };
-      next.splice(pose, 1);
+      putHistoryRow(next, prev, { ...bulle, text: bulle.text + ev.text, meta: ev.meta ?? bulle.meta }, replay);
+      removeHistoryRow(next, pose, replay);
     }
     return next;
   }
@@ -513,7 +609,7 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   if (ev.kind === "tool_update") {
     // identité d'un item = (turnId, itemId) : deux turns peuvent réutiliser le
     // même id d'outil sans se remplacer (plan 025)
-    const idx = next.findIndex(
+    const idx = findHistoryRow(next, ev.kind, turnOf(ev), replay,
       (item) => item.kind === "tool_update" && sameLifecycleItem(item, ev, item.id, ev.id),
     );
     // Un état en retard ne doit jamais ressusciter « running » après un état
@@ -521,32 +617,32 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // leur remplacement historique (pas de séquence fiable à comparer).
     if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.id)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
-    if (idx >= 0) next[idx] = upd;
-    else next.push(upd);
+    if (idx >= 0) putHistoryRow(next, idx, upd, replay);
+    else putHistoryRow(next, next.length, upd, replay);
     return next;
   }
   if (ev.kind === "activity") {
-    const idx = next.findIndex(
+    const idx = findHistoryRow(next, ev.kind, turnOf(ev), replay,
       (item) => item.kind === "activity" && sameLifecycleItem(item, ev, item.id, ev.id),
     );
     if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.id)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
-    if (idx >= 0) next[idx] = upd;
-    else next.push(upd);
+    if (idx >= 0) putHistoryRow(next, idx, upd, replay);
+    else putHistoryRow(next, next.length, upd, replay);
     return next;
   }
   if (ev.kind === "interaction") {
     // mises à jour d'état (answered/declined/expired) ré-émises avec le MÊME
     // requestId : remplacement en place, la dernière version gagne (plan 025,
     // step 5) — requestId est unique par requête sidecar
-    const idx = next.findIndex(
+    const idx = findHistoryRow(next, ev.kind, turnOf(ev), replay,
       (item) => item.kind === "interaction" && item.requestId === ev.requestId &&
         sameLifecycleItem(item, ev, item.requestId, ev.requestId),
     );
     if (idx >= 0 && isOlderLifecycleSnapshot(next[idx], ev, ev.requestId)) return list;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
-    if (idx >= 0) next[idx] = upd;
-    else next.push(upd);
+    if (idx >= 0) putHistoryRow(next, idx, upd, replay);
+    else putHistoryRow(next, next.length, upd, replay);
     return next;
   }
   if (ev.kind === "todos" || ev.kind === "goal") {
@@ -557,7 +653,9 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
     // Les vieux journaux sans metadata gardent leur singleton global.
     const incomingTurn = turnOf(ev);
     let idx = -1;
-    for (let i = next.length - 1; i >= 0; i--) {
+    const candidates = replay?.indexes(ev.kind, incomingTurn || undefined);
+    for (let offset = (candidates?.length ?? next.length) - 1; offset >= 0; offset--) {
+      const i = candidates ? candidates[offset] : offset;
       if (next[i].kind !== ev.kind) continue;
       if (!incomingTurn || turnOf(next[i]) === incomingTurn) {
         idx = i;
@@ -565,8 +663,8 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
       }
     }
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
-    if (idx >= 0) next[idx] = upd;
-    else next.push(upd);
+    if (idx >= 0) putHistoryRow(next, idx, upd, replay);
+    else putHistoryRow(next, next.length, upd, replay);
     return next;
   }
 
@@ -574,11 +672,11 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   if (ev.kind === "agent_message") {
     const mid = (ev as { messageId?: string }).messageId;
     const idx = mid
-      ? next.findIndex((x) => x.kind === "agent_message" && (x as { messageId?: string }).messageId === mid)
+      ? replay ? replay.messageIndex(mid, "agent_message") : next.findIndex((x) => x.kind === "agent_message" && (x as { messageId?: string }).messageId === mid)
       : -1;
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
-    if (idx >= 0) next[idx] = { ...next[idx], ...upd };
-    else next.push(upd);
+    if (idx >= 0) putHistoryRow(next, idx, { ...next[idx], ...upd }, replay);
+    else putHistoryRow(next, next.length, upd, replay);
     return next;
   }
 
@@ -586,32 +684,32 @@ export function reduceHarnessEvent(list: AgentEvent[], ev: AgentEvent): AgentEve
   // sans bloc final) deviennent définitives — ou disparaissent si vides. Un
   // terminal avec meta ne fige que les bulles de SON turn.
   if (ev.kind === "done" || ev.kind === "error") {
-    const sIdx = findStreamingIdx(next, ev);
+    const sIdx = findStreamingIdx(next, ev, replay);
     if (sIdx >= 0) {
       const sb = next[sIdx] as Extract<AgentEvent, { kind: "streaming" }>;
       const txt = String(sb.text ?? "");
-      if (txt.trim()) next[sIdx] = { kind: "text", text: txt, ts: sb.ts, meta: sb.meta };
-      else next.splice(sIdx, 1);
+      if (txt.trim()) putHistoryRow(next, sIdx, { kind: "text", text: txt, ts: sb.ts, meta: sb.meta }, replay);
+      else removeHistoryRow(next, sIdx, replay);
     }
-    const thinkingIndexes = findThinkingLiveIndexes(next, ev);
+    const thinkingIndexes = findThinkingLiveIndexes(next, ev, replay);
     for (const tIdx of thinkingIndexes) {
       const tb = next[tIdx] as Extract<AgentEvent, { kind: "thinking_live" }>;
       const txt = String(tb.text ?? "");
-      if (txt.trim()) next[tIdx] = { kind: "thinking", text: txt, ts: tb.ts, meta: tb.meta };
-      else next.splice(tIdx, 1);
+      if (txt.trim()) putHistoryRow(next, tIdx, { kind: "thinking", text: txt, ts: tb.ts, meta: tb.meta }, replay);
+      else removeHistoryRow(next, tIdx, replay);
     }
     // Progress markers never belong to the durable transcript. Remove every
     // marker for this turn when its terminal arrives so a late projection or a
     // reconnect cannot expose a stale empty reasoning phase.
-    for (const pIdx of findThinkingProgressIndexes(next, ev)) next.splice(pIdx, 1);
+    for (const pIdx of findThinkingProgressIndexes(next, ev, replay)) removeHistoryRow(next, pIdx, replay);
     // error/tool n'ont pas de ts déclaré mais le runtime historique en pose un
     // (affichage de l'heure) — cast local plutôt qu'un élargissement de ws.ts
-    next.push({ ...ev, ts: stamp(ev) } as AgentEvent);
+    putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) } as AgentEvent, replay);
     return next;
   }
 
   // permission, tool, edit, streaming (déjà matérialisé)… : simple ajout
-  next.push({ ...ev, ts: stamp(ev) } as AgentEvent);
+  putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) } as AgentEvent, replay);
   return next;
 }
 
@@ -655,9 +753,7 @@ function sanitizeHistory(events: AgentEvent[]): AgentEvent[] {
  * (point central du plan 025, step 8).
  */
 export function materializeHarnessHistory(events: AgentEvent[]): AgentEvent[] {
-  let out: AgentEvent[] = [];
-  for (const ev of sanitizeHistory(events)) out = reduceHarnessEvent(out, ev);
-  return out;
+  return replayHarnessEvents(sanitizeHistory(events));
 }
 
 /**
@@ -711,9 +807,7 @@ export function mergeHarnessHistory(current: AgentEvent[], incoming: AgentEvent[
   }
   while (mi < missing.length) timeline.push(missing[mi++]);
 
-  let out: AgentEvent[] = [];
-  for (const ev of timeline) out = reduceHarnessEvent(out, ev);
-  return out;
+  return replayHarnessEvents(timeline);
 }
 
 /**
