@@ -34,6 +34,34 @@ pub const EXCLUDED_DIRECTORIES: &[&str] = &[
     "dist",
     "build",
     ".next",
+    // dépendances, caches et environnements d'outils d'un projet de CODE :
+    // ouvrir un tel projet faisait scanner et vignetter des milliers d'images
+    // de dépendances (issue #1). Noms sans ambiguïté seulement — un dossier
+    // de thèse légitime ne s'appelle pas ainsi. Les `.venv*` et les venvs
+    // Python de nom quelconque (`pyvenv.cfg`) sont couverts plus bas.
+    "venv",
+    "site-packages",
+    ".tox",
+    ".nox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".cache",
+    "htmlcov",
+    "bower_components",
+    ".yarn",
+    ".pnpm-store",
+    ".turbo",
+    ".parcel-cache",
+    ".nuxt",
+    ".svelte-kit",
+    "Pods",
+    "DerivedData",
+    ".build",
+    ".swiftpm",
+    ".gradle",
+    ".dart_tool",
+    ".terraform",
 ];
 
 #[derive(Debug, Error)]
@@ -296,7 +324,19 @@ pub fn is_artifact(path: &Path) -> bool {
 }
 
 pub fn is_excluded_dir(name: &str) -> bool {
-    EXCLUDED_DIRECTORIES.contains(&name)
+    EXCLUDED_DIRECTORIES.contains(&name) || name.starts_with(".venv")
+}
+
+/// Comme [`is_excluded_dir`], plus les environnements virtuels Python de nom
+/// quelconque (`env/`, `py311/`…) reconnus à leur `pyvenv.cfg` : un stat par
+/// dossier, réservé aux parcours de l'arborescence (le watcher, qui ne voit
+/// que des chemins d'événements, s'en tient aux noms).
+pub fn is_excluded_dir_path(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    is_excluded_dir(name) || path.join("pyvenv.cfg").is_file()
 }
 
 pub fn artifact_snapshot(project: &Path) -> Result<BTreeMap<String, (u128, u64)>, CoreError> {
@@ -308,8 +348,16 @@ pub fn artifact_snapshot(project: &Path) -> Result<BTreeMap<String, (u128, u64)>
             let entry = entry?;
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                if !is_excluded_dir(&name) {
+            // `file_type` ne suit pas les liens : un lien vers un dossier
+            // parent (`lien -> ..`) faisait parcourir le projet en boucle
+            // jusqu'à ELOOP, avant même que le serveur n'écoute. Le scan de
+            // la galerie ne suit pas les liens non plus (`follow_links(false)`).
+            let file_type = entry.file_type()?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                if !is_excluded_dir_path(&path) {
                     stack.push(path);
                 }
                 continue;
@@ -617,7 +665,56 @@ mod stale_tmp_tests {
 
 #[cfg(test)]
 mod exclusions_tests {
-    use super::EXCLUDED_DIRECTORIES;
+    use super::{EXCLUDED_DIRECTORIES, artifact_snapshot, is_excluded_dir, is_excluded_dir_path};
+
+    #[test]
+    fn code_project_tooling_directories_are_excluded() {
+        // issue #1 : dépendances et environnements d'un projet de code
+        for dir in [
+            "venv",
+            ".venv",
+            ".venv-py311",
+            "site-packages",
+            "Pods",
+            ".cache",
+            ".tox",
+        ] {
+            assert!(
+                is_excluded_dir(dir),
+                "{dir} doit être exclu du scan galerie"
+            );
+        }
+        // un dossier de thèse au nom proche reste visible
+        for dir in ["figures", "environment", "venvironment", "cache_maps"] {
+            assert!(!is_excluded_dir(dir), "{dir} ne doit pas être exclu");
+        }
+    }
+
+    #[test]
+    fn python_virtualenv_of_any_name_is_excluded() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = dir.path().join("env");
+        std::fs::create_dir(&env).unwrap();
+        assert!(
+            !is_excluded_dir_path(&env),
+            "sans pyvenv.cfg, env/ est un dossier ordinaire"
+        );
+        std::fs::write(env.join("pyvenv.cfg"), "home = /usr/bin\n").unwrap();
+        assert!(is_excluded_dir_path(&env));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_snapshot_does_not_follow_directory_symlinks() {
+        // un lien vers le dossier parent faisait parcourir le projet en
+        // boucle (jusqu'à ELOOP) avant que le serveur galerie n'écoute
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("figures")).unwrap();
+        std::fs::write(dir.path().join("figures/fig.png"), b"png").unwrap();
+        std::os::unix::fs::symlink(dir.path(), dir.path().join("figures/boucle")).unwrap();
+        let snapshot = artifact_snapshot(dir.path()).unwrap();
+        assert_eq!(snapshot.keys().collect::<Vec<_>>(), vec!["figures/fig.png"]);
+    }
 
     #[test]
     fn build_directories_are_excluded() {
