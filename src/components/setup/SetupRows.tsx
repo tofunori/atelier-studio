@@ -13,11 +13,13 @@ import { Row } from "../settings/primitives/Row";
 import { Button, IconButton, StatusBadge, type BadgeStatus } from "../ui";
 import { t } from "../../lib/i18n";
 import {
+  agentLabel,
   installPlan,
   runSetupCommand,
   withResolvedBinary,
   type EnvironmentTool,
   type EnvironmentToolId,
+  type SetupAgentId,
   type SetupCommandKind,
   type SetupOrigin,
   type SetupProviderStatus,
@@ -26,10 +28,6 @@ import {
 /** Terminal de macOS, ouvert à côté de la commande à coller. */
 export const MACOS_TERMINAL_APP = "/System/Applications/Utilities/Terminal.app";
 
-export const SETUP_AGENTS = ["claude", "codex"] as const;
-export type SetupAgentId = (typeof SETUP_AGENTS)[number];
-
-const AGENT_LABELS: Record<SetupAgentId, string> = { claude: "Claude Code", codex: "Codex" };
 const AGENT_DESC = { claude: "setup.agent-claude", codex: "setup.agent-codex" } as const;
 
 const TOOL_DESC = {
@@ -48,11 +46,6 @@ function toolTitle(id: EnvironmentToolId): string {
     case "tex": return "LaTeX";
     case "zotero": return "Zotero";
   }
-}
-
-/** Libellé d'agent affiché (celui du serveur s'il est connu). */
-export function agentLabel(id: SetupAgentId, provider: SetupProviderStatus | null | undefined): string {
-  return provider?.label && provider.label !== id ? provider.label : AGENT_LABELS[id];
 }
 
 /** Commande en attente d'être copiée, par rangée. */

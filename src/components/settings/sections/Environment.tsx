@@ -8,8 +8,8 @@
 import { Group, Row } from "../primitives";
 import type { SectionProps } from "../shared";
 import { t } from "../../../lib/i18n";
-import { openSetupWelcome, recheckAll, useSetupEnvironment } from "../../../lib/setupEnvironment";
-import { AgentSetupRow, SETUP_AGENTS, ToolSetupRow } from "../../setup/SetupRows";
+import { SETUP_AGENTS, openSetupWelcome, recheckAll, useSetupEnvironment } from "../../../lib/setupEnvironment";
+import { AgentSetupRow, ToolSetupRow } from "../../setup/SetupRows";
 import { Button, InlineNotice } from "../../ui";
 
 export default function Environment(p: SectionProps) {

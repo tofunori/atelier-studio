@@ -11,13 +11,15 @@ import { Button, InlineNotice } from "../ui";
 import { Group } from "../settings/primitives";
 import { t } from "../../lib/i18n";
 import {
+  SETUP_AGENTS,
+  agentLabel,
   agentReady,
   closeSetupWelcome,
   markWelcomeDone,
   recheckAll,
   useSetupEnvironment,
 } from "../../lib/setupEnvironment";
-import { AgentSetupRow, SETUP_AGENTS, ToolSetupRow, agentLabel } from "./SetupRows";
+import { AgentSetupRow, ToolSetupRow } from "./SetupRows";
 
 const OPTIONAL_TOOLS = new Set(["poppler", "tex", "zotero"]);
 

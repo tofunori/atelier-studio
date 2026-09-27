@@ -131,6 +131,17 @@ export function normalizeTools(value: unknown): EnvironmentTool[] {
   });
 }
 
+/** Agents proposés au premier lancement, dans l'ordre affiché. */
+export const SETUP_AGENTS = ["claude", "codex"] as const;
+export type SetupAgentId = (typeof SETUP_AGENTS)[number];
+
+const AGENT_LABELS: Record<SetupAgentId, string> = { claude: "Claude Code", codex: "Codex" };
+
+/** Libellé d'agent affiché (celui du serveur s'il est connu). */
+export function agentLabel(id: SetupAgentId, provider: SetupProviderStatus | null | undefined): string {
+  return provider?.label && provider.label !== id ? provider.label : AGENT_LABELS[id];
+}
+
 /** Au moins un fournisseur prêt, quel qu'il soit (CLI ou API). */
 export function agentReady(providers: readonly SetupProviderStatus[] | null | undefined): boolean {
   return Boolean(providers?.some((provider) => provider.auth === "ready"));
