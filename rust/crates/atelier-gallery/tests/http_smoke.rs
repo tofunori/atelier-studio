@@ -143,6 +143,35 @@ fn zotero_reading_survives_project_and_server_changes() {
 }
 
 fn start_server_with(extra_env: &[(&str, String)]) -> Server {
+    start_server_opts(extra_env, true)
+}
+
+/// Binaire du serveur et assets Studio du dépôt.
+fn server_paths() -> (PathBuf, PathBuf) {
+    // CARGO_MANIFEST_DIR = rust/crates/atelier-gallery → repo root is ../../..
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .unwrap();
+    // Studio assets live under gallery/assets (not cmux top-level assets/).
+    let assets = repo.join("gallery/assets");
+    assert!(
+        assets.join("gallery_template.html").is_file(),
+        "assets missing at {}",
+        assets.display()
+    );
+    let binary = repo
+        .join("rust/target/debug/atelier-gallery-server")
+        .canonicalize()
+        .or_else(|_| {
+            repo.join("rust/target/release/atelier-gallery-server")
+                .canonicalize()
+        })
+        .expect("build atelier-gallery first (cargo build -p atelier-gallery)");
+    (binary, assets)
+}
+
+fn start_server_opts(extra_env: &[(&str, String)], seed_index: bool) -> Server {
     // Each smoke test launches a real gallery server. Running all of those
     // subprocesses concurrently makes the rescan/build test vulnerable to
     // runner-level resource pressure and connection resets. Keep this binary's
@@ -164,30 +193,13 @@ fn start_server_with(extra_env: &[(&str, String)]) -> Server {
     .unwrap();
     fs::write(root.join("script.py"), b"print('fixture')\n").unwrap();
     fs::write(root.join("notes.md"), b"# notes\n").unwrap();
-    // Minimal gallery artefacts
-    fs::write(root.join("figures_data.json"), b"{\"files\":[]}\n").unwrap();
-    fs::write(root.join("figures_index.html"), b"<html></html>\n").unwrap();
+    // Minimal gallery artefacts (absents : le serveur bâtit l'index au boot)
+    if seed_index {
+        fs::write(root.join("figures_data.json"), b"{\"files\":[]}\n").unwrap();
+        fs::write(root.join("figures_index.html"), b"<html></html>\n").unwrap();
+    }
 
-    // CARGO_MANIFEST_DIR = rust/crates/atelier-gallery → repo root is ../../..
-    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .unwrap();
-    // Studio assets live under gallery/assets (not cmux top-level assets/).
-    let assets = repo.join("gallery/assets");
-    assert!(
-        assets.join("gallery_template.html").is_file(),
-        "assets missing at {}",
-        assets.display()
-    );
-    let binary = repo
-        .join("rust/target/debug/atelier-gallery-server")
-        .canonicalize()
-        .or_else(|_| {
-            repo.join("rust/target/release/atelier-gallery-server")
-                .canonicalize()
-        })
-        .expect("build atelier-gallery first (cargo build -p atelier-gallery)");
+    let (binary, assets) = server_paths();
 
     let port = free_port();
     let mut command = Command::new(binary);
@@ -240,6 +252,79 @@ fn start_server_with(extra_env: &[(&str, String)]) -> Server {
         root,
         _test_guard: test_guard,
     }
+}
+
+#[test]
+fn boot_build_runs_after_listening_and_data_waits_for_it() {
+    // issue #1 : le serveur écoute avant le build initial ; /data attend ce
+    // build au lieu de répondre 404 à la coquille qui vient de charger.
+    let srv = start_server_opts(&[], false);
+    let (st, body) = http(srv.port, "GET", "/data", None);
+    assert_eq!(st, 200, "{body}");
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let mut rels: Vec<&str> = data["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["rel"].as_str())
+        .collect();
+    rels.sort();
+    assert_eq!(rels, vec!["notes.md", "script.py", "tiny.png"]);
+    assert!(srv.root.join("figures_data.json").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_exits_when_its_parent_app_dies() {
+    // issue #1 : après un arrêt forcé de l'app, le serveur orphelin continuait
+    // son build. Ici le « parent » est un shell qui se termine après 2 s.
+    let _guard = SERVER_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("figures_data.json"), b"{\"files\":[]}\n").unwrap();
+    fs::write(root.path().join("figures_index.html"), b"<html></html>\n").unwrap();
+    let (binary, assets) = server_paths();
+    let port = free_port();
+    let script = format!(
+        "ATELIER_PARENT_PID=$$ '{}' --root '{}' --port {port} --no-watch >/dev/null 2>&1 & echo $!; sleep 2",
+        binary.display(),
+        root.path().display(),
+    );
+    let mut shell = Command::new("sh")
+        .args(["-c", &script])
+        .env("ATELIER_ASSETS_DIR", &assets)
+        .env("HOME", root.path().join("home"))
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut pid = String::new();
+    {
+        use std::io::BufRead;
+        std::io::BufReader::new(shell.stdout.take().unwrap())
+            .read_line(&mut pid)
+            .unwrap();
+    }
+    let pid: i32 = pid.trim().parse().unwrap();
+    let alive = |port: u16| TcpStream::connect(("127.0.0.1", port)).is_ok();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !alive(port) {
+        assert!(Instant::now() < deadline, "le serveur n'a jamais écouté");
+        thread::sleep(Duration::from_millis(50));
+    }
+    shell.wait().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while alive(port) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+    }
+    let still_alive = alive(port);
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+    }
+    assert!(
+        !still_alive,
+        "le serveur doit s'arrêter quand l'app parente disparaît"
+    );
 }
 
 #[test]

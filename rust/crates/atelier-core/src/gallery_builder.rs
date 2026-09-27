@@ -1,4 +1,4 @@
-use crate::{ARTIFACT_EXTENSIONS, CoreError, EXCLUDED_DIRECTORIES, atomic_write};
+use crate::{ARTIFACT_EXTENSIONS, CoreError, atomic_write, is_excluded_dir_path};
 use chrono::{DateTime, Local};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,15 @@ use std::{
 use walkdir::{DirEntry, WalkDir};
 
 const SELF_NAME: &str = "figures_index.html";
+/// Plafond des vignettes générées D'AVANCE par build (issue #1 : ouvrir un
+/// projet de code aux milliers d'images lançait autant de `sips`/`qlmanage`
+/// et remplissait `.fig_thumbs/` de milliers de fichiers avant même que le
+/// serveur réponde). Les PDF/vidéos passent d'abord (la grille n'a pas
+/// d'autre source pour eux), puis les images, les plus récents en tête. Le
+/// reste n'est pas perdu : les images sont servies à la demande par la route
+/// `/thumb` (la grille ne demande que ce qu'elle affiche) et les PDF/vidéos
+/// restants sont repris par les builds suivants.
+const EAGER_THUMB_BUDGET: usize = 200;
 const SCRIPT_EXTS: &[&str] = &["py", "r", "jl", "sh", "rs"];
 const CODE_EXTS: &[&str] = &["py", "r", "jl", "sh", "rs", "tex", "md", "csv"];
 const ARCHIVE_HINTS: &[&str] = &[
@@ -79,10 +88,7 @@ fn include_entry(entry: &DirEntry, root: &Path, show_frames: bool) -> bool {
     }
     if entry.file_type().is_dir() {
         let name = entry.file_name().to_string_lossy();
-        if EXCLUDED_DIRECTORIES
-            .iter()
-            .any(|excluded| *excluded == name)
-        {
+        if is_excluded_dir_path(entry.path()) {
             return false;
         }
         if !show_frames && is_frames_dir(&name) {
@@ -356,6 +362,10 @@ fn run_thumb_job(job: &ThumbJob) {
 }
 
 fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
+    build_thumbnails_with_budget(root, rows, EAGER_THUMB_BUDGET);
+}
+
+fn build_thumbnails_with_budget(root: &Path, rows: &mut [GalleryRow], budget: usize) {
     let Some(thumbs) = safe_cache_dir(root) else {
         return;
     };
@@ -365,7 +375,9 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
     // connaît que cet ensemble) et collecte les jobs de génération
     // manquants, dédupliqués par cible (= par clé).
     let mut live = BTreeSet::new();
-    let mut jobs: Vec<ThumbJob> = Vec::new();
+    // (priorité, mtime, job) : 0 = pdf/vidéo, 1 = image — trié puis tronqué
+    // au budget après la registration, qui, elle, reste complète (GC).
+    let mut jobs: Vec<(u8, u64, ThumbJob)> = Vec::new();
     let mut queued_targets: BTreeSet<PathBuf> = BTreeSet::new();
     for row in rows.iter() {
         let source = root.join(&row.rel);
@@ -375,12 +387,16 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
             let target = thumbs.join(format!("{key}.png"));
             let failed = thumbs.join(format!("{key}.fail"));
             if !regular_file(&target) && !regular_file(&failed) && queued_targets.insert(target.clone()) {
-                jobs.push(ThumbJob::Pdf {
-                    source,
-                    target,
-                    failed,
-                    name: row.name.clone(),
-                });
+                jobs.push((
+                    0,
+                    row.mtime,
+                    ThumbJob::Pdf {
+                        source,
+                        target,
+                        failed,
+                        name: row.name.clone(),
+                    },
+                ));
             }
         } else if matches!(row.ext.as_str(), "png" | "jpg" | "jpeg") {
             let canonical = fs::canonicalize(&source).unwrap_or(source.clone());
@@ -391,7 +407,7 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
             live.insert(format!("imgthumb_{key}"));
             let target = thumbs.join(format!("imgthumb_{key}.png"));
             if !regular_file(&target) && queued_targets.insert(target.clone()) {
-                jobs.push(ThumbJob::Image { source, target });
+                jobs.push((1, row.mtime, ThumbJob::Image { source, target }));
             }
         } else if row.ext == "svg" {
             // le builder ne génère pas les vignettes svg (rsvg-convert reste
@@ -415,8 +431,11 @@ fn build_thumbnails(root: &Path, rows: &mut [GalleryRow]) {
     // consomment la file de jobs. Chaque job écrit son résultat directement
     // sur son fichier cible (dédupliqué à l'étape (a), donc jamais deux
     // travailleurs sur la même cible) — la passe (c) relit ces fichiers.
+    jobs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+    jobs.truncate(budget);
     if !jobs.is_empty() {
-        let queue: Mutex<VecDeque<ThumbJob>> = Mutex::new(jobs.into_iter().collect());
+        let queue: Mutex<VecDeque<ThumbJob>> =
+            Mutex::new(jobs.into_iter().map(|(_, _, job)| job).collect());
         let workers = thread::available_parallelism()
             .map(|n| n.get().clamp(2, 4))
             .unwrap_or(2);
@@ -776,6 +795,40 @@ mod tests {
     }
 
     #[test]
+    fn scan_skips_code_project_dependencies() {
+        // issue #1 : ouvrir un projet de code scannait (et vignettait) les
+        // images de ses dépendances et environnements virtuels
+        let root = fixture();
+        for (dir, file) in [
+            ("figures", "fig.png"),
+            ("environment", "map.png"),
+            ("env/lib/python3.12/site-packages/matplotlib", "icon.png"),
+            (".venv-py311/lib", "logo.png"),
+            ("venv/lib", "logo.png"),
+            ("ios/Pods/Charts", "chart.png"),
+            (".cache/pip", "wheel.png"),
+        ] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+            fs::write(root.join(dir).join(file), b"png").unwrap();
+        }
+        fs::write(root.join("env/pyvenv.cfg"), "home = /usr/bin\n").unwrap();
+        let rows = scan(&GalleryBuildOptions {
+            version_tag: None,
+            root: root.clone(),
+            template: root.join("unused"),
+            title: "Atelier".into(),
+            extensions: None,
+            show_frames: false,
+            no_thumbs: true,
+        })
+        .unwrap();
+        let mut rels: Vec<&str> = rows.iter().map(|row| row.rel.as_str()).collect();
+        rels.sort();
+        assert_eq!(rels, vec!["environment/map.png", "figures/fig.png"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn declared_commands_are_argv_only() {
         let root = fixture();
         fs::write(root.join("figure.svg"), b"<svg/>").unwrap();
@@ -943,6 +996,44 @@ mod thumbs_gc_tests {
         assert!(
             live.exists(),
             "la vignette html produite par la route /thumb doit survivre au GC"
+        );
+    }
+
+    #[test]
+    fn eager_thumbnails_are_capped_pdf_first_most_recent_first() {
+        // issue #1 : un build ne lance plus qu'un nombre borné de
+        // générations. Les sources n'existent pas : chaque tentative laisse
+        // un marqueur `.fail` (qlmanage absent ou en échec), ce qui rend les
+        // jobs réellement lancés observables sans vrai PDF.
+        let dir = tempfile::tempdir().unwrap();
+        let thumbs = dir.path().join(".fig_thumbs");
+        std::fs::create_dir(&thumbs).unwrap();
+        let mut rows = vec![
+            gallery_row_for_test("recent.png", "png", 9_000),
+            gallery_row_for_test("old.pdf", "pdf", 1_000),
+            gallery_row_for_test("new.pdf", "pdf", 3_000),
+            gallery_row_for_test("mid.pdf", "pdf", 2_000),
+        ];
+        build_thumbnails_with_budget(dir.path(), &mut rows, 2);
+        let attempted = |name: &str, mtime: u64| {
+            let key = stable_thumb_key(name, mtime);
+            thumbs.join(format!("{key}.fail")).exists()
+                || thumbs.join(format!("{key}.png")).exists()
+        };
+        assert!(attempted("new.pdf", 3_000));
+        assert!(attempted("mid.pdf", 2_000));
+        assert!(
+            !attempted("old.pdf", 1_000),
+            "au-delà du budget, repris au build suivant"
+        );
+        let images = std::fs::read_dir(&thumbs)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("imgthumb_"))
+            .count();
+        assert_eq!(
+            images, 0,
+            "les PDF passent avant les images, servies à la demande par /thumb"
         );
     }
 

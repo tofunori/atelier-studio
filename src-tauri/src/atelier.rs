@@ -308,6 +308,9 @@ fn start_atelier_blocking(
         .env("ATELIER_APP_VERSION", identity::APP_VERSION)
         .env("ATELIER_BUNDLE_HASH", bundle_hash.as_deref().unwrap_or(""))
         .env("ATELIER_ASSETS_DIR", &assets)
+        // le serveur s'arrête si l'app meurt sans passer par kill_all
+        // (arrêt forcé, plantage) — sinon il continue son build orphelin
+        .env("ATELIER_PARENT_PID", std::process::id().to_string())
         .arg("--root")
         .arg(&root)
         .arg("--port")
