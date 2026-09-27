@@ -12,21 +12,15 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// Ragdoc est une intégration facultative : sans réglage (Réglages >
+/// Intégrations, ou `ATELIER_RAGDOC_HOST` + `ATELIER_RAGDOC_ROOT`), aucune
+/// connexion SSH n'est tentée. L'hôte est validé par `atelier_integrations`
+/// (jamais d'option `-…`, jamais de caractère de shell).
 pub fn call(request: Value) -> Result<Value, String> {
-    let host = std::env::var("ATELIER_RAGDOC_HOST").unwrap_or_else(|_| "rorqual".into());
-    let root = std::env::var("ATELIER_RAGDOC_ROOT")
-        .unwrap_or_else(|_| "/volume1/Services/mcp/ragdoc".into());
-    if host.starts_with('-')
-        || host.is_empty()
-        || !host
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
-    {
-        return Err("Hôte Ragdoc invalide".into());
-    }
-    if !root.starts_with('/') || root.contains('\0') {
-        return Err("Dossier Ragdoc invalide".into());
-    }
+    let Some(target) = atelier_integrations::Integrations::load().ragdoc() else {
+        return Err(atelier_integrations::RAGDOC_NOT_CONFIGURED.into());
+    };
+    let (host, root) = (target.host, target.root);
     let writing = request["operation"] == "write";
     let seconds = if writing { 7200 } else { 120 };
     let command = format!(
@@ -189,9 +183,7 @@ pub fn import_pdf_with_converter(path: &str, dir: &Path, selected: Option<&str>,
         .unwrap_or("Article");
     let source = source_name(stem, &fingerprint);
     let output_name = source.trim_end_matches(".md");
-    let home = std::env::var("HOME").unwrap_or_default();
-    let project = std::env::var("ATELIER_RAGDOC_LOCAL_ROOT")
-        .unwrap_or_else(|_| format!("{home}/Documents/Ragdoc"));
+    let project = atelier_integrations::Integrations::load().ragdoc_local_root();
     let converter = selected.map(str::to_string).unwrap_or_else(|| std::env::var("ATELIER_RAGDOC_CONVERTER").unwrap_or_else(|_| "mistral".into()));
     if converter != "mistral" && converter != "mineru" {
         return Err("Convertisseur Ragdrop inconnu".into());
@@ -264,6 +256,11 @@ pub fn import_pdf_with_converter(path: &str, dir: &Path, selected: Option<&str>,
 }
 
 pub fn import_doi(doi: &str, dir: &Path) -> Result<Value, String> {
+    // Le brouillon ne sert qu'à une écriture Ragdoc : inutile d'interroger
+    // Crossref si elle ne pourra jamais avoir lieu.
+    if atelier_integrations::Integrations::load().ragdoc().is_none() {
+        return Err(atelier_integrations::RAGDOC_NOT_CONFIGURED.into());
+    }
     let clean = crate::article_meta::clean_doi(doi);
     if !crate::article_meta::is_valid_doi_shape(&clean) {
         return Err("DOI invalide".into());

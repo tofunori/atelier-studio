@@ -146,6 +146,7 @@ dependencies = [
 name = "atelier-annots-mcp"
 version = "0.1.0"
 dependencies = [
+ "atelier-integrations",
  "fs2",
  "roxmltree",
  "rusqlite",
@@ -182,6 +183,7 @@ version = "0.1.0"
 dependencies = [
  "atelier-core",
  "atelier-fdlimit",
+ "atelier-integrations",
  "axum",
  "base64",
  "clap",
@@ -219,10 +221,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-integrations"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "atelier-kb"
 version = "0.1.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-integrations",
  "chrono",
  "hex",
  "once_cell",
@@ -301,6 +312,7 @@ name = "atelier-runtime"
 version = "0.1.0"
 dependencies = [
  "atelier-harness",
+ "atelier-integrations",
  "atelier-kb",
  "atelier-protocol",
  "atelier-providers",
@@ -361,6 +373,7 @@ dependencies = [
 name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
+ "atelier-integrations",
  "base64",
  "chrono",
  "hex",

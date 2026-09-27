@@ -67,13 +67,10 @@ fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
 }
 
-/// `ATELIER_ZOTERO_DIR` permet de pointer vers une racine Zotero de test
-/// (fixture) sans muter `HOME` dans le processus courant — le défaut réel
-/// reste `~/Zotero`.
+/// `ATELIER_ZOTERO_DIR` (fixtures de test), puis réglage Atelier, puis
+/// dossier personnalisé choisi dans Zotero, sinon `~/Zotero`.
 fn zotero_dir() -> PathBuf {
-    std::env::var_os("ATELIER_ZOTERO_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("Zotero"))
+    atelier_integrations::Integrations::load().zotero_dir()
 }
 
 fn zotero_src() -> PathBuf {

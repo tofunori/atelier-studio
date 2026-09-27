@@ -24,14 +24,10 @@ struct CacheState {
     // We re-open on each ensure for simplicity with bundled sqlite
 }
 
-fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
+/// Dossier de données Zotero : `ATELIER_ZOTERO_DIR`, réglage Atelier, dossier
+/// personnalisé choisi dans Zotero (prefs.js), sinon `~/Zotero`.
 pub fn zotero_dir() -> PathBuf {
-    home().join("Zotero")
+    atelier_integrations::Integrations::load().zotero_dir()
 }
 
 fn src_db() -> PathBuf {

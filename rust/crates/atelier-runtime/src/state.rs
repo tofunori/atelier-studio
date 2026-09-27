@@ -4,7 +4,7 @@ use crate::agent_mcp::CapabilityRegistry;
 use crate::paths::AppPaths;
 use atelier_harness::HarnessManager;
 use atelier_protocol::Health;
-use atelier_providers::{build_registry, Provider};
+use atelier_providers::{build_registry, build_registry_except, Provider};
 use atelier_store::{
     AgentMailboxStore, AutomationStore, CommandReceiptStore, HarnessJournal, HighlightStore,
     ReviewStore, ThreadStore,
@@ -72,7 +72,10 @@ struct Inner {
     bus: broadcast::Sender<String>,
     terminals: Arc<TerminalHub>,
     harness: Arc<HarnessManager>,
-    providers: HashMap<String, Arc<dyn Provider>>,
+    /// Providers détectés. Verrou std (lectures synchrones, jamais tenu à
+    /// travers un `.await`) : « Revérifier » y AJOUTE les CLI installés après
+    /// le lancement, sans toucher aux providers vivants.
+    providers: std::sync::RwLock<HashMap<String, Arc<dyn Provider>>>,
     client_instance_id: Mutex<Option<String>>,
     interaction_waiters: Mutex<HashMap<String, InteractionWaiter>>,
     approval_sessions: Mutex<HashSet<String>>,
@@ -128,7 +131,15 @@ impl AppState {
             let _ = terminal_bus.send(message.to_string());
         }));
         let harness = Arc::new(HarnessManager::new(journal.clone()));
-        let providers = build_registry(&paths.app_dir);
+        // Intégrations facultatives : le premier démarrage après la mise à
+        // jour crée integrations.json (anciennes valeurs reprises seulement
+        // si l'app porte la trace de leur usage).
+        match atelier_integrations::migrate_legacy(&paths.app_dir) {
+            Ok(atelier_integrations::Migration::AlreadyPresent) => {}
+            Ok(outcome) => tracing::info!(?outcome, "integrations.json créé"),
+            Err(error) => tracing::warn!(%error, "integrations.json non créé"),
+        }
+        let providers = std::sync::RwLock::new(build_registry(&paths.app_dir));
         // Purge ghost "running" status from previous process (Node index.mjs boot).
         let mut threads = threads;
         for t in threads.list() {
@@ -333,7 +344,41 @@ impl AppState {
     }
 
     pub fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
-        self.inner.providers.get(id).cloned()
+        self.inner
+            .providers
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(id)
+            .cloned()
+    }
+
+    /// Détecte les CLI d'agents apparus depuis le lancement et les ajoute ;
+    /// renvoie les ids ajoutés. Bloquant (`which`, lectures de config) :
+    /// appeler hors du runtime async.
+    pub fn refresh_providers(&self) -> Vec<String> {
+        let present: HashSet<String> = self
+            .inner
+            .providers
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let fresh = build_registry_except(&self.inner.paths.app_dir, &present);
+        let mut providers = self
+            .inner
+            .providers
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut added = Vec::new();
+        for (id, provider) in fresh {
+            if !providers.contains_key(&id) {
+                providers.insert(id.clone(), provider);
+                added.push(id);
+            }
+        }
+        added.sort();
+        added
     }
 
     /// Inject a deterministic provider into an otherwise production-shaped
@@ -343,7 +388,7 @@ impl AppState {
     pub(crate) fn with_test_provider(mut self, id: &str) -> Self {
         let inner = Arc::get_mut(&mut self.inner)
             .expect("test providers must be installed before AppState is cloned");
-        inner.providers.insert(
+        inner.providers.get_mut().unwrap().insert(
             id.to_string(),
             Arc::new(atelier_providers::FakeProvider::new(id)),
         );
@@ -354,7 +399,7 @@ impl AppState {
     pub(crate) fn with_test_review_provider(mut self, id: &str, body: &str) -> Self {
         let inner = Arc::get_mut(&mut self.inner)
             .expect("test providers must be installed before AppState is cloned");
-        inner.providers.insert(
+        inner.providers.get_mut().unwrap().insert(
             id.to_string(),
             Arc::new(atelier_providers::FakeProvider::new(id).with_review_json(body)),
         );
@@ -368,7 +413,7 @@ impl AppState {
     pub(crate) fn with_slow_test_provider(mut self, id: &str, delay_ms: u64) -> Self {
         let inner = Arc::get_mut(&mut self.inner)
             .expect("test providers must be installed before AppState is cloned");
-        inner.providers.insert(
+        inner.providers.get_mut().unwrap().insert(
             id.to_string(),
             Arc::new(atelier_providers::FakeProvider::new(id).with_delay(delay_ms)),
         );

@@ -10,6 +10,7 @@ name = "atelier-annots-mcp"
 path = "src/main.rs"
 
 [dependencies]
+atelier-integrations = { workspace = true }
 serde_json = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 fs2 = "0.4"

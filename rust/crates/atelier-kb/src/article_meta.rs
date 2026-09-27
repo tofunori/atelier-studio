@@ -13,7 +13,6 @@ use unicode_normalization::UnicodeNormalization;
 
 const CROSSREF_TIMEOUT_MS: u64 = 8000;
 const ZOTERO_TIMEOUT_MS: u64 = 5000;
-const MAILTO: &str = "laurentstpierrethierry@gmail.com";
 pub const TITLE_MATCH_MIN: f64 = 0.75;
 
 #[derive(Clone, Debug, Default)]
@@ -94,9 +93,32 @@ fn zotero_storage_key(path: &str) -> Option<String> {
 
 fn zotero_db_path() -> String {
     std::env::var("ATELIER_ZOTERO_DB").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-        format!("{home}/Zotero/zotero.sqlite")
+        atelier_integrations::Integrations::load()
+            .zotero_dir()
+            .join("zotero.sqlite")
+            .display()
+            .to_string()
     })
+}
+
+/// Contact Crossref (« polite pool ») : le courriel réglé par l'utilisateur,
+/// sinon aucun — jamais celui d'un autre (Réglages > Intégrations).
+fn crossref_contact() -> Option<String> {
+    atelier_integrations::Integrations::load().crossref_mailto()
+}
+
+fn crossref_url(base: String, contact: &Option<String>) -> String {
+    match contact {
+        Some(mail) => format!("{base}&mailto={}", encode_uri_component(mail)),
+        None => base,
+    }
+}
+
+fn crossref_user_agent(contact: &Option<String>) -> String {
+    match contact {
+        Some(mail) => format!("atelier-studio (mailto:{mail})"),
+        None => "atelier-studio (+https://github.com/tofunori/atelier-studio)".to_string(),
+    }
 }
 
 fn sql_quote(value: &str) -> String {
@@ -284,10 +306,14 @@ pub fn crossref_meta(doi: &str) -> Option<ShapedWork> {
     if !DOI_SHAPE_RE.is_match(&clean) {
         return None;
     }
-    let url = format!("https://api.crossref.org/works/{}?mailto={}", encode_uri_component(&clean), encode_uri_component(MAILTO));
+    let contact = crossref_contact();
+    let url = match &contact {
+        Some(mail) => format!("https://api.crossref.org/works/{}?mailto={}", encode_uri_component(&clean), encode_uri_component(mail)),
+        None => format!("https://api.crossref.org/works/{}", encode_uri_component(&clean)),
+    };
     let resp = http_client()
         .get(&url)
-        .header("User-Agent", format!("atelier-studio (mailto:{MAILTO})"))
+        .header("User-Agent", crossref_user_agent(&contact))
         .timeout(Duration::from_millis(CROSSREF_TIMEOUT_MS))
         .send()
         .ok()?;
@@ -363,14 +389,17 @@ pub fn crossref_by_title(guessed: &ArticleMeta) -> Option<ShapedWork> {
     if title.chars().count() < 20 {
         return None;
     }
-    let url = format!(
-        "https://api.crossref.org/works?rows=5&query.bibliographic={}&mailto={}",
-        encode_uri_component(&title),
-        encode_uri_component(MAILTO)
+    let contact = crossref_contact();
+    let url = crossref_url(
+        format!(
+            "https://api.crossref.org/works?rows=5&query.bibliographic={}",
+            encode_uri_component(&title)
+        ),
+        &contact,
     );
     let resp = http_client()
         .get(&url)
-        .header("User-Agent", format!("atelier-studio (mailto:{MAILTO})"))
+        .header("User-Agent", crossref_user_agent(&contact))
         .timeout(Duration::from_millis(CROSSREF_TIMEOUT_MS))
         .send()
         .ok()?;

@@ -20,10 +20,11 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
         };
+        let app_dir = var("ATELIER_APP_DIR")
+            .unwrap_or_else(|| home.join("Library/Application Support/atelier-studio"));
         Self {
-            app_dir: var("ATELIER_APP_DIR")
-                .unwrap_or_else(|| home.join("Library/Application Support/atelier-studio")),
-            zotero_dir: var("ATELIER_ZOTERO_DIR").unwrap_or_else(|| home.join("Zotero")),
+            zotero_dir: atelier_integrations::Integrations::load_from(&app_dir).zotero_dir(),
+            app_dir,
             cache_dir: std::env::temp_dir().join("atelier-annots-mcp"),
         }
     }

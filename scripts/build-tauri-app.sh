@@ -36,4 +36,6 @@ printf '%s\n' "$$" > "$LOCK_PID_FILE"
 
 echo "Build Tauri verrouillé pour : $REPO_ROOT"
 cd "$REPO_ROOT"
-npm run tauri -- build --bundles app "$@"
+source "$REPO_ROOT/scripts/tauri-signing-args.sh"
+# ${arr[@]+…} : bash 3.2 de macOS refuse un tableau vide sous `set -u`.
+npm run tauri -- build --bundles app ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"

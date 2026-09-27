@@ -29,10 +29,12 @@ use serde_json::{json, Value};
 mod kb;
 mod threads;
 mod api_providers;
+mod integrations;
 mod quick_ask;
 use kb::*;
 use threads::*;
 use api_providers::*;
+use integrations::*;
 use quick_ask::*;
 
 /// Exhaustive list of handled WS types (must cover Node `router.mjs` cases).
@@ -43,6 +45,9 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "providerStatus",
     "status",
     "setupStatus",
+    "integrations",
+    "saveIntegrations",
+    "refreshProviders",
     "listThreads",
     "renameThread",
     "moveThread",
@@ -190,12 +195,12 @@ fn narval_reply_with<T: serde::Serialize>(
     workspace_reply_with(response_type, request_id, extra, result)
 }
 
-/// Configuration de la surface Calculs, résolue une fois par processus
-/// (`ATELIER_RUNS_DIR`, alias NAS, profil Slurm) ; exécuteur système partagé.
-fn compute_runtime() -> (&'static ComputeConfig, &'static SystemExec) {
-    static CONFIG: std::sync::OnceLock<ComputeConfig> = std::sync::OnceLock::new();
+/// Configuration de la surface Calculs (`ATELIER_RUNS_DIR`, profil Slurm,
+/// hôtes réglés dans Réglages > Intégrations), relue à chaque demande pour
+/// qu'un réglage enregistré s'applique sans redémarrer ; exécuteur partagé.
+fn compute_runtime() -> (ComputeConfig, &'static SystemExec) {
     static EXEC: SystemExec = SystemExec;
-    (CONFIG.get_or_init(ComputeConfig::default), &EXEC)
+    (ComputeConfig::default(), &EXEC)
 }
 
 /// Enveloppe commune des réponses « atelier » (Narval, Calculs) :
@@ -749,7 +754,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "computeSnapshot" => {
             let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
-            // `hosts` absent ou vide → tous ; fourni mais aucun nom connu →
+            // `hosts` absent ou vide → hôtes configurés (le Mac, plus ceux de
+            // Réglages > Intégrations) ; fourni mais aucun nom connu →
             // instantané vide + erreur `invalid_hosts` (jamais de repli sur
             // tous les hôtes, qui déclencherait des ssh non demandés).
             let requested: Option<Vec<&str>> = msg
@@ -757,20 +763,18 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .and_then(Value::as_array)
                 .map(|list| list.iter().filter_map(Value::as_str).collect())
                 .filter(|list: &Vec<&str>| !list.is_empty());
-            let hosts: Vec<ComputeHost> = match &requested {
-                Some(list) => list
-                    .iter()
+            let hosts: Option<Vec<ComputeHost>> = requested.as_ref().map(|list| {
+                list.iter()
                     .copied()
                     .filter_map(ComputeHost::parse)
-                    .collect(),
-                None => ComputeHost::ALL.to_vec(),
-            };
+                    .collect()
+            });
             let days = msg
                 .get("days")
                 .and_then(Value::as_u64)
                 .unwrap_or(7)
                 .clamp(1, 30) as u32;
-            if hosts.is_empty() {
+            if hosts.as_ref().is_some_and(Vec::is_empty) {
                 let unknown = requested.unwrap_or_default().join(", ");
                 let snapshot = ComputeSnapshot {
                     observed_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
@@ -794,7 +798,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 json!({}),
                 crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
-                    Ok(compute_snapshot(cfg, &hosts, days, exec))
+                    let hosts = hosts.unwrap_or_else(|| cfg.configured_hosts());
+                    Ok(compute_snapshot(&cfg, &hosts, days, exec))
                 })
                 .await,
             )
@@ -818,7 +823,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 json!({"runId": run_id_out}),
                 crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
-                    compute_read_log(cfg, &run_id, tail_lines, exec)
+                    compute_read_log(&cfg, &run_id, tail_lines, exec)
                 })
                 .await,
             )
@@ -837,7 +842,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 json!({"runId": run_id_out}),
                 crate::ws_dispatch::blocking(move || {
                     let (cfg, exec) = compute_runtime();
-                    compute_forget_run(cfg, &run_id, exec)
+                    compute_forget_run(&cfg, &run_id, exec)
                 })
                 .await,
             )
@@ -1624,6 +1629,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
 
         // --- Porte 9: remaining Node router cases ---
         "setupStatus" => handle_setup_status(state).await,
+        "integrations" => handle_integrations(state).await,
+        "saveIntegrations" => handle_save_integrations(state, &msg).await,
+        "refreshProviders" => handle_refresh_providers(state).await,
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
         "savePlan" => handle_save_plan(state, &msg, false).await,

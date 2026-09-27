@@ -6,6 +6,7 @@ license.workspace = true
 description = "HTTP/WS server runtime: auth, lock, health, lifecycle"
 
 [dependencies]
+atelier-integrations = { workspace = true }
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
 atelier-workspace = { workspace = true }

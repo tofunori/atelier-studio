@@ -74,7 +74,11 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "listSessions"
         | "getUsage"
         | "listPins"
-        | "getReviews" => Class::Read,
+        | "getReviews"
+        | "integrations"
+        // N'ajoute que les CLI absents du registre (RwLock) : aucune session
+        // vivante n'est touchée, donc pas de barrière globale.
+        | "refreshProviders" => Class::Read,
         _ => Class::Ordered,
     }
 }
@@ -563,6 +567,7 @@ mod tests {
             "addHighlight",
             "removeHighlight",
             "saveSettings",
+            "saveIntegrations",
             "upsertThread",
             "computeForgetRun",
             "clearPasted",

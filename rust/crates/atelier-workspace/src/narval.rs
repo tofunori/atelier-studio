@@ -43,49 +43,45 @@ pub struct NarvalProfile {
 }
 
 /// Grappes Alliance surveillées par la surface. Même protocole SSH, mêmes
-/// commandes Slurm : seuls l'alias distant et les racines changent. Les alias
-/// par défaut sont ceux du NAS (passerelle) — `ssh nas -t ssh <alias>`.
-const PROFILES: &[(&str, &str, &str)] = &[
-    ("narval", "NARVAL", "narval-vpn"),
-    ("rorqual", "RORQUAL", "rorqual-vpn"),
-];
+/// commandes Slurm : seuls l'alias distant et les racines changent. L'alias
+/// et la passerelle éventuelle (`ssh <passerelle> -t ssh <alias>`) viennent
+/// du réglage des intégrations : aucune grappe n'est contactée sans lui.
+const PROFILES: &[(&str, &str)] = &[("narval", "NARVAL"), ("rorqual", "RORQUAL")];
 
 pub fn known_profiles() -> impl Iterator<Item = (&'static str, &'static str)> {
-    PROFILES.iter().map(|(id, label, _)| (*id, *label))
+    PROFILES.iter().copied()
 }
 
 impl NarvalProfile {
     pub fn from_env(id: &str) -> Result<Self, NarvalError> {
-        let Some((_, _, default_host)) = PROFILES.iter().find(|(known, _, _)| *known == id) else {
+        Self::resolve(id, &atelier_integrations::Integrations::load())
+    }
+
+    /// `ATELIER_<ID>_HOST` / `_GATEWAY` restent honorées (via
+    /// `atelier_integrations`), `_ROOTS` aussi.
+    pub fn resolve(
+        id: &str,
+        integrations: &atelier_integrations::Integrations,
+    ) -> Result<Self, NarvalError> {
+        if !PROFILES.iter().any(|(known, _)| *known == id) {
             return Err(NarvalError::new("invalid_profile", "profil de grappe inconnu"));
+        }
+        let Some(target) = integrations.cluster(id) else {
+            return Err(NarvalError::new(
+                "not_configured",
+                "grappe non configurée (Réglages > Intégrations)",
+            ));
         };
-        // ATELIER_NARVAL_* reste le préfixe du profil narval (compatibilité) ;
-        // les autres profils prennent leur propre préfixe majuscule.
-        let prefix = format!("ATELIER_{}", id.to_uppercase());
-        let host = std::env::var(format!("{prefix}_HOST"))
-            .unwrap_or_else(|_| (*default_host).to_string());
-        if !valid_ssh_alias(&host) {
+        let (host, gateway) = (target.host, target.gateway);
+        if !valid_ssh_alias(&host)
+            || gateway.as_deref().is_some_and(|value| !valid_ssh_alias(value))
+        {
             return Err(NarvalError::new(
                 "invalid_profile",
                 "alias SSH de grappe invalide",
             ));
         }
-        let gateway =
-            std::env::var(format!("{prefix}_GATEWAY")).unwrap_or_else(|_| "nas".into());
-        let gateway = if gateway.trim().is_empty() {
-            None
-        } else {
-            Some(gateway)
-        };
-        if gateway
-            .as_deref()
-            .is_some_and(|value| !valid_ssh_alias(value))
-        {
-            return Err(NarvalError::new(
-                "invalid_profile",
-                "passerelle SSH de grappe invalide",
-            ));
-        }
+        let prefix = format!("ATELIER_{}", id.to_uppercase());
         let roots = std::env::var(format!("{prefix}_ROOTS"))
             .unwrap_or_else(|_| "/home,/project,/scratch,/lustre06,/lustre07".into())
             .split(',')
@@ -868,24 +864,47 @@ mod tests {
         assert!(profile.validate_path("/home/u/project").is_ok());
         assert!(profile.validate_path("/home/u/../secret").is_err());
         assert!(profile.validate_path("/etc/passwd").is_err());
-        assert!(NarvalProfile::from_env("other").is_err());
-        assert!(NarvalProfile::from_env("rorqual").is_ok());
+        let configured = configured(&[("narval", "narval-vpn"), ("rorqual", "rorqual-vpn")]);
+        assert!(NarvalProfile::resolve("other", &configured).is_err());
+        assert!(NarvalProfile::resolve("rorqual", &configured).is_ok());
         assert_eq!(
             known_profiles().map(|(id, _)| id).collect::<Vec<_>>(),
             vec!["narval", "rorqual"],
         );
     }
 
+    /// Réglage explicite, sans lecture d'environnement ni de fichier : aucun
+    /// test ne MUTE l'env ici (course avec les autres tests du binaire, vécu
+    /// 2026, flake kimi).
+    fn configured(clusters: &[(&str, &str)]) -> atelier_integrations::Integrations {
+        let clusters: serde_json::Map<String, serde_json::Value> = clusters
+            .iter()
+            .map(|(id, host)| (id.to_string(), serde_json::json!(host)))
+            .collect();
+        atelier_integrations::Integrations::from_parts(
+            serde_json::json!({"compute": {"clusterGateway": "nas", "clusters": clusters}}),
+            Default::default(),
+            std::path::PathBuf::from("/nonexistent"),
+        )
+    }
+
     #[test]
     fn each_profile_targets_its_own_remote_alias() {
-        // Sans variable d'environnement, chaque grappe porte l'alias déclaré
-        // sur le NAS. Aucun test ne MUTE l'env ici : ce serait une course avec
-        // les autres tests du binaire (vécu 2026, flake kimi).
-        let narval = NarvalProfile::from_env("narval").unwrap();
-        let rorqual = NarvalProfile::from_env("rorqual").unwrap();
+        let integrations = configured(&[("narval", "narval-vpn"), ("rorqual", "rorqual-vpn")]);
+        let narval = NarvalProfile::resolve("narval", &integrations).unwrap();
+        let rorqual = NarvalProfile::resolve("rorqual", &integrations).unwrap();
         assert_ne!(narval.host, rorqual.host);
         assert_eq!(narval.id, "narval");
-        assert_eq!(rorqual.id, "rorqual");
+        assert_eq!(rorqual.gateway.as_deref(), Some("nas"));
+    }
+
+    #[test]
+    fn an_unconfigured_cluster_is_never_contacted() {
+        let integrations = configured(&[("narval", "narval")]);
+        assert_eq!(
+            NarvalProfile::resolve("rorqual", &integrations).unwrap_err().code,
+            "not_configured"
+        );
     }
 
     #[test]

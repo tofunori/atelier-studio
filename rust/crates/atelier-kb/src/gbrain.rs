@@ -137,10 +137,14 @@ pub struct GbrainInvocation {
     pub argv: Vec<String>,
 }
 
-/// Hôte ssh par défaut de `gbrainInvocation` — miroir du paramètre par
-/// défaut `process.env.ATELIER_GBRAIN_SSH_HOST ?? "nas"` (knowledge.mjs:337).
-pub fn default_gbrain_ssh_host() -> String {
-    std::env::var("ATELIER_GBRAIN_SSH_HOST").unwrap_or_else(|_| "nas".to_string())
+/// Hôte ssh de `gbrainInvocation` : réglage gbrain (Réglages > Intégrations
+/// ou `ATELIER_GBRAIN_SSH_HOST`), chaîne vide = binaire local. `None` quand
+/// gbrain n'est pas configuré — plus de repli implicite sur `ssh nas`.
+pub fn default_gbrain_ssh_host() -> Option<String> {
+    match atelier_integrations::Integrations::load().gbrain()? {
+        atelier_integrations::GbrainTarget::Local => Some(String::new()),
+        atelier_integrations::GbrainTarget::Ssh(host) => Some(host),
+    }
 }
 
 /// Miroir de `gbrainInvocation(args, host)` (`sidecar/knowledge.mjs:337-348`,
@@ -181,7 +185,8 @@ pub fn gbrain_invocation(args: &[&str], host: &str) -> Result<GbrainInvocation, 
 /// local — B1 (plans/065-revue-findings.md) : les écritures partaient dans
 /// le mauvais brain (local, quasi vide) faute de suivre `ssh nas` par défaut.
 pub fn run_gbrain(args: &[&str], input: Option<&str>) -> Result<String, String> {
-    let host = default_gbrain_ssh_host();
+    let host = default_gbrain_ssh_host()
+        .ok_or_else(|| atelier_integrations::GBRAIN_NOT_CONFIGURED.to_string())?;
     let invocation = gbrain_invocation(args, &host)?;
     let argv_refs: Vec<&str> = invocation.argv.iter().map(String::as_str).collect();
     match spawn_with_timeout(&invocation.cmd, &argv_refs, input, Duration::from_millis(GBRAIN_TIMEOUT_MS)) {
@@ -455,12 +460,14 @@ mod tests {
         assert_eq!(inv.argv, vec!["get".to_string(), "slug".to_string()]);
     }
 
+    /// Plus de défaut `nas` : l'absence de réglage est couverte par
+    /// `atelier-integrations` ; ici, seule la variable historique compte.
     #[test]
-    fn default_gbrain_ssh_host_utilise_nas_par_defaut() {
-        std::env::remove_var("ATELIER_GBRAIN_SSH_HOST");
-        assert_eq!(default_gbrain_ssh_host(), "nas");
+    fn default_gbrain_ssh_host_suit_la_variable_historique() {
         std::env::set_var("ATELIER_GBRAIN_SSH_HOST", "");
-        assert_eq!(default_gbrain_ssh_host(), "");
+        assert_eq!(default_gbrain_ssh_host().as_deref(), Some(""));
+        std::env::set_var("ATELIER_GBRAIN_SSH_HOST", "brain-box");
+        assert_eq!(default_gbrain_ssh_host().as_deref(), Some("brain-box"));
         std::env::remove_var("ATELIER_GBRAIN_SSH_HOST");
     }
 }

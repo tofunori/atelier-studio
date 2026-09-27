@@ -1,0 +1,13 @@
+[package]
+name = "atelier-integrations"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "Intégrations facultatives (Ragdoc, gbrain, calculs, Crossref, Zotero) : réglage utilisateur, aucune valeur par défaut personnelle"
+
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
