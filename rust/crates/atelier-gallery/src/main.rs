@@ -160,7 +160,16 @@ async fn revision(State(state): State<AppState>) -> Json<Value> {
 
 async fn data(State(state): State<AppState>) -> impl IntoResponse {
     let path = state.root.join("figures_data.json");
-    match tokio::fs::read(path).await {
+    let mut read = tokio::fs::read(&path).await;
+    if read.is_err() {
+        // Index absent : le build de boot tourne peut-être encore (il ne
+        // bloque plus l'écoute, issue #1). L'attendre plutôt que répondre 404
+        // à la coquille qui vient de charger — sinon elle retient la révision
+        // d'après-build et n'affiche rien jusqu'au changement suivant.
+        drop(state.rebuild_lock.lock().await);
+        read = tokio::fs::read(&path).await;
+    }
+    match read {
         Ok(bytes) => (
             StatusCode::OK,
             [
@@ -1978,6 +1987,16 @@ pub(crate) async fn rebuild(
     rebuild_lock: &Arc<Mutex<()>>,
 ) -> RebuildOutcome {
     let _guard = rebuild_lock.lock().await;
+    rebuild_locked(root, status, revision).await
+}
+
+/// Corps de [`rebuild`], l'appelant détenant déjà `rebuild_lock` (build de
+/// boot : le verrou est pris AVANT d'écouter pour que `/data` l'attende).
+async fn rebuild_locked(
+    root: &std::path::Path,
+    status: &Arc<RwLock<WatcherStatus>>,
+    revision: &Arc<RwLock<u64>>,
+) -> RebuildOutcome {
     let assets = std::env::var_os("ATELIER_ASSETS_DIR")
         .map(PathBuf::from)
         .or_else(|| {
@@ -2262,9 +2281,44 @@ fn iso_now() -> String {
     format!("{y:04}-{m:02}-{day:02}T{h:02}:{mi:02}:{s:02}.{millis:03}Z")
 }
 
+/// Lancé par l'app (`ATELIER_PARENT_PID` = son pid), le serveur s'arrête
+/// quand elle disparaît. `process_registry::kill_all` ne couvre que la
+/// fermeture normale : après un arrêt forcé ou un plantage, le serveur
+/// orphelin continuait son build (des milliers de vignettes) et survivait à
+/// une réinstallation, jusqu'au redémarrage du Mac (issue #1).
+fn exit_with_parent() {
+    let Some(parent) = std::env::var("ATELIER_PARENT_PID")
+        .ok()
+        .and_then(|value| value.trim().parse::<i32>().ok())
+        .filter(|pid| *pid > 1)
+    else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        // Le parent déclaré n'est plus le nôtre : l'app est déjà partie.
+        // Ensuite, il suffit de surveiller le rattachement à launchd.
+        let orphaned = move || unsafe { libc::getppid() } != parent;
+        if orphaned() {
+            eprintln!("[gallery] app parente (pid {parent}) absente au démarrage — arrêt");
+            std::process::exit(0);
+        }
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                if orphaned() {
+                    eprintln!("[gallery] app parente (pid {parent}) disparue — arrêt");
+                    std::process::exit(0);
+                }
+            }
+        });
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     atelier_fdlimit::raise_nofile_limit();
+    exit_with_parent();
     let args = Args::parse();
     let root = resolve_root(&args)?;
     // Balaie au boot les .tmp d'atomic_write abandonnés par un process tué
@@ -2293,16 +2347,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_version = std::env::var("ATELIER_APP_VERSION").unwrap_or_else(|_| "dev".into());
     let bundle_hash = std::env::var("ATELIER_BUNDLE_HASH").unwrap_or_else(|_| "dev".into());
 
-    // Boot rebuild if index/data missing (parity with gallery/server/main.mjs).
-    let data_path = root.join("figures_data.json");
-    let shell_path = root.join("figures_index.html");
-    if !data_path.is_file() || !shell_path.is_file() {
-        eprintln!("[gallery] initial build for {}", root.display());
-        let lock = Arc::new(Mutex::new(()));
-        let watcher = Arc::new(RwLock::new(WatcherStatus::default()));
-        let revision = Arc::new(RwLock::new(0u64));
-        let _ = rebuild(&root, &watcher, &revision, &lock).await;
-    }
+    // Boot rebuild if index/data missing (parity with gallery/server/main.mjs)
+    // — lancé APRÈS le bind, plus bas (issue #1).
+    let boot_build =
+        !root.join("figures_data.json").is_file() || !root.join("figures_index.html").is_file();
 
     let initial_revision = artifact_snapshot(&root)
         .map(|snapshot| snapshot.len() as u64)
@@ -2359,6 +2407,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bundle_hash,
         live_shell,
     };
+    let boot_state = state.clone();
     if args.watch && !args.no_watch {
         let watcher_state = state.clone();
         tokio::spawn(async move {
@@ -2509,6 +2558,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "atelier-gallery-server listening on http://{address} root={} backend=rust",
         root.display()
     );
+    // Build initial APRÈS le bind (issue #1). Avant, le serveur n'écoutait
+    // qu'une fois tout le projet scanné et vignetté : sur un gros projet de
+    // code, l'app abandonnait au bout de 30 s, et chaque nouvel essai lançait
+    // un serveur de plus sur le même projet, tous occupés à générer les mêmes
+    // vignettes. Le port pris d'emblée fait échouer tout doublon au bind. Le
+    // verrou est pris avant de servir : `/data`, les rescans et le watcher
+    // attendent ce build, et la révision bumpée à la fin recharge la grille.
+    if boot_build {
+        eprintln!("[gallery] initial build for {}", root.display());
+        let guard = boot_state.rebuild_lock.clone().lock_owned().await;
+        tokio::spawn(async move {
+            let _guard = guard;
+            let _ = rebuild_locked(
+                &boot_state.root,
+                &boot_state.watcher,
+                &boot_state.revision,
+            )
+            .await;
+        });
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }
