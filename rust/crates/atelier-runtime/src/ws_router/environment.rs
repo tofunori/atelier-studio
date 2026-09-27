@@ -16,8 +16,7 @@ pub(super) fn agent_install_command(id: &str) -> Option<&'static str> {
     }
 }
 
-const HOMEBREW_INSTALL: &str =
-    r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#;
+const HOMEBREW_INSTALL: &str = r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#;
 
 /// Dossiers fouillés après le PATH : l'app lancée depuis le Finder n'a pas
 /// toujours ceux de Homebrew ni de MacTeX.
@@ -61,7 +60,9 @@ impl ProbeContext {
 }
 
 fn is_executable(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else { return false };
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -120,7 +121,14 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
     let zotero_found = ctx.zotero_dir.join("zotero.sqlite").is_file();
 
     vec![
-        tool("homebrew", brew.as_deref(), brew.is_some(), None, Some(HOMEBREW_INSTALL), "https://brew.sh"),
+        tool(
+            "homebrew",
+            brew.as_deref(),
+            brew.is_some(),
+            None,
+            Some(HOMEBREW_INSTALL),
+            "https://brew.sh",
+        ),
         tool(
             "git",
             git.as_deref(),
@@ -160,9 +168,14 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
 /// `xcode-select`), donc « Revérifier » voit tout de suite une installation.
 pub(super) async fn handle_environment_status(state: &AppState) -> Vec<String> {
     let app_dir = state.app_dir().to_path_buf();
-    match crate::ws_dispatch::blocking(move || probe_tools(&ProbeContext::current(&app_dir))).await {
-        Ok(tools) => vec![json_msg(json!({"type": "environmentStatus", "tools": tools}))],
-        Err(error) => vec![err(format!("diagnostic de l'environnement impossible : {error}"))],
+    match crate::ws_dispatch::blocking(move || probe_tools(&ProbeContext::current(&app_dir))).await
+    {
+        Ok(tools) => vec![json_msg(
+            json!({"type": "environmentStatus", "tools": tools}),
+        )],
+        Err(error) => vec![err(format!(
+            "diagnostic de l'environnement impossible : {error}"
+        ))],
     }
 }
 
@@ -191,14 +204,25 @@ mod tests {
             zotero_dir: zotero.path().to_path_buf(),
         };
         let tools = probe_tools(&ctx);
-        let ids: Vec<&str> = tools.iter().map(|tool| tool["id"].as_str().unwrap()).collect();
+        let ids: Vec<&str> = tools
+            .iter()
+            .map(|tool| tool["id"].as_str().unwrap())
+            .collect();
         assert_eq!(ids, ["homebrew", "git", "poppler", "tex", "zotero"]);
         for tool in &tools {
             assert_eq!(tool["found"], false, "{tool}");
-            assert!(tool["installUrl"].as_str().is_some_and(|url| url.starts_with("https://")));
+            assert!(tool["installUrl"]
+                .as_str()
+                .is_some_and(|url| url.starts_with("https://")));
         }
-        assert_eq!(by_id(&tools, "poppler")["installCommand"], "brew install poppler");
-        assert_eq!(by_id(&tools, "git")["installCommand"], "xcode-select --install");
+        assert_eq!(
+            by_id(&tools, "poppler")["installCommand"],
+            "brew install poppler"
+        );
+        assert_eq!(
+            by_id(&tools, "git")["installCommand"],
+            "xcode-select --install"
+        );
     }
 
     #[test]
@@ -259,8 +283,13 @@ mod tests {
 
     #[test]
     fn agent_installs_are_official_commands() {
-        assert!(agent_install_command("claude").unwrap().contains("https://claude.ai/install.sh"));
-        assert_eq!(agent_install_command("codex"), Some("brew install --cask codex"));
+        assert!(agent_install_command("claude")
+            .unwrap()
+            .contains("https://claude.ai/install.sh"));
+        assert_eq!(
+            agent_install_command("codex"),
+            Some("brew install --cask codex")
+        );
         assert_eq!(agent_install_command("kimi"), None);
     }
 }

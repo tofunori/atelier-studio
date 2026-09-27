@@ -78,13 +78,23 @@ pub(crate) async fn claude_probe(bin: &Path) -> Value {
         run(bin, &["auth", "status", "--json"]),
     );
     let logged_in = status.and_then(|output| claude_logged_in(&output.stdout));
-    probe_json(bin, version.as_ref().and_then(version_token), logged_in, CLAUDE_LOGIN_COMMAND)
+    probe_json(
+        bin,
+        version.as_ref().and_then(version_token),
+        logged_in,
+        CLAUDE_LOGIN_COMMAND,
+    )
 }
 
 pub(crate) async fn codex_probe(bin: &Path) -> Value {
     let (version, status) = tokio::join!(run(bin, &["--version"]), run(bin, &["login", "status"]));
     let logged_in = status.as_ref().and_then(codex_logged_in);
-    probe_json(bin, version.as_ref().and_then(version_token), logged_in, CODEX_LOGIN_COMMAND)
+    probe_json(
+        bin,
+        version.as_ref().and_then(version_token),
+        logged_in,
+        CODEX_LOGIN_COMMAND,
+    )
 }
 
 #[cfg(all(test, unix))]
@@ -101,7 +111,10 @@ mod tests {
 
     #[test]
     fn claude_status_json_is_read_whatever_the_exit_code() {
-        assert_eq!(claude_logged_in(br#"{"loggedIn": true, "authMethod": "claude.ai"}"#), Some(true));
+        assert_eq!(
+            claude_logged_in(br#"{"loggedIn": true, "authMethod": "claude.ai"}"#),
+            Some(true)
+        );
         assert_eq!(claude_logged_in(br#"{"loggedIn": false}"#), Some(false));
         assert_eq!(claude_logged_in(b"error: unknown command 'auth'"), None);
     }
@@ -150,7 +163,10 @@ mod tests {
         assert_eq!(probe["loginCommand"], CODEX_LOGIN_COMMAND);
 
         let old_dir = tempfile::tempdir().unwrap();
-        let old = fake_cli(old_dir.path(), r#"echo "error: unrecognized subcommand" >&2; exit 2"#);
+        let old = fake_cli(
+            old_dir.path(),
+            r#"echo "error: unrecognized subcommand" >&2; exit 2"#,
+        );
         assert_eq!(codex_probe(&old).await["state"], "ready");
     }
 }

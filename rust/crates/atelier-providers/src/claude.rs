@@ -2924,10 +2924,12 @@ mod session_vivante_tests {
         .await
         .expect("le tour conclut malgré la question en suspens");
         assert!(res.ok, "{:?}", res.error);
-        tokio::time::timeout(std::time::Duration::from_secs(2), lache_rx)
+        // Ok : la garde a été lâchée. Err : la tâche d'attente a été annulée
+        // avant même d'appeler le relais (machine chargée), qui est alors
+        // détruit avec l'émetteur. Dans les deux cas plus rien ne le retient.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), lache_rx)
             .await
-            .expect("le relais doit être abandonné à la fin du tour")
-            .unwrap();
+            .expect("le relais doit être abandonné à la fin du tour");
     }
 }
 
