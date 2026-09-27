@@ -1,3 +1,4 @@
+// Generated from gallery/src/browser/pdfjs_compat.ts; edit the TypeScript source.
 /* Compatibilité pdf.js ≥ 4 avec le WebKit système (Safari / WKWebView).
    pdf.js itère `page.streamTextContent()` avec `for await` dans
    getTextContent() — y compris dans sa variante « legacy ». Or le WebKit

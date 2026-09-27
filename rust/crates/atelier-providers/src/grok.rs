@@ -1802,7 +1802,7 @@ mod tests {
 
     fn fixture_provider() -> Option<GrokProvider> {
         let fixture = format!(
-            "{}/tests/fixtures/fake_kimi_acp.mjs",
+            "{}/tests/fixtures/fake_kimi_acp.mts",
             env!("CARGO_MANIFEST_DIR")
         );
         Some(GrokProvider::with_command(

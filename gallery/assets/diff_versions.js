@@ -1,3 +1,5 @@
+// Generated from gallery/src/browser/diff_versions.ts; edit the TypeScript source.
+
 "use strict";
 // Historique de versions + comparaison EN PLACE (CodeMirror 5) — module partagé
 // par latex_studio.html et code_editor.html. Le document affiché reste le buffer
@@ -35,7 +37,7 @@
 //       l'ouverture de la comparaison passent d'abord par l'hôte ; true =
 //       la vue visible (Lecture) a pris le changement en charge, l'éditeur
 //       masqué ne défile pas.
-window.DiffVersions = function(opts){
+const createDiffVersions = function(opts){
   const { getCm, path, notify, els, restoreText, onMarks, onNavigate } = opts;
   const launchParams = (() => {
     try{ return new URLSearchParams(location.search); }
@@ -78,16 +80,16 @@ window.DiffVersions = function(opts){
   })();
   let runtimePushes = 0; // empêche le restore asynchrone de doubler une action déjà journalisée
 
-  function newId(ts){ return "dv-" + ts + "-" + idNonce + "-" + (++idSeq); }
+  function newId(ts               ){ return "dv-" + ts + "-" + idNonce + "-" + (++idSeq); }
   function extension(){
     const name = path.split(/[\\/]/).pop() || "";
     const dot = name.lastIndexOf(".");
     return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
   }
-  function proseKey(text, mode){
+  function proseKey(text, mode        ){
     const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
     const tokens = [];
-    let prose = [];
+    let prose           = [];
     let exactEnv = null;
     let fenced = null;
     const flush = () => {
@@ -95,7 +97,7 @@ window.DiffVersions = function(opts){
       tokens.push("P:" + prose.join(" ").replace(/[ \t]+/g, " ").trim());
       prose = [];
     };
-    const latexComment = line => {
+    const latexComment = (line) => {
       for(let i = 0; i < line.length; i++){
         if(line[i] !== "%") continue;
         let slashes = 0;
@@ -152,7 +154,7 @@ window.DiffVersions = function(opts){
     if(tokens[tokens.length - 1] === "B") tokens.pop();
     return JSON.stringify(tokens);
   }
-  function equivalent(a, b){
+  function equivalent(a        , b        ){
     if(a === b) return true;
     const ext = extension();
     if(ext === "tex" || ext === "ltx") return proseKey(a, "latex") === proseKey(b, "latex");
@@ -256,23 +258,23 @@ window.DiffVersions = function(opts){
     document.head.appendChild(st);
   }
 
-  let lastKnown = null; // dernier texte de buffer persisté (rattrapage inter-sessions)
+  let lastKnown         = null; // dernier texte de buffer persisté (rattrapage inter-sessions)
   let serverRevision = 0;
-  let serverBaseHash = null;
+  let serverBaseHash         = null;
   const acknowledgedIds = new Set();
   // Décisions de revue acquittées par le serveur : id → forme canonique
   // (baseHash:textHash:accepted). flushWrites n'émet une op `review` que pour
   // les ids dont la décision a changé depuis le dernier ack (2026-09-11).
   const acknowledgedReview = new Map();
-  const reviewCanon = (entry) => entry.baseHash + ":" + entry.textHash + ":" + (entry.accepted === true ? "1" : "0");
+  const reviewCanon = (entry             ) => entry.baseHash + ":" + entry.textHash + ":" + (entry.accepted === true ? "1" : "0");
   const pendingById = new Map();
   let writeRunning = false, writeAgain = false, persistenceStopped = false;
-  let postTimer = null;
-  function hashText(text){
+  let postTimer                               = null;
+  function hashText(text        ){
     // SHA-256 synchrone : permet de figer le snapshot avant le premier await,
     // donc une intervention arrivée pendant le POST reste dans pendingById.
     const bytes = new TextEncoder().encode(text);
-    const rotr = (n, x) => (x >>> n) | (x << (32 - n));
+    const rotr = (n        , x        ) => (x >>> n) | (x << (32 - n));
     const k = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
       0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
       0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
@@ -329,7 +331,7 @@ window.DiffVersions = function(opts){
     const current = {hash: put(currentText), ts: Date.now()};
     // Décisions de revue (« Garder »/« Ignorer »/« Tout accepter ») : base
     // ajustée + texte résultant, par empreinte, textes enregistrés.
-    const review = {};
+    const review                              = {};
     const known = new Set(INTERVENTIONS.map(it => it.id));
     for(const [id, entry] of Object.entries(reviewState)){
       if(!known.has(id) || !entry || typeof entry.base !== "string" || typeof entry.text !== "string") continue;
@@ -341,13 +343,13 @@ window.DiffVersions = function(opts){
         sha: anchor?.sha || "", ts: anchor?.ts},
       texts, interventions, legacySnapshots, current, review, lastKnown: currentText};
   }
-  function stopPersistence(message){
+  function stopPersistence(message        ){
     persistenceStopped = true;
     notify("persistance du diff arrêtée — " + message);
   }
   function materializeServer(data){
     if(!data || data.v !== 2 || !data.texts) return null;
-    const text = hash => typeof data.texts[hash] === "string" ? data.texts[hash] : null;
+    const text = (hash) => typeof data.texts[hash] === "string" ? data.texts[hash] : null;
     const interventions = [];
     for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
       const before = text(it.fromHash), after = text(it.toHash);
@@ -364,8 +366,8 @@ window.DiffVersions = function(opts){
     const stoneText = data.milestone ? text(data.milestone.hash) : null;
     // Décisions de revue : résolues en textes. Une décision dont un texte
     // manquerait est ignorée, jamais fatale (le GC serveur garde les siens).
-    const review = {};
-    const rawReview = data.review && typeof data.review === "object" && !Array.isArray(data.review) ? data.review : {};
+    const review                              = {};
+    const rawReview                              = data.review && typeof data.review === "object" && !Array.isArray(data.review) ? data.review : {};
     for(const [id, entry] of Object.entries(rawReview)){
       if(!id || !entry || typeof entry !== "object") continue;
       const baseText = text(entry.baseHash), resultText = text(entry.textHash);
@@ -378,7 +380,7 @@ window.DiffVersions = function(opts){
       // Jalon « Repartir d'ici » : base d'AFFICHAGE, distincte de l'ancre.
       milestone: stoneText === null ? null : {before: stoneText, ts: Number(data.milestone.ts) || 0}};
   }
-  function mergeConflictState(remote, localBaseHash){
+  function mergeConflictState(remote, localBaseHash        ){
     const decoded = materializeServer(remote);
     if(!decoded){ stopPersistence("état serveur invalide"); return false; }
     const expectedBase = serverBaseHash || localBaseHash;
@@ -402,7 +404,7 @@ window.DiffVersions = function(opts){
     serverBaseHash = decoded.baseHash;
     return true;
   }
-  async function flushWrites(retried){
+  async function flushWrites(retried         ){
     if(persistenceStopped) return;
     if(writeRunning){ writeAgain = true; return; }
     writeRunning = true;
@@ -423,7 +425,7 @@ window.DiffVersions = function(opts){
         const [baseHash, textHash] = canonical.split(":");
         known.add(baseHash); known.add(textHash);
       }
-      const textsFor = (...hashes) => {
+      const textsFor = (...hashes          ) => {
         const out = {};
         for(const hash of hashes){
           if(known.has(hash) || typeof snapshot.texts[hash] !== "string") continue;
@@ -489,7 +491,7 @@ window.DiffVersions = function(opts){
       if(writeAgain){ writeAgain = false; await flushWrites(false); }
     }
   }
-  function persist(afterText){
+  function persist(afterText         ){
     if(typeof afterText === "string") lastKnown = afterText;
     clearTimeout(postTimer);
     postTimer = setTimeout(() => { flushWrites(false); }, 400);
@@ -519,7 +521,7 @@ window.DiffVersions = function(opts){
   // diff nativement (showMergeDiff) et ne passe jamais par applyRender — la
   // publication doit donc être calculable seule (vécu 2026-08-17).
   function computeSrcMarks(inputParts, after){
-    const wsn = s2 => s2.replace(/\s+/g, " ").trim();
+    const wsn = (s2) => s2.replace(/\s+/g, " ").trim();
     let parts = inputParts;
     if(parts.length){
       const merged = [];
@@ -548,7 +550,7 @@ window.DiffVersions = function(opts){
       }
       parts = merged;
     }
-    const noisePair = (i) => {
+    const noisePair = (i        ) => {
       const pt = parts[i];
       for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
         const cand = parts[j];
@@ -562,7 +564,7 @@ window.DiffVersions = function(opts){
       }
       return -1;
     };
-    const countNl = (v) => { let n = 0, k = -1; while((k = v.indexOf("\n", k + 1)) >= 0) n++; return n; };
+    const countNl = (v                 ) => { let n = 0, k = -1; while((k = v.indexOf("\n", k + 1)) >= 0) n++; return n; };
     const skip = new Set();
     const out = [];
     let line = 0;
@@ -592,7 +594,7 @@ window.DiffVersions = function(opts){
       if(pt.added && wsn(pt.value)){
         const j = noisePair(i);
         if(j >= 0){ skip.add(j); line += countNl(pt.value); continue; }
-        if(pt.segs && pt.segs.some(sg => sg.bridge)){
+        if(pt.segs && pt.segs.some((sg) => sg.bridge)){
           let segLine = line;
           for(const sg of pt.segs){
             if(wsn(sg.value)) out.push({kind: sg.bridge ? "bridge" : "add", line: segLine, text: sg.value});
@@ -623,7 +625,7 @@ window.DiffVersions = function(opts){
     lastPublished = signature;
     try{ onMarks(list); }catch(e){}
   }
-  let diffWorker = null, workerFailed = false, renderRequestId = 0, renderTimer = null;
+  let diffWorker         = null, workerFailed = false, renderRequestId = 0, renderTimer                               = null;
   const LOCAL_WORD_LIMIT = 12000;
   const renderCache = new Map();
   function workerUrl(){
@@ -639,12 +641,12 @@ window.DiffVersions = function(opts){
     }catch(e){ workerFailed = true; diffWorker = null; }
     return diffWorker;
   }
-  function cacheParts(key, value){
+  function cacheParts(key        , value){
     renderCache.set(key, value);
     while(renderCache.size > 8) renderCache.delete(renderCache.keys().next().value);
   }
   function lineFallback(before, after, isCurrent, done){
-    const splitLines = (text, callback) => {
+    const splitLines = (text                 , callback) => {
       const lines = []; let at = 0;
       const step = () => {
         if(!isCurrent()) return;
@@ -658,7 +660,7 @@ window.DiffVersions = function(opts){
       };
       setTimeout(step, 0);
     };
-    const build = (lines, start, end, callback) => {
+    const build = (lines          , start        , end        , callback) => {
       let at = start, value = "";
       const step = () => {
         if(!isCurrent()) return;
@@ -669,7 +671,7 @@ window.DiffVersions = function(opts){
       };
       setTimeout(step, 0);
     };
-    splitLines(before, a => splitLines(after, b => {
+    splitLines(before, (a) => splitLines(after, (b) => {
     let prefix = 0, suffix = 0;
     const scanPrefix = () => {
       const stop = Math.min(prefix + 500, a.length, b.length);
@@ -684,10 +686,10 @@ window.DiffVersions = function(opts){
       if(suffix === stop && suffix < a.length - prefix && suffix < b.length - prefix)
         return setTimeout(scanSuffix, 0);
       if(!isCurrent()) return;
-      build(a, 0, prefix, commonBefore =>
-      build(a, prefix, a.length - suffix, removed =>
-      build(b, prefix, b.length - suffix, added =>
-      build(b, b.length - suffix, b.length, commonAfter => {
+      build(a, 0, prefix, (commonBefore) =>
+      build(a, prefix, a.length - suffix, (removed) =>
+      build(b, prefix, b.length - suffix, (added) =>
+      build(b, b.length - suffix, b.length, (commonAfter) => {
       const parts = [];
       if(commonBefore) parts.push({value:commonBefore});
       if(removed) parts.push({removed:true,value:removed});
@@ -755,7 +757,7 @@ window.DiffVersions = function(opts){
       else if(!changePts.length && navigate && typeof cm.setReviewFocus === "function") cm.setReviewFocus(null);
       nativeShown = true;
     }
-    const wsn = s => s.replace(/\s+/g, " ").trim();
+    const wsn = (s) => s.replace(/\s+/g, " ").trim();
     const key = hashText(v.before) + ":" + hashText(after);
     const requestId = ++renderRequestId;
     if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
@@ -770,7 +772,7 @@ window.DiffVersions = function(opts){
     if(wsn(v.before) === wsn(after)){ apply([], false); return; }
     clearTimeout(renderTimer);
     renderTimer = setTimeout(() => {
-      const fallback = (warn) => {
+      const fallback = (warn         ) => {
         if(v.before.length + after.length <= LOCAL_WORD_LIMIT)
           apply(Diff.diffWordsWithSpace(v.before, after), false, warn ? "diff Worker indisponible — fallback local" : "");
         else lineFallback(v.before, after, () => requestId === renderRequestId, apply);
@@ -791,9 +793,9 @@ window.DiffVersions = function(opts){
       } else fallback(false);
     }, 35);
   }
-  function applyRender(v, cm, after, inputParts, coarse, warning, navigate = true){
+  function applyRender(v, cm, after, inputParts, coarse         , warning        , navigate = true){
     clearMarks();
-    const wsn = s => s.replace(/\s+/g, " ").trim();
+    const wsn = (s) => s.replace(/\s+/g, " ").trim();
     let parts = inputParts;
     // diffWordsWithSpace garantit que la concaténation des parts non-removed
     // reproduit exactement le buffer → offsets sûrs pour markText/setBookmark.
@@ -830,7 +832,7 @@ window.DiffVersions = function(opts){
     // Bruit de rewrap : un mot déplacé de l'autre côté d'un retour à la ligne
     // apparaît comme supprimé+ajouté (dans un ordre ou l'autre, parfois séparés
     // par un blanc inchangé). Apparier ces paires pour ne rien marquer.
-    const noisePair = (i) => {
+    const noisePair = (i        ) => {
       const pt = parts[i];
       for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
         const cand = parts[j];
@@ -883,7 +885,7 @@ window.DiffVersions = function(opts){
         if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
         const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
         marks.push(cm.markText(from, to, {className: "dAddM"}));
-        if(pt.segs && pt.segs.some(sg => sg.bridge)){
+        if(pt.segs && pt.segs.some((sg) => sg.bridge)){
           let o = 0;
           for(const sg of pt.segs){
             if(wsn(sg.value))
@@ -927,18 +929,18 @@ window.DiffVersions = function(opts){
   // ‹ remonte la timeline — l'éditeur affiche alors l'état APRÈS l'intervention
   // k (lecture seule, buffer réel mis de côté et restauré à la sortie), diffé
   // contre l'état d'avant. ⌥↓/⌥↑ naviguent entre les marques D'UNE vue. ----
-  let navPill = null, navPrev = null, navNext = null, navCount = null;
+  let navPill                  = null, navPrev                    = null, navNext                    = null, navCount                  = null;
   let reviewBusy = false;
   const reviewKey = "texReviewV1:" + path;
-  let reviewState = {};
-  try{ const saved = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
+  let reviewState                              = {};
+  try{ const saved                              = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
   let reviewUndo = null;
   function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
   /** Reconstruit `reviewState` depuis des décisions matérialisées
    * (`materializeServer(...).review`). `ack` : les marquer acquittées par le
    * serveur ; `override` : le serveur fait foi sur un id déjà connu (chargement),
    * sinon la décision locale non acquittée est conservée et repartira (409). */
-  function adoptReview(review, {ack = false, override = false} = {}){
+  function adoptReview(review                             , {ack = false, override = false} = {}){
     if(!review || typeof review !== "object") return false;
     let changed = false;
     for(const [id, entry] of Object.entries(review)){
@@ -956,7 +958,7 @@ window.DiffVersions = function(opts){
     return changed;
   }
   // ---- Annulation transitoire (toast dans le volet éditeur) ----
-  let undoHost = null;
+  let undoHost                                                      = null;
   function undoToastHost(){
     const cm = getCm();
     let wrap = null;
@@ -965,7 +967,7 @@ window.DiffVersions = function(opts){
     return (typeof wrap.closest === "function" && wrap.closest("#left")) || wrap.parentElement || null;
   }
   /** Décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) sans bouton dans le texte. */
-  function decideCurrent(kind){
+  function decideCurrent(kind        ){
     const cm = getCm();
     if(!cm || !shown || tt || reviewBusy || !changePts.length || typeof cm.decideMergeChunk !== "function") return;
     // Le passage courant peut avoir été choisi au clic (revue ancrée) : l'hôte
@@ -975,7 +977,7 @@ window.DiffVersions = function(opts){
     const decision = cm.decideMergeChunk(kind, live != null ? live : (target ? target.ch : undefined));
     if(decision) void decideReview(decision);
   }
-  let undoTimer = null;
+  let undoTimer                               = null;
   const UNDO_GRACE_MS = 8000;
   /** Annulation offerte brièvement après une décision, comme un toast : elle
    * s'efface au bout de quelques secondes, à la navigation et à la fermeture. */
@@ -1048,7 +1050,7 @@ window.DiffVersions = function(opts){
     const live = liveText();
     const target = reviewState[prev.id]?.base ?? prev.before;
     if(typeof target !== "string" || typeof done.before !== "string" || typeof live !== "string") return null;
-    let patched = false;
+    let patched                 = false;
     try{
       const patch = Diff.structuredPatch(path, path, done.before, live, undefined, undefined, {context: 1});
       patched = Diff.applyPatch(target, patch, {fuzzFactor: 0});
@@ -1096,7 +1098,7 @@ window.DiffVersions = function(opts){
   }
   let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
   let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
-  let flashLine = null, flashTimer = null;
+  let flashLine = null, flashTimer                               = null;
   function liveText(){ return tt ? tt.realText : getCm().getValue(); }
   // Le compteur vient uniquement du journal explicite. `before` et `after`
   // appartiennent à la même entrée; le buffer vivant ne complète jamais une paire.
@@ -1108,7 +1110,7 @@ window.DiffVersions = function(opts){
       .filter(it => individualReview ? !reviewState[it.id]?.accepted : (!baseTs || it.ts == null || it.ts >= baseTs))
       .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
   }
-  function interventionLabel(it){
+  function interventionLabel(it                                     ){
     if(!it) return "";
     const status = it.status === "pending-conflict"
       ? "pending-conflict (non appliqué)"
@@ -1156,7 +1158,7 @@ window.DiffVersions = function(opts){
     updateTag();
     render();
   }
-  function showStep(j, {navigate = true} = {}){
+  function showStep(j        , {navigate = true} = {}){
     if(reviewBusy) return;
     hideUndo();
     cancelGutter();
@@ -1198,7 +1200,7 @@ window.DiffVersions = function(opts){
       if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
     }, 700);
   }
-  function gotoChange(k, flash){
+  function gotoChange(k        , flash         ){
     const cm = getCm();
     if(!cm || !changePts.length) return;
     changeAt = Math.max(0, Math.min(changePts.length - 1, k));
@@ -1218,7 +1220,7 @@ window.DiffVersions = function(opts){
     if(navPill || !els.group || !els.tag) return;
     navPill = document.createElement("span");
     navPill.id = "dvNav";
-    const chev = (d) => {
+    const chev = (d        ) => {
       const button = document.createElement("button");
       button.className = "dvNavA";
       button.dataset.d = String(d);
@@ -1265,7 +1267,7 @@ window.DiffVersions = function(opts){
   // Une intervention = une colonne. Au-dessus de la médiane ce qui entre, en
   // dessous ce qui sort : le vocabulaire du diff, à l'échelle du pixel. Rendu
   // au canvas et non en DOM — 137 nœuds dans une barre d'outils, non.
-  let navRibHost = null, navRib = null, navPeek = null, ribHover = null;
+  let navRibHost                  = null, navRib                    = null, navPeek                  = null, ribHover = null;
   const RIB_W = 132, RIB_H = 14, RIB_MIN = 3, RIB_MAX_COLS = 260;
   function canvasOk(cv){ return cv && typeof cv.getContext === "function"; }
   function ensureRibbon(){
@@ -1283,7 +1285,7 @@ window.DiffVersions = function(opts){
     navRibHost.appendChild(navPeek);
     navRibHost.appendChild(navRib);
     if(!navRib.addEventListener) return;      // harnais de test sans DOM réel
-    const hit = (event) => {
+    const hit = (event              ) => {
       const list = interList();
       if(!list.length || !navRib.getBoundingClientRect) return -1;
       const rect = navRib.getBoundingClientRect();
@@ -1291,7 +1293,7 @@ window.DiffVersions = function(opts){
       const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
       return Math.min(list.length - 1, Math.floor(ratio * list.length));
     };
-    const peek = (j) => {
+    const peek = (j        ) => {
       const list = interList();
       const it = list[j];
       if(!it || !navPeek){ if(navPeek) navPeek.className = "dvPeek"; return; }
@@ -1328,8 +1330,8 @@ window.DiffVersions = function(opts){
     navRib.addEventListener("keydown", (event) => {
       const list = interList();
       if(!list.length) return;
-      if(event.key === "ArrowLeft"){ event.preventDefault(); navPrev.onclick(); }
-      else if(event.key === "ArrowRight"){ event.preventDefault(); navNext.onclick(); }
+      if(event.key === "ArrowLeft"){ event.preventDefault(); navPrev.onclick(undefined); }
+      else if(event.key === "ArrowRight"){ event.preventDefault(); navNext.onclick(undefined); }
       else if(event.key === "Home"){ event.preventDefault(); showStep(0); }
       else if(event.key === "End"){ event.preventDefault(); showStep(list.length - 1); }
     });
@@ -1337,7 +1339,7 @@ window.DiffVersions = function(opts){
       if(navPeek) navPeek.className = "dvPeek";
     });
   }
-  function escapeHtml(s){
+  function escapeHtml(s        ){
     return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   }
   function drawRibbon(){
@@ -1352,19 +1354,19 @@ window.DiffVersions = function(opts){
     // Largeur proportionnelle au nombre d'interventions : trois traits n'ont
     // aucune raison d'occuper la place de cent trente-sept. Le ruban grandit
     // avec l'historique et plafonne à RIB_W.
-    if(navRib.style) navRib.style.width = Math.min(RIB_W, Math.max(28, Math.round(n * 2.2))) + "px";
+    if((navRib               ).style) (navRib               ).style.width = Math.min(RIB_W, Math.max(28, Math.round(n * 2.2))) + "px";
     const w = navRib.clientWidth || RIB_W, h = navRib.clientHeight || RIB_H;
     const dpr = Math.min(3, window.devicePixelRatio || 1);
-    if(navRib.width !== Math.round(w * dpr)){
-      navRib.width = Math.round(w * dpr);
-      navRib.height = Math.round(h * dpr);
+    if((navRib                     ).width !== Math.round(w * dpr)){
+      (navRib                     ).width = Math.round(w * dpr);
+      (navRib                     ).height = Math.round(h * dpr);
     }
-    const g = navRib.getContext("2d");
+    const g = (navRib                     ).getContext("2d");
     if(!g) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     const style = window.getComputedStyle ? window.getComputedStyle(navRib) : null;
-    const pick = (name, fallback) => {
+    const pick = (name        , fallback        ) => {
       const value = style && style.getPropertyValue ? style.getPropertyValue(name).trim() : "";
       return value || fallback;
     };
@@ -1405,7 +1407,7 @@ window.DiffVersions = function(opts){
     const half = h / 2 - 1.5 - GUT;
     // Racine carrée : sans elle, une réécriture de 60 lignes écrase toutes les
     // retouches d'une ligne à un trait invisible.
-    const scale = (v) => v > 0 ? Math.max(1, Math.sqrt(v / peak) * half) : 0;
+    const scale = (v        ) => v > 0 ? Math.max(1, Math.sqrt(v / peak) * half) : 0;
     for(const b of buckets){
       const x = b.c * step;
       const cur = navMode >= 0 && navMode >= b.from && navMode < b.to;
@@ -1439,7 +1441,7 @@ window.DiffVersions = function(opts){
     }
     g.globalAlpha = 1;
   }
-  function updateRibbon(list, active){
+  function updateRibbon(list, active         ){
     if(!navRib) return;
     const n = list.length;
     if(navRib.setAttribute){
@@ -1502,7 +1504,7 @@ window.DiffVersions = function(opts){
       navNext.disabled = false; // › depuis la dernière = retour à « tout »
     }
   }
-  function toggle(show, scrollLine){
+  function toggle(show          , scrollLine ){
     if(reviewBusy) return;
     const next = (show === undefined || show === null) ? !shown : show;
     // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
@@ -1588,12 +1590,12 @@ window.DiffVersions = function(opts){
     return true;
   }
 
-  function normalizeMeta(meta){
+  function normalizeMeta(meta                                     ){
     const source = meta && SOURCES.has(meta.source) ? meta.source : "user-save";
     const status = meta && STATUSES.has(meta.status) ? meta.status : "applied";
     return {source, status};
   }
-  function record(before, after, meta, ts, id){
+  function record(before        , after        , meta, ts , id            ){
     if(typeof before !== "string" || typeof after !== "string" || before === after || equivalent(before, after)) return null;
     const parsedTs = Number(ts);
     const storedTs = ts === null ? null
@@ -1608,7 +1610,7 @@ window.DiffVersions = function(opts){
     if(!journalBase) journalBase = {before, ts: storedTs, head: false, sha: ""};
     return intervention;
   }
-  function push(before, after, meta){
+  function push(before, after, meta                     ){
     // une écriture arrive pendant une vue historique : revenir au présent
     // d'abord (le buffer réel vient d'être remplacé par l'hôte)
     if(tt){ tt = null; navMode = -1; extCmp = null; }
@@ -1653,7 +1655,7 @@ window.DiffVersions = function(opts){
   // l'infobulle porte le sens. Le fanion existe TOUJOURS ; la pastille git
   // n'apparaît que pour un fichier non suivi d'un dépôt existant.
   let gitRepo = false, gitTracked = false;
-  let stoneBtn = null, trackBtn = null;
+  let stoneBtn                    = null, trackBtn                    = null;
   function ensureStoneUi(){
     if(stoneBtn || !els.group) return;
     stoneBtn = document.createElement("button");
@@ -1709,7 +1711,7 @@ window.DiffVersions = function(opts){
 
   // ---- commit rapide du fichier courant : empreinte permanente, état désactivé
   // sans diff, point bleu-gris lorsque le fichier diffère de HEAD. ----
-  let commitBtn = null, commitPop = null;
+  let commitBtn                    = null, commitPop                 = null;
   function ensureCommitUi(){
     if(commitBtn || !els.group) return;
     commitBtn = document.createElement("button");
@@ -1735,10 +1737,10 @@ window.DiffVersions = function(opts){
       + '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l.8 2.7L11.5 5l-2.7.8L8 8.5l-.8-2.7L4.5 5l2.7-.8L8 1.5zM12.5 9l.55 1.45 1.45.55-1.45.55L12.5 13l-.55-1.45L10.5 11l1.45-.55L12.5 9z"/></svg><span>Générer</span></button>'
       + '<button type="button" class="dvCommitBtn dvCommitDo" data-act="do" disabled>Commit</button></div></div>';
     document.body.appendChild(commitPop);
-    const ta = commitPop.querySelector("textarea");
+    const ta = commitPop.querySelector                     ("textarea");
     const closePop = () => { commitPop.style.display = "none"; };
-    const doBtn = commitPop.querySelector('[data-act="do"]');
-    const syncCommitState = () => { doBtn.disabled = !ta.value.trim(); };
+    const doBtn = commitPop.querySelector             ('[data-act="do"]');
+    const syncCommitState = () => { (doBtn                    ).disabled = !ta.value.trim(); };
     async function doCommit(){
       const message = ta.value.trim();
       if(!message){ ta.focus(); return; }
@@ -1766,12 +1768,12 @@ window.DiffVersions = function(opts){
       ta.focus();
     };
     doBtn.onclick = doCommit;
-    commitPop.querySelector('[data-act="close"]').onclick = closePop;
-    const aiBtn = commitPop.querySelector('[data-act="ai"]');
-    const aiLabel = aiBtn.querySelector("span");
+    commitPop.querySelector             ('[data-act="close"]').onclick = closePop;
+    const aiBtn = commitPop.querySelector             ('[data-act="ai"]');
+    const aiLabel = aiBtn.querySelector                 ("span");
     aiBtn.onclick = async () => {
       const seq = ++aiSeq;
-      aiBtn.disabled = true; aiLabel.textContent = "Génération…";
+      (aiBtn                    ).disabled = true; aiLabel.textContent = "Génération…";
       try{
         const r = await fetch("/commitmsg?path=" + encodeURIComponent(path));
         const j = await r.json();
@@ -1781,7 +1783,7 @@ window.DiffVersions = function(opts){
           syncCommitState(); ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0;
         } else notify("proposition impossible : " + ((j && j.error) || "aucun diff à résumer"));
       }catch(e){ notify("proposition impossible : " + e.message); }
-      finally { aiBtn.disabled = false; aiLabel.textContent = "Générer"; }
+      finally { (aiBtn                    ).disabled = false; aiLabel.textContent = "Générer"; }
     };
     ta.addEventListener("input", syncCommitState);
     ta.addEventListener("keydown", (e) => {
@@ -1789,25 +1791,25 @@ window.DiffVersions = function(opts){
       if(e.key === "Escape"){ e.stopPropagation(); closePop(); }
     });
     document.addEventListener("mousedown", (e) => {
-      if(commitPop.style.display !== "none" && !commitPop.contains(e.target) && e.target !== commitBtn) closePop();
+      if(commitPop.style.display !== "none" && !commitPop.contains(e.target        ) && e.target !== commitBtn) closePop();
     });
   }
-  function updateCommitBtn(blocks){
+  function updateCommitBtn(blocks        ){
     ensureCommitUi();
     ensureStoneUi();
     if(!commitBtn) return;
-    commitBtn.style.display = "";
+    (commitBtn               ).style.display = "";
     commitBtn.disabled = blocks <= 0;
-    commitBtn.classList.toggle("has-changes", blocks > 0);
-    commitBtn.title = blocks > 0
+    (commitBtn           ).classList.toggle("has-changes", blocks > 0);
+    (commitBtn               ).title = blocks > 0
       ? "Committer " + path.split("/").pop() + " — " + blocks + " bloc" + (blocks > 1 ? "s" : "") + " modifié" + (blocks > 1 ? "s" : "") + " depuis HEAD" + (headSha ? " (" + headSha + ")" : "")
       : "Aucune modification Git à committer pour ce fichier";
   }
 
   // ---- historique : commits du fichier + sauvegardes de session, avec
   // Comparer (diff in-editor) et Rétablir (réécrit le fichier, dépôt intact) ----
-  let histBtn = null, histPop = null;
-  function fmtAge(ts){
+  let histBtn                    = null, histPop                 = null;
+  function fmtAge(ts        ){
     if(!ts) return "";
     const s = Math.max(0, Date.now() / 1000 - ts);
     if(s < 3600) return "il y a " + Math.max(1, Math.round(s / 60)) + " min";
@@ -1828,7 +1830,7 @@ window.DiffVersions = function(opts){
     if(extCmp && typeof extCmp.before === "string") return extCmp.before;
     return liveText(); // vue « tout » : le buffer courant est la cible
   }
-  async function restoreTarget(target, label){
+  async function restoreTarget(target, label        ){
     if(typeof target !== "string") return false;
     const cm = getCm();
     const before = liveText();
@@ -1893,7 +1895,7 @@ window.DiffVersions = function(opts){
       histPop.style.display = "flex";
       histPop.style.top = (rc.bottom + 8) + "px";
       histPop.style.left = Math.max(8, Math.min(rc.right - 400, window.innerWidth - 416)) + "px";
-      const list = histPop.querySelector("#dvHistList");
+      const list = histPop.querySelector             ("#dvHistList");
       const rows = [];
       // Interventions de session et snapshots v1 orphelins, plus récents d'abord.
       for(let i = INTERVENTIONS.length - 1; i >= 0; i--){
@@ -1930,14 +1932,14 @@ window.DiffVersions = function(opts){
         el.innerHTML = '<span class="sha">' + row.sha + '</span><span class="msg"></span>'
           + '<span class="when">' + fmtAge(row.ts) + '</span>'
           + '<span class="act"><button data-a="cmp">Comparer</button><button data-a="rst">Rétablir</button></span>';
-        el.querySelector(".msg").textContent = row.msg;
-        el.querySelector('[data-a="cmp"]').onclick = async () => {
+        el.querySelector             (".msg").textContent = row.msg;
+        el.querySelector             ('[data-a="cmp"]').onclick = async () => {
           const t = await row.text();
           if(t == null){ notify("version introuvable"); return; }
           histPop.style.display = "none";
           compareExternal(t, row.label);
         };
-        el.querySelector('[data-a="rst"]').onclick = async () => {
+        el.querySelector             ('[data-a="rst"]').onclick = async () => {
           const t = await row.text();
           if(t == null){ notify("version introuvable"); return; }
           histPop.style.display = "none";
@@ -1947,7 +1949,7 @@ window.DiffVersions = function(opts){
       }
     };
     document.addEventListener("mousedown", (e) => {
-      if(histPop.style.display !== "none" && !histPop.contains(e.target) && !histBtn.contains(e.target))
+      if(histPop.style.display !== "none" && !histPop.contains(e.target        ) && !histBtn.contains(e.target        ))
         histPop.style.display = "none";
     });
     document.addEventListener("keydown", (e) => {
@@ -1956,7 +1958,7 @@ window.DiffVersions = function(opts){
   }
 
   // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
-  let gutterReady = false, gutterTimer = null;
+  let gutterReady = false, gutterTimer                               = null;
   function openHeadAt(line){
     if(headText === null) return;
     extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
@@ -1966,7 +1968,7 @@ window.DiffVersions = function(opts){
     getCm().scrollIntoView(target, 120);
     flashAt(target);
   }
-  function markerCell(cls, line){
+  function markerCell(cls        , line){
     const cell = document.createElement("div");
     cell.className = "dv-cell";
     cell.dataset.openLine = String(line);
@@ -1980,14 +1982,14 @@ window.DiffVersions = function(opts){
     };
     return cell;
   }
-  let gutterWorker = null, gutterRequestId = 0;
+  let gutterWorker         = null, gutterRequestId = 0;
   function cancelGutter(){
     gutterRequestId++;
     if(gutterWorker){ try{ gutterWorker.terminate(); }catch(e){} gutterWorker = null; }
   }
-  function coarseGutter(parts, lastLine){
+  function coarseGutter(parts, lastLine        ){
     const markers = []; let line = 0, blocks = 0;
-    const count = value => { const matches = value.match(/\n/g); return (matches ? matches.length : 0) + (value && !value.endsWith("\n") ? 1 : 0); };
+    const count = (value) => { const matches = value.match(/\n/g); return (matches ? matches.length : 0) + (value && !value.endsWith("\n") ? 1 : 0); };
     for(let i=0;i<parts.length;i++){
       const part=parts[i], n=count(part.value);
       if(part.removed){
@@ -2005,8 +2007,8 @@ window.DiffVersions = function(opts){
     }
     return {markers,blocks};
   }
-  function detailedGutter(before,after,lastLine){
-    const wsn=value=>value.replace(/\s+/g," ").trim(), parts=Diff.diffLines(before,after), markers=[];
+  function detailedGutter(before,after,lastLine        ){
+    const wsn=(value)=>value.replace(/\s+/g," ").trim(), parts=Diff.diffLines(before,after), markers=[];
     let line=0,blocks=0;
     for(let i=0;i<parts.length;i++){
       const pt=parts[i],n=pt.count||0;
@@ -2016,7 +2018,7 @@ window.DiffVersions = function(opts){
         if(!wsn(pt.value))continue;
         blocks++;
         if(nx&&nx.added){
-          const nn=nx.count||0,changed=new Set(),wparts=Diff.diffWordsWithSpace(pt.value,nx.value),skip=new Set();
+          const nn=nx.count||0,changed=new Set        (),wparts=Diff.diffWordsWithSpace(pt.value,nx.value),skip=new Set();
           for(let w=0;w<wparts.length;w++){
             const wp=wparts[w]; if(!(wp.added||wp.removed)||skip.has(w)||!wsn(wp.value))continue;
             for(let x=w+1;x<=w+2&&x<wparts.length;x++){
@@ -2025,7 +2027,7 @@ window.DiffVersions = function(opts){
               if(!skip.has(x)&&!!cand.removed===!wp.removed&&!!cand.added===!wp.added&&wsn(cand.value)===wsn(wp.value)){skip.add(w);skip.add(x);} break;
             }
           }
-          const lineOf=off=>{let count=0,pos=-1;for(;;){const next=nx.value.indexOf("\n",pos+1);if(next<0||next>=off)return count;count++;pos=next;}};
+          const lineOf=(off)=>{let count=0,pos=-1;for(;;){const next=nx.value.indexOf("\n",pos+1);if(next<0||next>=off)return count;count++;pos=next;}};
           let off=0;
           for(let w=0;w<wparts.length;w++){
             const wp=wparts[w];
@@ -2045,7 +2047,7 @@ window.DiffVersions = function(opts){
     }
     return {markers,blocks};
   }
-  function applyGutter(result, requestId, cm){
+  function applyGutter(result, requestId        , cm){
     let at=0;
     const batch=()=>{
       if(requestId!==gutterRequestId || tt) return;
@@ -2071,7 +2073,7 @@ window.DiffVersions = function(opts){
     if(!cm || headText === null || tt) return;
     if(!gutterReady){
       cm.setOption("gutters", ["CodeMirror-linenumbers", GUTTER]);
-      cm.on("gutterClick", (c, line, g) => { if(g === GUTTER) openHeadAt(line); });
+      cm.on("gutterClick", (c, line, g        ) => { if(g === GUTTER) openHeadAt(line); });
       cm.on("change", () => {
         if(tt) return; // vue historique : le buffer affiché n'est pas le vrai
         clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400);
@@ -2085,7 +2087,7 @@ window.DiffVersions = function(opts){
       if(before.length+after.length<=LOCAL_WORD_LIMIT)return setTimeout(()=>{
         if(requestId===gutterRequestId)applyGutter(detailedGutter(before,after,lastLine),requestId,cm);
       },0);
-      lineFallback(before,after,()=>requestId===gutterRequestId,parts=>{
+      lineFallback(before,after,()=>requestId===gutterRequestId,(parts)=>{
         if(requestId!==gutterRequestId)return;
         notify("calcul de gouttière indisponible — affichage simplifié");
         applyGutter(coarseGutter(parts,lastLine),requestId,cm);
@@ -2287,7 +2289,7 @@ window.DiffVersions = function(opts){
   }
   function reconcileV2(localData, serverData){
     const candidates = [];
-    const addCandidates = (data, origin) => {
+    const addCandidates = (data, origin        ) => {
       for(const [order, it] of (Array.isArray(data.interventions) ? data.interventions : []).entries()){
         if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
         candidates.push({it: {...it}, origin, order});
@@ -2350,7 +2352,7 @@ window.DiffVersions = function(opts){
   }
   function addV1(data){
     const snapshots = (Array.isArray(data.items) ? data.items : [])
-      .filter(it => it && typeof it.b === "string")
+      .filter((it) => it && typeof it.b === "string")
       .map((it, i) => {
         const parsedTs = Number(it.t);
         return {text: it.b,
@@ -2376,7 +2378,7 @@ window.DiffVersions = function(opts){
     if(INTERVENTIONS.length || LEGACY_SNAPSHOTS.length) arm();
     return INTERVENTIONS.length + LEGACY_SNAPSHOTS.length;
   }
-  function loadData(data){
+  function loadData(data                ){
     if(!data || typeof data !== "object") return 0;
     return data.v === 2 ? addV2(data) : addV1(data);
   }
@@ -2427,7 +2429,7 @@ window.DiffVersions = function(opts){
       if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
     }
     else if(!serverData && !hasLocalV2) loadData(localData);
-    const serverDecoded = materializeServer(serverData) || {};
+    const serverDecoded                                                             = materializeServer(serverData) || {};
     // Décisions de revue : le serveur fait foi (le localStorage du WebView ne
     // survit pas au redémarrage, PIEGES_CONNUS §1) ; une décision locale
     // absente du serveur est conservée et repart avec le prochain flush.
@@ -2494,3 +2496,4 @@ window.DiffVersions = function(opts){
   // doivent suspendre leur rechargement-disque automatique pendant ce temps
   return { push, compareExternal, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt || reviewBusy };
 };
+window.DiffVersions = createDiffVersions;

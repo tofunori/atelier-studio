@@ -1,3 +1,4 @@
+// Generated from gallery/src/browser/atelier_theme.ts; edit the TypeScript source.
 (function () {
   "use strict";
 
@@ -165,7 +166,7 @@
     "--ring": "var(--accent-base, var(--accent))"
   };
 
-  function applyShadcnAliases(root) {
+  function applyShadcnAliases(root             ) {
     ensureThemeContract(root);
     Object.keys(SHADCN).forEach(function (name) {
       root.style.setProperty(name, SHADCN[name]);

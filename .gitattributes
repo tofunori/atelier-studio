@@ -1,0 +1,33 @@
+# Generated browser output; authoritative sources are TypeScript.
+gallery/assets/*.bundle.js linguist-generated=true
+gallery/assets/cm6/*.bundle.js linguist-generated=true
+gallery/assets/editor_factory.js linguist-generated=true
+gallery/assets/shadcn-ui/** linguist-generated=true
+gallery/assets/notes/** linguist-generated=true
+gallery/assets/whiteboard/** linguist-generated=true
+src-tauri/mobile-dist/** linguist-generated=true
+mobile-native/Sources/AtelierUI/Resources/ChatRenderer/chat-renderer.js linguist-generated=true
+gallery/assets/annot_kit.js linguist-generated=true
+gallery/assets/atelier_theme.js linguist-generated=true
+gallery/assets/csv_table.js linguist-generated=true
+gallery/assets/diff_versions.js linguist-generated=true
+gallery/assets/diff_worker.js linguist-generated=true
+gallery/assets/editor_conflict.js linguist-generated=true
+gallery/assets/figure_annotation_geometry.js linguist-generated=true
+gallery/assets/gallery_commands.js linguist-generated=true
+gallery/assets/gallery_viewer_toolbar.js linguist-generated=true
+gallery/assets/pdf_passage.js linguist-generated=true
+gallery/assets/pdf_reading.js linguist-generated=true
+gallery/assets/pdf_runtime.js linguist-generated=true
+gallery/assets/pdf_selection.js linguist-generated=true
+gallery/assets/pdfjs_compat.js linguist-generated=true
+gallery/assets/sel_overlay.js linguist-generated=true
+gallery/assets/sel_pill.js linguist-generated=true
+mobile/public/sw.js linguist-generated=true
+
+# Upstream libraries are retained as distributed.
+gallery/assets/cm/** linguist-vendored=true
+gallery/assets/pdfjs/** linguist-vendored=true
+gallery/assets/katex/** linguist-vendored=true
+gallery/assets/toastui/** linguist-vendored=true
+gallery/assets/*.min.js linguist-vendored=true

@@ -1,0 +1,300 @@
+{
+  "browserAssets": [
+    {
+      "source": "gallery/src/browser/annot_kit.ts",
+      "output": "gallery/assets/annot_kit.js"
+    },
+    {
+      "source": "gallery/src/browser/atelier_theme.ts",
+      "output": "gallery/assets/atelier_theme.js"
+    },
+    {
+      "source": "gallery/src/browser/csv_table.ts",
+      "output": "gallery/assets/csv_table.js"
+    },
+    {
+      "source": "gallery/src/browser/diff_versions.ts",
+      "output": "gallery/assets/diff_versions.js"
+    },
+    {
+      "source": "gallery/src/browser/diff_worker.ts",
+      "output": "gallery/assets/diff_worker.js"
+    },
+    {
+      "source": "gallery/src/browser/editor_conflict.ts",
+      "output": "gallery/assets/editor_conflict.js"
+    },
+    {
+      "source": "gallery/src/browser/figure_annotation_geometry.ts",
+      "output": "gallery/assets/figure_annotation_geometry.js"
+    },
+    {
+      "source": "gallery/src/browser/gallery_commands.ts",
+      "output": "gallery/assets/gallery_commands.js"
+    },
+    {
+      "source": "gallery/src/browser/gallery_viewer_toolbar.ts",
+      "output": "gallery/assets/gallery_viewer_toolbar.js"
+    },
+    {
+      "source": "gallery/src/browser/pdf_passage.ts",
+      "output": "gallery/assets/pdf_passage.js"
+    },
+    {
+      "source": "gallery/src/browser/pdf_reading.ts",
+      "output": "gallery/assets/pdf_reading.js"
+    },
+    {
+      "source": "gallery/src/browser/pdf_selection.ts",
+      "output": "gallery/assets/pdf_selection.js"
+    },
+    {
+      "source": "gallery/src/browser/pdfjs_compat.ts",
+      "output": "gallery/assets/pdfjs_compat.js"
+    },
+    {
+      "source": "gallery/src/browser/sel_overlay.ts",
+      "output": "gallery/assets/sel_overlay.js"
+    },
+    {
+      "source": "gallery/src/browser/sel_pill.ts",
+      "output": "gallery/assets/sel_pill.js"
+    },
+    {
+      "source": "mobile/worker/sw.ts",
+      "output": "mobile/public/sw.js"
+    }
+  ],
+  "inlineScripts": [
+    {
+      "source": "gallery/src/browser/pages/code_editor_1.ts",
+      "output": "gallery/assets/code_editor.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/code_editor_2.ts",
+      "output": "gallery/assets/code_editor.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/diff_viewer_1.ts",
+      "output": "gallery/assets/diff_viewer.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/diff_viewer_2.ts",
+      "output": "gallery/assets/diff_viewer.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/gallery_template_1.ts",
+      "output": "gallery/assets/gallery_template.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/latex_studio_1.ts",
+      "output": "gallery/assets/latex_studio.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/latex_studio_2.ts",
+      "output": "gallery/assets/latex_studio.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/latex_studio_3.ts",
+      "output": "gallery/assets/latex_studio.html",
+      "slot": 3
+    },
+    {
+      "source": "gallery/src/browser/pages/latex_studio_4.ts",
+      "output": "gallery/assets/latex_studio.html",
+      "slot": 4
+    },
+    {
+      "source": "gallery/src/browser/pages/md_studio_1.ts",
+      "output": "gallery/assets/md_studio.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/md_studio_2.ts",
+      "output": "gallery/assets/md_studio.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/md_studio_3.ts",
+      "output": "gallery/assets/md_studio.html",
+      "slot": 3
+    },
+    {
+      "source": "gallery/src/browser/pages/md_viewer_1.ts",
+      "output": "gallery/assets/md_viewer.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/md_viewer_2.ts",
+      "output": "gallery/assets/md_viewer.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_1.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_2.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_3.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 3
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_4.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 4
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_5.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 5
+    },
+    {
+      "source": "gallery/src/browser/pages/pdf_viewer_6.ts",
+      "output": "gallery/assets/pdf_viewer.html",
+      "slot": 6
+    },
+    {
+      "source": "gallery/src/browser/pages/svg_viewer_1.ts",
+      "output": "gallery/assets/svg_viewer.html",
+      "slot": 1
+    },
+    {
+      "source": "gallery/src/browser/pages/svg_viewer_2.ts",
+      "output": "gallery/assets/svg_viewer.html",
+      "slot": 2
+    },
+    {
+      "source": "scripts/browser/widget_presentation_1.ts",
+      "output": "rust/crates/atelier-runtime/src/widget_presentation.html",
+      "slot": 1
+    },
+    {
+      "source": "scripts/browser/widget_presentation_2.ts",
+      "output": "rust/crates/atelier-runtime/src/widget_presentation.html",
+      "slot": 2
+    },
+    {
+      "source": "scripts/browser/index_1.ts",
+      "output": "mobile/index.html",
+      "slot": 1
+    }
+  ],
+  "renamedSources": {
+    "gallery/assets/cm6/atelier_diff.mjs": "gallery/src/browser/cm6/atelier_diff.ts",
+    "gallery/assets/cm6/fluid_text.mjs": "gallery/src/browser/cm6/fluid_text.ts",
+    "gallery/assets/cm6/ghost_ai.mjs": "gallery/src/browser/cm6/ghost_ai.ts",
+    "gallery/assets/cm6/ghost_logic.mjs": "gallery/src/browser/cm6/ghost_logic.ts",
+    "gallery/assets/cm6/latex_cm6_src.js": "gallery/src/browser/cm6/latex_cm6_src.ts",
+    "gallery/assets/cm6/latex_lang/index.mjs": "gallery/src/browser/cm6/latex_lang/index.ts",
+    "gallery/assets/cm6/review_anchored.mjs": "gallery/src/browser/cm6/review_anchored.ts",
+    "gallery/assets/cm6/review_gutter.mjs": "gallery/src/browser/cm6/review_gutter.ts",
+    "gallery/assets/cm6/studio_compat.mjs": "gallery/src/browser/cm6/studio_compat.ts",
+    "gallery/assets/cm6/studio_editor.mjs": "gallery/src/browser/cm6/studio_editor.ts",
+    "gallery/cmux-gallery/scripts/copy-manifest.mjs": "gallery/cmux-gallery/scripts/copy-manifest.mts",
+    "gallery/cmux-gallery/src/lib/dom.js": "gallery/cmux-gallery/src/lib/dom.ts",
+    "gallery/cmux-gallery/src/lib/icons.js": "gallery/cmux-gallery/src/lib/icons.ts",
+    "gallery/cmux-gallery/src/main.js": "gallery/cmux-gallery/src/main.ts",
+    "gallery/cmux-gallery/src/panel/app.js": "gallery/cmux-gallery/src/panel/app.ts",
+    "gallery/cmux-gallery/vite.config.js": "gallery/cmux-gallery/vite.config.ts",
+    "gallery/notes-src/src/main.js": "gallery/notes-src/src/main.ts",
+    "gallery/notes-src/vite.config.js": "gallery/notes-src/vite.config.ts",
+    "gallery/playwright.config.js": "gallery/playwright.config.ts",
+    "gallery/scripts/bench_editor.mjs": "gallery/scripts/bench_editor.mts",
+    "gallery/scripts/build-cm6.mjs": "gallery/scripts/build-cm6.mts",
+    "gallery/tests/e2e/chat_notice.spec.js": "gallery/tests/e2e/chat_notice.spec.ts",
+    "gallery/tests/e2e/core.spec.js": "gallery/tests/e2e/core.spec.ts",
+    "gallery/tests/e2e/diff.spec.js": "gallery/tests/e2e/diff.spec.ts",
+    "gallery/tests/e2e/editor_cm6.spec.js": "gallery/tests/e2e/editor_cm6.spec.ts",
+    "gallery/tests/e2e/editor_cm6_scroll.spec.js": "gallery/tests/e2e/editor_cm6_scroll.spec.ts",
+    "gallery/tests/e2e/figure_annotations.spec.js": "gallery/tests/e2e/figure_annotations.spec.ts",
+    "gallery/tests/e2e/figure_versions.spec.js": "gallery/tests/e2e/figure_versions.spec.ts",
+    "gallery/tests/e2e/latex_lezer.spec.js": "gallery/tests/e2e/latex_lezer.spec.ts",
+    "gallery/tests/e2e/latex_pdf_refresh.spec.js": "gallery/tests/e2e/latex_pdf_refresh.spec.ts",
+    "gallery/tests/e2e/markdown_selection.spec.js": "gallery/tests/e2e/markdown_selection.spec.ts",
+    "gallery/tests/e2e/pdf_live_annots.spec.js": "gallery/tests/e2e/pdf_live_annots.spec.ts",
+    "gallery/tests/e2e/pdf_reading.spec.js": "gallery/tests/e2e/pdf_reading.spec.ts",
+    "gallery/tests/e2e/pdf_toolbar.spec.js": "gallery/tests/e2e/pdf_toolbar.spec.ts",
+    "gallery/tests/e2e/reading_chat_overlay.spec.js": "gallery/tests/e2e/reading_chat_overlay.spec.ts",
+    "gallery/tests/e2e/reading_view.spec.js": "gallery/tests/e2e/reading_view.spec.ts",
+    "gallery/tests/e2e/subagent_ui.spec.js": "gallery/tests/e2e/subagent_ui.spec.ts",
+    "gallery/tests/e2e/temp-root.js": "gallery/tests/e2e/temp-root.ts",
+    "gallery/tests/gallery_server.mjs": "gallery/tests/gallery_server.mts",
+    "gallery/tests/kb_parity.test.mjs": "gallery/tests/kb_parity.test.mts",
+    "gallery/tests/kb_parity/fake-gbrain.mjs": "gallery/tests/kb_parity/fake-gbrain.mts",
+    "gallery/tests/unit/code_features.test.mjs": "gallery/tests/unit/code_features.test.mts",
+    "gallery/tests/unit/commands.test.mjs": "gallery/tests/unit/commands.test.mts",
+    "gallery/tests/unit/csv_table.test.mjs": "gallery/tests/unit/csv_table.test.mts",
+    "gallery/tests/unit/csv_view_surface.test.mjs": "gallery/tests/unit/csv_view_surface.test.mts",
+    "gallery/tests/unit/diff_bench.mjs": "gallery/tests/unit/diff_bench.mts",
+    "gallery/tests/unit/diff_controller.test.mjs": "gallery/tests/unit/diff_controller.test.mts",
+    "gallery/tests/unit/diff_suite.mjs": "gallery/tests/unit/diff_suite.mts",
+    "gallery/tests/unit/document_session.test.mjs": "gallery/tests/unit/document_session.test.mts",
+    "gallery/tests/unit/editor_wrap.test.mjs": "gallery/tests/unit/editor_wrap.test.mts",
+    "gallery/tests/unit/figure_annotation_geometry.test.mjs": "gallery/tests/unit/figure_annotation_geometry.test.mts",
+    "gallery/tests/unit/file_picker.test.mjs": "gallery/tests/unit/file_picker.test.mts",
+    "gallery/tests/unit/fluid_text.test.mjs": "gallery/tests/unit/fluid_text.test.mts",
+    "gallery/tests/unit/fullscreen_contract.test.mjs": "gallery/tests/unit/fullscreen_contract.test.mts",
+    "gallery/tests/unit/gallery_commands.test.mjs": "gallery/tests/unit/gallery_commands.test.mts",
+    "gallery/tests/unit/gallery_viewer_fit.test.mjs": "gallery/tests/unit/gallery_viewer_fit.test.mts",
+    "gallery/tests/unit/ghost_logic.test.mjs": "gallery/tests/unit/ghost_logic.test.mts",
+    "gallery/tests/unit/latex_features.test.mjs": "gallery/tests/unit/latex_features.test.mts",
+    "gallery/tests/unit/latex_pdf_refresh.test.mjs": "gallery/tests/unit/latex_pdf_refresh.test.mts",
+    "gallery/tests/unit/markdown_features.test.mjs": "gallery/tests/unit/markdown_features.test.mts",
+    "gallery/tests/unit/pdf_annotations.test.mjs": "gallery/tests/unit/pdf_annotations.test.mts",
+    "gallery/tests/unit/pdf_passage.test.mjs": "gallery/tests/unit/pdf_passage.test.mts",
+    "gallery/tests/unit/pdf_reading.test.mjs": "gallery/tests/unit/pdf_reading.test.mts",
+    "gallery/tests/unit/pdf_render_pipeline.test.mjs": "gallery/tests/unit/pdf_render_pipeline.test.mts",
+    "gallery/tests/unit/pdf_selection.test.mjs": "gallery/tests/unit/pdf_selection.test.mts",
+    "gallery/tests/unit/pdf_toolbar.test.mjs": "gallery/tests/unit/pdf_toolbar.test.mts",
+    "gallery/tests/unit/pdfjs_compat.test.mjs": "gallery/tests/unit/pdfjs_compat.test.mts",
+    "gallery/tests/unit/selection_bridge.test.mjs": "gallery/tests/unit/selection_bridge.test.mts",
+    "gallery/tests/unit/studio_compat.test.mjs": "gallery/tests/unit/studio_compat.test.mts",
+    "gallery/tests/unit/studio_editor_contract.test.mjs": "gallery/tests/unit/studio_editor_contract.test.mts",
+    "gallery/tests/unit/studio_runtime.test.mjs": "gallery/tests/unit/studio_runtime.test.mts",
+    "gallery/tests/unit/theme_contract.test.mjs": "gallery/tests/unit/theme_contract.test.mts",
+    "gallery/tests/unit/viewport.test.mjs": "gallery/tests/unit/viewport.test.mts",
+    "gallery/whiteboard-src/src/App.jsx": "gallery/whiteboard-src/src/App.tsx",
+    "gallery/whiteboard-src/src/main.jsx": "gallery/whiteboard-src/src/main.tsx",
+    "gallery/whiteboard-src/vite.config.js": "gallery/whiteboard-src/vite.config.ts",
+    "mobile-native/Renderer/chat-renderer.js": "mobile-native/Renderer/chat-renderer.ts",
+    "mobile-native/scripts/build-chat-renderer.mjs": "mobile-native/scripts/build-chat-renderer.mts",
+    "mobile-native/scripts/test-chat-renderer.mjs": "mobile-native/scripts/test-chat-renderer.mts",
+    "mobile-native/scripts/test-chat-wrap.mjs": "mobile-native/scripts/test-chat-wrap.mts",
+    "packages/atelier-protocol/scripts/export-fixtures.mjs": "packages/atelier-protocol/scripts/export-fixtures.mts",
+    "plans/057-p0-probes/fake-mcp.mjs": "plans/057-p0-probes/fake-mcp.mts",
+    "plans/057-p0-probes/probe-claude-mcp.mjs": "plans/057-p0-probes/probe-claude-mcp.mts",
+    "plans/057-p0-probes/probe-codex-mcp.mjs": "plans/057-p0-probes/probe-codex-mcp.mts",
+    "rust/crates/atelier-providers/tests/fixtures/fake_kimi_acp.mjs": "rust/crates/atelier-providers/tests/fixtures/fake_kimi_acp.mts",
+    "scripts/bench/chat_stream_bench.mjs": "scripts/bench/chat_stream_bench.mts",
+    "scripts/bench/history_replay_bench.mjs": "scripts/bench/history_replay_bench.mts",
+    "scripts/bench/md_pipeline_bench.mjs": "scripts/bench/md_pipeline_bench.mts",
+    "scripts/capture_chatbench.cjs": "scripts/capture_chatbench.cts",
+    "scripts/capture_navbench.cjs": "scripts/capture_navbench.cts",
+    "scripts/chat-recovery-bench.mjs": "scripts/chat-recovery-bench.mts",
+    "scripts/chat-recovery-restart.mjs": "scripts/chat-recovery-restart.mts",
+    "scripts/check-backend-policy.mjs": "scripts/check-backend-policy.mts",
+    "scripts/check-boot-soak.mjs": "scripts/check-boot-soak.mts",
+    "scripts/check-mobile-secrets.mjs": "scripts/check-mobile-secrets.mts",
+    "scripts/check_entry_budget.mjs": "scripts/check_entry_budget.mts",
+    "scripts/codex-durability-review.mjs": "scripts/codex-durability-review.mts",
+    "scripts/public-demo/capture.mjs": "scripts/public-demo/capture.mts",
+    "scripts/sample-memory.mjs": "scripts/sample-memory.mts",
+    "scripts/summarize-boot-metrics.mjs": "scripts/summarize-boot-metrics.mts",
+    "website/eslint.config.mjs": "website/eslint.config.mts",
+    "website/postcss.config.mjs": "website/package.json",
+    "website/tests/rendered-html.test.mjs": "website/tests/rendered-html.test.mts"
+  }
+}

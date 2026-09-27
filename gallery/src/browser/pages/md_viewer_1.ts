@@ -1,0 +1,1 @@
+AtelierStudioRuntime.bootstrap({tokenFetch:true,legacyTheme:"blue"});

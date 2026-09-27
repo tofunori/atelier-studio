@@ -18,10 +18,10 @@
     button, select, textarea, input:not([type=checkbox]):not([type=radio]) { min-height: 36px; }
   }
 </style>
-<script>
+<script data-atelier-source="scripts/browser/widget_presentation_1.ts">
 (function () {
   var failed = false;
-  function reportError(event) {
+  function reportError(event                            ) {
     // A deferred ResizeObserver delivery is a browser scheduling notice, not
     // an exception from the widget's interaction code.
     if (event && (event.message === "ResizeObserver loop completed with undelivered notifications." ||
@@ -84,11 +84,11 @@
   input.atelier-number:focus { cursor:text; }
   input.atelier-number:disabled,input.atelier-range:disabled { opacity:.45;cursor:default; }
 </style>
-<script>
+<script data-atelier-source="scripts/browser/widget_presentation_2.ts">
 (function () {
   // Keep each original range as the source of truth, including its handlers.
   var controls = new Map();
-  function enhance(range) {
+  function enhance(range                  ) {
     if (controls.has(range)) return;
     var number = document.createElement('input');
     number.type = 'number'; number.className = 'atelier-number';
@@ -97,7 +97,7 @@
     number.setAttribute('aria-label', range.getAttribute('aria-label') || labels.map(function (l) { return l.textContent.trim(); }).join(' ') || range.name || 'Valeur du paramètre');
     if (range.hasAttribute('aria-labelledby')) number.setAttribute('aria-labelledby',range.getAttribute('aria-labelledby'));
     if (range.hasAttribute('aria-describedby')) number.setAttribute('aria-describedby',range.getAttribute('aria-describedby'));
-    var min, max, step, dragging = null;
+    var min        , max        , step        , dragging = null;
     function sync() {
       min = range.min === '' ? 0 : Number(range.min); max = range.max === '' ? 100 : Number(range.max);
       if (!Number.isFinite(min)) min=0; if (!Number.isFinite(max)) max=100;
@@ -108,7 +108,7 @@
       var ruler=mode==='ruler' || (mode!=='scrub' && min===0 && max===100);
       range.classList.add('atelier-range'); range.classList.toggle('atelier-range-hidden',!ruler);
     }
-    function apply(value, commit) {
+    function apply(value        , commit         ) {
       if (range.matches(':disabled') || !Number.isFinite(value)) return;
       if (step>0) value=min+Math.round((value-min)/step)*step;
       value=Math.max(min,Math.min(max,Number(value.toPrecision(12))));
@@ -143,12 +143,12 @@
   }
   function scan() {
     controls.forEach(function(control,range){if(!range.isConnected){control.number.remove();controls.delete(range);}else control.sync();});
-    document.querySelectorAll('input[type=range]').forEach(enhance);
+    document.querySelectorAll                  ('input[type=range]').forEach(enhance);
   }
   function start(){scan();new MutationObserver(function(records){
     if(records.some(function(record){
-      if(record.type==='attributes')return record.target.matches('input[type=range],fieldset');
-      return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node){return node.nodeType===1 && (node.matches('input[type=range]') || node.querySelector('input[type=range]'));});
+      if(record.type==='attributes')return (record.target           ).matches('input[type=range],fieldset');
+      return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node){return node.nodeType===1 && ((node           ).matches('input[type=range]') || (node           ).querySelector                  ('input[type=range]'));});
     }))scan();
   }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['min','max','step','disabled','value','data-atelier-control']});document.addEventListener('reset',function(){setTimeout(scan,0);});}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();

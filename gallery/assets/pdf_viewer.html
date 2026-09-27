@@ -4,28 +4,30 @@
 <script src="/.fig_thumbs/atelier_theme.js"></script>
 <meta charset="utf-8">
 <title>PDF — select and send to Claude</title>
-<script>(function(){
+<script data-atelier-source="gallery/src/browser/pages/pdf_viewer_1.ts">(function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
     try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
-})();</script>
+})();
+</script>
 <script src="/.fig_thumbs/pdfjs_compat.js"></script>
 <!-- pdf.js >= 4 est ESM seul. Le script inline de cette page reste CLASSIQUE
      (ses globales sont extraites par vm dans les tests) : on charge donc pdf.js
      par un shim module qui le republie sur window.pdfjsLib. Les modules sont
      différés — cette promesse, posée par un script classique AVANT le shim, est
      le point de rendez-vous ; main() l'attend. -->
-<script>window.__pdfjsReady = new Promise(function(res, rej){ window.__pdfjsResolve = res; window.__pdfjsReject = rej; });</script>
-<script type="module">
+<script data-atelier-source="gallery/src/browser/pages/pdf_viewer_2.ts">window.__pdfjsReady = new Promise(function(res, rej){ window.__pdfjsResolve = res; window.__pdfjsReject = rej; });
+</script>
+<script type="module" data-atelier-source="gallery/src/browser/pages/pdf_viewer_3.ts">
   import * as pdfjsLib from "/.fig_thumbs/pdfjs/pdf.min.mjs";
   window.pdfjsLib = pdfjsLib;
   pdfjsLib.GlobalWorkerOptions.workerSrc = "/.fig_thumbs/pdfjs/pdf.worker.min.mjs";
   window.__pdfjsResolve(pdfjsLib);
 </script>
-<script type="module">
+<script type="module" data-atelier-source="gallery/src/browser/pages/pdf_viewer_4.ts">
   // Un échec d'import module ne rejette rien tout seul : sans ce filet, main()
   // attendrait indéfiniment et la page resterait blanche.
   setTimeout(function(){ if(!window.pdfjsLib) window.__pdfjsReject(new Error("pdf.js (module) n'a pas pu être chargé")); }, 15000);
@@ -315,8 +317,9 @@
 #selPill .hlbar{display:none!important}
 header{flex-wrap:wrap}
 </style>
-<script>
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+<script data-atelier-source="gallery/src/browser/pages/pdf_viewer_5.ts">
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
+</script>
 </head>
 <body>
 <header>
@@ -356,7 +359,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
 <div id="findBar"><input type="text" placeholder="Rechercher dans le document&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
-<script>
+<script data-atelier-source="gallery/src/browser/pages/pdf_viewer_6.ts">
 // workerSrc : posé par le shim module en tête de page (pdf.js est ESM depuis la 4.x).
 
 const rel = new URLSearchParams(location.search).get("file");
@@ -372,7 +375,7 @@ const targetSection = (__passageParams.get("section") || "").slice(0, 12);
 let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
-let __reloadPdf = null;  // posé par main() — rechargement en place après compile LaTeX
+let __reloadPdf             = null;  // posé par main() — rechargement en place après compile LaTeX
 
 // ---- pipeline de rendu : plafond de densité, priorités, annulation --------
 // Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
@@ -389,10 +392,10 @@ const RENDER_CONCURRENCY = 2;
  *  au-dessus, 2 en dessous. Les pages plus lointaines ne sont PAS
  *  pré-peintes — l'IntersectionObserver s'en charge à l'approche.
  *  Fonction pure : testée par pdf_render_pipeline.test.mjs. */
-function pdfRenderOrder(boxes, scrollTop, viewH){
+function pdfRenderOrder(boxes, scrollTop        , viewH        ){
   const list = Array.isArray(boxes) ? boxes : [];
   const top = scrollTop, bottom = scrollTop + viewH, centre = scrollTop + viewH / 2;
-  const dist = (b) => Math.abs(b.top + b.height / 2 - centre);
+  const dist = (b                                  ) => Math.abs(b.top + b.height / 2 - centre);
   const visible = list
     .filter((b) => b.top + b.height > top && b.top < bottom)
     .sort((a, b) => dist(a) - dist(b) || a.n - b.n)
@@ -415,7 +418,7 @@ function isRenderCancel(error){
 /** Annule la peinture en vol d'une page (sortie d'écran, nouvelle génération).
  *  Le `RenderTask` est gardé sur le slot ; `rendering` est remis à plat par le
  *  `finally` de paint(), jamais laissé armé. */
-function cancelRender(slot){
+function cancelRender(slot                                    ){
   if (slot && slot.task) {
     try { slot.task.cancel(); } catch(e){}
     slot.task = null;
@@ -452,14 +455,15 @@ async function findTexSource(){
 // Un seul document analysé par `rel` (GET /reflow, cache serveur). La colonne
 // vit dans #reading ; #pages reste dans le DOM (annotations, synctex).
 let __readingPdf = null;           // posé par main() : le document pdf.js
-window.__readingMode = (function(){
+window.__readingMode = createReadingMode();
+function createReadingMode(){
   const R = window.AtelierPdfReading;
-  const body = document.body, section = document.getElementById("reading");
-  const host = document.getElementById("readBody"), btn = document.getElementById("readBtn");
-  const bar = document.getElementById("readBar");
+  const body = document.body, section = (document.getElementById("reading")               );
+  const host = (document.getElementById("readBody")                  ), btn = (document.getElementById("readBtn")                     );
+  const bar = (document.getElementById("readBar")                  );
   const KEYS = {fs: "pdfRead.fs", width: "pdfRead.width", lh: "pdfRead.lh", font: "pdfRead.font"};
   const FS_MIN = 13, FS_MAX = 24;
-  let doc = null, loading = null, on = false, cropObserver = null;
+  let doc = null, loading = null, on = false, cropObserver                       = null;
   // page vue en haut de fenêtre à l'entrée : repli de sortie quand l'analyse
   // n'a pas abouti (doc null) — sans elle on retombait toujours page 1.
   let enteredPage = 1;
@@ -468,42 +472,42 @@ window.__readingMode = (function(){
   // pas ressusciter un `doc` périmé — revue plan 078 T5 fix 1, constat n°3).
   let gen = 0;
   const crops = new Map();       // blockId → {canvas, task}
-  function headerHeight(){ const h = document.querySelector("header"); return h ? h.offsetHeight : 44; }
+  function headerHeight(){ const h = document.querySelector             ("header"); return h ? h.offsetHeight : 44; }
   // Outils liés à la GÉOMÉTRIE des pages : sans page à l'écran ils n'ont pas
   // de cible. Le CSS les grise, `disabled` les retire aussi du clavier et des
   // lecteurs d'écran (revue de branche, I5).
   const PAGE_TOOLS = '#areaBtn, header [data-t="note"], header [data-t="erase"]';
-  function disablePageTools(off){
-    for (const el of document.querySelectorAll(PAGE_TOOLS)) el.disabled = off;
+  function disablePageTools(off         ){
+    for (const el of document.querySelectorAll(PAGE_TOOLS)) (el                    ).disabled = off;
   }
   function cancelCrops(){
     for (const entry of crops.values()) { if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; } }
   }
 
-  function pref(k, d){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
-  function setPref(k, v){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
+  function pref(k        , d        ){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
+  function setPref(k        , v               ){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
   function applyPrefs(){
     const fs = Math.max(FS_MIN, Math.min(FS_MAX, parseInt(pref("fs", "15"), 10) || 15));
     section.style.setProperty("--read-fs", fs + "px");
     section.style.setProperty("--read-width", pref("width", "80ch"));
     section.style.setProperty("--read-lh", pref("lh", "1.6"));
     section.classList.toggle("serif", pref("font", "sans") === "serif");
-    bar.querySelector(".fsv").textContent = String(fs);
-    bar.querySelector(".fsm").disabled = fs <= FS_MIN; bar.querySelector(".fsp").disabled = fs >= FS_MAX;
-    for (const g of bar.querySelectorAll(".grp[data-set]")) {
+    bar.querySelector                 (".fsv").textContent = String(fs);
+    bar.querySelector                   (".fsm").disabled = fs <= FS_MIN; bar.querySelector                   (".fsp").disabled = fs >= FS_MAX;
+    for (const g of bar.querySelectorAll             (".grp[data-set]")) {
       const cur = pref(g.dataset.set, {width: "80ch", lh: "1.6", font: "sans"}[g.dataset.set]);
-      for (const b of g.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === cur));
+      for (const b of g.querySelectorAll                   ("button")) b.setAttribute("aria-pressed", String(b.dataset.v === cur));
     }
   }
-  bar.querySelector(".fsm").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) - 1);
-  bar.querySelector(".fsp").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) + 1);
-  for (const g of bar.querySelectorAll(".grp[data-set]")) for (const b of g.querySelectorAll("button")) b.onclick = () => setPref(g.dataset.set, b.dataset.v);
+  bar.querySelector                   (".fsm").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) - 1);
+  bar.querySelector                   (".fsp").onclick = () => setPref("fs", parseInt(pref("fs", "15"), 10) + 1);
+  for (const g of bar.querySelectorAll             (".grp[data-set]")) for (const b of g.querySelectorAll                   ("button")) b.onclick = () => setPref(g.dataset.set, b.dataset.v);
 
   function skeleton(){
     host.innerHTML = "";
     for (let i = 0; i < 12; i++) { const s = document.createElement("div"); s.className = "skeleton" + (i % 4 === 3 ? " w60" : ""); host.appendChild(s); }
   }
-  async function load(g){
+  async function load(g        ){
     if (doc) return doc;
     if (!loading) loading = fetch("/reflow?path=" + encodeURIComponent(rel)).then(async r => {
       const j = await r.json().catch(() => ({}));
@@ -539,7 +543,7 @@ window.__readingMode = (function(){
     if (cropObserver) cropObserver.disconnect();
     cropObserver = new IntersectionObserver(entries => {
       for (const e of entries) {
-        const entry = crops.get(Number(e.target.dataset.crop)); if (!entry) continue;
+        const entry = crops.get(Number((e.target               ).dataset.crop)); if (!entry) continue;
         if (e.isIntersecting) void paintCrop(entry);
         else {
           // Toujours libérer le bitmap en sortie d'écran, peinture terminée
@@ -570,21 +574,21 @@ window.__readingMode = (function(){
     const sc = document.scrollingElement || document.documentElement;
     const y = sc.scrollTop + 8;
     let best = 1;
-    for (const pg of document.querySelectorAll("#pages .pg")) { if (pg.offsetTop <= y) best = +pg.dataset.page; else break; }
+    for (const pg of document.querySelectorAll             ("#pages .pg")) { if ((pg               ).offsetTop <= y) best = +pg.dataset.page; else break; }
     return best;
   }
-  function scrollToBlockOfPage(page){
+  function scrollToBlockOfPage(page               ){
     const el = host.querySelector('[data-page="' + page + '"]');
     if (!el) return;
     // scrollIntoView({block:"start"}) ignore le header ET la barre collants :
     // la première ligne du bloc atterrissait dessous (revue plan 078 T5
     // fix 1, constat n°1). Position explicite sur l'élément défilant.
     const sc = document.scrollingElement || document.documentElement;
-    sc.scrollTop = el.offsetTop - headerHeight() - bar.offsetHeight - 8;
+    sc.scrollTop = (el               ).offsetTop - headerHeight() - bar.offsetHeight - 8;
   }
   function currentBlockId(){
     const sc = document.scrollingElement || document.documentElement;
-    const entries = [...host.querySelectorAll("[data-block]")].map(el => ({id: +el.dataset.block, top: el.offsetTop}));
+    const entries = [...host.querySelectorAll             ("[data-block]")].map(el => ({id: +el.dataset.block, top: el.offsetTop}));
     return R.blockAtScrollTop(entries, sc.scrollTop + 8);
   }
   async function enter(){
@@ -622,7 +626,7 @@ window.__readingMode = (function(){
     on = false; btn.setAttribute("aria-pressed", "false"); body.classList.remove("read-mode"); section.hidden = true;
     disablePageTools(false);
     const pg = document.querySelector('#pages .pg[data-page="' + page + '"]');
-    if (pg) (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop;
+    if (pg) (document.scrollingElement || document.documentElement).scrollTop = (pg               ).offsetTop;
     document.dispatchEvent(new CustomEvent("atelier-reading-left"));
   }
   /** Le document recomposé est lié au PDF affiché : un rechargement en place
@@ -636,17 +640,18 @@ window.__readingMode = (function(){
   btn.onclick = () => on ? leave() : enter();
   window.addEventListener("keydown", e => {
     const t = document.activeElement;
-    const typing = /^(INPUT|TEXTAREA)$/.test((t && t.tagName) || "") || !!(t && t.isContentEditable);
+    const typing = /^(INPUT|TEXTAREA)$/.test((t && t.tagName) || "") || !!(t && (t               ).isContentEditable);
     if (e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && !typing) { e.preventDefault(); on ? leave() : enter(); }
     if (!on || !(e.metaKey || e.ctrlKey)) return;
-    if (e.key === "=" || e.key === "+") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsp").click(); }
-    if (e.key === "-") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector(".fsm").click(); }
+    if (e.key === "=" || e.key === "+") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector                   (".fsp").click(); }
+    if (e.key === "-") { e.preventDefault(); e.stopImmediatePropagation(); bar.querySelector                   (".fsm").click(); }
   }, true);   // capture : passe avant le raccourci de zoom du lecteur
   // Chargement PARTAGÉ de l'analyse /reflow : le saut de section (?section=)
   // s'en sert sans ouvrir le mode lecture et sans second fetch — même cache,
   // même jeton de génération.
   return {enter, leave, isOn: () => on, doc: () => doc, loadDoc: () => load(gen), reset, host, crops};
-})();
+}
+
 
 async function main(){
   let pdf;
@@ -659,12 +664,12 @@ async function main(){
     if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
     __readingPdf = pdf;
   } catch(e) {
-    const p = document.getElementById("pages");
+    const p = (document.getElementById("pages")                  );
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
     p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:var(--ui-font)";
     return;
   }
-  const wrap = document.getElementById("pages");
+  const wrap = (document.getElementById("pages")                  );
   // État de rendu déclaré AVANT la boucle de suivi : sa première frame les
   // lit, et un `let` plus bas la ferait mourir en zone morte temporelle
   // (page blanche, régression vécue le 2026-08-16). Ne pas redescendre.
@@ -675,7 +680,7 @@ async function main(){
   // l'autre. availW() lit la valeur RÉELLE — le lecteur se réajuste donc
   // pendant qu'on tire, par la même mécanique que le redimensionnement.
   function paneW(){
-    const el = document.getElementById("annPane");
+    const el = (document.getElementById("annPane")                  );
     const stored = parseInt(localStorage.getItem(PANE_KEY) || "", 10);
     const w = (el && el.offsetWidth) || (stored > 0 ? stored : 290);
     return Math.max(190, Math.min(520, w)) + 6;   // + marge de respiration
@@ -759,9 +764,9 @@ async function main(){
   // en page). `onVisibleReady` est appelé dès que les pages À L'ÉCRAN sont
   // nettes — c'est là que l'appelant peut retirer le transform de suivi.
   let _renderGen = 0;
-  let _pageObserver = null;
+  let _pageObserver                       = null;
   let _slots = [];
-  async function renderAll(onVisibleReady){
+  async function renderAll(onVisibleReady             ){
     clearHl();
     selHide();
     const gen = ++_renderGen;
@@ -789,7 +794,7 @@ async function main(){
     const slots = [];
     for(let n = 1; n <= pdf.numPages; n++){
       const div = document.createElement("div");
-      div.className = "pg"; div.dataset.page = n;
+      div.className = "pg"; div.dataset.page = String(n);
       div.dataset.vscale = vp1.scale;  // px CSS par unité PDF — requis par le synctex
       div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
       wrap.appendChild(div);
@@ -883,7 +888,7 @@ async function main(){
     if (typeof IntersectionObserver === "function") {
       _pageObserver = new IntersectionObserver(entries => {
         for (const entry of entries) {
-          const slot = slots[Number(entry.target.dataset.page) - 1];
+          const slot = slots[Number((entry.target               ).dataset.page) - 1];
           slot.visible = entry.isIntersecting;
           if (slot.visible) { slot.want = true; void paint(slot); }
           else {
@@ -913,7 +918,7 @@ async function main(){
     // pages d'un article monopolisent le fil et un clic (ouvrir le panneau,
     // tirer la poignée) attendait ~2 s avant d'être pris en compte —
     // « le PDF ne s'ajuste pas » (vécu 2026-08-16).
-    const yieldToUi = () => new Promise((r) => {
+    const yieldToUi = () => new Promise      ((r) => {
       if (window.requestIdleCallback) window.requestIdleCallback(() => r(), { timeout: 60 });
       else setTimeout(r, 0);
     });
@@ -937,14 +942,14 @@ async function main(){
     try { window.dispatchEvent(new CustomEvent("pdf-rendered")); } catch(e){}
     revealLinkedPassage(!targetRevealed);
   }
-  function setZoom(z){
+  function setZoom(z        ){
     ZOOM = Math.min(4, Math.max(0.4, z));
-    document.getElementById("zPct").textContent = Math.round(ZOOM * 100) + "%";
+    (document.getElementById("zPct")                     ).textContent = Math.round(ZOOM * 100) + "%";
     // le poller applique le transform fluide puis re-rend net
   }
-  document.getElementById("zIn").onclick = () => setZoom(ZOOM * 1.2);
-  document.getElementById("zOut").onclick = () => setZoom(ZOOM / 1.2);
-  document.getElementById("zPct").onclick = () => setZoom(1); // retour fit-width
+  (document.getElementById("zIn")                     ).onclick = () => setZoom(ZOOM * 1.2);
+  (document.getElementById("zOut")                     ).onclick = () => setZoom(ZOOM / 1.2);
+  (document.getElementById("zPct")                     ).onclick = () => setZoom(1); // retour fit-width
   // rechargement en place (compile LaTeX) : nouveau document, mêmes annotations —
   // jeton anti-course : deux getDocument() concurrents peuvent deadlocker le worker
   let _rlTok = 0;
@@ -997,7 +1002,7 @@ async function main(){
     const page = document.querySelector('.pg[data-page="' + targetPage + '"]');
     if (page) {
       page.scrollIntoView({block:"start"});
-      document.getElementById("status").textContent = "Page " + targetPage;
+      (document.getElementById("status")                   ).textContent = "Page " + targetPage;
     }
   }
   try {
@@ -1016,7 +1021,7 @@ async function main(){
  *  (GET /reflow, cache serveur — 0,1 à 6 s au premier appel), puis le titre
  *  trouvé devient la cible page+citation du même mécanisme que ?quote=. */
 async function revealLinkedSection(){
-  const status = document.getElementById("status");
+  const status = (document.getElementById("status")                   );
   status.textContent = "Analyse du document…";
   let doc = null;
   try { doc = await window.__readingMode.loadDoc(); }
@@ -1030,21 +1035,21 @@ async function revealLinkedSection(){
   status.textContent = "Section " + targetSection + " — p. " + targetPage;
 }
 
-function revealLinkedPassage(shouldScroll){
+function revealLinkedPassage(shouldScroll         ){
   if(!targetQuote) return;
-  document.querySelectorAll(".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
+  document.querySelectorAll                 (".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
   const pg = document.querySelector('.pg[data-page="' + targetPage + '"]');
   if(!pg) return;
-  const tl = pg.querySelector(".textLayer");
+  const tl = pg.querySelector             (".textLayer");
   const spans = (tl && tl._order) || (tl ? [...tl.querySelectorAll("span")] : []);
   const match = window.AtelierPdfPassage && window.AtelierPdfPassage.findPassageSpanRange(
     spans.map(function(span){ return span.textContent || ""; }), targetQuote
   );
   if(match){
-    spans.slice(match.start, match.end + 1).forEach(function(span){ span.classList.add("auto-hl"); });
-    document.getElementById("status").textContent = "Passage retrouvé — p. " + targetPage;
+    spans.slice(match.start, match.end + 1).forEach(function(span                                                  ){ span.classList.add("auto-hl"); });
+    (document.getElementById("status")                   ).textContent = "Passage retrouvé — p. " + targetPage;
   } else {
-    document.getElementById("status").textContent = "Page " + targetPage + " — extrait non localisé";
+    (document.getElementById("status")                   ).textContent = "Page " + targetPage + " — extrait non localisé";
   }
   if(shouldScroll){
     const target = match ? spans[match.start] : pg;
@@ -1069,7 +1074,7 @@ function revealReadingPassage(){
   readingPassageRevealed = true;
   el.scrollIntoView({block:"center"});
   el.classList.add("find-cur"); setTimeout(() => el.classList.remove("find-cur"), 2000);
-  document.getElementById("status").textContent = "Passage retrouvé — p. " + doc.blocks.find(b => b.id === hit.blockId).page;
+  (document.getElementById("status")                   ).textContent = "Passage retrouvé — p. " + doc.blocks.find((b) => b.id === hit.blockId).page;
   return true;
 }
 document.addEventListener("atelier-reading-rendered", () => { revealReadingPassage(); });
@@ -1078,7 +1083,7 @@ document.addEventListener("atelier-reading-rendered", () => { revealReadingPassa
 // (item.width), glyphes etires par scaleX — plus de boites trop larges.
 const _measureCv = document.createElement("canvas");
 const _measureCtx = _measureCv.getContext("2d");
-function buildTextLayer(tc, tl, vp){
+function buildTextLayer(tc, tl                , vp){
   for(const item of tc.items){
     if(!item.str || !item.str.trim()) continue;
     const tx = pdfjsLib.Util.transform(vp.transform, item.transform);
@@ -1095,8 +1100,8 @@ function buildTextLayer(tc, tl, vp){
     s.style.top = textTop + "px";
     s.style.fontSize = fontSize + "px";
     s.style.fontFamily = "sans-serif";
-    s.dataset.l = tx[4]; s.dataset.t = textTop; s.dataset.r = tx[4] + w;
-    s.dataset.fs = fontSize; s.dataset.fh = fontHeight;
+    s.dataset.l = String(tx[4]); s.dataset.t = String(textTop); s.dataset.r = String(tx[4] + w);
+    s.dataset.fs = String(fontSize); s.dataset.fh = String(fontHeight);
     _measureCtx.font = fontSize + "px sans-serif";
     const nat = _measureCtx.measureText(item.str).width;
     if(nat > 0) s.style.transform = "scaleX(" + (w / nat) + ")";
@@ -1106,8 +1111,8 @@ function buildTextLayer(tc, tl, vp){
 
 // Column reading order: find the vertical gutter (an x band crossed by almost
 // no span) and sort column by column, then (y, x).
-function readingOrder(tl, pageW){
-  const spans = [...tl.querySelectorAll("span")].filter(s => s.textContent.trim());
+function readingOrder(tl                , pageW        ){
+  const spans = [...tl.querySelectorAll                 ("span")].filter(s => s.textContent.trim());
   const boxes = spans.map(s => ({s,
     l: parseFloat(s.dataset.l), t: parseFloat(s.dataset.t), r: parseFloat(s.dataset.r)}));
   // detection de gouttiere sur les spans etroits seulement
@@ -1119,7 +1124,7 @@ function readingOrder(tl, pageW){
     if(cross < bestCross){ bestCross = cross; bestX = x; }
   }
   const twoCols = narrow.length > 10 && bestCross <= Math.max(2, narrow.length*0.05);
-  const key = b => {
+  const key = (b) => {
     const wide = (b.r - b.l) > pageW*0.55;
     const col = (twoCols && !wide && (b.l + b.r)/2 >= bestX) ? 1 : 0;
     return [col, Math.round(b.t/4), b.l];
@@ -1131,10 +1136,10 @@ function readingOrder(tl, pageW){
   return boxes.map(b => b.s);
 }
 
-const btn = document.getElementById("sendBtn");
+const btn = (document.getElementById("sendBtn")                     );
 let dragLayer = null, layerSpans = [], activeSelection = null;
 function clearSelectionRects(){
-  document.querySelectorAll(".pdfsel").forEach(el => el.remove());
+  document.querySelectorAll             (".pdfsel").forEach(el => el.remove());
 }
 function clearHl(){
   clearSelectionRects();
@@ -1146,7 +1151,7 @@ function clearHl(){
 function selectionModel(){
   if(!activeSelection || !window.AtelierPdfSelection) return null;
   const model = window.AtelierPdfSelection.buildSelection(
-    activeSelection.spans.map(s => s.textContent || ""),
+    activeSelection.spans.map((s) => s.textContent || ""),
     activeSelection.anchor,
     activeSelection.focus
   );
@@ -1197,8 +1202,8 @@ function renderSelection(){
   }
   return entries;
 }
-let _selPushT = null;
-function pushSelInfo(lines, words, text){
+let _selPushT                               = null;
+function pushSelInfo(lines        , words, text){
   clearTimeout(_selPushT);
   _selPushT = setTimeout(()=>{
     fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -1209,17 +1214,17 @@ function pushSelInfo(lines, words, text){
 function updateSelInfo(){
   const model = selectionModel();
   if(!model) return;
-  const rows = new Set(model.segments.map(segment => {
+  const rows = new Set(model.segments.map((segment) => {
     const span = model.spans[segment.index];
     return span.closest(".pg").dataset.page + ":" + Math.round(parseFloat(span.dataset.t)/4);
   }));
   const words = model.text.split(/\s+/).filter(Boolean).length;
   pushSelInfo(rows.size, words, model.text);
 }
-function spanAt(tl, x, y){
+function spanAt(tl         , x        , y        ){
   // span under the pointer, else the nearest one on the same line
   const el = document.elementFromPoint(x, y);
-  if(el && el.tagName === "SPAN" && el.closest(".textLayer") === tl && el.textContent.trim()) return el;
+  if(el && el.tagName === "SPAN" && el.closest             (".textLayer") === tl && el.textContent.trim()) return el;
   let best = null, bd = 1e9;
   for(const s of layerSpans){
     const b = s.getBoundingClientRect();
@@ -1229,7 +1234,7 @@ function spanAt(tl, x, y){
   }
   return best;
 }
-function offsetAt(span, x, y){
+function offsetAt(span, x        , y        ){
   const textNode = span && span.firstChild;
   if(!textNode || textNode.nodeType !== Node.TEXT_NODE) return 0;
   const length = textNode.data.length;
@@ -1241,7 +1246,7 @@ function offsetAt(span, x, y){
   const box = span.getBoundingClientRect();
   if(x <= box.left) return 0;
   if(x >= box.right) return length;
-  const boundaryX = offset => {
+  const boundaryX = (offset) => {
     if(offset <= 0) return box.left;
     if(offset >= length) return box.right;
     const range = document.createRange();
@@ -1258,21 +1263,21 @@ function offsetAt(span, x, y){
   const before = Math.max(0, lo - 1);
   return Math.abs(boundaryX(before) - x) <= Math.abs(boundaryX(lo) - x) ? before : lo;
 }
-function pointAt(tl, x, y){
+function pointAt(tl, x        , y        ){
   const span = spanAt(tl, x, y);
   if(!span) return null;
   const index = layerSpans.indexOf(span);
   return index < 0 ? null : {index, offset: offsetAt(span, x, y)};
 }
 document.addEventListener("pointerdown", e => {
-  if(e.target.closest("#selPill, .pdf-mark-tools")) return;  // Keep the selected range while using either toolbar.
-  const tl = e.target.closest(".textLayer");
+  if((e.target           ).closest             ("#selPill, .pdf-mark-tools")) return;  // Keep the selected range while using either toolbar.
+  const tl = (e.target           ).closest             (".textLayer");
   btn.style.display = "none";
   selHide();
   clearHl();
   if(!tl) return;
   dragLayer = tl;
-  layerSpans = tl._order || [...tl.querySelectorAll("span")].filter(s => s.textContent.trim());
+  layerSpans = tl._order || [...tl.querySelectorAll                 ("span")].filter(s => s.textContent.trim());
   const point = pointAt(tl, e.clientX, e.clientY);
   if(!point){ dragLayer = null; return; }
   activeSelection = {tl, spans: layerSpans, anchor: point, focus: point};
@@ -1302,8 +1307,8 @@ document.addEventListener("pointerup", e => {
 });
 /** Bloc de la colonne contenant un nœud de plage : `parentElement` est nul
  *  quand l'ancre est l'élément <p>/<li> lui-même (fix 1, garde 2). */
-function readingBlockOf(n){
-  return n ? (n.nodeType === 1 ? n : n.parentElement)?.closest("#readBody [data-block]") || null : null;
+function readingBlockOf(n      ){
+  return n ? ((n.nodeType === 1 ? n : n.parentElement)           )?.closest             ("#readBody [data-block]") || null : null;
 }
 function readingSelText(){
   if(!window.__readingMode.isOn()) return "";
@@ -1332,25 +1337,25 @@ btn.onclick = async () => {
     document.getElementById("status").textContent =
       __EMB ? "Added to chat ✓" : (j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓");
   }catch(e){
-    document.getElementById("status").textContent = "Server error";
+    (document.getElementById("status")                   ).textContent = "Server error";
   }
   btn.textContent = "➜ Claude"; btn.style.display = "none";
-  setTimeout(()=>document.getElementById("status").textContent="", 3000);
+  setTimeout(()=>(document.getElementById("status")                   ).textContent="", 3000);
 };
 
 // --- pilule de sélection : comportement partagé via SelPill (sel_pill.js) —
 //     l'hôte fournit le payload (rel/page/texte) et le nettoyage du surlignage
-const selPill = document.getElementById("selPill");
-const selTa = selPill.querySelector("textarea");
+const selPill = (document.getElementById("selPill")                  );
+const selTa = selPill.querySelector                     ("textarea");
 const selApi = SelPill.attach({
   pill: selPill,
-  menu: document.getElementById("tgMenu"),
+  menu: (document.getElementById("tgMenu")                  ),
   getQuote(){ const text = hlText(); return text ? {rel, page: selPage, text} : null; },
   embedExtras(go){
     go.style.display = "none";
     const actions = document.createElement("div");
     go.before(actions);
-    const legacyColors = selPill.querySelector(".hlbar");
+    const legacyColors = selPill.querySelector                 (".hlbar");
     if(legacyColors) legacyColors.style.display = "none";
     AtelierAnnotationUI.createSelectionActions(actions, {
       onAdd: () => go.click(),
@@ -1374,7 +1379,7 @@ function selPillShow(entries){
   if(!hlText()){ selApi.hide(); return; }
   // rectangle union des fragments sélectionnés (coordonnées viewport)
   let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
-  entries.forEach(entry => { const b = entry.rect;
+  entries.forEach((entry) => { const b = entry.rect;
     l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
   selApi.placeAt({left: l, width: r - l, top, bottom: bot});
 }
@@ -1382,13 +1387,13 @@ function selPillShow(entries){
 // sélection native et on place la pilule sur son rectangle.
 document.addEventListener("mouseup", (e) => {
   if(!window.__readingMode.isOn()) return;
-  if(e.target.closest("#selPill, .pdf-mark-tools")) return;
-  if(!e.target.closest("#readBody")) return;
+  if((e.target           ).closest             ("#selPill, .pdf-mark-tools")) return;
+  if(!(e.target           ).closest                ("#readBody")) return;
   const text = readingSelText();
   if(!text){ selApi.hide(); return; }
   const sel = window.getSelection(), rng = sel.getRangeAt(0);
   const el = readingBlockOf(rng.startContainer);
-  if(el) selPage = el.dataset.page;
+  if(el) selPage = Number(el.dataset.page);
   const b = rng.getBoundingClientRect();
   selApi.placeAt({left: b.left, width: b.width, top: b.top, bottom: b.bottom});
 });
@@ -1411,11 +1416,11 @@ const PANE_KEY = "pdfv_pane_w";
 // Lit PDF_ANNOTS (déjà chargé/persisté) : aucune source de vérité nouvelle.
 // Filtre par couleur, clic pour sauter au passage, corbeille au survol.
 const annPane = (function(){
-  const pane = document.getElementById("annPane");
+  const pane = (document.getElementById("annPane")                  );
   if (!pane) return { refresh(){}, toggle(){} };
-  const list = pane.querySelector(".list"), filters = pane.querySelector(".filters"),
-        cn = pane.querySelector(".cn"), doc = pane.querySelector(".doc");
-  let only = null;   // couleur filtrée, null = toutes
+  const list = pane.querySelector                (".list"), filters = pane.querySelector                (".filters"),
+        cn = pane.querySelector                 (".cn"), doc = pane.querySelector                (".doc");
+  let only         = null;   // couleur filtrée, null = toutes
   const thumbs = new Map();   // id d'annotation → dataURL de la vignette
   function sorted(){
     return [...PDF_ANNOTS].sort((a, b) =>
@@ -1430,7 +1435,7 @@ const annPane = (function(){
     if (!pg) return;
     const y = a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0;
     const sc = document.scrollingElement || document.documentElement;
-    sc.scrollTo({ top: pg.offsetTop + y * pg.offsetHeight - 90, behavior: "smooth" });
+    sc.scrollTo({ top: (pg               ).offsetTop + y * (pg               ).offsetHeight - 90, behavior: "smooth" });
   }
   // portée : "doc" = l'article ouvert ; "lib" = toute la bibliothèque
   let scope = localStorage.getItem("pdfv_pane_scope") === "lib" ? "lib" : "doc";
@@ -1447,7 +1452,7 @@ const annPane = (function(){
     for (const a of list) { const t = parseInt(a.id, 10); if (t > best) best = t; }
     return best;
   }
-  function gotoAnnot(relX, a){
+  function gotoAnnot(relX        , a){
     if (!relX || relX === rel) { jump(a); return; }
     // navigation croisée : même viewer, autre document, hash (nonce) préservé
     const u = new URL(location.href);
@@ -1462,12 +1467,12 @@ const annPane = (function(){
     location.href = u.toString();
   }
   function filtered(list){
-    return only ? list.filter(a => normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
+    return only ? list.filter((a) => normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
   }
   // rangée d'annotation — partagée par les deux portées. Hors article ouvert :
   // pas de vignette possible (le canvas n'existe pas), une zone s'affiche en
   // ligne sobre « zone · note » ; l'envoi d'image exige d'ouvrir l'article.
-  function buildRow(a, relX){
+  function buildRow(a, relX        ){
     const here = relX === rel;
     const it = document.createElement("div");
     it.className = "it" + (here ? "" : " lib-row");
@@ -1542,7 +1547,7 @@ const annPane = (function(){
     const sp = document.createElement("span");
     sp.className = "sp";
     foot.appendChild(pg); foot.appendChild(sp);
-    const mkAct = (cls, title, svg, fn) => {
+    const mkAct = (cls        , title        , svg        , fn) => {
       const b = document.createElement("button");
       b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
       b.onclick = (e) => { e.stopPropagation(); fn(); };
@@ -1572,7 +1577,7 @@ const annPane = (function(){
   // chargement de la bibliothèque) sont différés : reconstruire la liste
   // détruirait le champ et la saisie en cours.
   let editing = null;          // {rel, id} de la rangée en édition
-  function memoField(a){ return a.kind === "note" ? "note" : "memo"; }
+  function memoField(a                   ){ return a.kind === "note" ? "note" : "memo"; }
   function isEditing(a, relX){
     return !!editing && editing.rel === (relX || rel) && String(editing.id) === String(a.id);
   }
@@ -1580,7 +1585,7 @@ const annPane = (function(){
     editing = { rel: relX || rel, id: a.id };
     render();
   }
-  function memoEditor(a, relX){
+  function memoEditor(a                                 , relX){
     const field = memoField(a);
     const ta = document.createElement("textarea");
     ta.className = "memo-edit";
@@ -1590,7 +1595,7 @@ const annPane = (function(){
     ta.setAttribute("aria-label", "Note");
     const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
     let done = false;
-    const finish = (save) => {
+    const finish = (save         ) => {
       if (done) return;
       done = true;
       editing = null;
@@ -1614,7 +1619,7 @@ const annPane = (function(){
     });
     return ta;
   }
-  function commitMemo(relX, a, field, value){
+  function commitMemo(relX        , a, field        , value        ){
     const before = a[field] || "";
     if (field === "memo") {
       if (value.trim()) a.memo = value; else delete a.memo;
@@ -1624,7 +1629,7 @@ const annPane = (function(){
     if ((a[field] || "") === before) return;
     if (!relX || relX === rel) {
       saveAnnots();
-      document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+      document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
       if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
       return;
     }
@@ -1634,10 +1639,10 @@ const annPane = (function(){
       body: JSON.stringify({rel: relX, annots: LIB[relX], known: LIB[relX].map(x => String(x.id))})})
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
       .catch(() => {
-        document.getElementById("status").textContent = "Note non enregistrée — réessaie.";
+        (document.getElementById("status")                   ).textContent = "Note non enregistrée — réessaie.";
       });
   }
-  function removeAnnotIn(relX, a){
+  function removeAnnotIn(relX        , a){
     if (!relX || relX === rel) { removeAnnot(a); return; }
     if (!LIB || !Array.isArray(LIB[relX])) return;
     LIB[relX] = LIB[relX].filter(x => x.id !== a.id);
@@ -1672,7 +1677,7 @@ const annPane = (function(){
       .map(([r, l]) => ({ rel: r, rows: filtered((Array.isArray(l) ? l : []).slice()
         .sort((a, b) => (+a.page - +b.page) || 0)) }))
       .filter(e => e.rows.length)
-      .sort((x, y) => ((y.rel === rel) - (x.rel === rel)) || (maxTs(y.rows) - maxTs(x.rows)));
+      .sort((x, y) => (Number(y.rel === rel) - Number(x.rel === rel)) || (maxTs(y.rows) - maxTs(x.rows)));
     cn.textContent = String(arts.reduce((s, e) => s + e.rows.length, 0));
     if (!arts.length) {
       const e = document.createElement("div");
@@ -1722,11 +1727,11 @@ const annPane = (function(){
       d.onclick = () => { only = (only === c) ? null : c; refresh(); };
       filters.appendChild(d);
     });
-    pane.querySelectorAll(".scope button").forEach(b => b.classList.toggle("on", b.dataset.s === scope));
+    pane.querySelectorAll                   (".scope button").forEach(b => b.classList.toggle("on", b.dataset.s === scope));
     list.innerHTML = "";
     if (scope === "lib") renderLib(); else renderDoc();
   }
-  pane.querySelectorAll(".scope button").forEach(b => b.onclick = () => {
+  pane.querySelectorAll                   (".scope button").forEach(b => b.onclick = () => {
     scope = b.dataset.s === "lib" ? "lib" : "doc";
     try { localStorage.setItem("pdfv_pane_scope", scope); } catch(e){}
     if (scope === "lib" && LIB === null) loadLib();
@@ -1761,11 +1766,11 @@ const annPane = (function(){
     // le décalage des pages suit la largeur réelle de la colonne
     document.documentElement.style.setProperty("--pane-pad", (pane.offsetWidth + 16) + "px");
   }
-  const grip = pane.querySelector(".grip");
+  const grip = pane.querySelector                (".grip");
   if (grip) grip.addEventListener("mousedown", (e) => {
     e.preventDefault();
     document.body.classList.add("pane-resizing");
-    const move = (ev) => {
+    const move = (ev                      ) => {
       const w = Math.max(190, Math.min(520, window.innerWidth - ev.clientX));
       pane.style.width = w + "px";
       applyNarrow();
@@ -1779,8 +1784,8 @@ const annPane = (function(){
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
   });
-  pane.querySelector(".pclose").onclick = toggle;
-  return { refresh, toggle, consumed(relX, id){
+  pane.querySelector                   (".pclose").onclick = toggle;
+  return { refresh, toggle, consumed(relX               , id        ){
     if(LIB && Array.isArray(LIB[relX])) LIB[relX] = LIB[relX].filter(a => String(a.id) !== id);
     refresh();
   } };
@@ -1791,7 +1796,7 @@ const annPane = (function(){
 // (.pdfhl), les zones et les commentaires gardent leurs couleurs. Choix retenu
 // dans localStorage ; sans choix, conserver les couleurs originales du PDF.
 (function(){
-  const btn = document.getElementById("invBtn");
+  const btn = (document.getElementById("invBtn")                     );
   if (!btn) return;
   const KEY = "pdf_invert";
   function stored(){
@@ -1817,7 +1822,7 @@ const annPane = (function(){
 // le terme est marqué en entier (précision du mot, pas du caractère) — assez
 // pour retrouver un passage, et sans toucher au DOM du texte sélectionnable.
 (function(){
-  const bar = document.getElementById("findBar");
+  const bar = (document.getElementById("findBar")                  );
   if (!bar) return;
   const input = bar.querySelector("input"), cnt = bar.querySelector(".cnt");
   let hits = [], cur = -1;
@@ -1855,7 +1860,7 @@ const annPane = (function(){
     cnt.textContent = (cur + 1) + "/" + hits.length;
     const pg = el.closest(".pg");
     const sc = document.scrollingElement || document.documentElement;
-    if (pg) sc.scrollTo({ top: pg.offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
+    if (pg) sc.scrollTo({ top: (pg               ).offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
     else el.scrollIntoView({block: "center", behavior: "smooth"});   // colonne de lecture
   }
   function open(){
@@ -1865,7 +1870,7 @@ const annPane = (function(){
   function close(){ bar.style.display = "none"; clearFind(); }
   // 150 ms de repos avant de rescanner : une frappe rapide déclenchait un
   // balayage plein document par caractère.
-  let _findTimer = 0;
+  let _findTimer                                         = 0;
   const schedule = () => {
     clearTimeout(_findTimer);
     _findTimer = setTimeout(() => run(input.value), 150);
@@ -1875,9 +1880,9 @@ const annPane = (function(){
     if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
     if (e.key === "Escape") { e.preventDefault(); close(); }
   };
-  bar.querySelector(".fnext").onclick = () => step(1);
-  bar.querySelector(".fprev").onclick = () => step(-1);
-  bar.querySelector(".fclose").onclick = close;
+  bar.querySelector                   (".fnext").onclick = () => step(1);
+  bar.querySelector                   (".fprev").onclick = () => step(-1);
+  bar.querySelector                   (".fclose").onclick = close;
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); open(); }
   });
@@ -1904,14 +1909,14 @@ let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un 
 const KNOWN_IDS = new Set();
 let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
 function redrawAllAnnots(){
-  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   annPane.refresh();
 }
-function loadAnnots(attempt){
+function loadAnnots(attempt        ){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
-      PDF_ANNOTS.forEach(a => KNOWN_IDS.add(String(a.id)));
+      PDF_ANNOTS.forEach((a) => KNOWN_IDS.add(String(a.id)));
       redrawAllAnnots();
       revealTargetAnnot(); })
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
@@ -2013,8 +2018,8 @@ function revealTargetAnnot(){
   if (!pg) return;
   const y = (a.rects && a.rects[0] && a.rects[0][1]) || (a.pin && a.pin[1]) || 0;
   const sc = document.scrollingElement || document.documentElement;
-  sc.scrollTo({ top: pg.offsetTop + y * pg.offsetHeight - 90 });
-  const els = [...pg.querySelectorAll(".pdfhl, .pdfarea, .pdfcomment")].filter(el => el.dataset.aid === String(a.id));
+  sc.scrollTo({ top: (pg               ).offsetTop + y * (pg               ).offsetHeight - 90 });
+  const els = [...pg.querySelectorAll             (".pdfhl, .pdfarea, .pdfcomment")].filter(el => el.dataset.aid === String(a.id));
   els.forEach(el => el.classList.add("flash"));
   setTimeout(() => els.forEach(el => el.classList.remove("flash")), 1600);
 }
@@ -2037,14 +2042,14 @@ function saveAnnots(){
       sent.forEach(a => KNOWN_IDS.add(String(a.id)));
       return true;
     } catch(error) {
-      document.getElementById("status").textContent = "Annotation non enregistrée — réessaie depuis la note.";
+      (document.getElementById("status")                   ).textContent = "Annotation non enregistrée — réessaie depuis la note.";
       return false;
     }
   });
   return ANNOT_SAVE;
 }
-function drawAnnots(pgDiv, n){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo").forEach(el => el.remove());
+function drawAnnots(pgDiv         , n        ){
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo").forEach((el) => el.remove());
   // Keep adjacent margin numbers separately clickable, without moving the
   // stored text anchor. Spread collisions down, then fit the group upward.
   const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
@@ -2083,7 +2088,7 @@ function drawAnnots(pgDiv, n){
       const pageBox = pgDiv.getBoundingClientRect();
       const anchorX = pageBox.left + rc[0] * pageBox.width;
       const anchorY = pageBox.top + (rc[1] + rc[3] / 2) * pageBox.height;
-      const lineSpan = [...pgDiv.querySelectorAll(".textLayer span")].find(span => {
+      const lineSpan = [...pgDiv.querySelectorAll                 (".textLayer span")].find(span => {
         const box = span.getBoundingClientRect();
         return box.width > 0 && anchorY >= box.top - 2 && anchorY <= box.bottom + 2
           && anchorX >= box.left - 2 && anchorX <= box.right + 2;
@@ -2098,7 +2103,7 @@ function drawAnnots(pgDiv, n){
     // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage.
     // Les annotations enregistrées mot par mot (avant 2026-09-19) se fondent
     // au rendu : `aspect` = hauteur/largeur de la page, connue par le slot.
-    const pageAspect = pgDiv.offsetWidth > 0 ? pgDiv.offsetHeight / pgDiv.offsetWidth : 1;
+    const pageAspect = (pgDiv               ).offsetWidth > 0 ? (pgDiv               ).offsetHeight / (pgDiv               ).offsetWidth : 1;
     const drawRects = a.kind === "area" ? [] : window.AtelierPdfSelection.mergeLineRects(a.rects, {aspect: pageAspect});
     for(const rc of drawRects){
       const el = document.createElement("div");
@@ -2172,11 +2177,11 @@ const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,
 function drawReadingAnnots(){
   const doc = window.__readingMode.doc(); if(!doc) return;
   const host = window.__readingMode.host;
-  for (const m of host.querySelectorAll("mark.pdfhl")) m.replaceWith(...m.childNodes);
+  for (const m of host.querySelectorAll             ("mark.pdfhl")) m.replaceWith(...m.childNodes);
   host.normalize();
   const anchored = window.AtelierPdfReading.anchorAnnotations(doc, PDF_ANNOTS);
   // du dernier au premier dans chaque bloc pour garder les offsets valides
-  anchored.sort((a, b) => a.blockId - b.blockId || b.start - a.start);
+  anchored.sort((a                                     , b                                     ) => a.blockId - b.blockId || b.start - a.start);
   for (const h of anchored) {
     const el = host.querySelector('[data-block="' + h.blockId + '"]'); if(!el || el.tagName === "FIGURE") continue;
     const a = PDF_ANNOTS.find(x => String(x.id) === String(h.annotId)); if(!a) continue;
@@ -2203,7 +2208,7 @@ document.addEventListener("atelier-reading-rendered", drawReadingAnnots);
 // Shared selection actions use stable color names; the PDF sidecar stores the
 // actual RGBA swatch so page and reading-mode marks render consistently with
 // the dedicated PDF toolbar.
-function normalizeHighlightColor(color){
+function normalizeHighlightColor(color               ){
   const names = {
     amber: "rgba(255,213,74,.40)",
     green: "rgba(120,220,140,.40)",
@@ -2214,7 +2219,7 @@ function normalizeHighlightColor(color){
   };
   return names[color] || color || names.amber;
 }
-function addHighlightFromSel(kind, color){
+function addHighlightFromSel(kind        , color        ){
   // Aiguillage unique de « annoter la sélection » : en mode lecture la
   // sélection est native et vit dans la colonne, pas dans la couche texte.
   // défauts posés AVANT l'aiguillage : la colonne de lecture recevait sinon
@@ -2222,7 +2227,7 @@ function addHighlightFromSel(kind, color){
   // surlignage (revue de branche, I4).
   kind = kind || "hl"; color = normalizeHighlightColor(color || HL_COLORS[0]);
   if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
-  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  if(!ANNOTS_LOADED){ (document.getElementById("status")                   ).textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   const model = selectionModel();
   const entries = selectionClientRects(model);
   if(!model || !entries.length) return;
@@ -2242,10 +2247,10 @@ function addHighlightFromSel(kind, color){
   }
   let lastA = null, lastRect = null;
   for(const [pgNum, g] of byPage){
-    const text = model.segments.filter(segment =>
+    const text = model.segments.filter((segment) =>
       model.spans[segment.index].closest(".pg") === g.pg
-    ).map(segment => segment.text).join(" ").replace(/\s+/g," ").trim();
-    const a = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
+    ).map((segment) => segment.text).join(" ").replace(/\s+/g," ").trim();
+    const a                                                                                                                                        = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
       text: text,
       kind: kind, color: color, note: ""};
     if(kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
@@ -2264,17 +2269,17 @@ function addHighlightFromSel(kind, color){
 }
 /** Sélection dans #readBody → annotation `comment` ordinaire (rects reconstitués par ligne). */
 function addHighlightFromReadingSel(kind, color){
-  if(!ANNOTS_LOADED){ document.getElementById("status").textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  if(!ANNOTS_LOADED){ (document.getElementById("status")                   ).textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
   const doc = window.__readingMode.doc(); const sel = window.getSelection();
   if(!doc || !sel || sel.isCollapsed) return;
   const rng = sel.getRangeAt(0);
   const el = readingBlockOf(rng.startContainer);
-  if(!el || el !== readingBlockOf(rng.endContainer)) { document.getElementById("status").textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  if(!el || el !== readingBlockOf(rng.endContainer)) { (document.getElementById("status")                   ).textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
   // rect mesuré AVANT toute mutation du DOM sous la plage (drawReadingAnnots
   // réécrit les nœuds de texte) — sinon annotMenu s'ouvre n'importe où
   // (revue plan 078 T6 fix 1, constat n°3), cf. `lastRect` côté pages.
   const r = rng.getBoundingClientRect();
-  const block = doc.blocks.find(b => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
+  const block = doc.blocks.find((b) => b.id === +el.dataset.block); if(!block || !block.lines.length) return;
   const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(rng.startContainer, rng.startOffset);
   const start = pre.toString().length, end = start + rng.toString().length;
   // `doc.pages` en entier : un paragraphe fusionné d'une page à l'autre fait
@@ -2282,7 +2287,7 @@ function addHighlightFromReadingSel(kind, color){
   if(!doc.pages || !doc.pages[block.lines[0].page - 1]) return;
   const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, doc.pages);
   if(!built.rects.length) return;
-  const a = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
+  const a                                                                                                                                        = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
   if(a.kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
   PDF_ANNOTS.push(a); saveAnnots();
   const pg = document.querySelector('.pg[data-page="' + a.page + '"]'); if(pg) drawAnnots(pg, a.page);
@@ -2302,13 +2307,13 @@ let eraseMark = false;
     ul:'<path d="M6 3v8a6 6 0 0 0 12 0V3M4 21h16"/>',
     erase:'<path d="m14 3 7 7-11 11H6l-4-4zM8 11l7 7M10 21h12"/>'
   };
-  const tool = (label, icon, action) => {
+  const tool = (label        , icon        , action) => {
     const button=document.createElement("button");button.type="button";
     button.title=label;button.setAttribute("aria-label",label);
     button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+icons[icon]+'</svg>';
     button.onclick=action;bar.appendChild(button);return button;
   };
-  const tools=[];
+  const tools                              =[];
   const refresh=()=>tools.forEach(([button,kind])=>button.setAttribute("aria-pressed",String(kind==="erase"?eraseMark:!eraseMark&&markKind===kind)));
   for(const [kind,label] of [["hl","Surligner"],["ul","Souligner"]]){
     const button=tool(label,kind,()=>{
@@ -2320,12 +2325,17 @@ let eraseMark = false;
   colorToggle.title = "Couleur du surlignage"; colorToggle.setAttribute("aria-label", colorToggle.title);
   colorToggle.setAttribute("aria-expanded", "false"); colorToggle.setAttribute("aria-controls", "pdf-color-palette");
   colorToggle.innerHTML = '<span class="pdf-current-color"></span><span aria-hidden="true">⌄</span>';
-  const setPalette = open => { bar.classList.toggle("palette-open", open); colorToggle.setAttribute("aria-expanded", String(open)); };
-  colorToggle.onclick = () => setPalette(!bar.classList.contains("palette-open"));
+  const setPalette = (open) => { bar.classList.toggle("palette-open", open); colorToggle.setAttribute("aria-expanded", String(open)); };
+  colorToggle.onclick = () => {
+    // Pointer and accessibility activation must move keyboard handling into the
+    // reader iframe, while mousedown still preserves the selected PDF text.
+    colorToggle.focus({preventScroll:true});
+    setPalette(!bar.classList.contains("palette-open"));
+  };
   bar.appendChild(colorToggle);
   const palette=document.createElement("span");palette.className="pdf-mark-colors";palette.id="pdf-color-palette";
   palette.setAttribute("role", "group");palette.setAttribute("aria-label", "Couleurs de surlignage");bar.appendChild(palette);
-  const colors=[];
+  const colors                     =[];
   HL_COLORS.forEach((color,i)=>{
     const button=document.createElement("button");button.type="button";button.className="pdf-mark-color";
     button.title=["Jaune","Vert","Bleu","Rose","Orange","Violet"][i];button.setAttribute("aria-label",button.title);
@@ -2334,10 +2344,10 @@ let eraseMark = false;
     button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));setPalette(false);eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
     palette.appendChild(button);colors.push(button);
   });
-  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();document.getElementById("status").textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
+  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();(document.getElementById("status")                   ).textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
   bar.style.setProperty("--mark-current",HL_COLORS[0].replace(",.40)",",1)"));
-  document.addEventListener("pointerdown",e=>{ if(!e.target.closest(".pdf-mark-tools")) setPalette(false); });
+  document.addEventListener("pointerdown",e=>{ if(!(e.target           ).closest(".pdf-mark-tools")) setPalette(false); });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && bar.classList.contains("palette-open")) { setPalette(false); colorToggle.focus(); } });
   document.getElementById("selinfo").before(bar);refresh();
 })();
@@ -2345,7 +2355,7 @@ let eraseMark = false;
 // métadonnées Zotero (ni auteur ni année structurés). Même règle que les
 // cartes du chat : « Williamson et al. - 2025 - Titre.pdf » → « Williamson
 // et al. 2025 » ; sinon le nom nettoyé, tronqué.
-function citeRefFor(relX){
+function citeRefFor(relX        ){
   const base = (relX || "").split("/").pop().replace(/\.[a-z0-9]+$/i, "");
   const m = /^(.{2,60}?)\s+-\s+(\d{4})\s+-\s+/.exec(base);
   if (m) return m[1] + " " + m[2];
@@ -2356,7 +2366,7 @@ function citeRef(){ return citeRefFor(rel); }
  *  (le sidecar JSON ne garde que le rectangle, jamais des pixels). */
 function areaDataUrl(a){
   const pg = document.querySelector('.pg[data-page="' + a.page + '"]');
-  const src = pg && pg.querySelector("canvas");
+  const src = pg && pg.querySelector                   ("canvas");
   const rc = a.rects && a.rects[0];
   if (!src || !rc) return null;
   const sx = Math.round(rc[0] * src.width), sy = Math.round(rc[1] * src.height);
@@ -2376,7 +2386,7 @@ function copyWithCitation(a, relOverride){
   const quote = String(a.text || "").replace(/\s+/g, " ").trim();
   const ref = citeRefFor(relOverride || rel) + (a.page ? ", p. " + a.page : "");
   const out = quote ? "« " + quote + " » (" + ref + ")" : "(" + ref + ")";
-  const done = () => { const el = annotPop.querySelector(".cpy"); if (el) el.classList.add("ok"); };
+  const done = () => { const el = annotPop.querySelector             (".cpy"); if (el) el.classList.add("ok"); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(out).then(done).catch(()=>{});
   } else {
@@ -2386,7 +2396,7 @@ function copyWithCitation(a, relOverride){
     ta.remove();
   }
 }
-const annotPop = document.getElementById("annotPop");
+const annotPop = (document.getElementById("annotPop")                  );
 /** Suppression d'une annotation — partagée par le menu et le panneau. */
 async function removeAnnot(a){
   const index = PDF_ANNOTS.findIndex(x => x.id === a.id);
@@ -2396,7 +2406,7 @@ async function removeAnnot(a){
     annPane.refresh();
     return false;
   }
-  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   if(annotationEditor?.a.id === a.id) annotationEditor = null;
   annotPop.style.display = "none";
@@ -2405,14 +2415,14 @@ async function removeAnnot(a){
 /** Envoi au chat — partagé par le menu et le panneau. Une ZONE part en image
  *  via /save (seul chemin que l'app hôte sait attacher) ; un passage de texte
  *  part en citation via /quote. `onFail` reçoit la raison quand ça échoue. */
-async function sendAnnot(a, onFail, relOverride, fromEditor, direct = false){
+async function sendAnnot(a, onFail, relOverride        , fromEditor          , direct = false){
   if(!fromEditor && annotationEditor && annotationEditor.a.id === a.id && (!relOverride || relOverride === rel))
     return annotationEditor.commit(false, "force", direct);
   const fail = onFail || sendFail;
   const r = relOverride || rel;
   const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
   let url = "/quote";
-  let payload = {rel:r, page:String(a.page), text:a.text, comment:a.note || "", direct:true, embed:true, target};
+  let payload                         = {rel:r, page:String(a.page), text:a.text, comment:a.note || "", direct:true, embed:true, target};
   if(a.kind === "area") {
     if(relOverride && relOverride !== rel) { fail("ouvre l’article pour envoyer sa zone"); return false; }
     const dataUrl = areaDataUrl(a);
@@ -2429,15 +2439,15 @@ async function sendAnnot(a, onFail, relOverride, fromEditor, direct = false){
     if(!result.message || result.error || window.self === window.top) throw new Error(result.error || "réponse vide");
     __atelierPost({type:"atelier-add-to-chat", text:result.message, direct,
       ...(a.kind === "comment" ? {pdfAnnotation: {rel:r, id:String(a.id)}} : {})});
-    document.getElementById("status").textContent = "Annotation ajoutée au chat";
+    (document.getElementById("status")                   ).textContent = "Annotation ajoutée au chat";
     return true;
   } catch(error) { fail(String(error && error.message || error)); return false; }
 }
 /** Un envoi au chat qui échoue ne doit JAMAIS être muet : la raison s'affiche
  *  dans le menu (le .catch silencieux d'avant cachait « file not found »). */
 function sendFail(why){
-  document.getElementById("status").textContent = "Ajout au chat impossible : " + String(why || "").slice(0,90);
-  let box = annotPop.querySelector(".serr");
+  (document.getElementById("status")                   ).textContent = "Ajout au chat impossible : " + String(why || "").slice(0,90);
+  let box = annotPop.querySelector             (".serr");
   if (!box) {
     box = document.createElement("div");
     box.className = "serr";
@@ -2459,10 +2469,10 @@ window.addEventListener("message", e => {
   PDF_ANNOTS = PDF_ANNOTS.filter(a => String(a.id) !== data.id);
   // Serialize behind any note edit already being persisted by this viewer.
   saveAnnots();
-  document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+  document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
 });
-async function annotMenu(a, x, y){
+async function annotMenu(a, x        , y        ){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
   // Une note libre (kind "note") EST déjà une note : pas de second champ.
   // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
@@ -2480,15 +2490,15 @@ async function annotMenu(a, x, y){
         void saveAnnots();
         redrawAllAnnots();
       }}} : {})});
-  const inp = annotPop.querySelector("textarea.atelier-note-input");
-  const memoInp = annotPop.querySelector("textarea.atelier-memo-input");
+  const inp = annotPop.querySelector                     ("textarea.atelier-note-input");
+  const memoInp = annotPop.querySelector                     ("textarea.atelier-memo-input");
   inp.value = a.note || "";
-  const status = annotPop.querySelector(".annotation-status");
+  const status = annotPop.querySelector             (".annotation-status");
   const editor = { a, commit: null };
   annotationEditor = editor;
   let saving = false;
   let attachedNote = a.note || "";
-  editor.commit = async (close, send, direct = false) => {
+  editor.commit = async (close, send        , direct = false) => {
     if(saving) return false;
     // A fresh annotation (just created by Annoter/zone/note libre) whose note
     // is still empty when the editor closes WITHOUT explicit validation
@@ -2501,7 +2511,7 @@ async function annotMenu(a, x, y){
       saving = true;
       inp.disabled = true;
       if(memoInp) memoInp.disabled = true;
-      annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+      annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = true; });
       status.textContent = "Suppression…";
       const removed = await removeAnnot(a);
       saving = false;
@@ -2509,7 +2519,7 @@ async function annotMenu(a, x, y){
       if(annotationEditor === editor){
         inp.disabled = false;
         if(memoInp) memoInp.disabled = false;
-        annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+        annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = false; });
         status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
       }
       return false;
@@ -2517,7 +2527,7 @@ async function annotMenu(a, x, y){
     saving = true;
     inp.disabled = true;
     if(memoInp) memoInp.disabled = true;
-    annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = true; });
     delete a.fresh;
     a.note = inp.value;
     if(memoInp){
@@ -2530,18 +2540,18 @@ async function annotMenu(a, x, y){
     let attached = true;
     if(saved && send && (send === "force" || (a.note.trim() && a.note !== attachedNote))) {
       status.textContent = "Ajout au chat…";
-      attached = await sendAnnot(a, why => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true, direct);
+      attached = await sendAnnot(a, (why) => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true, direct);
       if(attached) attachedNote = a.note;
     }
     saving = false;
     if(annotationEditor !== editor) return saved && attached;
     inp.disabled = false;
     if(memoInp) memoInp.disabled = false;
-    annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+    annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = false; });
     if(!attached) return false;
     status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
     if(!saved) return false;
-    document.querySelectorAll(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
     if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
     if(close) { annotPop.style.display = "none"; annotationEditor = null; }
     return true;
@@ -2554,31 +2564,31 @@ async function annotMenu(a, x, y){
   if(memoInp){
     memoInp.oninput = () => { status.textContent = ""; fitNote(); };
     // Entrée enregistre la note et ferme, sans rien envoyer au chat.
-    memoInp.onkeydown = e => {
+    memoInp.onkeydown = (e) => {
       e.stopPropagation();
       if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, false); }
       if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
     };
   }
-  inp.onkeydown = e => {
+  inp.onkeydown = (e) => {
     e.stopPropagation();
     if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, "force"); }
     if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
   };
-  annotPop.querySelector(".send2").onclick = () => editor.commit(true, "force");
-  annotPop.querySelector(".delete-note").onclick = async () => {
+  annotPop.querySelector             (".send2").onclick = () => editor.commit(true, "force");
+  annotPop.querySelector             (".delete-note").onclick = async () => {
     if(saving) return;
     saving = true;
     inp.disabled = true;
     if(memoInp) memoInp.disabled = true;
-    annotPop.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = true; });
     status.textContent = "Suppression…";
     const deleted = await removeAnnot(a);
     saving = false;
     if(!deleted && annotationEditor === editor) {
       inp.disabled = false;
       if(memoInp) memoInp.disabled = false;
-      annotPop.querySelectorAll("button").forEach(button => { button.disabled = false; });
+      annotPop.querySelectorAll                   ("button").forEach(button => { button.disabled = false; });
       status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
     }
   };
@@ -2591,16 +2601,16 @@ async function annotMenu(a, x, y){
 // Leaving the note saves its draft instead of silently discarding it.
 // The menu stays open on failure, so the user can retry or copy their note.
 document.addEventListener("click", e => {
-  if(!annotPop.contains(e.target) && !e.target.closest(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo")) {
+  if(!annotPop.contains(e.target        ) && !(e.target           ).closest             (".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo")) {
     if(annotationEditor) annotationEditor.commit(true, true);
     else annotPop.style.display = "none";
   }
 });
 
 // mode Studio : barre d'outils compacte et sobre + outils d'annotation
-let TOOL = null;   // seul mode restant : "note" (pose d'une pastille au clic)
+let TOOL         = null;   // seul mode restant : "note" (pose d'une pastille au clic)
 if(window.self !== window.top){
-  const hd = document.querySelector("header");
+  const hd = document.querySelector             ("header");
   const tools = document.createElement("span");
   tools.id = "pdftools";
   tools.innerHTML =
@@ -2620,7 +2630,7 @@ if(window.self !== window.top){
   const fn = document.getElementById("fname");
   fn.after(tools);
   let annIdx = -1;
-  function gotoAnn(dir){
+  function gotoAnn(dir        ){
     if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const sorted = [...PDF_ANNOTS].sort((a, b) =>
       (+a.page - +b.page) || ((a.rects[0]?.[1] ?? (a.pin?.[1] ?? 0)) - (b.rects[0]?.[1] ?? (b.pin?.[1] ?? 0))));
@@ -2631,33 +2641,33 @@ if(window.self !== window.top){
     if (!pg) return;
     const rel = a.rects[0]?.[1] ?? a.pin?.[1] ?? 0;
     const el = document.scrollingElement || document.documentElement;
-    el.scrollTo({ top: pg.offsetTop + rel * pg.offsetHeight - 90, behavior: "smooth" });
+    el.scrollTo({ top: (pg               ).offsetTop + rel * (pg               ).offsetHeight - 90, behavior: "smooth" });
     // flash discret sur les rectangles de l'annotation
     setTimeout(() => {
-      pg.querySelectorAll(".pdfhl, .pdfnote").forEach((n) => {
+      pg.querySelectorAll             (".pdfhl, .pdfnote").forEach((n) => {
         if (n.title === (a.note || "") || true) return;
       });
       drawAnnots(pg, +a.page);
-      const els = [...pg.querySelectorAll(".pdfhl, .pdfnote")];
+      const els = [...pg.querySelectorAll             (".pdfhl, .pdfnote")];
       els.forEach((n) => { n.style.transition = "outline 0.2s"; });
     }, 300);
   }
-  const prevB = tools.querySelector("#annPrev"), nextB = tools.querySelector("#annNext");
-  if (prevB) prevB.onclick = (e) => { e.stopPropagation(); gotoAnn(-1); };
-  if (nextB) nextB.onclick = (e) => { e.stopPropagation(); gotoAnn(1); };
+  const prevB = tools.querySelector                   ("#annPrev"), nextB = tools.querySelector                   ("#annNext");
+  if (prevB) prevB.onclick = (e                                  ) => { e.stopPropagation(); gotoAnn(-1); };
+  if (nextB) nextB.onclick = (e                                  ) => { e.stopPropagation(); gotoAnn(1); };
   // ---- capture de zone : glisser un rectangle sur une page ----------------
-  const areaB = tools.querySelector("#areaBtn");
-  let AREA_MODE = false, dragFrom = null, dragBox = null, dragPg = null;
-  function setArea(on){
+  const areaB = tools.querySelector                   ("#areaBtn");
+  let AREA_MODE = false, dragFrom = null, dragBox                 = null, dragPg = null;
+  function setArea(on         ){
     AREA_MODE = on;
     document.body.classList.toggle("area-mode", on);
     if (areaB) areaB.classList.toggle("ton", on);
     if (!on && dragBox) { dragBox.remove(); dragBox = null; dragFrom = null; dragPg = null; }
   }
-  if (areaB) areaB.onclick = (e) => { e.stopPropagation(); setArea(!AREA_MODE); };
+  if (areaB) areaB.onclick = (e                                  ) => { e.stopPropagation(); setArea(!AREA_MODE); };
   document.addEventListener("mousedown", (e) => {
     if (!AREA_MODE) return;
-    const pg = e.target.closest(".pg");
+    const pg = (e.target           ).closest             (".pg");
     if (!pg) return;
     e.preventDefault();
     dragPg = pg;
@@ -2697,15 +2707,15 @@ if(window.self !== window.top){
     setArea(false);   // une capture à la fois : on revient au mode lecture
     annotMenu(a, e.clientX, e.clientY);
   });
-  const paneB = tools.querySelector("#paneBtn");
-  if (paneB) paneB.onclick = (e) => {
+  const paneB = tools.querySelector                   ("#paneBtn");
+  if (paneB) paneB.onclick = (e                                  ) => {
     e.stopPropagation();
     annPane.toggle();
     paneB.classList.toggle("ton", document.body.classList.contains("pane-on"));
   };
   // bascule du seul mode restant (note libre) ; tout le reste part de la sélection
-  const noteB = tools.querySelector('[data-t="note"]');
-  if (noteB) noteB.onclick = (e) => {
+  const noteB = tools.querySelector             ('[data-t="note"]');
+  if (noteB) noteB.onclick = (e                                  ) => {
     e.stopPropagation();
     TOOL = (TOOL === "note") ? null : "note";
     noteB.classList.toggle("ton", TOOL === "note");
@@ -2714,10 +2724,10 @@ if(window.self !== window.top){
   // outil note : clic sur la page = pastille de note
   document.addEventListener("click", (e) => {
     if(TOOL !== "note") return;
-    const pg = e.target.closest(".pg");
-    if(!pg || e.target.closest(".pdfhl") || e.target.closest(".pdfnote")) return;
+    const pg = (e.target           ).closest             (".pg");
+    if(!pg || (e.target           ).closest             (".pdfhl") || (e.target           ).closest             (".pdfnote")) return;
     const pr = pg.getBoundingClientRect();
-    const a = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
+    const a                                                                                                                                        = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
       pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
       kind: "note", color: LAST_COLOR, text: "", note: "", fresh: true};
     PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
@@ -2758,18 +2768,18 @@ if(window.self !== window.top){
 // Une barre de lecture : navigation, annotations, puis affichage.
 // Les contrôles sont déplacés, pas recréés : leurs handlers et états restent liés.
 if (window.self !== window.top) {
-  const header = document.querySelector("header");
+  const header = document.querySelector             ("header");
   header.classList.add("pdf-compact-toolbar");
   const nav = document.createElement("div"); nav.className = "pdf-toolbar-nav";
-  const marks = document.querySelector(".pdf-mark-tools");
-  const zoom = document.getElementById("zoomCtl");
+  const marks = document.querySelector             (".pdf-mark-tools");
+  const zoom = (document.getElementById("zoomCtl")                   );
   const more = document.createElement("details"); more.className = "pdf-toolbar-more";
   const summary = document.createElement("summary"); summary.textContent = "⋯";
   summary.setAttribute("aria-label", "Autres outils du PDF"); summary.title = "Autres outils du PDF";
   more.appendChild(summary);
   const menu = document.createElement("div"); menu.className = "pdf-toolbar-menu";
   more.appendChild(menu);
-  const move = (id, host) => { const el = document.getElementById(id); if(el) host.appendChild(el); };
+  const move = (id        , host             ) => { const el = document.getElementById(id); if(el) host.appendChild(el); };
   move("paneBtn", nav);
   // Navigation de page façon Zotero : ‹ 12 / 34 › — le compteur suit la page
   // la plus visible ; cliquer le numéro ouvre un champ pour sauter à une page.
@@ -2781,9 +2791,9 @@ if (window.self !== window.top) {
     + '<input id="pgInput" type="text" inputmode="numeric" aria-label="Numéro de page" hidden>'
     + '<button id="pgNext" title="Page suivante" aria-label="Page suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
   nav.appendChild(pageNav);
-  const pgCurN = pageNav.querySelector("#pgCurN"), pgTotalN = pageNav.querySelector("#pgTotalN");
-  const pgCur = pageNav.querySelector("#pgCur"), pgInput = pageNav.querySelector("#pgInput");
-  const pageEls = () => [...document.querySelectorAll("#pages .pg")];
+  const pgCurN = pageNav.querySelector                 ("#pgCurN"), pgTotalN = pageNav.querySelector                 ("#pgTotalN");
+  const pgCur = pageNav.querySelector                   ("#pgCur"), pgInput = pageNav.querySelector                  ("#pgInput");
+  const pageEls = () => [...document.querySelectorAll             ("#pages .pg")];
   const headerHeight = () => header.offsetHeight || 36;
   // page courante = celle qui couvre le plus le viewport (sous le header)
   function currentPage(){
@@ -2791,7 +2801,7 @@ if (window.self !== window.top) {
     const top = sc.scrollTop + headerHeight(), bottom = sc.scrollTop + window.innerHeight;
     let best = 1, bestCover = -1;
     for (const pg of pageEls()) {
-      const a = pg.offsetTop, b = a + pg.offsetHeight;
+      const a = (pg               ).offsetTop, b = a + (pg               ).offsetHeight;
       const cover = Math.min(b, bottom) - Math.max(a, top);
       if (cover > bestCover) { bestCover = cover; best = +pg.dataset.page; }
       if (a > bottom) break;
@@ -2802,26 +2812,26 @@ if (window.self !== window.top) {
   function updatePageNav(){
     pageRaf = 0;
     const total = pageEls().length;
-    pgTotalN.textContent = total || "–";
-    pgCurN.textContent = total ? currentPage() : "–";
+    pgTotalN.textContent = String(total || "–");
+    pgCurN.textContent = String(total ? currentPage() : "–");
   }
   function schedulePageNav(){ if (!pageRaf) pageRaf = requestAnimationFrame(updatePageNav); }
-  function gotoPage(n){
+  function gotoPage(n               ){
     const total = pageEls().length; if (!total) return;
-    n = Math.min(total, Math.max(1, n | 0));
+    n = Math.min(total, Math.max(1, Number(n) | 0));
     if (window.__readingMode?.isOn()) window.__readingMode.leave();
     const pg = document.querySelector('#pages .pg[data-page="' + n + '"]'); if (!pg) return;
-    (document.scrollingElement || document.documentElement).scrollTop = pg.offsetTop - headerHeight() + 12;
+    (document.scrollingElement || document.documentElement).scrollTop = (pg               ).offsetTop - headerHeight() + 12;
     schedulePageNav();
   }
-  pageNav.querySelector("#pgPrev").onclick = (e) => { e.stopPropagation(); gotoPage(currentPage() - 1); };
-  pageNav.querySelector("#pgNext").onclick = (e) => { e.stopPropagation(); gotoPage(currentPage() + 1); };
+  pageNav.querySelector                   ("#pgPrev").onclick = (e                                  ) => { e.stopPropagation(); gotoPage(currentPage() - 1); };
+  pageNav.querySelector                   ("#pgNext").onclick = (e                                  ) => { e.stopPropagation(); gotoPage(currentPage() + 1); };
   function openPageInput(){
     pgCur.hidden = true; pgInput.hidden = false;
     pgInput.value = String(currentPage()); pgInput.focus(); pgInput.select();
   }
   function closePageInput(){ pgInput.hidden = true; pgCur.hidden = false; }
-  pgCur.onclick = (e) => { e.stopPropagation(); openPageInput(); };
+  pgCur.onclick = (e                                  ) => { e.stopPropagation(); openPageInput(); };
   pgInput.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Enter") { const n = parseInt(pgInput.value, 10); closePageInput(); if (n > 0) gotoPage(n); }
@@ -2834,13 +2844,13 @@ if (window.self !== window.top) {
   window.addEventListener("pdf-rendered", schedulePageNav);
   document.addEventListener("atelier-reading-left", schedulePageNav);
   schedulePageNav();
-  const prev = document.getElementById("annPrev"), next = document.getElementById("annNext");
-  const note = document.querySelector('#pdftools [data-t="note"]');
+  const prev = (document.getElementById("annPrev")                     ), next = (document.getElementById("annNext")                     );
+  const note = document.querySelector             ('#pdftools [data-t="note"]');
   if(note) { note.setAttribute("aria-pressed", "false"); note.setAttribute("aria-label", "Ajouter une note sur la page"); marks.appendChild(note); }
   ["areaBtn", "invBtn", "readBtn", "compileBtn"].forEach(id => move(id, menu));
   [prev, next].forEach(el => { if(el) menu.appendChild(el); });
-  const eraser = marks.querySelector('[data-t="erase"]'); if(eraser) menu.appendChild(eraser);
-  menu.querySelectorAll("button").forEach(button => {
+  const eraser = marks.querySelector             ('[data-t="erase"]'); if(eraser) menu.appendChild(eraser);
+  menu.querySelectorAll                   ("button").forEach(button => {
     const label = document.createElement("span"); label.textContent = button.getAttribute("aria-label") || button.title;
     button.appendChild(label);
   });
@@ -2858,8 +2868,8 @@ if (window.self !== window.top) {
   chatBtn.title = "Joindre le PDF au chat"; chatBtn.setAttribute("aria-label", "Joindre le PDF au chat");
   chatBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>'
     + '<svg class="ci-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>';
-  chatBtn.firstChild.classList.add("ci-idle");
-  let chatDone = 0;
+  (chatBtn.firstChild           ).classList.add("ci-idle");
+  let chatDone                                         = 0;
   chatBtn.onclick = (e) => {
     e.stopPropagation();
     if(!rel) return;
@@ -2870,7 +2880,7 @@ if (window.self !== window.top) {
   };
   document.getElementById("pdftools").remove();
   header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(chatBtn); header.appendChild(more);
-  document.addEventListener("pointerdown", e => { if(!more.contains(e.target)) more.open = false; });
+  document.addEventListener("pointerdown", e => { if(!more.contains(e.target        )) more.open = false; });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && more.open) { more.open = false; summary.focus(); } });
   const css = document.createElement("style");
   css.textContent = `
@@ -2937,7 +2947,7 @@ if (window.self !== window.top) {
 // inverse — édition sans recompilation — sans jamais compiler AUTOMATIQUEMENT
 // (deux latexmk concurrents sur le même dossier = .aux corrompus).
 (async function(){
-  const compileBtn = document.getElementById("compileBtn");
+  const compileBtn = (document.getElementById("compileBtn")                     );
   if(!compileBtn) return;
   const texPath = await findTexSource();
   if(!texPath) return;   // PDF sans source .tex : rien à compiler
@@ -2947,10 +2957,10 @@ if (window.self !== window.top) {
   compileBtn.style.display = "inline-flex";
   const TITRE = "Compiler le document LaTeX (\u2318B)";
   let busy = false;
-  let repos = null;
+  let repos                               = null;
   // Aucun texte dans la barre : l'état passe par une classe (rotation, coche,
   // pastille rouge) et le détail vit dans l'infobulle.
-  function etat(classe, titre){
+  function etat(classe        , titre        ){
     compileBtn.classList.remove("busy", "done", "err");
     if(classe) compileBtn.classList.add(classe);
     compileBtn.title = titre;
@@ -3008,10 +3018,10 @@ if (window.self !== window.top) {
   const marker = document.createElement("div");
   marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
     + "background:rgba(91,157,255,.18);border-left:3px solid #7aa2f7;pointer-events:none;z-index:5";
-  let mkT = null;
-  function showMarker(page, y0){
+  let mkT                               = null;
+  function showMarker(page        , y0        ){
     const pg = document.querySelector('.pg[data-page="' + page + '"]');
-    const sc = pg ? parseFloat(pg.dataset.vscale || "0") : 0;
+    const sc = pg ? parseFloat((pg               ).dataset.vscale || "0") : 0;
     if(!sc) return false;
     pg.appendChild(marker);
     marker.style.top = (y0 * sc - 14) + "px";
@@ -3045,12 +3055,12 @@ if (window.self !== window.top) {
   setTimeout(requestView, 800);   // premier rendu : se caler sur le curseur courant
   // double-clic sur la page → saut à la ligne source dans l'onglet éditeur
   document.addEventListener("dblclick", async e => {
-    const pg = e.target.closest(".pg");
+    const pg = (e.target           ).closest             (".pg");
     if(!pg) return;
     const sc = parseFloat(pg.dataset.vscale || "0");
     if(!sc) return;
     const r = pg.getBoundingClientRect();
-    const st = document.getElementById("status");
+    const st = (document.getElementById("status")                   );
     try{
       const res = await fetch("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({dir: "edit", tex: texPath, pdf: texPdf, page: +pg.dataset.page,
@@ -3062,6 +3072,8 @@ if (window.self !== window.top) {
     setTimeout(() => { st.textContent = ""; }, 3000);
   });
 })();
+
+/** Types shared by classic scripts and browser integration tests; erased at build. */
 </script>
 </body>
 </html>

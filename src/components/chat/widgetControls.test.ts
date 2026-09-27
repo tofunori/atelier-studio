@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 const { JSDOM } = createRequire(import.meta.url)('jsdom') as { JSDOM: new (html: string, options: {runScripts: string}) => {window: Window & typeof globalThis} };
 import { describe, it, expect } from 'vitest';
 const html = readFileSync('rust/crates/atelier-runtime/src/widget_presentation.html', 'utf8');
-const script = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g))[1][1];
+const script = Array.from(html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))[1][1];
 async function fixture() {
   const dom = new JSDOM('<label for="temp">Température</label><input id="temp" type="range" min="-2" max="4" step="0.1" value="1.5"><input id="opacity" aria-label="Opacité" type="range" value="70"><fieldset disabled><input id="locked" type="range"></fieldset>', { runScripts: 'outside-only' });
   dom.window.eval(script);

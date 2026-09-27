@@ -1,0 +1,1 @@
+window.__pdfjsReady = new Promise(function(res, rej){ window.__pdfjsResolve = res; window.__pdfjsReject = rej; });

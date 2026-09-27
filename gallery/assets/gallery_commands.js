@@ -1,4 +1,5 @@
-(function installAtelierGalleryCommands(root) {
+// Generated from gallery/src/browser/gallery_commands.ts; edit the TypeScript source.
+function installAtelierGalleryCommandsApi(root) {
   "use strict";
 
   const MAX_RELS = 100;
@@ -6,7 +7,7 @@
   const MAX_REQUEST_ID_LENGTH = 128;
   const MODES = Object.freeze({ show: "focus", open: "viewer", compare: "selection", reset: "all" });
 
-  function fail(action, projectRoot, requestId, error) {
+  function fail(action               , projectRoot, requestId        , error        ) {
     return {
       ok: false,
       action: MODES[action] ? action : "show",
@@ -17,7 +18,7 @@
     };
   }
 
-  function normalizeRel(value) {
+  function normalizeRel(value        ) {
     if (typeof value !== "string") return null;
     const rel = value.trim().replace(/^\.\/+/, "");
     if (
@@ -92,7 +93,7 @@
     if (
       result.ok &&
       result.action !== "reset" &&
-      result.missing.length > 0 &&
+      "missing" in result && result.missing.length > 0 &&
       typeof refresh === "function"
     ) {
       try {
@@ -108,5 +109,8 @@
     return result;
   }
 
-  root.AtelierGalleryCommands = Object.freeze({ execute, executeWithRefresh });
-})(typeof window === "object" ? window : globalThis);
+  const publicApi = Object.freeze({ execute, executeWithRefresh });
+  root.AtelierGalleryCommands = publicApi;
+  return publicApi;
+}
+installAtelierGalleryCommandsApi(typeof window === "object" ? window : globalThis);

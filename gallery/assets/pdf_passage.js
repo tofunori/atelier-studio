@@ -1,8 +1,10 @@
+// Generated from gallery/src/browser/pdf_passage.ts; edit the TypeScript source.
 (function(root, factory){
   var api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   root.AtelierPdfPassage = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(){
+})(typeof globalThis !== "undefined" ? globalThis : this, createAtelierPdfPassageApi);
+function createAtelierPdfPassageApi(){
   function norm(value){
     return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
       .toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -64,4 +66,4 @@
   }
 
   return {normalize:norm, findPassageSpanRange:findPassageSpanRange, findAllSpanRanges:findAllSpanRanges};
-});
+}

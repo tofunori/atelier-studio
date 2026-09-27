@@ -2,7 +2,9 @@
 # Copie la galerie vendorisée (gallery/) dans les ressources Tauri.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+npm run build:browser-sources
 npm run build:gallery-ui
+npm run build:gallery-editors
 npm --prefix gallery run build:cm6
 DIST=src-tauri/gallery-dist
 rm -rf "$DIST"

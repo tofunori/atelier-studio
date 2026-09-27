@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "npm run typecheck && next build --webpack",
     "start": "next dev",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "typecheck": "next typegen && tsc --noEmit --pretty false",
+    "test": "npm run build && node --test tests/rendered-html.test.mts",
+    "typecheck": "next typegen && node node_modules/@typescript/native/bin/tsc --noEmit --pretty false",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
@@ -40,5 +40,10 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
-  "type": "module"
+  "type": "module",
+  "postcss": {
+    "plugins": {
+      "@tailwindcss/postcss": {}
+    }
+  }
 }

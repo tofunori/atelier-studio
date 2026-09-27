@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error module JavaScript sans déclaration, volontairement testé ici
-import { summarizeSoak } from "../../scripts/check-boot-soak.mjs";
+import { summarizeSoak } from "../../scripts/check-boot-soak.mts";
 
 const options = {
   since: "2026-07-18T00:00:00.000Z",

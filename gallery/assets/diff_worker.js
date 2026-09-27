@@ -1,12 +1,14 @@
+// Generated from gallery/src/browser/diff_worker.ts; edit the TypeScript source.
+
 "use strict";
 
 const token = new URLSearchParams(self.location.search).get("token");
 importScripts("/.fig_thumbs/diff.min.js" + (token ? "?token=" + encodeURIComponent(token) : ""));
 
 let activeRequestId = 0;
-const wsn = value => value.replace(/\s+/g, " ").trim();
+const wsn = (value) => value.replace(/\s+/g, " ").trim();
 
-async function gutterDiff(before, after, requestId) {
+async function gutterDiff(before, after, requestId        ) {
   const parts = Diff.diffLines(before, after), markers = [];
   let line = 0, blocks = 0;
   const lastLine = after.split("\n").length - 1;
@@ -19,7 +21,7 @@ async function gutterDiff(before, after, requestId) {
       if(!wsn(pt.value)) continue;
       blocks++;
       if(nx && nx.added){
-        const nn = nx.count || 0, changed = new Set();
+        const nn = nx.count || 0, changed = new Set        ();
         const wparts = Diff.diffWordsWithSpace(pt.value, nx.value), skip = new Set();
         for(let w = 0; w < wparts.length; w++){
           const wp = wparts[w];
@@ -32,7 +34,7 @@ async function gutterDiff(before, after, requestId) {
             break;
           }
         }
-        const lineOf = off => { let count = 0, pos = -1;
+        const lineOf = (off) => { let count = 0, pos = -1;
           for(;;){ const next = nx.value.indexOf("\n", pos + 1); if(next < 0 || next >= off) return count; count++; pos = next; } };
         let off = 0;
         for(let w = 0; w < wparts.length; w++){
@@ -65,7 +67,7 @@ async function gutterDiff(before, after, requestId) {
   return {markers, blocks};
 }
 
-async function hybridDiff(before, after, requestId) {
+async function hybridDiff(before, after, requestId        ) {
   if (before.length + after.length <= 50000) return Diff.diffWordsWithSpace(before, after);
   const lines = Diff.diffLines(before, after);
   const result = [];

@@ -6,12 +6,12 @@
 <script src="/.fig_thumbs/atelier_theme.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
-<script>(function(){
+<script data-atelier-source="gallery/src/browser/pages/md_studio_1.ts">(function(){
   /* Jeton hors projet (Atelier Studio) : si l'app a ouvert cette page avec
      #atelier_token=… (fragment — jamais la query de navigation, plan 062
      étape 5), le propager à toutes les requêtes same-origin de la page —
      y compris celles de diff_versions.js. Sans jeton : comportement inchangé. */
-  var tok = null;
+  var tok         = null;
   window.__tokq = ""; /* suffixe "&token=…" pour les URLs hors fetch (pdf.js) */
   try{ var m = (location.hash||"").match(/atelier_token=([^&]+)/); tok = m ? decodeURIComponent(m[1]) : null; }catch(e){}
   if(!tok) return;
@@ -19,23 +19,25 @@
   var orig = window.fetch.bind(window);
   window.fetch = function(input, init){
     try{
-      var u = new URL(typeof input === "string" ? input : input.url, location.href);
+      var u = new URL(typeof input === "string" ? input : (input           ).url, location.href);
       if(u.origin === location.origin && !u.searchParams.has("token")){
         u.searchParams.set("token", tok);
-        input = (typeof input === "string") ? (u.pathname + u.search) : new Request(u, input);
+        input = (typeof input === "string") ? (u.pathname + u.search) : new Request(u, input           );
       }
     }catch(e){}
     return orig(input, init);
   };
-})();</script>
-<script>(function(){
+})();
+</script>
+<script data-atelier-source="gallery/src/browser/pages/md_studio_2.ts">(function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
     try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
-})();</script>
+})();
+</script>
 <script src="/.fig_thumbs/toastui/toastui-editor-all.min.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/annotation_ui.css">
 <script src="/.fig_thumbs/markdown_features.bundle.js"></script>
@@ -98,13 +100,13 @@
   <button id="save" title="Sauvegarder (&#8984;S)" aria-label="Sauvegarder (Commande S)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h8l2.5 2.5v8.5H3z"/><path d="M5.5 2.5v3.5h5V2.5M5.5 13.5V9.5h5v4"/></svg></button>
 </div>
 <div id="ed"></div>
-<script>
+<script data-atelier-source="gallery/src/browser/pages/md_studio_3.ts">
 const path = new URLSearchParams(location.search).get("path");
 document.title = (path || "").split("/").pop() || "md studio";
 const stateEl = document.getElementById("state");
 let diskMtime = 0, dirty = false, editor = null, loading = true, selectionActions = null;
 
-function setState(cls, txt){ stateEl.className = cls; stateEl.textContent = txt; }
+function setState(cls        , txt        ){ stateEl.className = cls; stateEl.textContent = txt; }
 
 fetch("/code?path=" + encodeURIComponent(path)).then(async r => {
   const j = await r.json().catch(() => ({}));
@@ -160,7 +162,7 @@ async function save(){
   if(j.error === "conflit"){ setState("dirty", "conflit disque — re-⌘S pour écraser"); diskMtime = j.mtime; return; }
   diskMtime = j.mtime; dirty = false; setState("", "sauvegardé " + new Date().toLocaleTimeString());
 }
-document.getElementById("save").onclick = save;
+(document.getElementById("save")                     ).onclick = save;
 document.addEventListener("keydown", (e) => {
   if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
 });
@@ -181,7 +183,6 @@ setInterval(async () => {
     }
   }catch(e){}
 }, 2000);
-
 </script>
 </body>
 </html>

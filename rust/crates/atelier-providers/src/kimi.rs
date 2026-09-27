@@ -86,7 +86,7 @@ impl KimiProvider {
         resolve_bin().map(|bin| Self::with_bin(bin, vec!["acp".into()]))
     }
 
-    /// Constructeur direct (tests : `node fake_kimi_acp.mjs <mode>`).
+    /// Constructeur direct (tests : `node fake_kimi_acp.mts <mode>`).
     fn with_bin(bin: PathBuf, acp_args: Vec<String>) -> Self {
         Self {
             bin,
@@ -1467,7 +1467,7 @@ mod tests {
             None
         })?;
         let fixture = format!(
-            "{}/tests/fixtures/fake_kimi_acp.mjs",
+            "{}/tests/fixtures/fake_kimi_acp.mts",
             env!("CARGO_MANIFEST_DIR")
         );
         Some(KimiProvider::with_bin(node, vec![fixture, mode.into()]))

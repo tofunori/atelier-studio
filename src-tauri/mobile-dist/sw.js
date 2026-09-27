@@ -1,19 +1,21 @@
+// Generated from mobile/worker/sw.ts; edit the TypeScript source.
+const worker = self                                       ;
 const CACHE = "atelier-mobile-v1";
 const SHELL = ["/", "/manifest.webmanifest", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png"];
 
-self.addEventListener("install", (event) => {
+worker.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
-  self.skipWaiting();
+  worker.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
+worker.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))),
   );
-  self.clients.claim();
+  worker.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
+worker.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || new URL(event.request.url).pathname.startsWith("/remote/")) return;
   event.respondWith(
     fetch(event.request)
@@ -22,6 +24,6 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/").then((shell) => shell ?? Response.error()))),
   );
 });

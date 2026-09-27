@@ -7,12 +7,13 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.worker.json",
     "test": "vitest run",
     "tauri": "tauri",
     "ios:init": "tauri ios init",
     "ios:dev": "tauri ios dev",
-    "ios:build": "tauri ios build"
+    "ios:build": "tauri ios build",
+    "prebuild": "node --experimental-strip-types ../scripts/build-browser-sources.mts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

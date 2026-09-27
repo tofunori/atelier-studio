@@ -1,11 +1,17 @@
-(function(){
+// Generated from gallery/src/browser/annot_kit.ts; edit the TypeScript source.
+function install__atelierPostApi() {
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
-  window.__atelierPost = function(p){
+  const publicApi = function(p){
     try{ p = Object.assign({}, p, {nonce: (window.__atelierNonce || sessionStorage.getItem('atelier_nonce') || '')}); }catch(e){}
     try{ window.top.postMessage(p, '*'); }catch(e){}
   };
-})();
+  window.__atelierPost = publicApi;
+  return publicApi;
+}
+install__atelierPostApi();
+
+
 /* annot_kit.js — Claude-Science-style annotation kit shared by the viewers.
    Faithful generalization of the gallery lightbox annotation (the visual and
    functional reference, which keeps its own copy): dashed ellipse / arrow /
@@ -22,7 +28,7 @@
      getPos(e)  (optional) -> {x,y} in overlay pixel space (default: rect scale).
      onCount(n) (optional) -> annotated-notes counter hook.
    Returned api: {enable, disable, toggle, enabled, hasNotes, send(direct)}.   */
-(function(){
+function installAnnotKitApi() {
   'use strict';
   if (window.AnnotKit) return;
 
@@ -68,7 +74,7 @@
     document.head.appendChild(s); styleDone = true;
   }
 
-  function el(html){ var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
+  function el(html        ){ var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild               ; }
 
   function create(host){
     ensureStyle();
@@ -93,8 +99,8 @@
       +'</div>');
     var note = el('<div class="akNote"></div>');
     window.AtelierAnnotationUI.createNoteEditor(note,{onSubmit:function(){},onDelete:function(){}});
-    note.querySelector('.delete-note').classList.add('del');
-    note.querySelector('.send2').classList.add('anSave');
+    note.querySelector             ('.delete-note').classList.add('del');
+    note.querySelector             ('.send2').classList.add('anSave');
     var pill = el('<div class="akPill"><span>&#128172;</span><span class="n"></span>'
       +'<button class="tg" title="Choisir la session Claude cible">&#9678;</button>'
       +'<button class="x" title="Supprimer les commentaires sans envoyer">&#10005;</button>'
@@ -103,14 +109,14 @@
     document.body.appendChild(bar); document.body.appendChild(note);
     document.body.appendChild(pill); document.body.appendChild(tgMenu);
 
-    function getPos(e){
+    function getPos(e                                       ){
       if (host.getPos) return host.getPos(e);
       var r = overlay.getBoundingClientRect();
       return { x: (e.clientX - r.left) * overlay.width / r.width,
                y: (e.clientY - r.top) * overlay.height / r.height };
     }
 
-    function redraw(ctx2, scale){
+    function redraw(ctx2                           , scale         ){
       var x = ctx2 || overlay.getContext('2d'), k = scale || 1;
       if (!ctx2) x.clearRect(0, 0, overlay.width, overlay.height);
       var lw = Math.max(2, overlay.width / 300) * k, sw = lw * 1.15;
@@ -146,12 +152,12 @@
       if (!ctx2) pillUpdate();
     }
 
-    function badgeAnchor(s){
+    function badgeAnchor(s                                                                   ){
       if (s.tool === 'ellipse') return {bx:(s.x1+s.x2)/2, by:Math.min(s.y1,s.y2)};
       if (s.tool === 'rect') return {bx:Math.min(s.x1,s.x2), by:Math.min(s.y1,s.y2)};
       return {bx:s.x1, by:s.y1};
     }
-    function badgeHit(p){
+    function badgeHit(p                           ){
       var lw = Math.max(2, overlay.width/300), r = lw*3.2;
       for (var i = 0; i < strokes.length; i++){
         var s = strokes[i];
@@ -167,33 +173,33 @@
     }
     function pillUpdate(){
       var n = strokes.filter(function(s){ return s.note; }).length;
-      pill.querySelector('.n').textContent = n + (n > 1 ? ' commentaires' : ' commentaire');
+      pill.querySelector             ('.n').textContent = n + (n > 1 ? ' commentaires' : ' commentaire');
       pill.classList.toggle('on', enabled && n > 0);
       if (host.onCount) host.onCount(n);
     }
 
-    function askNote(stroke, cx, cy){
-      var inp = note.querySelector('textarea');
+    function askNote(stroke                              , cx        , cy        ){
+      var inp = note.querySelector                     ('textarea');
       var isEdit = !!stroke.note;
       if (!stroke.n) stroke.n = strokes.filter(function(s){ return s.n; }).length + 1;
 
-      note.style.display = 'block';
+      (note               ).style.display = 'block';
       // positionnement adaptatif : sous le point par défaut, basculé à gauche /
       // au-dessus quand la place manque (la carte grandit avec le textarea)
       var place = function(){
-        var w = note.offsetWidth, h = note.offsetHeight;
+        var w = (note               ).offsetWidth, h = (note               ).offsetHeight;
         var W = window.innerWidth, H = window.innerHeight;
         var left = cx;
         if (left + w > W - 8) left = Math.max(8, cx - w);
         var top = cy + 14;
         if (top + h > H - 8) top = cy - h - 14;
         if (top < 8) top = Math.max(8, H - h - 8);
-        note.style.left = left + 'px'; note.style.top = top + 'px';
+        (note               ).style.left = left + 'px'; (note               ).style.top = top + 'px';
       };
       place();
       inp.value = stroke.note || ''; inp.focus(); inp.select();
       redraw();
-      var close = function(){ note.style.display = 'none'; redraw(); };
+      var close = function(){ (note               ).style.display = 'none'; redraw(); };
       var save = function(){
         stroke.note = inp.value.trim();
         if (!stroke.note){ delete stroke.n; delete stroke.note; renumber(); }
@@ -207,14 +213,14 @@
         }
         close();
       };
-      note.querySelector('.del').onclick = function(){
+      note.querySelector                   ('.del').onclick = function(){
         var i = strokes.indexOf(stroke);
         if (i >= 0) strokes.splice(i, 1);
         renumber(); close();
       };
-      note.querySelector('.anSave').onclick = function(e){ e.stopPropagation(); save(); };
+      note.querySelector             ('.anSave').onclick = function(e                                  ){ e.stopPropagation(); save(); };
       inp.oninput = function(){ inp.style.height = '20px'; inp.style.height = Math.min(120, inp.scrollHeight) + 'px'; place(); };
-      inp.oninput();
+      inp.oninput(undefined);
       inp.onkeydown = function(e){
         e.stopPropagation();
         if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); save(); }
@@ -225,7 +231,7 @@
     overlay.addEventListener('pointerdown', function(e){
       if (!enabled) return;
       e.preventDefault();
-      var p = getPos(e), col = bar.querySelector('input[type=color]').value;
+      var p = getPos(e), col = bar.querySelector                  ('input[type=color]').value;
       var hit = badgeHit(p);
       if (hit){ askNote(hit, e.clientX, e.clientY); return; }
       cur = {tool: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: col};
@@ -246,24 +252,24 @@
       askNote(s, e.clientX, e.clientY);
     });
 
-    bar.querySelectorAll('button[data-tool]').forEach(function(b){
+    bar.querySelectorAll                   ('button[data-tool]').forEach(function(b){
       b.onclick = function(){
         tool = b.dataset.tool;
-        bar.querySelectorAll('button[data-tool]').forEach(function(o){ o.classList.toggle('sel', o === b); });
+        bar.querySelectorAll                   ('button[data-tool]').forEach(function(o){ o.classList.toggle('sel', o === b); });
       };
     });
-    bar.querySelector('.akUndo').onclick = function(){ strokes.pop(); renumber(); note.style.display = 'none'; redraw(); };
-    bar.querySelector('.akClear').onclick = function(){ strokes = []; shutdown(); };
+    bar.querySelector             ('.akUndo').onclick = function(){ strokes.pop(); renumber(); (note               ).style.display = 'none'; redraw(); };
+    bar.querySelector             ('.akClear').onclick = function(){ strokes = []; shutdown(); };
 
     var EMBEDDED = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
     // --- explicit Claude-session target (shared across viewers via localStorage) ---
     function getTarget(){
       try{ return JSON.parse(localStorage.getItem('claudeTargetV1') || 'null'); }catch(e){ return null; }
     }
-    function markTg(){ pill.querySelector('.tg').classList.toggle('set', !!getTarget()); }
+    function markTg(){ pill.querySelector             ('.tg').classList.toggle('set', !!getTarget()); }
     markTg();
-    if (EMBEDDED) pill.querySelector('.tg').style.display = 'none';
-    pill.querySelector('.tg').onclick = async function(e){
+    if (EMBEDDED) pill.querySelector             ('.tg').style.display = 'none';
+    pill.querySelector             ('.tg').onclick = async function(e                                  ){
       e.stopPropagation();
       var cur = getTarget();
       var items = '<div class="hd">Envoyer vers</div>'
@@ -271,7 +277,7 @@
         + '<span class="t">Session du projet (auto)</span></div>';
       try{
         var j = await (await fetch('/claude-targets')).json();
-        (j.targets || []).forEach(function(t, i){
+        (j.targets || []).forEach(function(t, i        ){
           var on = cur && cur.app === t.app && cur.id === t.id;
           items += '<div class="it' + (on ? ' on' : '') + '" data-i="' + i + '">'
             + '<span class="app">' + t.app + '</span><span class="t">'
@@ -280,24 +286,24 @@
         });
         tgMenu.innerHTML = items;
         var r = pill.getBoundingClientRect();
-        tgMenu.style.display = 'flex';
-        tgMenu.style.left = Math.max(8, r.left) + 'px';
-        tgMenu.style.top = Math.max(8, r.top - tgMenu.offsetHeight - 8) + 'px';
-        tgMenu.querySelectorAll('.it').forEach(function(it){
-          it.onclick = function(ev){
+        (tgMenu               ).style.display = 'flex';
+        (tgMenu               ).style.left = Math.max(8, r.left) + 'px';
+        (tgMenu               ).style.top = Math.max(8, r.top - (tgMenu               ).offsetHeight - 8) + 'px';
+        tgMenu.querySelectorAll                ('.it').forEach(function(it){
+          it.onclick = function(ev                                  ){
             ev.stopPropagation();
             var i = +it.dataset.i;
             if (i < 0) localStorage.removeItem('claudeTargetV1');
             else localStorage.setItem('claudeTargetV1', JSON.stringify(
               {app: j.targets[i].app, id: j.targets[i].id, title: j.targets[i].title}));
-            markTg(); tgMenu.style.display = 'none';
+            markTg(); (tgMenu               ).style.display = 'none';
           };
         });
-        document.addEventListener('click', function h(){ tgMenu.style.display = 'none'; document.removeEventListener('click', h); });
+        document.addEventListener('click', function h(){ (tgMenu               ).style.display = 'none'; document.removeEventListener('click', h); });
       }catch(err){ console.warn('claude-targets failed', err); }
     };
 
-    async function send(direct){
+    async function send(direct         ){
       var base = await host.exportBase();
       var out = document.createElement('canvas');
       out.width = base.w; out.height = base.h;
@@ -317,7 +323,7 @@
       if (EMBEDDED && j && j.message) {
         var noteId=crypto.randomUUID();
         pendingNotes.set(noteId,sentNotes);
-        var msg = {type: 'atelier-add-to-chat', text: j.message,pdfAnnotation:{rel:noteRelation,id:noteId}};
+        var msg                                                                                                                 = {type: 'atelier-add-to-chat', text: j.message,pdfAnnotation:{rel:noteRelation,id:noteId}};
         if (j.path) {
           msg.path = j.path;
           var source = String(host.name() || '').split('/').pop();
@@ -333,14 +339,14 @@
     function shutdown(){
       enabled = false; cur = null;
       bar.classList.remove('on'); pill.classList.remove('on');
-      note.style.display = 'none'; overlay.style.pointerEvents = 'none';
+      (note               ).style.display = 'none'; overlay.style.pointerEvents = 'none';
       redraw();
     }
-    pill.querySelector('.x').onclick = function(){
+    pill.querySelector             ('.x').onclick = function(){
       strokes = []; shutdown();
     };
-    pill.querySelector('.go').onclick = async function(){
-      var go = this;
+    pill.querySelector                   ('.go').onclick = async function(){
+      var go = this                     ;
       go.textContent = '⏳';
       try{
         await send(true);
@@ -367,5 +373,8 @@
     return api;
   }
 
-  window.AnnotKit = { create: create };
-})();
+  const publicApi = { create: create };
+  window.AnnotKit = publicApi;
+  return publicApi;
+}
+installAnnotKitApi();

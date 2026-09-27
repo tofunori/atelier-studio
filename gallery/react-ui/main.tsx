@@ -83,35 +83,7 @@ import "./styles.css"
 
 type LegacyOption = { value: string; label: string }
 type LegacyMenuItem = { key: string; label: string; active: boolean; element: HTMLElement }
-type GalleryFileType = { key: string; label: string; active: boolean; pinned: boolean }
-type GalleryFileTypePreset = { id: string; label: string; extensions: string[]; custom: boolean; active: boolean }
-type GalleryFileTypeState = {
-  projectName: string
-  types: GalleryFileType[]
-  pinned: string[]
-  presets: GalleryFileTypePreset[]
-  summary: string
-}
-type GalleryFileTypeAdapter = {
-  getState: () => GalleryFileTypeState
-  setActive: (extensions: string[]) => void
-  setPinned: (extensions: string[]) => void
-  applyPreset: (id: string) => void
-  savePreset: (name: string) => void
-  removePreset: (id: string) => void
-  resetFilters: () => void
-}
-type GallerySelectionState = { rels: string[]; imageCount: number }
-type GallerySelectionAdapter = {
-  getState: () => GallerySelectionState
-  open: () => void
-  compare: () => void
-  collect: (anchor: HTMLElement) => void
-  export: (anchor: HTMLElement) => void
-  hide: () => void
-  delete: () => void
-  clear: () => void
-}
+import type {GalleryFileType, GalleryFileTypePreset, GalleryFileTypeState, GalleryFileTypeAdapter, GallerySelectionState, GallerySelectionAdapter} from "../src/contracts/gallery"
 type ConfirmRequest = { message: string; acceptLabel: string; resolve: (accepted: boolean) => void }
 type ConfirmPresentation = {
   title: string

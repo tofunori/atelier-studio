@@ -1,13 +1,15 @@
+// Generated from gallery/src/browser/pdf_selection.ts; edit the TypeScript source.
 (function(root, factory){
   var api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   root.AtelierPdfSelection = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(){
-  function clamp(value, min, max){
+})(typeof globalThis !== "undefined" ? globalThis : this, createAtelierPdfSelectionApi);
+function createAtelierPdfSelectionApi(){
+  function clamp(value        , min        , max        ){
     return Math.min(max, Math.max(min, Number(value) || 0));
   }
 
-  function normalizePoint(texts, point){
+  function normalizePoint(texts, point                                    ){
     if (!point || !(texts || []).length) return null;
     var index = clamp(Math.trunc(point.index), 0, texts.length - 1);
     var text = String(texts[index] || "");
@@ -60,16 +62,16 @@
    *  Les rectangles sont normalisés [x, y, w, h] (fractions de la page) ;
    *  `aspect` = hauteur/largeur de la page ramène la hauteur dans l'unité
    *  des x pour comparer l'écart. */
-  function mergeLineRects(rects, options){
+  function mergeLineRects(rects, options ){
     options = options || {};
     var gapRatio = Number(options.gap) > 0 ? Number(options.gap) : 1.2;
     var aspect = Number(options.aspect) > 0 ? Number(options.aspect) : 1;
     var boxes = (rects || []).map(function(r){
       return {l:Number(r[0]), t:Number(r[1]), r:Number(r[0]) + Number(r[2]), b:Number(r[1]) + Number(r[3])};
-    }).filter(function(box){ return box.r > box.l && box.b > box.t; });
-    boxes.sort(function(a, b){ return (a.t - b.t) || (a.l - b.l); });
+    }).filter(function(box                                                 ){ return box.r > box.l && box.b > box.t; });
+    boxes.sort(function(a                           , b                           ){ return (a.t - b.t) || (a.l - b.l); });
     var lines = [];
-    boxes.forEach(function(box){
+    boxes.forEach(function(box                                                 ){
       var line = null;
       for (var i = lines.length - 1; i >= 0; i--){
         var candidate = lines[i];
@@ -95,8 +97,8 @@
     });
     var out = [];
     lines.forEach(function(line){
-      line.runs.sort(function(a, b){ return a.l - b.l; });
-      line.runs.forEach(function(run){ out.push([run.l, run.t, run.r - run.l, run.b - run.t]); });
+      line.runs.sort(function(a                , b                ){ return a.l - b.l; });
+      line.runs.forEach(function(run                                                 ){ out.push([run.l, run.t, run.r - run.l, run.b - run.t]); });
     });
     return out;
   }
@@ -130,4 +132,4 @@
     scaledFontAscent:scaledFontAscent,
     scaledFontHeight:scaledFontHeight,
   };
-});
+}

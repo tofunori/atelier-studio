@@ -1,3 +1,4 @@
+// Generated from gallery/src/browser/sel_pill.ts; edit the TypeScript source.
 /* sel_pill.js — pilule de sélection partagée : comportement UNIQUE pour les
    trois hôtes (pdf_viewer.html, latex_studio.html, sel_overlay.js dans les
    rapports HTML). Une seule implémentation de : restyle Studio « Add to chat »
@@ -14,12 +15,13 @@
      onSent(j)   après un envoi réussi (nettoyer marques/surlignage hôte)
      onCancel()  après annulation (nettoyer sélection hôte + /selinfo)
      embedExtras(go)  mode embarqué : boutons supplémentaires à côté de .go
-   → {send, cancel, hide, placeAt(rect), ta, go, embedded} */
-(function(){
+   → {send, cancel, hide, placeAt(rect), ta, go, embedded}
+   */
+function installSelPillApi() {
   if (window.SelPill) return;
 
   function ct(){ try{ return JSON.parse(localStorage.getItem("claudeTargetV1") || "null"); }catch(e){ return null; } }
-  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+  function esc(s        ){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
   const EMBEDDED = (function(){ try{ return window.self !== window.top; }catch(e){ return true; } })();
 
   function attach(opts){
@@ -103,8 +105,8 @@
       if (EMBEDDED) tgtBtn.style.display = "none";
       const markTgt = () => tgtBtn.classList.toggle("set", !!ct());
       markTgt();
-      menu.addEventListener("mousedown", e => e.preventDefault());   // garder la sélection
-      tgtBtn.onclick = async e => {
+      menu.addEventListener("mousedown", (e) => e.preventDefault());   // garder la sélection
+      tgtBtn.onclick = async (e) => {
         e.stopPropagation();
         const cur = ct();
         let html = '<div class="hd">Envoyer vers</div>'
@@ -112,7 +114,7 @@
           + '<span class="t">Session du projet (auto)</span></div>';
         try{
           const j = await (await fetch("/claude-targets")).json();
-          (j.targets || []).forEach((t, i) => {
+          (j.targets || []).forEach((t, i        ) => {
             const on = cur && cur.app === t.app && cur.id === t.id;
             html += '<div class="it' + (on ? " on" : "") + '" data-i="' + i + '"><span class="app">'
               + esc(t.app) + '</span><span class="t">' + esc(t.title || t.id)
@@ -123,8 +125,8 @@
           const r = tgtBtn.getBoundingClientRect();
           menu.style.left = Math.max(8, Math.min(r.left - 120, innerWidth - menu.offsetWidth - 8)) + "px";
           menu.style.top = Math.max(8, r.top - menu.offsetHeight - 10) + "px";
-          menu.querySelectorAll(".it").forEach(it => {
-            it.onclick = ev => {
+          menu.querySelectorAll(".it").forEach((it) => {
+            it.onclick = (ev) => {
               ev.stopPropagation();
               const i = +it.dataset.i;
               if (i < 0) localStorage.removeItem("claudeTargetV1");
@@ -140,5 +142,8 @@
     return {send, cancel, hide, placeAt, ta, go, embedded: EMBEDDED};
   }
 
-  window.SelPill = {attach, embedded: EMBEDDED, target: ct};
-})();
+  const publicApi = {attach, embedded: EMBEDDED, target: ct};
+  window.SelPill = publicApi;
+  return publicApi;
+}
+installSelPillApi();

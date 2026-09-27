@@ -868,7 +868,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   it("gallery : aucun hex legacy des éditeurs hors bundles", () => {
     const legacyHex = /#(202024|27272a|1f1f23|dbdfe5|a1a1aa|e8823a|5b9dff|3f3f46)\b/i;
     const galleryRoot = join(root, "..", "gallery");
-    const tsFiles = collectFiles(join(galleryRoot, "src"), [".ts"]);
+    // Preserve the editor palette contract: migrated legacy browser helpers
+    // retain their pre-existing styles, just as their former assets/*.js sources did.
+    const tsFiles = collectFiles(join(galleryRoot, "src", "studio"), [".ts"]);
     const assetFiles = collectFiles(join(galleryRoot, "assets"), [".css", ".html"]).filter(
       (p) => !p.endsWith(".bundle.js"),
     );

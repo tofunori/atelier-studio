@@ -5,22 +5,23 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Review changes</title>
   <script src="/.fig_thumbs/atelier_theme.js"></script>
-  <script>(function(){
-    var token = null;
+  <script data-atelier-source="gallery/src/browser/pages/diff_viewer_1.ts">(function(){
+    var token         = null;
     try { token = new URLSearchParams(location.search).get("token"); } catch (_) {}
     if (!token) return;
     var originalFetch = window.fetch.bind(window);
     window.fetch = function(input, init) {
       try {
-        var url = new URL(typeof input === "string" ? input : input.url, location.href);
+        var url = new URL(typeof input === "string" ? input : (input           ).url, location.href);
         if (url.origin === location.origin && !url.searchParams.has("token")) {
           url.searchParams.set("token", token);
-          input = typeof input === "string" ? url.pathname + url.search : new Request(url, input);
+          input = typeof input === "string" ? url.pathname + url.search : new Request(url, input           );
         }
       } catch (_) {}
       return originalFetch(input, init);
     };
-  })();</script>
+  })();
+</script>
   <script defer src="/.fig_thumbs/cm6/atelier_diff.bundle.js"></script>
   <style>
     :root {
@@ -104,7 +105,7 @@
       <div id="diffHost"><div class="status"><div><div class="spinner"></div>Preparing diff…</div></div></div>
     </section>
   </main>
-  <script>
+  <script data-atelier-source="gallery/src/browser/pages/diff_viewer_2.ts">
   window.addEventListener("DOMContentLoaded", async function () {
     var query = new URLSearchParams(location.search);
     var path = query.get("path") || "";
@@ -112,11 +113,11 @@
     var base = query.get("base") || "";
     var token = query.get("token") || "";
     var nonce = (location.hash.match(/atelier_nonce=([\w-]+)/) || [])[1] || "";
-    var host = document.getElementById("diffHost");
-    var pathLabel = document.getElementById("filePath");
+    var host = (document.getElementById("diffHost")                  );
+    var pathLabel = (document.getElementById("filePath")                   );
     var layout = "unified";
     var overflow = "wrap";
-    var renderer = null;
+    var renderer                                                                                                                                                 = null;
     var themeType = document.documentElement.style.colorScheme === "light" ? "light" : "dark";
     pathLabel.textContent = displayPath;
     pathLabel.title = path;
@@ -130,26 +131,26 @@
       if (nonce) next.hash = "atelier_nonce=" + nonce;
       return next.toString();
     }
-    document.getElementById("openFile").onclick = function () { location.href = normalEditorUrl(); };
+    (document.getElementById("openFile")                     ).onclick = function () { location.href = normalEditorUrl(); };
 
     function updateOptions() {
       if (innerWidth <= 720) layout = "unified";
-      document.getElementById("unifiedButton").setAttribute("aria-pressed", String(layout === "unified"));
-      document.getElementById("splitButton").setAttribute("aria-pressed", String(layout === "split"));
-      document.getElementById("wrapButton").setAttribute("aria-pressed", String(overflow === "wrap"));
-      document.getElementById("wrapButton").title = overflow === "wrap" ? "Disable line wrapping" : "Wrap long lines";
+      (document.getElementById("unifiedButton")                     ).setAttribute("aria-pressed", String(layout === "unified"));
+      (document.getElementById("splitButton")                     ).setAttribute("aria-pressed", String(layout === "split"));
+      (document.getElementById("wrapButton")                     ).setAttribute("aria-pressed", String(overflow === "wrap"));
+      (document.getElementById("wrapButton")                     ).title = overflow === "wrap" ? "Disable line wrapping" : "Wrap long lines";
       if (renderer) renderer.setOptions({diffStyle: layout, overflow: overflow, themeType: themeType});
     }
-    document.getElementById("unifiedButton").onclick = function () { layout = "unified"; updateOptions(); };
-    document.getElementById("splitButton").onclick = function () { layout = "split"; updateOptions(); };
-    document.getElementById("wrapButton").onclick = function () { overflow = overflow === "wrap" ? "scroll" : "wrap"; updateOptions(); };
+    (document.getElementById("unifiedButton")                     ).onclick = function () { layout = "unified"; updateOptions(); };
+    (document.getElementById("splitButton")                     ).onclick = function () { layout = "split"; updateOptions(); };
+    (document.getElementById("wrapButton")                     ).onclick = function () { overflow = overflow === "wrap" ? "scroll" : "wrap"; updateOptions(); };
     addEventListener("resize", updateOptions);
     addEventListener("atelier-theme-applied", function (event) {
-      themeType = event.detail && event.detail.colorScheme === "light" ? "light" : "dark";
+      themeType = (event               ).detail && (event               ).detail.colorScheme === "light" ? "light" : "dark";
       updateOptions();
     });
 
-    function jsonFetch(url) {
+    function jsonFetch(url                    ) {
       return fetch(url).then(async function (response) {
         var data = await response.json().catch(function () { return {}; });
         if (!response.ok || data.error) throw new Error(data.error || "Unable to load file");
@@ -170,9 +171,9 @@
       renderer = AtelierCodeMirrorDiff.mount(host,
         {name: name, contents: before}, {name: name, contents: after},
         {diffStyle: layout, overflow: overflow, themeType: themeType});
-      document.getElementById("additions").textContent = "+" + renderer.stats.additions;
-      document.getElementById("deletions").textContent = "−" + renderer.stats.deletions;
-      document.getElementById("summary").textContent = "1 file changed · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
+      (document.getElementById("additions")                   ).textContent = "+" + renderer.stats.additions;
+      (document.getElementById("deletions")                   ).textContent = "−" + renderer.stats.deletions;
+      (document.getElementById("summary")                  ).textContent = "1 file changed · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
       document.documentElement.dataset.diffReady = "true";
       updateOptions();
     } catch (error) {
@@ -180,10 +181,10 @@
       errorState.className = "status error";
       errorState.textContent = String(error && error.message || error);
       host.replaceChildren(errorState);
-      document.getElementById("summary").textContent = "Diff unavailable";
+      (document.getElementById("summary")                  ).textContent = "Diff unavailable";
       document.documentElement.dataset.diffReady = "error";
     }
   });
-  </script>
+</script>
 </body>
 </html>

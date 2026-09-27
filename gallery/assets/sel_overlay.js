@@ -1,3 +1,4 @@
+// Generated from gallery/src/browser/sel_overlay.ts; edit the TypeScript source.
 (function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
@@ -62,23 +63,23 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     + '<button class="tgt" title="Choisir la session Claude cible">◎</button>'
     + '<button class="go" title="Envoyer la sélection à la session Claude (Entrée)">↑</button>';
   document.body.appendChild(pill);
-  var pillTa = pill.querySelector('textarea');
+  var pillTa = pill.querySelector                     ('textarea');
 
   var tgMenu = document.createElement('div'); tgMenu.id = 'csel-tgmenu';
   document.body.appendChild(tgMenu);
 
-  var selText = '', selRect = null, tmr = 0;
-  var api = null;
+  var selText = '', selRect = null, tmr                                         = 0;
+  var api                                                            = null;
 
   function hideAll(){ pill.style.display = 'none'; }
 
   // comportement partagé de la pilule (restyle Studio « Add to chat », picker
   // de cible, /quote direct, Entrée/Échap) : SelPill, chargé depuis la galerie
   // comme annot_kit — les rapports vivent n'importe où dans l'arbre projet
-  var sharedUiReady=new Promise(function(resolve,reject){
+  var sharedUiReady=new Promise      (function(resolve,reject){
     var css=document.createElement('link');css.rel='stylesheet';css.href='/.fig_thumbs/annotation_ui.css';document.head.appendChild(css);
     if(window.AtelierAnnotationUI){resolve();return;}
-    var script=document.createElement('script');script.src='/.fig_thumbs/annotation_ui.bundle.js';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);
+    var script=document.createElement('script');script.src='/.fig_thumbs/annotation_ui.bundle.js';script.onload=()=>resolve();script.onerror=reject;document.head.appendChild(script);
   });
   function initPill(){
     api = window.SelPill.attach({
@@ -101,7 +102,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
     document.head.appendChild(ps);
   }
 
-  function pushSel(text){
+  function pushSel(text        ){
     try{
       fetch('/selinfo', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(text
@@ -171,7 +172,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
         var d = docSize();
         return fetch('/rasterize?path=' + encodeURIComponent(REL) + '&w=' + d.w + '&h=' + d.h)
           .then(function(r){ if (!r.ok) throw new Error('rasterize ' + r.status); return r.blob(); })
-          .then(function(blob){ return new Promise(function(res, rej){
+          .then(function(blob){ return new Promise                                           (function(res, rej){
             var img = new Image();
             img.onload = function(){ res({ src: img, w: img.naturalWidth, h: img.naturalHeight }); };
             img.onerror = rej;
@@ -182,7 +183,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   }
 
   function loadKit(){
-    return new Promise(function(res, rej){
+    return new Promise      (function(res, rej){
       if (window.AnnotKit) return res();
       var s = document.createElement('script');
       s.src = '/.fig_thumbs/annot_kit.js';       // absolute: reports live anywhere in the tree

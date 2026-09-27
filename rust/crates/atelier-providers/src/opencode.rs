@@ -1074,7 +1074,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Alignement modèle contre le fixture ACP partagé (fake_kimi_acp.mjs).
+    // Alignement modèle contre le fixture ACP partagé (fake_kimi_acp.mts).
     // Mode nominal = contrat OpenCode 2 : session/set_model → -32601,
     // sélection via session/set_config_option {configId:"model", value}.
     // Mode grok = contrat v1 : session/set_model accepté.
@@ -1103,7 +1103,7 @@ mod tests {
             None
         })?;
         let fixture = format!(
-            "{}/tests/fixtures/fake_kimi_acp.mjs",
+            "{}/tests/fixtures/fake_kimi_acp.mts",
             env!("CARGO_MANIFEST_DIR")
         );
         let server = AcpServer::new("fake-opencode");

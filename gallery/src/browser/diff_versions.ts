@@ -1,0 +1,2499 @@
+interface ReviewEntry {base?: string; text?: string; baseHash?: string; textHash?: string; accepted?: boolean}
+"use strict";
+// Historique de versions + comparaison EN PLACE (CodeMirror 5) — module partagé
+// par latex_studio.html et code_editor.html. Le document affiché reste le buffer
+// courant (thème, coloration syntaxique, numéros de ligne et wrap intacts) :
+// mots ajoutés surlignés, mots supprimés insérés en widgets barrés, bruit de
+// rewrap (retours à la ligne déplacés) filtré. Les versions persistent en
+// localStorage par fichier (plafond ~1,5 Mo, plus anciennes éliminées d'abord).
+//
+// Intégration git (si le fichier est suivi — sinon tout se dégrade en silence) :
+// - pseudo-version « HEAD » en tête du sélecteur ‹ ± › (naviguer avant la
+//   première sauvegarde de session = comparer au dernier commit) ;
+// - gouttière : barres vertes (ajouté) / ambre (modifié) et triangle rouge
+//   (lignes supprimées) vs HEAD, recalculées en tapant ;
+// - clic sur une marque de gouttière → comparaison vs HEAD scrollée à la ligne.
+//
+// Hôte :
+//   const dv = DiffVersions({
+//     getCm:       () => cm,            // l'instance est créée après le chargement
+//     path,                             // chemin absolu du fichier (clé de stockage)
+//     notify:      (msg) => ...,        // message furtif barre de statut ("" = effacer)
+//     els:         {tag, prev, next, restore, group?},  // boutons existants de l'hôte
+//     restoreText: async (text) => ..., // réécrit le fichier + met à jour le buffer
+//   });
+//   dv.push(before, after, meta) après chaque sauvegarde / rechargement externe
+//   dv.isEquivalent(a, b)     équivalence whitespace adaptée au type de fichier
+//   dv.isShown()            le mode comparaison est-il actif ?
+//     onMarks: (list) => ...,          // OPTIONNEL — publie les marques en
+//       termes de SOURCE : [{kind:'add'|'bridge'|'del', line, text}]. Appelé à
+//       chaque (re)calcul et avec [] à la fermeture. 'bridge' = fragment
+//       inchangé court absorbé par la fusion sémantique (à peindre plus pâle).
+//       Sert aux vues qui n'affichent pas l'éditeur (vue Lecture) : elles ne
+//       peuvent pas lire les marques CodeMirror, mais savent retrouver un
+//       texte source dans leur rendu.
+//     onNavigate: (line, index, total) => bool, // OPTIONNEL — ⌥↓/⌥↑ et
+//       l'ouverture de la comparaison passent d'abord par l'hôte ; true =
+//       la vue visible (Lecture) a pris le changement en charge, l'éditeur
+//       masqué ne défile pas.
+const createDiffVersions = function(opts){
+  const { getCm, path, notify, els, restoreText, onMarks, onNavigate } = opts;
+  const launchParams = (() => {
+    try{ return new URLSearchParams(location.search); }
+    catch(e){ return {get: () => null}; }
+  })();
+  const individualReview = opts.individualReview === true;
+  const autoOpenDiff = launchParams.get("diff") === "1";
+  const requestedBase = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(launchParams.get("base") || "")
+    ? launchParams.get("base") : "";
+  // La base Git (ou le premier `before` pour un fichier non suivi) n'est pas
+  // une intervention. Le journal conserve les paires explicites, sans jamais
+  // reconstruire un `after` depuis le buffer vivant.
+  const INTERVENTIONS = []; // {id,before,after,ts,source,status}
+  const LEGACY_SNAPSHOTS = []; // {text,ts,label} — consultables, exclus de N
+  let baseVersion = null; // {before,ts,head?,sha?}
+  let shown = false, marks = [];
+  let changePts = [], changeAt = 0; // positions {pos, ch} des changements + index courant
+  let extCmp = null; // comparaison ponctuelle depuis l'historique : {before, label}
+  const curVersion = () => extCmp || baseVersion;
+  let headText = null, headSha = "", baseTs = 0; // ts (ms) du commit-base
+  let baseGitLocked = false;
+  // Ancre du journal PERSISTÉ : posée à l'init du state serveur et jamais
+  // réécrite. `baseVersion` peut avancer avec le dépôt (nouveau commit
+  // significatif) ; la base du state v2, elle, est immuable — la faire bouger
+  // ferait diverger `serverBaseHash` du serveur → « conflit de base ».
+  let journalBase = null;
+  // Jalon de comparaison posé par l'utilisateur : il déplace la base
+  // D'AFFICHAGE (cumul, ruban, compteur) sans jamais toucher `journalBase`,
+  // l'ancre du state persisté (PIEGES_CONNUS §3b). Rien n'est supprimé.
+  let milestone = null;
+  let pendingRebase = null; // avancée de base retenue pendant une vue historique
+  const KEY = "texDiffV1:" + path;
+  const GUTTER = "dv-git";
+  const SOURCES = new Set(["user-save", "external-reload", "external-merge", "external-conflict", "restore", "legacy"]);
+  const STATUSES = new Set(["applied", "pending-conflict"]);
+  let idSeq = 0;
+  const idNonce = (() => {
+    try { return crypto.randomUUID().slice(0, 8); }
+    catch(e){ return Math.random().toString(36).slice(2, 10); }
+  })();
+  let runtimePushes = 0; // empêche le restore asynchrone de doubler une action déjà journalisée
+
+  function newId(ts: string|number){ return "dv-" + ts + "-" + idNonce + "-" + (++idSeq); }
+  function extension(){
+    const name = path.split(/[\\/]/).pop() || "";
+    const dot = name.lastIndexOf(".");
+    return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  }
+  function proseKey(text, mode: string){
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+    const tokens = [];
+    let prose: string[] = [];
+    let exactEnv = null;
+    let fenced = null;
+    const flush = () => {
+      if(!prose.length) return;
+      tokens.push("P:" + prose.join(" ").replace(/[ \t]+/g, " ").trim());
+      prose = [];
+    };
+    const latexComment = (line) => {
+      for(let i = 0; i < line.length; i++){
+        if(line[i] !== "%") continue;
+        let slashes = 0;
+        for(let j = i - 1; j >= 0 && line[j] === "\\"; j--) slashes++;
+        if(slashes % 2 === 0) return true;
+      }
+      return false;
+    };
+    for(const line of lines){
+      if(mode === "latex"){
+        const begin = line.match(/\\begin\{(verbatim|lstlisting|minted)\}/);
+        if(exactEnv || begin){
+          flush();
+          if(!exactEnv) exactEnv = begin[1];
+          tokens.push("X:" + line);
+          if(new RegExp("\\\\end\\{" + exactEnv + "\\}").test(line)) exactEnv = null;
+          continue;
+        }
+        if(latexComment(line)){
+          flush();
+          tokens.push("C:" + line);
+          continue;
+        }
+        if(/^\s*\\/.test(line)){
+          flush();
+          tokens.push("X:" + line);
+          continue;
+        }
+      }
+      if(mode === "markdown"){
+        const fence = line.match(/^\s*(```+|~~~+)/);
+        if(fenced || fence){
+          flush();
+          tokens.push("X:" + line);
+          if(!fenced) fenced = fence[1][0];
+          else if(fence && fence[1][0] === fenced) fenced = null;
+          continue;
+        }
+        const structural = /^(?: {4}|\t|\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|(?:[-*_]\s*){3,})|.*\|.*\||.* {2})$/.test(line);
+        if(structural && line.trim()){
+          flush();
+          tokens.push("X:" + line);
+          continue;
+        }
+      }
+      if(/^\s*$/.test(line)){
+        flush();
+        tokens.push("B");
+      } else prose.push(line.trim());
+    }
+    flush();
+    // `split("\n")` crée un unique élément vide artificiel après le
+    // retour terminal. Toute ligne blanche terminale supplémentaire est réelle.
+    if(tokens[tokens.length - 1] === "B") tokens.pop();
+    return JSON.stringify(tokens);
+  }
+  function equivalent(a: string, b: string){
+    if(a === b) return true;
+    const ext = extension();
+    if(ext === "tex" || ext === "ltx") return proseKey(a, "latex") === proseKey(b, "latex");
+    if(["md", "markdown", "mdown", "mkd"].includes(ext)) return proseKey(a, "markdown") === proseKey(b, "markdown");
+    if(ext === "txt" || ext === "text") return proseKey(a, "text") === proseKey(b, "text");
+    // Tous les modes code, connus ou futurs, conservent chaque blanc.
+    return false;
+  }
+
+  // styles des décorations + gouttière (une seule injection par page)
+  if(!document.getElementById("dvStyles")){
+    const st = document.createElement("style");
+    st.id = "dvStyles";
+    st.textContent =
+      ".dAddM{background:rgba(52,201,142,.18);border-bottom:1px solid rgba(52,201,142,.6);border-radius:2px}" +
+      ".dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}" +
+      ".CodeMirror .dv-git{width:6px}" +
+      ".dv-cell{position:relative;width:6px;height:1.55em}" +
+      ".dv-bar{position:absolute;left:1px;top:0;bottom:-2px;width:3px;cursor:pointer}" +
+      ".dv-bar.a{background:rgba(52,201,142,.85)}" +
+      ".dv-bar.m{background:rgba(232,179,74,.85)}" +
+      ".dv-del{position:absolute;left:0;top:-5px;width:0;height:0;cursor:pointer;" +
+        "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
+      ".dv-del.eof{top:auto;bottom:-4px}" +
+      // Instrument de versions stable : commit | ‹ ±N › | restaurer | historique.
+      // Les contrôles sont désactivés, jamais retirés, pour supprimer tout
+      // jitter — sauf « rétablir », qui n'a aucun sens hors comparaison et
+      // occupait 30 px désactivés en permanence. Il revient AVEC la
+      // comparaison : la géométrie ne bouge donc que sur une action explicite.
+      "#dvNav{display:inline-flex;align-items:center;height:24px;overflow:hidden;vertical-align:middle}" +
+      "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
+      "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "#dvNav .dvNavA:disabled{color:color-mix(in srgb,var(--muted,#8b93a1) 42%,transparent);cursor:default;background:none}" +
+      // Fanion et pastille git : icône seule, l'infobulle porte le sens.
+      "#dvStone,#dvTrack{position:relative;display:inline-flex;align-items:center;justify-content:center;" +
+      "width:22px;height:24px;background:transparent;border:none;border-radius:6px;" +
+      "color:var(--muted,#8b93a1);cursor:pointer;padding:0;transition:color 140ms ease,background 140ms ease}" +
+      "#dvStone:hover:not(:disabled),#dvTrack:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "#dvStone.on{color:var(--accent,#e8823a)}" +
+      "#dvTrack.dot::after{content:\"\";position:absolute;top:3px;right:2px;width:5px;height:5px;" +
+      "border-radius:3px;background:var(--accent,#e8823a)}" +
+      "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
+      "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
+      "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:var(--fs-caption, 10px)}" +
+      // Ruban de révisions : une colonne par intervention, ce qui entre au-dessus
+      // de la médiane, ce qui sort en dessous. Canvas et non DOM — la barre ne
+      // doit pas grossir avec l'historique.
+      "#dvNav .dvRibHost{position:relative;display:inline-flex;align-items:center;padding:0 4px}" +
+      "#dvNav canvas.dvRib{display:block;width:132px;height:14px;border-radius:3px;" +
+        "cursor:ew-resize;touch-action:none}" +
+      "#dvNav canvas.dvRib.off{cursor:default;opacity:.7}" +
+      "#dvNav canvas.dvRib:focus-visible{outline:2px solid var(--accent,#e8823a);outline-offset:2px}" +
+      ".dvPeek{position:absolute;bottom:calc(100% + 8px);left:0;z-index:401;display:none;" +
+        "flex-direction:column;gap:2px;min-width:132px;padding:7px 9px;border-radius:8px;" +
+        "background:var(--popover,var(--card,#1a1d22));border:1px solid var(--border,#333a45);" +
+        "box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap}" +
+      ".dvPeek.on{display:flex}" +
+      ".dvPeek .dvPeekTop{font-size:var(--fs-label, 11px);font-weight:500;color:var(--txt,#dbdfe5);font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekNum{display:flex;gap:8px;font-size:var(--fs-label, 11px);font-variant-numeric:tabular-nums}" +
+      ".dvPeek .dvPeekNum .a{color:var(--dv-add,#34c98e);font-weight:500}" +
+      ".dvPeek .dvPeekNum .r{color:var(--dv-del,#e06c75);font-weight:500}" +
+      ".dvPeek .dvPeekSrc{font-size:var(--fs-caption, 10px);color:var(--muted,#8b93a1)}" +
+      ".dvPeek.bad .dvPeekSrc{color:var(--dv-del,#e06c75)}" +
+      // compositeur de commit ciblé : mêmes tokens que l'app Atelier, sans
+      // palette bleue autonome ni changement de géométrie pendant l'IA.
+      "#dvCommitPop{position:fixed;z-index:400;display:none;flex-direction:column;gap:10px;" +
+        "box-sizing:border-box;width:min(390px,calc(100vw - 16px));padding:12px;" +
+        "background:var(--popover,var(--surface-overlay,var(--surface-raised,var(--card,#1a1d22))));" +
+        "color:var(--popover-foreground,var(--text-primary,var(--txt,#dbdfe5)));" +
+        "border:1px solid var(--border-subtle,var(--border,#333a45));border-radius:10px;" +
+        "box-shadow:0 16px 44px rgba(0,0,0,.42);font:var(--fs-body, 13px)/1.4 var(--ui-font,-apple-system,sans-serif)}" +
+      ".dvCommitHead{display:flex;align-items:center;min-width:0;gap:8px}" +
+      ".dvCommitTitle{display:flex;align-items:baseline;min-width:0;gap:7px;color:var(--text-tertiary,var(--muted));font-size:var(--fs-label, 11px)}" +
+      ".dvCommitTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,var(--txt));font:500 var(--fs-body-s, 12px)/1.3 var(--code-font,ui-monospace,monospace)}" +
+      ".dvCommitClose{margin-left:auto;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;padding:0;" +
+        "border:0;border-radius:6px;background:transparent;color:var(--text-tertiary,var(--muted));cursor:pointer}" +
+      ".dvCommitClose:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent);color:var(--text-primary,var(--txt))}" +
+      ".dvCommitClose svg{width:14px;height:14px}" +
+      "#dvCommitText{box-sizing:border-box;width:100%;min-height:72px;max-height:150px;resize:vertical;padding:8px 10px;" +
+        "border:1px solid var(--border-interactive,var(--border-strong,var(--border,#333a45)));border-radius:7px;outline:0;" +
+        "background:var(--surface-inset,var(--card2,#1a1d22));color:var(--text-primary,var(--txt,#dbdfe5));" +
+        "font:var(--fs-body-s, 12px)/1.5 var(--ui-font,-apple-system,sans-serif)}" +
+      "#dvCommitText::placeholder{color:var(--text-tertiary,var(--muted));opacity:.72}" +
+      "#dvCommitText:focus{border-color:var(--ring,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--ring,var(--accent)) 22%,transparent)}" +
+      ".dvCommitFoot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0}" +
+      ".dvCommitHint{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-tertiary,var(--muted));font-size:var(--fs-caption, 10px);white-space:nowrap}" +
+      ".dvCommitActions{display:flex;align-items:center;gap:7px;flex:none}" +
+      ".dvCommitBtn{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;" +
+        "border:1px solid transparent;border-radius:7px;font:500 var(--fs-label, 11px)/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
+      ".dvCommitBtn svg{width:13px;height:13px;flex:none}" +
+      ".dvCommitBtn:active:not(:disabled){transform:scale(.97)}" +
+      ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:2px solid var(--ring,var(--accent));outline-offset:2px}" +
+      ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
+      ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
+      ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
+      ".dvCommitDo{background:var(--primary,var(--accent));color:var(--primary-foreground,var(--surface-app,var(--bg)));border-color:var(--primary,var(--accent))}" +
+      ".dvCommitDo:hover:not(:disabled){filter:brightness(1.08)}" +
+      "@media(max-width:430px){.dvCommitHint{display:none}.dvCommitActions{margin-left:auto}}" +
+      ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
+      "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";
+    document.head.appendChild(st);
+  }
+
+  let lastKnown: string = null; // dernier texte de buffer persisté (rattrapage inter-sessions)
+  let serverRevision = 0;
+  let serverBaseHash: string = null;
+  const acknowledgedIds = new Set();
+  // Décisions de revue acquittées par le serveur : id → forme canonique
+  // (baseHash:textHash:accepted). flushWrites n'émet une op `review` que pour
+  // les ids dont la décision a changé depuis le dernier ack (2026-09-11).
+  const acknowledgedReview = new Map();
+  const reviewCanon = (entry: ReviewEntry) => entry.baseHash + ":" + entry.textHash + ":" + (entry.accepted === true ? "1" : "0");
+  const pendingById = new Map();
+  let writeRunning = false, writeAgain = false, persistenceStopped = false;
+  let postTimer: string|number|NodeJS.Timeout = null;
+  function hashText(text: string){
+    // SHA-256 synchrone : permet de figer le snapshot avant le premier await,
+    // donc une intervention arrivée pendant le POST reste dans pendingById.
+    const bytes = new TextEncoder().encode(text);
+    const rotr = (n: number, x: number) => (x >>> n) | (x << (32 - n));
+    const k = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    const bitLength = bytes.length * 8;
+    const total = Math.ceil((bytes.length + 9) / 64) * 64;
+    const padded = new Uint8Array(total); padded.set(bytes); padded[bytes.length] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(total - 8, Math.floor(bitLength / 0x100000000));
+    view.setUint32(total - 4, bitLength >>> 0);
+    const w = new Uint32Array(64);
+    for(let off = 0; off < total; off += 64){
+      for(let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
+      for(let i = 16; i < 64; i++){
+        const s0 = rotr(7,w[i-15]) ^ rotr(18,w[i-15]) ^ (w[i-15] >>> 3);
+        const s1 = rotr(17,w[i-2]) ^ rotr(19,w[i-2]) ^ (w[i-2] >>> 10);
+        w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+      }
+      let [a,b,c,d,e,f,g,hh] = h;
+      for(let i = 0; i < 64; i++){
+        const s1 = rotr(6,e) ^ rotr(11,e) ^ rotr(25,e);
+        const ch = (e & f) ^ (~e & g);
+        const t1 = (hh + s1 + ch + k[i] + w[i]) >>> 0;
+        const s0 = rotr(2,a) ^ rotr(13,a) ^ rotr(22,a);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const t2 = (s0 + maj) >>> 0;
+        hh=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b; b=a; a=(t1+t2)>>>0;
+      }
+      h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+c)>>>0; h[3]=(h[3]+d)>>>0;
+      h[4]=(h[4]+e)>>>0; h[5]=(h[5]+f)>>>0; h[6]=(h[6]+g)>>>0; h[7]=(h[7]+hh)>>>0;
+    }
+    return h.map(value => value.toString(16).padStart(8,"0")).join("");
+  }
+  function compactState(){
+    const texts = {};
+    const put = (text) => { const hash = hashText(text); texts[hash] = text; return hash; };
+    const anchor = journalBase && typeof journalBase.before === "string" ? journalBase : baseVersion;
+    const baseText = anchor && typeof anchor.before === "string"
+      ? anchor.before : (INTERVENTIONS[0]?.before ?? lastKnown ?? "");
+    const baseHash = put(baseText);
+    const interventions = [];
+    for(const it of INTERVENTIONS) interventions.push({id: it.id,
+      fromHash: put(it.before), toHash: put(it.after), ts: it.ts,
+      source: it.source, status: it.status});
+    const legacySnapshots = [];
+    for(const snap of LEGACY_SNAPSHOTS) legacySnapshots.push({hash: put(snap.text),
+      ts: snap.ts, label: snap.label});
+    const currentText = typeof lastKnown === "string" ? lastKnown : liveText();
+    const current = {hash: put(currentText), ts: Date.now()};
+    // Décisions de revue (« Garder »/« Ignorer »/« Tout accepter ») : base
+    // ajustée + texte résultant, par empreinte, textes enregistrés.
+    const review: Record<string, ReviewEntry> = {};
+    const known = new Set(INTERVENTIONS.map(it => it.id));
+    for(const [id, entry] of Object.entries(reviewState)){
+      if(!known.has(id) || !entry || typeof entry.base !== "string" || typeof entry.text !== "string") continue;
+      review[id] = {baseHash: put(entry.base), textHash: put(entry.text),
+        ...(entry.accepted === true ? {accepted: true} : {})};
+    }
+    return {v: 2, path, revision: serverRevision,
+      base: {hash: baseHash, kind: anchor?.head ? "git" : "session",
+        sha: anchor?.sha || "", ts: anchor?.ts},
+      texts, interventions, legacySnapshots, current, review, lastKnown: currentText};
+  }
+  function stopPersistence(message: string){
+    persistenceStopped = true;
+    notify("persistance du diff arrêtée — " + message);
+  }
+  function materializeServer(data){
+    if(!data || data.v !== 2 || !data.texts) return null;
+    const text = (hash) => typeof data.texts[hash] === "string" ? data.texts[hash] : null;
+    const interventions = [];
+    for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
+      const before = text(it.fromHash), after = text(it.toHash);
+      if(before === null || after === null) return null;
+      interventions.push({...it, before, after});
+    }
+    const legacySnapshots = [];
+    for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+      const value = text(snap.hash); if(value === null) return null;
+      legacySnapshots.push({text: value, ts: snap.ts, label: snap.label});
+    }
+    const last = data.current ? text(data.current.hash) : null;
+    const base = data.base ? text(data.base.hash) : null;
+    const stoneText = data.milestone ? text(data.milestone.hash) : null;
+    // Décisions de revue : résolues en textes. Une décision dont un texte
+    // manquerait est ignorée, jamais fatale (le GC serveur garde les siens).
+    const review: Record<string, ReviewEntry> = {};
+    const rawReview: Record<string, ReviewEntry> = data.review && typeof data.review === "object" && !Array.isArray(data.review) ? data.review : {};
+    for(const [id, entry] of Object.entries(rawReview)){
+      if(!id || !entry || typeof entry !== "object") continue;
+      const baseText = text(entry.baseHash), resultText = text(entry.textHash);
+      if(baseText === null || resultText === null) continue;
+      review[id] = {base: baseText, text: resultText, accepted: entry.accepted === true,
+        baseHash: entry.baseHash, textHash: entry.textHash};
+    }
+    return {v: 2, revision: data.revision || 0, baseHash: data.base?.hash || null,
+      baseText: base, baseMeta: data.base, interventions, legacySnapshots, last, review,
+      // Jalon « Repartir d'ici » : base d'AFFICHAGE, distincte de l'ancre.
+      milestone: stoneText === null ? null : {before: stoneText, ts: Number(data.milestone.ts) || 0}};
+  }
+  function mergeConflictState(remote, localBaseHash: string){
+    const decoded = materializeServer(remote);
+    if(!decoded){ stopPersistence("état serveur invalide"); return false; }
+    const expectedBase = serverBaseHash || localBaseHash;
+    if(expectedBase && decoded.baseHash && expectedBase !== decoded.baseHash){
+      stopPersistence("conflit de base"); return false;
+    }
+    const localById = new Map(INTERVENTIONS.map(it => [it.id, it]));
+    for(const it of decoded.interventions){
+      const local = localById.get(it.id);
+      if(local && (local.before !== it.before || local.after !== it.after || local.source !== it.source || local.status !== it.status)){
+        stopPersistence("identifiant d'intervention divergent"); return false;
+      }
+      if(!local) INTERVENTIONS.push({...it});
+      acknowledgedIds.add(it.id);
+    }
+    INTERVENTIONS.sort((a,b) => Number(a.ts || 0) - Number(b.ts || 0) || a.id.localeCompare(b.id));
+    // Décisions : ce que le serveur a est acquitté ; les décisions locales
+    // non acquittées repartent à la reprise (union, local gagne sur un id commun).
+    adoptReview(decoded.review, {ack: true, override: false});
+    serverRevision = decoded.revision;
+    serverBaseHash = decoded.baseHash;
+    return true;
+  }
+  async function flushWrites(retried: boolean){
+    if(persistenceStopped) return;
+    if(writeRunning){ writeAgain = true; return; }
+    writeRunning = true;
+    try{
+      const snapshot = compactState();
+      try{ localStorage.setItem(KEY, JSON.stringify(snapshot)); }
+      catch(e){ notify("historique local trop volumineux — persistance serveur maintenue"); }
+      const ops = [];
+      // Textes que le serveur tient déjà et ne ramasse jamais : ceux des
+      // interventions et décisions acquittées, plus la base. `current` en est
+      // exclu (remplacé par set-current, il peut être ramassé). Ne pas les
+      // renvoyer : « Tout accepter » sur 189 interventions × 17 Ko faisait
+      // 3,2 Mo, au-delà de la limite de corps du serveur (413) — les décisions
+      // restaient locales et toute persistance suivante échouait (2026-09-11).
+      const known = new Set(serverBaseHash ? [serverBaseHash] : []);
+      for(const it of snapshot.interventions) if(acknowledgedIds.has(it.id)){ known.add(it.fromHash); known.add(it.toHash); }
+      for(const canonical of acknowledgedReview.values()){
+        const [baseHash, textHash] = canonical.split(":");
+        known.add(baseHash); known.add(textHash);
+      }
+      const textsFor = (...hashes: string[]) => {
+        const out = {};
+        for(const hash of hashes){
+          if(known.has(hash) || typeof snapshot.texts[hash] !== "string") continue;
+          out[hash] = snapshot.texts[hash];
+          known.add(hash); // une fois dans ce lot, inutile de le répéter
+        }
+        return out;
+      };
+      if(!serverBaseHash){
+        ops.push({type: "init", base: snapshot.base,
+          current: snapshot.current, legacySnapshots: snapshot.legacySnapshots, texts: snapshot.texts});
+        for(const hash of Object.keys(snapshot.texts)) known.add(hash);
+      }
+      for(const it of snapshot.interventions){
+        if(acknowledgedIds.has(it.id)) continue;
+        const full = INTERVENTIONS.find(candidate => candidate.id === it.id);
+        if(!full) continue;
+        pendingById.set(it.id, full);
+        ops.push({type: "append", intervention: it, current: snapshot.current,
+          texts: textsFor(it.fromHash, it.toHash)});
+      }
+      if(!ops.length) ops.push({type: "set-current", current: snapshot.current,
+        texts: textsFor(snapshot.current.hash)});
+      // Décisions de revue changées depuis le dernier ack (ou retirées).
+      const reviewBatch = [];
+      for(const [id, entry] of Object.entries(snapshot.review || {})){
+        const canonical = reviewCanon(entry);
+        if(acknowledgedReview.get(id) === canonical) continue;
+        reviewBatch.push({id, canonical, op: {type: "review", id, review: entry,
+          texts: textsFor(entry.baseHash, entry.textHash)}});
+      }
+      for(const id of acknowledgedReview.keys()){
+        if(snapshot.review && snapshot.review[id]) continue;
+        // Une décision serveur sur une intervention inconnue ici n'est pas une
+        // annulation locale : ne pas la retirer.
+        if(!INTERVENTIONS.some(it => it.id === id)) continue;
+        reviewBatch.push({id, canonical: null, op: {type: "review", id, review: null, texts: {}}});
+      }
+      for(const item of reviewBatch) ops.push(item.op);
+      const response = await fetch("/versions", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path, expectedRevision: serverRevision, ops})});
+      const body = await response.json();
+      if(response.status === 409 || body?.error === "revision-conflict"){
+        if(retried || !mergeConflictState(body.state, snapshot.base.hash)){ if(!persistenceStopped) stopPersistence("conflit de révision répété"); return; }
+        writeRunning = false;
+        await flushWrites(true);
+        return;
+      }
+      if(!body?.ok || !Number.isInteger(body.revision)) throw new Error(body?.error || "ack invalide");
+      serverRevision = body.revision;
+      serverBaseHash = snapshot.base.hash;
+      for(const op of ops) if(op.type === "append"){
+        acknowledgedIds.add(op.intervention.id); pendingById.delete(op.intervention.id);
+      }
+      for(const item of reviewBatch){
+        if(item.canonical === null) acknowledgedReview.delete(item.id);
+        else acknowledgedReview.set(item.id, item.canonical);
+      }
+    }catch(e){
+      notify("échec de persistance du diff — nouvelle tentative à la prochaine modification");
+    }finally{
+      writeRunning = false;
+      if(writeAgain){ writeAgain = false; await flushWrites(false); }
+    }
+  }
+  function persist(afterText?: string){
+    if(typeof afterText === "string") lastKnown = afterText;
+    clearTimeout(postTimer);
+    postTimer = setTimeout(() => { flushWrites(false); }, 400);
+  }
+  function arm(){
+    if(els.group) els.group.style.display = "";
+    els.tag.disabled = false; els.tag.style.opacity = "";
+    if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
+    ensureNavUi();
+    if(!individualReview){ ensureCommitUi(); ensureStoneUi(); ensureHistUi(); }
+    updateTag();
+    updateNav();
+  }
+  function labelOf(v){
+    if(!v) return "";
+    return v.head ? "HEAD" + (v.sha ? " (" + v.sha + ")" : "") : "base";
+  }
+  function updateTag(){
+    if(individualReview){els.tag.title = "Afficher les changements de cette intervention";return;}
+    els.tag.title = "Modifications — " + labelOf(baseVersion) + " (cliquer : comparer)";
+    if(els.prev) els.prev.disabled = true;
+    if(els.next) els.next.disabled = true;
+  }
+  // Marques en termes de SOURCE pour les vues sans éditeur (vue Lecture).
+  // Reprend la sémantique de la boucle d'applyRender (fusion sémantique,
+  // appariement du bruit de rewrap) SANS CodeMirror : le chemin cm6 rend le
+  // diff nativement (showMergeDiff) et ne passe jamais par applyRender — la
+  // publication doit donc être calculable seule (vécu 2026-08-17).
+  function computeSrcMarks(inputParts, after){
+    const wsn = (s2) => s2.replace(/\s+/g, " ").trim();
+    let parts = inputParts;
+    if(parts.length){
+      const merged = [];
+      let i2 = 0;
+      while(i2 < parts.length){
+        const pt = parts[i2];
+        if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
+        // segs distingue, DANS le bloc ajouté fusionné, les vrais ajouts des
+        // « ponts » (fragments inchangés ≤ 16 car. absorbés par la fusion) —
+        // la Lecture les peint dans un vert plus pâle (kind "bridge").
+        let R = "", A = "", j2 = i2;
+        const segs = [];
+        while(j2 < parts.length){
+          const q = parts[j2];
+          if(q.removed){ R += q.value; j2++; continue; }
+          if(q.added){ A += q.value; segs.push({value: q.value}); j2++; continue; }
+          const nx = parts[j2 + 1];
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){
+            R += q.value; A += q.value; segs.push({value: q.value, bridge: true}); j2++; continue;
+          }
+          break;
+        }
+        if(R) merged.push({removed: true, value: R});
+        if(A) merged.push({added: true, value: A, segs});
+        i2 = j2;
+      }
+      parts = merged;
+    }
+    const noisePair = (i: number) => {
+      const pt = parts[i];
+      for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
+        const cand = parts[j];
+        if(j === i + 1 && !cand.removed && !cand.added){
+          if(wsn(cand.value) !== "") return -1;
+          continue;
+        }
+        if(!!cand.removed === !pt.removed && !!cand.added === !pt.added
+           && wsn(cand.value) === wsn(pt.value)) return j;
+        return -1;
+      }
+      return -1;
+    };
+    const countNl = (v: string|string[]) => { let n = 0, k = -1; while((k = v.indexOf("\n", k + 1)) >= 0) n++; return n; };
+    const skip = new Set();
+    const out = [];
+    let line = 0;
+    for(let i = 0; i < parts.length; i++){
+      const pt = parts[i];
+      if(skip.has(i)){ if(!pt.removed) line += countNl(pt.value); continue; }
+      if(pt.removed){
+        if(wsn(pt.value)){
+          const j = noisePair(i);
+          if(j >= 0){ skip.add(j); continue; }
+        }
+        if(!wsn(pt.value)) continue;
+        // Texte COMPLET : la Lecture le d\u00e9plie sur place (barr\u00e9 repliable),
+        // une troncature ici rendrait la comparaison mot \u00e0 mot impossible.
+        // `next` = d\u00e9but du texte qui SUIT la coupe (remplacement ou commun,
+        // donc pr\u00e9sent dans la prose rendue) : la Lecture y ancre le barr\u00e9
+        // d\u00e9pli\u00e9 \u00e0 sa vraie position au lieu de la t\u00eate de bloc.
+        let next = "";
+        for(let j2 = i + 1; j2 < parts.length; j2++){
+          if(parts[j2].removed) continue;
+          const w2 = wsn(parts[j2].value);
+          if(w2){ next = w2.slice(0, 80); break; }
+        }
+        out.push({kind: "del", line, text: pt.value.replace(/\s+/g, " ").trim(), next});
+        continue;
+      }
+      if(pt.added && wsn(pt.value)){
+        const j = noisePair(i);
+        if(j >= 0){ skip.add(j); line += countNl(pt.value); continue; }
+        if(pt.segs && pt.segs.some((sg) => sg.bridge)){
+          let segLine = line;
+          for(const sg of pt.segs){
+            if(wsn(sg.value)) out.push({kind: sg.bridge ? "bridge" : "add", line: segLine, text: sg.value});
+            segLine += countNl(sg.value);
+          }
+        } else {
+          out.push({kind: "add", line, text: pt.value});
+        }
+      }
+      if(!pt.removed) line += countNl(pt.value);
+    }
+    return out;
+  }
+
+  function clearMarks(){
+    marks.forEach(m => { try{ m.clear(); }catch(e){} });
+    marks = [];
+    publishMarks([]);
+  }
+  // Les marques CodeMirror ne valent que pour l'éditeur ; la vue Lecture a
+  // besoin des mêmes changements en termes de source pour les retrouver dans
+  // son rendu. Une seule source de vérité : la boucle qui pose les marques.
+  let lastPublished = "";
+  function publishMarks(list){
+    if(typeof onMarks !== "function") return;
+    const signature = JSON.stringify(list);
+    if(signature === lastPublished) return;   // rendu identique : ne pas repeindre
+    lastPublished = signature;
+    try{ onMarks(list); }catch(e){}
+  }
+  let diffWorker: Worker = null, workerFailed = false, renderRequestId = 0, renderTimer: string|number|NodeJS.Timeout = null;
+  const LOCAL_WORD_LIMIT = 12000;
+  const renderCache = new Map();
+  function workerUrl(){
+    let url = "/.fig_thumbs/diff_worker.js";
+    try{ const token = new URLSearchParams(location.search).get("token"); if(token) url += "?token=" + encodeURIComponent(token); }catch(e){}
+    return url;
+  }
+  function ensureWorker(){
+    if(diffWorker || workerFailed || typeof Worker === "undefined") return diffWorker;
+    try{
+      diffWorker = new Worker(workerUrl());
+      diffWorker.onerror = () => { workerFailed = true; try{ diffWorker.terminate(); }catch(e){} diffWorker = null; };
+    }catch(e){ workerFailed = true; diffWorker = null; }
+    return diffWorker;
+  }
+  function cacheParts(key: string, value){
+    renderCache.set(key, value);
+    while(renderCache.size > 8) renderCache.delete(renderCache.keys().next().value);
+  }
+  function lineFallback(before, after, isCurrent, done){
+    const splitLines = (text: string|string[], callback) => {
+      const lines = []; let at = 0;
+      const step = () => {
+        if(!isCurrent()) return;
+        let count = 0;
+        while(at < text.length && count++ < 300){
+          const end = text.indexOf("\n", at);
+          if(end < 0){ lines.push(text.slice(at)); at = text.length; break; }
+          lines.push(text.slice(at, end + 1)); at = end + 1;
+        }
+        at < text.length ? setTimeout(step, 0) : callback(lines);
+      };
+      setTimeout(step, 0);
+    };
+    const build = (lines: string[], start: number, end: number, callback) => {
+      let at = start, value = "";
+      const step = () => {
+        if(!isCurrent()) return;
+        let chunk = "", count = 0;
+        while(at < end && count++ < 200) chunk += lines[at++];
+        value += chunk;
+        at < end ? setTimeout(step, 0) : callback(value);
+      };
+      setTimeout(step, 0);
+    };
+    splitLines(before, (a) => splitLines(after, (b) => {
+    let prefix = 0, suffix = 0;
+    const scanPrefix = () => {
+      const stop = Math.min(prefix + 500, a.length, b.length);
+      while(prefix < stop && a[prefix] === b[prefix]) prefix++;
+      if(prefix === stop && prefix < a.length && prefix < b.length)
+        return setTimeout(scanPrefix, 0);
+      scanSuffix();
+    };
+    const scanSuffix = () => {
+      const stop = Math.min(suffix + 500, a.length - prefix, b.length - prefix);
+      while(suffix < stop && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+      if(suffix === stop && suffix < a.length - prefix && suffix < b.length - prefix)
+        return setTimeout(scanSuffix, 0);
+      if(!isCurrent()) return;
+      build(a, 0, prefix, (commonBefore) =>
+      build(a, prefix, a.length - suffix, (removed) =>
+      build(b, prefix, b.length - suffix, (added) =>
+      build(b, b.length - suffix, b.length, (commonAfter) => {
+      const parts = [];
+      if(commonBefore) parts.push({value:commonBefore});
+      if(removed) parts.push({removed:true,value:removed});
+      if(added) parts.push({added:true,value:added});
+      if(commonAfter) parts.push({value:commonAfter});
+      done(parts, true);
+      }))));
+    };
+    setTimeout(scanPrefix, 0);
+    }));
+  }
+  function cancelRender(){
+    renderRequestId++; clearTimeout(renderTimer); renderTimer = null;
+    if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
+  }
+  function render({navigate = true} = {}){
+    const v = curVersion(), cm = getCm();
+    if(!v || !cm) return;
+    clearMarks(); changePts = [];
+    const after = cm.getValue();
+    // cm6 : le diff se rend NATIVEMENT (showMergeDiff) et applyRender ne
+    // tourne jamais — mais la vue Lecture a quand même besoin des marques en
+    // termes de source. On laisse donc la distribution async se dérouler,
+    // en mode « publication seule » (vécu 2026-08-17 : aucune marque en
+    // Lecture parce que ce chemin retournait avant de publier).
+    let nativeShown = false;
+    if(cm.hasNativeMergeDiff && typeof cm.showMergeDiff === "function"){
+      cancelRender();
+      // Variante E (2026-09-10) : les décisions vivent dans une carte flottante
+      // du volet éditeur ; `toolbar: true` = ni gouttière ni bouton dans le texte.
+      // Variante F2 (2026-09-10) : décision ancrée au passage (pilule inline +
+      // trait en rangées visuelles) ; ni gouttière, ni carte, ni barre.
+      const openMerge = () => {
+        changePts = cm.showMergeDiff(v.before, individualReview
+          ? {onDecision: !tt ? decideReview : null, individual: true, anchored: true, onLatest: () => showStep(interList().length - 1)}
+          : undefined) || [];
+      };
+      // Ouverture à la demande (`navigate`) : l'utilisateur veut aller au
+      // passage, gotoChange s'en charge. Ouverture déclenchée par une écriture
+      // externe : la revue s'ouvre SANS déplacer la lecture — la
+      // reconfiguration change la géométrie (chunks repliés/insérés), donc on
+      // restaure l'ancre de texte au lieu de laisser CodeMirror réancrer.
+      if(!navigate && typeof cm.reconfigurePreservingViewport === "function")
+        cm.reconfigurePreservingViewport(openMerge);
+      else openMerge();
+      changeAt = 0;
+      if(changePts.length){
+        const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
+        let best = Infinity;
+        changePts.forEach((p, k) => {
+          const d = Math.abs(p.pos.line - cur.line) * 100000 + Math.abs(p.ch - curCh);
+          if(d < best){ best = d; changeAt = k; }
+        });
+      }
+      const note = changePts.length
+        ? changePts.length + " bloc" + (changePts.length > 1 ? "s" : "") + " modifié" + (changePts.length > 1 ? "s" : "")
+        : "aucun changement de texte";
+      notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
+      updateNav();
+      // Revue individuelle : ce mode ne replie pas les zones inchangées, donc
+      // un passage hors écran laissait « Diff · 140/140 » sans rien de visible
+      // (vécu 2026-09-10). Recentrer sur le premier bloc du passage à chaque
+      // ouverture ; « tout » garde le bloc le plus proche du curseur.
+      if(changePts.length && navigate) gotoChange(individualReview ? 0 : changeAt, true);
+      else if(!changePts.length && navigate && typeof cm.setReviewFocus === "function") cm.setReviewFocus(null);
+      nativeShown = true;
+    }
+    const wsn = (s) => s.replace(/\s+/g, " ").trim();
+    const key = hashText(v.before) + ":" + hashText(after);
+    const requestId = ++renderRequestId;
+    if(diffWorker){ try{ diffWorker.terminate(); }catch(e){} diffWorker = null; }
+    const apply = (parts, coarse = false, warning = "") => {
+      if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
+      cacheParts(key, {parts, coarse});
+      if(nativeShown){ publishMarks(computeSrcMarks(parts, after)); return; }
+      applyRender(v, cm, after, parts, coarse, warning, navigate);
+    };
+    const cached = renderCache.get(key);
+    if(cached){ apply(cached.parts, cached.coarse); return; }
+    if(wsn(v.before) === wsn(after)){ apply([], false); return; }
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => {
+      const fallback = (warn: boolean) => {
+        if(v.before.length + after.length <= LOCAL_WORD_LIMIT)
+          apply(Diff.diffWordsWithSpace(v.before, after), false, warn ? "diff Worker indisponible — fallback local" : "");
+        else lineFallback(v.before, after, () => requestId === renderRequestId, apply);
+      };
+      const worker = ensureWorker();
+      if(worker){
+        worker.onerror = () => {
+          workerFailed = true; try{ worker.terminate(); }catch(e){} if(diffWorker === worker) diffWorker = null;
+          if(requestId !== renderRequestId) return;
+          fallback(true);
+        };
+        worker.onmessage = ({data}) => {
+          if(data?.requestId !== renderRequestId) return;
+          if(data.error){ fallback(true); return; }
+          apply(data.parts || [], false);
+        };
+        worker.postMessage({requestId, before:v.before, after});
+      } else fallback(false);
+    }, 35);
+  }
+  function applyRender(v, cm, after, inputParts, coarse: boolean, warning: string, navigate = true){
+    clearMarks();
+    const wsn = (s) => s.replace(/\s+/g, " ").trim();
+    let parts = inputParts;
+    // diffWordsWithSpace garantit que la concaténation des parts non-removed
+    // reproduit exactement le buffer → offsets sûrs pour markText/setBookmark.
+    // Fusion sémantique : une phrase récrite produit une alternance mot à mot
+    // (supprimé/ajouté/commun court/supprimé/…) illisible. Les groupes de
+    // changements séparés par un bout commun court (≤ 16 car.) sont fusionnés
+    // en UN bloc supprimé + UN bloc ajouté — le commun est absorbé des deux
+    // côtés, donc la concaténation des parts non-removed reste exactement le
+    // buffer (offsets sûrs).
+    if(parts.length){
+      const merged = [];
+      let i2 = 0;
+      while(i2 < parts.length){
+        const pt = parts[i2];
+        if(!pt.added && !pt.removed){ merged.push(pt); i2++; continue; }
+        let R = "", A = "", j2 = i2;
+        const segs = []; // vrais ajouts vs « ponts » absorbés (voir computeSrcMarks)
+        while(j2 < parts.length){
+          const q = parts[j2];
+          if(q.removed){ R += q.value; j2++; continue; }
+          if(q.added){ A += q.value; segs.push({value: q.value}); j2++; continue; }
+          const nx = parts[j2 + 1];
+          if(nx && (nx.added || nx.removed) && q.value.length <= 16){
+            R += q.value; A += q.value; segs.push({value: q.value, bridge: true}); j2++; continue;
+          }
+          break;
+        }
+        if(R) merged.push({removed: true, value: R});
+        if(A) merged.push({added: true, value: A, segs});
+        i2 = j2;
+      }
+      parts = merged;
+    }
+    // Bruit de rewrap : un mot déplacé de l'autre côté d'un retour à la ligne
+    // apparaît comme supprimé+ajouté (dans un ordre ou l'autre, parfois séparés
+    // par un blanc inchangé). Apparier ces paires pour ne rien marquer.
+    const noisePair = (i: number) => {
+      const pt = parts[i];
+      for(let j = i + 1; j <= i + 2 && j < parts.length; j++){
+        const cand = parts[j];
+        if(j === i + 1 && !cand.removed && !cand.added){
+          if(wsn(cand.value) !== "") return -1; // texte commun réel entre les deux : vraie modif
+          continue;
+        }
+        if(!!cand.removed === !pt.removed && !!cand.added === !pt.added
+           && wsn(cand.value) === wsn(pt.value)) return j;
+        return -1;
+      }
+      return -1;
+    };
+    const skip = new Set();
+    const srcMarks = []; // mêmes changements, en termes de SOURCE (vue Lecture)
+    const pts = []; // {pos, ch} de chaque changement, dans l'ordre du document
+    let at = 0;
+    for(let i = 0; i < parts.length; i++){
+      const pt = parts[i];
+      if(skip.has(i)){ if(!pt.removed) at += pt.value.length; continue; }
+      if(pt.removed){
+        // bruit de rewrap : même contenu, seuls les blancs/retours diffèrent
+        if(wsn(pt.value)){
+          const j = noisePair(i);
+          if(j >= 0){ skip.add(j); continue; }
+        }
+        if(!wsn(pt.value)) continue; // retour à la ligne déplacé : rien à montrer
+        const w = document.createElement("span");
+        w.className = "dDelW";
+        const disp = pt.value.replace(/\s+/g, " ").trim();
+        w.textContent = disp.length > 160 ? disp.slice(0, 157) + "⋯" : disp;
+        if(disp.length > 160) w.title = disp;
+        const pos = cm.posFromIndex(at);
+        marks.push(cm.setBookmark(pos, {widget: w}));
+        // même contrat que computeSrcMarks : `next` = texte suivant la coupe
+        let next = "";
+        for(let j2 = i + 1; j2 < parts.length; j2++){
+          if(parts[j2].removed) continue;
+          const w2 = wsn(parts[j2].value);
+          if(w2){ next = w2.slice(0, 80); break; }
+        }
+        srcMarks.push({kind: "del", line: pos.line, text: disp, next});
+        // un mot remplacé = suppression + ajout à la MÊME position : un seul stop
+        if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos, ch: at});
+        continue;
+      }
+      if(pt.added && wsn(pt.value)){
+        // sens inverse du bruit de rewrap : mot ajouté ici, retiré juste après
+        const j = noisePair(i);
+        if(j >= 0){ skip.add(j); at += pt.value.length; continue; }
+        const from = cm.posFromIndex(at), to = cm.posFromIndex(at + pt.value.length);
+        marks.push(cm.markText(from, to, {className: "dAddM"}));
+        if(pt.segs && pt.segs.some((sg) => sg.bridge)){
+          let o = 0;
+          for(const sg of pt.segs){
+            if(wsn(sg.value))
+              srcMarks.push({kind: sg.bridge ? "bridge" : "add", line: cm.posFromIndex(at + o).line, text: sg.value});
+            o += sg.value.length;
+          }
+        } else {
+          srcMarks.push({kind: "add", line: from.line, text: pt.value});
+        }
+        if(!pts.length || pts[pts.length - 1].ch !== at) pts.push({pos: from, ch: at});
+      }
+      at += pt.value.length;
+    }
+    changePts = pts;
+    publishMarks(srcMarks);
+    // initialiser sur le changement le plus proche du curseur (on ouvre souvent
+    // la comparaison en plein milieu du document — naviguer à partir d'où on est)
+    changeAt = 0;
+    if(pts.length){
+      const cur = cm.getCursor(), curCh = cm.indexFromPos(cur);
+      let best = Infinity;
+      // distance en lignes d'abord (on est « sur » une ligne), caractères en second
+      pts.forEach((p, k) => {
+        const d = Math.abs(p.pos.line - cur.line) * 100000 + Math.abs(p.ch - curCh);
+        if(d < best){ best = d; changeAt = k; }
+      });
+    }
+    const changes = pts.length;
+    const note = changes
+      ? changes + " modification" + (changes > 1 ? "s" : "")
+      : "aucun changement de texte" + (v.head ? "" : " (retours à la ligne seulement)");
+    if(coarse) notify("diff détaillé indisponible — affichage par lignes");
+    else if(warning) notify(warning);
+    else notify("comparaison " + (extCmp ? extCmp.label : labelOf(baseVersion)) + " · " + note + " · Échap pour fermer");
+    updateNav();
+    if(changes && navigate) gotoChange(changeAt, true);
+  }
+  // ---- navigateur d'INTERVENTIONS ‹ k/N › (accolé au ±, actif en comparaison).
+  // Une intervention = une écriture (sauvegarde utilisateur ou passage d'agent),
+  // même si elle touche vingt mots. Par défaut : « tout » (cumulatif vs base).
+  // ‹ remonte la timeline — l'éditeur affiche alors l'état APRÈS l'intervention
+  // k (lecture seule, buffer réel mis de côté et restauré à la sortie), diffé
+  // contre l'état d'avant. ⌥↓/⌥↑ naviguent entre les marques D'UNE vue. ----
+  let navPill: HTMLSpanElement = null, navPrev: HTMLButtonElement = null, navNext: HTMLButtonElement = null, navCount: HTMLSpanElement = null;
+  let reviewBusy = false;
+  const reviewKey = "texReviewV1:" + path;
+  let reviewState: Record<string, ReviewEntry> = {};
+  try{ const saved: Record<string, ReviewEntry> = JSON.parse(localStorage.getItem(reviewKey) || "{}"); if(saved && typeof saved === "object" && !Array.isArray(saved)) for(const [id,value] of Object.entries(saved)){if(value && typeof value.base === "string" && typeof value.text === "string") reviewState[id] = value;} }catch(e){}
+  let reviewUndo = null;
+  function saveReviewState(){try{localStorage.setItem(reviewKey, JSON.stringify(reviewState));}catch(e){notify("Décision conservée pour cette session seulement");}}
+  /** Reconstruit `reviewState` depuis des décisions matérialisées
+   * (`materializeServer(...).review`). `ack` : les marquer acquittées par le
+   * serveur ; `override` : le serveur fait foi sur un id déjà connu (chargement),
+   * sinon la décision locale non acquittée est conservée et repartira (409). */
+  function adoptReview(review: Record<string, ReviewEntry>, {ack = false, override = false} = {}){
+    if(!review || typeof review !== "object") return false;
+    let changed = false;
+    for(const [id, entry] of Object.entries(review)){
+      if(!id || !entry || typeof entry.base !== "string" || typeof entry.text !== "string") continue;
+      if(ack && typeof entry.baseHash === "string" && typeof entry.textHash === "string")
+        acknowledgedReview.set(id, reviewCanon(entry));
+      const local = reviewState[id];
+      if(local && !override) continue;
+      const next = {base: entry.base, text: entry.text, ...(entry.accepted === true ? {accepted: true} : {})};
+      if(local && local.base === next.base && local.text === next.text && (local.accepted === true) === (next.accepted === true)) continue;
+      reviewState[id] = next;
+      changed = true;
+    }
+    if(changed) saveReviewState();
+    return changed;
+  }
+  // ---- Annulation transitoire (toast dans le volet éditeur) ----
+  let undoHost: { appendChild: (arg0: HTMLButtonElement) => void; } = null;
+  function undoToastHost(){
+    const cm = getCm();
+    let wrap = null;
+    try{ wrap = typeof cm?.getWrapperElement === "function" ? cm.getWrapperElement() : null; }catch(e){ wrap = null; }
+    if(!wrap) return null;
+    return (typeof wrap.closest === "function" && wrap.closest("#left")) || wrap.parentElement || null;
+  }
+  /** Décide le bloc courant (celui de ‹ ⌥↑/⌥↓ ›) sans bouton dans le texte. */
+  function decideCurrent(kind: string){
+    const cm = getCm();
+    if(!cm || !shown || tt || reviewBusy || !changePts.length || typeof cm.decideMergeChunk !== "function") return;
+    // Le passage courant peut avoir été choisi au clic (revue ancrée) : l'hôte
+    // fait foi ; repli sur ‹ › si l'hôte ne sait pas.
+    const live = typeof cm.currentReviewOffset === "function" ? cm.currentReviewOffset() : null;
+    const target = changePts[Math.max(0, Math.min(changePts.length - 1, changeAt))];
+    const decision = cm.decideMergeChunk(kind, live != null ? live : (target ? target.ch : undefined));
+    if(decision) void decideReview(decision);
+  }
+  let undoTimer: string|number|NodeJS.Timeout = null;
+  const UNDO_GRACE_MS = 8000;
+  /** Annulation offerte brièvement après une décision, comme un toast : elle
+   * s'efface au bout de quelques secondes, à la navigation et à la fermeture. */
+  function showUndo(){
+    if(!undoButton) return;
+    if(!undoButton.parentElement || !undoHost){
+      undoHost = undoToastHost();
+      if(undoHost && typeof undoHost.appendChild === "function"){ undoButton.className = "dv-undo-toast"; undoHost.appendChild(undoButton); }
+    }
+    undoButton.hidden = false;
+    if(undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { undoTimer = null; if(undoButton) undoButton.hidden = true; }, UNDO_GRACE_MS);
+  }
+  function hideUndo(){
+    if(undoTimer){ clearTimeout(undoTimer); undoTimer = null; }
+    if(undoButton) undoButton.hidden = true;
+  }
+  async function decideReview(decision){
+    if(reviewBusy || tt || !shown) return;
+    const cm = getCm(), it = interList()[navMode];
+    if(!it || navMode !== interList().length - 1 || cm.getValue() !== decision.current) {notify("Ce passage a changé — afficher la dernière intervention");return;}
+    reviewBusy = true; cm.setOption("readOnly", true); updateNav();
+    const oldState = reviewState[it.id];
+    // Plus aucun bloc après cette décision : l'intervention est entièrement
+    // décidée et quitte l'historique (comme « Tout accepter »).
+    let completed = false;
+    try{
+      if(decision.kind === "reject" && (!restoreText || !await restoreText(decision.text))){notify("Refus non enregistré : le fichier a changé ou la sauvegarde a échoué");return;}
+      if(cm.getValue() !== decision.current && cm.getValue() !== decision.text){notify("Le document a changé pendant la décision");return;}
+      reviewUndo = {id: it.id, previous: oldState, text: decision.current, result: decision.text, kind: decision.kind};
+      if(cm.getValue() !== decision.text) cm.setValue(decision.text);
+      completed = equivalent(liveText(), decision.base);
+      reviewState[it.id] = {base: decision.base, text: decision.text, ...(completed ? {accepted: true} : {})};
+      extCmp = {...extCmp, before: decision.base};
+      saveReviewState();persist(decision.text);
+      if(!completed){
+        render();
+        notify(decision.kind === "accept" ? "Passage accepté" : "Passage refusé");
+        showUndo();
+      }
+    }catch(e){notify("Décision non enregistrée : sauvegarde indisponible");}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);updateNav();}
+    if(!completed) return;
+    // showStep/toggle refusent de tourner pendant reviewBusy : navigation après.
+    const remaining = interList();
+    if(remaining.length){
+      // La précédente devient la dernière et se comparera au texte vivant, qui
+      // contient déjà les changements que l'on vient d'accepter : les lui
+      // transplanter dans sa base, sinon ils réapparaissent comme blocs à décider.
+      const prev = remaining[remaining.length - 1];
+      const seeded = transplantAcceptedInto(prev, it);
+      if(seeded !== null){
+        reviewUndo.seeded = {id: prev.id, previous: reviewState[prev.id]};
+        reviewState[prev.id] = {base: seeded, text: liveText()};
+        saveReviewState(); persist();
+      }
+      showStep(remaining.length - 1);
+    } else {
+      toggle(false);
+      notify(decision.kind === "accept" ? "Toutes les modifications sont acceptées" : "Toutes les modifications sont décidées");
+    }
+    // La décision qui clôt l'intervention reste annulable 8 s (le toast survit
+    // à cette navigation automatique, pas à une navigation de l'utilisateur).
+    showUndo();
+  }
+  /** `done` vient d'être entièrement décidée ; `prev` devient la dernière.
+   * Applique le delta accepté (done.before → texte vivant) sur la base de
+   * `prev` — contexte d'une ligne, sans tolérance. Chevauchement ou échec :
+   * null, la base reste telle quelle (les blocs réapparaissent, rien n'est perdu). */
+  function transplantAcceptedInto(prev, done){
+    const live = liveText();
+    const target = reviewState[prev.id]?.base ?? prev.before;
+    if(typeof target !== "string" || typeof done.before !== "string" || typeof live !== "string") return null;
+    let patched: string | false = false;
+    try{
+      const patch = Diff.structuredPatch(path, path, done.before, live, undefined, undefined, {context: 1});
+      patched = Diff.applyPatch(target, patch, {fuzzFactor: 0});
+    }catch(e){ patched = false; }
+    if(typeof patched !== "string" || patched === target || equivalent(patched, live)) return null;
+    return patched;
+  }
+  const undoButton = individualReview && els.group ? document.createElement("button") : null;
+  if(undoButton){
+    undoButton.id = "diffUndo";undoButton.textContent = "Annuler";undoButton.hidden = true;
+    undoButton.onclick = async () => {
+      const undo = reviewUndo, cm = getCm();
+      if(!undo || reviewBusy || tt || cm.getValue() !== undo.result){notify("Annulation indisponible : le document a changé");return;}
+      reviewBusy = true; cm.setOption("readOnly", true);
+      try{
+        if(undo.kind === "reject" && !await restoreText(undo.text)){notify("Annulation non enregistrée : le fichier a changé");return;}
+        cm.setValue(undo.text);
+        if(undo.previous) reviewState[undo.id] = undo.previous;else delete reviewState[undo.id];
+        // Base transplantée dans l'intervention précédente à la clôture : rendue aussi.
+        if(undo.seeded){ if(undo.seeded.previous) reviewState[undo.seeded.id] = undo.seeded.previous; else delete reviewState[undo.seeded.id]; }
+        saveReviewState();persist(undo.text);reviewUndo = null;hideUndo();
+      }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
+      showStep(interList().findIndex(it=>it.id === undo.id));
+    };
+    // Pas d'ajout à la barre : monté comme toast dans le volet éditeur (showUndo).
+  }
+  const acceptAllButton = individualReview && els.group ? document.createElement("button") : null;
+  if(acceptAllButton){
+    acceptAllButton.id="diffAcceptAll";
+    acceptAllButton.title="Valider définitivement toutes les modifications appliquées";
+    acceptAllButton.setAttribute("aria-label","Tout accepter");
+    acceptAllButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3m14 0-7 7-3-3M2 12l5 5 3-3"/></svg><span>Tout accepter</span>';
+    acceptAllButton.onclick=()=>{
+      if(reviewBusy)return;
+      const list=interList().filter(it=>it.status!=="pending-conflict");
+      if(!list.length)return;
+      ttExit();
+      for(const it of list)reviewState[it.id]={base:it.to,text:it.to,accepted:true};
+      saveReviewState();persist();reviewUndo=null;
+      toggle(false);navMode=-1;extCmp=null;clearMarks();updateNav();
+      hideUndo();
+      notify(`${list.length} intervention${list.length>1?"s":""} acceptée${list.length>1?"s":""}`);
+    };
+    els.group.appendChild(acceptAllButton);
+  }
+  let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
+  let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
+  let flashLine = null, flashTimer: string|number|NodeJS.Timeout = null;
+  function liveText(){ return tt ? tt.realText : getCm().getValue(); }
+  // Le compteur vient uniquement du journal explicite. `before` et `after`
+  // appartiennent à la même entrée; le buffer vivant ne complète jamais une paire.
+  function interList(){
+    const cm = getCm();
+    if(!cm) return [];
+    const real = liveText();
+    return INTERVENTIONS
+      .filter(it => individualReview ? !reviewState[it.id]?.accepted : (!baseTs || it.ts == null || it.ts >= baseTs))
+      .map(it => ({...it, from: it.before, to: it.after, live: real === it.after}));
+  }
+  function interventionLabel(it: { status: string; source: string; }){
+    if(!it) return "";
+    const status = it.status === "pending-conflict"
+      ? "pending-conflict (non appliqué)"
+      : "applied (appliqué)";
+    return it.source + " · " + status;
+  }
+  // ---- ampleur d'une intervention (hauteur des traits du ruban) -----------
+  // PAS un `Diff.diffLines` : 137 interventions × un document entier coûtent
+  // des secondes au premier dessin. Rognage préfixe/suffixe sur les lignes —
+  // exact pour une édition contiguë (le cas courant), majorant sinon, et O(n).
+  // Mémoïsé par id : une intervention est immuable une fois journalisée.
+  const CHURN = new Map();
+  function churnOf(it){
+    if(!it || typeof it.before !== "string" || typeof it.after !== "string") return {added: 0, removed: 0};
+    const hit = CHURN.get(it.id);
+    if(hit) return hit;
+    const a = it.before.split("\n"), b = it.after.split("\n");
+    const max = Math.min(a.length, b.length);
+    let head = 0;
+    while(head < max && a[head] === b[head]) head++;
+    let tail = 0;
+    while(tail < max - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+    const out = {added: Math.max(0, b.length - head - tail), removed: Math.max(0, a.length - head - tail)};
+    // Retouche à l'intérieur d'une ligne : les deux comptes tombent à 0 alors
+    // que quelque chose a bien changé. Un trait minimal vaut mieux qu'un trou.
+    if(!out.added && !out.removed && it.before !== it.after) out.added = 1;
+    CHURN.set(it.id, out);
+    return out;
+  }
+  function ttExit(){
+    if(!tt) return;
+    const cm = getCm();
+    const real = tt.realText;
+    tt = null;
+    cm.setValue(real);
+  }
+  // Base du diff cumulatif (« tout ») : HEAD si disponible, sinon le `before`
+  // immuable de la première intervention du fichier non suivi.
+  function showAll(){
+    if(individualReview){ showStep(interList().length - 1); return; }
+    ttExit();
+    navMode = -1;
+    extCmp = null;
+    settleRebase();
+    updateTag();
+    render();
+  }
+  function showStep(j: number, {navigate = true} = {}){
+    if(reviewBusy) return;
+    hideUndo();
+    cancelGutter();
+    const list = interList();
+    if(!list.length) return;
+    j = Math.max(0, Math.min(list.length - 1, j));
+    let it = list[j];
+    // Dernière intervention : elle se compare TOUJOURS au texte vivant, jamais
+    // à un état historique — les retouches de l'auteur depuis le passage de
+    // l'agent font partie de ce qu'il veut voir, et rien n'est remplacé dans
+    // le buffer (`live`), donc aucun risque pour ses modifications non
+    // sauvegardées. Refuser d'ouvrir (« Sauvegarde tes retouches ») laissait
+    // la comparaison muette dès la première lettre tapée après l'intervention
+    // (Thierry 2026-09-10, methods_en.tex 29/29).
+    if(individualReview && j === list.length - 1){
+      const state = reviewState[it.id];
+      it = {...it, from: state ? state.base : it.before, to: liveText(), live: true};
+    }
+    navMode = j;
+    const cm = getCm();
+    if(it.live) ttExit();
+    else {
+      if(!tt) tt = {realText: cm.getValue()};
+      cm.setValue(it.to);   // état APRÈS l'intervention j (origin setValue : pas de dirty)
+    }
+    if(individualReview){ shown = true; els.tag.classList.add("on"); els.tag.setAttribute("aria-pressed", "true"); cm.setOption("readOnly", !!tt); }
+    extCmp = {before: it.from,
+      label: "intervention " + (j + 1) + "/" + list.length + " · " + interventionLabel(it)};
+    render({navigate});
+  }
+  function flashAt(pos){
+    const cm = getCm();
+    if(!cm || !pos) return;
+    if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} }
+    flashLine = pos.line;
+    cm.addLineClass(flashLine, "wrap", "dv-flash");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
+    }, 700);
+  }
+  function gotoChange(k: number, flash: boolean){
+    const cm = getCm();
+    if(!cm || !changePts.length) return;
+    changeAt = Math.max(0, Math.min(changePts.length - 1, k));
+    const target = changePts[changeAt];
+    // L'hôte peut router la navigation vers une autre vue (Lecture) : s'il
+    // prend le changement en charge (true), l'éditeur masqué ne défile pas.
+    if(typeof onNavigate === "function" && onNavigate(target.pos.line, changeAt, changePts.length)){
+      updateNav();
+      return;
+    }
+    if(typeof cm.setReviewFocus === "function") cm.setReviewFocus(target.ch);
+    cm.scrollIntoView(target.pos, 120);
+    if(flash) flashAt(target.pos);
+    updateNav();
+  }
+  function ensureNavUi(){
+    if(navPill || !els.group || !els.tag) return;
+    navPill = document.createElement("span");
+    navPill.id = "dvNav";
+    const chev = (d: number) => {
+      const button = document.createElement("button");
+      button.className = "dvNavA";
+      button.dataset.d = String(d);
+      button.tabIndex = 0;
+      button.setAttribute("aria-label", d < 0 ? "Intervention précédente" : "Intervention suivante");
+      button.title = d < 0 ? "Intervention précédente" : "Intervention suivante";
+      button.innerHTML = d < 0 ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"></path></svg>';
+      return button;
+    };
+    navPrev = chev(-1);
+    navNext = chev(1);
+    els.tag.classList.add("dvNavC");
+    navCount = els.tag.querySelector(".dv-count");
+    if(!navCount){
+      navCount = document.createElement("span");
+      navCount.className = "dv-count";
+      els.tag.appendChild(navCount);
+    }
+    if(individualReview){
+      // Keep the toggle separate from the intervention position and navigation.
+      navCount.setAttribute("aria-live", "polite");
+      navPill.appendChild(els.tag);
+      navPill.appendChild(navPrev);
+      navPill.appendChild(navCount);
+      navPill.appendChild(navNext);
+    } else {
+      navPill.appendChild(navPrev);
+      ensureRibbon();
+      if(navRibHost) navPill.appendChild(navRibHost);
+      navPill.appendChild(els.tag);
+      navPill.appendChild(navNext);
+    }
+    els.group.insertBefore(navPill, els.restore || null);
+    // ‹ › : timeline des interventions. Depuis « tout », ‹ entre sur la plus
+    // récente ; › depuis la plus récente revient à « tout ».
+    navPrev.onclick = () => { navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1); };
+    navNext.onclick = () => {
+      if(navMode < 0) return;
+      const last = interList().length - 1;
+      navMode >= last ? showAll() : showStep(navMode + 1);
+    };
+  }
+  // ---- ruban de révisions -------------------------------------------------
+  // Une intervention = une colonne. Au-dessus de la médiane ce qui entre, en
+  // dessous ce qui sort : le vocabulaire du diff, à l'échelle du pixel. Rendu
+  // au canvas et non en DOM — 137 nœuds dans une barre d'outils, non.
+  let navRibHost: HTMLSpanElement = null, navRib: HTMLCanvasElement = null, navPeek: HTMLSpanElement = null, ribHover = null;
+  const RIB_W = 132, RIB_H = 14, RIB_MIN = 3, RIB_MAX_COLS = 260;
+  function canvasOk(cv){ return cv && typeof cv.getContext === "function"; }
+  function ensureRibbon(){
+    if(navRibHost || !document.createElement) return;
+    navRibHost = document.createElement("span");
+    navRibHost.className = "dvRibHost";
+    navPeek = document.createElement("span");
+    navPeek.className = "dvPeek";
+    navRib = document.createElement("canvas");
+    navRib.className = "dvRib";
+    navRib.tabIndex = 0;
+    navRib.setAttribute("role", "slider");
+    navRib.setAttribute("aria-label", "Position dans les interventions");
+    navRib.setAttribute("aria-valuemin", "1");
+    navRibHost.appendChild(navPeek);
+    navRibHost.appendChild(navRib);
+    if(!navRib.addEventListener) return;      // harnais de test sans DOM réel
+    const hit = (event: PointerEvent) => {
+      const list = interList();
+      if(!list.length || !navRib.getBoundingClientRect) return -1;
+      const rect = navRib.getBoundingClientRect();
+      if(!rect.width) return -1;
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      return Math.min(list.length - 1, Math.floor(ratio * list.length));
+    };
+    const peek = (j: number) => {
+      const list = interList();
+      const it = list[j];
+      if(!it || !navPeek){ if(navPeek) navPeek.className = "dvPeek"; return; }
+      const {added, removed} = churnOf(it);
+      navPeek.innerHTML = '<span class="dvPeekTop">' + (j + 1) + " / " + list.length + "</span>"
+        + '<span class="dvPeekNum"><b class="a">+' + added + '</b><b class="r">−' + removed + "</b></span>"
+        + '<span class="dvPeekSrc">' + escapeHtml(interventionLabel(it)) + "</span>";
+      navPeek.className = "dvPeek on" + (it.status === "pending-conflict" ? " bad" : "");
+    };
+    navRib.addEventListener("pointermove", (event) => {
+      const j = hit(event);
+      if(j < 0) return;
+      ribHover = j;
+      peek(j);
+      if(navRib.hasPointerCapture && navRib.hasPointerCapture(event.pointerId)) showStep(j);
+    });
+    navRib.addEventListener("pointerleave", () => {
+      ribHover = null;
+      if(navPeek) navPeek.className = "dvPeek";
+      drawRibbon();
+    });
+    navRib.addEventListener("pointerdown", (event) => {
+      const j = hit(event);
+      if(j < 0) return;
+      // Positionner d'abord : la capture peut échouer et ne doit jamais avaler
+      // le clic.
+      showStep(j);
+      peek(j);
+      try { navRib.setPointerCapture(event.pointerId); } catch(e){ /* glissé non suivi */ }
+    });
+    navRib.addEventListener("pointerup", (event) => {
+      try { navRib.releasePointerCapture(event.pointerId); } catch(e){}
+    });
+    navRib.addEventListener("keydown", (event) => {
+      const list = interList();
+      if(!list.length) return;
+      if(event.key === "ArrowLeft"){ event.preventDefault(); navPrev.onclick(undefined); }
+      else if(event.key === "ArrowRight"){ event.preventDefault(); navNext.onclick(undefined); }
+      else if(event.key === "Home"){ event.preventDefault(); showStep(0); }
+      else if(event.key === "End"){ event.preventDefault(); showStep(list.length - 1); }
+    });
+    navRib.addEventListener("blur", () => {
+      if(navPeek) navPeek.className = "dvPeek";
+    });
+  }
+  function escapeHtml(s: string){
+    return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  }
+  function drawRibbon(){
+    if(!canvasOk(navRib)) return;
+    const list = interList();
+    const n = list.length;
+    const wide = n >= RIB_MIN;
+    // Sous trois interventions, le ruban ne dit rien qu'un compteur ne dise
+    // mieux : il s'efface au lieu d'afficher deux traits perdus.
+    navRibHost.style.display = wide ? "" : "none";
+    if(!wide) return;
+    // Largeur proportionnelle au nombre d'interventions : trois traits n'ont
+    // aucune raison d'occuper la place de cent trente-sept. Le ruban grandit
+    // avec l'historique et plafonne à RIB_W.
+    if((navRib as HTMLElement).style) (navRib as HTMLElement).style.width = Math.min(RIB_W, Math.max(28, Math.round(n * 2.2))) + "px";
+    const w = navRib.clientWidth || RIB_W, h = navRib.clientHeight || RIB_H;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if((navRib as HTMLCanvasElement).width !== Math.round(w * dpr)){
+      (navRib as HTMLCanvasElement).width = Math.round(w * dpr);
+      (navRib as HTMLCanvasElement).height = Math.round(h * dpr);
+    }
+    const g = (navRib as HTMLCanvasElement).getContext("2d");
+    if(!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const style = window.getComputedStyle ? window.getComputedStyle(navRib) : null;
+    const pick = (name: string, fallback: string) => {
+      const value = style && style.getPropertyValue ? style.getPropertyValue(name).trim() : "";
+      return value || fallback;
+    };
+    const cAdd = pick("--dv-add", "#34c98e"), cDel = pick("--dv-del", "#e06c75");
+    const cCur = pick("--accent", "#e8823a"), cLine = pick("--muted", "#8b93a1");
+    const active = shown && !!curVersion();
+
+    // Au-delà de RIB_MAX_COLS, un trait ferait moins d'un demi-pixel : on
+    // agrège par colonne et la hauteur devient le maximum du paquet — la
+    // silhouette reste vraie, la navigation fine passe par les chevrons.
+    const cols = Math.min(n, RIB_MAX_COLS);
+    const per = n / cols;
+    const buckets = [];
+    for(let c = 0; c < cols; c++){
+      const from = Math.floor(c * per), to = Math.max(from + 1, Math.floor((c + 1) * per));
+      let added = 0, removed = 0, bad = false, has = false;
+      for(let k = from; k < to && k < n; k++){
+        const churn = churnOf(list[k]);
+        added = Math.max(added, churn.added);
+        removed = Math.max(removed, churn.removed);
+        if(list[k].status === "pending-conflict") bad = true;
+        has = true;
+      }
+      if(has) buckets.push({c, added, removed, bad, from, to});
+    }
+    let peak = 1;
+    for(const b of buckets) peak = Math.max(peak, b.added, b.removed);
+
+    const mid = Math.round(h / 2) + .5;
+    const step = w / cols;
+    // Gouttière proportionnelle : à 1 px de large et 0 px d'écart, soixante
+    // colonnes se soudent en un bandeau plein et le ruban ne dit plus rien.
+    const gap = Math.min(1.2, Math.max(.4, step * .28));
+    const bw = Math.max(.7, Math.min(3, step - gap));
+    // Canal libre de part et d'autre de la médiane : sans lui, un ajout et un
+    // retrait d'une ligne se collent en un seul pâté et le bipolaire se perd.
+    const GUT = .75;
+    const half = h / 2 - 1.5 - GUT;
+    // Racine carrée : sans elle, une réécriture de 60 lignes écrase toutes les
+    // retouches d'une ligne à un trait invisible.
+    const scale = (v: number) => v > 0 ? Math.max(1, Math.sqrt(v / peak) * half) : 0;
+    for(const b of buckets){
+      const x = b.c * step;
+      const cur = navMode >= 0 && navMode >= b.from && navMode < b.to;
+      if(b.bad){
+        g.globalAlpha = active ? .95 : .5;
+        g.fillStyle = cDel;
+        g.fillRect(x, 1, bw, h - 2);          // conflit : pleine hauteur
+        continue;
+      }
+      g.globalAlpha = cur ? 1 : active ? .62 : .34;
+      g.fillStyle = cur ? cCur : cAdd;
+      const up = scale(b.added);
+      if(up) g.fillRect(x, mid - GUT - up, bw, up);
+      g.fillStyle = cur ? cCur : cDel;
+      const dn = scale(b.removed);
+      if(dn) g.fillRect(x, mid + GUT, bw, dn);
+    }
+    // Médiane par-dessus les barres : elle traverse le canal libre et donne au
+    // ruban sa ligne de flottaison, au lieu de disparaître sous les colonnes.
+    g.globalAlpha = active ? .34 : .22;
+    g.fillStyle = cLine;
+    g.fillRect(0, mid - .5, w, 1);
+    // Aiguille : seulement en parcours. Au repos, aucun faux « ici ».
+    if(navMode >= 0 && active){
+      const col = Math.min(cols - 1, Math.floor(navMode / per));
+      const x = Math.round(col * step) + .5;
+      g.globalAlpha = .22; g.fillStyle = cCur;
+      g.fillRect(x - 2.5, 0, 5, h);
+      g.globalAlpha = 1;
+      g.fillRect(x - .5, 0, Math.max(1.4, bw), h);
+    }
+    g.globalAlpha = 1;
+  }
+  function updateRibbon(list, active: boolean){
+    if(!navRib) return;
+    const n = list.length;
+    if(navRib.setAttribute){
+      navRib.setAttribute("aria-valuemax", String(Math.max(1, n)));
+      navRib.setAttribute("aria-valuenow", String(navMode < 0 ? n : navMode + 1));
+      navRib.setAttribute("aria-disabled", active ? "false" : "true");
+      const it = navMode >= 0 ? list[navMode] : null;
+      if(it){
+        const churn = churnOf(it);
+        navRib.setAttribute("aria-valuetext", "Intervention " + (navMode + 1) + " sur " + n
+          + ", " + interventionLabel(it) + ", +" + churn.added + " −" + churn.removed);
+      } else {
+        navRib.setAttribute("aria-valuetext", n + " intervention" + (n > 1 ? "s" : "") + " depuis la base");
+      }
+    }
+    if(navRib.classList) navRib.classList.toggle("off", !active);
+    drawRibbon();
+  }
+  function updateNav(){
+    ensureNavUi();
+    if(individualReview){
+      const n = interList().length;
+      if(acceptAllButton)acceptAllButton.disabled=reviewBusy || !interList().some(it=>it.status!=="pending-conflict");
+      if(navMode < 0 && n) navMode = n - 1;
+      if(navMode >= n) navMode = n - 1;
+      navCount.textContent = n ? (navMode + 1) + "/" + n : "0";
+      navCount.title = n ? "Intervention " + (navMode + 1) + " sur " + n : "Aucune intervention";
+      navPrev.disabled = !n || navMode <= 0 || reviewBusy;
+      navNext.disabled = !n || navMode >= n - 1 || reviewBusy;
+      els.tag.disabled = !n || reviewBusy;
+      els.tag.setAttribute("aria-pressed", String(shown));
+      if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
+      if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
+      return;
+    }
+    if(!navPill) return;
+    const list = interList();
+    const n = list.length;
+    const on = shown && !!curVersion();
+    navPill.style.display = "inline-flex";
+    navCount.dataset.compact = navMode < 0 ? String(n) : (navMode + 1) + "/" + n;
+    updateRibbon(list, on);
+    if(!on){
+      navCount.textContent = "tout · " + n;
+      navCount.title = n ? n + " intervention" + (n > 1 ? "s" : "") + " disponible" : "Aucune intervention";
+      navPrev.disabled = true;
+      navNext.disabled = true;
+      return;
+    }
+    if(navMode < 0){
+      navCount.textContent = "tout · " + n;
+      navCount.title = n + " intervention" + (n > 1 ? "s" : "") + " depuis la base — ‹ pour les revoir une à une · cliquer : recentrer";
+      navPrev.disabled = n === 0;
+      navNext.disabled = true;
+    } else {
+      navCount.textContent = (navMode + 1) + " / " + n;
+      navCount.title = "Intervention " + (navMode + 1) + " sur " + n + " · "
+        + interventionLabel(list[navMode]) + " — cliquer : revenir à « tout »";
+      navPrev.disabled = navMode <= 0;
+      navNext.disabled = false; // › depuis la dernière = retour à « tout »
+    }
+  }
+  function toggle(show?: boolean, scrollLine?){
+    if(reviewBusy) return;
+    const next = (show === undefined || show === null) ? !shown : show;
+    // aucune version : ne jamais verrouiller l'éditeur sans rien afficher
+    if(next && !curVersion()) return;
+    const cm = getCm();
+    if(!cm) return;
+    // En diff unifié, les grandes zones inchangées sont repliées. Un même
+    // scrollTop ne pointe donc plus vers la même ligne après leur dépliage.
+    // Capturer une ancre logique AVANT de retirer le diff (et avant ttExit,
+    // qui peut remplacer le buffer affiché), puis la recentrer après mesure.
+    const viewportAnchor = !next
+      ? (typeof cm.getViewportAnchor === "function" ? cm.getViewportAnchor() : cm.getCursor())
+      : null;
+    if(next && individualReview){
+      showStep(navMode < 0 ? interList().length - 1 : navMode);
+      return;
+    }
+    shown = next;
+    els.tag.classList.toggle("on", shown);
+    if(els.restore){ els.restore.style.display = shown ? "" : "none"; els.restore.disabled = !shown; }
+    if(shown){
+      navMode = -1;
+      render();
+      cm.setOption("readOnly", true);
+      if(scrollLine != null) cm.scrollIntoView({line: scrollLine, ch: 0}, 120);
+    }
+    else {
+      cancelRender();
+      hideUndo();
+      ttExit(); // vue historique : TOUJOURS restaurer le buffer réel en sortant
+      navMode = -1;
+      extCmp = null; clearMarks();
+      settleRebase();
+      if(typeof cm.hideMergeDiff === "function") cm.hideMergeDiff();
+      cm.setOption("readOnly", false); cm.refresh(); notify("");
+      changePts = [];
+      updateNav();
+      if(flashLine != null){ try{ cm.removeLineClass(flashLine, "wrap", "dv-flash"); }catch(e){} flashLine = null; }
+      const restoreViewport = () => {
+        if(shown || !viewportAnchor) return;
+        cm.scrollIntoView(viewportAnchor, 120);
+      };
+      // CM6 recalcule la géométrie du document après la reconfiguration de
+      // unifiedMergeView. Deux frames évitent de recentrer sur l'ancien layout.
+      if(typeof requestAnimationFrame === "function")
+        requestAnimationFrame(() => requestAnimationFrame(restoreViewport));
+      else setTimeout(restoreViewport, 0);
+    }
+  }
+  /** Pose le jalon comme base d'affichage : cumul, ruban et compteur repartent
+   * de là. `journalBase` (ancre persistée) n'est PAS touchée. */
+  function applyMilestone(stone){
+    baseVersion = {before: stone.before, ts: stone.ts, head: false, sha: "", stone: true};
+    baseTs = Number(stone.ts) || 0;
+    baseGitLocked = false;
+  }
+  /** « Repartir d'ici » : l'état courant devient la base de comparaison. */
+  async function setMilestone(){
+    const text = liveText();
+    if(typeof text !== "string") return false;
+    const stone = {before: text, ts: Date.now()};
+    const hash = hashText(text);
+    try{
+      const response = await fetch("/versions", {method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path, expectedRevision: serverRevision, ops: [{
+          type: "milestone",
+          milestone: {hash, ts: stone.ts},
+          current: {hash, ts: stone.ts},
+          texts: {[hash]: text},
+        }]})});
+      const body = await response.json();
+      if(!body?.ok || !Number.isInteger(body.revision)) throw new Error(body?.error || "refus du serveur");
+      serverRevision = body.revision;
+    }catch(e){
+      notify("jalon non enregistré — réessaie");
+      return false;
+    }
+    milestone = stone;
+    applyMilestone(stone);
+    updateNav();
+    if(shown) render();
+    return true;
+  }
+
+  function normalizeMeta(meta: { source: string; status: string; }){
+    const source = meta && SOURCES.has(meta.source) ? meta.source : "user-save";
+    const status = meta && STATUSES.has(meta.status) ? meta.status : "applied";
+    return {source, status};
+  }
+  function record(before: string, after: string, meta, ts?, id?: undefined){
+    if(typeof before !== "string" || typeof after !== "string" || before === after || equivalent(before, after)) return null;
+    const parsedTs = Number(ts);
+    const storedTs = ts === null ? null
+      : Number.isFinite(parsedTs) ? parsedTs
+      : ts === undefined ? Date.now() : null;
+    const idTime = storedTs === null ? Date.now() : storedTs;
+    const normalized = normalizeMeta(meta);
+    const intervention = {id: typeof id === "string" && id ? id : newId(idTime), before, after, ts: storedTs,
+      source: normalized.source, status: normalized.status};
+    INTERVENTIONS.push(intervention);
+    if(!baseVersion) baseVersion = {before, ts: storedTs, head: false, sha: ""};
+    if(!journalBase) journalBase = {before, ts: storedTs, head: false, sha: ""};
+    return intervention;
+  }
+  function push(before, after, meta: { source: string; }){
+    // une écriture arrive pendant une vue historique : revenir au présent
+    // d'abord (le buffer réel vient d'être remplacé par l'hôte)
+    if(tt){ tt = null; navMode = -1; extCmp = null; }
+    // La valeur par défaut maintient les anciens appelants pendant la transition;
+    // Task 3 rendra chaque source externe explicite dans les deux éditeurs.
+    if(!record(before, after, meta)) return;
+    runtimePushes++;
+    // Cible par défaut du ± : la BASE (HEAD ou 1ʳᵉ snapshot de session) — un
+    // diff CUMULATIF, comme la gouttière. Sauter sur la version fraîchement
+    // créée (« depuis la dernière sauvegarde ») donnait un diff minuscule ou
+    // vide à chaque ⌘S. Si la comparaison est OUVERTE, ne jamais déplacer la
+    // sélection sous les yeux de l'utilisateur (mais render() rafraîchit les
+    // marques contre le buffer courant → le cumul grossit quand même).
+    arm();
+    persist(liveText());
+    // Les sauvegardes utilisateur arment Diff sans l'ouvrir : l'activer à
+    // chaque sauvegarde bloquerait la frappe en silence. Une écriture externe
+    // (passage d'agent) ouvre la revue, mais SANS navigation : le rechargement
+    // peut tomber pendant une sélection ou un glisser, et le premier bloc ne
+    // doit ni recentrer la fenêtre ni déplacer la sélection sous les yeux de
+    // l'utilisateur.
+    if(individualReview){
+      navMode = interList().length - 1;
+      const openReview = () => {
+        if(shown || meta?.source === "external-reload" || meta?.source === "external-merge")
+          showStep(navMode, {navigate: false});
+      };
+      // Pendant un glisser, reconstruire la vue Diff casse l'ancre native du
+      // geste (la sélection part alors vers une extrémité du document) : la
+      // revue s'ouvre au relâchement, comme le buffer fusionné.
+      const cm = getCm();
+      if(cm && typeof cm.deferWhileSelecting === "function") cm.deferWhileSelecting(openReview);
+      else openReview();
+      updateNav();
+    } else if(shown) render();
+    // l'agent a pu committer entre-temps : HEAD et la gouttière se rafraîchissent
+    fetchHead().then(refreshGutter);
+  }
+
+  // ---- fanion « Repartir d'ici » + pastille « suivre dans git » -------------
+  // Deux icônes, aucun texte dans la barre (comme le reste de l'instrument) :
+  // l'infobulle porte le sens. Le fanion existe TOUJOURS ; la pastille git
+  // n'apparaît que pour un fichier non suivi d'un dépôt existant.
+  let gitRepo = false, gitTracked = false;
+  let stoneBtn: HTMLButtonElement = null, trackBtn: HTMLButtonElement = null;
+  function ensureStoneUi(){
+    if(stoneBtn || !els.group) return;
+    stoneBtn = document.createElement("button");
+    stoneBtn.id = "dvStone";
+    stoneBtn.className = "dvNavA";
+    stoneBtn.type = "button";
+    stoneBtn.title = "Repartir d'ici — poser une nouvelle base de comparaison";
+    stoneBtn.setAttribute("aria-label", "Repartir d'ici");
+    stoneBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.4 2.2v11.6"/><path d="M3.4 3.2h8.2l-1.8 2.4 1.8 2.4H3.4"/></svg>';
+    stoneBtn.onclick = async () => {
+      stoneBtn.disabled = true;
+      const ok = await setMilestone();
+      stoneBtn.disabled = false;
+      if(ok){
+        stoneBtn.classList.add("on");
+        setTimeout(() => stoneBtn && stoneBtn.classList.remove("on"), 1600);
+        notify("base posée — l'historique reste accessible");
+      }
+    };
+    els.group.appendChild(stoneBtn);
+
+    trackBtn = document.createElement("button");
+    trackBtn.id = "dvTrack";
+    trackBtn.className = "dvNavA";
+    trackBtn.type = "button";
+    trackBtn.style.display = "none";
+    trackBtn.title = "Hors dépôt — cliquer pour suivre dans git";
+    trackBtn.setAttribute("aria-label", "Suivre ce fichier dans git");
+    trackBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.4" cy="4" r="1.8"/><circle cx="4.4" cy="12" r="1.8"/><circle cx="11.6" cy="8" r="1.8"/><path d="M4.4 5.8v4.4M6.1 4.6h2.2A1.6 1.6 0 0 1 9.9 6.2v.2"/></svg>';
+    trackBtn.onclick = async () => {
+      trackBtn.disabled = true;
+      try{
+        const r = await fetch("/gittrack", {method: "POST",
+          headers: {"Content-Type": "application/json"}, body: JSON.stringify({path})});
+        const j = await r.json();
+        if(j && j.ok){
+          gitTracked = true;
+          updateTrackUi();
+          notify("fichier suivi — la base peut maintenant avancer");
+          fetchHead().then(refreshGutter);
+        } else notify(j?.error || "git add a échoué");
+      }catch(e){ notify("serveur galerie injoignable"); }
+      trackBtn.disabled = false;
+    };
+    els.group.appendChild(trackBtn);
+  }
+  function updateTrackUi(){
+    if(!trackBtn) return;
+    const show = gitRepo && !gitTracked;
+    trackBtn.style.display = show ? "" : "none";
+    trackBtn.classList.toggle("dot", show);
+  }
+
+  // ---- commit rapide du fichier courant : empreinte permanente, état désactivé
+  // sans diff, point bleu-gris lorsque le fichier diffère de HEAD. ----
+  let commitBtn: HTMLButtonElement = null, commitPop: HTMLDivElement = null;
+  function ensureCommitUi(){
+    if(commitBtn || !els.group) return;
+    commitBtn = document.createElement("button");
+    commitBtn.id = "dvCommit";
+    commitBtn.disabled = true;
+    commitBtn.setAttribute("aria-label", "Committer le fichier courant");
+    commitBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" aria-hidden="true"><path d="M1.5 8h4M10.5 8h4"/><circle cx="8" cy="8" r="2.7"/><circle cx="8" cy="8" r=".75" fill="currentColor" stroke="none"/></svg>';
+    // L'ordre visuel est fixé par CSS : commit | navigation | restore | historique.
+    els.group.insertBefore(commitBtn, navPill || els.restore || histBtn || null);
+    commitPop = document.createElement("div");
+    commitPop.id = "dvCommitPop";
+    commitPop.style.display = "none";
+    commitPop.setAttribute("role", "dialog");
+    commitPop.setAttribute("aria-label", "Committer le fichier courant");
+    const name = path.split("/").pop();
+    commitPop.innerHTML =
+      '<div class="dvCommitHead"><div class="dvCommitTitle"><span>Commit</span><strong>' + name + '</strong></div>'
+      + '<button type="button" class="dvCommitClose" data-act="close" aria-label="Fermer" title="Fermer">'
+      + '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button></div>'
+      + '<textarea id="dvCommitText" rows="3" aria-label="Message de commit" placeholder="Décris le changement ou génère un message avec l’IA"></textarea>'
+      + '<div class="dvCommitFoot"><span class="dvCommitHint">Ce fichier seulement · ↵ valider · esc fermer</span>'
+      + '<div class="dvCommitActions"><button type="button" class="dvCommitBtn dvCommitAi" data-act="ai" title="Générer depuis le diff du fichier">'
+      + '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l.8 2.7L11.5 5l-2.7.8L8 8.5l-.8-2.7L4.5 5l2.7-.8L8 1.5zM12.5 9l.55 1.45 1.45.55-1.45.55L12.5 13l-.55-1.45L10.5 11l1.45-.55L12.5 9z"/></svg><span>Générer</span></button>'
+      + '<button type="button" class="dvCommitBtn dvCommitDo" data-act="do" disabled>Commit</button></div></div>';
+    document.body.appendChild(commitPop);
+    const ta = commitPop.querySelector<HTMLTextAreaElement>("textarea");
+    const closePop = () => { commitPop.style.display = "none"; };
+    const doBtn = commitPop.querySelector<HTMLElement>('[data-act="do"]');
+    const syncCommitState = () => { (doBtn as HTMLInputElement).disabled = !ta.value.trim(); };
+    async function doCommit(){
+      const message = ta.value.trim();
+      if(!message){ ta.focus(); return; }
+      closePop();
+      notify("commit en cours…");
+      try{
+        const r = await fetch("/gitcommit", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path, message})});
+        const j = await r.json();
+        if(j && j.ok){
+          notify("commit " + (j.sha || "") + " ✓");
+          fetchHead().then(refreshGutter);
+        } else notify("commit refusé : " + ((j && j.error) || "erreur"));
+      }catch(e){ notify("commit impossible : " + e.message); }
+    }
+    let aiSeq = 0;
+    commitBtn.onclick = () => {
+      if(commitPop.style.display !== "none"){ closePop(); return; }
+      const rc = commitBtn.getBoundingClientRect();
+      commitPop.style.display = "flex";
+      commitPop.style.top = (rc.bottom + 8) + "px";
+      commitPop.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - Math.min(398, window.innerWidth - 8))) + "px";
+      ta.value = "";
+      syncCommitState();
+      ta.focus();
+    };
+    doBtn.onclick = doCommit;
+    commitPop.querySelector<HTMLElement>('[data-act="close"]').onclick = closePop;
+    const aiBtn = commitPop.querySelector<HTMLElement>('[data-act="ai"]');
+    const aiLabel = aiBtn.querySelector<HTMLSpanElement>("span");
+    aiBtn.onclick = async () => {
+      const seq = ++aiSeq;
+      (aiBtn as HTMLInputElement).disabled = true; aiLabel.textContent = "Génération…";
+      try{
+        const r = await fetch("/commitmsg?path=" + encodeURIComponent(path));
+        const j = await r.json();
+        if(seq !== aiSeq || commitPop.style.display === "none") return;
+        if(j && j.ok && (j.title || j.msg)){
+          ta.value = [j.title || j.msg, j.description || ""].filter(Boolean).join("\n\n");
+          syncCommitState(); ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0;
+        } else notify("proposition impossible : " + ((j && j.error) || "aucun diff à résumer"));
+      }catch(e){ notify("proposition impossible : " + e.message); }
+      finally { (aiBtn as HTMLInputElement).disabled = false; aiLabel.textContent = "Générer"; }
+    };
+    ta.addEventListener("input", syncCommitState);
+    ta.addEventListener("keydown", (e) => {
+      if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doCommit(); }
+      if(e.key === "Escape"){ e.stopPropagation(); closePop(); }
+    });
+    document.addEventListener("mousedown", (e) => {
+      if(commitPop.style.display !== "none" && !commitPop.contains(e.target as Node) && e.target !== commitBtn) closePop();
+    });
+  }
+  function updateCommitBtn(blocks: number){
+    ensureCommitUi();
+    ensureStoneUi();
+    if(!commitBtn) return;
+    (commitBtn as HTMLElement).style.display = "";
+    commitBtn.disabled = blocks <= 0;
+    (commitBtn as Element).classList.toggle("has-changes", blocks > 0);
+    (commitBtn as HTMLElement).title = blocks > 0
+      ? "Committer " + path.split("/").pop() + " — " + blocks + " bloc" + (blocks > 1 ? "s" : "") + " modifié" + (blocks > 1 ? "s" : "") + " depuis HEAD" + (headSha ? " (" + headSha + ")" : "")
+      : "Aucune modification Git à committer pour ce fichier";
+  }
+
+  // ---- historique : commits du fichier + sauvegardes de session, avec
+  // Comparer (diff in-editor) et Rétablir (réécrit le fichier, dépôt intact) ----
+  let histBtn: HTMLButtonElement = null, histPop: HTMLDivElement = null;
+  function fmtAge(ts: number){
+    if(!ts) return "";
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    if(s < 3600) return "il y a " + Math.max(1, Math.round(s / 60)) + " min";
+    if(s < 86400) return "il y a " + Math.round(s / 3600) + " h";
+    if(s < 7 * 86400) return "il y a " + Math.round(s / 86400) + " j";
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+  function compareExternal(before, label){
+    extCmp = {before, label};
+    shown = false; // forcer le re-render même si déjà en comparaison
+    toggle(true);
+  }
+  function displayedText(){
+    if(navMode >= 0){
+      const item = interList()[navMode];
+      return item ? item.to : null;
+    }
+    if(extCmp && typeof extCmp.before === "string") return extCmp.before;
+    return liveText(); // vue « tout » : le buffer courant est la cible
+  }
+  async function restoreTarget(target, label: string){
+    if(typeof target !== "string") return false;
+    const cm = getCm();
+    const before = liveText();
+    // Sortir du voyage temporel AVANT le writer. `tt.realText` ne doit jamais
+    // pouvoir être réinjecté au-dessus d'une restauration réussie.
+    tt = null; navMode = -1; extCmp = null;
+    let succeeded = false;
+    try{ succeeded = (await restoreText(target)) !== false; }catch(e){ succeeded = false; }
+    if(!succeeded){
+      cm.setValue(before);
+      toggle(false);
+      notify("restauration refusée — le fichier et l'historique sont inchangés");
+      return false;
+    }
+    const intervention = record(before, target, {source: "restore", status: "applied"});
+    if(intervention){ runtimePushes++; pendingById.set(intervention.id, intervention); }
+    lastKnown = target;
+    persist(target);
+    toggle(false);
+    notify("fichier rétabli" + (label ? " à " + label : "") + " — le dépôt n'est pas touché");
+    fetchHead().then(refreshGutter);
+    return true;
+  }
+  function ensureHistUi(){
+    if(histBtn || !els.group) return;
+    histBtn = document.createElement("button");
+    histBtn.id = "dvHist";
+    histBtn.title = "Historique du fichier — commits et sauvegardes de session";
+    histBtn.setAttribute("aria-label", "Historique du fichier");
+    histBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.4V8l2.5 1.7"/></svg>';
+    els.group.appendChild(histBtn);
+    histPop = document.createElement("div");
+    histPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;width:400px;max-height:60vh;"
+      + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;"
+      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:var(--fs-body, 13px)";
+    document.body.appendChild(histPop);
+    if(!document.getElementById("dvHistStyles")){
+      const st = document.createElement("style");
+      st.id = "dvHistStyles";
+      st.textContent =
+        "#dvHistList{overflow-y:auto}"
+        + ".dv-hrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}"
+        + ".dv-hrow:hover{background:rgba(255,255,255,.05)}"
+        + ".dv-hrow .sha{font:var(--fs-caption, 10px) ui-monospace,Menlo,monospace;opacity:.5;flex:none;width:54px}"
+        + ".dv-hrow .msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-body-s, 12px)}"
+        + ".dv-hrow .when{font-size:var(--fs-caption, 10px);opacity:.45;flex:none;font-variant-numeric:tabular-nums}"
+        + ".dv-hrow .act{display:none;gap:4px;flex:none}"
+        + ".dv-hrow:hover .act{display:inline-flex}"
+        + ".dv-hrow:hover .when{display:none}"
+        + ".dv-hrow .act button{font-size:var(--fs-caption, 10px);border:1px solid #3a4150;background:transparent;color:inherit;"
+        + "border-radius:5px;padding:2px 7px;cursor:pointer;opacity:.75}"
+        + ".dv-hrow .act button:hover{opacity:1}";
+      document.head.appendChild(st);
+    }
+    histBtn.onclick = async () => {
+      if(histPop.style.display !== "none"){ histPop.style.display = "none"; return; }
+      const name = path.split("/").pop();
+      histPop.innerHTML =
+        '<div style="font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;opacity:.55;padding:6px 10px 4px">Historique — ' + name + '</div>'
+        + '<div id="dvHistList"><div style="padding:7px 10px;font-size:var(--fs-label, 11px);opacity:.5">chargement…</div></div>';
+      const rc = histBtn.getBoundingClientRect();
+      histPop.style.display = "flex";
+      histPop.style.top = (rc.bottom + 8) + "px";
+      histPop.style.left = Math.max(8, Math.min(rc.right - 400, window.innerWidth - 416)) + "px";
+      const list = histPop.querySelector<HTMLElement>("#dvHistList");
+      const rows = [];
+      // Interventions de session et snapshots v1 orphelins, plus récents d'abord.
+      for(let i = INTERVENTIONS.length - 1; i >= 0; i--){
+        const it = INTERVENTIONS[i];
+        rows.push({label: "intervention " + (i + 1),
+          msg: interventionLabel(it), sha: "—", ts: it.ts ? it.ts / 1000 : 0, text: () => it.before});
+      }
+      for(let i = LEGACY_SNAPSHOTS.length - 1; i >= 0; i--){
+        const snap = LEGACY_SNAPSHOTS[i];
+        rows.push({label: snap.label, msg: snap.label, sha: "—",
+          ts: snap.ts ? snap.ts / 1000 : 0, text: () => snap.text});
+      }
+      let items = [];
+      try{
+        const r = await fetch("/gitlog?path=" + encodeURIComponent(path));
+        const j = await r.json();
+        if(j && j.ok) items = j.items || [];
+      }catch(e){}
+      for(const it of items){
+        rows.push({label: it.sha, msg: it.msg, sha: it.sha, ts: it.ts, text: async () => {
+          const r = await fetch("/gitshow?path=" + encodeURIComponent(path) + "&sha=" + it.sha);
+          const j = await r.json();
+          return (j && j.ok) ? j.text : null;
+        }});
+      }
+      if(!rows.length){
+        list.innerHTML = '<div style="padding:7px 10px;font-size:var(--fs-label, 11px);opacity:.5">aucun commit ni sauvegarde pour ce fichier</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for(const row of rows){
+        const el = document.createElement("div");
+        el.className = "dv-hrow";
+        el.innerHTML = '<span class="sha">' + row.sha + '</span><span class="msg"></span>'
+          + '<span class="when">' + fmtAge(row.ts) + '</span>'
+          + '<span class="act"><button data-a="cmp">Comparer</button><button data-a="rst">Rétablir</button></span>';
+        el.querySelector<HTMLElement>(".msg").textContent = row.msg;
+        el.querySelector<HTMLElement>('[data-a="cmp"]').onclick = async () => {
+          const t = await row.text();
+          if(t == null){ notify("version introuvable"); return; }
+          histPop.style.display = "none";
+          compareExternal(t, row.label);
+        };
+        el.querySelector<HTMLElement>('[data-a="rst"]').onclick = async () => {
+          const t = await row.text();
+          if(t == null){ notify("version introuvable"); return; }
+          histPop.style.display = "none";
+          await restoreTarget(t, row.label);
+        };
+        list.appendChild(el);
+      }
+    };
+    document.addEventListener("mousedown", (e) => {
+      if(histPop.style.display !== "none" && !histPop.contains(e.target as Node) && !histBtn.contains(e.target as Node))
+        histPop.style.display = "none";
+    });
+    document.addEventListener("keydown", (e) => {
+      if(e.key === "Escape" && histPop.style.display !== "none"){ e.stopPropagation(); histPop.style.display = "none"; }
+    }, true);
+  }
+
+  // ---- gouttière git (barres ajouté/modifié, triangle supprimé, vs HEAD) ----
+  let gutterReady = false, gutterTimer: string|number|NodeJS.Timeout = null;
+  function openHeadAt(line){
+    if(headText === null) return;
+    extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
+    updateTag();
+    if(shown) render(); else toggle(true, line);
+    const target = {line, ch: 0};
+    getCm().scrollIntoView(target, 120);
+    flashAt(target);
+  }
+  function markerCell(cls: string, line){
+    const cell = document.createElement("div");
+    cell.className = "dv-cell";
+    cell.dataset.openLine = String(line);
+    cell.innerHTML = cls;
+    cell.title = "Modifié depuis HEAD" + (headSha ? " (" + headSha + ")" : "") + " — cliquer : comparer";
+    cell.onclick = (event) => {
+      // The marker carries the semantic target line. Do not also let the
+      // editor gutter callback reopen the diff with the visual marker row.
+      event.stopPropagation();
+      openHeadAt(line);
+    };
+    return cell;
+  }
+  let gutterWorker: Worker = null, gutterRequestId = 0;
+  function cancelGutter(){
+    gutterRequestId++;
+    if(gutterWorker){ try{ gutterWorker.terminate(); }catch(e){} gutterWorker = null; }
+  }
+  function coarseGutter(parts, lastLine: number){
+    const markers = []; let line = 0, blocks = 0;
+    const count = (value) => { const matches = value.match(/\n/g); return (matches ? matches.length : 0) + (value && !value.endsWith("\n") ? 1 : 0); };
+    for(let i=0;i<parts.length;i++){
+      const part=parts[i], n=count(part.value);
+      if(part.removed){
+        const next=parts[i+1]; blocks++;
+        if(next?.added){
+          const nn=count(next.value);
+          for(let k=0;k<nn;k++) markers.push({line:Math.min(line+k,lastLine),openLine:line+k,
+            kind:"modified",deleted:k===nn-1&&n>nn});
+          line+=nn; i++;
+        }else markers.push({line:Math.min(line,lastLine),openLine:Math.min(line,lastLine),kind:"deleted",eof:line>lastLine});
+      }else{
+        if(part.added){ blocks++; for(let k=0;k<n;k++) markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"added"}); }
+        line+=n;
+      }
+    }
+    return {markers,blocks};
+  }
+  function detailedGutter(before,after,lastLine: number){
+    const wsn=(value)=>value.replace(/\s+/g," ").trim(), parts=Diff.diffLines(before,after), markers=[];
+    let line=0,blocks=0;
+    for(let i=0;i<parts.length;i++){
+      const pt=parts[i],n=pt.count||0;
+      if(pt.removed){
+        const nx=parts[i+1];
+        if(nx&&nx.added&&wsn(nx.value)===wsn(pt.value)){line+=nx.count||0;i++;continue;}
+        if(!wsn(pt.value))continue;
+        blocks++;
+        if(nx&&nx.added){
+          const nn=nx.count||0,changed=new Set<number>(),wparts=Diff.diffWordsWithSpace(pt.value,nx.value),skip=new Set();
+          for(let w=0;w<wparts.length;w++){
+            const wp=wparts[w]; if(!(wp.added||wp.removed)||skip.has(w)||!wsn(wp.value))continue;
+            for(let x=w+1;x<=w+2&&x<wparts.length;x++){
+              const cand=wparts[x];
+              if(x===w+1&&!cand.removed&&!cand.added){if(wsn(cand.value)!=="")break;continue;}
+              if(!skip.has(x)&&!!cand.removed===!wp.removed&&!!cand.added===!wp.added&&wsn(cand.value)===wsn(wp.value)){skip.add(w);skip.add(x);} break;
+            }
+          }
+          const lineOf=(off)=>{let count=0,pos=-1;for(;;){const next=nx.value.indexOf("\n",pos+1);if(next<0||next>=off)return count;count++;pos=next;}};
+          let off=0;
+          for(let w=0;w<wparts.length;w++){
+            const wp=wparts[w];
+            if(wp.removed){if(!skip.has(w)&&wsn(wp.value))changed.add(lineOf(off));continue;}
+            if(wp.added&&!skip.has(w)&&wsn(wp.value)){const a=lineOf(off),b=lineOf(off+wp.value.length);for(let target=a;target<=b;target++)changed.add(target);}
+            off+=wp.value.length;
+          }
+          if(!changed.size){blocks--;line+=nn;i++;continue;}
+          const lastChanged=Math.max(...changed);
+          for(let k=0;k<nn;k++)if(changed.has(k))markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"modified",deleted:k===lastChanged&&n>nn});
+          line+=nn;i++;
+        }else markers.push({line:Math.min(line,lastLine),openLine:Math.min(line,lastLine),kind:"deleted",eof:line>lastLine});
+      }else{
+        if(pt.added&&wsn(pt.value)){blocks++;for(let k=0;k<n;k++)markers.push({line:Math.min(line+k,lastLine),openLine:line+k,kind:"added"});}
+        line+=n;
+      }
+    }
+    return {markers,blocks};
+  }
+  function applyGutter(result, requestId: number, cm){
+    let at=0;
+    const batch=()=>{
+      if(requestId!==gutterRequestId || tt) return;
+      cm.operation(()=>{
+        const stop=Math.min(at+100,result.markers.length);
+        for(;at<stop;at++){
+          const marker=result.markers[at];
+          let html=marker.kind==="added"?'<div class="dv-bar a"></div>'
+            :marker.kind==="modified"?'<div class="dv-bar m"></div>'
+            :'<div class="dv-del'+(marker.eof?' eof':'')+'"></div>';
+          if(marker.deleted) html+='<div class="dv-del eof"></div>';
+          cm.setGutterMarker(marker.line,GUTTER,markerCell(html,marker.openLine));
+        }
+      });
+      if(at<result.markers.length) setTimeout(batch,0);
+      else updateCommitBtn(result.blocks);
+    };
+    setTimeout(batch,0);
+  }
+  function refreshGutter(){
+    if(individualReview) return; // Only the selected intervention supplies marks.
+    const cm = getCm();
+    if(!cm || headText === null || tt) return;
+    if(!gutterReady){
+      cm.setOption("gutters", ["CodeMirror-linenumbers", GUTTER]);
+      cm.on("gutterClick", (c, line, g: string) => { if(g === GUTTER) openHeadAt(line); });
+      cm.on("change", () => {
+        if(tt) return; // vue historique : le buffer affiché n'est pas le vrai
+        clearTimeout(gutterTimer); gutterTimer = setTimeout(refreshGutter, 400);
+      });
+      gutterReady = true;
+    }
+    cancelGutter();
+    const requestId=++gutterRequestId, before=headText, after=cm.getValue(), lastLine=cm.lineCount()-1;
+    cm.operation(()=>cm.clearGutter(GUTTER));
+    const fallback=()=>{
+      if(before.length+after.length<=LOCAL_WORD_LIMIT)return setTimeout(()=>{
+        if(requestId===gutterRequestId)applyGutter(detailedGutter(before,after,lastLine),requestId,cm);
+      },0);
+      lineFallback(before,after,()=>requestId===gutterRequestId,(parts)=>{
+        if(requestId!==gutterRequestId)return;
+        notify("calcul de gouttière indisponible — affichage simplifié");
+        applyGutter(coarseGutter(parts,lastLine),requestId,cm);
+      });
+    };
+    if(typeof Worker==="undefined") return fallback();
+    try{
+      gutterWorker=new Worker(workerUrl());
+      gutterWorker.onmessage=({data})=>{
+        if(data?.requestId!==requestId||requestId!==gutterRequestId)return;
+        if(data.error)return fallback();
+        applyGutter(data.gutter||{markers:[],blocks:0},requestId,cm);
+      };
+      gutterWorker.onerror=()=>{ if(requestId===gutterRequestId)fallback(); };
+      gutterWorker.postMessage({kind:"gutter",requestId,before,after});
+    }catch(e){ fallback(); }
+  }
+  // Avancer la base du ± et du ruban sur un nouveau commit significatif.
+  // L'ancre du journal persisté (`journalBase`) ne bouge PAS : les
+  // interventions restent dans l'historique, elles sortent seulement du cumul
+  // « tout » (filtre `baseTs` de interList).
+  function applyGitBase(next){
+    const wasCount = interList().length;
+    baseVersion = {before: next.text, ts: null, head: true, sha: next.sha};
+    baseTs = next.ts;
+    if(extCmp && extCmp.head)
+      extCmp = {before: next.text, label: "HEAD" + (next.sha ? " (" + next.sha + ")" : ""), head: true};
+    updateTag();
+    updateNav();
+    if(shown) render();
+    const dropped = wasCount - interList().length;
+    if(dropped > 0)
+      notify("base git avancée" + (next.sha ? " (" + next.sha + ")" : "") + " — " + dropped
+        + " intervention" + (dropped > 1 ? "s" : "") + " désormais dans l'historique du dépôt");
+  }
+  // Une avancée arrivée pendant un voyage dans le temps est retenue : renuméroter
+  // les interventions sous les yeux de l'utilisateur déplacerait la vue affichée.
+  function settleRebase(){
+    if(!pendingRebase || tt || navMode >= 0) return;
+    const next = pendingRebase;
+    pendingRebase = null;
+    applyGitBase(next);
+  }
+  async function fetchHead(){
+    try{
+      const requested = requestedBase ? "&base=" + encodeURIComponent(requestedBase) : "";
+      const r = await fetch("/githead?path=" + encodeURIComponent(path) + requested);
+      const j = await r.json();
+      // Un fichier NON SUIVI répond ok:false : le serveur dit maintenant s'il
+      // y a un dépôt, ce qui décide de la pastille « suivre dans git ».
+      if(j && j.ok === false){
+        gitRepo = j.repo === true;
+        gitTracked = j.tracked === true;
+        updateTrackUi();
+      }
+      if(!j || !j.ok || typeof j.text !== "string"){ return false; }
+      gitRepo = true; gitTracked = true; updateTrackUi();
+      const changed = headText !== j.text;
+      const prevSha = baseVersion && baseVersion.head ? (baseVersion.sha || "") : "";
+      headSha = j.sha || "";
+      headText = j.text;
+      if(!baseGitLocked){
+        baseTs = (Number(j.ts) || 0) * 1000; // première base Git de la session
+        baseVersion = {before: j.text, ts: null, head: true, sha: headSha};
+        if(!journalBase) journalBase = {...baseVersion};
+        baseGitLocked = true;
+        arm();
+        if(shown) render();
+      } else if(!requestedBase && headSha && headSha !== prevSha){
+        // Un commit SIGNIFICATIF est arrivé — `gitBase` saute les « auto: », le
+        // sha ne bouge donc pas à chaque tour d'agent. La base suit le dépôt :
+        // ce qui vient d'être committé quitte le cumul et le ruban.
+        // Base explicite (?base=…, visionneuse de diff) : jamais rebasée.
+        const next = {text: j.text, sha: headSha, ts: (Number(j.ts) || 0) * 1000};
+        if(tt || navMode >= 0) pendingRebase = next;
+        else applyGitBase(next);
+      } else if(changed && extCmp && extCmp.head){
+        extCmp = {before: headText, label: "HEAD" + (headSha ? " (" + headSha + ")" : ""), head: true};
+        if(shown) render();
+      }
+      // Hors comparaison, la cible reste la base cumulative quel que soit
+      // l'ordre d'arrivée entre fetchHead et les premiers push.
+      updateTag();
+      return true;
+    }catch(e){ return false; /* serveur sans /githead ou hors dépôt */ }
+  }
+
+  // Construire immédiatement le chrome stable, même avant le chargement de HEAD.
+  // Les états natifs disabled indiquent ce qui est disponible sans déplacer rien.
+  ensureNavUi();
+  if(!individualReview){ ensureCommitUi(); ensureStoneUi(); ensureHistUi(); }
+  if(els.restore){
+    // Fermé au départ : « rétablir » n'apparaît qu'avec la comparaison.
+    els.restore.style.display = "none";
+    els.restore.disabled = true;
+    els.restore.setAttribute("aria-label", "Rétablir la version affichée");
+    if(!els.restore.querySelector("svg"))
+      els.restore.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.2 4H2V.8"/><path d="M2.2 4A6.1 6.1 0 1 1 2.6 11"/></svg>';
+  }
+  updateNav();
+
+  els.tag.onclick = () => toggle();
+  if(els.prev) els.prev.onclick = () => gotoChange(changeAt - 1, true);
+  if(els.next) els.next.onclick = () => gotoChange(changeAt + 1, true);
+  if(els.restore) els.restore.onclick = async () => {
+    const target = displayedText();
+    if(target === null) return;
+    await restoreTarget(target, navMode >= 0 ? "l'intervention affichée" : extCmp?.label || "la vue affichée");
+  };
+  // Échap ferme la comparaison (capture : avant les keymaps CodeMirror et les
+  // handlers Échap de l'hôte — seulement quand le mode est actif). ⌥↓/⌥↑ =
+  // changement suivant/précédent (via e.code : indépendant de la disposition).
+  document.addEventListener("keydown", (e) => {
+    if(!shown) return;
+    // vue historique : le buffer affiché n'est PAS le vrai — bloquer ⌘S
+    if(tt && (e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")){
+      e.preventDefault(); e.stopPropagation();
+      notify("vue historique — Échap ou › pour revenir au présent avant de sauvegarder");
+      return;
+    }
+    if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); toggle(false); return; }
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowDown" || e.code === "ArrowUp") && changePts.length){
+      e.preventDefault(); e.stopPropagation();
+      gotoChange(changeAt + (e.code === "ArrowDown" ? 1 : -1), true);
+    }
+    // ⌥↩ / ⌥⌫ : garder / ignorer le bloc courant (carte de revue, variante E)
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "Enter" || e.code === "Backspace") && individualReview && changePts.length){
+      e.preventDefault(); e.stopPropagation();
+      decideCurrent(e.code === "Enter" ? "accept" : "reject");
+      return;
+    }
+    // ⌥←/⌥→ : intervention précédente / suivante (timeline)
+    if(e.altKey && !e.metaKey && !e.ctrlKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")){
+      e.preventDefault(); e.stopPropagation();
+      if(e.code === "ArrowLeft") navMode < 0 ? showStep(interList().length - 1) : showStep(navMode - 1);
+      else if(navMode >= 0){ const last = interList().length - 1; navMode >= last ? showAll() : showStep(navMode + 1); }
+    }
+  }, true);
+
+  // Relecture v2 déterministe, avec migration des snapshots v1 encore présents
+  // dans localStorage ou renvoyés par une ancienne galerie.
+  function addV2(data){
+    const durable = materializeServer(data);
+    if(durable){
+      data = durable;
+      serverRevision = durable.revision;
+      serverBaseHash = durable.baseHash;
+      if(typeof durable.baseText === "string"){
+        journalBase = {before: durable.baseText, ts: durable.baseMeta?.ts ?? null,
+          head: durable.baseMeta?.kind === "git", sha: durable.baseMeta?.sha || ""};
+        if(!baseGitLocked) baseVersion = {...journalBase};
+      }
+      for(const it of durable.interventions) acknowledgedIds.add(it.id);
+      // Décisions de revue journalisées : reconstruites ici (repli local ou
+      // serveur) ; restoreVersions fait ensuite gagner le serveur et l'acquitte.
+      adoptReview(durable.review, {ack: false, override: false});
+    }
+    let added = 0;
+    for(const it of (Array.isArray(data.interventions) ? data.interventions : [])){
+      if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
+      if(typeof it.id === "string" && INTERVENTIONS.some(existing => existing.id === it.id)) continue;
+      if(record(it.before, it.after, {source: it.source, status: it.status}, it.ts, it.id)) added++;
+    }
+    let legacyAdded = 0;
+    for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+      if(!snap || typeof snap.text !== "string") continue;
+      const parsedTs = Number(snap.ts);
+      const normalized = {text: snap.text,
+        ts: snap.ts === null || !Number.isFinite(parsedTs) ? null : parsedTs,
+        label: typeof snap.label === "string" ? snap.label : "snapshot legacy"};
+      if(LEGACY_SNAPSHOTS.some(existing => existing.text === normalized.text
+          && existing.ts === normalized.ts && existing.label === normalized.label)) continue;
+      LEGACY_SNAPSHOTS.push(normalized);
+      legacyAdded++;
+    }
+    if(typeof data.last === "string") lastKnown = data.last;
+    else if(typeof data.lastKnown === "string") lastKnown = data.lastKnown;
+    if(added || legacyAdded) arm();
+    return added + legacyAdded;
+  }
+  function timelineStamp(data){
+    const items = Array.isArray(data && data.interventions) ? data.interventions : [];
+    if(!items.length) return {kind: "empty", value: -Infinity};
+    const values = [];
+    for(const it of items){
+      if(!it || it.ts === null || !Number.isFinite(Number(it.ts))) return {kind: "unknown", value: null};
+      values.push(Number(it.ts));
+    }
+    return {kind: "known", value: Math.max(...values)};
+  }
+  function localOwnsLast(localData, serverData){
+    const localStamp = timelineStamp(localData), serverStamp = timelineStamp(serverData);
+    if(localStamp.kind === "empty" && serverStamp.kind !== "empty") return false;
+    if(serverStamp.kind === "empty" && localStamp.kind !== "empty") return true;
+    // Une date absente ne permet pas de prouver que le serveur est plus récent :
+    // conserver le buffer local évite tout recul silencieux de `lastKnown`.
+    if(localStamp.kind !== "known" || serverStamp.kind !== "known") return true;
+    return localStamp.value >= serverStamp.value; // égalité : local gagne
+  }
+  function reconcileV2(localData, serverData){
+    const candidates = [];
+    const addCandidates = (data, origin: string) => {
+      for(const [order, it] of (Array.isArray(data.interventions) ? data.interventions : []).entries()){
+        if(!it || typeof it.before !== "string" || typeof it.after !== "string") continue;
+        candidates.push({it: {...it}, origin, order});
+      }
+    };
+    addCandidates(serverData, "server");
+    addCandidates(localData, "local");
+    const byKey = new Map();
+    for(const candidate of candidates){
+      const it = candidate.it;
+      const key = typeof it.id === "string" && it.id
+        ? "id:" + it.id
+        : "pair:" + JSON.stringify([it.before, it.after, it.source, it.status, it.ts]);
+      const previous = byKey.get(key);
+      if(!previous){ byKey.set(key, candidate); continue; }
+      if(key.startsWith("id:") && (previous.it.before !== it.before || previous.it.after !== it.after
+          || previous.it.source !== it.source || previous.it.status !== it.status)){
+        stopPersistence("identifiant d'intervention divergent");
+        return null;
+      }
+      const a = previous.it.ts === null ? null : Number(previous.it.ts);
+      const b = it.ts === null ? null : Number(it.ts);
+      const aKnown = Number.isFinite(a), bKnown = Number.isFinite(b);
+      if(aKnown && bKnown && a !== b){
+        if(b > a) byKey.set(key, candidate);
+      } else if(candidate.origin === "local") byKey.set(key, candidate);
+    }
+    const merged = [...byKey.values()];
+    merged.sort((a, b) => {
+      const at = a.it.ts === null || !Number.isFinite(Number(a.it.ts)) ? -Infinity : Number(a.it.ts);
+      const bt = b.it.ts === null || !Number.isFinite(Number(b.it.ts)) ? -Infinity : Number(b.it.ts);
+      if(at !== bt) return at - bt;
+      if(a.origin !== b.origin) return a.origin === "local" ? -1 : 1;
+      return a.order - b.order;
+    });
+    const legacySnapshots = [];
+    const legacyKeys = new Set();
+    for(const data of [localData, serverData]){
+      for(const snap of (Array.isArray(data.legacySnapshots) ? data.legacySnapshots : [])){
+        if(!snap || typeof snap.text !== "string") continue;
+        const key = JSON.stringify([snap.text, snap.ts, snap.label]);
+        if(legacyKeys.has(key)) continue;
+        legacyKeys.add(key); legacySnapshots.push({...snap});
+      }
+    }
+    const localWins = localOwnsLast(localData, serverData);
+    const primary = localWins ? localData : serverData;
+    const secondary = localWins ? serverData : localData;
+    const last = typeof primary.last === "string" ? primary.last
+      : typeof secondary.last === "string" ? secondary.last : null;
+    return {v: 2, interventions: merged.map(candidate => candidate.it), legacySnapshots, last};
+  }
+  function replaceWithV2(data){
+    INTERVENTIONS.splice(0, INTERVENTIONS.length);
+    LEGACY_SNAPSHOTS.splice(0, LEGACY_SNAPSHOTS.length);
+    if(!baseGitLocked) baseVersion = null;
+    journalBase = null;
+    lastKnown = null;
+    addV2(data);
+  }
+  function addV1(data){
+    const snapshots = (Array.isArray(data.items) ? data.items : [])
+      .filter((it) => it && typeof it.b === "string")
+      .map((it, i) => {
+        const parsedTs = Number(it.t);
+        return {text: it.b,
+          ts: Object.prototype.hasOwnProperty.call(it, "t") && Number.isFinite(parsedTs) ? parsedTs : null,
+          index: i};
+      });
+    const usedAsBefore = new Set();
+    for(let i = 0; i + 1 < snapshots.length; i++){
+      const before = snapshots[i], after = snapshots[i + 1];
+      if(record(before.text, after.text, {source: "legacy", status: "applied"}, after.ts))
+        usedAsBefore.add(i);
+    }
+    const finalSnapshot = snapshots[snapshots.length - 1];
+    if(finalSnapshot && typeof data.last === "string"
+        && record(finalSnapshot.text, data.last, {source: "legacy", status: "applied"}, null))
+      usedAsBefore.add(snapshots.length - 1);
+    for(let i = 0; i < snapshots.length; i++){
+      if(usedAsBefore.has(i)) continue;
+      const snap = snapshots[i];
+      LEGACY_SNAPSHOTS.push({text: snap.text, ts: snap.ts, label: "snapshot v1 " + (snap.index + 1)});
+    }
+    if(typeof data.last === "string") lastKnown = data.last;
+    if(INTERVENTIONS.length || LEGACY_SNAPSHOTS.length) arm();
+    return INTERVENTIONS.length + LEGACY_SNAPSHOTS.length;
+  }
+  function loadData(data: { v: number; }){
+    if(!data || typeof data !== "object") return 0;
+    return data.v === 2 ? addV2(data) : addV1(data);
+  }
+  async function restoreVersions(){
+    const generation = runtimePushes;
+    let localData = null;
+    try{ localData = JSON.parse(localStorage.getItem(KEY) || "null"); }catch(e){}
+    const hasLocalV2 = !!(localData && localData.v === 2);
+    // Charger le journal local avant le premier await garantit que tout push
+    // concurrent sera ajouté après lui, jamais avant une histoire restaurée.
+    if(hasLocalV2){ loadData(localData); acknowledgedIds.clear(); }
+    let serverData = null;
+    try{
+      const r = await fetch("/versions?path=" + encodeURIComponent(path));
+      const j = await r.json();
+      if(j && j.ok) serverData = j;
+    }catch(e){}
+    // Le GET a démarré avant une action runtime : sa réponse est stale et
+    // ne peut plus muter ni réordonner le journal courant.
+    if(runtimePushes !== generation) return;
+    if(serverData && serverData.v === 2){
+      const decodedServer = materializeServer(serverData);
+      if(decodedServer){
+        serverRevision = decodedServer.revision;
+        serverBaseHash = decodedServer.baseHash;
+        acknowledgedIds.clear();
+        for(const it of decodedServer.interventions) acknowledgedIds.add(it.id);
+      }
+      if(hasLocalV2){
+        const decodedLocal = materializeServer(localData);
+        if(decodedLocal?.baseHash && decodedServer?.baseHash && decodedLocal.baseHash !== decodedServer.baseHash){
+          stopPersistence("conflit de base");
+          return;
+        }
+        const reconciled = reconcileV2(decodedLocal || localData, decodedServer || serverData);
+        if(!reconciled) return;
+        replaceWithV2(reconciled);
+        const baseOwner = decodedServer || decodedLocal;
+        if(baseOwner && typeof baseOwner.baseText === "string"){
+          journalBase = {before: baseOwner.baseText, ts: baseOwner.baseMeta?.ts ?? null,
+            head: baseOwner.baseMeta?.kind === "git", sha: baseOwner.baseMeta?.sha || ""};
+          if(!baseGitLocked) baseVersion = {...journalBase};
+        }
+      } else loadData(serverData);
+    }
+    else if(serverData && !hasLocalV2){
+      loadData(serverData);
+      if(!INTERVENTIONS.length && !LEGACY_SNAPSHOTS.length && lastKnown === null) loadData(localData);
+    }
+    else if(!serverData && !hasLocalV2) loadData(localData);
+    const serverDecoded: Partial<NonNullable<ReturnType<typeof materializeServer>>> = materializeServer(serverData) || {};
+    // Décisions de revue : le serveur fait foi (le localStorage du WebView ne
+    // survit pas au redémarrage, PIEGES_CONNUS §1) ; une décision locale
+    // absente du serveur est conservée et repart avec le prochain flush.
+    if(adoptReview(serverDecoded.review, {ack: true, override: true})) updateNav();
+    // Jalon posé par l'utilisateur : il devient la base d'AFFICHAGE, y compris
+    // sur l'ancre du journal. Il ne gagne pas sur un HEAD git plus récent —
+    // dans ce cas le dépôt a déjà fait avancer la base.
+    const stone = serverDecoded.milestone;
+    if(stone && typeof stone.before === "string"){
+      milestone = stone;
+      if(!baseGitLocked || !baseTs || stone.ts > baseTs){
+        applyMilestone(stone);
+        // La barre a déjà été peinte plus haut dans le chargement : sans ce
+        // rafraîchissement, le compteur gardait le total d'avant le jalon.
+        updateNav();
+        if(shown) render();
+      }
+    }
+    const unacknowledged = INTERVENTIONS.filter(it => !acknowledgedIds.has(it.id));
+    for(const it of unacknowledged) pendingById.set(it.id, it);
+    const reviewPending = INTERVENTIONS.some(it => reviewState[it.id] && !acknowledgedReview.has(it.id));
+    if(unacknowledged.length || reviewPending) persist(lastKnown === null ? liveText() : lastKnown);
+  }
+
+  // HEAD + gouttière + restore : dès que l'éditeur existe (créé après le fetch
+  // du fichier). Rattrapage : si le fichier a changé pendant que l'app était
+  // fermée (agent, autre outil), une version « avant » est créée — les modifs
+  // externes redeviennent visibles dans ± même après un redémarrage.
+  const waitCm = setInterval(() => {
+    if(!getCm()) return;
+    clearInterval(waitCm);
+    restoreVersions().then(() => {
+      const cm = getCm();
+      const now = cm ? cm.getValue() : null;
+      let persistBaseline = false;
+      // Le GET /versions peut finir après les premiers ⌘S et rapporter un
+      // `last` plus ancien. Ces push couvrent déjà le buffer courant : ne pas
+      // ajouter une intervention composite de rattrapage en doublon.
+      if(now !== null && runtimePushes > 0){
+        lastKnown = now;
+      } else if(now !== null && typeof lastKnown === "string" && !equivalent(lastKnown, now)){
+        record(lastKnown, now, {source: "external-reload", status: "applied"});
+        arm();
+        persist(now);
+        notify("modifié pendant que l'app était fermée — ± pour comparer");
+      } else if(now !== null && lastKnown === null){
+        lastKnown = now;
+        persistBaseline = true; // attendre la base Git avant le premier init v2
+      }
+      fetchHead().then((headLoaded) => {
+        if(persistBaseline && runtimePushes === 0) persist(now);
+        refreshGutter();
+        if(autoOpenDiff){
+          if(headLoaded) toggle(true);
+          else notify("Diff avant/après indisponible — fichier ouvert normalement");
+        }
+        // sélection par défaut du ± : la base (diff cumulatif, comme la gouttière)
+        if(!shown) updateTag();
+      });
+    });
+  }, 300);
+
+  // isBusy : vue historique active (buffer temporairement remplacé) — les hôtes
+  // doivent suspendre leur rechargement-disque automatique pendant ce temps
+  return { push, compareExternal, isEquivalent: equivalent, isShown: () => shown, isBusy: () => !!tt || reviewBusy };
+};
+window.DiffVersions = createDiffVersions;
+export type DiffVersionsApi = typeof createDiffVersions;

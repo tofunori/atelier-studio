@@ -82,7 +82,8 @@
   #ctxbar .ptog[data-prop="font-weight"]{font-weight:600}
   #err{color:#ff6b6b;padding:40px;text-align:center}
 </style>
-<script>(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();</script>
+<script data-atelier-source="gallery/src/browser/pages/svg_viewer_1.ts">(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
+</script>
 <link rel="stylesheet" href="annotation_ui.css"><script src="annotation_ui.bundle.js"></script>
 <script src="annot_kit.js"></script>
 </head>
@@ -131,22 +132,22 @@
   <div id="plot">Loading…</div>
   <div id="ov"></div>
 </div></div>
-<script>
+<script data-atelier-source="gallery/src/browser/pages/svg_viewer_2.ts">
 const file = new URLSearchParams(location.search).get("file") || "";
 document.getElementById("fname").textContent = file.split("/").pop();
 document.title = file.split("/").pop() || "SVG";
-const stage = document.getElementById("stage"), ov = document.getElementById("ov"), plot = document.getElementById("plot");
-const stagewrap = document.getElementById("stagewrap");
-const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const stage = (document.getElementById("stage")                  ), ov = (document.getElementById("ov")                  ), plot = (document.getElementById("plot")                  );
+const stagewrap = (document.getElementById("stagewrap")                  );
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let svg = null, hbox = null;
+let svg                = null, hbox                 = null;
 const CONTAINER = /^(figure|axes|matplotlib\.axis|xtick|ytick)_/;   // frames you grab INTO, not themselves
 function meaningful(el){
   let g = el && el.closest ? el.closest("[id]") : null;
   while(g && CONTAINER.test(g.id)) g = g.parentElement ? g.parentElement.closest("[id]") : null;
   return g;
 }
-function rectIn(el){                                      // bbox relative to #stage (so #ov children line up)
+function rectIn(el         ){                                      // bbox relative to #stage (so #ov children line up)
   const r = el.getBoundingClientRect(), s = stage.getBoundingClientRect();
   return { x: r.left - s.left, y: r.top - s.top, w: r.width, h: r.height };
 }
@@ -161,19 +162,19 @@ function showHover(el){                                   // a silent highlight 
 let drag = null, dirty = false, lassoMode = false;
 let zoom = 1, spaceDown = false, panning = null;         // zoom factor (0.25–8) + space-drag pan state
 let addMode = false, editing = false, addCounter = 0;
-const lassoBtn = document.getElementById("lassotoggle");
-function setLasso(on){
+const lassoBtn = (document.getElementById("lassotoggle")                     );
+function setLasso(on         ){
   lassoMode = on;
   lassoBtn.classList.toggle("on", on);
   document.body.classList.toggle("lasso", on);
   showHover(null); hiliteMoveSet();
-  const n = document.getElementById("msinfo");
+  const n = (document.getElementById("msinfo")                   );
   if(n && on) n.textContent = "clique des sommets · double-clic / Entrée = fermer";
 }
 lassoBtn.onclick = () => setLasso(!lassoMode);
-function setAdd(on){
+function setAdd(on         ){
   addMode = on;
-  const b = document.getElementById("addtext");
+  const b = (document.getElementById("addtext")                     );
   if(b) b.classList.toggle("on", on);
   document.body.classList.toggle("addmode", on);
   if(on){ if(lassoMode) setLasso(false); clearMoveSet(); }
@@ -194,31 +195,31 @@ function grabTarget(target, whole){
   return meaningful(target);
 }
 let figArea = 0;
-function draggable(g){
+function draggable(g                    ){
   if(!(g && g.id)) return false;
   // reject the figure background / big outer frame so it can't be grabbed instead of the real elements
   try{ const b = g.getBBox(); if(figArea && b.width * b.height > 0.85 * figArea) return false; }catch(e){}
   return true;
 }
-let moveSet = [];
-let selBoxEl = null, selHandleEls = [];
-let lasso = null, lassoEl = null;
-function stagePt(e){ const s = stage.getBoundingClientRect(); return { x: e.clientX - s.left, y: e.clientY - s.top }; }
+let moveSet                       = [];
+let selBoxEl                 = null, selHandleEls = [];
+let lasso = null, lassoEl                = null;
+function stagePt(e                                       ){ const s = stage.getBoundingClientRect(); return { x: e.clientX - s.left, y: e.clientY - s.top }; }
 function hiliteMoveSet(){
-  ov.querySelectorAll(".movehi").forEach(b => b.remove());
+  ov.querySelectorAll             (".movehi").forEach(b => b.remove());
   for(const el of moveSet){
     let b; try{ b = rectIn(el); }catch(err){ continue; }
     const d = document.createElement("div"); d.className = "movehi";
     d.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`;
     ov.appendChild(d);
   }
-  const n = document.getElementById("msinfo");
+  const n = (document.getElementById("msinfo")                   );
   if(n) n.textContent = moveSet.length ? (moveSet.length + " sélectionnés") : "";
-  const cs = document.getElementById("clearsel");
+  const cs = (document.getElementById("clearsel")                     );
   if(cs) cs.style.display = moveSet.length ? "inline-flex" : "none";
-  const ds = document.getElementById("delsel");
+  const ds = (document.getElementById("delsel")                     );
   if(ds) ds.style.display = moveSet.length ? "inline-flex" : "none";
-  const ss = document.getElementById("sep-sel");
+  const ss = (document.getElementById("sep-sel")                   );
   if(ss) ss.style.display = moveSet.length ? "" : "none";
   if(moveSet.length && !lassoMode && !addMode){ if(!selBoxEl) buildHandles(); positionHandles(); }
   else clearHandles();
@@ -228,17 +229,17 @@ function clearMoveSet(){ moveSet = []; hiliteMoveSet(); }
 // ==== contextual edit bar: fill / stroke / stroke-width / opacity / font family+size+style ====
 const SHAPE_SEL = "path,rect,circle,ellipse,line,polyline,polygon,text,tspan";
 const styledProps = new Map();                              // el -> { prop: value } posed during this session (feeds the v2 sidecar)
-const propsPanel = document.getElementById("ctxbar");
-const propFill = document.getElementById("p-fill"), propStroke = document.getElementById("p-stroke");
-const propStrokeW = document.getElementById("p-strokew"), propOpacity = document.getElementById("p-opacity");
-const propFontSize = document.getElementById("p-fontsize");
-const propFontFam = document.getElementById("p-fontfam");
-const ctxText = document.getElementById("ctx-text"), ctxStroke = document.getElementById("ctx-stroke"), lblFill = document.getElementById("lbl-fill");
-const propBold = propsPanel.querySelector('[data-prop="font-weight"]'), propItal = propsPanel.querySelector('[data-prop="font-style"]');
+const propsPanel = (document.getElementById("ctxbar")                  );
+const propFill = (document.getElementById("p-fill")                    ), propStroke = (document.getElementById("p-stroke")                    );
+const propStrokeW = (document.getElementById("p-strokew")                    ), propOpacity = (document.getElementById("p-opacity")                    );
+const propFontSize = (document.getElementById("p-fontsize")                    );
+const propFontFam = (document.getElementById("p-fontfam")                     );
+const ctxText = (document.getElementById("ctx-text")                   ), ctxStroke = (document.getElementById("ctx-stroke")                   ), lblFill = (document.getElementById("lbl-fill")                   );
+const propBold = propsPanel.querySelector             ('[data-prop="font-weight"]'), propItal = propsPanel.querySelector             ('[data-prop="font-style"]');
 function styleTargets(el){                                  // the shapes/texts a style applies to: the element itself if it's one, else its descendants
   return (el.matches && el.matches(SHAPE_SEL)) ? [el] : Array.from(el.querySelectorAll(SHAPE_SEL));
 }
-function collectStyleEls(prop){                             // union of targets across the whole selection (font-size → text/tspan only)
+function collectStyleEls(prop                 ){                             // union of targets across the whole selection (font-size → text/tspan only)
   const out = [];
   for(const el of moveSet){
     for(const t of styleTargets(el)){
@@ -250,14 +251,14 @@ function collectStyleEls(prop){                             // union of targets 
 }
 function selHasText(){ return moveSet.some(el => (el.matches && el.matches("text,tspan")) || (el.querySelector && el.querySelector("text,tspan"))); }
 function selHasShape(){ return moveSet.some(el => styleTargets(el).some(t => !(t.matches && t.matches("text,tspan")))); }
-function styleSnap(els){ return els.map(el => ({ el, style: el.getAttribute("style") })); }   // full inline-style attribute, restored verbatim
+function styleSnap(els){ return els.map((el) => ({ el, style: el.getAttribute("style") })); }   // full inline-style attribute, restored verbatim
 function styleRestore(it){ if(it.style === null) it.el.removeAttribute("style"); else it.el.setAttribute("style", it.style); }
-function markStyled(el, prop, val){
+function markStyled(el, prop               , val){
   el.style.setProperty(prop, val);                         // inline priority wins over matplotlib's own style attribute
   el.setAttribute("data-styled", "1");
   let m = styledProps.get(el); if(!m){ m = {}; styledProps.set(el, m); } m[prop] = val;
 }
-function commitStyle(prop, val){                            // one gesture = one history entry (color / number / × buttons)
+function commitStyle(prop        , val        ){                            // one gesture = one history entry (color / number / × buttons)
   const els = collectStyleEls(prop);
   if(!els.length) return;
   const before = styleSnap(els);
@@ -270,25 +271,25 @@ function commitStyle(prop, val){                            // one gesture = one
   }
 }
 let rangeGesture = null;                                    // coalesce a slider drag into a single 'style' entry (input = live preview, change = commit)
-function rangeLive(prop, val){
+function rangeLive(prop        , val){
   if(!rangeGesture){ const els = collectStyleEls(prop); if(!els.length) return; rangeGesture = { prop, els, before: styleSnap(els) }; }
   for(const el of rangeGesture.els) markStyled(el, prop, val);
   setDirty(true);
 }
 function rangeCommit(){ if(!rangeGesture) return; pushUndo({ type: "style", items: rangeGesture.before, after: styleSnap(rangeGesture.els) }); rangeGesture = null; }
-function rgbToHex(c){                                       // getComputedStyle gives rgb()/rgba() → the #rrggbb a color input needs
+function rgbToHex(c        ){                                       // getComputedStyle gives rgb()/rgba() → the #rrggbb a color input needs
   if(!c) return "#000000";
   if(c[0] === "#") return c.length === 7 ? c : "#000000";
   const m = c.match(/rgba?\(([^)]+)\)/); if(!m) return "#000000";
-  const p = m[1].split(",").map(s => parseFloat(s));
-  const h = n => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
+  const p = m[1].split(",").map((s) => parseFloat(s));
+  const h = (n) => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
   return "#" + h(p[0]) + h(p[1]) + h(p[2]);
 }
 function firstStyleEl(){ for(const el of moveSet){ const ts = styleTargets(el); if(ts.length) return ts[0]; } return null; }
 function firstTextEl(){ for(const el of moveSet){ if(el.matches && el.matches("text,tspan")) return el; const t = el.querySelector && el.querySelector("text,tspan"); if(t) return t; } return null; }
-function firstFamily(ff){ return (ff || "").split(",")[0].trim().replace(/^["']|["']$/g, ""); }
-function cssFamily(f){ return /^[A-Za-z][A-Za-z0-9\-]*$/.test(f) ? f : '"' + f + '"'; }   // quote families with spaces/dots
-function famOption(f){                                       // make sure the select can show this family (figure fonts land on top)
+function firstFamily(ff        ){ return (ff || "").split(",")[0].trim().replace(/^["']|["']$/g, ""); }
+function cssFamily(f        ){ return /^[A-Za-z][A-Za-z0-9\-]*$/.test(f) ? f : '"' + f + '"'; }   // quote families with spaces/dots
+function famOption(f        ){                                       // make sure the select can show this family (figure fonts land on top)
   if(!f) return;
   for(const o of propFontFam.options) if(o.value === f) return;
   const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.insertBefore(o, propFontFam.firstChild);
@@ -299,8 +300,8 @@ function fillPropsPanel(){                                  // prefill from the 
     const cs = getComputedStyle(el);
     propFill.value = rgbToHex(cs.fill);
     propStroke.value = rgbToHex(cs.stroke);
-    const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = sw;
-    const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = op;
+    const sw = parseFloat(cs.strokeWidth); if(!isNaN(sw)) propStrokeW.value = String(sw);
+    const op = parseFloat(cs.opacity); if(!isNaN(op)) propOpacity.value = String(op);
   }
   const hasText = selHasText(), hasShape = selHasShape();
   ctxText.style.display = hasText ? "" : "none";            // .cgroup default display is inline-flex
@@ -309,7 +310,7 @@ function fillPropsPanel(){                                  // prefill from the 
   const t = hasText ? firstTextEl() : null;
   if(t){
     const cs = getComputedStyle(t);
-    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = Math.round(fs * 10) / 10;
+    const fs = parseFloat(cs.fontSize); if(!isNaN(fs)) propFontSize.value = String(Math.round(fs * 10) / 10);
     const fam = firstFamily(cs.fontFamily); famOption(fam); propFontFam.value = fam;
     const w = cs.fontWeight; propBold.classList.toggle("on", w === "bold" || parseInt(w, 10) >= 600);
     propItal.classList.toggle("on", cs.fontStyle === "italic");
@@ -327,21 +328,21 @@ propStrokeW.addEventListener("change", () => { if(propStrokeW.value !== "") comm
 propFontSize.addEventListener("change", () => { if(propFontSize.value !== "") commitStyle("font-size", propFontSize.value + "px"); });
 propOpacity.addEventListener("input", () => rangeLive("opacity", propOpacity.value));
 propOpacity.addEventListener("change", rangeCommit);
-propsPanel.querySelectorAll(".pnone").forEach(btn => btn.addEventListener("click", () => commitStyle(btn.getAttribute("data-prop"), "none")));
+propsPanel.querySelectorAll                   (".pnone").forEach(btn => btn.addEventListener("click", () => commitStyle(btn.getAttribute("data-prop"), "none")));
 propFontFam.addEventListener("change", () => { if(propFontFam.value) commitStyle("font-family", cssFamily(propFontFam.value)); });
 propBold.addEventListener("click", () => commitStyle("font-weight", propBold.classList.contains("on") ? "normal" : "bold"));
 propItal.addEventListener("click", () => commitStyle("font-style", propItal.classList.contains("on") ? "normal" : "italic"));
 propsPanel.addEventListener("pointerdown", e => {           // bar buttons must not steal focus: B/I/× stay usable WHILE typing in the inline editor
-  if(e.target && e.target.closest && e.target.closest("button")) e.preventDefault();
+  if(e.target && (e.target           ).closest && (e.target           ).closest                   ("button")) e.preventDefault();
 });
 const STD_FAMILIES = ["DejaVu Sans", "DejaVu Serif", "Helvetica", "Arial", "Times New Roman", "STIXGeneral", "Georgia", "Verdana", "Courier New"];
 function populateFamilies(){                                // figure's own fonts first, then the standards
   for(const f of STD_FAMILIES){ const o = document.createElement("option"); o.value = f; o.textContent = f; propFontFam.appendChild(o); }
   const seen = new Set();
-  svg.querySelectorAll("text,tspan").forEach(t => { const f = firstFamily(getComputedStyle(t).fontFamily); if(f && !seen.has(f)){ seen.add(f); famOption(f); } });
+  (svg           ).querySelectorAll             ("text,tspan").forEach((t) => { const f = firstFamily(getComputedStyle(t).fontFamily); if(f && !seen.has(f)){ seen.add(f); famOption(f); } });
 }
 // ---- dirty-state (accent dot on the save button + beforeunload guard) ----
-function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); if(b) b.classList.toggle("dirty", v); }
+function setDirty(v         ){ dirty = v; const b = (document.getElementById("savesvg")                     ); if(b) b.classList.toggle("dirty", v); }
 // ---- undo/redo history (two stacks; each entry holds enough to undo AND redo) ----
 // move       : { items:<before snapshot>, after:<after snapshot> } — restoreXf both ways
 // style      : { items:<before styleSnap>, after:<after styleSnap> } — styleRestore both ways
@@ -351,7 +352,7 @@ function setDirty(v){ dirty = v; const b = document.getElementById("savesvg"); i
 let undoStack = [], redoStack = [];
 let removedLog = [];                                        // ids+labels of elements deleted from the figure (for the sidecar)
 let nudgeState = null;                                      // coalesces a burst of arrow-key nudges into one history entry
-function snapshot(els){ return els.map(el => ({ el,                       // full pre-op state, restored verbatim on undo/redo
+function snapshot(els){ return els.map((el) => ({ el,                       // full pre-op state, restored verbatim on undo/redo
   orig: el.hasAttribute("data-orig") ? el.getAttribute("data-orig") : null,
   dx: el.hasAttribute("data-dx") ? el.getAttribute("data-dx") : null,
   dy: el.hasAttribute("data-dy") ? el.getAttribute("data-dy") : null,
@@ -362,8 +363,8 @@ function restoreXf(it){
   }
 }
 function updateHist(){                                      // buttons follow their stack's emptiness
-  const u = document.getElementById("undobtn"); if(u) u.disabled = undoStack.length === 0;
-  const r = document.getElementById("redobtn"); if(r) r.disabled = redoStack.length === 0;
+  const u = (document.getElementById("undobtn")                     ); if(u) u.disabled = undoStack.length === 0;
+  const r = (document.getElementById("redobtn")                     ); if(r) r.disabled = redoStack.length === 0;
 }
 function pushUndo(entry){ undoStack.push(entry); redoStack.length = 0; nudgeState = null; updateHist(); }  // any new action clears redo + breaks nudge burst
 function reinsert(it){                                      // put a detached node back at its original DOM position
@@ -406,15 +407,15 @@ function deleteSel(){                                       // remove the select
   pushUndo({ type: "delete", items, removed });
   setDirty(true); clearMoveSet();
 }
-function nudge(dxu, dyu){                                   // move moveSet by whole user units in each element's parent space (like drag)
+function nudge(dxu        , dyu        ){                                   // move moveSet by whole user units in each element's parent space (like drag)
   if(!moveSet.length) return;
   const now = Date.now(), merge = nudgeState && (now - nudgeState.t) < 800;
   const before = merge ? nudgeState.before : snapshot(moveSet);
   for(const el of moveSet){
     if(!el.hasAttribute("data-orig")) el.setAttribute("data-orig", el.getAttribute("transform") || "");
     if(!el.hasAttribute("data-orig0")) el.setAttribute("data-orig0", el.getAttribute("transform") || "");   // pristine, for the edits sidecar
-    const dx = parseFloat(el.getAttribute("data-dx") || 0) + dxu, dy = parseFloat(el.getAttribute("data-dy") || 0) + dyu;
-    el.setAttribute("data-dx", dx); el.setAttribute("data-dy", dy);
+    const dx = parseFloat(el.getAttribute("data-dx") || "0") + dxu, dy = parseFloat(el.getAttribute("data-dy") || "0") + dyu;
+    el.setAttribute("data-dx", String(dx)); el.setAttribute("data-dy", String(dy));
     el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + el.getAttribute("data-orig"));
   }
   const after = snapshot(moveSet);
@@ -422,15 +423,15 @@ function nudge(dxu, dyu){                                   // move moveSet by w
   else { const entry = { type: "move", items: before, after }; pushUndo(entry); nudgeState = { t: now, before, entry }; }
   setDirty(true); hiliteMoveSet();
 }
-function applyEditFont(inp, el){                            // WYSIWYG: the inline editor adopts the label's real font at its on-screen size
+function applyEditFont(inp             , el         ){                            // WYSIWYG: the inline editor adopts the label's real font at its on-screen size
   try{
-    const cs = getComputedStyle(el), m = el.getScreenCTM();
+    const cs = getComputedStyle(el), m = (el                      ).getScreenCTM();
     const sc = m ? Math.hypot(m.a, m.b) : 1;
     const px = parseFloat(cs.fontSize) * sc;
     if(px) inp.style.font = cs.fontStyle + " " + cs.fontWeight + " " + Math.max(11, px) + "px " + cs.fontFamily;
   }catch(e){}
 }
-function editText(el, o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
+function editText(el                , o){                                   // inline-edit a <text> (an existing label/title, or a freshly added one)
   o = o || {}; editing = true; showHover(null);
   moveSet = [el]; hiliteMoveSet();                          // keep the label selected → the properties panel stays up while typing
   const inp = document.createElement("input");
@@ -452,7 +453,7 @@ function editText(el, o){                                   // inline-edit a <te
   setTimeout(grabFocus, 80);
   const before = el.textContent || "";
   let done = false;
-  function finish(keep){
+  function finish(keep         ){
     if(done) return; done = true; editing = false;
     const after = inp.value; inp.remove();
     if(keep){
@@ -476,16 +477,16 @@ function placeTextAt(e){                                    // create a new <tex
   const NS = "http://www.w3.org/2000/svg";
   const p = svgPoint(e, svg);
   const t = document.createElementNS(NS, "text");
-  const proto = svg.querySelector("text");                 // inherit the figure's font family/weight when there is one
+  const proto = (svg           ).querySelector             ("text");                 // inherit the figure's font family/weight when there is one
   if(proto && proto.getAttribute("style")) t.setAttribute("style", proto.getAttribute("style"));
   t.style.fill = "#000"; t.style.textAnchor = "start"; t.style.fontSize = "12px";
-  t.setAttribute("x", p.x); t.setAttribute("y", p.y);
+  t.setAttribute("x", String(p.x)); t.setAttribute("y", String(p.y));
   t.setAttribute("id", "added_text_" + (++addCounter));
   svg.appendChild(t);
   const s = stagePt(e);
   editText(t, { isNew: true, x: s.x, y: s.y });
 }
-function inPoly(x, y, pts){                               // ray-casting point-in-polygon
+function inPoly(x        , y        , pts){                               // ray-casting point-in-polygon
   let c = false;
   for(let i = 0, j = pts.length - 1; i < pts.length; j = i++){
     const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
@@ -493,7 +494,7 @@ function inPoly(x, y, pts){                               // ray-casting point-i
   }
   return c;
 }
-function lassoStart(p){
+function lassoStart(p                   ){
   lasso = { pts: [p] };
   const NS = "http://www.w3.org/2000/svg";
   lassoEl = document.createElementNS(NS, "svg");
@@ -501,17 +502,17 @@ function lassoStart(p){
   lassoEl.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none";
   lassoEl.appendChild(document.createElementNS(NS, "polyline"));
   const dot = document.createElementNS(NS, "circle");          // first-vertex handle: click it (or dbl-click / Enter) to close
-  dot.setAttribute("r", "5"); dot.setAttribute("cx", p[0]); dot.setAttribute("cy", p[1]);
+  dot.setAttribute("r", "5"); dot.setAttribute("cx", String(p[0])); dot.setAttribute("cy", String(p[1]));
   lassoEl.appendChild(dot);
   ov.appendChild(lassoEl);
 }
-function lassoUpdate(cursor){                                   // polygon so far + a rubber-band edge to the cursor
+function lassoUpdate(cursor           ){                                   // polygon so far + a rubber-band edge to the cursor
   const pts = cursor ? lasso.pts.concat([cursor]) : lasso.pts;
-  lassoEl.firstChild.setAttribute("points", pts.map(p => p[0] + "," + p[1]).join(" "));
+  (lassoEl.firstChild              ).setAttribute("points", pts.map((p) => p[0] + "," + p[1]).join(" "));
 }
 function lassoRemove(){ if(lassoEl){ lassoEl.remove(); lassoEl = null; } }
 function segInt(a, b, c, d){                              // do segments ab and cd cross? (orientation test)
-  const ccw = (p, q, r) => (r[1] - p[1]) * (q[0] - p[0]) > (q[1] - p[1]) * (r[0] - p[0]);
+  const ccw = (p          , q          , r          ) => (r[1] - p[1]) * (q[0] - p[0]) > (q[1] - p[1]) * (r[0] - p[0]);
   return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
 }
 function rectPolyHit(b, pts){                             // true rect↔polygon intersection (not just centre-in-poly)
@@ -527,7 +528,7 @@ function rectPolyHit(b, pts){                             // true rect↔polygon
 function selectInPoly(pts){                               // elements whose bbox intersects the lasso polygon
   if(pts.length < 3){ clearMoveSet(); return; }
   const skip = /^(figure|matplotlib\.axis|xtick|ytick)_/;
-  const cands = Array.from(svg.querySelectorAll("[id]")).filter(el => el.id && !skip.test(el.id) && draggable(el));
+  const cands = Array.from((svg           ).querySelectorAll                    ("[id]")).filter(el => el.id && !skip.test(el.id) && draggable(el));
   const inside = cands.filter(el => {
     let b; try{ b = rectIn(el); }catch(err){ return false; }
     return b.w && b.h && rectPolyHit(b, pts);
@@ -584,7 +585,7 @@ function positionHandles(){
   selHandleEls.forEach(d => { const h = d._spec; d.style.display = ""; d.style.left = (b.x + h.px * b.w) + "px"; d.style.top = (b.y + h.py * b.h) + "px"; });
 }
 let resizing = null;
-function startResize(e, h){
+function startResize(e              , h){
   if(!moveSet.length || (e.button !== undefined && e.button !== 0)) return;
   e.preventDefault(); e.stopPropagation();
   const b = selBBox(); if(!b) return;
@@ -598,9 +599,9 @@ function startResize(e, h){
       if(!el.hasAttribute("data-orig0")) el.setAttribute("data-orig0", el.getAttribute("transform") || "");  // pristine, for the edits sidecar
       return { el: el, parent: el.parentNode, startXf: el.getAttribute("transform") || "" };
     }) };
-  try{ e.target.setPointerCapture(e.pointerId); }catch(err){}
+  try{ (e.target           ).setPointerCapture(e.pointerId); }catch(err){}
 }
-function onResizeMove(e){
+function onResizeMove(e              ){
   if(!resizing) return;
   e.preventDefault();
   const R = resizing, h = R.h, p = stagePt(e);
@@ -631,20 +632,20 @@ function endResize(e){
     if(now !== m.startXf){ changed = true;                    // fold the scale into the base so later moves keep it
       m.el.setAttribute("data-orig", now); m.el.removeAttribute("data-dx"); m.el.removeAttribute("data-dy"); }
   }
-  if(changed){ pushUndo({ type: "move", items: R.before, after: snapshot(R.members.map(m => m.el)) }); setDirty(true); }
+  if(changed){ pushUndo({ type: "move", items: R.before, after: snapshot(R.members.map((m) => m.el)) }); setDirty(true); }
   hiliteMoveSet();
 }
 function startDrag(targets, e){
-  const set = targets.filter(el => !targets.some(o => o !== el && o.contains(el)));  // never move a node whose ancestor moves too
-  drag = { moved: false, before: snapshot(set), items: set.map(el => {
+  const set = targets.filter((el) => !targets.some((o) => o !== el && o.contains(el)));  // never move a node whose ancestor moves too
+  drag = { moved: false, before: snapshot(set), items: set.map((el) => {
     if(!el.hasAttribute("data-orig")) el.setAttribute("data-orig", el.getAttribute("transform") || "");
     if(!el.hasAttribute("data-orig0")) el.setAttribute("data-orig0", el.getAttribute("transform") || "");  // pristine, for the edits sidecar
     const ref = el.parentNode, p = svgPoint(e, ref);
     return { el, ref, sx: p.x, sy: p.y,
-             dx0: parseFloat(el.getAttribute("data-dx") || 0), dy0: parseFloat(el.getAttribute("data-dy") || 0) };
+             dx0: parseFloat(el.getAttribute("data-dx") || "0"), dy0: parseFloat(el.getAttribute("data-dy") || "0") };
   }) };
 }
-function capture(e){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.setPointerCapture(e.pointerId); }catch(err){} } }
+function capture(e                        ){ if(svg.setPointerCapture && e.pointerId != null){ try{ svg.setPointerCapture(e.pointerId); }catch(err){} } }
 // WebKit (the app's WKWebView) suppresses the compatibility "click"/"dblclick" events after
 // e.preventDefault() on a pointerdown — and onDown below calls it on nearly every click. That
 // silently breaks the native dblclick-to-edit-text handler, so double-click detection is done
@@ -707,7 +708,7 @@ function onMove(e){
     for(const it of drag.items){
       const p = svgPoint(e, it.ref);
       const dx = it.dx0 + (p.x - it.sx), dy = it.dy0 + (p.y - it.sy);
-      it.el.setAttribute("data-dx", dx); it.el.setAttribute("data-dy", dy);
+      it.el.setAttribute("data-dx", String(dx)); it.el.setAttribute("data-dy", String(dy));
       it.el.setAttribute("transform", "translate(" + dx + "," + dy + ") " + it.el.getAttribute("data-orig"));
     }
     drag.moved = true; setDirty(true); hiliteMoveSet();
@@ -723,7 +724,7 @@ function onUp(){
   if(lasso) return;                                      // building a polygon by clicks — pointerup does nothing
   const dp = dblPending; dblPending = null;
   if(drag){
-    if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map(it => it.el)) }); }   // record for undo/redo
+    if(drag.moved && drag.before){ pushUndo({ type: "move", items: drag.before, after: snapshot(drag.items.map((it) => it.el)) }); }   // record for undo/redo
     else if(!drag.moved && dp){ drag = null; editText(dp, {}); return; }                  // clean double-click on a label → edit it (editText keeps it selected)
     else if(!drag.moved && drag.g){ moveSet = [drag.g]; hiliteMoveSet(); }                                // a click without a move = select it (so Del can remove a single element)
     drag = null;
@@ -737,7 +738,7 @@ function nativeFsAllowed(){
   // Orca's embedded WebKit accepts requestFullscreen() but ignores
   // exitFullscreen() (the pane stays stuck full-screen). Default to CSS-only
   // inside embedded shells — fills the pane, always exits cleanly.
-  const brands=(navigator.userAgentData&&navigator.userAgentData.brands||[]).map(b=>b.brand).join(" ");
+  const brands=(navigator.userAgentData&&navigator.userAgentData.brands||[]).map((b)=>b.brand).join(" ");
   const sig=[navigator.userAgent||"",navigator.vendor||"",brands].join(" ");
   if(/\b(Orca|Electron|cmux)\b/i.test(sig)) return false;
   if(window.self!==window.top) return false;
@@ -746,7 +747,7 @@ function nativeFsAllowed(){
 // expand = 4 corners pointing out ; compress = 4 corners pointing in (exit fullscreen)
 const FS_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
 const FS_COMPRESS = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5H6V2M13.5 5.5H10V2M10 10.5h3.5V14M6 10.5H2.5V14"/></svg>';
-function setFsUi(on){
+function setFsUi(on         ){
   document.body.classList.toggle("fs-mode", on);
   fsbtn.innerHTML = on ? FS_COMPRESS : FS_EXPAND;
   fsbtn.title = on ? "Quitter le plein écran (F)" : "Plein écran (F)";
@@ -778,10 +779,10 @@ async function toggleFS(){
 }
 // ==== zoom + pan ====
 // Zoom scales #plot's CSS width; #stagewrap scrolls; overlays (rectIn) follow automatically.
-function clampZoom(z){ return Math.min(8, Math.max(0.25, z)); }
-function updateZoomInfo(){ const zi = document.getElementById("zoominfo"); if(zi) zi.textContent = (Math.abs(zoom - 1) < 0.001) ? "" : (Math.round(zoom * 100) + " %"); }
+function clampZoom(z        ){ return Math.min(8, Math.max(0.25, z)); }
+function updateZoomInfo(){ const zi = (document.getElementById("zoominfo")                   ); if(zi) zi.textContent = (Math.abs(zoom - 1) < 0.001) ? "" : (Math.round(zoom * 100) + " %"); }
 function afterZoom(){ updateZoomInfo(); hiliteMoveSet(); if(annotOn){ sizeAnnot(); annotApi.redraw(); } }   // keep overlays + annot canvas in sync with the new scale
-function applyZoom(z, ax, ay){                            // ax/ay = client point to keep pinned under the cursor
+function applyZoom(z        , ax        , ay        ){                            // ax/ay = client point to keep pinned under the cursor
   z = clampZoom(z);
   const pr = plot.getBoundingClientRect();
   let fx = 0.5, fy = 0.5, pin = false;
@@ -794,7 +795,7 @@ function applyZoom(z, ax, ay){                            // ax/ay = client poin
   }
   afterZoom();
 }
-function zoomStep(f){ const r = stagewrap.getBoundingClientRect(); applyZoom(zoom * f, r.left + r.width / 2, r.top + r.height / 2); }  // centre on viewport
+function zoomStep(f        ){ const r = stagewrap.getBoundingClientRect(); applyZoom(zoom * f, r.left + r.width / 2, r.top + r.height / 2); }  // centre on viewport
 function zoomReset(){ zoom = 1; plot.style.width = "100%"; stagewrap.scrollLeft = 0; stagewrap.scrollTop = 0; afterZoom(); }           // fit width
 // ⌘/pinch + wheel = zoom centred on the cursor; plain wheel stays native scroll
 stagewrap.addEventListener("wheel", e => {
@@ -817,7 +818,7 @@ stagewrap.addEventListener("pointermove", e => {
   stagewrap.scrollTop  = panning.st - (e.clientY - panning.y);
   e.preventDefault();
 });
-function endPan(e){ if(!panning) return; panning = null; document.body.classList.remove("panning"); try{ stagewrap.releasePointerCapture(e.pointerId); }catch(err){} }
+function endPan(e                        ){ if(!panning) return; panning = null; document.body.classList.remove("panning"); try{ stagewrap.releasePointerCapture(e.pointerId); }catch(err){} }
 stagewrap.addEventListener("pointerup", endPan);
 stagewrap.addEventListener("pointercancel", endPan);
 document.addEventListener("keyup", e => { if(e.key === " "){ spaceDown = false; document.body.classList.remove("panready", "panning"); panning = null; } });
@@ -825,7 +826,7 @@ window.addEventListener("blur", () => { spaceDown = false; panning = null; docum
 
 document.addEventListener("keydown", e => {
   if(editing) return;
-  const t = e.target; if(t && (t.closest && t.closest("#ctxbar") || /^(input|select|textarea)$/i.test(t.tagName || ""))) return;   // any form field (edit bar, dpi select, inline edit) keeps native arrows/space/del
+  const t = e.target; if(t && ((t           ).closest && (t           ).closest                ("#ctxbar") || /^(input|select|textarea)$/i.test((t           ).tagName || ""))) return;   // any form field (edit bar, dpi select, inline edit) keeps native arrows/space/del
   if(e.key === " " && !e.metaKey && !e.ctrlKey){ if(!spaceDown){ spaceDown = true; document.body.classList.add("panready"); showHover(null); } e.preventDefault(); return; }
   if((e.metaKey || e.ctrlKey) && (e.key === "+" || e.key === "=")){ e.preventDefault(); zoomStep(1.25); return; }
   if((e.metaKey || e.ctrlKey) && e.key === "-"){ e.preventDefault(); zoomStep(1 / 1.25); return; }
@@ -849,12 +850,12 @@ document.addEventListener("keydown", e => {
 });
 function currentSVGText(){                                // serialize current view, minus bookkeeping attrs
   const clone = svg.cloneNode(true);
-  clone.querySelectorAll("[data-orig],[data-dx],[data-dy],[data-orig0],[data-styled]").forEach(el => {
+  (clone           ).querySelectorAll             ("[data-orig],[data-dx],[data-dy],[data-orig0],[data-styled]").forEach((el) => {
     el.removeAttribute("data-orig"); el.removeAttribute("data-dx"); el.removeAttribute("data-dy"); el.removeAttribute("data-orig0"); el.removeAttribute("data-styled");
   });
   return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
 }
-function flash(btn, msg, ms){ btn._html = btn._html || btn.innerHTML; btn.textContent = msg; setTimeout(() => { btn.innerHTML = btn._html; }, ms || 1700); }
+function flash(btn             , msg        , ms         ){ btn._html = btn._html || btn.innerHTML; btn.textContent = msg; setTimeout(() => { btn.innerHTML = btn._html; }, ms || 1700); }
 function elemText(el){                                    // the label string: literal <text>, else matplotlib's preceding <!-- comment -->
   let t = (el.textContent || "").trim();
   if(t) return t;
@@ -864,7 +865,7 @@ function elemText(el){                                    // the label string: l
 }
 function collectEdits(){                                  // v2 sidecar: transforms (deltas) + added texts + removed ids + style overrides
   const transforms = [];
-  svg.querySelectorAll("[data-orig0]").forEach(el => {     // per moved/resized element: id + label + the editor DELTA (its own original stripped)
+  (svg           ).querySelectorAll             ("[data-orig0]").forEach((el) => {     // per moved/resized element: id + label + the editor DELTA (its own original stripped)
     const xf = el.getAttribute("transform") || "", o0 = el.getAttribute("data-orig0") || "";
     let delta = xf;
     if(o0 && xf.endsWith(o0)) delta = xf.slice(0, xf.length - o0.length).trim();   // original is always the inner suffix
@@ -872,7 +873,7 @@ function collectEdits(){                                  // v2 sidecar: transfo
     transforms.push({ id: el.id || null, text: elemText(el) || null, delta: delta });
   });
   const added = [];
-  svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // texts created in the editor (survive a matplotlib regen)
+  (svg           ).querySelectorAll             ('[id^="added_text_"]').forEach((el) => {   // texts created in the editor (survive a matplotlib regen)
     added.push({ id: el.id, x: parseFloat(el.getAttribute("x")) || 0, y: parseFloat(el.getAttribute("y")) || 0,
       content: el.textContent || "", style: el.getAttribute("style") || "", transform: el.getAttribute("transform") || "" });
   });
@@ -898,7 +899,7 @@ function collectEdits(){                                  // v2 sidecar: transfo
 }
 function saveSVG(){
   if(!svg) return;
-  const b = document.getElementById("savesvg");
+  const b = (document.getElementById("savesvg")                     );
   fetch("/save-svg", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), edits: collectEdits() }) })
     .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Enregistré ✓" : "Erreur"); })
@@ -906,8 +907,8 @@ function saveSVG(){
 }
 function exportPNG(){
   if(!svg) return;
-  const b = document.getElementById("exportpng");
-  const dpi = parseInt(document.getElementById("dpi").value, 10) || 300;
+  const b = (document.getElementById("exportpng")                     );
+  const dpi = parseInt((document.getElementById("dpi")                     ).value, 10) || 300;
   b._html = b._html || b.innerHTML;
   b.textContent = "rendu…";
   fetch("/export-png", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -915,15 +916,15 @@ function exportPNG(){
     .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Erreur: " + ((j && j.error) || "")).slice(0, 22), 2200))
     .catch(() => flash(b, "Erreur"));
 }
-document.getElementById("savesvg").onclick = saveSVG;
-document.getElementById("exportpng").onclick = exportPNG;
-document.getElementById("undobtn").onclick = undo;
-document.getElementById("redobtn").onclick = redo;
+(document.getElementById("savesvg")                     ).onclick = saveSVG;
+(document.getElementById("exportpng")                     ).onclick = exportPNG;
+(document.getElementById("undobtn")                     ).onclick = undo;
+(document.getElementById("redobtn")                     ).onclick = redo;
 window.addEventListener("beforeunload", e => { if(dirty){ e.preventDefault(); e.returnValue = ""; } });
-document.getElementById("clearsel").onclick = () => clearMoveSet();
-document.getElementById("delsel").onclick = deleteSel;
-document.getElementById("addtext").onclick = () => setAdd(!addMode);
-const fsbtn = document.getElementById("fsbtn");
+(document.getElementById("clearsel")                     ).onclick = () => clearMoveSet();
+(document.getElementById("delsel")                     ).onclick = deleteSel;
+(document.getElementById("addtext")                     ).onclick = () => setAdd(!addMode);
+const fsbtn = (document.getElementById("fsbtn")                     );
 fsbtn.onclick = toggleFS;
 function onFullscreenChange(){ if(!fsActiveEl() && document.body.classList.contains("fs-mode")){ setFsUi(false); fsReflow(); } }
 document.addEventListener("fullscreenchange", onFullscreenChange);
@@ -933,22 +934,22 @@ async function load(){
   try{
     const ver = new URLSearchParams(location.search).get("v") || "";
     const r = await fetch("/" + file.split("/").map(encodeURIComponent).join("/") + (ver ? "?v=" + ver : ""));
-    if(!r.ok) throw new Error(r.status);
+    if(!r.ok) throw new Error(String(r.status));
     const txt = await r.text();
     // DOMParser handles the <?xml?> + <!DOCTYPE> prefix that innerHTML mangles; CSS sizes it via viewBox
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
-    const root = doc.querySelector("svg");
-    if(!root || doc.querySelector("parsererror")) throw new Error("could not parse SVG");
+    const root = doc.querySelector               ("svg");
+    if(!root || doc.querySelector             ("parsererror")) throw new Error("could not parse SVG");
     svg = document.importNode(root, true);
     plot.textContent = "";
     plot.appendChild(svg);
-    if(!svg.getAttribute("viewBox")){                      // some exports drop the root viewBox → the SVG collapses to ~150px and clips; rebuild it from the content
+    if(!(svg           ).getAttribute("viewBox")){                      // some exports drop the root viewBox → the SVG collapses to ~150px and clips; rebuild it from the content
       try{ const bb = svg.getBBox();
         if(bb.width && bb.height){ svg.setAttribute("viewBox", bb.x + " " + bb.y + " " + bb.width + " " + bb.height); svg.removeAttribute("width"); svg.removeAttribute("height"); }
       }catch(e){}
     }
-    try{ const f = (svg.querySelector('[id^="figure"]') || svg).getBBox(); figArea = f.width * f.height; }catch(e){}
-    svg.querySelectorAll('[id^="added_text_"]').forEach(el => {   // resume numbering after reload — never reuse an existing added_text id
+    try{ const f = ((svg           ).querySelector                    ('[id^="figure"]') || svg).getBBox(); figArea = f.width * f.height; }catch(e){}
+    (svg           ).querySelectorAll             ('[id^="added_text_"]').forEach(el => {   // resume numbering after reload — never reuse an existing added_text id
       const n = parseInt(el.id.slice("added_text_".length), 10);
       if(n > addCounter) addCounter = n;
     });
@@ -957,7 +958,7 @@ async function load(){
     svg.addEventListener("dblclick", e => {                 // dbl-click: close the polygon, else edit a text label
       if(addMode) return;
       if(lassoMode){ e.preventDefault(); finishPoly(); return; }
-      const t = e.target && e.target.closest ? e.target.closest("text") : null;
+      const t = e.target && (e.target           ).closest ? (e.target           ).closest                ("text") : null;
       if(t){ e.preventDefault(); editText(t, {}); }
     });
     svg.addEventListener("pointermove", onMove);
@@ -971,8 +972,8 @@ window.addEventListener("resize", () => hiliteMoveSet());
 
 // --- drawn annotation (shared AnnotKit): a transparent overlay over the rendered
 //     SVG; while ON it sits on top of the editor's own pointer handlers ---
-const annotBtn = document.getElementById("annotbtn");
-let annotCv = null, annotApi = null, annotOn = false;
+const annotBtn = (document.getElementById("annotbtn")                     );
+let annotCv                    = null, annotApi                                                                   = null, annotOn = false;
 function sizeAnnot(){
   if(!annotCv || !svg) return;
   const sr = svg.getBoundingClientRect(), st = stage.getBoundingClientRect();
@@ -996,7 +997,7 @@ function ensureAnnot(){
       const xml = new XMLSerializer().serializeToString(svg);
       const url = URL.createObjectURL(new Blob([xml], {type: "image/svg+xml"}));
       try{
-        const img = await new Promise((res, rej) => {
+        const img = await new Promise                  ((res, rej) => {
           const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url;
         });
         const c = document.createElement("canvas");
@@ -1009,7 +1010,7 @@ function ensureAnnot(){
   });
   return annotApi;
 }
-function setAnnot(on){
+function setAnnot(on         ){
   if(on){
     if(!svg) return;
     ensureAnnot(); sizeAnnot();

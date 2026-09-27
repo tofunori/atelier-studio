@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "prebuild": "npm run typecheck"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.21.2",

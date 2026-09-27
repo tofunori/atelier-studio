@@ -1,5 +1,5 @@
 {
-  "description": "Commandes qui parlent à gbrain (add --kind gbrain, gbrain-search, gbrain-page, promote-page). ATELIER_TEST_GBRAIN pointe vers fake-gbrain.mjs (jamais le NAS réel — voir README.md). appdir + store dédiés.",
+  "description": "Commandes qui parlent à gbrain (add --kind gbrain, gbrain-search, gbrain-page, promote-page). ATELIER_TEST_GBRAIN pointe vers fake-gbrain.mts (jamais le NAS réel — voir README.md). appdir + store dédiés.",
   "env": { "appdir": "b-gbrain", "gbrain": true },
   "setup": [
     { "id": "seed-page", "kind": "seed-gbrain", "slug": "atelier/page-fixture", "fromInput": "seed-gbrain-page.md" }

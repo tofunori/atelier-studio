@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "pdfjs-dist": [
+        "./mobile/node_modules/pdfjs-dist/types/src/pdf.d.ts"
+      ]
+    },
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    "scripts/**/*.mts",
+    "scripts/**/*.cts",
+    "gallery/scripts/**/*.mts",
+    "gallery/tests/**/*.mts",
+    "gallery/tests/**/*.ts",
+    "gallery/playwright.config.ts",
+    "mobile-native/scripts/**/*.mts",
+    "plans/057-p0-probes/**/*.mts",
+    "rust/crates/atelier-providers/tests/fixtures/*.mts",
+    "packages/atelier-protocol/scripts/*.mts",
+    "gallery/src/browser/globals.d.ts",
+    "gallery/src/browser/external-modules.d.ts"
+  ]
+}

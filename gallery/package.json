@@ -3,10 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:cm6": "node scripts/build-cm6.mjs",
+    "build:cm6": "node --experimental-strip-types scripts/build-cm6.mts",
     "typecheck:studio": "tsc -p tsconfig.json",
-    "test": "python3 -m unittest discover -s tests -p test_reapply_edits.py -v && node --test tests/unit/*.test.mjs && npm run test:e2e",
-    "test:e2e": "playwright test"
+    "test": "python3 -m unittest discover -s tests -p test_reapply_edits.py -v && node --test tests/unit/*.test.mts && npm run test:e2e",
+    "test:e2e": "playwright test",
+    "prebuild:cm6": "node --experimental-strip-types ../scripts/build-browser-sources.mts",
+    "pretest:e2e": "npm run build:cm6 && npm --prefix .. run build:gallery-editors",
+    "pretest:unit": "npm run build:cm6",
+    "pretest": "npm run build:cm6",
+    "test:unit": "node --test tests/unit/*.test.mts"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",

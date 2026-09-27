@@ -1,0 +1,106 @@
+// Pure CM5-compat helpers for the CM6 studio engine. No CodeMirror imports —
+// unit-testable with plain node.
+
+export function clampPos(pos: { line: number; ch: number; }, lineCount: number, lineLength) {
+  const line = Math.max(0, Math.min(pos.line | 0, lineCount - 1));
+  const ch = Math.max(0, Math.min(pos.ch | 0, lineLength(line)));
+  return { line, ch };
+}
+
+// CM5 accepts either a position or a {from, to} range in scrollIntoView.
+// Keep that distinction explicit so a range can never be mistaken for the
+// default {line: 0, ch: 0} position by the compatibility layer.
+export function normalizeScrollTarget(target, lineCount: number, lineLength) {
+  if (target && target.from && target.to) {
+    return {
+      from: clampPos(target.from, lineCount, lineLength),
+      to: clampPos(target.to, lineCount, lineLength),
+    };
+  }
+  return {from: clampPos(target || {line: 0, ch: 0}, lineCount, lineLength), to: null};
+}
+
+// CM5 CodeMirror.countColumn: column reached at `end` (or at the first
+// non-whitespace char when end == null), expanding tabs to tabSize.
+export function countColumn(text: string, end: number, tabSize: number) {
+  if (end == null) {
+    end = text.search(/[^\s ]/);
+    if (end === -1) end = text.length;
+  }
+  let n = 0;
+  for (let i = 0; i < end; i += 1) {
+    if (text.charAt(i) === "\t") n += tabSize - (n % tabSize);
+    else n += 1;
+  }
+  return n;
+}
+
+export function cm5KeyToCm6(name: string) {
+  return name.split("-").map((part: string, i: number, all) => {
+    if (part === "Esc") return "Escape";
+    // last segment: single letters are lowercased (CM6 convention)
+    if (i === all.length - 1 && /^[A-Z]$/.test(part)) return part.toLowerCase();
+    return part;
+  }).join("-");
+}
+
+export function posFromIndex(text, index: number) {
+  const offset = Math.max(0, Math.min(Number.isFinite(index) ? Math.trunc(index) : 0, text.length));
+  const before = text.slice(0, offset);
+  const line = (before.match(/\n/g) || []).length;
+  const lastBreak = before.lastIndexOf("\n");
+  return {line, ch: offset - lastBreak - 1};
+}
+
+export function indexFromPos(text: string, pos) {
+  const lines = text.split("\n");
+  const p = clampPos(pos, lines.length, (line: string|number) => lines[line].length);
+  let offset = 0;
+  for (let line = 0; line < p.line; line += 1) offset += lines[line].length + 1;
+  return offset + p.ch;
+}
+
+// CM5's operation() batches view work while keeping calls synchronous. CM6
+// gutter markers are immutable ranges, so accumulate their logical updates and
+// let the caller create one StateEffect/RangeSet at the outer operation edge.
+export function createOperationBatcher(flush) {
+  let depth = 0;
+  let pending = [];
+  return {
+    push(value) {
+      if (depth > 0) pending.push(value);
+      else flush([value]);
+    },
+    run(fn) {
+      depth += 1;
+      try {
+        return fn();
+      } finally {
+        depth -= 1;
+        if (depth === 0 && pending.length) {
+          const batch = pending;
+          pending = [];
+          flush(batch);
+        }
+      }
+    },
+  };
+}
+
+export function languageKindFor(ext: string) {
+  switch (ext === "R" ? "r" : String(ext || "").toLowerCase()) {
+    case "py": return "python";
+    case "md": return "markdown";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "json": return "json";
+    case "tex": case "sty": return "latex";
+    case "bib": return "stex";
+    case "r": return "r";
+    case "jl": return "julia";
+    case "sh": case "bash": return "shell";
+    case "yaml": case "yml": return "yaml";
+    case "toml": return "toml";
+    default: return "plain";
+  }
+}

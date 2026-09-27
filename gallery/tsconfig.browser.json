@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "strict": false,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "pdfjs-dist": [
+        "../mobile/node_modules/pdfjs-dist/types/src/pdf.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/browser/**/*.ts",
+    "../scripts/browser/**/*.ts"
+  ]
+}

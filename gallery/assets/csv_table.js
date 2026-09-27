@@ -1,14 +1,16 @@
+// Generated from gallery/src/browser/csv_table.ts; edit the TypeScript source.
 (function (root, factory) {
   "use strict";
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   root.AtelierCsv = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, createAtelierCsvApi);
+function createAtelierCsvApi() {
   "use strict";
 
   const DELIMITERS = [",", ";", "\t"];
 
-  function delimiterCounts(text, delimiter, maxRecords) {
+  function delimiterCounts(text, delimiter        , maxRecords        ) {
     const counts = [];
     let quoted = false;
     let count = 0;
@@ -29,7 +31,7 @@
     return counts;
   }
 
-  function detectDelimiter(text) {
+  function detectDelimiter(text        ) {
     let best = {delimiter: ",", score: -1};
     for (const delimiter of DELIMITERS) {
       const counts = delimiterCounts(String(text || ""), delimiter, 12);
@@ -43,7 +45,7 @@
     return best.delimiter;
   }
 
-  function parse(text, requestedDelimiter) {
+  function parse(text, requestedDelimiter         ) {
     const source = String(text || "");
     const delimiter = requestedDelimiter || detectDelimiter(source);
     const rows = [];
@@ -102,4 +104,4 @@
   }
 
   return {detectDelimiter, parse, classify, compare};
-});
+}

@@ -1,0 +1,1 @@
+AtelierStudioSurfaces.bootstrapCodeSurface({editorFactory:AtelierEditorFactory,diffFactory:DiffVersions,csvToolkit:AtelierCsv});

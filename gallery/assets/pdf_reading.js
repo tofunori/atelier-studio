@@ -1,3 +1,4 @@
+// Generated from gallery/src/browser/pdf_reading.ts; edit the TypeScript source.
 // Mode lecture : fonctions pures (DOM de la colonne, découpes de figures,
 // sélection → rectangles d'annotation, ancrage des annotations, position).
 // UMD classique comme pdf_passage.js : chargé par <script>, testé sous node.
@@ -5,10 +6,11 @@
   var api = factory(root);
   if (typeof module === "object" && module.exports) module.exports = api;
   root.AtelierPdfReading = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(root){
+})(typeof globalThis !== "undefined" ? globalThis : this, createAtelierPdfReadingApi);
+function createAtelierPdfReadingApi(root){
   /** Minuscule au sens de `char::is_lowercase` (Rust) : un chiffre n'en est
    *  pas une (`toUpperCase() === toLowerCase()`). */
-  function isLower(c){ return !!c && c.toLowerCase() === c && c.toUpperCase() !== c; }
+  function isLower(c        ){ return !!c && c.toLowerCase() === c && c.toUpperCase() !== c; }
 
   /** Jointure des lignes d'un bloc, MÊME RÈGLE que `join_lines` côté Rust :
    *  accumulé finissant par `-` suivi d'une minuscule → le `-` disparaît et la
@@ -64,7 +66,7 @@
     return frag;
   }
 
-  function cropViewport(pdfPage, block, cssScale, dpr){
+  function cropViewport(pdfPage, block, cssScale        , dpr        ){
     var x1 = block.bbox[0], y1 = block.bbox[1], x2 = block.bbox[2], y2 = block.bbox[3];
     var viewport = pdfPage.getViewport({scale: cssScale, offsetX: -x1 * cssScale, offsetY: -y1 * cssScale});
     var width = (x2 - x1) * cssScale, height = (y2 - y1) * cssScale;
@@ -77,10 +79,10 @@
    *  lignes de la page de la première ligne couverte et on normalise avec les
    *  dimensions de CETTE page (sinon les rects de la suite atterrissaient sur
    *  la page du début, à une échelle qui n'est même pas la sienne). */
-  function selectionToAnnotation(block, start, end, pages){
-    var lines = block.lines || [], info = layout(blockTexts(block)), rects = [];
-    var text = info.text.slice(start, end), page = 0, dim = null;
-    lines.forEach(function(l, i){
+  function selectionToAnnotation(block, start        , end        , pages){
+    var lines = block.lines || [], info = layout(blockTexts(block)), rects             = [];
+    var text = info.text.slice(start, end), page = 0, dim                            = null;
+    lines.forEach(function(l, i               ){
       // longueur PEINTE (avec le trait d'union) vs longueur AFFICHÉE (sans).
       var len = l.text.length, vis = len - (info.absorbed[i] ? 1 : 0);
       var ls = info.offs[i], le = ls + vis;
@@ -109,7 +111,7 @@
       if (["comment", "hl", "ul", "st"].indexOf(a.kind) < 0 || !a.text) return;
       var page = Number(a.page) || 1;
       var candidates = (doc.blocks || []).filter(function(b){ return b.lines && b.lines.length && Math.abs(b.page - page) <= 1; });
-      candidates.sort(function(x, y){ return Math.abs(x.page - page) - Math.abs(y.page - page); });
+      candidates.sort(function(x                   , y                   ){ return Math.abs(x.page - page) - Math.abs(y.page - page); });
       for (var i = 0; i < candidates.length; i++) {
         var b = candidates[i], texts = b.lines.map(function(l){ return l.text; });
         var m = passage.findAllSpanRanges(texts, a.text);
@@ -143,7 +145,7 @@
 
   /** `entries` = [{id, top}] TRIÉ PAR `top` croissant (l'ordre du DOM de la
    *  colonne) : la boucle s'arrête au premier bloc situé sous la position. */
-  function blockAtScrollTop(entries, top){
+  function blockAtScrollTop(entries, top        ){
     var best = entries.length ? entries[0].id : null;
     for (var i = 0; i < entries.length; i++) { if (entries[i].top <= top + 1) best = entries[i].id; else break; }
     return best;
@@ -178,4 +180,4 @@
   return {sectionHeading: sectionHeading, readingText: readingText, lineOffsets: lineOffsets, buildReadingDom: buildReadingDom, cropViewport: cropViewport,
     selectionToAnnotation: selectionToAnnotation, anchorAnnotations: anchorAnnotations,
     blockAtScrollTop: blockAtScrollTop, pageForBlock: pageForBlock};
-});
+}

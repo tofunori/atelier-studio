@@ -640,7 +640,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // Tests d'intégration contre le fixture partagé fake_kimi_acp.mjs.
+    // Tests d'intégration contre le fixture partagé fake_kimi_acp.mts.
 
     fn node_bin() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("ATELIER_TEST_NODE") {
@@ -666,7 +666,7 @@ mod tests {
 
     fn fixture_path() -> String {
         format!(
-            "{}/tests/fixtures/fake_kimi_acp.mjs",
+            "{}/tests/fixtures/fake_kimi_acp.mts",
             env!("CARGO_MANIFEST_DIR")
         )
     }

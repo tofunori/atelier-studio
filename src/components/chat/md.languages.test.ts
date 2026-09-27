@@ -1,4 +1,4 @@
-// Budget d'entrée (scripts/check_entry_budget.mjs) : `highlight.js/lib/common`
+// Budget d'entrée (scripts/check_entry_budget.mts) : `highlight.js/lib/common`
 // embarquait 36 langages — 375 Ko de source, 13 % du bundle d'entrée — pour
 // une quinzaine réellement utilisés. L'entrée dépassait le plafond de 950 Ko
 // (CI rouge, 1055 Ko, 2026-08-27). On enregistre donc explicitement les

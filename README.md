@@ -101,7 +101,7 @@ PDF annotations are stored beside the project files rather than burned into the 
 <details>
 <summary>Development and architecture</summary>
 
-The desktop frontend uses React and TypeScript in Tauri. The backend, the knowledge-base CLI and the packaged gallery server are Rust (`rust/crates/`); the repository ships no Node runtime. JavaScript is limited to the browser-side editors (`gallery/src`, `gallery/assets`) and the test harnesses (`gallery/tests`).
+The desktop frontend, browser-side editors and test harnesses use TypeScript, checked with TypeScript 7. The backend, the knowledge-base CLI and the packaged gallery server are Rust (`rust/crates/`); the repository ships no Node runtime. Browser resources are generated JavaScript; edit their TypeScript sources, not the generated files. Development scripts require Node.js 22.18 or newer.
 
 ```sh
 npm ci
@@ -115,6 +115,7 @@ For a desktop build, follow the complete stop, build, and restart protocol in [A
 - `npm run verify` runs the repository checks.
 - `npm run verify:e2e` runs gallery end-to-end checks.
 - `npm run test:visual` runs visual regression checks separately.
+- [TypeScript sources](docs/agent-reference/typescript-sources.md): source locations, dependency setup, generated resources and checks.
 - [Website](website/README.md): local preview and production build.
 - [Public media](scripts/public-demo/README.md): regenerate the fictional demonstration captures.
 

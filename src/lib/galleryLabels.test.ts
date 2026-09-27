@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const template = readFileSync(join(__dirname, "../../gallery/assets/gallery_template.html"), "utf8");
-const escapeSource = template.match(/^function esc\(s\).+$/m)![0];
-const labelSource = template.match(/function fileNameLabel\(name\)\{[\s\S]*?\n\}/)![0];
+const escapeSource = template.match(/^function esc\(s\s*\).+$/m)![0];
+const labelSource = template.match(/function fileNameLabel\(name\s*\)\{[\s\S]*?\n\}/)![0];
 // Exercise the template's actual renderer, including its escaping, in jsdom.
 const renderName = new Function(`${escapeSource}\n${labelSource}\nreturn fileNameLabel;`)() as (name: string) => string;
 

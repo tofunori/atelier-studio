@@ -1,9 +1,10 @@
-(function () {
+// Generated from gallery/src/browser/editor_conflict.ts; edit the TypeScript source.
+function installAtelierConflictGuardApi() {
   "use strict";
 
   function create(options) {
     options = options || {};
-    const anchor = options.anchor || document.querySelector("header");
+    const anchor = options.anchor || document.querySelector             ("header");
     if (!anchor) throw new Error("AtelierConflictGuard: anchor missing");
 
     if (!document.getElementById("atelier-conflict-style")) {
@@ -56,19 +57,19 @@
       </div>`;
     anchor.insertAdjacentElement("afterend", root);
 
-    const detail = root.querySelector(".atelier-conflict-detail");
-    const compare = root.querySelector('[data-conflict-action="compare"]');
-    const reload = root.querySelector('[data-conflict-action="reload"]');
-    const overwrite = root.querySelector('[data-conflict-action="overwrite"]');
+    const detail = root.querySelector             (".atelier-conflict-detail");
+    const compare = root.querySelector             ('[data-conflict-action="compare"]');
+    const reload = root.querySelector             ('[data-conflict-action="reload"]');
+    const overwrite = root.querySelector             ('[data-conflict-action="overwrite"]');
     const buttons = [compare, reload, overwrite];
     let pending = null;
     let armed = false;
-    let armTimer = null;
+    let armTimer                               = null;
     let busy = false;
 
-    function setBusy(next) {
+    function setBusy(next         ) {
       busy = Boolean(next);
-      buttons.forEach((button) => { button.disabled = busy; });
+      buttons.forEach((button) => { (button                    ).disabled = busy; });
     }
 
     function disarm() {
@@ -163,5 +164,8 @@
     };
   }
 
-  window.AtelierConflictGuard = {create};
-})();
+  const publicApi = {create};
+  window.AtelierConflictGuard = publicApi;
+  return publicApi;
+}
+installAtelierConflictGuardApi();

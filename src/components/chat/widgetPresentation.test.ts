@@ -4,7 +4,7 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const shell = readFileSync("rust/crates/atelier-runtime/src/widget_presentation.html", "utf8");
-const script = shell.match(/<script>([\s\S]*?)<\/script>/)![1];
+const script = shell.match(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/)![1];
 function bridge() {
   let height = 420;
   const listeners: Record<string, (event?: unknown) => void> = {};

@@ -1,0 +1,1 @@
+AtelierStudioSurfaces.bootstrapMarkdownSurface({editorFactory:AtelierEditorFactory,parser:marked,sanitizer:DOMPurify});

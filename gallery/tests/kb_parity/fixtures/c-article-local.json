@@ -67,7 +67,7 @@
     },
     {
       "id": "article-write",
-      "notes": "gbrain put réel sur le store SIMULÉ (fake-gbrain.mjs) — jamais le NAS de l'opérateur. dropDraft supprime le brouillon après écriture réussie : le draft f0a39a4d07f8 est CONSOMMÉ après cette étape (voir le fixture suivant).",
+      "notes": "gbrain put réel sur le store SIMULÉ (fake-gbrain.mts) — jamais le NAS de l'opérateur. dropDraft supprime le brouillon après écriture réussie : le draft f0a39a4d07f8 est CONSOMMÉ après cette étape (voir le fixture suivant).",
       "args": ["article-write", "--draft", "f0a39a4d07f8", "--slug", "articles/aoki-2022-fixture", "--title", "Melting of Alpine Glaciers (Fixture)", "--authors", "T. Aoki and K. Kuchiki", "--year", "2022", "--doi", "10.1234/fixture.2022.001"],
       "expect": { "exitCode": 0, "stdout": { "ok": true, "slug": "articles/aoki-2022-fixture", "written": true, "updated": false, "ragdoc": null } }
     },

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-// Le script reste exécutable directement par Node et n'expose pas de types TS.
-// @ts-expect-error module JavaScript sans déclaration, volontairement testé ici
-import { nearestRank, summarizeRuns } from "../../scripts/summarize-boot-metrics.mjs";
+import { nearestRank, summarizeRuns } from "../../scripts/summarize-boot-metrics.mts";
 
 describe("summarize-boot-metrics", () => {
   it("calcule les quantiles nearest-rank d'une fixture contrôlée", () => {
