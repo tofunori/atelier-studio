@@ -36,6 +36,14 @@ NAVIGATEUR (éditeurs `gallery/src/studio`, UI React) et les harnais de test
 (`gallery/tests/*.mts`, `scripts/*.mts`) — c'est de l'interface et de
 l'outillage, pas du runtime. En cas de doute : Rust.
 
+## App iPhone (mobile-native/)
+
+- L'app SwiftUI native `mobile-native/` est LE client mobile. Le client web `mobile/` (React/Tauri) est gelé depuis le 2026-09-28 : ni construit, ni livré, ni servi — ne pas y toucher.
+- Swift ne compile pas sur Linux : valider par le job CI `mobile-native` (macOS, XcodeGen + XCTest sur simulateur) ou sur le Mac de Thierry. Ne jamais annoncer « ça compile » sans l'un des deux.
+- Ne JAMAIS supprimer l'app de l'iPhone avant de réinstaller : les annotations et l'association au Mac vivent dans l'app. Installer par-dessus avec `mobile-native/scripts/install-iphone.sh` (signature dans `mobile-native/Config/Local.xcconfig`, jamais commitée).
+- Passerelle côté Mac = `rust/crates/atelier-remote` (lancée par `src-tauri/src/remote_gateway.rs`, HTTPS Tailscale sur le port 8443). Le rendu riche du chat vient de `mobile-native/Renderer/` : régénérer son bundle après modification.
+- Détails : `mobile-native/README.md`.
+
 ## Contraintes techniques
 
 - **Éditeurs galerie (diff, versions, rewrap, commentaires) : lire docs/PIEGES_CONNUS.md AVANT de toucher `gallery/src/browser/diff_versions.ts` (source de `gallery/assets/diff_versions.js`), `latex_studio.html` ou `code_editor.html`**, puis lancer `npm run test:gallery:diff` (se fier au « ok », pas au nombre de tests ; obligatoire dès que `gallery/` change ; son étage A spawne `atelier-gallery-server`, résolu par `gallery/tests/gallery_server.mts`).

@@ -1,0 +1,28 @@
+// Modèle de signature personnelle pour installer AtelierNative sur un iPhone.
+//
+//   cp mobile-native/Config/Local.xcconfig.example mobile-native/Config/Local.xcconfig
+//
+// Local.xcconfig est ignoré par Git : il contient des valeurs propres à ton
+// compte Apple. Signing.xcconfig l'inclut en dernier, donc ces lignes
+// remplacent les valeurs par défaut.
+//
+// Le suffixe [sdk=iphoneos*] limite ces réglages aux compilations pour un
+// appareil réel. Le simulateur garde l'identifiant d'aperçu et la signature
+// ad hoc (scripts/connect-simulator.py et les tests en dépendent).
+
+// Identifiant de l'app DÉJÀ installée sur l'iPhone. Il doit être identique à
+// celui de l'installation existante : iOS met alors l'app à jour en gardant ses
+// données (annotations, brouillons, association au Mac). Un autre identifiant
+// installerait une seconde app, vide.
+// Pour le retrouver : xcrun devicectl device info apps --device <iPhone>
+PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*] = com.example.atelier
+
+// Identifiant d'équipe Apple (10 caractères). Avec un compte gratuit, c'est
+// l'équipe « Personal Team » : Xcode > Settings > Accounts, ou dans un projet
+// déjà signé, Build Settings > Signing > Development Team.
+DEVELOPMENT_TEAM[sdk=iphoneos*] = ABCDE12345
+
+// Signature automatique : Xcode crée ou renouvelle le profil (7 jours avec un
+// compte gratuit) quand xcodebuild reçoit -allowProvisioningUpdates.
+CODE_SIGN_STYLE[sdk=iphoneos*] = Automatic
+CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development

@@ -107,7 +107,7 @@ struct ReadingAnnotationEditor: View {
                let note = saved["note"] as? String {
                 draft.note = note
                 if let raw = saved["style"] as? String, let value = PDFMark.Style(rawValue: raw) { draft.markingStyle = value }
-                if let raw = saved["ink"] as? String, let value = AnnotationInk(rawValue: raw) { draft.ink = value }
+                if let raw = saved["ink"] as? String, let value = AnnotationInk(stored: raw) { draft.ink = value }
             }
         }
         .onChange(of: draft.note) { _, _ in cacheDraft() }
@@ -169,7 +169,7 @@ struct ReadingAnnotationsCard: View {
                     ForEach(filtered) { note in
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Image(systemName: note.style == .highlight ? "highlighter" : "underline").foregroundStyle(note.color.color)
+                                Image(systemName: note.style == .highlight ? "highlighter" : "underline").foregroundStyle(note.color.tint)
                                 Text(note.location).foregroundStyle(.secondary)
                                 Spacer()
                                 Menu {

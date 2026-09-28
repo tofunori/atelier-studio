@@ -1,8 +1,12 @@
 # ADR-002 — Runtime UI iOS : Tauri 2 + React, frontières Swift
 
-- **Statut** : Proposé (jalon A plan 034) — en attente de GO Codex
+- **Statut** : Remplacé le 2026-09-28 — voir l'[addendum](#addendum-2026-09-28--lapp-swiftui-native-remplace-le-client-reacttauri)
 - **Date** : 2026-07-12
 - **Commit baseline** : `0fbfc7a`
+
+> **Historique.** Cette décision décrit le client React/Tauri `mobile/`, gelé
+> depuis le 2026-09-28. Le client mobile actuel est l'app SwiftUI native
+> [`mobile-native/`](../../mobile-native/README.md).
 
 ## Contexte
 
@@ -157,3 +161,30 @@ sur l’app Mac.
 - `src/styles/tokens.css`, `src/App.css`
 - `src/components/chat/*`, `docs/performance/frontend-2026-07.md`
 - `plans/016`, `020`, `022`, `023`, `034`
+
+## Addendum 2026-09-28 — l'app SwiftUI native remplace le client React/Tauri
+
+La section 3 (« interdiction de réécriture SwiftUI globale prématurée ») est
+levée. Depuis le prototype du 2026-09-05, l'app SwiftUI native
+[`mobile-native/`](../../mobile-native/README.md) a couvert tout le périmètre du
+client `mobile/` (chat en direct, galerie, fichiers, association) puis l'a
+dépassé : articles Zotero, lecture PDF et annotations synchronisées avec le Mac,
+éditeur LaTeX, Calculs, dictée, pièces jointes. C'est elle qui est installée et
+utilisée sur l'iPhone de Thierry.
+
+Décision (tri du 2026-09-24, question B de `plans/TRI-2026-09-24.md`) :
+
+- `mobile/` est gelé : conservé dans le dépôt comme référence, il n'est plus
+  construit, testé en CI, livré dans Atelier.app ni servi par la passerelle
+  (qui le servait avec son jeton en `localStorage`).
+- Le client mobile est `mobile-native/` : SwiftUI et PDFKit pour les écrans,
+  un `WKWebView` limité au rendu riche des messages (`mobile-native/Renderer`).
+  Ce retour partiel au web est un composant, pas le runtime de l'app.
+- Les contrats restent ceux de la passerelle `rust/crates/atelier-remote`
+  (ADR-001) ; le reducer TypeScript partagé n'est plus une contrainte du client.
+- La porte de vérification devient le job CI `mobile-native` (XcodeGen, XCTest
+  sur simulateur iOS 26), à la place de `verify:mobile`.
+
+La section 3 subordonnait ce passage à un profil appareil montrant une limite
+structurelle de WKWebView (gate E du plan 034). Cet addendum enregistre le
+remplacement tel qu'il a eu lieu ; il ne rejoue pas cette porte.

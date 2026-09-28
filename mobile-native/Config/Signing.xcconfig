@@ -1,0 +1,21 @@
+// Signature de l'app AtelierNative (cible application, Debug et Release).
+//
+// Valeurs par défaut : identifiant d'aperçu et signature ad hoc (« - »). Elles
+// suffisent pour le simulateur et pour la CI, sans compte Apple.
+//
+// Pour installer sur un iPhone réel, ne pas modifier ce fichier : copier
+// Local.xcconfig.example en Local.xcconfig (ignoré par Git) et y mettre
+// l'identifiant de l'app déjà installée et l'équipe Apple. Voir
+// mobile-native/README.md, « Installer sur l'iPhone ».
+//
+// project.yml ne doit PAS redéfinir ces clés dans `settings` : les réglages
+// d'une cible XcodeGen passent avant ce fichier et masqueraient Local.xcconfig.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.tofunori.atelier.swiftui.preview
+DEVELOPMENT_TEAM =
+CODE_SIGNING_ALLOWED = YES
+CODE_SIGN_IDENTITY = -
+
+// Surcharges personnelles, facultatives. Doit rester la dernière ligne : les
+// affectations de Local.xcconfig remplacent celles ci-dessus.
+#include? "Local.xcconfig"

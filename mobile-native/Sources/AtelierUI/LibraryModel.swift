@@ -67,14 +67,12 @@ struct LibraryNote: Codable, Identifiable {
                selectedCollection == collection, gallery.connectionRevision == revision { self.error = error.localizedDescription }
         }
     }
+    /// Cached PDFs are trimmed, least recently opened first, from above the
+    /// limit down to the target. Replaceable in tests.
+    @ObservationIgnored var pdfCacheLimit = 500 * 1024 * 1024
+    @ObservationIgnored var pdfCacheTarget = 400 * 1024 * 1024
     func open(_ article: LibraryArticle, workspace: WorkspaceModel) async throws {
-        let name = "\(article.key).pdf"
-        let data: Data
-        if let folder, let cached = try? Data(contentsOf: folder.appendingPathComponent(name)) { data = cached }
-        else {
-            data = try await workspace.gallery.chatRequest(["zotero", "pdf", article.key])
-            try store(data, name: name)
-        }
+        let data = try await pdf(article.key, using: workspace.gallery)
         let digest = Array(SHA256.hash(data: Data(article.key.utf8)))
         let id = UUID(uuid: (digest[0],digest[1],digest[2],digest[3],digest[4],digest[5],digest[6],digest[7],digest[8],digest[9],digest[10],digest[11],digest[12],digest[13],digest[14],digest[15]))
         let item = GalleryArtifact(id: id, name: article.pdfFile ?? "\(article.title).pdf", data: data)
@@ -106,6 +104,61 @@ struct LibraryNote: Codable, Identifiable {
         updated.append(LibraryNote(id: draft.id, articleKey: key, citation: draft.passage.citation, passage: draft.passage.text, text: draft.note, date: Date(), zoteroKey: previous?.zoteroKey, zoteroVersions: previous?.zoteroVersions, syncedText: previous?.syncedText))
         try store(JSONEncoder().encode(updated), name: "notes.json")
         notes = updated
+    }
+    /// The article's PDF: the copy on this iPhone while the Mac confirms it is
+    /// current (304) or cannot be reached, else a fresh download that replaces it.
+    func pdf(_ key: String, using gallery: GalleryModel) async throws -> Data {
+        let name = "\(key).pdf", etagName = "\(key).etag"
+        let cached = folder.flatMap { try? Data(contentsOf: $0.appendingPathComponent(name)) }
+        if let cached {
+            guard gallery.connected else { touch(name); return cached }
+            let etag = folder.flatMap { try? String(contentsOf: $0.appendingPathComponent(etagName), encoding: .utf8) }
+            do {
+                // Short: a slow or sleeping Mac must not delay reading a copy already here.
+                let reply = try await gallery.conditionalRequest(["zotero", "pdf", key], etag: etag, timeout: 6)
+                if reply.status == 304 || reply.data.isEmpty { touch(name); return cached }
+                try storePDF(reply.data, etag: reply.etag, key: key)
+                return reply.data
+            } catch {
+                if Task.isCancelled { throw error }
+                touch(name); return cached
+            }
+        }
+        let reply = try await gallery.conditionalRequest(["zotero", "pdf", key], etag: nil)
+        guard reply.status != 304, !reply.data.isEmpty else { throw GalleryModel.GalleryError.missingFile }
+        try storePDF(reply.data, etag: reply.etag, key: key)
+        return reply.data
+    }
+    private func storePDF(_ data: Data, etag: String?, key: String) throws {
+        try store(data, name: "\(key).pdf")
+        if let folder {
+            let etagURL = folder.appendingPathComponent("\(key).etag")
+            if let etag, !etag.isEmpty { try? Data(etag.utf8).write(to: etagURL, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: etagURL) }
+        }
+        trimPDFCache(keeping: "\(key).pdf")
+    }
+    /// Marks a cached PDF as just opened: the quota removes the oldest opened first.
+    private func touch(_ name: String) {
+        guard let folder else { return }
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: folder.appendingPathComponent(name).path)
+    }
+    /// Only `*.pdf` (and their ETags) count and go; notes.json and articles.json stay.
+    func trimPDFCache(keeping kept: String) {
+        guard let folder, let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return }
+        var pdfs = files.filter { $0.pathExtension.lowercased() == "pdf" }.map { url -> (url: URL, size: Int, date: Date) in
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return (url, values?.fileSize ?? 0, values?.contentModificationDate ?? .distantPast)
+        }
+        var total = pdfs.reduce(0) { $0 + $1.size }
+        guard total > pdfCacheLimit else { return }
+        pdfs.sort { $0.date < $1.date }
+        for entry in pdfs where entry.url.lastPathComponent != kept {
+            guard total > pdfCacheTarget else { break }
+            do { try FileManager.default.removeItem(at: entry.url) } catch { continue }
+            try? FileManager.default.removeItem(at: entry.url.deletingPathExtension().appendingPathExtension("etag"))
+            total -= entry.size
+        }
     }
     private func store(_ data: Data, name: String) throws {
         guard let folder else { throw CocoaError(.fileWriteUnknown) }

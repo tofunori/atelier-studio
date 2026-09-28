@@ -1,5 +1,11 @@
 # Atelier Companion (mobile) — plan 034 jalon D
 
+> **Gelé depuis le 2026-09-28.** Ce client React/Tauri est remplacé par l'app
+> SwiftUI native [`mobile-native/`](../mobile-native/README.md). Il n'est plus
+> construit, ni testé en CI, ni livré dans Atelier.app, et la passerelle ne le
+> sert plus. Le code reste ici comme référence ; ne pas le modifier
+> (décision B de `plans/TRI-2026-09-24.md`).
+
 Client iOS/Tauri isolé du desktop. Ne modifie pas le build macOS principal.
 
 ## Stack

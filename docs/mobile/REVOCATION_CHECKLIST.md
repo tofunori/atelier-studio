@@ -2,42 +2,44 @@
 
 **Ordre critique : révoquer sur le Mac avant de se préoccuper du client.**
 
+Mis à jour le 2026-09-28 pour l'app native `mobile-native/` et le canal local
+`remote/pair.sock` (plus de jeton administrateur à manipuler).
+
 ## Immédiat (Mac)
 
-1. [ ] Ouvrir Atelier **ou** appeler l'API admin gateway en loopback.
-2. [ ] Lister les appareils :
-   ```bash
-   curl -sS http://127.0.0.1:18765/remote/admin/devices \
-     -H "x-atelier-admin-token: $ADMIN"
+1. [ ] Ouvrir Atelier : Réglages → Général → Avancé → Appareils distants (iPhone).
+2. [ ] Identifier l'appareil suspect (nom, dernière activité).
+3. [ ] Icône corbeille → **Oublier**. Le jeton est refusé aussitôt.
+
+   Sans l'interface, par la socket locale (réservée au compte macOS) :
+
+   ```sh
+   SOCK="$HOME/Library/Application Support/atelier-studio/remote/pair.sock"
+   printf 'devices\n' | nc -U "$SOCK"             # repérer le deviceId
+   printf 'revoke <deviceId>\n' | nc -U "$SOCK"
    ```
-3. [ ] Identifier `deviceId` suspect (nom, lastSeenAt).
-4. [ ] Révoquer :
-   ```bash
-   curl -sS -X POST \
-     "http://127.0.0.1:18765/remote/admin/devices/<deviceId>/revoke" \
-     -H "x-atelier-admin-token: $ADMIN"
-   ```
-5. [ ] Vérifier qu'un `GET /remote/v1/threads` avec l'ancien token renvoie **401**.
-6. [ ] (Optionnel) Annuler tout pairing en cours :
-   ```bash
-   curl -sS -X POST http://127.0.0.1:18765/remote/admin/pairing/cancel \
-     -H "x-atelier-admin-token: $ADMIN"
-   ```
-7. [ ] Si l'admin token a pu fuiter : régénérer (supprimer `admin_token_hash` / relancer gateway pour nouveau token, ou API rotate si dispo) et mettre à jour Réglages Mac.
+
+4. [ ] Vérifier que l'appareil figure comme révoqué (`devices` : `"revoked": true`).
+   Depuis un autre poste du tailnet, une requête avec l'ancien jeton sur
+   `https://<machine>.<tailnet>.ts.net:8443/remote/v1/threads` doit répondre **401**.
+5. [ ] Un code d'association en cours expire seul après 120 s.
 
 ## Ensuite
 
-8. [ ] Changer le code Tailscale / déconnecter l'appareil du tailnet si possible.
-9. [ ] Sur un appareil de remplacement : nouvel appairage (nouveau token).
-10. [ ] Ne **pas** restaurer une sauvegarde iCloud du compagnon qui contiendrait l'ancien token sans re-vérifier la révocation serveur.
+6. [ ] Retirer l'appareil du tailnet dans la console Tailscale si possible.
+7. [ ] Sur un appareil de remplacement : nouvelle association (nouveau jeton),
+   voir [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+8. [ ] Ne **pas** restaurer une sauvegarde de l'ancien appareil qui contiendrait
+   l'ancien jeton sans vérifier la révocation côté Mac.
 
 ## Ce qui est garanti
 
-- Token stocké **hashé** sur le Mac → la révocation invalide le hash courant.
-- Redémarrage Mac **ne réactive pas** un token révoqué (`devices.json` persistant).
-- Les autres appareils appairés restent valides.
+- Jeton stocké **haché** sur le Mac → la révocation invalide l'empreinte.
+- Un redémarrage du Mac **ne réactive pas** un jeton révoqué (`devices.json` persistant).
+- Les autres appareils associés restent valides.
 
 ## Ce qui n'est pas couvert
 
-- Contenu déjà synchronisé / capturé hors app sur l'appareil volé.
-- Accès physique au téléphone déverrouillé avant révocation.
+- Contenu déjà synchronisé sur l'appareil volé (cache de chats, articles,
+  annotations locales).
+- Accès physique au téléphone déverrouillé avant la révocation.

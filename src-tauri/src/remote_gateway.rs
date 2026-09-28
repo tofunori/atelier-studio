@@ -356,8 +356,6 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
     if !listener_pids(&bind)?.is_empty() { return Err("L’ancienne passerelle ne s’est pas encore arrêtée".into()); }
 
     let binary = resolve_gateway(app)?;
-    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    let mobile_dir = resource_dir.join("mobile");
     let root = app_dir().ok_or("dossier utilisateur introuvable")?;
     let remote_dir = root.join("remote");
     std::fs::create_dir_all(&remote_dir).map_err(|e| e.to_string())?;
@@ -391,7 +389,6 @@ pub fn ensure(app: &tauri::AppHandle, sidecar: &SidecarInfo) -> Result<(), Strin
             format!("http://127.0.0.1:{}", sidecar.port),
         )
         .env("ATELIER_TOKEN", &sidecar.token)
-        .env("ATELIER_MOBILE_DIR", mobile_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

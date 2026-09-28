@@ -923,12 +923,10 @@ fn make_interaction_relay(
             }
             let request_id = format!("int-{}", uuid::Uuid::new_v4());
             let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
-            let client_instance_id = state.client_instance_id().lock().await.clone();
             state.interaction_waiters().lock().await.insert(
                 request_id.clone(),
                 crate::state::InteractionWaiter {
                     thread_id: thread_id.clone(),
-                    client_instance_id,
                     tx: answer_tx,
                 },
             );

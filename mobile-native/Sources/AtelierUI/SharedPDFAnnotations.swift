@@ -12,9 +12,15 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
     let kind: String
     let color: String?
     let text: String
+    /// Chat text the Mac attached to the mark.
     let note: String
+    /// Personal note written on the Mac (also Claude's reason for a highlight).
+    /// Absent from caches written before it was decoded.
+    let memo: String
+    /// What the reader wrote: the personal note, else the chat text.
+    var displayNote: String { memo.isEmpty ? note : memo }
 
-    enum CodingKeys: String, CodingKey { case id, page, rects, pin, kind, color, text, note }
+    enum CodingKeys: String, CodingKey { case id, page, rects, pin, kind, color, text, note, memo }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if let value = try? c.decode(String.self, forKey: .id) { id = value }
@@ -26,6 +32,7 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        memo = try c.decodeIfPresent(String.self, forKey: .memo) ?? ""
     }
 
     static func bounds(_ rect: [Double], on page: PDFPage) -> CGRect? {
@@ -84,7 +91,10 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
             return UIColor(red: min(255, max(0, values[0])) / 255, green: min(255, max(0, values[1])) / 255,
                            blue: min(255, max(0, values[2])) / 255, alpha: kind == "hl" ? 0.4 : 0.9)
         }
-        return UIColor.systemYellow.withAlphaComponent(kind == "hl" ? 0.4 : 0.9)
+        // The Mac also accepts its colour names, and draws a mark without colour
+        // in its first one (`normalizeHighlightColor`).
+        let ink = color.flatMap { AnnotationInk(rawValue: $0) } ?? .amber
+        return ink.uiColor.withAlphaComponent(kind == "hl" ? 0.4 : 0.9)
     }
 }
 
@@ -135,7 +145,7 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
                     annotation.quadrilateralPoints = corners.map { NSValue(cgPoint: CGPoint(x: $0.x - bound.minX, y: $0.y - bound.minY)) }
                 }
                 annotation.color = mark.uiColor
-                annotation.contents = mark.note.isEmpty ? mark.text : mark.note
+                annotation.contents = mark.displayNote.isEmpty ? mark.text : mark.displayNote
                 annotation.userName = "Atelier Mac \(mark.id)"
                 page.addAnnotation(annotation)
             }
@@ -144,12 +154,15 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
 }
 
 extension AnnotationInk {
-    /// Nearest tint of the Mac viewer (`HL_COLORS`).
+    /// The Mac viewer's own colour string (`HL_COLORS`).
     var macColor: String {
         switch self {
-        case .sage: "rgba(120,220,140,.40)"
-        case .sand: "rgba(255,213,74,.40)"
+        case .amber: "rgba(255,213,74,.40)"
+        case .green: "rgba(120,220,140,.40)"
         case .blue: "rgba(120,170,255,.40)"
+        case .red: "rgba(255,140,160,.40)"
+        case .orange: "rgba(255,160,80,.40)"
+        case .violet: "rgba(185,150,255,.40)"
         }
     }
 }

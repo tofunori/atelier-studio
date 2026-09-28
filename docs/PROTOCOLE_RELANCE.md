@@ -40,8 +40,8 @@ pas ».
   par worktree, un `target/` par worktree, et la signature « Atelier Dev
   Signing » si ce certificat est dans le trousseau (ad hoc sinon, voir
   `scripts/tauri-signing-args.sh`). Son `beforeBuildCommand` compile le
-  frontend (`tsc` puis `vite build`) et stage la galerie, le client mobile, les
-  serveurs Rust et AppSnap.
+  frontend (`tsc` puis `vite build`) et stage la galerie, les serveurs Rust et
+  AppSnap.
 - L'app construite fige tout au moment du build : **aucun changement n'est
   visible sans rebuild.**
 - La galerie a une source, `gallery/`, et une copie dans le bundle,
@@ -66,7 +66,8 @@ compilation. Choisir ceux qui couvrent la surface modifiée :
 | base de connaissances | `npm run test:kb:parity` |
 | Rust (`rust/crates/`) | le test du crate concerné, puis `npm run test:rust-workspace` |
 | Rust de l'app (`src-tauri/`) | `npm run test:rust` |
-| mobile, protocole, passerelle | `npm run verify:mobile` |
+| protocole, passerelle (`atelier-remote`) | `npm run test:protocol`, `cargo test -p atelier-remote` (dans `rust/`) |
+| app iPhone (`mobile-native/`) | job CI `mobile-native` ou, sur le Mac, `xcodegen generate` puis `xcodebuild test` (voir `mobile-native/README.md`) |
 | changement transversal ou risqué | `npm run verify` |
 
 Avant de toucher aux éditeurs de la galerie (diff, versions, rewrap,

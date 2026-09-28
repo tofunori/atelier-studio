@@ -63,10 +63,6 @@
     {
       "source": "gallery/src/browser/sel_pill.ts",
       "output": "gallery/assets/sel_pill.js"
-    },
-    {
-      "source": "mobile/worker/sw.ts",
-      "output": "mobile/public/sw.js"
     }
   ],
   "inlineScripts": [
@@ -194,11 +190,6 @@
       "source": "scripts/browser/widget_presentation_2.ts",
       "output": "rust/crates/atelier-runtime/src/widget_presentation.html",
       "slot": 2
-    },
-    {
-      "source": "scripts/browser/index_1.ts",
-      "output": "mobile/index.html",
-      "slot": 1
     }
   ],
   "renamedSources": {

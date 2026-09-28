@@ -40,3 +40,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true }
+# Same version and features as atelier-workspace: builds a Zotero fixture library.
+rusqlite = { version = "0.32", features = ["bundled"] }

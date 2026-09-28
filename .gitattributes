@@ -5,7 +5,6 @@ gallery/assets/editor_factory.js linguist-generated=true
 gallery/assets/shadcn-ui/** linguist-generated=true
 gallery/assets/notes/** linguist-generated=true
 gallery/assets/whiteboard/** linguist-generated=true
-src-tauri/mobile-dist/** linguist-generated=true
 mobile-native/Sources/AtelierUI/Resources/ChatRenderer/chat-renderer.js linguist-generated=true
 gallery/assets/annot_kit.js linguist-generated=true
 gallery/assets/atelier_theme.js linguist-generated=true

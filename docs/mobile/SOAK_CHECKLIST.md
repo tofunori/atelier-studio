@@ -1,5 +1,11 @@
 # Soak multi-appareil — Mac + iPhone + iPad (plan 034 I)
 
+> **Historique (plan 034, client web `mobile/`).** Ce document décrit le client
+> React/Tauri `mobile/`, gelé depuis le 2026-09-28 : il n'est plus construit,
+> livré ni servi. Le client mobile est l'app SwiftUI
+> [`mobile-native/`](../../mobile-native/README.md) ; association et Tailscale à jour :
+> [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 **Statut** : checklist humaine (pas d'automation device dans le CI).
 
 ## Préparation

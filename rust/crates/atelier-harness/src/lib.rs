@@ -85,6 +85,16 @@ impl HarnessManager {
             .unwrap_or(false)
     }
 
+    /// Nombre de fils dont un tour tourne (tenir le Mac éveillé, etc.).
+    pub async fn running_count(&self) -> usize {
+        self.runs
+            .lock()
+            .await
+            .values()
+            .filter(|r| r.status == "running")
+            .count()
+    }
+
     pub async fn run_provider(&self, thread_id: &str) -> Option<String> {
         self.runs
             .lock()
@@ -171,5 +181,20 @@ mod tests {
         assert!(manager.is_running("fil").await);
         manager.clear_running_turn("fil", "tour-2").await;
         assert!(!manager.is_running("fil").await);
+    }
+
+    #[tokio::test]
+    async fn running_count_suit_les_tours_en_cours() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = HarnessManager::new(HarnessJournal::new(dir.path()));
+        assert_eq!(manager.running_count().await, 0);
+        manager.set_running("a", "t1", "claude").await;
+        manager.set_running("b", "t2", "codex").await;
+        manager.set_running("a", "t3", "claude").await;
+        assert_eq!(manager.running_count().await, 2);
+        manager.clear_running("a").await;
+        assert_eq!(manager.running_count().await, 1);
+        manager.clear_running_turn("b", "t2").await;
+        assert_eq!(manager.running_count().await, 0);
     }
 }

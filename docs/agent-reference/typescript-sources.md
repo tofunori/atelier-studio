@@ -13,10 +13,13 @@ TypeScript 6 sous le nom `typescript`, pour les API utilisées par Next.js et
 ESLint ; sa commande `typecheck` appelle explicitement le compilateur natif 7.
 
 Les dépendances sont déclarées et verrouillées séparément à la racine, dans
-`gallery`, `gallery/notes-src`, `gallery/whiteboard-src`, `mobile`,
+`gallery`, `gallery/notes-src`, `gallery/whiteboard-src`,
 `packages/atelier-protocol` et `website`. Les installer dans chaque répertoire
 concerné avant ses contrôles. La CI installe les deux éditeurs avant le contrôle
-global et le staging de la galerie.
+global et le staging de la galerie. Les types de pdf.js (`pdfjs-dist`, épinglé
+sur la version vendorisée dans `gallery/assets/pdfjs`) viennent des dépendances
+de `gallery`. Le client web `mobile/`, gelé depuis le 2026-09-28, garde son
+propre verrou mais n'est plus installé ni contrôlé.
 
 ## Où modifier le code
 
@@ -28,7 +31,6 @@ global et le staging de la galerie.
 | CodeMirror 6 | `gallery/src/browser/cm6` et `gallery/src/studio` | Bundles de `gallery/assets` et `gallery/assets/cm6` |
 | Interface React de galerie | `gallery/react-ui` | `gallery/assets/shadcn-ui` |
 | Notes et tableau blanc | `gallery/notes-src/src`, `gallery/whiteboard-src/src` | `gallery/assets/notes`, `gallery/assets/whiteboard` |
-| Service worker mobile | `mobile/worker/sw.ts` | `mobile/public/sw.js` |
 | Rendu du chat natif | `mobile-native/Renderer/chat-renderer.ts` | `mobile-native/Sources/AtelierUI/Resources/ChatRenderer/chat-renderer.js` |
 
 `scripts/typescript-sources.json` relie chaque script classique à sa sortie. Les

@@ -22,7 +22,7 @@ struct PDFMark: Codable, Identifiable, Equatable {
     var ink: AnnotationInk? = nil
     /// The Mac confirmed this version (`pdf_annots.json`); nil = still to send.
     var sentToMac: Bool? = nil
-    var color: AnnotationInk { ink ?? .sage }
+    var color: AnnotationInk { ink ?? .legacy }
     var page: Int { regions.first?.page ?? 0 }
 }
 
@@ -125,7 +125,7 @@ extension WorkspaceModel {
         return "local-pdf:\(pdfFingerprint)"
     }
     var documentPDFMarks: [PDFMark] { pdfAnnotations.marks(for: pdfAnnotationKey) }
-    func savePDFMark(passage: DocumentPassage, id: UUID = UUID(), style: PDFMark.Style, note: String, expectedKey: String? = nil, ink: AnnotationInk = .sage) throws {
+    func savePDFMark(passage: DocumentPassage, id: UUID = UUID(), style: PDFMark.Style, note: String, expectedKey: String? = nil, ink: AnnotationInk = .initial) throws {
         guard passage.documentID == documentID, !pdfFingerprint.isEmpty, let document = pdfDocument,
               expectedKey == nil || expectedKey == pdfAnnotationKey,
               passage.regions.allSatisfy({ $0.pageIndex < document.pageCount }) else { throw PDFAnnotations.StoreError.invalidSelection }

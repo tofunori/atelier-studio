@@ -25,7 +25,6 @@ jobs:
             gallery/package-lock.json
             gallery/notes-src/package-lock.json
             gallery/whiteboard-src/package-lock.json
-            mobile/package-lock.json
             packages/atelier-protocol/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
@@ -47,8 +46,6 @@ jobs:
         run: npm --prefix gallery/notes-src ci
       - name: Install whiteboard deps
         run: npm --prefix gallery/whiteboard-src ci
-      - name: Install mobile deps
-        run: npm --prefix mobile ci
       - name: Install shared protocol deps
         run: npm --prefix packages/atelier-protocol ci
       - name: Install Playwright browsers
@@ -56,7 +53,6 @@ jobs:
       - name: Stage bundled resources for Tauri checks
         run: |
           bash scripts/stage-gallery.sh
-          bash scripts/stage-mobile.sh
           bash scripts/stage-appsnap.sh
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
@@ -77,4 +73,86 @@ jobs:
             gallery/test-results
             tests/visual/test-results
             playwright-report
+          if-no-files-found: ignore
+
+  # App iPhone SwiftUI (mobile-native/). Swift ne compile pas sur Linux : ce job
+  # est la seule vérification automatique du client mobile. Indépendant de
+  # `verify` : un échec de l'un ne masque pas l'autre.
+  mobile-native:
+    # macos-26 = image Apple Silicon avec Xcode 26.x et simulateurs iOS 26
+    # (actions/runner-images, images/macos/macos-26-arm64-Readme.md).
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: |
+          # Le Xcode 26 stable le plus récent de l'image (jamais une bêta) :
+          # le projet cible iOS 26 et Swift 6.
+          XCODE="$(printf '%s\n' /Applications/Xcode_26*.app | grep -E '^/Applications/Xcode_26(\.[0-9]+)*\.app$' | sort -V | tail -1 || true)"
+          test -n "$XCODE" || { echo "::error::Aucun Xcode 26 sur l'image"; exit 1; }
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install root deps (rendu du chat)
+        run: npm ci
+      - name: Chat renderer bundle is up to date
+        run: |
+          node mobile-native/scripts/build-chat-renderer.mts
+          git diff --exit-code -- mobile-native/Sources/AtelierUI/Resources/ChatRenderer || {
+            echo "::error::chat-renderer.js est périmé : lancer node mobile-native/scripts/build-chat-renderer.mts et committer le résultat."
+            exit 1
+          }
+      - name: Chat renderer tests (jsdom)
+        run: node mobile-native/scripts/test-chat-renderer.mts
+      - name: Chat renderer wrap (WebKit, 320/390/430 px)
+        run: |
+          npx playwright install webkit
+          node mobile-native/scripts/test-chat-wrap.mts
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec mobile-native/project.yml
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              m = re.search(r"\.iOS-(\d+)-(\d+)", runtime)
+              if not m or int(m.group(1)) < 26:
+                  continue
+              version = (int(m.group(1)), int(m.group(2)))
+              for device in devices:
+                  if device.get("isAvailable", True) and device["name"].startswith("iPhone"):
+                      key = (version, device["name"])
+                      if best is None or key > best[0]:
+                          best = (key, device["udid"], device["name"], runtime)
+          if best is None:
+              sys.exit("Aucun simulateur iPhone iOS 26+ disponible")
+          print(f"Simulateur : {best[2]} ({best[3]})", file=sys.stderr)
+          print(best[1])
+          ')"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+      - name: Build and test (XCTest, simulateur)
+        run: |
+          xcodebuild \
+            -project mobile-native/AtelierNative.xcodeproj \
+            -scheme AtelierNative \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/AtelierNative.xcresult" \
+            test CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Upload xcresult on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-native-xcresult
+          path: ${{ runner.temp }}/AtelierNative.xcresult
           if-no-files-found: ignore

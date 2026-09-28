@@ -68,6 +68,7 @@ pub struct ServerHandle {
     shutdown: Option<oneshot::Sender<()>>,
     join: Option<tokio::task::JoinHandle<()>>,
     automation_join: Option<tokio::task::JoinHandle<()>>,
+    keep_awake: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl ServerHandle {
@@ -79,6 +80,10 @@ impl ServerHandle {
             let _ = join.await;
         }
         if let Some(join) = self.automation_join.take() {
+            join.abort();
+        }
+        // Abandon de la tâche → caffeinate tué (kill_on_drop).
+        if let Some(join) = self.keep_awake.take() {
             join.abort();
         }
         clear_pid_if_ours(self.state.paths(), std::process::id());
@@ -240,6 +245,8 @@ pub async fn serve_once(
 
     info!(port, "atelier-studio-server listening");
     let automation_join = crate::automations::spawn_scheduler(state.clone());
+    // Mac tenu éveillé tant qu'un tour tourne (macOS, ATELIER_KEEP_AWAKE=0 coupe).
+    let keep_awake = crate::keep_awake::spawn(state.clone());
 
     Ok(ServerHandle {
         port,
@@ -247,6 +254,7 @@ pub async fn serve_once(
         shutdown: Some(shutdown_tx),
         join: Some(join),
         automation_join: Some(automation_join),
+        keep_awake,
     })
 }
 

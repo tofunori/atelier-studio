@@ -17,7 +17,7 @@ struct ReadingNote: Codable, Identifiable, Equatable {
     var markingStyle: PDFMark.Style?
     var ink: AnnotationInk?
     var style: PDFMark.Style { markingStyle ?? .highlight }
-    var color: AnnotationInk { ink ?? .sage }
+    var color: AnnotationInk { ink ?? .legacy }
     var note: String
     let createdAt: Date
     var updatedAt: Date
@@ -107,7 +107,7 @@ final class DocumentReadingNotes {
     @discardableResult
     func upsert(id: UUID? = nil, documentKey: String, fileName: String, location: String,
                 selectedText: String, sourceText: String, sourceRange: NSRange,
-                source: String, note: String, style: PDFMark.Style = .highlight, ink: AnnotationInk = .sage) throws -> ReadingNote {
+                source: String, note: String, style: PDFMark.Style = .highlight, ink: AnnotationInk = .initial) throws -> ReadingNote {
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         var next = entries
         var result: ReadingNote

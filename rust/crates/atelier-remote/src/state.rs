@@ -23,9 +23,6 @@ pub struct GatewayConfig {
     /// Optional loopback sidecar base URL for proxy (e.g. http://127.0.0.1:18790).
     pub sidecar_base: Option<String>,
     pub sidecar_token: Option<String>,
-    /// Optional bundled companion web app, served as a fallback on the main
-    /// gateway bind — never a second unauthenticated listener (SEC-02).
-    pub mobile_dir: Option<PathBuf>,
     /// When true, refuse binding 0.0.0.0 unless ATELIER_REMOTE_ALLOW_ANY_BIND=1.
     pub require_explicit_any_bind: bool,
     /// Max JSON body bytes.
@@ -56,7 +53,6 @@ impl Default for GatewayConfig {
             ],
             sidecar_base: None,
             sidecar_token: None,
-            mobile_dir: None,
             require_explicit_any_bind: true,
             max_body_bytes: 256 * 1024,
             min_retained_sequence: 0,
@@ -73,6 +69,8 @@ pub struct GatewayInner {
     pub journal: HarnessJournal,
     pub pairing_limiter: RateLimiter,
     pub api_limiter: RateLimiter,
+    /// Per-device budget of `/remote/v1/thumb`, separate from `api_limiter`.
+    pub thumb_limiter: RateLimiter,
     pub idempotency: IdempotencyCache,
     /// In-memory fixture threads for tests (thread_id -> events).
     pub fixture_history: HashMap<String, Vec<Value>>,
@@ -91,6 +89,8 @@ pub struct GatewayState {
     pub(crate) read_calls: Arc<tokio::sync::Semaphore>,
     pub(crate) live_calls: Arc<tokio::sync::Semaphore>,
     pub(crate) file_calls: Arc<tokio::sync::Semaphore>,
+    /// Concurrent `sips`/`qlmanage` thumbnail renders.
+    pub(crate) thumb_jobs: Arc<tokio::sync::Semaphore>,
     pub(crate) gallery_flights: Arc<Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
 }
 
@@ -169,6 +169,7 @@ impl GatewayState {
             read_calls:Arc::new(tokio::sync::Semaphore::new(16)),
             live_calls:Arc::new(tokio::sync::Semaphore::new(8)),
             file_calls:Arc::new(tokio::sync::Semaphore::new(16)),
+            thumb_jobs:Arc::new(tokio::sync::Semaphore::new(2)),
             gallery_flights:Arc::new(Mutex::new(HashMap::new())),
             inner: Arc::new(Mutex::new(GatewayInner {
                 config,
@@ -178,6 +179,7 @@ impl GatewayState {
                 journal,
                 pairing_limiter: RateLimiter::pairing_default(),
                 api_limiter: RateLimiter::api_default(),
+                thumb_limiter: RateLimiter::thumb_default(),
                 idempotency: IdempotencyCache::default(),
                 fixture_history: HashMap::new(),
                 gallery_snapshots: HashMap::new(),

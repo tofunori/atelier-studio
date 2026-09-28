@@ -1,5 +1,11 @@
 # Handoff jalon E — plan 034
 
+> **Historique (plan 034, client web `mobile/`).** Ce document décrit le client
+> React/Tauri `mobile/`, gelé depuis le 2026-09-28 : il n'est plus construit,
+> livré ni servi. Le client mobile est l'app SwiftUI
+> [`mobile-native/`](../../mobile-native/README.md) ; association et Tailscale à jour :
+> [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 ### Périmètre livré
 
 Moteur de chat fluide dans `mobile/` :

@@ -483,3 +483,55 @@ final class ComposerSuggestionTests: XCTestCase {
         XCTAssertNotNil(model.error)
     }
 }
+
+final class DeepLinkTests: XCTestCase {
+    func testPairingAndThreadLinksAreToldApart() throws {
+        let pair = try XCTUnwrap(URL(string: "atelier-native://pair?address=http%3A%2F%2Fmac.local%3A8787&code=123456"))
+        XCTAssertEqual(AtelierLink(pair), .pair(pair.absoluteString))
+        XCTAssertEqual(AtelierLink.pairingHost(pair.absoluteString), "mac.local")
+        XCTAssertTrue(AtelierLink.replacementMessage(pair.absoluteString).contains("mac.local"))
+        XCTAssertEqual(AtelierLink.pairingHost("atelier-native://pair?address=http://192.168.1.20:8787&code=1"), "192.168.1.20")
+        XCTAssertNil(AtelierLink.pairingHost("atelier-native://pair?code=1"))
+        XCTAssertEqual(AtelierLink(try XCTUnwrap(URL(string: "atelier-native://thread/thr_42"))), .thread("thr_42"))
+        // The ntfy Click header percent-encodes the id as one segment.
+        XCTAssertEqual(AtelierLink(try XCTUnwrap(URL(string: "atelier-native://thread/fil%20%C3%A9%2F1"))), .thread("fil é/1"))
+        XCTAssertNil(AtelierLink(try XCTUnwrap(URL(string: "atelier-native://thread/"))))
+        XCTAssertNil(AtelierLink(try XCTUnwrap(URL(string: "atelier-native://other/x"))))
+        XCTAssertNil(AtelierLink(try XCTUnwrap(URL(string: "https://thread/abc"))))
+    }
+
+    @MainActor func testThreadLinkOpensItsChatAfterLoadingTheCatalogOrShowsTheList() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ThreadCatalogProtocol.self]
+        let workspace = WorkspaceModel()
+        workspace.gallery = GalleryModel(address: URL(string: "https://catalog.test")!, token: "test", session: URLSession(configuration: configuration))
+        workspace.surface = .gallery
+        await workspace.openThread(id: "linked")
+        XCTAssertEqual(workspace.chat.selected?.id, "linked")
+        XCTAssertEqual(workspace.surface, .chat)
+        XCTAssertFalse(workspace.sidebarRequested)
+        workspace.surface = .gallery
+        await workspace.openThread(id: "unknown")
+        XCTAssertEqual(workspace.surface, .chat)
+        XCTAssertTrue(workspace.sidebarRequested)
+        XCTAssertEqual(workspace.chat.selected?.id, "linked")
+    }
+}
+
+private final class ThreadCatalogProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let body: String
+        switch request.url?.path {
+        case "/remote/v1/threads": body = #"{"threads":[{"id":"linked","title":"Depuis une alerte","provider":"codex","status":"idle"}]}"#
+        case "/remote/v1/projects": body = #"{"projects":[]}"#
+        case "/remote/v1/providers": body = #"{"providers":[]}"#
+        default: client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}

@@ -158,11 +158,12 @@ function refreshReadingHighlights() {
     if (!match) continue;
     const range = document.createRange();
     range.setStart(...index.starts[match.start]); range.setEnd(...index.ends[match.end - 1]);
-    readingRanges.push({id: note.id, range, style: note.style || "highlight", ink: note.ink || "sage"});
+    readingRanges.push({id: note.id, range, style: note.style || "highlight", ink: note.ink || "green"});
   }
   if (window.CSS?.highlights && window.Highlight) {
-    for (const style of ['highlight', 'underline']) for (const ink of ['sage', 'sand', 'blue']) {
-      const key = style === 'highlight' && ink === 'sage' ? 'atelier-notes' : `atelier-${style}-${ink}`;
+    // The Mac viewer's six colours (AnnotationInk); a note without colour keeps the legacy green highlight.
+    for (const style of ['highlight', 'underline']) for (const ink of ['amber', 'green', 'blue', 'red', 'orange', 'violet']) {
+      const key = style === 'highlight' && ink === 'green' ? 'atelier-notes' : `atelier-${style}-${ink}`;
       CSS.highlights.set(key, new Highlight(...readingRanges.filter(item => item.style === style && item.ink === ink).map(item => item.range)));
     }
   }

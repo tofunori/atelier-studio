@@ -17,6 +17,8 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var size: Int = 0
     var annotationRegion: FigureRegion?
     var favorite: Bool? = nil
+    /// The Mac's listing tag (size and modification time): changes with the file.
+    var version: String? = nil
     var ext: String { (name as NSString).pathExtension.lowercased() }
     var kind: String {
         if ext == "pdf" { return "PDF" }
@@ -38,7 +40,11 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     }
     private struct Projects: Decodable { let projects: [Project] }
     private struct Index: Decodable {
-        struct Item: Decodable { let fileId: String; let name: String; let size: Int; let favorite: Bool? }
+        struct Item: Decodable {
+            let fileId: String; let name: String; let size: Int; let favorite: Bool?
+            let etag: String?; let modifiedAt: Double?
+            var version: String? { etag ?? modifiedAt.map { String(format: "%.0f", $0) } }
+        }
         let items: [Item]
         let nextOffset: Int?
         let snapshot: String?
@@ -62,6 +68,10 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     private var token = ""
     private var identities: [String: UUID] = [:]
     @ObservationIgnored private var cache = ArtifactDataCache()
+    /// Connection on which the Mac turned out to lack `remote/v1/thumb`.
+    @ObservationIgnored private var thumbnailRouteMissing: UUID?
+    /// Thumbnails the Mac declined, by cache key, with the time a retry is allowed.
+    @ObservationIgnored private var thumbnailRefusals: [String: Date] = [:]
     private let session: URLSession
 
     init(address: URL, token: String, session: URLSession) {
@@ -115,7 +125,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         baseURL = url; token = paired.token; connected = true
         connectionRevision = UUID()
         remoteItems = []; cache = ArtifactDataCache(); identities = [:]; projects = []; selectedProject = ""
-        favoriteUpdates = [:]
+        favoriteUpdates = [:]; thumbnailRefusals = [:]
         do { try await loadProjects() }
         catch {
             // Pairing and credential rotation already succeeded. Keep that usable
@@ -158,7 +168,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
                 identities[key] = id
                 let update = favoriteUpdates[key]
                 let favorite = (update?.revision ?? 0) > startingFavoriteRevision ? update?.on : $0.favorite
-                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size, favorite: favorite)
+                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size, favorite: favorite, version: $0.version)
             }
         } catch is CancellationError {} catch {
             if refreshID == requestID && !Task.isCancelled && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
@@ -189,6 +199,51 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         cache.insert(data, for: key)
         return data
     }
+    /// File types the Mac renders into a thumbnail (`GET /remote/v1/thumb`).
+    static let thumbnailTypes: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "pdf"]
+    /// A small PNG (at most 480 px) the Mac renders for an image or a PDF, so
+    /// the grid needs neither the whole file nor the 5 MB preview limit.
+    /// `nil`: the Mac offers none for this file (another type, a file imported
+    /// on the iPhone, a Mac without the route), so the caller previews the file
+    /// itself. A thrown error: the Mac declined it, and the placeholder stays.
+    func thumbnail(_ item: GalleryArtifact) async throws -> Data? {
+        guard item.data == nil, let id = item.fileID, Self.thumbnailTypes.contains(item.ext) else { return nil }
+        let revision = connectionRevision
+        guard thumbnailRouteMissing != revision else { return nil }
+        let key = "thumb:" + cacheKey(item, id: id) + ":" + (item.version ?? "")
+        if let data = cache.value(for: key) { return data }
+        if let retry = thumbnailRefusals[key], retry > Date() { throw GalleryError.missingFile }
+        guard let baseURL else { throw GalleryError.invalidAddress }
+        var url = baseURL.appendingPathComponent("remote/v1/thumb").appendingPathComponent(id)
+        // The Mac ignores `v`: a changed file simply gets a new cache entry.
+        if let version = item.version, !version.isEmpty { url.append(queryItems: [URLQueryItem(name: "v", value: version)]) }
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-atelier-device-token")
+        // Every status comes back here, so a refusal is remembered, not retried.
+        let (data, http) = try await exchange(request, accepting: Set(300..<600))
+        let status = http.statusCode
+        if status == 401 { throw GalleryError.server(401) }
+        let explained = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) != nil
+        if (status == 404 || status == 405) && !explained {
+            // No JSON error: this Mac predates the route. Ask again after re-pairing.
+            thumbnailRouteMissing = revision
+            return nil
+        }
+        guard (200..<300).contains(status) else {
+            // 404 unavailable or 400 too large hold for this version of the
+            // file; 503 (the Mac is busy) and 429 may be asked again later.
+            thumbnailRefusals[key] = [429, 503].contains(status) ? Date().addingTimeInterval(60) : Date.distantFuture
+            throw GalleryError.server(status)
+        }
+        guard data.count <= 4 * 1024 * 1024, let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            // An older Mac may answer an unknown path with its web page.
+            thumbnailRouteMissing = revision
+            return nil
+        }
+        cache.insert(data, for: key)
+        return data
+    }
     func previewText(_ item: GalleryArtifact) async throws -> String {
         if let data = item.data { return String(decoding: data.prefix(65_536), as: UTF8.self) }
         guard let id = item.fileID else { throw GalleryError.missingFile }
@@ -199,7 +254,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     }
     func composerFiles(project: String) async throws -> [GalleryArtifact] {
         try await galleryItems(project).map { item in
-            GalleryArtifact(name: item.name, fileID: item.fileId, projectID: project, size: item.size)
+            GalleryArtifact(name: item.name, fileID: item.fileId, projectID: project, size: item.size, version: item.version)
         }
     }
     private func galleryItems(_ project: String, finding fileID: String? = nil) async throws -> [Index.Item] {
@@ -240,6 +295,16 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     }
     func attachmentID(_ item: GalleryArtifact) async throws -> String {
         if let id = item.fileID {
+            // One byte proves the gateway still knows this reference: no listing.
+            do {
+                _ = try await get("remote/v1/file", identifier: id, range: "bytes=0-0")
+                return id
+            } catch GalleryError.server(let status) where status != 404 {
+                throw GalleryError.server(status)
+            } catch is GalleryError {
+                // "fichier inconnu" (or a bare 404) after a gateway restart, or a
+                // refused range on an empty file: the re-index below decides.
+            }
             // A gateway restart clears its in-memory file registry. Re-index the
             // original project before sending the stable opaque reference.
             let candidates: [String]
@@ -318,7 +383,24 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw GalleryError.server((response as? HTTPURLResponse)?.statusCode ?? 0) }
         return bytes
     }
+    /// A GET revalidated with `If-None-Match`: 304 is a success whose body is
+    /// empty, so the caller keeps its copy. Other statuses fail as usual.
+    func conditionalRequest(_ components: [String], etag: String?, timeout: TimeInterval = 20) async throws -> (status: Int, data: Data, etag: String?) {
+        guard let baseURL else { throw GalleryError.invalidAddress }
+        var url = baseURL.appendingPathComponent("remote/v1")
+        for component in components { url.appendPathComponent(component) }
+        var request = URLRequest(url: url)
+        // URLSession must hand the 304 back instead of answering from its own cache.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue(token, forHTTPHeaderField: "x-atelier-device-token")
+        if let etag, !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        let (data, http) = try await exchange(request, timeout: timeout, accepting: [304])
+        return (http.statusCode, data, http.value(forHTTPHeaderField: "ETag"))
+    }
     private func response(_ request: URLRequest, timeout: TimeInterval = 20) async throws -> Data {
+        try await exchange(request, timeout: timeout).data
+    }
+    private func exchange(_ request: URLRequest, timeout: TimeInterval = 20, accepting accepted: Set<Int> = []) async throws -> (data: Data, http: HTTPURLResponse) {
         let revision = connectionRevision
         var request = request; request.timeoutInterval = timeout
         let result: (Data, URLResponse)
@@ -330,14 +412,14 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         let (data, response) = result
         try Task.checkCancellation()
         guard revision == connectionRevision else { throw CancellationError() }
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) || accepted.contains(http.statusCode) else {
             if (response as? HTTPURLResponse)?.statusCode == 401 { throw GalleryError.server(401) }
             if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let message = body["error"] as? String {
                 throw GalleryError.message(message)
             }
             throw GalleryError.server((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
-        return data
+        return (data, http)
     }
     enum GalleryError: LocalizedError {
         case invalidAddress, missingFile, tooLarge, attachmentTooLarge, keychain, server(Int), message(String)

@@ -149,7 +149,7 @@ Dependencies are locked separately in several folders:
 
 ```sh
 npm ci
-for dir in gallery gallery/notes-src gallery/whiteboard-src packages/atelier-protocol mobile; do
+for dir in gallery gallery/notes-src gallery/whiteboard-src packages/atelier-protocol; do
   npm --prefix "$dir" ci
 done
 ```

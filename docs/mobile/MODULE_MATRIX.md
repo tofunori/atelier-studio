@@ -1,5 +1,11 @@
 # Matrice modules — réutiliser / adapter / interdire (mobile MVP)
 
+> **Historique (plan 034, client web `mobile/`).** Ce document décrit le client
+> React/Tauri `mobile/`, gelé depuis le 2026-09-28 : il n'est plus construit,
+> livré ni servi. Le client mobile est l'app SwiftUI
+> [`mobile-native/`](../../mobile-native/README.md) ; association et Tailscale à jour :
+> [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 Commit de référence : `0fbfc7a`.
 Légende : **R** = réutiliser, **A** = adapter, **I** = interdire sur mobile MVP,
 **N** = nouveau (à écrire).

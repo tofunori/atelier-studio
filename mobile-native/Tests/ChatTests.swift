@@ -644,6 +644,36 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(workspace.chat.lastSequences[thread.id], 3)
     }
 
+    @MainActor func testLivePendingRequestNotifiesOncePerRequestAndNeverOnReplay() {
+        let workspace = WorkspaceModel()
+        let thread = RemoteChatModel.Thread(id: "approval-thread", title: "Analyse", provider: "codex", model: nil, projectId: nil, status: "running")
+        workspace.chat.select(thread, workspace: workspace)
+        let recorder = NotificationRecorder()
+        workspace.chat.interactionNotifier = { recorder.threads.append($0.id) }
+        workspace.chat.live = true
+        // Restoring history is not a new request.
+        let replay: [[String: Any]] = [["kind": "interaction", "requestId": "old", "state": "pending", "interactionType": "approval", "meta": ["eventId": "replayed", "turnId": "t0"]]]
+        workspace.chat.applyHistoryBatch(replay[...])
+        XCTAssertTrue(recorder.threads.isEmpty)
+        workspace.chat.apply(["kind": "interaction", "requestId": "r1", "state": "pending", "interactionType": "approval", "meta": ["eventId": "e1", "turnId": "t1", "threadId": thread.id]])
+        // The same request re-sent (reconnection, update) alerts once.
+        workspace.chat.apply(["kind": "interaction", "requestId": "r1", "state": "pending", "interactionType": "approval", "meta": ["eventId": "e2", "turnId": "t1", "threadId": thread.id]])
+        XCTAssertEqual(recorder.threads, [thread.id])
+        workspace.chat.apply(["kind": "interaction", "requestId": "r2", "state": "answered", "interactionType": "approval", "meta": ["eventId": "e3", "turnId": "t1"]])
+        workspace.chat.apply(["kind": "interaction", "requestId": "r3", "state": "pending", "interactionType": "approval", "meta": ["eventId": "e4", "turnId": "t1", "threadId": "another-thread"]])
+        XCTAssertEqual(recorder.threads.count, 1)
+        workspace.chat.live = false
+        workspace.chat.apply(["kind": "interaction", "requestId": "r4", "state": "pending", "meta": ["eventId": "e5", "turnId": "t1"]])
+        XCTAssertEqual(recorder.threads.count, 1)
+        workspace.chat.live = true
+        workspace.chat.apply(["kind": "interaction", "requestId": "r5", "state": "pending", "meta": ["eventId": "e6", "turnId": "t2"]])
+        XCTAssertEqual(recorder.threads, [thread.id, thread.id])
+    }
+
+}
+
+@MainActor private final class NotificationRecorder {
+    var threads: [String] = []
 }
 
 final class AnnotationMessagePresentationTests: XCTestCase {
