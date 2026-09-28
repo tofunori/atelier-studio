@@ -83,6 +83,18 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect(header).toBeVisible();
   expect(await header.evaluate(element => element.getBoundingClientRect().height)).toBe(36);
   expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  // Barres de défilement « toujours affichées » (macOS) : la gouttière native
+  // claire recouvrait le ⋯ et la page glissait dessous. Le document imbriqué
+  // n'en dessine aucune, et le ⋯ tient dans la zone visible.
+  const fit = await header.evaluate(() => ({
+    scrollbar: getComputedStyle(document.documentElement).scrollbarWidth,
+    gutter: window.innerWidth - document.documentElement.clientWidth,
+    moreRight: document.querySelector('.pdf-toolbar-more summary').getBoundingClientRect().right,
+    visibleRight: document.documentElement.clientWidth,
+  }));
+  expect(fit.scrollbar).toBe('none');
+  expect(fit.gutter).toBe(0);
+  expect(fit.moreRight).toBeLessThanOrEqual(fit.visibleRight);
 
   // navigation de page : ‹ 1 / N › suit le défilement, saut par champ
   const pageNav = reader.locator('.pdf-page-nav');
