@@ -169,11 +169,12 @@ function GalleryFileTypePanel({ state, folder, collectionItems }: {
   // épinglé (JPG et Vidéo le sont par défaut) : sinon il filtre en silence
   // derrière « Plus… » et « LaTeX seul » affichait encore les vidéos. Il reste
   // affiché après avoir été décoché, jusqu'à la fermeture du panneau.
-  const revealed = React.useRef(new Set(active))
-  active.forEach(key => revealed.current.add(key))
-  const visibleTypes = state.types.filter(type => (expanded || state.pinned.includes(type.key) || revealed.current.has(type.key))
+  const [revealed] = React.useState(() => new Set<string>())
+  active.forEach(key => revealed.add(key))
+  const pinned = new Set(state.pinned)
+  const visibleTypes = state.types.filter(type => (expanded || pinned.has(type.key) || revealed.has(type.key))
     && (!query || type.label.toLowerCase().includes(query.toLowerCase())))
-  const visible = visibleTypes.map(type => type.key)
+  const visible = new Set(visibleTypes.map(type => type.key))
   const statusNames: Record<string,string> = {"":"Tous",draft:"Brouillon",candidate:"Candidat",final:"Final",rejected:"Rejeté"}
   const workflow = legacyItems("wfMenu", "[data-wfpick]").map(item => ({...item,label:statusNames[item.key] ?? stripLegacyCount(item.label)}))
   const folders = selectOptions("folder")
@@ -194,7 +195,7 @@ function GalleryFileTypePanel({ state, folder, collectionItems }: {
       </div>
       <div className="gallery-format-heading"><span>Formats</span><Button variant="ghost" size="xs" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Moins" : "Plus…"}</Button></div>
       <ToggleGroup multiple value={active} onValueChange={values => {
-        adapter?.setActive([...active.filter(key => !visible.includes(key)), ...values.filter(key => visible.includes(key))])
+        adapter?.setActive([...active.filter(key => !visible.has(key)), ...values.filter(key => visible.has(key))])
       }} className="gallery-format-chips" aria-label="Formats de fichiers">
         {visibleTypes.map(type =>
           <ToggleGroupItem key={type.key} value={type.key} size="sm" data-gallery-quick-type={type.key} data-gallery-file-type={type.key}>{type.label}</ToggleGroupItem>)}
