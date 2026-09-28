@@ -3033,7 +3033,11 @@ if (window.self !== window.top) {
        color-scheme ne recolorent. Elle recouvrait le bout de la barre (⋯ coupé)
        et, header et availW() mesurant 100vw/innerWidth, la page glissait
        dessous. Même choix que la galerie embarquée : pas de chrome de
-       défilement du document ; molette, trackpad et clavier restent actifs. */
+       défilement du document ; molette, trackpad et clavier restent actifs.
+       Le rebond élastique (défilement lancé fort en bout de document) tirait
+       tout le document, barre comprise, au-delà du bord : la barre se
+       détachait. Sans rebond, le défilement s'arrête net au bout. */
+    html, body { overscroll-behavior:none; }
     html { scrollbar-width:none; }
     html::-webkit-scrollbar, body::-webkit-scrollbar { width:0; height:0; display:none; }
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }

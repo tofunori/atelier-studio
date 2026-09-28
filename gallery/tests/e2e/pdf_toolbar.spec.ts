@@ -88,11 +88,14 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   // n'en dessine aucune, et le ⋯ tient dans la zone visible.
   const fit = await header.evaluate(() => ({
     scrollbar: getComputedStyle(document.documentElement).scrollbarWidth,
+    overscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
     gutter: window.innerWidth - document.documentElement.clientWidth,
     moreRight: document.querySelector('.pdf-toolbar-more summary').getBoundingClientRect().right,
     visibleRight: document.documentElement.clientWidth,
   }));
   expect(fit.scrollbar).toBe('none');
+  // Rebond élastique de macOS en bout de document : il détachait la barre.
+  expect(fit.overscroll).toBe('none');
   expect(fit.gutter).toBe(0);
   expect(fit.moreRight).toBeLessThanOrEqual(fit.visibleRight);
 
