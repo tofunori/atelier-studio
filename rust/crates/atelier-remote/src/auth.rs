@@ -62,9 +62,18 @@ pub struct DeviceRecord {
     pub previous_token_expires_at: Option<u64>,
 }
 
+/// Un appareil resté muet plus longtemps perd son jeton (téléphone perdu,
+/// oublié dans un tiroir) : il faudra l'associer de nouveau. Un usage normal
+/// repousse l'échéance à chaque requête.
+pub const DEVICE_IDLE_EXPIRY_SECS: u64 = 90 * 24 * 3600;
+
 impl DeviceRecord {
     pub fn is_revoked(&self) -> bool {
         self.revoked_at.is_some()
+    }
+
+    pub fn is_idle_expired(&self) -> bool {
+        now_secs().saturating_sub(self.last_seen_at) > DEVICE_IDLE_EXPIRY_SECS
     }
 
     pub fn scope_set(&self) -> BTreeSet<Scope> {
@@ -72,7 +81,7 @@ impl DeviceRecord {
     }
 
     pub fn matches_token_hash(&self, hash: &str) -> bool {
-        if self.is_revoked() {
+        if self.is_revoked() || self.is_idle_expired() {
             return false;
         }
         if self.token_hash == hash {
@@ -479,12 +488,25 @@ mod retry_tests {
             assert_eq!(std::fs::metadata(&path).unwrap().ino(), original_inode);
         }
         auth.presence_persisted = std::time::Instant::now()-Duration::from_secs(31);
-        auth.data.devices[0].last_seen_at = 0;
+        auth.data.devices[0].last_seen_at = now_secs() - 3600;
         assert!(auth.authenticate_token(&device.token).is_some());
         assert!(auth.presence_persisted.elapsed()<Duration::from_secs(1));
         auth.revoke_device(&device.device_id).unwrap();
         assert!(auth.authenticate_token(&device.token).is_none());
         assert!(AuthStore::open(path).unwrap().lookup_token(&device.token).is_none());
+    }
+
+    #[test]
+    fn a_device_silent_for_ninety_days_loses_its_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut auth = AuthStore::open(dir.path().join("devices.json")).unwrap();
+        let pairing = auth.start_pairing(None).unwrap();
+        let device = auth.complete_pairing(&pairing.code, "phone").unwrap();
+        auth.data.devices[0].last_seen_at = now_secs() - DEVICE_IDLE_EXPIRY_SECS + 60;
+        assert!(auth.authenticate_token(&device.token).is_some());
+        auth.data.devices[0].last_seen_at = now_secs() - DEVICE_IDLE_EXPIRY_SECS - 60;
+        assert!(auth.authenticate_token(&device.token).is_none());
+        assert!(auth.lookup_token(&device.token).is_none());
     }
 
     #[test]

@@ -85,6 +85,93 @@ pub fn router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
+type UpstreamSocket = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
+
+/// Pourquoi le moteur n'a pas pu être joint.
+pub(crate) enum Upstream {
+    /// Aucun moteur configuré ni trouvé dans `sidecar.lock`.
+    Absent,
+    /// Un moteur est configuré mais ne répond pas.
+    Unreachable,
+}
+
+async fn upstream_url(state: &GatewayState) -> Option<String> {
+    let (base, token) = {
+        let g = state.inner.lock().await;
+        (g.config.sidecar_base.clone(), g.config.sidecar_token.clone())
+    };
+    let base = base?;
+    let ws_base = if let Some(rest) = base.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else {
+        base
+    };
+    Some(match token {
+        Some(token) => format!("{}/?token={token}", ws_base.trim_end_matches('/')),
+        None => format!("{}/", ws_base.trim_end_matches('/')),
+    })
+}
+
+/// Port et jeton lus dans `sidecar.lock` (écrit par le moteur à son
+/// démarrage) : `None` si le fichier est incomplet.
+pub(crate) fn parse_sidecar_lock(raw: &str) -> Option<(u16, String)> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+    let port = u16::try_from(value.get("port")?.as_u64()?).ok().filter(|p| *p != 0)?;
+    let token = value.get("token")?.as_str().filter(|t| !t.is_empty())?;
+    Some((port, token.to_string()))
+}
+
+/// Relit `sidecar.lock`. Un moteur relancé (nouveau port, nouveau jeton)
+/// sans que l'app relance la passerelle laissait celle-ci sur un port mort
+/// jusqu'au prochain redémarrage d'Atelier (piège S3 de PIEGES_CONNUS.md).
+/// Vrai si l'amont a changé.
+pub(crate) async fn refresh_upstream(state: &GatewayState) -> bool {
+    let (lock, base, token) = {
+        let g = state.inner.lock().await;
+        (
+            g.config.atelier_dir.join("sidecar.lock"),
+            g.config.sidecar_base.clone(),
+            g.config.sidecar_token.clone(),
+        )
+    };
+    let Ok(Ok(raw)) = tokio::task::spawn_blocking(move || std::fs::read_to_string(lock)).await else {
+        return false;
+    };
+    let Some((port, fresh_token)) = parse_sidecar_lock(&raw) else { return false };
+    let fresh_base = format!("http://127.0.0.1:{port}");
+    if base.as_deref() == Some(fresh_base.as_str()) && token.as_deref() == Some(fresh_token.as_str()) {
+        return false;
+    }
+    let mut g = state.inner.lock().await;
+    g.config.sidecar_base = Some(fresh_base);
+    g.config.sidecar_token = Some(fresh_token);
+    tracing::info!(port, "moteur relu dans sidecar.lock");
+    true
+}
+
+/// Ouvre un WebSocket vers le moteur ; sur échec, relit `sidecar.lock` et
+/// réessaie une fois si le moteur a changé.
+pub(crate) async fn connect_upstream(state: &GatewayState) -> Result<UpstreamSocket, Upstream> {
+    let mut refreshed = false;
+    loop {
+        let url = upstream_url(state).await;
+        if let Some(url) = &url {
+            if let Ok((socket, _)) = connect_async(url.as_str()).await {
+                return Ok(socket);
+            }
+        }
+        if !refreshed && refresh_upstream(state).await {
+            refreshed = true;
+            continue;
+        }
+        return Err(if url.is_some() { Upstream::Unreachable } else { Upstream::Absent });
+    }
+}
+
 /// Relaye une commande mobile vers le WebSocket loopback du sidecar. Le jeton
 /// sidecar ne quitte jamais le Mac; le client distant reste authentifié par son
 /// jeton de device au niveau de cette API.
@@ -93,32 +180,17 @@ async fn relay_sidecar(
     client_instance_id: &str,
     payload: Value,
 ) -> ApiResult<bool> {
-    let (base, token) = {
-        let g = state.inner.lock().await;
-        (
-            g.config.sidecar_base.clone(),
-            g.config.sidecar_token.clone(),
-        )
+    let mut socket = match connect_upstream(state).await {
+        Ok(socket) => socket,
+        Err(Upstream::Absent) => return Ok(false),
+        Err(Upstream::Unreachable) => {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "sidecar_unavailable",
+                "Atelier n'est pas prêt sur le Mac",
+            ))
+        }
     };
-    let Some(base) = base else { return Ok(false) };
-    let ws_base = if let Some(rest) = base.strip_prefix("https://") {
-        format!("wss://{rest}")
-    } else if let Some(rest) = base.strip_prefix("http://") {
-        format!("ws://{rest}")
-    } else {
-        base
-    };
-    let url = match token {
-        Some(token) => format!("{}/?token={token}", ws_base.trim_end_matches('/')),
-        None => format!("{}/", ws_base.trim_end_matches('/')),
-    };
-    let (mut socket, _) = connect_async(url).await.map_err(|_| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "sidecar_unavailable",
-            "Atelier n'est pas prêt sur le Mac",
-        )
-    })?;
     socket
         .send(Message::Text(
             json!({ "type": "clientHello", "clientInstanceId": client_instance_id })
@@ -180,9 +252,10 @@ async fn health(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
-    let g = state.inner.lock().await;
-    let authenticated = extract_bearer(&headers)
-        .is_some_and(|token| g.auth.lookup_token(&token).is_some());
+    let authenticated = {
+        let g = state.inner.lock().await;
+        extract_bearer(&headers).is_some_and(|token| g.auth.lookup_token(&token).is_some())
+    };
     if !authenticated {
         return Ok(Json(json!({
             "ok": true,
@@ -190,6 +263,17 @@ async fn health(
             "protocolVersion": PROTOCOL_VERSION,
         })));
     }
+    // « Passerelle vivante » ne dit pas « moteur joignable » (piège S3) :
+    // l'appelant authentifié voit aussi l'état du moteur.
+    let upstream = match connect_upstream(&state).await {
+        Ok(mut socket) => {
+            let _ = socket.close(None).await;
+            "ok"
+        }
+        Err(Upstream::Absent) => "absent",
+        Err(Upstream::Unreachable) => "down",
+    };
+    let g = state.inner.lock().await;
     Ok(Json(json!({
         "ok": true,
         "service": "atelier-remote-gateway",
@@ -198,6 +282,7 @@ async fn health(
         "maxProtocolVersion": MAX_PROTOCOL_VERSION,
         "startedAt": g.started_at,
         "devices": g.auth.list_devices().iter().filter(|d| d.revoked_at.is_none()).count(),
+        "upstream": upstream,
     })))
 }
 
@@ -742,10 +827,10 @@ async fn send_msg(
         }
     }
     let fp = hash_token(&json!([body.thread_id, body.prompt, body.model, body.effort, body.file_ids, body.mode, permission_mode]).to_string());
-    match g
+    let seen = g
         .idempotency
-        .check_or_insert(&body.client_request_id, &dev.device_id, &fp)
-    {
+        .check_or_insert(&body.client_request_id, &dev.device_id, &fp);
+    match seen {
         IdempotencyResult::MissingId => {
             return Err(ApiError::bad_request(
                 "missing_field",
@@ -762,12 +847,35 @@ async fn send_msg(
             let confirmed = body.client_message_id.as_deref().is_some_and(|id|
                 g.journal.materialize(&body.thread_id).iter().any(|event|
                     event["kind"] == "user" && event["meta"]["messageId"].as_str() == Some(id)));
-            if !confirmed {
-                return Err(ApiError::new(StatusCode::CONFLICT, "send_unconfirmed",
-                    "La transmission précédente est encore à vérifier. Le message est conservé."));
+            // Absent du journal : le moteur dit lui-même s'il a reçu la
+            // tentative précédente. Sans cette question, un envoi resté sans
+            // accusé (délai dépassé) ne pouvait plus jamais être renvoyé tel
+            // quel depuis l'iPhone.
+            let received = if confirmed {
+                Some(true)
+            } else if let Some(message) = body.client_message_id.clone() {
+                drop(g);
+                let receipt = send_receipt(&state, &dev.device_id, &message).await;
+                g = state.inner.lock().await;
+                receipt
+            } else {
+                None
+            };
+            match received {
+                Some(true) => {
+                    return Ok(Json(json!({"ok":true, "accepted":true, "proxied":true,
+                        "replay":true, "clientRequestId":body.client_request_id})));
+                }
+                Some(false) => {
+                    // Jamais reçu : la même demande repart, sous le même identifiant.
+                    g.idempotency.release(&body.client_request_id, &dev.device_id, &fp);
+                    let _ = g.idempotency.check_or_insert(&body.client_request_id, &dev.device_id, &fp);
+                }
+                None => {
+                    return Err(ApiError::new(StatusCode::CONFLICT, "send_unconfirmed",
+                        "La transmission précédente est encore à vérifier. Le message est conservé."));
+                }
             }
-            return Ok(Json(json!({"ok":true, "accepted":true, "proxied":true,
-                "replay":true, "clientRequestId":body.client_request_id})));
         }
         IdempotencyResult::Fresh => {}
     }
@@ -843,6 +951,8 @@ async fn send_msg(
             false
         }
         Err(error) => {
+            // Les autres échecs (refus, accusé manquant) restent incertains :
+            // un renvoi identique demandera au moteur s'il a reçu le message.
             if matches!(error.code.as_str(), "sidecar_unavailable" | "sidecar_hello_failed") {
                 state.inner.lock().await.idempotency.release(&body.client_request_id, &dev.device_id, &fp);
             }
@@ -1499,12 +1609,17 @@ pub fn check_body_size(bytes: &Bytes, max: usize) -> ApiResult<()> {
     }
 }
 
+/// Le moteur a-t-il reçu ce message (`receiptStatus`) ? `None` si le moteur
+/// ne répond pas : l'incertitude reste alors une incertitude.
+async fn send_receipt(state: &GatewayState, device: &str, message_id: &str) -> Option<bool> {
+    let query = json!({"type": "receiptStatus", "clientMessageId": message_id, "requestId": message_id});
+    let value = query_readonly(state, device, query, "sendReceipt").await.ok()?;
+    Some(value["accepted"].as_bool() == Some(true))
+}
+
 async fn read_socket(state: &GatewayState, device: &str) -> ApiResult<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>> {
-    let (base, token) = { let g = state.inner.lock().await; (g.config.sidecar_base.clone(), g.config.sidecar_token.clone()) };
-    let base = base.ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "offline", "Atelier est déconnecté"))?;
-    let base = base.replacen("http://", "ws://", 1).replacen("https://", "wss://", 1);
-    let url = match token { Some(token) => format!("{}/?token={token}", base.trim_end_matches('/')), None => format!("{}/",base.trim_end_matches('/')) };
-    let (mut socket, _) = connect_async(url).await.map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Atelier est déconnecté"))?;
+    let mut socket = connect_upstream(state).await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Atelier est déconnecté"))?;
     socket.send(Message::Text(json!({"type":"clientHello","clientInstanceId":device}).to_string().into())).await
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Connexion impossible"))?;
     Ok(socket)
@@ -1619,28 +1734,38 @@ async fn upload_attachment(
     if !crate::path_policy::is_allowed_ext(ext) {
         return Err(ApiError::bad_request("mime_not_allowed", "type de fichier non autorisé"));
     }
-    let mut g = state.inner.lock().await;
-    let root = g.config.atelier_dir.join("mobile-uploads").join(&device.device_id);
-    std::fs::create_dir_all(&root).map_err(|_| ApiError::bad_request("upload_failed", "import impossible"))?;
+    let root = state.inner.lock().await.config.atelier_dir.join("mobile-uploads").join(&device.device_id);
     use sha2::{Digest, Sha256};
     let stored_name = format!("{}-{}", hex::encode(Sha256::digest(&bytes)), name);
-    let path = root.join(&stored_name);
-    if !path.is_file() {
-        let used: u64 = std::fs::read_dir(&root).into_iter().flatten().flatten()
+    let size = bytes.len();
+    // Disque hors du verrou global ; écriture dans un fichier temporaire puis
+    // renommage : un arrêt en pleine écriture ne laisse jamais un import
+    // tronqué qu'un envoi identique réutiliserait ensuite.
+    let (dir, stored) = (root.clone(), stored_name.clone());
+    tokio::task::spawn_blocking(move || -> ApiResult<()> {
+        let failed = || ApiError::bad_request("upload_failed", "import impossible");
+        std::fs::create_dir_all(&dir).map_err(|_| failed())?;
+        let path = dir.join(&stored);
+        if path.is_file() { return Ok(()); }
+        let used: u64 = std::fs::read_dir(&dir).into_iter().flatten().flatten()
             .filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum();
-        if used + bytes.len() as u64 > 128 * 1024 * 1024 {
+        if used + size as u64 > 128 * 1024 * 1024 {
             return Err(ApiError::bad_request("upload_quota", "quota des imports atteint (128 Mo)"));
         }
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)
-            .map_err(|_| ApiError::bad_request("upload_failed", "import impossible"))?;
-        if file.write_all(&bytes).is_err() {
-            let _ = std::fs::remove_file(&path);
-            return Err(ApiError::bad_request("upload_failed", "import impossible"));
+        let temporary = dir.join(format!(".{stored}.{}.tmp", uuid::Uuid::new_v4()));
+        let written = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)
+            .and_then(|mut file| { file.write_all(&bytes)?; file.sync_all() })
+            .and_then(|()| std::fs::rename(&temporary, &path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(failed());
         }
-    }
+        Ok(())
+    }).await.map_err(|_| ApiError::bad_request("upload_failed", "import interrompu"))??;
+    let mut g = state.inner.lock().await;
     let project = g.projects.register_project(&root, Some("Imports iPhone".into()));
     let id = g.projects.register_file(&project.project_id, &stored_name)?;
-    Ok(Json(json!({"fileId":id,"name":name,"size":bytes.len()})))
+    Ok(Json(json!({"fileId":id,"name":name,"size":size})))
 }

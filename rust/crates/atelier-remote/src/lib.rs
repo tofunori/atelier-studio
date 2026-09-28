@@ -21,7 +21,6 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 
 pub struct GatewayHandle {
@@ -89,15 +88,10 @@ pub async fn serve(
         g.auth.admin_token_plain().map(|s| s.to_string())
     };
 
-    let mut app = app_router(state.clone(), config.allowed_hosts.clone());
-    if let Some(dir) = config.mobile_dir.as_ref() {
-        let index = dir.join("index.html");
-        if !index.is_file() {
-            return Err(format!("interface mobile introuvable: {}", index.display()).into());
-        }
-        app = app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
-    }
-    let app = app.into_make_service_with_connect_info::<SocketAddr>();
+    // Le client web mobile (mobile/) est gelé depuis le 2026-09-28 : la
+    // passerelle ne sert plus que l'API de l'app iPhone native.
+    let app = app_router(state.clone(), config.allowed_hosts.clone())
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     let listener = TcpListener::bind(config.bind).await?;
     let addr = listener.local_addr()?;
@@ -169,9 +163,6 @@ pub fn config_from_env() -> GatewayConfig {
     }
     if let Ok(tok) = std::env::var("ATELIER_TOKEN") {
         c.sidecar_token = Some(tok);
-    }
-    if let Ok(dir) = std::env::var("ATELIER_MOBILE_DIR") {
-        c.mobile_dir = Some(dir.into());
     }
     c
 }

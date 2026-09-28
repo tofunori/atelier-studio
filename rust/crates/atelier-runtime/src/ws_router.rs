@@ -1720,28 +1720,23 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             state.publish(out.clone());
             vec![out]
         }
-        "clientHello" => {
-            let id = msg
-                .get("clientInstanceId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if id.len() >= 20 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
-                *state.client_instance_id().lock().await = Some(id.to_string());
-            }
-            vec![]
-        }
+        // Accepté pour compatibilité, sans effet : une demande d'accord ne se
+        // rattache plus au « dernier client qui a dit bonjour » (un seul
+        // emplacement pour tout Atelier : l'iPhone qui lisait un fil volait
+        // les accords du bureau, et inversement).
+        "clientHello" => vec![],
         "permissionResponse" => vec![],
         "interactionResponse" => {
             let request_id = msg.get("requestId").and_then(Value::as_str).unwrap_or("");
             let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
-            let client_id = msg.get("clientInstanceId").and_then(Value::as_str);
             let response = msg.get("response").cloned().unwrap_or(Value::Null);
             let waiter = {
                 let mut waiters = state.interaction_waiters().lock().await;
-                let valid = waiters.get(request_id).is_some_and(|waiter| {
-                    waiter.thread_id == thread_id
-                        && waiter.client_instance_id.as_deref() == client_id
-                });
+                // Tout client authentifié (bureau, appareil associé) peut
+                // répondre ; la première réponse retire la demande.
+                let valid = waiters
+                    .get(request_id)
+                    .is_some_and(|waiter| waiter.thread_id == thread_id);
                 if valid {
                     waiters.remove(request_id)
                 } else {
@@ -3566,7 +3561,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interaction_response_requires_the_matching_thread_and_client() {
+    async fn interaction_response_requires_the_matching_thread() {
         let dir = tempdir().unwrap();
         let s = state(dir.path());
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -3574,7 +3569,6 @@ mod tests {
             "request-1".into(),
             InteractionWaiter {
                 thread_id: "thread-1".into(),
-                client_instance_id: Some("11111111-1111-4111-8111-111111111111".into()),
                 tx,
             },
         );
@@ -3589,6 +3583,29 @@ mod tests {
         route_ws(&s, r#"{"type":"interactionResponse","threadId":"thread-1","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-1","response":{"allow":true,"scope":"session"}}"#).await;
         assert_eq!(rx.await.unwrap(), json!({"allow":true,"scope":"session"}));
         assert!(s.approval_sessions().lock().await.contains("thread-1"));
+    }
+
+    /// Régression : l'iPhone (via la passerelle) dit bonjour à chaque lecture.
+    /// Un accord demandé ensuite doit rester accessible au bureau, et
+    /// inversement : la réponse n'est plus filtrée par client.
+    #[tokio::test]
+    async fn interaction_response_is_accepted_from_any_client_after_another_hello() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        route_ws(&s, r#"{"type":"clientHello","clientInstanceId":"22222222-2222-4222-8222-222222222222-live"}"#).await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        s.interaction_waiters().lock().await.insert(
+            "request-2".into(),
+            InteractionWaiter {
+                thread_id: "thread-2".into(),
+                tx,
+            },
+        );
+        route_ws(&s, r#"{"type":"clientHello","clientInstanceId":"33333333-3333-4333-8333-333333333333"}"#).await;
+        route_ws(&s, r#"{"type":"interactionResponse","threadId":"thread-2","clientInstanceId":"11111111-1111-4111-8111-111111111111","requestId":"request-2","response":{"allow":true,"scope":"once"}}"#).await;
+        assert_eq!(rx.await.unwrap(), json!({"allow":true,"scope":"once"}));
+        assert!(!s.interaction_waiters().lock().await.contains_key("request-2"));
+        assert!(!s.approval_sessions().lock().await.contains("thread-2"));
     }
 
     #[tokio::test]

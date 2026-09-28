@@ -62,7 +62,6 @@ async fn main() {
 
     let config = config_from_env();
     let loopback_hosts = config.allowed_hosts.clone();
-    let loopback_mobile = config.mobile_dir.clone();
     let local_socket = config.data_dir.join("pair.sock");
     let log_path = config.data_dir.join("gateway.log");
     let rotation_marker = config.data_dir.join(".sec062_admin_rotated");
@@ -75,13 +74,8 @@ async fn main() {
                 let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, handle.port)).await;
                 match listener {
                     Ok(listener) => {
-                        let mut app = atelier_remote::app_router(handle.state.clone(), loopback_hosts);
-                        if let Some(dir) = loopback_mobile {
-                            let index = dir.join("index.html");
-                            app = app.fallback_service(tower_http::services::ServeDir::new(dir)
-                                .fallback(tower_http::services::ServeFile::new(index)));
-                        }
-                        let app = app.layer(axum::middleware::from_fn(deny_admin_on_relay));
+                        let app = atelier_remote::app_router(handle.state.clone(), loopback_hosts)
+                            .layer(axum::middleware::from_fn(deny_admin_on_relay));
                         tokio::spawn(async move {
                             let _ = axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await;
                         });
@@ -158,7 +152,23 @@ async fn main() {
             if let Some(admin) = &handle.admin_token {
                 print_admin_fingerprint(admin, handle.port);
             }
-            // Park until ctrl-c
+            // Park until ctrl-c, or SIGTERM: c'est ainsi que l'app arrête la
+            // passerelle ; sans ce signal, l'arrêt ne passait jamais par
+            // l'extinction propre.
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                match signal(SignalKind::terminate()) {
+                    Ok(mut terminate) => {
+                        tokio::select! {
+                            _ = tokio::signal::ctrl_c() => {}
+                            _ = terminate.recv() => {}
+                        }
+                    }
+                    Err(_) => { tokio::signal::ctrl_c().await.ok(); }
+                }
+            }
+            #[cfg(not(unix))]
             tokio::signal::ctrl_c().await.ok();
             handle.shutdown().await;
         }

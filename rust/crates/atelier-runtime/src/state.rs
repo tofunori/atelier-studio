@@ -37,9 +37,11 @@ pub struct QaLine {
     pub text: String,
 }
 
+/// Demande d'accord en attente. Elle appartient au fil, pas à un client :
+/// le bureau comme un appareil associé (passerelle iPhone) peut y répondre,
+/// et la première réponse l'emporte.
 pub struct InteractionWaiter {
     pub thread_id: String,
-    pub client_instance_id: Option<String>,
     pub tx: oneshot::Sender<Value>,
 }
 
@@ -86,7 +88,6 @@ struct Inner {
     /// travers un `.await`) : « Revérifier » y AJOUTE les CLI installés après
     /// le lancement, sans toucher aux providers vivants.
     providers: std::sync::RwLock<HashMap<String, Arc<dyn Provider>>>,
-    client_instance_id: Mutex<Option<String>>,
     interaction_waiters: Mutex<HashMap<String, InteractionWaiter>>,
     approval_sessions: Mutex<HashSet<String>>,
     qa_sessions: Mutex<HashMap<String, QaSession>>,
@@ -186,7 +187,6 @@ impl AppState {
                 terminals,
                 harness,
                 providers,
-                client_instance_id: Mutex::new(None),
                 interaction_waiters: Mutex::new(HashMap::new()),
                 approval_sessions: Mutex::new(HashSet::new()),
                 qa_sessions: Mutex::new(HashMap::new()),
@@ -449,10 +449,6 @@ impl AppState {
             Arc::new(atelier_providers::FakeProvider::new(id).with_delay(delay_ms)),
         );
         self
-    }
-
-    pub fn client_instance_id(&self) -> &Mutex<Option<String>> {
-        &self.inner.client_instance_id
     }
 
     pub fn interaction_waiters(&self) -> &Mutex<HashMap<String, InteractionWaiter>> {

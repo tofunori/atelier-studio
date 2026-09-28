@@ -16,7 +16,6 @@ fn test_config(tmp: &std::path::Path) -> GatewayConfig {
         allowed_hosts: vec!["127.0.0.1".into(), "localhost".into()],
         sidecar_base: None,
         sidecar_token: None,
-        mobile_dir: None,
         require_explicit_any_bind: true,
         max_body_bytes: 64 * 1024,
         min_retained_sequence: 0,
@@ -833,7 +832,6 @@ async fn refuse_any_bind_without_env() {
         allowed_hosts: vec![],
         sidecar_base: None,
         sidecar_token: None,
-        mobile_dir: None,
         require_explicit_any_bind: true,
         max_body_bytes: 1024,
         min_retained_sequence: 0,
@@ -1552,4 +1550,132 @@ async fn live_subscribers_share_one_loopback_and_revoke_independently() {
     drop(second);
     sidecar.abort();
     handle.shutdown().await;
+}
+
+/// Faux moteur : accepte plusieurs connexions, note chaque commande reçue et
+/// répond selon `reply` (une commande → trames à renvoyer).
+#[allow(clippy::result_large_err)]
+async fn scripted_runtime(
+    reply: impl Fn(&Value) -> Vec<Value> + Send + Sync + 'static,
+) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+    use futures_util::{SinkExt, StreamExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let reply = std::sync::Arc::new(reply);
+    let log = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let (log, reply) = (log.clone(), reply.clone());
+            tokio::spawn(async move {
+                let mut uri = String::new();
+                let callback = |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                                response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+                    uri = request.uri().to_string();
+                    Ok(response)
+                };
+                let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(stream, callback).await else { return };
+                while let Some(Ok(message)) = ws.next().await {
+                    let Ok(text) = message.to_text() else { continue };
+                    let Ok(value) = serde_json::from_str::<Value>(text) else { continue };
+                    log.lock().unwrap().push((uri.clone(), value.clone()));
+                    for frame in reply(&value) {
+                        if ws.send(tokio_tungstenite::tungstenite::Message::Text(frame.to_string().into())).await.is_err() { return; }
+                    }
+                }
+            });
+        }
+    });
+    (port, seen)
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+#[tokio::test]
+async fn gateway_follows_a_restarted_runtime_through_sidecar_lock() {
+    let (port, seen) = scripted_runtime(|value| {
+        if value["type"] == "send" {
+            vec![json!({"type":"event","threadId":value["threadId"],"event":{"kind":"user","meta":{"messageId":value["clientMessageId"]}}})]
+        } else { vec![] }
+    }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = test_config(dir.path());
+    // Moteur mort : la passerelle est née avec l'ancien port.
+    config.sidecar_base = Some(format!("http://127.0.0.1:{}", free_port()));
+    config.sidecar_token = Some("ancien".into());
+    std::fs::create_dir_all(&config.atelier_dir).unwrap();
+    std::fs::write(config.atelier_dir.join("sidecar.lock"), json!({"port": port, "token": "neuf", "pid": 1}).to_string()).unwrap();
+    let (h, admin, host) = boot_with_config(config).await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "relance").await;
+    h.state.inner.lock().await.threads.upsert(json!({"id":"relance","provider":"codex","title":"Test"}), false).unwrap();
+    let sent = client().post(format!("{base}/remote/v1/send")).header("host", &host)
+        .header("x-atelier-device-token", &token)
+        .json(&json!({"threadId":"relance","prompt":"bonjour","clientRequestId":"r-1","clientMessageId":"m-1"}))
+        .send().await.unwrap();
+    assert_eq!(sent.status(), 200, "{}", sent.text().await.unwrap());
+    assert_eq!(h.state.inner.lock().await.config.sidecar_base.as_deref(), Some(format!("http://127.0.0.1:{port}").as_str()));
+    assert!(seen.lock().unwrap().iter().any(|(uri, value)| value["type"] == "send" && uri.contains("token=neuf")));
+    let health: Value = client().get(format!("{base}/remote/health")).header("host", &host)
+        .header("x-atelier-device-token", &token).send().await.unwrap().json().await.unwrap();
+    assert_eq!(health["upstream"], "ok");
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn refused_or_unconfirmed_sends_can_be_sent_again() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // Le faux moteur refuse le 1er envoi, accepte les suivants, et répond à
+    // `receiptStatus` selon ce qu'il a réellement accepté.
+    let attempts = std::sync::Arc::new(AtomicUsize::new(0));
+    let accepted = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::<String>::new()));
+    let (counter, received) = (attempts.clone(), accepted.clone());
+    let (port, seen) = scripted_runtime(move |value| {
+        match value["type"].as_str() {
+            Some("send") => {
+                if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    vec![json!({"type":"error","message":"occupé"})]
+                } else {
+                    received.lock().unwrap().insert(value["clientMessageId"].as_str().unwrap_or("").to_string());
+                    vec![json!({"type":"event","threadId":value["threadId"],"event":{"kind":"user","meta":{"messageId":value["clientMessageId"]}}})]
+                }
+            }
+            Some("receiptStatus") => {
+                let known = received.lock().unwrap().contains(value["clientMessageId"].as_str().unwrap_or(""));
+                vec![json!({"type":"sendReceipt","clientMessageId":value["clientMessageId"],
+                    "accepted": known, "status": if known {"accepted"} else {"unknown"}})]
+            }
+            _ => vec![],
+        }
+    }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = test_config(dir.path());
+    config.sidecar_base = Some(format!("http://127.0.0.1:{port}"));
+    let (h, admin, host) = boot_with_config(config).await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "renvoi").await;
+    h.state.inner.lock().await.threads.upsert(json!({"id":"renvoi","provider":"codex","title":"Test"}), false).unwrap();
+    let send = || {
+        let (base, host, token) = (base.clone(), host.clone(), token.clone());
+        async move {
+            client().post(format!("{base}/remote/v1/send")).header("host", &host)
+                .header("x-atelier-device-token", &token)
+                .json(&json!({"threadId":"renvoi","prompt":"bonjour","clientRequestId":"r-1","clientMessageId":"m-1"}))
+                .send().await.unwrap()
+        }
+    };
+    assert_eq!(send().await.status(), 502);
+    // Même demande : le moteur ne l'a jamais reçue, elle repart (avant : 409 définitif).
+    let again: Value = send().await.json().await.unwrap();
+    assert_eq!(again["proxied"], true, "{again}");
+    assert_eq!(again["replay"], false, "{again}");
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    // Rejouée encore, absente du journal local : le moteur confirme, rien ne repart.
+    let replay: Value = send().await.json().await.unwrap();
+    assert_eq!(replay["replay"], true, "{replay}");
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(seen.lock().unwrap().iter().filter(|(_, value)| value["type"] == "receiptStatus").count(), 2);
+    h.shutdown().await;
 }

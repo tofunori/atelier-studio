@@ -149,6 +149,11 @@ pub fn normalize_relative(input: &str) -> Result<String, ApiError> {
                 if t == ".." || t == "." {
                     return Err(ApiError::bad_request("path_escape", "traversée refusée"));
                 }
+                // `.env`, `.git/config`, `.ssh/…`, `.codex/auth.json` : jamais
+                // du matériel de thèse, et la galerie ne les liste pas.
+                if t.starts_with('.') {
+                    return Err(hidden_path());
+                }
                 parts.push(t.into_owned());
             }
             Component::CurDir => {}
@@ -214,7 +219,19 @@ pub fn resolve_under_root(root: &Path, relative: &str) -> Result<PathBuf, ApiErr
             "fichier hors projet refusé",
         ));
     }
+    // Un lien symbolique visible peut pointer dans un dossier caché du projet.
+    let hidden = resolved
+        .strip_prefix(&root_canon)
+        .map(|inner| inner.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')))
+        .unwrap_or(true);
+    if hidden {
+        return Err(hidden_path());
+    }
     Ok(resolved)
+}
+
+fn hidden_path() -> ApiError {
+    ApiError::bad_request("hidden_path", "fichier caché refusé")
 }
 
 pub fn check_file_readable(path: &Path) -> Result<(u64, String), ApiError> {
@@ -234,7 +251,9 @@ pub fn check_file_readable(path: &Path) -> Result<(u64, String), ApiError> {
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !ext.is_empty() && !ALLOWED_EXTS.contains(&ext.as_str()) {
+    // Sans extension (`.env`, `config`, clés privées) : refusé, comme tout
+    // ce que la galerie ne liste pas.
+    if !ALLOWED_EXTS.contains(&ext.as_str()) {
         return Err(ApiError::bad_request(
             "mime_not_allowed",
             "type de fichier non autorisé",
@@ -276,6 +295,9 @@ mod tests {
     #[test]
     fn accepts_normal() {
         assert_eq!(normalize_relative("docs/a.pdf").unwrap(), "docs/a.pdf");
+        for hidden in [".env", ".git/config", "docs/.ssh/id_ed25519", ".codex/auth.json", "a/%2Egit/config"] {
+            assert_eq!(normalize_relative(hidden).unwrap_err().code, "hidden_path", "{hidden}");
+        }
         assert_eq!(normalize_relative("./docs/a.pdf").unwrap(), "docs/a.pdf");
     }
 
@@ -293,5 +315,22 @@ mod tests {
             // canonicalize follows symlink → path outside root → escape
             assert!(err.is_err());
         }
+    }
+
+    #[test]
+    fn hidden_targets_and_extensionless_files_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("proj");
+        fs::create_dir_all(proj.join(".secrets")).unwrap();
+        fs::write(proj.join(".secrets/keys.json"), "{}").unwrap();
+        fs::write(proj.join("Makefile"), "all:").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(proj.join(".secrets"), proj.join("visible")).unwrap();
+            let err = resolve_under_root(&proj, "visible/keys.json").unwrap_err();
+            assert_eq!(err.code, "hidden_path");
+        }
+        let makefile = resolve_under_root(&proj, "Makefile").unwrap();
+        assert_eq!(check_file_readable(&makefile).unwrap_err().code, "mime_not_allowed");
     }
 }
