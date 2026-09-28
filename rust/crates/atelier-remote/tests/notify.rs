@@ -20,7 +20,6 @@ fn test_config(tmp: &std::path::Path) -> GatewayConfig {
         allowed_hosts: vec!["127.0.0.1".into(), "localhost".into()],
         sidecar_base: None,
         sidecar_token: None,
-        mobile_dir: None,
         require_explicit_any_bind: true,
         max_body_bytes: 64 * 1024,
         min_retained_sequence: 0,

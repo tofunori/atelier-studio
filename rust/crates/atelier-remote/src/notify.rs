@@ -23,7 +23,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
 pub const SETTINGS_FILE: &str = "notify.json";
 pub const DEFAULT_SERVER: &str = "https://ntfy.sh";
@@ -556,18 +556,9 @@ async fn watch(state: GatewayState) {
 }
 
 async fn connect(state: &GatewayState) -> Option<RuntimeSocket> {
-    let (base, token) = {
-        let g = state.inner.lock().await;
-        (g.config.sidecar_base.clone(), g.config.sidecar_token.clone())
-    };
-    let base = base?
-        .replacen("http://", "ws://", 1)
-        .replacen("https://", "wss://", 1);
-    let url = match token {
-        Some(token) => format!("{}/?token={token}", base.trim_end_matches('/')),
-        None => format!("{}/", base.trim_end_matches('/')),
-    };
-    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(5), connect_async(url))
+    // Même chemin que les routes : un moteur relancé (nouveau port, nouveau
+    // jeton) est retrouvé dans `sidecar.lock` au lieu de boucler sur l'ancien.
+    let mut socket = tokio::time::timeout(Duration::from_secs(5), crate::routes::connect_upstream(state))
         .await
         .ok()?
         .ok()?;
