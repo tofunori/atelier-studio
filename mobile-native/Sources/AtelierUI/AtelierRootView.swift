@@ -15,6 +15,10 @@ public struct AtelierRootView: View {
     @Environment(\.colorSchemeContrast) private var systemContrast
     @State private var importError: String?
     @State private var connecting = false
+    /// A pairing link that would replace the saved Mac, awaiting confirmation.
+    @State private var replacementPairing: String?
+    /// A thread link received before the previous session was restored.
+    @State private var pendingLink: AtelierLink?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @FocusState private var composing: Bool
@@ -51,7 +55,22 @@ public struct AtelierRootView: View {
             }
         }
         .onOpenURL { url in
-            Task { await connect(url.absoluteString) }
+            // An unrecognised link keeps reporting why it cannot pair.
+            guard let link = AtelierLink(url) else { Task { await connect(url.absoluteString) }; return }
+            // Restoring the previous session selects its own thread: open the
+            // linked one only after that, so the link wins.
+            if case .thread = link, !restoredTab { pendingLink = link } else { handle(link) }
+        }
+        .alert("Remplacer l’association avec le Mac ?",
+               isPresented: Binding(get: { replacementPairing != nil }, set: { if !$0 { replacementPairing = nil } }),
+               presenting: replacementPairing) { link in
+            Button("Remplacer", role: .destructive) {
+                replacementPairing = nil
+                Task { await connect(link) }
+            }
+            Button("Annuler", role: .cancel) { replacementPairing = nil }
+        } message: { link in
+            Text(AtelierLink.replacementMessage(link))
         }
         .overlay {
             if connecting {
@@ -73,7 +92,7 @@ public struct AtelierRootView: View {
             Button("OK") { importError = nil }
         } message: { Text(importError ?? "") }
         .sheet(isPresented: $showAbout) {
-            AtelierSettingsView()
+            AtelierSettingsView(gallery: workspace.gallery)
         }
     }
 
@@ -85,6 +104,7 @@ public struct AtelierRootView: View {
                 restoredTab = true
                 workspace.surface = documentVisible ? .document : desiredTab == "calculations" ? .calculations : desiredTab == "articles" ? .articles : desiredTab == "gallery" ? .gallery : .chat
             }
+            if let link = pendingLink { pendingLink = nil; handle(link) }
             #if targetEnvironment(simulator)
             let arguments = ProcessInfo.processInfo.arguments
             if let index = arguments.firstIndex(of: "--pair-link"), arguments.indices.contains(index + 1) {
@@ -102,6 +122,17 @@ public struct AtelierRootView: View {
             workspace.chat.reconnect()
             workspace.surface = .gallery
         } catch { importError = error.localizedDescription }
+    }
+
+    private func handle(_ link: AtelierLink) {
+        switch link {
+        case .pair(let value):
+            // A first pairing needs no confirmation; replacing a saved Mac does.
+            if workspace.gallery.hasAddress || workspace.gallery.connected { replacementPairing = value }
+            else { Task { await connect(value) } }
+        case .thread(let id):
+            Task { await workspace.openThread(id: id) }
+        }
     }
 
     private var workbench: some View {
@@ -326,6 +357,64 @@ private struct ChatConnectionTitle: View {
             }
             .padding(16).frame(width: 260)
             .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// Links the app answers: `atelier-native://pair?address=…&code=…` copied from
+/// the Mac, and `atelier-native://thread/{threadId}` opened by a notification
+/// (the ntfy app) to return to one conversation.
+enum AtelierLink: Equatable {
+    case pair(String)
+    case thread(String)
+    init?(_ url: URL) {
+        guard url.scheme?.lowercased() == "atelier-native" else { return nil }
+        switch url.host?.lowercased() {
+        case "pair": self = .pair(url.absoluteString)
+        case "thread":
+            // The Mac percent-encodes the id as a single path segment, `/` included
+            // (`%2F`), so it is decoded from the raw path rather than split.
+            let segment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+            guard let id = segment.removingPercentEncoding, !id.isEmpty else { return nil }
+            self = .thread(id)
+        default: return nil
+        }
+    }
+    /// The Mac a pairing link points to, shown before replacing a saved pairing.
+    static func pairingHost(_ link: String) -> String? {
+        guard let address = URLComponents(string: link)?.queryItems?.first(where: { $0.name == "address" })?.value,
+              let host = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines))?.host, !host.isEmpty else { return nil }
+        return host
+    }
+    static func replacementMessage(_ link: String) -> String {
+        guard let host = pairingHost(link) else { return "Ce lien remplace l’association actuelle avec le Mac." }
+        return "Ce lien associe l’iPhone à « \(host) ». L’association actuelle sera remplacée."
+    }
+}
+
+extension WorkspaceModel {
+    /// Shows a conversation named by a link: its chat when this iPhone knows the
+    /// thread (after loading the catalog if needed), else the conversation list.
+    func openThread(id: String) async {
+        sidebarRequested = false
+        if !chat.threads.contains(where: { $0.id == id }) {
+            // A catalog refresh already under way (the app is launching) is
+            // awaited rather than skipped by `loadCatalog`'s own guard.
+            var waited = 0
+            while chat.loading && waited < 100 {
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                waited += 1
+            }
+            if !chat.threads.contains(where: { $0.id == id }) {
+                await chat.loadCatalog(using: gallery, refreshProviders: false)
+            }
+        }
+        if let thread = chat.threads.first(where: { $0.id == id }) {
+            chat.select(thread, workspace: self)
+        } else {
+            surface = .chat
+            sidebarRequested = true
         }
     }
 }

@@ -147,6 +147,13 @@ import SwiftUI
     var error: String?
     private var seen: Set<String> = []
     private var interactionStates: [String: String] = [:]
+    /// Requests already announced by a notification: a re-sent pending update
+    /// or a reconnection never alerts twice for the same request.
+    @ObservationIgnored private var announcedInteractions: Set<String> = []
+    /// Replaceable in tests; the notification itself is skipped while the app is active.
+    @ObservationIgnored var interactionNotifier: @MainActor (Thread) -> Void = { thread in
+        NativeNotifications.received(thread: thread.id, title: thread.title, approval: true)
+    }
     private var liveRows: [String: String] = [:]
     private var completedTurns: Set<String> = []
     private var cachedTranscript: ChatTranscriptSnapshot?
@@ -585,6 +592,14 @@ import SwiftUI
                 rows[index].approval = event["interactionType"] as? String == "approval"
                 if let state = event["state"] as? String, interactionStates[request] == nil || interactionStates[request] == "pending" { interactionStates[request] = state }
                 rows[index].resolved = completedTurns.contains(turn) || interactionStates[request].map { $0 != "pending" } == true
+                // A request that arrives live (never a replayed one) asks for the
+                // user's answer: alert once per request while the app is away.
+                if kind == "interaction", event["state"] as? String == "pending", !rows[index].resolved,
+                   !replayingHistory, live, !isPreview, let selected,
+                   (meta["threadId"] as? String).map({ $0 == selected.id }) ?? true,
+                   announcedInteractions.insert(request).inserted {
+                    interactionNotifier(selected)
+                }
             }
         }
     }

@@ -29,6 +29,7 @@ enum AtelierTheme {
 }
 
 struct AtelierSettingsView: View {
+    let gallery: GalleryModel
     @AppStorage("atelier.appearance") private var appearance = "system"
     @AppStorage("atelier.accent") private var accent = "sage"
     @AppStorage("atelier.textSize") private var textSize = "standard"
@@ -73,7 +74,7 @@ struct AtelierSettingsView: View {
                 Section("Chat") {
                     Toggle("Suivre la réponse", isOn: $follow)
                     Toggle("Développer l’activité", isOn: $activityExpanded)
-                    NavigationLink("Notifications") { NativeNotificationSettings() }
+                    NavigationLink("Notifications") { NativeNotificationSettings(gallery: gallery) }
                 }
                 Section("Raccourcis sur iPad") {
                     LabeledContent("Rechercher", value: "⌘ F")
