@@ -11,6 +11,7 @@ mod grok_history;
 mod goals;
 pub mod instance;
 pub mod kb_block;
+mod keep_awake;
 mod message_edits;
 pub mod paths;
 mod project_folders;
