@@ -170,30 +170,71 @@ pub(super) async fn library(State(state): State<GatewayState>, headers: HeaderMa
     Ok(Json(result))
 }
 
+/// Item key -> (attachment key, file name), remembered briefly so a viewer
+/// reading a PDF by ranges does not rescan the library on every request.
+static PDF_LOCATIONS: std::sync::Mutex<Vec<(String, std::time::Instant, String, String)>> = std::sync::Mutex::new(Vec::new());
+const PDF_LOCATION_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Finds the stored attachment of `key` (`true` when it was remembered).
+/// Only the library scan holds `LIBRARY_READ`; the PDF itself is read
+/// later, without any lock.
+fn pdf_location(dir: &std::path::Path, key: &str, rescan: bool) -> ApiResult<(String, String, bool)> {
+    let remembered = PDF_LOCATIONS.lock().ok().filter(|_| !rescan).and_then(|cache| cache.iter()
+        .find(|(k, at, _, _)| k == key && at.elapsed() < PDF_LOCATION_TTL)
+        .map(|(_, _, pdf_key, file)| (pdf_key.clone(), file.clone(), true)));
+    if let Some(found) = remembered { return Ok(found); }
+    let items = {
+        let _read = LIBRARY_READ.lock().map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "zotero_busy", "Zotero occupé"))?;
+        atelier_workspace::zotero_search(dir, "", None, None, 5000)
+            .map_err(|_| ApiError::not_found("Bibliothèque Zotero indisponible"))?
+    };
+    let item = items.iter().find(|v| v["key"].as_str() == Some(key)).ok_or_else(|| ApiError::not_found("Article Zotero introuvable"))?;
+    let pdf_key = item["pdfKey"].as_str().ok_or_else(|| ApiError::not_found("Aucun PDF associé"))?.to_owned();
+    let filename = item["pdfFile"].as_str().ok_or_else(|| ApiError::not_found("Aucun PDF associé"))?.to_owned();
+    if let Ok(mut cache) = PDF_LOCATIONS.lock() {
+        cache.retain(|(k, at, _, _)| k != key && at.elapsed() < PDF_LOCATION_TTL);
+        if cache.len() >= 64 { cache.remove(0); }
+        cache.push((key.to_owned(), std::time::Instant::now(), pdf_key.clone(), filename.clone()));
+    }
+    Ok((pdf_key, filename, false))
+}
+
+/// Canonical path, size and validator of a stored Zotero PDF.
+fn stored_pdf(pdf_key: &str, filename: &str) -> ApiResult<(std::path::PathBuf, u64, String)> {
+    let path = atelier_workspace::pdf_absolute_path(pdf_key, filename).ok_or_else(|| ApiError::not_found("PDF absent du Mac"))?;
+    // A symlinked storage item must never turn this bounded route into arbitrary file access.
+    let canonical = path.canonicalize().map_err(|_| ApiError::not_found("PDF absent"))?;
+    let root = atelier_workspace::zotero_dir().join("storage").canonicalize().map_err(|_| ApiError::not_found("Stockage Zotero absent"))?;
+    if !canonical.starts_with(root) { return Err(ApiError::bad_request("invalid_pdf", "PDF hors du stockage Zotero")); }
+    let (len, mime) = check_file_readable(&canonical)?;
+    if mime != "application/pdf" { return Err(ApiError::bad_request("invalid_pdf", "La pièce jointe n’est pas un PDF")); }
+    let etag = file_etag(&canonical, len);
+    Ok((canonical, len, etag))
+}
+
+/// Streams the item's PDF like the project file route: `ETag`, 304 on a
+/// matching `If-None-Match`, single `Range`, and `private, no-cache` so the
+/// phone revalidates instead of downloading the whole PDF again.
 pub(super) async fn pdf(State(state): State<GatewayState>, headers: HeaderMap, Path(key): Path<String>) -> ApiResult<Response> {
     guard_headers(&state, &headers).await?;
     require_device(&state, &headers, Scope::FilesRead).await?;
     if key.len() != 8 || !key.bytes().all(|c| c.is_ascii_alphanumeric()) { return Err(ApiError::bad_request("invalid_key", "Référence Zotero invalide")); }
+    let permit = state.file_calls.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
     let dir = state.inner.lock().await.config.data_dir.join("zotero-library");
-    let data = tokio::task::spawn_blocking(move || -> ApiResult<Vec<u8>> {
-        let _read = LIBRARY_READ.lock().map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "zotero_busy", "Zotero occupé"))?;
-        let items = atelier_workspace::zotero_search(&dir, "", None, None, 5000)
-            .map_err(|_| ApiError::not_found("Bibliothèque Zotero indisponible"))?;
-        let item = items.iter().find(|v| v["key"].as_str() == Some(&key)).ok_or_else(|| ApiError::not_found("Article Zotero introuvable"))?;
-        let pdf_key = item["pdfKey"].as_str().ok_or_else(|| ApiError::not_found("Aucun PDF associé"))?;
-        let filename = item["pdfFile"].as_str().ok_or_else(|| ApiError::not_found("Aucun PDF associé"))?;
-        let path = atelier_workspace::pdf_absolute_path(pdf_key, filename).ok_or_else(|| ApiError::not_found("PDF absent du Mac"))?;
-        // A symlinked storage item must never turn this bounded route into arbitrary file access.
-        let canonical = path.canonicalize().map_err(|_| ApiError::not_found("PDF absent"))?;
-        let root = atelier_workspace::zotero_dir().join("storage").canonicalize().map_err(|_| ApiError::not_found("Stockage Zotero absent"))?;
-        if !canonical.starts_with(root) { return Err(ApiError::bad_request("invalid_pdf", "PDF hors du stockage Zotero")); }
-        check_file_readable(&canonical)?;
-        std::fs::read(canonical).map_err(|_| ApiError::not_found("PDF illisible"))
+    let (path, len, etag) = tokio::task::spawn_blocking(move || {
+        let (pdf_key, filename, remembered) = pdf_location(&dir, &key, false)?;
+        match stored_pdf(&pdf_key, &filename) {
+            // The attachment may have been replaced since it was remembered.
+            Err(_) if remembered => {
+                let (pdf_key, filename, _) = pdf_location(&dir, &key, true)?;
+                stored_pdf(&pdf_key, &filename)
+            }
+            found => found,
+        }
     }).await.map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "zotero_failed", "Lecture PDF interrompue"))??;
-    Ok(Response::builder().header(header::CONTENT_TYPE, "application/pdf")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Cache-Control", "private, no-store")
-        .body(axum::body::Body::from(data)).unwrap())
+    let mut response = stream_resolved_file(permit, path, len, "application/pdf".into(), etag, &headers).await?;
+    response.headers_mut().insert(header::CACHE_CONTROL, header::HeaderValue::from_static("private, no-cache"));
+    Ok(response)
 }
 
 

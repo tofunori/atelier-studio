@@ -1382,13 +1382,20 @@ async fn stream_project_file(state:&GatewayState, project:crate::path_policy::Pr
         let etag = file_etag(&path,len);
         Ok::<_,ApiError>((path,len,mime,etag))
     }).await.map_err(|_| ApiError::not_found("lecture interrompue"))??;
-    if if_none_match_fresh(&headers,&etag) {
+    stream_resolved_file(permit,path,len,mime,etag,&headers).await
+}
+
+/// Streams an already resolved and checked file (`check_file_readable`),
+/// with `If-None-Match` (304) and single `Range` support. Shared by the
+/// project file routes and the Zotero PDF route.
+async fn stream_resolved_file(permit:tokio::sync::OwnedSemaphorePermit, path:std::path::PathBuf, len:u64, mime:String, etag:String, headers:&HeaderMap) -> ApiResult<Response> {
+    if if_none_match_fresh(headers,&etag) {
         return Ok(Response::builder().status(StatusCode::NOT_MODIFIED).header(header::ETAG,etag).body(axum::body::Body::empty()).unwrap());
     }
     // A range can resume only the exact revision already held by the client.
     // Dates and weak validators cannot establish that identity, so send the
     // complete representation when they occur in If-Range.
-    let range_matches = headers.get(header::IF_RANGE).map_or(true, |value| {
+    let range_matches = headers.get(header::IF_RANGE).is_none_or(|value| {
         value.to_str().ok().is_some_and(|value| !value.starts_with("W/") && value == etag)
     });
     let range = headers.get(header::RANGE).and_then(|value| value.to_str().ok()).filter(|_| range_matches);
