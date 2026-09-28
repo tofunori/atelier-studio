@@ -476,3 +476,338 @@ final class PDFAnnotationsTests: XCTestCase {
                 regions: [.init(page: 0, bounds: CGRect(x: 20, y: 20, width: 40, height: 10))], style: .underline, note: "", createdAt: Date())
     }
 }
+
+final class MacServicesTests: XCTestCase {
+    @MainActor private func makeGallery(_ protocolClass: AnyClass, host: String) -> GalleryModel {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [protocolClass]
+        return GalleryModel(address: URL(string: "https://\(host)")!, token: "test", session: URLSession(configuration: configuration))
+    }
+
+    @MainActor func testZoteroPDFRevalidatesItsCopyWithTheETag() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let gallery = makeGallery(ZoteroPDFProtocol.self, host: "zotero.test")
+        let library = LibraryModel(folder: folder)
+        let pdfFile = folder.appendingPathComponent("KEY1.pdf"), etagFile = folder.appendingPathComponent("KEY1.etag")
+        // No copy: a plain download, its ETag kept beside it.
+        ZoteroPDFProtocol.state.reset(.fresh(Data("v1".utf8), "\"e1\""))
+        let downloaded = try await library.pdf("KEY1", using: gallery)
+        XCTAssertEqual(downloaded, Data("v1".utf8))
+        XCTAssertEqual(try String(contentsOf: etagFile, encoding: .utf8), "\"e1\"")
+        XCTAssertEqual(ZoteroPDFProtocol.state.conditions, [nil])
+        // Unchanged on the Mac: 304, the copy is read.
+        ZoteroPDFProtocol.state.reset(.notModified)
+        let unchanged = try await library.pdf("KEY1", using: gallery)
+        XCTAssertEqual(unchanged, Data("v1".utf8))
+        XCTAssertEqual(ZoteroPDFProtocol.state.conditions, ["\"e1\""])
+        XCTAssertEqual(ZoteroPDFProtocol.state.timeouts.last ?? 0, 6, accuracy: 0.001)
+        // Changed on the Mac: the new version replaces the copy and its ETag.
+        ZoteroPDFProtocol.state.reset(.fresh(Data("v2".utf8), "\"e2\""))
+        let updated = try await library.pdf("KEY1", using: gallery)
+        XCTAssertEqual(updated, Data("v2".utf8))
+        XCTAssertEqual(try Data(contentsOf: pdfFile), Data("v2".utf8))
+        XCTAssertEqual(try String(contentsOf: etagFile, encoding: .utf8), "\"e2\"")
+        // Unreachable or refusing Mac: the copy.
+        ZoteroPDFProtocol.state.reset(.offline)
+        let offline = try await library.pdf("KEY1", using: gallery)
+        XCTAssertEqual(offline, Data("v2".utf8))
+        ZoteroPDFProtocol.state.reset(.status(401))
+        let expired = try await library.pdf("KEY1", using: gallery)
+        XCTAssertEqual(expired, Data("v2".utf8))
+        // Not paired: no request at all.
+        ZoteroPDFProtocol.state.reset(.offline)
+        let unpaired = try await library.pdf("KEY1", using: GalleryModel(restoreCredentials: false))
+        XCTAssertEqual(unpaired, Data("v2".utf8))
+        XCTAssertTrue(ZoteroPDFProtocol.state.conditions.isEmpty)
+        // Without a copy, a failure is reported.
+        do { _ = try await library.pdf("KEY2", using: gallery); XCTFail("No copy to fall back on") } catch {}
+    }
+
+    @MainActor func testPDFQuotaRemovesLeastRecentlyOpenedCopiesButNeverTheOpenedOne() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let library = LibraryModel(folder: folder)
+        library.pdfCacheLimit = 350; library.pdfCacheTarget = 250
+        let now = Date()
+        for (index, key) in ["A", "B", "C", "D"].enumerated() {
+            let url = folder.appendingPathComponent(key + ".pdf")
+            try Data(count: 100).write(to: url)
+            try Data(key.utf8).write(to: folder.appendingPathComponent(key + ".etag"))
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(Double(index - 10) * 3600)], ofItemAtPath: url.path)
+        }
+        try Data(count: 1000).write(to: folder.appendingPathComponent("notes.json"))
+        try Data(count: 1000).write(to: folder.appendingPathComponent("articles.json"))
+        // A is the oldest but was just opened; B and C go, oldest first, down to the target.
+        library.trimPDFCache(keeping: "A.pdf")
+        let left = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
+        XCTAssertEqual(left, ["A.pdf", "A.etag", "D.pdf", "D.etag", "notes.json", "articles.json"])
+        library.trimPDFCache(keeping: "D.pdf")
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)), left)
+        // Reading a copy marks it as recently opened.
+        let reopened = try await library.pdf("A", using: GalleryModel(restoreCredentials: false))
+        XCTAssertEqual(reopened.count, 100)
+        let attributes = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("A.pdf").path)
+        let date = try XCTUnwrap(attributes[.modificationDate] as? Date)
+        XCTAssertGreaterThan(date, now.addingTimeInterval(-60))
+    }
+
+    @MainActor func testMacThumbnailIsCachedApartFromTheFileAndSkippedOnAnOlderMac() async throws {
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.gray.setFill(); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }.pngData())
+        ThumbnailProtocol.state.reset(png: png, mac: .current)
+        let gallery = makeGallery(ThumbnailProtocol.self, host: "thumbs.test")
+        let large = GalleryArtifact(name: "carte.png", fileID: "f_big", projectID: "p", size: 40 * 1024 * 1024, version: "2800000-1727000000")
+        let first = try await gallery.thumbnail(large)
+        let again = try await gallery.thumbnail(large)
+        XCTAssertEqual(first, png)
+        XCTAssertEqual(again, png)
+        XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_big"), 1)
+        XCTAssertEqual(ThumbnailProtocol.state.queries, ["v=2800000-1727000000"])
+        // Changed on the Mac: a new listing tag asks again.
+        var changed = large; changed.version = "2800010-1727000500"
+        _ = try await gallery.thumbnail(changed)
+        XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_big"), 2)
+        XCTAssertEqual(ThumbnailProtocol.state.queries.last, "v=2800010-1727000500")
+        // Opening the document still reads the file itself.
+        let full = try await gallery.contents(large)
+        XCTAssertEqual(full, Data("full file".utf8))
+        // Declined for one file (JSON 404): not asked again, the others still are.
+        let empty = GalleryArtifact(name: "vide.pdf", fileID: "f_none", projectID: "p")
+        for _ in 0..<2 {
+            do { _ = try await gallery.thumbnail(empty); XCTFail("No thumbnail") } catch {}
+        }
+        XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_none"), 1)
+        let other = try await gallery.thumbnail(GalleryArtifact(name: "autre.jpg", fileID: "f_other", projectID: "p"))
+        XCTAssertEqual(other, png)
+        // A busy Mac (503) is not asked again right away either.
+        let busy = GalleryArtifact(name: "lourd.pdf", fileID: "f_busy", projectID: "p")
+        for _ in 0..<2 {
+            do { _ = try await gallery.thumbnail(busy); XCTFail("Busy") } catch {}
+        }
+        XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_busy"), 1)
+        // Types the Mac does not render, and files imported on the iPhone, stay local.
+        let heic = try await gallery.thumbnail(GalleryArtifact(name: "photo.heic", fileID: "f_heic", projectID: "p"))
+        XCTAssertNil(heic)
+        let notes = try await gallery.thumbnail(GalleryArtifact(name: "notes.tex", fileID: "f_tex", projectID: "p"))
+        XCTAssertNil(notes)
+        let local = try await gallery.thumbnail(GalleryArtifact(name: "local.png", data: png))
+        XCTAssertNil(local)
+        XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_heic") + ThumbnailProtocol.state.count("/remote/v1/thumb/f_tex"), 0)
+        // A Mac without the route (bare 404, or its web page) is asked once per connection.
+        for mac in [ThumbnailProtocol.Mac.bare404, .webPage] {
+            ThumbnailProtocol.state.reset(png: png, mac: mac)
+            let older = makeGallery(ThumbnailProtocol.self, host: "older.test")
+            let a = try await older.thumbnail(GalleryArtifact(name: "a.png", fileID: "f_a", projectID: "p"))
+            let b = try await older.thumbnail(GalleryArtifact(name: "b.pdf", fileID: "f_b", projectID: "p"))
+            XCTAssertNil(a)
+            XCTAssertNil(b)
+            XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_a"), 1)
+            XCTAssertEqual(ThumbnailProtocol.state.count("/remote/v1/thumb/f_b"), 0)
+        }
+    }
+
+    @MainActor func testGalleryListingCarriesTheFileVersion() async throws {
+        ThumbnailProtocol.state.reset(png: Data(), mac: .current)
+        let gallery = makeGallery(ThumbnailProtocol.self, host: "listing.test")
+        let files = try await gallery.composerFiles(project: "p")
+        // The Mac's tag, else its modification time, else none.
+        XCTAssertEqual(files.map(\.version), ["3-1727000000", "1727000100", nil])
+        // Artifacts saved before the field existed still decode.
+        let saved = try JSONDecoder().decode(GalleryArtifact.self, from: Data(#"{"id":"7C1E7D0A-51D0-4C22-9A43-3E1B1F4B6F10","name":"a.png","size":3}"#.utf8))
+        XCTAssertNil(saved.version)
+    }
+
+    @MainActor func testRemoteNotifySettingsAreReadAndChangesPosted() async throws {
+        NotifyProtocol.state.reset(.current)
+        let gallery = makeGallery(NotifyProtocol.self, host: "notify.test")
+        let initial = try await gallery.remoteNotifySettings()
+        XCTAssertFalse(initial.enabled)
+        XCTAssertNil(initial.topic)
+        XCTAssertNil(initial.subscribeUrl)
+        XCTAssertEqual(initial.server, "https://ntfy.sh")
+        // A test alert works while alerts are off; the Mac then has a topic.
+        let tested = try await gallery.updateRemoteNotify(["test": true])
+        XCTAssertFalse(tested.enabled)
+        XCTAssertEqual(tested.subscribeUrl, "https://ntfy.sh/atelier-7f3a")
+        XCTAssertEqual(NotifyProtocol.state.posted.last?["test"] as? Bool, true)
+        let enabled = try await gallery.updateRemoteNotify(["enabled": true])
+        XCTAssertTrue(enabled.enabled)
+        XCTAssertEqual(enabled.topic, "atelier-7f3a")
+        XCTAssertEqual(NotifyProtocol.state.posted.last?["enabled"] as? Bool, true)
+        XCTAssertEqual(NotifyProtocol.state.posted.count, 2)
+        let reread = try await gallery.remoteNotifySettings()
+        XCTAssertEqual(reread, enabled)
+        // Six test alerts a minute: the seventh is explained, not a bare status.
+        for _ in 0..<5 { _ = try await gallery.updateRemoteNotify(["test": true]) }
+        do { _ = try await gallery.updateRemoteNotify(["test": true]); XCTFail("Rate limited") }
+        catch { XCTAssertTrue(GalleryModel.remoteNotifyMessage(error).contains("Réessayez dans une minute")) }
+    }
+
+    @MainActor func testOlderMacIsAskedToUpdateAtelier() async {
+        for mode in [NotifyProtocol.Mode.missing, .webPage] {
+            NotifyProtocol.state.reset(mode)
+            let gallery = makeGallery(NotifyProtocol.self, host: "old-notify.test")
+            do { _ = try await gallery.remoteNotifySettings(); XCTFail("Old Mac") }
+            catch { XCTAssertEqual(GalleryModel.remoteNotifyMessage(error), GalleryModel.remoteNotifyOutdated) }
+            do { _ = try await gallery.updateRemoteNotify(["enabled": true]); XCTFail("Old Mac") }
+            catch { XCTAssertEqual(GalleryModel.remoteNotifyMessage(error), GalleryModel.remoteNotifyOutdated) }
+        }
+    }
+}
+
+private func stubReply(_ protocolInstance: URLProtocol, status: Int, body: Data, headers: [String: String]? = nil) {
+    protocolInstance.client?.urlProtocol(protocolInstance, didReceive: HTTPURLResponse(url: protocolInstance.request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+    protocolInstance.client?.urlProtocol(protocolInstance, didLoad: body)
+    protocolInstance.client?.urlProtocolDidFinishLoading(protocolInstance)
+}
+
+private final class ZoteroPDFProtocol: URLProtocol, @unchecked Sendable {
+    enum Mode { case fresh(Data, String), notModified, offline, status(Int) }
+    final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var mode = Mode.offline
+        private var ifNoneMatch: [String?] = []
+        private var intervals: [TimeInterval] = []
+        func reset(_ mode: Mode) { lock.withLock { self.mode = mode; ifNoneMatch = []; intervals = [] } }
+        func record(_ request: URLRequest) -> Mode {
+            lock.withLock {
+                ifNoneMatch.append(request.value(forHTTPHeaderField: "If-None-Match"))
+                intervals.append(request.timeoutInterval)
+                return mode
+            }
+        }
+        var conditions: [String?] { lock.withLock { ifNoneMatch } }
+        var timeouts: [TimeInterval] { lock.withLock { intervals } }
+    }
+    static let state = State()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard request.url?.path.hasPrefix("/remote/v1/zotero/pdf/") == true else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
+        }
+        switch Self.state.record(request) {
+        case .fresh(let data, let etag): stubReply(self, status: 200, body: data, headers: ["ETag": etag, "Content-Type": "application/pdf"])
+        case .notModified: stubReply(self, status: 304, body: Data(), headers: ["ETag": request.value(forHTTPHeaderField: "If-None-Match") ?? ""])
+        case .offline: client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+        case .status(let status): stubReply(self, status: status, body: Data(#"{"error":"refusé"}"#.utf8))
+        }
+    }
+    override func stopLoading() {}
+}
+
+private final class ThumbnailProtocol: URLProtocol, @unchecked Sendable {
+    /// `current` has the route; an older Mac answers a bare 404 or its web page.
+    enum Mac { case current, bare404, webPage }
+    final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var image = Data()
+        private var mac = Mac.current
+        private var paths: [String] = []
+        private var thumbQueries: [String] = []
+        func reset(png: Data, mac: Mac) { lock.withLock { image = png; self.mac = mac; paths = []; thumbQueries = [] } }
+        func record(_ url: URL?) -> (png: Data, mac: Mac) {
+            lock.withLock {
+                let path = url?.path ?? ""
+                paths.append(path)
+                if path.hasPrefix("/remote/v1/thumb/") { thumbQueries.append(url?.query ?? "") }
+                return (image, mac)
+            }
+        }
+        func count(_ path: String) -> Int { lock.withLock { paths.filter { $0 == path }.count } }
+        var queries: [String] { lock.withLock { thumbQueries } }
+    }
+    static let state = State()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url?.path ?? ""
+        let current = Self.state.record(request.url)
+        if path.hasPrefix("/remote/v1/thumb/") {
+            switch current.mac {
+            case .bare404: stubReply(self, status: 404, body: Data())
+            case .webPage: stubReply(self, status: 200, body: Data("<!doctype html><title>Atelier</title>".utf8), headers: ["Content-Type": "text/html"])
+            case .current:
+                if path.hasSuffix("/f_none") {
+                    stubReply(self, status: 404, body: Data(#"{"error":"Aperçu indisponible","code":"thumbnail_unavailable"}"#.utf8))
+                } else if path.hasSuffix("/f_busy") {
+                    stubReply(self, status: 503, body: Data(#"{"error":"Aperçus en cours de préparation, réessayez","code":"thumbnail_busy"}"#.utf8))
+                } else {
+                    stubReply(self, status: 200, body: current.png, headers: ["Content-Type": "image/png", "ETag": "W/\"t480-1\""])
+                }
+            }
+        } else if path == "/remote/v1/gallery/p" {
+            let listing = #"{"items":[{"fileId":"f_1","name":"a.png","size":3,"ext":"png","kind":"figure","modifiedAt":1727000000,"etag":"3-1727000000"},{"fileId":"f_2","name":"b.png","size":4,"modifiedAt":1727000100},{"fileId":"f_3","name":"c.png","size":5,"modifiedAt":null}]}"#
+            stubReply(self, status: 200, body: Data(listing.utf8), headers: ["Content-Type": "application/json"])
+        } else if path.hasPrefix("/remote/v1/file/") {
+            stubReply(self, status: 200, body: Data("full file".utf8))
+        } else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+        }
+    }
+    override func stopLoading() {}
+}
+
+private final class NotifyProtocol: URLProtocol, @unchecked Sendable {
+    enum Mode { case current, missing, webPage }
+    /// The Mac's settings as far as the stub keeps them.
+    struct Settings { var enabled = false; var topic = false }
+    final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var mode = Mode.current
+        private var bodies: [[String: Any]] = []
+        private var settings = Settings()
+        private var tests = 0
+        func reset(_ mode: Mode) { lock.withLock { self.mode = mode; bodies = []; settings = Settings(); tests = 0 } }
+        var current: Mode { lock.withLock { mode } }
+        var saved: Settings { lock.withLock { settings } }
+        /// Applies a POST as the Mac does; nil once six test alerts were sent.
+        func apply(_ body: [String: Any]) -> Settings? {
+            lock.withLock { () -> Settings? in
+                bodies.append(body)
+                let test = body["test"] as? Bool == true
+                if test {
+                    tests += 1
+                    if tests > 6 { return nil }
+                }
+                if let on = body["enabled"] as? Bool { settings.enabled = on }
+                // A topic appears on first enable or first test alert.
+                if settings.enabled || test { settings.topic = true }
+                return settings
+            }
+        }
+        var posted: [[String: Any]] { lock.withLock { bodies } }
+    }
+    static let state = State()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard request.url?.path == "/remote/v1/notify" else { client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return }
+        let posting = request.httpMethod == "POST"
+        switch Self.state.current {
+        case .missing: stubReply(self, status: posting ? 405 : 404, body: Data())
+        case .webPage: stubReply(self, status: posting ? 405 : 200, body: Data("<!doctype html><title>Atelier</title>".utf8), headers: ["Content-Type": "text/html"])
+        case .current:
+            var settings = Self.state.saved
+            if posting, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var data = Data(); var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(buffer, count: count) }
+                let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+                guard let applied = Self.state.apply(body) else {
+                    stubReply(self, status: 429, body: Data(#"{"error":"trop de requêtes","code":"rate_limited"}"#.utf8), headers: ["Content-Type": "application/json"])
+                    return
+                }
+                settings = applied
+            }
+            let topic = settings.topic ? #""atelier-7f3a""# : "null"
+            let link = settings.topic ? #""https://ntfy.sh/atelier-7f3a""# : "null"
+            let reply = #"{"enabled":\#(settings.enabled),"server":"https://ntfy.sh","topic":\#(topic),"subscribeUrl":\#(link),"onlyWhenAway":true,"preview":false}"#
+            stubReply(self, status: 200, body: Data(reply.utf8), headers: ["Content-Type": "application/json"])
+        }
+    }
+    override func stopLoading() {}
+}

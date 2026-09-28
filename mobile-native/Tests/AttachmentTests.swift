@@ -15,6 +15,24 @@ final class AttachmentTests: XCTestCase {
             XCTFail("Must not substitute a same-name file")
         } catch { XCTAssertTrue(error.localizedDescription.contains("plus disponible")) }
     }
+    @MainActor func testKnownAttachmentIsConfirmedByOneByteWithoutListingTheProject() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FileProbeProtocol.self]
+        FileProbeProtocol.state.reset()
+        let gateway = GalleryModel(address: URL(string: "https://gateway.invalid")!, token: "test", session: URLSession(configuration: configuration))
+        let id = try await gateway.attachmentID(GalleryArtifact(name: "plot.png", fileID: "f_known", projectID: "p_test"))
+        XCTAssertEqual(id, "f_known")
+        XCTAssertEqual(FileProbeProtocol.state.paths, ["/remote/v1/file/f_known"])
+        XCTAssertEqual(FileProbeProtocol.state.ranges, ["bytes=0-0"])
+        // An expired association is reported, not hidden behind a re-index.
+        do {
+            _ = try await gateway.attachmentID(GalleryArtifact(name: "plot.png", fileID: "f_expired", projectID: "p_test"))
+            XCTFail("401 must be reported")
+        } catch GalleryModel.GalleryError.server(let status) {
+            XCTAssertEqual(status, 401)
+        } catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertFalse(FileProbeProtocol.state.paths.contains { $0.hasPrefix("/remote/v1/gallery") })
+    }
     @MainActor func testAttachmentOwnershipAndDeduplication() {
         let workspace = WorkspaceModel()
         let a = RemoteChatModel.Thread(id:"a",title:"A",provider:"codex",model:nil,projectId:nil,status:"idle")
@@ -81,6 +99,13 @@ private final class GalleryReindexProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        // The restarted gateway no longer knows either reference.
+        if request.url?.path.hasPrefix("/remote/v1/file/") == true {
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"error":"fichier inconnu","code":"not_found"}"#.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         guard request.url?.path == "/remote/v1/gallery/p_test" else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
@@ -106,6 +131,40 @@ private final class AttachmentSendProtocol: URLProtocol, @unchecked Sendable {
         let data = Data((isUpload ? #"{"fileId":"uploaded"}"# : #"{"proxied":true}"#).utf8)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class FileProbeProtocol: URLProtocol, @unchecked Sendable {
+    final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [String] = []
+        private var headers: [String] = []
+        func reset() { lock.withLock { seen = []; headers = [] } }
+        func record(_ request: URLRequest) {
+            lock.withLock {
+                seen.append(request.url?.path ?? "")
+                if let range = request.value(forHTTPHeaderField: "Range") { headers.append(range) }
+            }
+        }
+        var paths: [String] { lock.withLock { seen } }
+        var ranges: [String] { lock.withLock { headers } }
+    }
+    static let state = State()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.state.record(request)
+        let path = request.url?.path ?? ""
+        let status: Int, body: Data
+        switch path {
+        case "/remote/v1/file/f_known": status = 206; body = Data([0x89])
+        case "/remote/v1/file/f_expired": status = 401; body = Data(#"{"error":"appareil inconnu"}"#.utf8)
+        default: status = 500; body = Data()
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

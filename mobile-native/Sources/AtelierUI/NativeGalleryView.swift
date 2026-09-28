@@ -203,7 +203,8 @@ struct ArtifactThumbnail: View {
             }
             else { Image(systemName: item.kind == "PDF" ? "doc.richtext" : item.kind == "Figures" ? "photo" : "doc.text").font(.largeTitle).foregroundStyle(.secondary) }
         }
-        .task(id: item.id) {
+        // A file changed on the Mac (new listing tag) is previewed again.
+        .task(id: "\(item.id)|\(item.version ?? "")") {
             thumbnail = nil; excerpt = nil
             let visual = ["PDF", "Figures"].contains(item.kind)
             guard item.supported else { return }
@@ -211,6 +212,18 @@ struct ArtifactThumbnail: View {
                 if let text = try? await gallery.previewText(item), !Task.isCancelled { excerpt = String(text.prefix(900)) }
                 return
             }
+            // The Mac's small rendering first: it also covers files above the
+            // local preview limit. A file the Mac declines keeps the placeholder
+            // rather than being downloaded; without the route, the file itself.
+            do {
+                if let data = try await gallery.thumbnail(item) {
+                    let image = await ArtifactPreviewRenderer.shared.render(data, pdf: false)
+                    guard !Task.isCancelled else { return }
+                    thumbnail = image
+                    return
+                }
+            } catch { return }
+            guard !Task.isCancelled else { return }
             guard (item.data?.count ?? item.size) < 5 * 1024 * 1024,
                   let data = try? await gallery.contents(item) else { return }
             let image = await ArtifactPreviewRenderer.shared.render(data, pdf: item.kind == "PDF")
