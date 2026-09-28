@@ -43,9 +43,10 @@ français (les articles sont en anglais, les notes en français).
 
 ## Surligner depuis Claude Desktop
 
-`highlight_passage` lit le PDF avec `pdftotext -bbox-layout -cropbox`
-(poppler : `ATELIER_PDFTOTEXT`, sinon `/opt/homebrew/bin`, `/usr/local/bin`,
-puis le `PATH`), retrouve la citation avec la normalisation du lecteur
+`highlight_passage` lit le PDF avec l'outil `atelier-pdf` (PDFium ; même
+sortie que `pdftotext -bbox-layout -cropbox`), cherché à côté du serveur puis
+dans Atelier installé ; à défaut, `pdftotext` de poppler s'il est là
+(`ATELIER_PDFTOTEXT` l'impose pour les tests). Il retrouve la citation avec la normalisation du lecteur
 (accents, ligatures et ponctuation ignorés, césures de fin de ligne
 recollées) et écrit une annotation `hl` par page couverte, un rectangle par
 ligne, marquée `"by": "claude"`. La note facultative (`memo`) va sur la

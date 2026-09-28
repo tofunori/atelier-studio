@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DIST=src-tauri/rust-server-dist
-BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp)
+BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp atelier-pdf)
 # Wrappers agents KB (plan 065 phase C) : binaires Rust invoqués par les
 # prompts (kb_block.rs, send.rs). Le suffixe `-rs` est un héritage : ils ont
 # cohabité avec les wrappers shell `sidecar/atelier-kb` /
@@ -20,8 +20,8 @@ find "$DIST" -maxdepth 1 -name '*.mjs' -delete
 rm -f "$DIST/atelier-kb" "$DIST/atelier-zotero-passages"
 
 if [[ "${ATELIER_SKIP_RUST_BUILD:-}" != "1" ]]; then
-  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb --release"
-  cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb --release --manifest-path rust/Cargo.toml --bins
+  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf --release"
+  cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf --release --manifest-path rust/Cargo.toml --bins
 fi
 
 for BIN_NAME in "${BIN_NAMES[@]}"; do
@@ -65,13 +65,21 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cp "$ROOT/rust/assets/atelier_figure_qc.py" "$DIST/atelier_figure_qc.py"
 
+# PDFium, chargé par atelier-pdf depuis son propre dossier : les PDF se
+# lisent sans poppler (galerie, base d'articles, annotations).
+PDFIUM_LIB="$(bash scripts/fetch-pdfium.sh)"
+cp -f "$PDFIUM_LIB" "$DIST/"
+cp -f "$(dirname "$PDFIUM_LIB")/../LICENSE" "$DIST/PDFIUM_LICENSE"
+PDFIUM_NAME="$(basename "$PDFIUM_LIB")"
+
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   for BIN_NAME in "${BIN_NAMES[@]}" "${KB_BIN_NAMES[@]}"; do
     shasum -a 256 "$DIST/$BIN_NAME" | awk -v name="$BIN_NAME" '{print name "_sha256=" $1}'
   done
+  shasum -a 256 "$DIST/$PDFIUM_NAME" | awk -v name="$PDFIUM_NAME" '{print name "_sha256=" $1}'
 } >"$DIST/BUILD_STAMP.txt"
 
 du -sh "$DIST"
-ls -la "${BIN_NAMES[@]/#/$DIST/}" "${KB_BIN_NAMES[@]/#/$DIST/}"
+ls -la "${BIN_NAMES[@]/#/$DIST/}" "${KB_BIN_NAMES[@]/#/$DIST/}" "$DIST/$PDFIUM_NAME"

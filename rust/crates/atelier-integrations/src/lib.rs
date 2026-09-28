@@ -14,6 +14,7 @@
 //! enregistré s'applique sans redémarrer, y compris dans les binaires
 //! compagnons (`atelier-kb-rs`, serveur galerie, MCP des annotations).
 
+pub mod tectonic;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

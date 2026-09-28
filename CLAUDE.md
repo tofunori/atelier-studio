@@ -30,8 +30,8 @@ plus, le dépôt ne contient aucun runtime Node (verrouillé par
 survivent en fixtures (`gallery/tests/kb_parity/` rejoué contre
 `atelier-kb-rs`, `rust/crates/atelier-runtime/tests/fixtures/kb_node_oracle/`).
 Une feature qui semble « plus vite en JS » se fait quand même en Rust
-(`rust/crates/`), avec ses tests. Les outils externes (pdftotext, yt-dlp,
-ssh/gbrain, MinerU) se spawnent depuis Rust. Seule exception : le JavaScript
+(`rust/crates/`), avec ses tests. Les outils externes (atelier-pdf, tectonic,
+yt-dlp, ssh/gbrain, MinerU) se spawnent depuis Rust. Seule exception : le JavaScript
 NAVIGATEUR (éditeurs `gallery/src/studio`, UI React) et les harnais de test
 (`gallery/tests/*.mts`, `scripts/*.mts`) — c'est de l'interface et de
 l'outillage, pas du runtime. En cas de doute : Rust.

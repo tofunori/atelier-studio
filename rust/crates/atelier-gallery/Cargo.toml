@@ -18,6 +18,7 @@ path = "src/gallery_tool_main.rs"
 atelier-integrations = { workspace = true }
 atelier-fdlimit = { workspace = true }
 atelier-core = { path = "../atelier-core" }
+atelier-pdf = { workspace = true }
 axum = "0.8"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }

@@ -73,22 +73,25 @@ install them yourself. They appear in **Settings → Models**.
 
 **Settings → Environment** lists what each feature needs on this Mac, shows
 **Found** or **Missing**, and offers an install button. The welcome window
-shows the same list under **Optional**.
+shows Zotero under **Optional**.
 
-<!-- PDF and LaTeX tools: the Poppler and LaTeX rows below, and the SyncTeX note,
-     describe main as of 2026-09-28. Update them when PDFium and on-demand
-     tectonic land. -->
+<!-- PDF and LaTeX tools: PDFium ships in the app and tectonic is downloaded on
+     the first compile (since 2026-09-28). -->
 
 | Tool | Used for | Install |
 | --- | --- | --- |
-| Homebrew | Installing Poppler, tectonic and Codex | The official command from [brew.sh](https://brew.sh) |
+| Homebrew | Installing Codex | The official command from [brew.sh](https://brew.sh) |
 | Git (Xcode command line tools) | Restore points for every agent turn, and the Git panel | `xcode-select --install` |
-| Poppler (`pdftotext`, `pdftohtml`) | Importing PDFs into the knowledge base, and PDF reading mode | `brew install poppler` |
-| LaTeX (`latexmk` or `tectonic`) | Compiling LaTeX documents | `brew install tectonic` (tectonic is enough; MacTeX also works) |
+| LaTeX | Compiling LaTeX documents | Nothing to install: MacTeX is used if present, otherwise the first **Compile** downloads tectonic |
 | Zotero | Your library and its attachments | [zotero.org/download](https://www.zotero.org/download/) |
 
-Jumping between LaTeX source and the compiled PDF (SyncTeX) currently uses the
-`synctex` tool that comes with MacTeX.
+Reading PDFs needs nothing extra. Atelier ships its own PDF engine (PDFium)
+for PDF import into the knowledge base, PDF reading mode and highlights.
+
+Without MacTeX, the first LaTeX compile needs an internet connection. It
+downloads a pinned version of tectonic (checksum verified) into Atelier's data
+folder, and tectonic then fetches the TeX packages your document uses. Jumping
+between LaTeX source and the compiled PDF (SyncTeX) works with either.
 
 <!-- End of PDF and LaTeX tools. -->
 
@@ -116,8 +119,9 @@ Your conversations and settings are kept.
 ## Where your data lives
 
 - `~/Library/Application Support/atelier-studio/`: conversations, settings,
-  integrations, and PDF highlights and notes. Highlights are kept here rather
-  than written into your PDF files.
+  integrations, PDF highlights and notes, and tectonic if Atelier downloaded
+  it (`tools/`). Highlights are kept here rather than written into your PDF
+  files.
 - A `.fig_thumbs/` folder in each project: figure thumbnails, safe to delete.
 
 To uninstall, quit Atelier and move it from Applications to the Trash. Delete
@@ -130,8 +134,8 @@ and PDF highlights.
 | --- | --- |
 | An agent is listed as unavailable after you installed it | **Check again** in Settings → Environment |
 | **Sign-in required** next to an agent | Click **Sign in**, or run `claude auth login` or `codex login` in Terminal |
-| A PDF import or reading-mode error mentioning `pdftotext` or `pdftohtml` | Install Poppler (see [Optional tools](#optional-tools)) |
-| Compiling LaTeX fails because neither `latexmk` nor `tectonic` is found | Install tectonic or MacTeX |
+| A PDF import or reading-mode error saying the `atelier-pdf` tool or PDFium is missing | Reinstall Atelier: the PDF engine ships inside the app |
+| The first LaTeX compile fails while downloading tectonic | Check the internet connection and compile again, or install MacTeX |
 | The Zotero library is empty | Set the Zotero data folder in Settings → Integrations |
 
 Report other problems in
@@ -141,7 +145,9 @@ Report other problems in
 
 For contributors. You need an Apple Silicon Mac with the Xcode command line
 tools, a stable Rust toolchain ([rustup.rs](https://rustup.rs)) and Node.js
-22.18 or later. The full test suite also uses Python 3 and Poppler.
+22.18 or later. The full test suite also uses Python 3, and
+`scripts/fetch-pdfium.sh` to download the PDF engine (the app build runs it by
+itself).
 [`sccache`](https://github.com/mozilla/sccache) is optional and speeds up
 rebuilds.
 

@@ -24,6 +24,8 @@ dist-ssr
 *.sw?
 src-tauri/target/
 rust/target/
+# PDFium téléchargé par scripts/fetch-pdfium.sh (jamais suivi)
+rust/vendor/
 *.tsbuildinfo
 src-tauri/sidecar-dist/
 src-tauri/gallery-dist/

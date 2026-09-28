@@ -62,7 +62,7 @@ describe("setupEnvironment — relais WS", () => {
     ]);
     expect(s.providers?.[1].loginCommand).toBe("codex login");
     expect(s.tools?.map((tool) => [tool.id, tool.found])).toEqual([
-      ["homebrew", false], ["git", true], ["poppler", false], ["tex", true], ["zotero", false],
+      ["homebrew", false], ["git", true], ["tex", true], ["zotero", false],
     ]);
     expect(s.tools?.find((tool) => tool.id === "tex")?.detail).toBe("tectonic");
   });
@@ -72,7 +72,10 @@ describe("setupEnvironment — relais WS", () => {
       id: "kimi", label: "kimi", kind: "cli", installed: false, version: null, binPath: null,
       auth: "unknown", loginCommand: null, installCommand: null,
     }]);
-    const tools = normalizeTools([{ id: "inconnu", found: true }, { id: "git", found: true, installUrl: "http://x" }]);
+    // "poppler" d'un ancien serveur : la lecture des PDF est désormais livrée
+    const tools = normalizeTools([
+      { id: "inconnu", found: true }, { id: "poppler", found: false }, { id: "git", found: true, installUrl: "http://x" },
+    ]);
     expect(tools).toHaveLength(1);
     expect(tools[0].installUrl).toBeNull();
   });
@@ -159,7 +162,7 @@ describe("recheckAll", () => {
 
 describe("runSetupCommand", () => {
   it("sans terminal intégré (aucun projet), retombe sur la copie", () => {
-    expect(runSetupCommand("brew install poppler", { kind: "install", origin: "environment" })).toBe("copy");
+    expect(runSetupCommand("brew install --cask codex", { kind: "install", origin: "environment" })).toBe("copy");
   });
 
   it("confie la commande au lanceur enregistré par App, avec sa nature et son origine", () => {
@@ -189,13 +192,13 @@ describe("commandes : Homebrew d'abord, binaires résolus", () => {
   });
 
   it("avec Homebrew, brew est appelé par son chemin (le PATH du shell peut l'ignorer)", () => {
-    expect(installPlan("brew install poppler", withBrew)).toEqual({
-      command: "/opt/homebrew/bin/brew install poppler", homebrewFirst: false,
+    expect(installPlan("brew install --cask codex", withBrew)).toEqual({
+      command: "/opt/homebrew/bin/brew install --cask codex", homebrewFirst: false,
     });
   });
 
   it("diagnostic pas encore reçu, ou commande sans brew : la commande part telle quelle", () => {
-    expect(installPlan("brew install poppler", null)).toEqual({ command: "brew install poppler", homebrewFirst: false });
+    expect(installPlan("brew install --cask codex", null)).toEqual({ command: "brew install --cask codex", homebrewFirst: false });
     const claude = "curl -fsSL https://claude.ai/install.sh | bash";
     expect(installPlan(claude, tools)).toEqual({ command: claude, homebrewFirst: false });
   });

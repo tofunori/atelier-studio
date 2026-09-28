@@ -32,11 +32,13 @@ export const TOOLS = [
     installUrl: "https://brew.sh" },
   { id: "git", found: true, path: "/usr/bin/git", detail: null, installCommand: "xcode-select --install",
     installUrl: "https://developer.apple.com/xcode/resources/" },
-  { id: "poppler", found: false, path: null, detail: null, installCommand: "brew install poppler",
-    installUrl: "https://poppler.freedesktop.org/" },
-  { id: "tex", found: true, path: "/opt/homebrew/bin/tectonic", detail: "tectonic", installCommand: "brew install tectonic",
+  { id: "tex", found: true, path: "/opt/homebrew/bin/tectonic", detail: "tectonic", installCommand: null,
     installUrl: "https://tectonic-typesetting.github.io/" },
   { id: "zotero", found: false, path: "/Users/t/Zotero", detail: null, installCommand: null,
     installUrl: "https://www.zotero.org/download/" },
 ];
+
+/** Ni MacTeX ni tectonic : la première compilation téléchargera tectonic. */
+export const TEX_ON_DEMAND = { id: "tex", found: false, path: null, detail: "on-demand", installCommand: null,
+  installUrl: "https://tectonic-typesetting.github.io/" };
 

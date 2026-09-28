@@ -1,9 +1,9 @@
 //! Outil `highlight_passage` : surligner un passage cité dans un PDF Zotero,
 //! dans le store du lecteur d'Atelier (`pdf_annots.json`).
 //!
-//! La citation est retrouvée dans la couche texte de poppler
-//! (`pdftotext -bbox-layout -cropbox`, un cadre par mot, en points depuis le
-//! coin haut-gauche de la page) avec la même normalisation que la visionneuse
+//! La citation est retrouvée dans la couche texte du PDF (`atelier-pdf bbox`,
+//! la sortie de `pdftotext -bbox-layout -cropbox` : un cadre par mot, en
+//! points depuis le coin haut-gauche de la page) avec la même normalisation que la visionneuse
 //! (`gallery/assets/pdf_passage.js` : NFKD, sans accents ni ponctuation), mais
 //! en ignorant aussi les espaces, pour qu'une césure de fin de ligne
 //! (« glaci- ers ») retrouve « glaciers ». Un rectangle par ligne, en fractions
@@ -19,14 +19,14 @@ use fs2::FileExt;
 use serde_json::{json, Value};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 /// En dessous, une citation désigne trop de passages pour être surlignée.
 const MIN_NEEDLE_CHARS: usize = 12;
 pub const MAX_PASSAGES: usize = 20;
-const PDFTOTEXT_TIMEOUT: Duration = Duration::from_secs(60);
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Les teintes du lecteur (`HL_COLORS` de `pdf_viewer.html`, même ordre).
 pub const COLORS: [(&str, &str); 6] = [
@@ -388,36 +388,26 @@ pub fn page_text(page: &Page) -> String {
     out.join("\n\n")
 }
 
-fn pdftotext_bin() -> String {
-    if let Some(bin) = std::env::var_os("ATELIER_PDFTOTEXT").filter(|v| !v.is_empty()) {
-        return bin.to_string_lossy().into_owned();
-    }
-    // Claude Desktop lance le serveur avec un PATH réduit : poppler de
-    // Homebrew n'y est pas.
-    ["/opt/homebrew/bin/pdftotext", "/usr/local/bin/pdftotext"]
-        .into_iter()
-        .find(|p| Path::new(p).is_file())
-        .unwrap_or("pdftotext")
-        .to_string()
-}
-
 pub fn read_pdf(pdf: &Path) -> Result<Vec<Page>, String> {
-    let bin = pdftotext_bin();
-    let mut child = Command::new(&bin)
-        .args(["-bbox-layout", "-cropbox", "-enc", "UTF-8", "-q"])
-        .arg(pdf)
-        .arg("-")
+    let (mut command, program) = atelier_pdf::tool::command(atelier_pdf::tool::Output::WordBoxes, pdf);
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("pdftotext introuvable ({bin}) : {e} ; installer poppler"))?;
+        .map_err(|e| atelier_pdf::tool::spawn_error(&program, &e))?;
     let mut stdout = child.stdout.take().expect("stdout piped");
+    let mut stderr = child.stderr.take().expect("stderr piped");
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
         std::io::Read::read_to_end(&mut stdout, &mut buf).map(|_| buf)
     });
-    let deadline = Instant::now() + PDFTOTEXT_TIMEOUT;
+    let errors = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
+        buf
+    });
+    let deadline = Instant::now() + READ_TIMEOUT;
     let status = loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
             break status;
@@ -425,18 +415,20 @@ pub fn read_pdf(pdf: &Path) -> Result<Vec<Page>, String> {
         if Instant::now() > deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("pdftotext : délai dépassé (60 s)".into());
+            return Err("lecture du PDF : délai dépassé (60 s)".into());
         }
         std::thread::sleep(Duration::from_millis(20));
     };
     let out = reader
         .join()
-        .map_err(|_| "pdftotext : lecture interrompue".to_string())?
+        .map_err(|_| "lecture du PDF interrompue".to_string())?
         .map_err(|e| e.to_string())?;
     if !status.success() {
+        let why = String::from_utf8_lossy(&errors.join().unwrap_or_default()).trim().to_string();
         return Err(format!(
-            "pdftotext a échoué ({status}) sur {}",
-            pdf.display()
+            "lecture du PDF impossible ({status}) : {}{}",
+            pdf.display(),
+            if why.is_empty() { String::new() } else { format!(" ; {why}") }
         ));
     }
     let pages = parse_bbox_layout(&String::from_utf8_lossy(&out))?;

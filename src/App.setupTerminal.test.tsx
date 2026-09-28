@@ -115,7 +115,7 @@ describe("App — premier lancement", () => {
   it("sans projet ouvert, pas de terminal intégré : la commande retombe sur la copie", async () => {
     await mountConnected();
     let result: string | null = null;
-    act(() => { result = runSetupCommand("brew install poppler", { kind: "install", origin: "environment" }); });
+    act(() => { result = runSetupCommand("brew install --cask codex", { kind: "install", origin: "environment" }); });
     expect(result).toBe("copy");
   });
 

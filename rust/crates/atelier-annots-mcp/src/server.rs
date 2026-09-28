@@ -898,12 +898,9 @@ mod tests {
 
     #[test]
     fn highlight_passage_writes_line_rects_into_the_store_once() {
-        let pdftotext_ok = std::process::Command::new("pdftotext")
-            .arg("-v")
-            .output()
-            .is_ok();
-        if !pdftotext_ok && std::env::var_os("ATELIER_PDFTOTEXT").is_none() {
-            eprintln!("pdftotext absent : test sauté");
+        let program = atelier_pdf::tool::resolve(atelier_pdf::tool::Output::WordBoxes);
+        if program.source == atelier_pdf::tool::Source::Poppler && !program.path.is_file() {
+            eprintln!("ni atelier-pdf ni pdftotext : test sauté");
             return;
         }
         let (dir, config) = setup();

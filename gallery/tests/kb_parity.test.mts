@@ -10,7 +10,8 @@
 //
 // Résolution du binaire : `KB_PARITY_BIN=<chemin>`, sinon
 // `cargo build -p atelier-kb --bin atelier-kb-rs` (debug, incrémental : quasi
-// gratuit si déjà à jour) puis rust/target/debug/atelier-kb-rs. Le binaire
+// gratuit si déjà à jour, avec l'outil `atelier-pdf` qui lit les PDF) puis
+// rust/target/debug/atelier-kb-rs. Le binaire
 // stagé dans src-tauri/rust-server-dist/ n'est JAMAIS pris : il date du
 // dernier stage-rust-server.sh et peut être périmé par rapport à la source
 // (2026-09-22 : binaire du 2026-09-11, 7 fixtures rouges en CI). Le harnais ne
@@ -52,6 +53,8 @@ function resolveKbBin() {
   const build = spawnSync("cargo", [
     "build", "--manifest-path", path.join(REPO, "rust", "Cargo.toml"),
     "-p", "atelier-kb", "--bin", "atelier-kb-rs",
+    // l'extraction PDF passe par l'outil atelier-pdf, cherché à côté
+    "-p", "atelier-pdf", "--bin", "atelier-pdf",
   ], { stdio: "inherit" });
   if (build.status !== 0 || !fs.existsSync(debugBin)) {
     throw new Error("kb_parity: `cargo build -p atelier-kb --bin atelier-kb-rs` a échoué (KB_PARITY_BIN=<chemin> pour forcer un binaire)");

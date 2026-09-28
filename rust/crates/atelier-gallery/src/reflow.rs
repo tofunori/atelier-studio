@@ -977,12 +977,14 @@ fn lock_disk_cache(path: &Path) -> Result<std::fs::File, String> {
     Ok(file)
 }
 
-/// Spawn `pdftohtml -xml -zoom 1 -stdout -q` : le zoom 1 explicite est
-/// obligatoire (le défaut de pdftohtml est 1.5 et mettrait à l'échelle
-/// toutes les bbox — la fixture `twocol.xml` et les tests d'analyse
-/// supposent le zoom 1). Ne JAMAIS ajouter `-i` : voir le commentaire de
-/// tête du module — `-i` fait disparaître les `<image>` du XML.
-/// Le binaire vient de `ATELIER_PDFTOHTML` (tests) ou du PATH.
+/// Spawn `atelier-pdf xml` (PDFium, livré avec l'app), qui écrit le XML de
+/// `pdftohtml -xml -zoom 1 -stdout -q` : le zoom 1 est obligatoire (le
+/// défaut de pdftohtml est 1.5 et mettrait à l'échelle toutes les bbox — la
+/// fixture `twocol.xml` et les tests d'analyse supposent le zoom 1). Repli
+/// sur ce pdftohtml si l'outil manque ; ne JAMAIS lui ajouter `-i` : voir le
+/// commentaire de tête du module — `-i` fait disparaître les `<image>` du
+/// XML. `ATELIER_PDFTOHTML` (tests) impose un programme au format de
+/// pdftohtml (voir `atelier_pdf::tool`).
 /// Échéance du spawn. `ATELIER_PDFTOHTML_TIMEOUT_MS` la raccourcit pour les
 /// tests (lu par le PROCESSUS SERVEUR, jamais muté depuis un test unitaire).
 fn pdftohtml_timeout() -> std::time::Duration {
@@ -993,15 +995,12 @@ fn pdftohtml_timeout() -> std::time::Duration {
         .unwrap_or_else(|| std::time::Duration::from_secs(60))
 }
 
-pub(crate) const PDFTOHTML_TIMEOUT_MSG: &str = "pdftohtml: délai dépassé (60 s)";
+pub(crate) const PDFTOHTML_TIMEOUT_MSG: &str = "lecture du PDF : délai dépassé (60 s)";
 
 pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
     use std::io::Read;
-    let bin = std::env::var("ATELIER_PDFTOHTML").unwrap_or_else(|_| "pdftohtml".to_string());
-    let mut command = std::process::Command::new(&bin);
+    let (mut command, program) = atelier_pdf::tool::command(atelier_pdf::tool::Output::Reading, pdf);
     command
-        .args(["-xml", "-zoom", "1", "-stdout", "-q"])
-        .arg(pdf)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -1012,13 +1011,7 @@ pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
     }
     let mut child = command
         .spawn()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "pdftohtml introuvable : installez poppler (brew install poppler), voir Réglages → Environnement".to_string()
-            } else {
-                format!("pdftohtml indisponible ({bin}): {e}")
-            }
-        })?;
+        .map_err(|e| atelier_pdf::tool::spawn_error(&program, &e))?;
     // Les deux tuyaux sont VIDÉS dans des threads : sans ça, un XML plus gros
     // que le tampon du noyau bloquerait l'enfant et l'échéance ci-dessous
     // tuerait un processus en bonne santé.
@@ -1060,11 +1053,11 @@ pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
     let stderr = err_reader.join().unwrap_or_default();
     if !status.success() {
         return Err(format!(
-            "pdftohtml a échoué: {}",
+            "lecture du PDF impossible : {}",
             String::from_utf8_lossy(&stderr).trim()
         ));
     }
-    String::from_utf8(stdout).map_err(|e| format!("pdftohtml: sortie non UTF-8: {e}"))
+    String::from_utf8(stdout).map_err(|e| format!("lecture du PDF : sortie non UTF-8: {e}"))
 }
 
 fn stop_pdftohtml(child: &mut std::process::Child) {

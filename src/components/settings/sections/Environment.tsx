@@ -1,6 +1,6 @@
 // Section Environnement (premier lancement) : ce dont Atelier a besoin sur ce
 // Mac — un agent (Claude Code ou Codex) et des outils externes (Homebrew,
-// git, poppler, TeX, Zotero) — avec de quoi installer ce qui manque.
+// git, TeX, Zotero) — avec de quoi installer ce qui manque.
 //
 // Tout vient du store lib/setupEnvironment (setupStatus + environmentStatus,
 // demandés à la connexion). Rien n'est redemandé au montage : seul

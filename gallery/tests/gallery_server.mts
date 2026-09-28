@@ -8,7 +8,7 @@
 // rust/target/release/ et src-tauri/rust-server-dist/ — le dist (stagé,
 // non suivi) peut être périmé par rapport à la source, un `cargo build`
 // frais doit gagner —, sinon `cargo build -p atelier-gallery --bin
-// atelier-gallery-server` (debug). Le harnais ne saute jamais silencieusement
+// atelier-gallery-server` (debug, avec l'outil `atelier-pdf` à côté). Le harnais ne saute jamais silencieusement
 // faute de binaire.
 //
 // Contrat identique à ce que l'app passe au serveur : `--root <projet>`,
@@ -55,6 +55,8 @@ export function resolveGalleryServerBin() {
   const build = spawnSync("cargo", [
     "build", "--manifest-path", path.join(REPO_DIR, "rust", "Cargo.toml"),
     "-p", "atelier-gallery", "--bin", "atelier-gallery-server",
+    // l'outil PDF (mode lecture) se cherche à côté du serveur
+    "-p", "atelier-pdf", "--bin", "atelier-pdf",
   ], { stdio: "inherit" });
   if (build.status !== 0 || !fs.existsSync(debugBin)) {
     throw new Error("gallery_server: atelier-gallery-server introuvable et `cargo build` a échoué");
