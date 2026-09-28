@@ -44,6 +44,17 @@ struct NativeDocumentView: View {
             if await workspace.undoDocumentReview(), workspace.documentID == documentID { reviewNotice = nil }
         }
     }
+    // Sortis de `.task` : Xcode 26.6 abandonnait la vérification de types de
+    // l'expression écrite en ligne dans la chaîne de modificateurs.
+    private var sharedAnnotationsActive: Bool {
+        let onDocument: Bool = workspace.surface == WorkspaceModel.Surface.document
+        let active: Bool = scenePhase == ScenePhase.active
+        return onDocument && active
+    }
+    private var sharedAnnotationsTaskID: String {
+        let key: String = workspace.sharedPDFAnnotationKey ?? ""
+        return "\(workspace.documentID)|\(key)|\(sharedAnnotationsActive)|\(workspace.gallery.connectionRevision)"
+    }
     private var viewingPDFMarks: Bool {
         workspace.pdfDocument != nil && (workspace.documentMode == .pdf || !workspace.sourceAvailable)
     }
@@ -295,8 +306,8 @@ struct NativeDocumentView: View {
             }
         }
         .sheet(isPresented: $showingPDFAnnotations) { PDFAnnotationsList(workspace: workspace) }
-        .task(id: "\(workspace.documentID)|\(workspace.sharedPDFAnnotationKey ?? "")|\(workspace.surface == .document && scenePhase == .active)|\(workspace.gallery.connectionRevision)") {
-            if workspace.surface == .document && scenePhase == .active { await workspace.refreshSharedPDFAnnotations() }
+        .task(id: sharedAnnotationsTaskID) {
+            if sharedAnnotationsActive { await workspace.refreshSharedPDFAnnotations() }
         }
     }
 }
