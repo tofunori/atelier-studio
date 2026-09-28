@@ -72,33 +72,17 @@ Lighter typography, restrained controls, and themes for different working prefer
 
 ## Installation
 
-1. Download the Apple Silicon DMG from [GitHub Releases](https://github.com/tofunori/atelier-studio/releases/latest).
-2. Move **Atelier** to **Applications**, then launch it.
-3. Open a project folder and connect your agent provider.
+1. Download the Apple Silicon DMG from [GitHub Releases](https://github.com/tofunori/atelier-studio/releases/latest) and move **Atelier** to **Applications**.
+2. Open it. Builds are not notarized by Apple yet, so macOS asks you to allow the first launch once.
+3. The welcome window installs and signs in to Claude Code or Codex for you. Then open a project folder.
 
-Current builds are not notarized by Apple. If macOS blocks the first launch, review the app in **System Settings → Privacy & Security** and use **Open Anyway** where available. For a downloaded build you trust, the documented terminal alternative is:
-
-```sh
-xattr -cr /Applications/Atelier.app
-open /Applications/Atelier.app
-```
-
-**Requirements**
-
-- macOS 12.3 or later on Apple Silicon.
-- A supported agent CLI or configured API provider, with your own credentials. Claude Code and Codex sessions use their locally installed CLIs.
-- [Poppler](https://poppler.freedesktop.org/) for PDF text extraction.
-- A local TeX distribution, such as MacTeX or TeX Live, for LaTeX compilation.
-
-The packaged desktop app includes its Rust backend and gallery runtime. You do not need Node.js or Python just to run Atelier. External providers and optional document tools have their own requirements.
-
-**Optional integrations.** Zotero is found automatically (including a custom data directory). A Ragdoc server, gbrain, a Docker NAS, Slurm clusters and a Crossref contact email are off until you fill them in under **Settings → Integrations**; nothing contacts a remote host before that. If you installed an agent CLI while Atelier was open, use **Check again** under **Settings → Models**.
+Atelier needs macOS 12.3 or later on Apple Silicon. It includes its own backend, so you do not need Node.js or Python. The **[installation guide](docs/INSTALLATION.md)** covers each step, the optional tools for PDF import and LaTeX, Zotero and integrations, updating, and troubleshooting.
 
 ## Project context, under your control
 
 Atelier keeps conversations and project tools close to the files you work on. Context sent to an agent is processed by the provider you choose; a local workspace does not make a cloud model local. Features such as steering and permissions depend on the provider and installed CLI version.
 
-PDF annotations are stored beside the project files rather than burned into the original PDF.
+PDF highlights and notes are kept in Atelier's own data rather than burned into the original PDF.
 
 <details>
 <summary>Development and architecture</summary>
@@ -112,7 +96,7 @@ npm run build:web
 npm run test:frontend
 ```
 
-For a desktop build, follow the complete stop, build, and restart protocol in [AGENTS.md](AGENTS.md). The ordinary build command is `npm run tauri:build:app`; `npm run tauri:build:dmg` is reserved for releases.
+To build the desktop app, see [Build from source](docs/INSTALLATION.md#build-from-source). The complete stop, build and restart procedure is [docs/PROTOCOLE_RELANCE.md](docs/PROTOCOLE_RELANCE.md) (in French). The ordinary build command is `npm run tauri:build:app`; `npm run tauri:build:dmg` is reserved for releases.
 
 - `npm run verify` runs the repository checks.
 - `npm run verify:e2e` runs gallery end-to-end checks.

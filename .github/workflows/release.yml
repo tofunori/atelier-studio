@@ -73,6 +73,9 @@ jobs:
             printf '\n'
             echo 'If macOS Gatekeeper blocks an unsigned download, run:'
             echo '`xattr -cr "/Applications/Atelier.app"`'
+            printf '\n'
+            echo 'Installation guide (first launch, agents, optional tools):'
+            echo 'https://github.com/tofunori/atelier-studio/blob/main/docs/INSTALLATION.md'
             echo 'RELEASE_BODY_EOF'
           } >> "$GITHUB_OUTPUT"
       - name: Build + bundle

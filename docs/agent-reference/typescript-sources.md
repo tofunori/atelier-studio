@@ -59,7 +59,7 @@ explicitement par la page.
 
 Le staging de la galerie reconstruit les viewers, l'interface React, les deux
 éditeurs et CodeMirror avant de copier les ressources. Pour construire ou
-relancer l'application, suivre [la procédure runtime](atelier-runtime.md).
+relancer l'application, suivre [la procédure runtime](../PROTOCOLE_RELANCE.md).
 
 ## Niveau de typage
 
