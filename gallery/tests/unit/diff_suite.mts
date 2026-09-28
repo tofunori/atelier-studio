@@ -1501,6 +1501,10 @@ function commitComposerContractTests() {
   const diffController = fs.readFileSync(path.join(GALLERY, "src", "studio", "core", "diff_controller.ts"), "utf8");
   contractOk("commentaire LaTeX utilise une largeur extérieure responsive",
     /\.atelier-note\{[^}]*box-sizing:border-box;[^}]*max-width:calc\(100vw - 16px\)/s.test(fs.readFileSync(path.join(ASSETS,"annotation_ui.css"),"utf8")));
+  // --surface-hover est un voile translucide (6 % d'encre) : pris seul comme fond de survol,
+  // il laisse voir la page blanche du PDF sous le bouton de la bulle de sélection.
+  contractOk("survol de la bulle de sélection reste opaque",
+    /--selection-hover:color-mix\(in srgb,var\(--selection-ink\) \d+%,var\(--selection-surface\)\)/.test(fs.readFileSync(path.join(ASSETS,"annotation_ui.css"),"utf8")));
   contractOk("commentaire LaTeX se place avec sa largeur réelle",
     /const width = options\.popover\.getBoundingClientRect\(\)\.width;/.test(latexAnnotations)
     && /win\.innerWidth - width - margin/.test(latexAnnotations)
