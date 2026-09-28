@@ -57,7 +57,7 @@ fragments indexés et l’indexation des illustrations avant d’annoncer la ré
 
 Les tests de l’adaptateur dans `rust/crates/atelier-kb/tests` sont isolés et
 n’écrivent pas dans l’index NAS. La validation d’un bundle ouvert suit toujours
-la [procédure de validation](atelier-runtime.md).
+la [procédure de validation](../PROTOCOLE_RELANCE.md).
 
 ## Espace Ragdoc intégré
 

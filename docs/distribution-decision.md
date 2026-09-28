@@ -1,5 +1,12 @@
 # Décision de distribution macOS
 
+> **Décision remplacée, gardée comme historique.** Node n'est plus embarqué
+> dans l'app depuis le 2026-08-22, et le dépôt ne contient plus aucun runtime
+> Node depuis le 2026-09-14 (plan 065, `docs/soak/033-COMPLETE.md`) : tout le
+> backend est en Rust. L'installation actuelle est décrite dans
+> [INSTALLATION.md](INSTALLATION.md), le build dans
+> [PROTOCOLE_RELANCE.md](PROTOCOLE_RELANCE.md).
+
 Date: 2026-07-11
 Décision: **embarquer Node.js 22.22.3 arm64 dans Atelier**.
 Approbation: Thierry a explicitement autorisé cette option après présentation du coût en taille.
