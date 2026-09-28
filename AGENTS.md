@@ -15,10 +15,12 @@
 
 ## App, runtime, build, galerie et diagnostic
 
-- Avant de préparer un build ou une relance, lire et suivre la
-  [procédure actuelle](docs/agent-reference/atelier-runtime.md). Pour un diagnostic
-  runtime, charger seulement la référence correspondant au symptôme; les invariants
-  ci-dessous suffisent avant une petite modification locale.
+- Avant de préparer un build ou une relance, lire et suivre
+  [docs/PROTOCOLE_RELANCE.md](docs/PROTOCOLE_RELANCE.md) : c'est la seule
+  procédure de build et de relance (contrôles, arrêt, build, vérification,
+  diagnostic). Les invariants ci-dessous suffisent avant une petite
+  modification locale. L'installation de l'app téléchargée est décrite dans
+  [docs/INSTALLATION.md](docs/INSTALLATION.md).
 - Documents et plans seuls : aucun rebuild ni relance; les contrôles ciblés de
   liens, syntaxe ou structure restent permis.
 - Les agents utilisent `npm run tauri:build:app`, jamais `npm run tauri dev` ni un
