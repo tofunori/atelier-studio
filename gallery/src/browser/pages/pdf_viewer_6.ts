@@ -373,6 +373,10 @@ async function main(){
   function availW(){
     return window.innerWidth - (document.body.classList.contains("pane-on") ? paneW() : 0);
   }
+  // Marge latérale des pages = padding de #pages (16 + 16). L'ancienne valeur
+  // (28) laissait la page déborder de 4 px : le document défilait alors de
+  // côté sous le trackpad, et la page « glissait » (vécu 2026-09-28).
+  const PAGE_GUTTER = 32;
   let RENDER_W = availW();
   let ZOOM = 1; // 1 = ajusté à la largeur ; +/- multiplient
   let RENDER_Z = 1;
@@ -398,7 +402,7 @@ async function main(){
     function follow(){
       if (!rendering) {
         const w = availW();
-        const k = ((w - 28) / Math.max(1, RENDER_W - 28)) * (ZOOM / RENDER_Z);
+        const k = ((w - PAGE_GUTTER) / Math.max(1, RENDER_W - PAGE_GUTTER)) * (ZOOM / RENDER_Z);
         if (Math.abs(w - RENDER_W) < 8 && Math.abs(ZOOM - RENDER_Z) < 0.01) {
           wrap.style.transform = "";
         } else {
@@ -484,7 +488,7 @@ async function main(){
     RENDER_W = availW(); RENDER_Z = ZOOM;
     const page1 = await cache.page(1);
     if (gen !== _renderGen) return;
-    const scale = Math.max(0.3, ((RENDER_W - 28) / page1.getViewport({scale:1}).width) * ZOOM);
+    const scale = Math.max(0.3, ((RENDER_W - PAGE_GUTTER) / page1.getViewport({scale:1}).width) * ZOOM);
     const vp1 = page1.getViewport({scale});
     wrap.innerHTML = "";
     const slots = [];

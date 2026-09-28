@@ -268,6 +268,14 @@ test('zoom PDF : les deux bords restent accessibles et la barre reste visible', 
   const reader = page.frameLocator('iframe');
   const pg = reader.locator('.pg').first();
   await expect.poll(() => reader.locator('.pg canvas').first().evaluate(canvas => (canvas as HTMLCanvasElement).width).catch(() => 0)).toBeGreaterThan(0);
+  // Ajusté à la largeur, la page tient dans le lecteur : un geste de côté au
+  // trackpad ne la fait pas glisser (elle débordait de 4 px, vécu 2026-09-28).
+  const fitLeft = await pg.evaluate(el => el.getBoundingClientRect().left);
+  expect(await reader.locator('html').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  await page.mouse.move(400, 400);
+  await page.mouse.wheel(200, 0);
+  await page.waitForTimeout(100);
+  expect(await pg.evaluate(el => el.getBoundingClientRect().left)).toBe(fitLeft);
   await reader.locator('#zIn').click();
   await reader.locator('#zIn').click();
   await expect(reader.locator('#zPct')).toHaveText('144%');
