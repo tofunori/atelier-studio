@@ -4319,7 +4319,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-commit-graph { flex: none; align-self: center; overflow: visible; }
 .git-commit-graph path { fill: none; stroke-width: 1.7; stroke-linecap: round; }
 .git-commit-graph circle { fill: var(--bg); stroke-width: 2.2; }
-.git-commit-row.is-active .git-commit-graph circle { fill: var(--surface-hover); }
+.git-commit-row.is-active .git-commit-graph circle { fill: color-mix(in srgb, var(--text-primary) 6%, var(--bg)); }
 .git-commit-row-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .git-commit-row-main strong, .git-commit-row-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-commit-row-main strong { font-size: var(--fs-m); font-weight: 500; line-height: 1.25; }
