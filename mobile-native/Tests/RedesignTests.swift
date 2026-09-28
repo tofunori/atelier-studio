@@ -258,24 +258,63 @@ final class AnnotationPaletteTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(mark)) as? [String: Any])
         object.removeValue(forKey: "markingStyle"); object.removeValue(forKey: "ink")
         let old = try JSONDecoder().decode(ReadingNote.self, from: JSONSerialization.data(withJSONObject: object))
-        XCTAssertEqual(old.color, .sage); XCTAssertEqual(old.style, .highlight)
+        XCTAssertEqual(old.color, .green); XCTAssertEqual(old.style, .highlight)
         XCTAssertEqual(old.sourceRange, mark.sourceRange)
         let pdf = PDFMark(id: UUID(), documentKey: "pdf", fileName: "a.pdf", text: "neige", regions: [.init(page: 0, bounds: CGRect(x: 0, y: 0, width: 30, height: 10))], style: .underline, note: "", createdAt: Date())
         let decoded = try JSONDecoder().decode(PDFMark.self, from: JSONEncoder().encode(pdf))
-        XCTAssertEqual(decoded.color, .sage); XCTAssertEqual(decoded.style, .underline)
+        XCTAssertEqual(decoded.color, .green); XCTAssertEqual(decoded.style, .underline)
+    }
+    func testPaletteMatchesTheMacViewerInOrderLabelsAndColours() {
+        XCTAssertEqual(AnnotationInk.allCases.map(\.title), ["Jaune", "Vert", "Bleu", "Rose", "Orange", "Violet"])
+        XCTAssertEqual(AnnotationInk.allCases.map(\.macColor), ["rgba(255,213,74,.40)", "rgba(120,220,140,.40)", "rgba(120,170,255,.40)",
+                                                               "rgba(255,140,160,.40)", "rgba(255,160,80,.40)", "rgba(185,150,255,.40)"])
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        XCTAssertTrue(AnnotationInk.violet.uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        XCTAssertEqual(red * 255, 185, accuracy: 0.5); XCTAssertEqual(green * 255, 150, accuracy: 0.5); XCTAssertEqual(blue * 255, 255, accuracy: 0.5)
+        XCTAssertEqual(AnnotationInk.initial, .amber)
+    }
+    @MainActor func testFormerThreeColourArchivesAndDraftsStillDecode() throws {
+        XCTAssertEqual(AnnotationInk(stored: "sage"), .green)
+        XCTAssertEqual(AnnotationInk(stored: "sand"), .amber)
+        XCTAssertEqual(AnnotationInk(stored: "blue"), .blue)
+        XCTAssertEqual(AnnotationInk(stored: "violet"), .violet)
+        XCTAssertNil(AnnotationInk(stored: "unknown"))
+        // annotations.json written by the previous palette.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = PDFAnnotations(directory: folder)
+        let marks = [AnnotationInk.green, .amber, .blue].map { ink in
+            PDFMark(id: UUID(), documentKey: "pdf", fileName: "a.pdf", text: "neige", regions: [.init(page: 0, bounds: CGRect(x: 0, y: 0, width: 30, height: 10))], style: .highlight, note: "", createdAt: Date(), ink: ink)
+        }
+        for mark in marks { try store.save(mark) }
+        let path = folder.appendingPathComponent("annotations.json")
+        let legacy = try String(contentsOf: path, encoding: .utf8)
+            .replacingOccurrences(of: "\"green\"", with: "\"sage\"").replacingOccurrences(of: "\"amber\"", with: "\"sand\"")
+        XCTAssertTrue(legacy.contains("\"sage\"") && legacy.contains("\"sand\""))
+        try Data(legacy.utf8).write(to: path)
+        let restored = PDFAnnotations(directory: folder)
+        XCTAssertNil(restored.loadError)
+        XCTAssertEqual(restored.marks(for: "pdf").map(\.color).sorted { $0.rawValue < $1.rawValue }, [.amber, .blue, .green])
+        // An unknown colour name keeps the archive readable.
+        let unknown = try String(contentsOf: path, encoding: .utf8).replacingOccurrences(of: "\"blue\"", with: "\"teal\"")
+        try Data(unknown.utf8).write(to: path)
+        XCTAssertNil(PDFAnnotations(directory: folder).loadError)
+        // Re-encoding writes the new names only.
+        let encoded = String(decoding: try JSONEncoder().encode(restored.marks(for: "pdf")), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("\"sage\"") || encoded.contains("\"sand\""))
     }
     @MainActor func testPDFColorPersistsAndChangesOverlayWithoutChangingAnchor() throws {
         let workspace = WorkspaceModel(); workspace.pdfAnnotations = PDFAnnotations(directory: nil)
         let passage = DocumentPassage(documentID: workspace.documentID, fileName: "a.pdf", location: "page 1", text: "neige", regions: [.init(pageIndex: 0, bounds: CGRect(x: 0, y: 0, width: 30, height: 10))])
         try workspace.savePDFMark(passage: passage, style: .underline, note: "", ink: .blue)
         let original = try XCTUnwrap(workspace.documentPDFMarks.first)
-        try workspace.savePDFMark(passage: passage, id: original.id, style: .highlight, note: "", ink: .sand)
+        try workspace.savePDFMark(passage: passage, id: original.id, style: .highlight, note: "", ink: .violet)
         let updated = try XCTUnwrap(workspace.documentPDFMarks.first)
         XCTAssertEqual(updated.regions, original.regions)
         XCTAssertEqual(updated.id, original.id)
-        XCTAssertEqual(updated.color, .sand)
+        XCTAssertEqual(updated.color, .violet)
         let decoded = try JSONDecoder().decode(PDFMark.self, from: JSONEncoder().encode(updated))
-        XCTAssertEqual(decoded.color, .sand)
+        XCTAssertEqual(decoded.color, .violet)
     }
 }
 

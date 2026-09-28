@@ -39,7 +39,7 @@ final class AnnotationDraft: Identifiable {
     var readingNoteID: UUID?
     var readingNoteUpdatedAt: Date?
     var markingStyle: PDFMark.Style = .highlight
-    var ink: AnnotationInk = .sage
+    var ink: AnnotationInk = .initial
     init(passage: DocumentPassage, id: UUID = UUID()) { self.passage = passage; self.id = id }
 }
 

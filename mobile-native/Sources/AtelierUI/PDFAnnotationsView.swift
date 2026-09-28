@@ -12,7 +12,7 @@ struct PDFAnnotationEditor: View {
     @State private var identity = UUID()
     @State private var documentKey = ""
     var close: (() -> Void)? = nil
-    @State private var ink: AnnotationInk = .sage
+    @State private var ink: AnnotationInk = .initial
     @State private var cacheKey = ""
     @State private var finished = false
     var body: some View {
@@ -47,7 +47,7 @@ struct PDFAnnotationEditor: View {
                let text = saved["note"] as? String {
                 note = text
                 if let raw = saved["style"] as? String, let value = PDFMark.Style(rawValue: raw) { style = value }
-                if let raw = saved["ink"] as? String, let value = AnnotationInk(rawValue: raw) { ink = value }
+                if let raw = saved["ink"] as? String, let value = AnnotationInk(stored: raw) { ink = value }
             }
         }
         .onChange(of: note) { _, _ in cacheDraft() }
@@ -84,7 +84,7 @@ struct PDFAnnotationsList: View {
                 }
                 if !workspace.documentSharedPDFMarks.isEmpty {
                     Section("Sur le Mac · lecture seule") {
-                        ForEach(workspace.documentSharedPDFMarks.filter { query.isEmpty || "\($0.text) \($0.note)".localizedStandardContains(query) }) { mark in
+                        ForEach(workspace.documentSharedPDFMarks.filter { query.isEmpty || "\($0.text) \($0.memo) \($0.note)".localizedStandardContains(query) }) { mark in
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack {
                                     Text("Page \(mark.page)").font(.caption).foregroundStyle(.secondary)
@@ -92,7 +92,7 @@ struct PDFAnnotationsList: View {
                                     Button("Voir") { workspace.pdfPage = max(0, mark.page - 1); workspace.pdfNavigationRequest = UUID(); workspace.documentMode = .pdf; dismiss() }
                                 }
                                 if !mark.text.isEmpty { Text(mark.text).font(.subheadline).textSelection(.enabled) }
-                                if !mark.note.isEmpty { Text(mark.note).font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled) }
+                                if !mark.displayNote.isEmpty { Text(mark.displayNote).font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled) }
                             }.padding(.vertical, 5)
                         }
                     }
@@ -103,7 +103,7 @@ struct PDFAnnotationsList: View {
                 ForEach(marks) { mark in
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
-                            Image(systemName: mark.style == .highlight ? "highlighter" : "underline").foregroundStyle(mark.color.color)
+                            Image(systemName: mark.style == .highlight ? "highlighter" : "underline").foregroundStyle(mark.color.tint)
                             Text("Page \(mark.page + 1)").font(.caption)
                             Spacer()
                             Button("Voir") { workspace.showPDFMark(mark); dismiss() }

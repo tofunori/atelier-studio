@@ -12,7 +12,7 @@ struct RichTextHighlight: Codable, Equatable {
     var occurrence: Int
     var occurrences: Int
     var style: PDFMark.Style = .highlight
-    var ink: AnnotationInk = .sage
+    var ink: AnnotationInk = .legacy
 }
 
 struct RichChatText: View {

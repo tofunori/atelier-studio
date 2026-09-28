@@ -74,5 +74,14 @@ assert.equal(dom.window.CSS.highlights.get('atelier-notes').ranges.length,0);
 assert.equal(dom.window.CSS.highlights.get('atelier-underline-blue').ranges[0].startOffset,15);
 dom.window.setReadingHighlights([]);
 assert.equal(dom.window.CSS.highlights.get('atelier-underline-blue').ranges.length,0);
+// The Mac viewer's six colours each have their own highlight.
+dom.window.setReadingHighlights([{id:'violet',text:'neige',occurrence:0,occurrences:2,ink:'violet'}]);
+assert.equal(dom.window.CSS.highlights.get('atelier-highlight-violet').ranges[0].startOffset,3);
+assert.equal(dom.window.CSS.highlights.get('atelier-notes').ranges.length,0);
+for (const ink of ['amber','green','blue','red','orange','violet']) {
+  assert(dom.window.CSS.highlights.has(`atelier-underline-${ink}`));
+  assert(html.includes(`::highlight(atelier-underline-${ink})`));
+  if (ink !== 'green') assert(html.includes(`::highlight(atelier-highlight-${ink})`));
+}
 console.log('Annotation palette: independent style/color and removed ranges passed.');
 dom.window.close();

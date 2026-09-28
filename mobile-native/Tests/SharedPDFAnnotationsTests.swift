@@ -186,6 +186,44 @@ final class SharedPDFAnnotationsTests: XCTestCase {
         try workspace.removePDFMark(mark)
         XCTAssertEqual(workspace.documentSharedPDFMarks.map(\.id), ["mac-1"])
     }
+    @MainActor func testMacPersonalNoteIsShownAndCachesWithoutItStillDecode() throws {
+        let personal = try JSONDecoder().decode(SharedPDFMark.self, from: Data(#"{"id":"mac-2","page":1,"rects":[[0.1,0.2,0.3,0.05]],"kind":"hl","text":"passage","note":"texte du chat","memo":"ma note"}"#.utf8))
+        XCTAssertEqual(personal.memo, "ma note")
+        XCTAssertEqual(personal.displayNote, "ma note")
+        let chatOnly = try mark()
+        XCTAssertEqual(chatOnly.memo, "")
+        XCTAssertEqual(chatOnly.displayNote, "note du Mac")
+        // A cache file written before the memo was decoded.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("[\(json)]".utf8).write(to: dir.appendingPathComponent("old.json"))
+        XCTAssertEqual(SharedPDFAnnotations(directory: dir).marks(for: "old"), [chatOnly])
+        // The memo survives the phone's own cache.
+        try SharedPDFAnnotations(directory: dir).replace([personal], for: "new")
+        XCTAssertEqual(SharedPDFAnnotations(directory: dir).marks(for: "new").first?.memo, "ma note")
+        // PDFKit shows the personal note, else the chat text, else the passage.
+        let document = PDFDocument(); document.insert(page(), at: 0)
+        let bare = try JSONDecoder().decode(SharedPDFMark.self, from: Data(#"{"id":"mac-3","page":1,"rects":[[0.1,0.5,0.3,0.05]],"text":"seul passage"}"#.utf8))
+        SharedPDFAnnotations.apply([personal, chatOnly, bare], to: document)
+        let annotations = document.page(at: 0)?.annotations ?? []
+        XCTAssertEqual(annotations.first { $0.userName == "Atelier Mac mac-2" }?.contents, "ma note")
+        XCTAssertEqual(annotations.first { $0.userName == "Atelier Mac mac-1" }?.contents, "note du Mac")
+        XCTAssertEqual(annotations.first { $0.userName == "Atelier Mac mac-3" }?.contents, "seul passage")
+    }
+    func testMacColourNamesAndMissingColourUseTheMacTints() throws {
+        func components(_ color: String?) throws -> [CGFloat] {
+            let colour = color.map { #","color":"\#($0)""# } ?? ""
+            let mark = try JSONDecoder().decode(SharedPDFMark.self, from: Data(#"{"id":"c","page":1,"kind":"hl"\#(colour)}"#.utf8))
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            XCTAssertTrue(mark.uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+            return [red * 255, green * 255, blue * 255, alpha * 255]
+        }
+        let violet = try components("violet"), missing = try components(nil), rgba = try components("rgba(255,160,80,.40)")
+        let expected: [CGFloat] = [185, 150, 255, 102, 255, 213, 74, 102, 255, 160, 80, 102]
+        XCTAssertEqual(violet.count + missing.count + rgba.count, expected.count)
+        for (actual, wanted) in zip(violet + missing + rgba, expected) { XCTAssertEqual(actual, wanted, accuracy: 0.5) }
+    }
 }
 
 private final class PhoneMarksProtocol: URLProtocol, @unchecked Sendable {
