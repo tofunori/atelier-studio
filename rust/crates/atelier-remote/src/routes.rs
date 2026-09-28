@@ -32,6 +32,8 @@ mod composer_routes;
 mod image_routes;
 #[path = "thumb_routes.rs"]
 mod thumb_routes;
+#[path = "notify_routes.rs"]
+mod notify_routes;
 
 pub fn router(state: GatewayState) -> Router {
     Router::new()
@@ -40,6 +42,7 @@ pub fn router(state: GatewayState) -> Router {
         .route("/remote/v1/pair", post(pair_complete))
         .route("/remote/v1/projects", get(list_projects))
         .route("/remote/v1/providers", get(live_providers))
+        .route("/remote/v1/notify", get(notify_routes::settings).post(notify_routes::update))
         .route("/remote/v1/compute", get(compute_routes::snapshot))
         .route("/remote/v1/compute/log", get(compute_routes::log))
         .route("/remote/v1/zotero", get(zotero_routes::library))

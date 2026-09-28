@@ -69,6 +69,7 @@ async fn main() {
 
     match serve(config).await {
         Ok(handle) => {
+            let _notify = atelier_remote::notify::spawn_watcher(handle.state.clone());
             // Tailscale Serve dials the local adapter, avoiding a hairpin through its own IP.
             if !handle.addr.ip().is_loopback() {
                 let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, handle.port)).await;
