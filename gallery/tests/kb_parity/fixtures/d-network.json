@@ -10,7 +10,7 @@
       "expect": {
         "exitCode": 0,
         "stdout": { "ok": true, "source": { "id": "31be9bb0", "kind": "web", "title": "Example Domain", "origin": "https://example.com/", "chars": 127, "addedAt": "<ISO>", "updatedAt": "<ISO>", "meta": { "contentType": "text/html" }, "collections": [], "archived": false }, "refreshed": false },
-        "soft": ["source.chars", "source.title"]
+        "soft": ["source.chars", "source.title", "source.meta.contentType"]
       }
     },
     {
