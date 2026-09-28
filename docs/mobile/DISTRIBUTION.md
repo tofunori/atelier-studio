@@ -1,5 +1,10 @@
 # Distribution privée — build iOS + installation
 
+> **Historique.** Ce document décrit le build Tauri iOS du client `mobile/`, gelé
+> depuis le 2026-09-28. Pour construire et installer l'app actuelle, voir
+> [mobile-native/README.md](../../mobile-native/README.md) (« Installer sur
+> l'iPhone »). Tailscale Serve et association : [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 > **Pas d'App Store public** dans le MVP. Distribution privée uniquement (Thierry).
 
 ## Identité
@@ -62,16 +67,15 @@ Sans cela, les notifs ouvrent l'app mais le deep link OS peut être ignoré.
 
 ## Gateway en production privée
 
+Atelier.app lance désormais la passerelle lui-même (bind, hôtes autorisés,
+jeton du moteur). Seule la publication Tailscale reste à faire, une fois, sur
+le port 8443 utilisé par le lien d'association :
+
 ```bash
-export ATELIER_REMOTE_BIND=127.0.0.1:18765
-export ATELIER_APP_DIR="$HOME/Library/Application Support/atelier-studio"
-export ATELIER_REMOTE_ALLOWED_HOSTS="127.0.0.1,localhost,$(hostname).$(tailscale status --json 2>/dev/null | jq -r .Self.DNSName | sed 's/\.$//')"
-
-./rust/target/release/atelier-remote-gateway
-# Conserver admin token stderr hors git
-
-sudo tailscale serve --bg --https=443 http://127.0.0.1:18765
+tailscale serve --bg --https=8443 http://127.0.0.1:18765
 ```
+
+Détails : [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
 
 **Interdit** : `tailscale funnel`, `ATELIER_REMOTE_BIND=0.0.0.0` sans nécessité.
 
@@ -90,8 +94,9 @@ Voir `SECRETS_POLICY.md` et `npm run mobile:check-secrets`.
 
 1. Trust developer sur l'iPhone (Réglages → Général → VPN et gestion)
 2. Tailscale connecté
-3. Health via Safari : `https://<magicdns>/remote/health`
-4. Appairage Mac → code → companion
+3. Health via Safari : `https://<machine>.<tailnet>.ts.net:8443/remote/health`
+4. Association : Réglages → Général → Avancé → Appareils distants (iPhone) →
+   Ajouter → lien `atelier-native://pair` ouvert sur l'iPhone
 5. Ouvrir un thread, vérifier history
 
 ## Rollback

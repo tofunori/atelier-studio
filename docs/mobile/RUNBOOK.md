@@ -1,5 +1,11 @@
 # Runbook — Companion iOS + gateway Mac
 
+> **Partiellement historique.** Les sections « iOS / companion », file d'envoi
+> et cache décrivent le client web `mobile/`, gelé depuis le 2026-09-28 et
+> remplacé par l'app native [`mobile-native/`](../../mobile-native/README.md).
+> Les contrôles de la passerelle restent valables ; association, Tailscale et
+> révocation à jour : [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 ## Santé rapide
 
 ### Mac gateway
@@ -9,11 +15,12 @@ curl -sS http://127.0.0.1:18765/remote/health | jq .
 # ok:true, protocolVersion:1, service:atelier-remote-gateway
 ```
 
-### Mac admin devices
+### Appareils associés (Mac)
+
+Réglages → Général → Avancé → Appareils distants (iPhone), ou :
 
 ```bash
-curl -sS http://127.0.0.1:18765/remote/admin/devices \
-  -H "x-atelier-admin-token: $ADMIN" | jq .
+printf 'devices\n' | nc -U "$HOME/Library/Application Support/atelier-studio/remote/pair.sock"
 ```
 
 ### iOS / companion
@@ -35,7 +42,7 @@ curl -sS -H "x-atelier-token: $ATELIER_TOKEN" http://127.0.0.1:$PORT/health
 ### Mac hors ligne / gateway down
 
 1. Vérifier process : `pgrep -fl atelier-remote-gateway`
-2. Relancer (voir DISTRIBUTION / TAILSCALE_SERVE)
+2. Relancer Atelier : il relance la passerelle (voir TAILSCALE_SERVE)
 3. Client : file d'envoi `pending_local` + reconnect backoff automatique
 4. Ne pas conclure « bug chat » sans health gateway
 
@@ -43,17 +50,17 @@ curl -sS -H "x-atelier-token: $ATELIER_TOKEN" http://127.0.0.1:$PORT/health
 
 1. iPhone : app Tailscale connectée, même tailnet
 2. Mac : `tailscale status`
-3. `tailscale serve status` pointe vers `127.0.0.1:18765`
+3. `tailscale serve status` : HTTPS 8443 → `127.0.0.1:18765`
 4. Client phase `tailscale_missing` si URL `.ts.net` injoignable
 
 ### Pairing échoue
 
 | Code erreur | Action |
 |-------------|--------|
-| `no_pairing` | Mac : démarrer pairing admin |
-| `pairing_expired` | Relancer start (TTL ~120 s) |
+| `no_pairing` | Mac : Réglages → Appareils distants (iPhone) → Ajouter |
+| `pairing_expired` | Ajouter à nouveau (code valable 120 s) |
 | `pairing_invalid` | Vérifier code (case-insensitive) |
-| `pairing_locked` | Trop d'essais → nouveau start |
+| `pairing_locked` | Trop d'essais → Ajouter à nouveau |
 | `protocol_version_unsupported` | Aligner versions client/serveur |
 
 ### Certificat / HTTPS Serve
@@ -77,9 +84,9 @@ curl -sS -H "x-atelier-token: $ATELIER_TOKEN" http://127.0.0.1:$PORT/health
 
 ### Host / Origin refusés (`bad_host`)
 
-```bash
-export ATELIER_REMOTE_ALLOWED_HOSTS="127.0.0.1,localhost,<machine>.<tailnet>.ts.net"
-```
+Atelier calcule la liste des hôtes au lancement de la passerelle, dont
+`<machine>.<tailnet>.ts.net:8443`. Après un changement de nom MagicDNS,
+relancer Atelier.
 
 ### Fichier hors projet / path escape
 

@@ -1,5 +1,11 @@
 # Matrice de compatibilité client / serveur — Companion iOS
 
+> **Historique (plan 034).** Le client décrit ici est le client web `mobile/`,
+> gelé depuis le 2026-09-28 et remplacé par l'app SwiftUI
+> [`mobile-native/`](../../mobile-native/README.md). Les parties sur la passerelle
+> `rust/crates/atelier-remote` restent une référence ; association et Tailscale à
+> jour : [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 **Wire protocol** : `protocolVersion` (entier), distinct de `meta.schemaVersion` (journal harnais v1).
 
 ## Versions supportées (MVP plan 034)

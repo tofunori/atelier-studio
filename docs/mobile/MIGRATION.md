@@ -1,5 +1,11 @@
 # Migration et rollback — Companion + gateway
 
+> **Historique (plan 034).** Le client décrit ici est le client web `mobile/`,
+> gelé depuis le 2026-09-28 et remplacé par l'app SwiftUI
+> [`mobile-native/`](../../mobile-native/README.md). Les parties sur la passerelle
+> `rust/crates/atelier-remote` restent une référence ; association et Tailscale à
+> jour : [TAILSCALE_SERVE.md](TAILSCALE_SERVE.md).
+
 ## Principes
 
 1. Le **journal Mac** reste la source de vérité (harness-history).
