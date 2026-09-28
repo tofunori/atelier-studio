@@ -84,11 +84,12 @@ function crc32(buf: Buffer<ArrayBuffer>) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-async function withGallery(run) {
+async function withGallery(run, extraFixtures?: (root: string) => void) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'cmux-gallery-e2e-')));
   let server: import("node:child_process").ChildProcess;
   try {
     writeFixtureProject(root);
+    extraFixtures?.(root);
     // Ni build_gallery.py ni provision_viewers : atelier-gallery-server (Rust)
     // bâtit l'index au boot (`figures_data.json` absent → rebuild) et sert les
     // viewers depuis ATELIER_ASSETS_DIR ; waitForGallery() attend l'index.
@@ -455,6 +456,31 @@ test('file types: quick types and custom presets persist only for the project', 
     await page.locator('[data-gallery-command="filters"]').click();
     await expect(page.locator('[data-gallery-quick-type="sh"]')).toBeVisible();
     await expect(page.getByRole('combobox', {name:'Vue enregistrée'})).toBeVisible();
+  });
+});
+
+test('file types: active formats hidden behind « Plus… » stay visible in the short list', async ({ page }) => {
+  // Vécu 2026-09-28 : JPG et Vidéo, actifs par défaut mais non épinglés,
+  // restaient cochés en silence ; « LaTeX seul » affichait encore les .mp4.
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.locator('[data-gallery-command="filters"]').click();
+    const typePanel = page.locator('[data-gallery-file-type-panel]');
+    for (const key of ['jpg', 'mp4']) {
+      await expect(typePanel.locator(`[data-gallery-quick-type="${key}"]`)).toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const key of ['png', 'jpg', 'svg', 'mp4', 'tex']) {
+      await typePanel.locator(`[data-gallery-quick-type="${key}"]`).click();
+    }
+    // Décoché, un format non épinglé reste là jusqu'à la fermeture du panneau.
+    await expect(typePanel.locator('[data-gallery-quick-type="mp4"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(page.locator('#grid')).toContainText('chapter.tex');
+    await expect(page.locator('#grid')).not.toContainText('clip.mp4');
+    expect(await page.evaluate(() => window.__galleryFileTypes.getState().types.filter(t => t.active).map(t => t.key))).toEqual(['tex']);
+  }, root => {
+    writeFileSync(path.join(root, 'clip.mp4'), Buffer.alloc(64));
+    writeFileSync(path.join(root, 'chapter.tex'), '\\section{Albedo}\n');
   });
 });
 
