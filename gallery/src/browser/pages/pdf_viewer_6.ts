@@ -2228,6 +2228,15 @@ window.addEventListener("message", e => {
   document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
 });
+// La bulle se lit comme une fiche : « Annotation 3 · p. 12 ». Le numéro est
+// celui de la pastille de marge, pour qu'on les relie d'un coup d'œil.
+function annotHeading(a){
+  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone"};
+  const title = a.kind === "comment"
+    ? "Annotation " + (a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1)
+    : titles[a.kind] || "Surlignage";
+  return {title, meta: a.page ? "p. " + a.page : ""};
+}
 async function annotMenu(a, x: number, y: number){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
   // Une note libre (kind "note") EST déjà une note : pas de second champ.
@@ -2238,6 +2247,7 @@ async function annotMenu(a, x: number, y: number){
   // teinte, enregistrés tout de suite (comme dans Zotero).
   const withMark = a.kind === "hl" || a.kind === "ul";
   AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
+    heading:annotHeading(a),
     onSendDirect(){void editor.commit(true, "force", true);},
     ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
     ...(withMark ? {mark:{kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),
