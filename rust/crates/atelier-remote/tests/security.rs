@@ -144,6 +144,33 @@ async fn shared_zotero_annotations_are_scoped_authenticated_and_read_only() {
 }
 
 #[tokio::test]
+async fn iphone_marks_are_written_to_the_shared_store() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "annotations-write").await;
+    let store = h.state.inner.lock().await.config.atelier_dir.join("pdf_annots.json");
+    std::fs::write(&store, json!({"zotero/PDF00001/paper.pdf": [{"id": "mac", "page": 1}]}).to_string()).unwrap();
+    let url = format!("{base}/remote/v1/zotero/annotations/PDF00001?file=paper.pdf");
+    let mark = |annots: Value| json!({"marks": [{"id": "dcb00329-a75a-4d9b-bbb1-6b9a42f00a12", "annots": annots}]});
+    let page = json!([{"page": 2, "rects": [[0.1, 0.2, 0.5, 0.02]], "text": "Albedo", "kind": "ul", "color": "rgba(255,213,74,.40)", "memo": "méthode"}]);
+    assert_eq!(client().post(&url).header("host", &host).json(&mark(page.clone())).send().await.unwrap().status(), 401);
+    let response = client().post(&url).header("host", &host).bearer_auth(&token).json(&mark(page)).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let data: Value = response.json().await.unwrap();
+    assert_eq!(data["annots"].as_array().unwrap().len(), 2);
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&store).unwrap()).unwrap();
+    let entry = &written["zotero/PDF00001/paper.pdf"][1];
+    assert_eq!(entry["id"], "iphone-dcb00329-a75a-4d9b-bbb1-6b9a42f00a12-p2");
+    assert_eq!(entry["memo"], "méthode");
+    let removed = client().post(&url).header("host", &host).bearer_auth(&token).json(&mark(json!([]))).send().await.unwrap();
+    let data: Value = removed.json().await.unwrap();
+    assert_eq!(data["annots"], json!([{"id": "mac", "page": 1}]));
+    let invalid = format!("{base}/remote/v1/zotero/annotations/PDF00001?file=..%2Fsecret.pdf");
+    assert_eq!(client().post(invalid).header("host", &host).bearer_auth(&token).json(&mark(json!([]))).send().await.unwrap().status(), 400);
+    h.shutdown().await;
+}
+
+#[tokio::test]
 async fn catalog_discovers_mac_projects_after_gateway_start() {
     let (h, admin, host) = boot().await;
     let base = h.base_url();

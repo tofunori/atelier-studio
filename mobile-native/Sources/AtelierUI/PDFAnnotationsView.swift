@@ -134,10 +134,7 @@ struct PDFAnnotationsList: View {
                     }.padding(.vertical, 5).buttonStyle(.borderless)
                     .swipeActions {
                         Button("Supprimer", role: .destructive) {
-                            do {
-                                try workspace.pdfAnnotations.remove(mark.id)
-                                if let document = workspace.pdfDocument { PDFAnnotations.apply(workspace.documentPDFMarks, to: document) }
-                            } catch { self.error = error.localizedDescription }
+                            do { try workspace.removePDFMark(mark) } catch { self.error = error.localizedDescription }
                         }
                     }
                 }

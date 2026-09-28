@@ -109,6 +109,9 @@ final class WorkspaceModel {
     var sharedPDFAnnotations = SharedPDFAnnotations()
     var sharedPDFAnnotationsError: String?
     @ObservationIgnored var sharedPDFAnnotationsRequest = UUID()
+    /// One send of iPhone marks at a time, so an older version never lands last on the Mac.
+    @ObservationIgnored var sendingPDFMarks = false
+    @ObservationIgnored var sendPDFMarksAgain = false
     var pdfFingerprint = ""
     var pdfNavigationRequest = UUID()
     var pendingDocumentPrompt: String?
@@ -679,10 +682,7 @@ final class WorkspaceModel {
                 consumeAnnotationReferences([AnnotationSendReference(id: noteID, updatedAt: updatedAt)])
             }
         } else if let markID = draft.passage.annotationID, let mark = documentPDFMarks.first(where: { $0.id == markID }) {
-            do {
-                try pdfAnnotations.remove(mark.id)
-                if let document = pdfDocument { PDFAnnotations.apply(documentPDFMarks, to: document) }
-            } catch { documentError = error.localizedDescription }
+            do { try removePDFMark(mark) } catch { documentError = error.localizedDescription }
         }
         if annotationDraft?.id == draft.id { annotationDraft = nil }
         selection = nil; pdfPassage = nil
