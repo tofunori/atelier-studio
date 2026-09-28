@@ -36,14 +36,11 @@ jobs:
         run: npm --prefix gallery/whiteboard-src ci
       - name: Install shared protocol deps
         run: npm --prefix packages/atelier-protocol ci
-      - name: Install mobile deps
-        run: npm --prefix mobile ci
       - name: Install Playwright browsers
         run: cd gallery && npx playwright install chromium webkit
       - name: Stage bundled resources for Tauri checks
         run: |
           bash scripts/stage-gallery.sh
-          bash scripts/stage-mobile.sh
           bash scripts/stage-rust-server.sh
           bash scripts/stage-appsnap.sh
       # le tag peut contourner la CI de PR : verify + E2E bloquent le bundle ici
@@ -100,6 +97,12 @@ jobs:
           done
           if find "$APP" \( -name node -o -type d -name node-runtime -o -type d -name node_modules \) | grep -q .; then
             echo "ERREUR : un runtime Node est reparti dans le bundle"
+            exit 1
+          fi
+          # Client web mobile/ gelé le 2026-09-28 (remplacé par mobile-native/) :
+          # il ne doit plus être livré ni servi par la passerelle.
+          if test -e "$APP/Contents/Resources/mobile"; then
+            echo "ERREUR : le client web mobile/ est reparti dans le bundle"
             exit 1
           fi
       - name: Publish verified release

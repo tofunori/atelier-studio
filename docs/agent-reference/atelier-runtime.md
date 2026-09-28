@@ -28,8 +28,10 @@ binaires du bundle et les serveurs `gallery/server/main.mjs` d’Atelier.
 - La source de la galerie est `gallery/`. `src-tauri/gallery-dist/` est régénéré
   par `scripts/stage-gallery.sh` et ne se modifie jamais directement.
 - `npm run tauri:build:app` appelle le wrapper verrouillé du dépôt. Le
-  `beforeBuildCommand` compile le frontend et stage galerie, mobile, serveur Rust
-  et AppSnap; ne pas répéter systématiquement `tsc` puis `vite build` juste avant.
+  `beforeBuildCommand` compile le frontend et stage galerie, serveur Rust et
+  AppSnap; ne pas répéter systématiquement `tsc` puis `vite build` juste avant.
+  Le client web `mobile/` est gelé depuis le 2026-09-28 : il n'est plus stagé
+  ni livré (le client iPhone est `mobile-native/`).
 - Chaque worktree garde son propre `target/`.
 
 ## Contrôles proportionnés
@@ -43,8 +45,9 @@ couvrent la surface modifiée et le risque introduit, par exemple:
   `npm run verify:e2e` si le comportement navigateur est concerné;
 - runtime Rust: le paquet ou test ciblé, puis `npm run test:rust` ou
   `npm run test:rust-workspace` selon la portée;
-- protocole/mobile: `npm run test:protocol`, `npm run verify:mobile` selon la
-  surface;
+- protocole et passerelle iPhone: `npm run test:protocol`, `npm run test:remote`;
+  l'app `mobile-native/` (Swift) se vérifie par le job CI `mobile-native` ou sur
+  un Mac (voir `mobile-native/README.md`);
 - changement transversal ou à haut risque: `npm run verify`.
 
 Ne pas figer un nombre attendu de tests dans cette documentation. Une régression

@@ -19,7 +19,7 @@
     ],
     "paths": {
       "pdfjs-dist": [
-        "../mobile/node_modules/pdfjs-dist/types/src/pdf.d.ts"
+        "./node_modules/pdfjs-dist/types/src/pdf.d.ts"
       ]
     }
   },

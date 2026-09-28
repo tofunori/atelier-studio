@@ -30,6 +30,7 @@
     "codemirror": "^6.0.2",
     "esbuild": "^0.28.1",
     "jsdom": "^30.0.1",
+    "pdfjs-dist": "6.3.289",
     "typescript": "7.0.2"
   },
   "dependencies": {

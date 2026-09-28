@@ -20,7 +20,7 @@
     ],
     "paths": {
       "pdfjs-dist": [
-        "./mobile/node_modules/pdfjs-dist/types/src/pdf.d.ts"
+        "./gallery/node_modules/pdfjs-dist/types/src/pdf.d.ts"
       ]
     },
     "verbatimModuleSyntax": true

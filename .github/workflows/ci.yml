@@ -25,7 +25,6 @@ jobs:
             gallery/package-lock.json
             gallery/notes-src/package-lock.json
             gallery/whiteboard-src/package-lock.json
-            mobile/package-lock.json
             packages/atelier-protocol/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
@@ -47,8 +46,6 @@ jobs:
         run: npm --prefix gallery/notes-src ci
       - name: Install whiteboard deps
         run: npm --prefix gallery/whiteboard-src ci
-      - name: Install mobile deps
-        run: npm --prefix mobile ci
       - name: Install shared protocol deps
         run: npm --prefix packages/atelier-protocol ci
       - name: Install Playwright browsers
@@ -56,7 +53,6 @@ jobs:
       - name: Stage bundled resources for Tauri checks
         run: |
           bash scripts/stage-gallery.sh
-          bash scripts/stage-mobile.sh
           bash scripts/stage-appsnap.sh
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
