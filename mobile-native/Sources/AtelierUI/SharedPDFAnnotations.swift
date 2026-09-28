@@ -51,6 +51,32 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
         return [point(rect[0], rect[1]), point(rect[0] + rect[2], rect[1]),
                 point(rect[0], rect[1] + rect[3]), point(rect[0] + rect[2], rect[1] + rect[3])]
     }
+    /// Inverse of `points`: a PDFKit page rectangle as the Mac stores it.
+    static func fraction(_ rect: CGRect, on page: PDFPage) -> [Double]? {
+        let box = page.bounds(for: .cropBox)
+        guard box.width > 0, box.height > 0, rect.minX.isFinite, rect.minY.isFinite,
+              rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 else { return nil }
+        let rotation = (page.rotation % 360 + 360) % 360
+        let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.maxY)].map { p -> (u: Double, v: Double) in
+            let x = Double((p.x - box.minX) / box.width), y = Double((p.y - box.minY) / box.height)
+            switch rotation {
+            case 90: return (y, x)
+            case 180: return (1 - x, y)
+            case 270: return (1 - y, 1 - x)
+            default: return (x, 1 - y)
+            }
+        }
+        let snap = { (value: Double) in (value * 100_000).rounded() / 100_000 }
+        let u0 = snap(max(0, min(corners[0].u, corners[1].u))), u1 = snap(min(1, max(corners[0].u, corners[1].u)))
+        let v0 = snap(max(0, min(corners[0].v, corners[1].v))), v1 = snap(min(1, max(corners[0].v, corners[1].v)))
+        guard u1 > u0, v1 > v0 else { return nil }
+        return [u0, v0, u1 - u0, v1 - v0]
+    }
+    /// `iphone-{uuid}-p{page}`: the iPhone mark this Mac entry copies.
+    var phoneMarkID: UUID? {
+        guard id.hasPrefix("iphone-") else { return nil }
+        return UUID(uuidString: String(id.dropFirst(7).prefix(36)))
+    }
 
     var uiColor: UIColor {
         let values = (color ?? "").split(whereSeparator: { !($0.isNumber || $0 == ".") }).compactMap { Double($0) }
@@ -117,12 +143,87 @@ struct SharedPDFMark: Codable, Identifiable, Equatable {
     }
 }
 
+extension AnnotationInk {
+    /// Nearest tint of the Mac viewer (`HL_COLORS`).
+    var macColor: String {
+        switch self {
+        case .sage: "rgba(120,220,140,.40)"
+        case .sand: "rgba(255,213,74,.40)"
+        case .blue: "rgba(120,170,255,.40)"
+        }
+    }
+}
+
+extension PDFMark {
+    /// One Mac entry per page (see `save_annotations` in the gateway), nil when
+    /// a region cannot be placed or the mark exceeds what the Mac accepts.
+    func macAnnotations(in document: PDFDocument) -> [[String: Any]]? {
+        var pages: [Int: [[Double]]] = [:]
+        for region in regions {
+            guard let page = document.page(at: region.page), let rect = SharedPDFMark.fraction(region.bounds, on: page) else { return nil }
+            pages[region.page, default: []].append(rect)
+        }
+        guard !pages.isEmpty, pages.count <= 20, pages.values.allSatisfy({ $0.count <= 500 }),
+              text.utf8.count <= 20_000, note.utf8.count <= 20_000 else { return nil }
+        // The note goes on the first page only, like a passage Claude highlights.
+        return pages.keys.sorted().enumerated().map { index, page -> [String: Any] in
+            ["page": page + 1, "rects": pages[page] ?? [], "text": text, "kind": style == .highlight ? "hl" : "ul",
+             "color": color.macColor, "memo": index == 0 ? note : ""]
+        }
+    }
+}
+
 extension WorkspaceModel {
     var sharedPDFAnnotationKey: String? {
         guard let attachment = currentArticle?.pdfKey, !pdfFingerprint.isEmpty, let server = gallery.annotationServerID else { return nil }
         return SharedPDFAnnotations.key(server: server, attachment: attachment, fingerprint: pdfFingerprint)
     }
-    var documentSharedPDFMarks: [SharedPDFMark] { sharedPDFAnnotationKey.map { sharedPDFAnnotations.marks(for: $0) } ?? [] }
+    /// The Mac's marks, less the copies of this iPhone's own (shown as iPhone marks).
+    var documentSharedPDFMarks: [SharedPDFMark] {
+        (sharedPDFAnnotationKey.map { sharedPDFAnnotations.marks(for: $0) } ?? [])
+            .filter { mark in mark.phoneMarkID.map { !pdfAnnotations.isLocal($0) } ?? true }
+    }
+
+    /// Sends this article's iPhone marks the Mac has not confirmed (new,
+    /// edited, removed) to its annotations file, so the Mac viewer shows them.
+    /// They stay on the iPhone either way; a failed send is retried at the
+    /// next opening of the article.
+    func sendPDFMarksToMac() async {
+        guard !sendingPDFMarks else { sendPDFMarksAgain = true; return }
+        sendingPDFMarks = true
+        defer { sendingPDFMarks = false }
+        repeat {
+            sendPDFMarksAgain = false
+            guard let article = currentArticle, let attachment = article.pdfKey, let filename = article.pdfFile,
+                  let document = pdfDocument, let cacheKey = sharedPDFAnnotationKey else { return }
+            let pending = pdfAnnotations.pendingForMac(documentKey: pdfAnnotationKey)
+            var payload: [[String: Any]] = pending.removals.map { ["id": $0.id.uuidString, "annots": [Any]()] }
+            var sent: [PDFMark] = []
+            for mark in pending.marks {
+                guard let annots = mark.macAnnotations(in: document) else { continue }
+                payload.append(["id": mark.id.uuidString, "annots": annots]); sent.append(mark)
+            }
+            guard !payload.isEmpty else { return }
+            let revision = gallery.connectionRevision, identity = documentID
+            do {
+                let data = try await gallery.chatRequest(["zotero", "annotations", attachment], body: ["marks": payload],
+                                                         query: [URLQueryItem(name: "file", value: filename)])
+                struct Reply: Decodable { let attachmentKey: String; let fileName: String; let annots: [SharedPDFMark] }
+                let reply = try JSONDecoder().decode(Reply.self, from: data)
+                guard reply.attachmentKey == attachment, reply.fileName == filename else { throw CocoaError(.fileReadCorruptFile) }
+                try pdfAnnotations.confirmSentToMac(sent, removals: pending.removals.map(\.id))
+                guard documentID == identity, pdfDocument === document, sharedPDFAnnotationKey == cacheKey,
+                      gallery.connectionRevision == revision else { return }
+                try sharedPDFAnnotations.replace(reply.annots, for: cacheKey)
+                SharedPDFAnnotations.apply(documentSharedPDFMarks, to: document)
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled,
+                      documentID == identity, gallery.connectionRevision == revision else { return }
+                sharedPDFAnnotationsError = "Annotations iPhone pas encore envoyées au Mac. Elles restent ici et partiront à la prochaine ouverture de l’article."
+                return
+            }
+        } while sendPDFMarksAgain
+    }
 
     func refreshSharedPDFAnnotations() async {
         let request = UUID(); sharedPDFAnnotationsRequest = request
@@ -131,6 +232,8 @@ extension WorkspaceModel {
         SharedPDFAnnotations.apply(documentSharedPDFMarks, to: document)
         guard let article = currentArticle, let attachment = article.pdfKey, let filename = article.pdfFile,
               let cacheKey = sharedPDFAnnotationKey else { return }
+        await sendPDFMarksToMac()
+        guard sharedPDFAnnotationsRequest == request else { return }
         let revision = gallery.connectionRevision, identity = documentID
         do {
             let data = try await gallery.chatRequest(["zotero", "annotations", attachment], query: [URLQueryItem(name: "file", value: filename)])
@@ -140,7 +243,7 @@ extension WorkspaceModel {
                   sharedPDFAnnotationKey == cacheKey, gallery.connectionRevision == revision else { return }
             guard reply.attachmentKey == attachment, reply.fileName == filename else { throw CocoaError(.fileReadCorruptFile) }
             try sharedPDFAnnotations.replace(reply.annots, for: cacheKey)
-            SharedPDFAnnotations.apply(reply.annots, to: document)
+            SharedPDFAnnotations.apply(documentSharedPDFMarks, to: document)
         } catch {
             guard !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled,
                   sharedPDFAnnotationsRequest == request, documentID == identity, sharedPDFAnnotationKey == cacheKey, gallery.connectionRevision == revision else { return }

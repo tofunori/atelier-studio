@@ -20,6 +20,8 @@ struct PDFMark: Codable, Identifiable, Equatable {
     var note: String
     let createdAt: Date
     var ink: AnnotationInk? = nil
+    /// The Mac confirmed this version (`pdf_annots.json`); nil = still to send.
+    var sentToMac: Bool? = nil
     var color: AnnotationInk { ink ?? .sage }
     var page: Int { regions.first?.page ?? 0 }
 }
@@ -28,8 +30,11 @@ struct PDFMark: Codable, Identifiable, Equatable {
     private(set) var entries: [PDFMark] = []
     private(set) var loadError: String?
     private(set) var revision = 0
+    /// Marks removed here whose copy on the Mac must be removed too.
+    struct MacRemoval: Codable, Equatable { let id: UUID; let documentKey: String }
+    private(set) var macRemovals: [MacRemoval] = []
     private let directory: URL?
-    private struct Archive: Codable { var version = 1; let marks: [PDFMark] }
+    private struct Archive: Codable { var version = 1; let marks: [PDFMark]; var macRemovals: [MacRemoval]? = nil }
     static var defaultDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PDFAnnotations", isDirectory: true)
@@ -49,7 +54,7 @@ struct PDFMark: Codable, Identifiable, Equatable {
         do {
             let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: directory.appendingPathComponent("annotations.json")))
             guard archive.version == 1, Set(archive.marks.map(\.id)).count == archive.marks.count else { throw StoreError.unavailable }
-            entries = archive.marks
+            entries = archive.marks; macRemovals = archive.macRemovals ?? []
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {} catch { loadError = error.localizedDescription }
     }
     func marks(for key: String) -> [PDFMark] {
@@ -61,14 +66,34 @@ struct PDFMark: Codable, Identifiable, Equatable {
         var next = entries.filter { $0.id != mark.id }; next.append(mark)
         try persist(next)
     }
-    func remove(_ id: UUID) throws { try persist(entries.filter { $0.id != id }) }
-    private func persist(_ next: [PDFMark]) throws {
+    func remove(_ id: UUID, tellMac: Bool = false) throws {
+        let removed = tellMac ? entries.filter { $0.id == id }.map { MacRemoval(id: $0.id, documentKey: $0.documentKey) } : []
+        try persist(entries.filter { $0.id != id }, removals: macRemovals + removed)
+    }
+    /// What the Mac has not confirmed yet for this document.
+    func pendingForMac(documentKey: String) -> (marks: [PDFMark], removals: [MacRemoval]) {
+        (marks(for: documentKey).filter { $0.sentToMac != true }, macRemovals.filter { $0.documentKey == documentKey })
+    }
+    /// A mark edited while it was being sent stays pending: only the exact version sent is confirmed.
+    func confirmSentToMac(_ sent: [PDFMark], removals: [UUID]) throws {
+        let next = entries.map { entry in
+            guard entry.sentToMac != true, sent.contains(entry) else { return entry }
+            var confirmed = entry; confirmed.sentToMac = true; return confirmed
+        }
+        let remaining = macRemovals.filter { !removals.contains($0.id) }
+        guard next != entries || remaining != macRemovals else { return }
+        try persist(next, removals: remaining)
+    }
+    /// Removed here, or still here: its copy on the Mac is not a Mac mark.
+    func isLocal(_ id: UUID) -> Bool { entries.contains { $0.id == id } || macRemovals.contains { $0.id == id } }
+    private func persist(_ next: [PDFMark], removals: [MacRemoval]? = nil) throws {
         guard loadError == nil else { throw StoreError.unavailable }
+        let removals = removals ?? macRemovals
         if let directory {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(Archive(marks: next)).write(to: directory.appendingPathComponent("annotations.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try JSONEncoder().encode(Archive(marks: next, macRemovals: removals.isEmpty ? nil : removals)).write(to: directory.appendingPathComponent("annotations.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
-        entries = next; revision += 1
+        entries = next; macRemovals = removals; revision += 1
     }
     static func fingerprint(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
@@ -109,6 +134,13 @@ extension WorkspaceModel {
             text: passage.text, regions: passage.regions.map { .init(page: $0.pageIndex, bounds: $0.bounds) },
             style: style, note: note.trimmingCharacters(in: .whitespacesAndNewlines), createdAt: previous?.createdAt ?? Date(), ink: ink))
         PDFAnnotations.apply(documentPDFMarks, to: document)
+        Task { await sendPDFMarksToMac() }
+    }
+    /// Removes an iPhone mark here and, for a Zotero article, on the Mac too.
+    func removePDFMark(_ mark: PDFMark) throws {
+        try pdfAnnotations.remove(mark.id, tellMac: currentArticle != nil)
+        if let document = pdfDocument { PDFAnnotations.apply(documentPDFMarks, to: document) }
+        Task { await sendPDFMarksToMac() }
     }
     func passage(for mark: PDFMark) -> DocumentPassage {
         DocumentPassage(documentID: documentID, fileName: mark.fileName, location: "page \(mark.page + 1)", text: mark.text,
