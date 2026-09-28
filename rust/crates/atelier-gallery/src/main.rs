@@ -8,6 +8,8 @@ mod host;
 mod openable;
 mod ranged;
 mod suggest;
+mod synctex;
+mod tectonic;
 mod workspace;
 mod watcher;
 mod zotero;

@@ -1499,3 +1499,231 @@ fn pdf_save_with_known_keeps_a_highlight_added_meanwhile_and_moves_the_stamp() {
     );
     assert!(!body.contains("posé par Claude"), "{body}");
 }
+
+// ---------------------------------------------------------------------------
+// LaTeX sans MacTeX : SyncTeX lu en Rust, tectonic téléchargé au besoin
+// ---------------------------------------------------------------------------
+
+fn synctex_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/synctex")
+}
+
+/// Première réponse enregistrée du CLI dont les premiers champs valent `prefix`.
+fn cli_answer(prefix: &[&str]) -> Vec<String> {
+    let answers = fs::read_to_string(synctex_fixture().join("pdflatex/cli_answers.tsv")).unwrap();
+    answers
+        .lines()
+        .map(|l| l.split('\t').map(str::to_owned).collect::<Vec<_>>())
+        .find(|f| f.len() >= prefix.len() && f.iter().zip(prefix).all(|(a, b)| a == b))
+        .unwrap_or_else(|| panic!("pas de réponse enregistrée pour {prefix:?}"))
+}
+
+#[test]
+fn synctex_route_answers_like_the_cli_without_it() {
+    let srv = start_server();
+    // Projet compilé ailleurs (/compil/pdflatex) puis ouvert ici : sources,
+    // `main.synctex.gz`, et pas même le PDF (seul le SyncTeX compte).
+    let fixture = synctex_fixture();
+    fs::create_dir_all(srv.root.join("chapitres")).unwrap();
+    fs::copy(fixture.join("main.tex"), srv.root.join("main.tex")).unwrap();
+    fs::copy(
+        fixture.join("chapitres/methode.tex"),
+        srv.root.join("chapitres/methode.tex"),
+    )
+    .unwrap();
+    fs::copy(
+        fixture.join("pdflatex/main.synctex.gz"),
+        srv.root.join("main.synctex.gz"),
+    )
+    .unwrap();
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+
+    // Source → PDF, depuis le sous-fichier `\input`.
+    let want = cli_answer(&["view", "chapitres/methode.tex", "7"]);
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"view","tex":"chapitres/methode.tex","pdf":"main.pdf","line":7}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    let got = json(&body);
+    assert_eq!(
+        got["page"],
+        serde_json::json!(want[3].parse::<i64>().unwrap()),
+        "{body}"
+    );
+    for (key, value) in [("x", &want[4]), ("y", &want[5])] {
+        let expected: f64 = value.parse().unwrap();
+        assert!(
+            (got[key].as_f64().unwrap() - expected).abs() < 0.01,
+            "{body}"
+        );
+    }
+
+    // PDF → source.
+    let want = cli_answer(&["edit", "2", "105", "155"]);
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"edit","tex":"main.tex","pdf":"main.pdf","page":2,"x":105,"y":155}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    let got = json(&body);
+    assert_eq!(
+        got["line"],
+        serde_json::json!(want[4].parse::<i64>().unwrap()),
+        "{body}"
+    );
+    assert_eq!(got["input"], serde_json::json!(want[5]), "{body}");
+
+    // Pas de SyncTeX à côté de ce PDF : « no match », comme le CLI muet.
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"view","tex":"main.tex","pdf":"autre.pdf","line":3}"#),
+    );
+    assert_eq!(
+        (st, json(&body)),
+        (200, serde_json::json!({"error": "no match"}))
+    );
+    let (st, _) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"view","tex":"../dehors.tex","pdf":"main.pdf","line":3}"#),
+    );
+    assert_eq!(st, 403);
+}
+
+/// Archive au format des releases tectonic : une seule entrée `tectonic`.
+fn fake_tectonic_archive() -> Vec<u8> {
+    // Faux tectonic : note ses arguments et écrit un PDF.
+    let script = b"#!/bin/sh\necho \"$@\" > tectonic-args.txt\necho '%PDF-1.4' > main.pdf\n";
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    {
+        let mut builder = tar::Builder::new(&mut gz);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(script.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "tectonic", &script[..])
+            .unwrap();
+        builder.finish().unwrap();
+    }
+    gz.finish().unwrap()
+}
+
+/// Serveur HTTP local qui sert `body` et compte les requêtes.
+fn serve_archive(body: Vec<u8>) -> (String, std::sync::Arc<AtomicU64>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/tectonic.tar.gz", listener.local_addr().unwrap());
+    let hits = std::sync::Arc::new(AtomicU64::new(0));
+    let counter = hits.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            counter.fetch_add(1, Ordering::SeqCst);
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+    });
+    (url, hits)
+}
+
+/// PATH sans latexmk ni tectonic (seulement `which`, dont se sert la
+/// découverte) ; `None` si la machine a MacTeX à son chemin fixe, que la
+/// découverte trouve quel que soit le PATH.
+fn path_without_tex(dir: &std::path::Path) -> Option<String> {
+    if std::path::Path::new("/Library/TeX/texbin/latexmk").exists() {
+        return None;
+    }
+    let which = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .map(|d| PathBuf::from(d).join("which"))
+        .find(|p| p.is_file())?;
+    fs::create_dir_all(dir).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(which, dir.join("which")).unwrap();
+    Some(dir.display().to_string())
+}
+
+#[test]
+fn compile_downloads_tectonic_once_when_no_tex_is_installed() {
+    let tools = tempfile::tempdir().unwrap();
+    let Some(path) = path_without_tex(&tools.path().join("bin")) else {
+        return;
+    };
+    let archive = fake_tectonic_archive();
+    let sha = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&archive))
+    };
+    let (url, hits) = serve_archive(archive);
+    let app = tools.path().join("app");
+    let srv = start_server_with(&[
+        ("PATH", path),
+        ("ATELIER_APP_DIR", app.display().to_string()),
+        ("ATELIER_TECTONIC_URL", url),
+        ("ATELIER_TECTONIC_SHA256", sha),
+    ]);
+    fs::write(srv.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
+    for _ in 0..2 {
+        let (st, body) = http(srv.port, "POST", "/compile", Some(r#"{"path":"main.tex"}"#));
+        assert_eq!(st, 200, "{body}");
+        assert!(body.contains("\"ok\":true"), "{body}");
+    }
+    // Téléchargé une fois, rangé à l'emplacement partagé avec Réglages.
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert!(app.join("tools/tectonic-0.17.0/tectonic").is_file());
+    let args = fs::read_to_string(srv.root.join("tectonic-args.txt")).unwrap();
+    assert_eq!(args.trim(), "-X compile --synctex ./main.tex");
+}
+
+#[test]
+fn compile_reports_a_failed_tectonic_download() {
+    let tools = tempfile::tempdir().unwrap();
+    let Some(path) = path_without_tex(&tools.path().join("bin")) else {
+        return;
+    };
+    // Port fermé : le téléchargement échoue.
+    let port = free_port();
+    let app = tools.path().join("app");
+    let srv = start_server_with(&[
+        ("PATH", path),
+        ("ATELIER_APP_DIR", app.display().to_string()),
+        (
+            "ATELIER_TECTONIC_URL",
+            format!("http://127.0.0.1:{port}/tectonic.tar.gz"),
+        ),
+        ("ATELIER_TECTONIC_SHA256", "0".repeat(64)),
+    ]);
+    fs::write(srv.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
+    let (st, body) = http(srv.port, "POST", "/compile", Some(r#"{"path":"main.tex"}"#));
+    assert_eq!(st, 200, "{body}");
+    let got = serde_json::from_str::<serde_json::Value>(&body).unwrap();
+    assert_eq!(got["ok"], serde_json::json!(false), "{body}");
+    assert_eq!(
+        got["reason"],
+        serde_json::json!("toolchain-download-failed"),
+        "{body}"
+    );
+    assert!(
+        got["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Téléchargement de tectonic impossible"),
+        "{body}"
+    );
+    assert!(!app.join("tools/tectonic-0.17.0/tectonic").exists());
+}
