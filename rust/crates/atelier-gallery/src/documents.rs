@@ -273,7 +273,7 @@ async fn compile_document(root: &Path, force: bool) -> Value {
             return json!({
                 "ok": false,
                 "reason": "toolchain-missing",
-                "error": "LaTeX introuvable (ni latexmk ni tectonic) : installez tectonic (brew install tectonic) ou MacTeX, voir Réglages → Environnement"
+                "error": "LaTeX introuvable (ni latexmk ni tectonic, et pas de tectonic à télécharger pour cette machine) : installez MacTeX ou tectonic"
             });
         }
         // Rien n'a été installé : la prochaine compilation retentera.
