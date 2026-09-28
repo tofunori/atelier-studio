@@ -1965,8 +1965,9 @@ const annPane = (function(){
     let items = [];
     try {
       const outline = pdf ? await pdf.getOutline() : null;
-      for (const it of window.AtelierPdfTools ? window.AtelierPdfTools.flattenOutline(outline) : [])
-        items.push({title: it.title, depth: it.depth, target: await resolveDest(pdf, it.dest)});
+      const flat = window.AtelierPdfTools ? window.AtelierPdfTools.flattenOutline(outline) : [];
+      const targets = await Promise.all(flat.map(it => resolveDest(pdf, it.dest)));
+      items = flat.map((it, i) => ({title: it.title, depth: it.depth, target: targets[i]}));
     } catch(e) { items = []; }
     if (!items.some(it => it.target) && window.__readingMode) {
       try {
@@ -3112,7 +3113,7 @@ const textBoxes = (function(){
   function paint(){
     if (!sel || !PT) return;
     const st = PT.textStyle(sel);
-    fmt.querySelector('[data-f="font"] span').textContent = PT.TEXT_FONTS.find(f => f.id === st.font).label;
+    fmt.querySelector('[data-f="font"] span').textContent = (PT.TEXT_FONTS.find(f => f.id === st.font) || PT.TEXT_FONTS[0]).label;
     fmt.querySelector('[data-f="size"] span').textContent = String(st.size);
     fmt.querySelector('[data-f="bold"]').setAttribute("aria-pressed", String(st.bold));
     fmt.querySelector('[data-f="italic"]').setAttribute("aria-pressed", String(st.italic));
