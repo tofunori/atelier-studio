@@ -156,8 +156,12 @@
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:var(--surface-overlay,var(--card));color:var(--txt);border:1px solid var(--border-strong);white-space:nowrap;font-family:inherit;font-size:var(--fs-body,13px)}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
+  /* graphite sur la page : ni l'accent ni une des six teintes de surlignage */
   .pdfcomment{position:absolute;z-index:8}
-  .pdfcomment-line{position:absolute;z-index:7;background:rgba(112,151,255,.18);border-radius:3px;pointer-events:none}
+  .pg .pdfcomment{--annotation-number-bg:#fff;--annotation-number-ink:#24282d}
+  body.pdf-invert .pg .pdfcomment{--annotation-number-bg:#141414;--annotation-number-ink:#dadee3}
+  .pdfcomment-line{position:absolute;z-index:7;background:rgba(36,40,45,.07);border-radius:3px;pointer-events:none}
+  body.pdf-invert .pdfcomment-line{background:rgba(218,222,227,.10)}
   #annotPop{position:fixed;z-index:9999;display:none}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:var(--card, #24282d);border-radius:10px;padding:6px;
@@ -2606,6 +2610,15 @@ window.addEventListener("message", e => {
   document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
 });
+// La bulle se lit comme une fiche : « Annotation 3 · p. 12 ». Le numéro est
+// celui de la pastille de marge, pour qu'on les relie d'un coup d'œil.
+function annotHeading(a){
+  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone"};
+  const title = a.kind === "comment"
+    ? "Annotation " + (a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1)
+    : titles[a.kind] || "Surlignage";
+  return {title, meta: a.page ? "p. " + a.page : ""};
+}
 async function annotMenu(a, x        , y        ){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
   // Une note libre (kind "note") EST déjà une note : pas de second champ.
@@ -2616,6 +2629,7 @@ async function annotMenu(a, x        , y        ){
   // teinte, enregistrés tout de suite (comme dans Zotero).
   const withMark = a.kind === "hl" || a.kind === "ul";
   AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
+    heading:annotHeading(a),
     onSendDirect(){void editor.commit(true, "force", true);},
     ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
     ...(withMark ? {mark:{kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),

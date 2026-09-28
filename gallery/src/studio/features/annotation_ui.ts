@@ -19,19 +19,28 @@ const markIcons = {
 };
 const selectionColors = new WeakMap<Document, string>();
 const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
-const pencil = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+const arrowUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+const chatBubble = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>';
+const escapeText = (text: string) => text.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]!);
 /** `memo` ajoute, au-dessus du champ du chat, une note personnelle gardée avec
  *  le passage et jamais envoyée au chat (lecteur PDF). Sans `memo`, la bulle
  *  reste celle des éditeurs : un seul champ. `mark` ajoute en tête une rangée
  *  surligner / souligner et les teintes, pour changer le style d'un marquage
- *  existant (lecteur PDF). */
+ *  existant (lecteur PDF). `heading` titre la bulle comme une fiche
+ *  (« Annotation 3 · p. 12 ») et y range la corbeille, loin des envois. */
 export function createNoteEditor(host: HTMLElement, options: {
   value?: string; onSubmit(value: string): void; onDelete(): void;
   onDismiss?(): void; onChange?(value: string): void; onSendDirect?(value: string): void;
-  placeholder?: string; memo?: {value?: string};
+  placeholder?: string; memo?: {value?: string}; heading?: {title: string; meta?: string};
   mark?: {kind: string; color: string; colors: readonly AnnotationColor[]; onChange(kind: "hl" | "ul", color: string): void};
 }) {
   host.classList.add("atelier-note");
+  const deleteButton = '<button type="button" class="delete-note" title="Supprimer l’annotation" aria-label="Supprimer l’annotation">'+trash+'</button>';
+  const heading = options.heading
+    ? '<div class="atelier-note-head"><span class="atelier-note-title">'+escapeText(options.heading.title)+'</span>'
+      + (options.heading.meta ? '<span class="atelier-note-meta">'+escapeText(options.heading.meta)+'</span>' : '')
+      + '<span class="atelier-note-gap"></span>'+deleteButton+'</div>'
+    : '';
   const mark = options.mark
     ? '<div class="atelier-mark-style" role="group" aria-label="Style du marquage">'
       + (["hl", "ul"] as const).map(kind => '<button type="button" class="atelier-mark-kind" data-kind="'+kind+'" title="'
@@ -40,18 +49,16 @@ export function createNoteEditor(host: HTMLElement, options: {
       + '<span class="atelier-mark-gap"></span>'
       + options.mark.colors.map(c => '<button type="button" class="atelier-mark-swatch" data-color="'+c.value+'" title="'+c.label+'" aria-label="'
         + c.label + '" style="--annotation-color:'+c.value.replace(".40","1")+'"></button>').join("")
-      + '</div><div class="atelier-note-sep"></div>'
+      + '</div>'
     : '';
   const memo = options.memo
-    ? '<div class="atelier-memo"><div class="atelier-memo-head">'+pencil+'<span>Note</span></div>'
-      + '<textarea class="atelier-memo-input" aria-label="Note sur le passage" placeholder="Pour plus tard, jamais envoyée au chat" rows="1"></textarea></div>'
-      + '<div class="atelier-note-sep"></div>'
+    ? '<div class="atelier-memo"><textarea class="atelier-memo-input" aria-label="Note personnelle, jamais envoyée au chat" title="Note personnelle, jamais envoyée au chat" placeholder="Note personnelle…" rows="1"></textarea></div>'
     : '';
-  host.innerHTML = mark + memo + '<div class="atelier-note-row"><textarea class="atelier-note-input" aria-label="Commentaire sur le passage" placeholder="'
+  host.innerHTML = heading + mark + memo + '<div class="atelier-note-row"><div class="atelier-note-field"><textarea class="atelier-note-input" aria-label="Commentaire sur le passage" placeholder="'
     + (options.placeholder || "Ajouter une note…") + '" rows="1"></textarea>'
-    + '<button type="button" class="delete-note" title="Supprimer l’annotation" aria-label="Supprimer l’annotation">'+trash+'</button>'
-    + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">↑</button>'
-    + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg></button>' : '')
+    + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat">'+chatBubble+'</button>' : '')
+    + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">'+arrowUp+'</button>'
+    + '</div>' + (options.heading ? '' : deleteButton)
     + '</div><div class="annotation-status" role="status"></div>';
   const input = host.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input")!;
   const memoInput = host.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
