@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Renouvellement hebdomadaire de l'app iPhone (signature gratuite = 7 jours).
+
+  launchd ne développe ni ~ ni $HOME : remplacer __HOME__ et __REPO__ à
+  l'installation (voir mobile-native/README.md, « Renouvellement automatique ») :
+
+    sed -e "s#__HOME__#$HOME#g" -e "s#__REPO__#$HOME/Documents/atelier-studio#g" \
+      mobile-native/scripts/renew-iphone.launchd.plist.example \
+      > ~/Library/LaunchAgents/com.atelier.iphone-renew.plist
+
+  Lundi 9 h. Un Mac en veille à cette heure lance le travail au réveil.
+  Pour un lancement quotidien, retirer la clé Weekday.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.atelier.iphone-renew</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/mobile-native/scripts/install-iphone.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/atelier-iphone-renew.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/atelier-iphone-renew.log</string>
+</dict>
+</plist>

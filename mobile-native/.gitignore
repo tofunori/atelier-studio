@@ -2,3 +2,4 @@
 DerivedData/
 AtelierNative.xcodeproj/
 __pycache__/
+Config/Local.xcconfig
